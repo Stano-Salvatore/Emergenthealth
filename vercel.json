@@ -1,7 +1,1 @@
-{
-  "functions": {
-    "src/app/api/sync/finances/route.ts": {
-      "maxDuration": 60
-    }
-  }
-}
+{}
