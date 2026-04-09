@@ -16,6 +16,8 @@ import {
   ChevronRight,
 } from "lucide-react"
 import { format } from "date-fns"
+import { LiveClock } from "@/components/dashboard/LiveClock"
+import { WeatherWidget } from "@/components/dashboard/WeatherWidget"
 
 export default async function DashboardPage() {
   const session = await auth()
@@ -72,13 +74,19 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">
-          Good {getTimeGreeting()}, {session!.user.name?.split(" ")[0] ?? "there"}
-        </h1>
-        <p className="text-muted-foreground text-sm mt-0.5">
-          {format(new Date(), "EEEE, MMMM d")}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">
+            Good {getTimeGreeting()}, {session!.user.name?.split(" ")[0] ?? "there"}
+          </h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            {format(new Date(), "EEEE, MMMM d")}
+          </p>
+          <div className="mt-1">
+            <LiveClock />
+          </div>
+        </div>
+        <WeatherWidget />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

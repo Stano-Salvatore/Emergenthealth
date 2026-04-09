@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { HealthEntryForm } from "@/components/health/HealthEntryForm"
-import { Moon, Footprints, Flame, Heart } from "lucide-react"
+import { ExistSyncButton } from "@/components/health/ExistSyncButton"
+import { Moon, Footprints, Heart } from "lucide-react"
 import { format } from "date-fns"
 
 const STEP_GOAL = 8000
@@ -26,7 +27,10 @@ export default async function HealthPage() {
             Log sleep, steps, and workouts manually
           </p>
         </div>
-        <HealthEntryForm />
+        <div className="flex items-center gap-2">
+          {!!process.env.EXIST_IO_TOKEN && <ExistSyncButton />}
+          <HealthEntryForm />
+        </div>
       </div>
 
       {logs.length === 0 ? (
