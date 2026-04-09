@@ -31,6 +31,9 @@ export function HealthEntryForm({ onSaved }: HealthEntryFormProps) {
     steps: "",
     caloriesBurned: "",
     restingHR: "",
+    coffee: "",
+    water: "",
+    mood: "",
   })
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -52,6 +55,9 @@ export function HealthEntryForm({ onSaved }: HealthEntryFormProps) {
           steps: form.steps ? Number(form.steps) : undefined,
           caloriesBurned: form.caloriesBurned ? Number(form.caloriesBurned) : undefined,
           restingHR: form.restingHR ? Number(form.restingHR) : undefined,
+          coffee: form.coffee ? Number(form.coffee) : undefined,
+          water: form.water ? Number(form.water) : undefined,
+          mood: form.mood ? Number(form.mood) : undefined,
         }),
       })
       if (res.ok) {
@@ -144,6 +150,42 @@ export function HealthEntryForm({ onSaved }: HealthEntryFormProps) {
                 placeholder="62"
                 value={form.restingHR}
                 onChange={set("restingHR")}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Coffee (cups) ☕</Label>
+              <Input
+                type="number"
+                min="0"
+                max="20"
+                placeholder="2"
+                value={form.coffee}
+                onChange={set("coffee")}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Water (glasses) 💧</Label>
+              <Input
+                type="number"
+                min="0"
+                max="30"
+                placeholder="8"
+                value={form.water}
+                onChange={set("water")}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label>Mood (1–9) 😊</Label>
+              <Input
+                type="number"
+                min="1"
+                max="9"
+                placeholder="7"
+                value={form.mood}
+                onChange={set("mood")}
                 className="mt-1"
               />
             </div>

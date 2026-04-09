@@ -89,7 +89,10 @@ async function buildSystemPrompt(userId: string): Promise<string> {
 
   const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents] =
     await Promise.all([
-      prisma.healthLog.findMany({ where: { userId }, orderBy: { date: "desc" }, take: 7 }),
+      prisma.healthLog.findMany({
+        where: { userId }, orderBy: { date: "desc" }, take: 7,
+        select: { id: true, date: true, sleepDuration: true, deepSleep: true, remSleep: true, steps: true, restingHR: true, weight: true, activeMinutes: true, caloriesBurned: true },
+      }),
       prisma.transaction.findMany({ where: { userId, date: { gte: monthStart } }, orderBy: { date: "desc" }, take: 100 }),
       prisma.habit.findMany({
         where: { userId, isArchived: false },
