@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
     const endDate = today.toISOString().split("T")[0]
 
     const accounts = await api.getAccounts()
+    const payees = await api.getPayees()
+    const payeeMap = new Map((payees as { id: string; name: string }[]).map((p) => [p.id, p.name]))
     let allTransactions: any[] = []
 
     for (const account of accounts) {
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest) {
           actualId: t.id,
           date: dateObj,
           amount: t.amount ?? 0,
-          payee: t.payee_name ?? null,
+          payee: payeeMap.get(t.payee) ?? t.payee_name ?? null,
           category: t.category_name ?? null,
           accountName: t.accountName ?? null,
           notes: t.notes ?? null,
@@ -74,7 +76,7 @@ export async function POST(req: NextRequest) {
         update: {
           date: dateObj,
           amount: t.amount ?? 0,
-          payee: t.payee_name ?? null,
+          payee: payeeMap.get(t.payee) ?? t.payee_name ?? null,
           category: t.category_name ?? null,
           notes: t.notes ?? null,
           cleared: t.cleared ?? false,

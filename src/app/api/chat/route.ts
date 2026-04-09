@@ -12,38 +12,23 @@ export async function POST(req: NextRequest) {
 
   const userId = session.user.id
 
-  await prisma.chatMessage.create({
-    data: { userId, role: "user", content: message },
-  })
+  await prisma.chatMessage.create({ data: { userId, role: "user", content: message } })
 
-  const stream = await streamChatResponse(userId, message, history ?? [])
+  const fullResponse = await streamChatResponse(userId, message, history ?? [])
 
-  let fullResponse = ""
+  await prisma.chatMessage.create({ data: { userId, role: "assistant", content: fullResponse } })
 
+  // Stream word-by-word for a natural feel
+  const words = fullResponse.split(" ")
   const readable = new ReadableStream({
     async start(controller) {
-      try {
-        for await (const event of stream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            const text = event.delta.text
-            fullResponse += text
-            controller.enqueue(
-              new TextEncoder().encode(`data: ${JSON.stringify({ text })}\n\n`)
-            )
-          }
-        }
-        await prisma.chatMessage.create({
-          data: { userId, role: "assistant", content: fullResponse },
-        })
-        controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
-      } catch (err) {
-        controller.error(err)
-      } finally {
-        controller.close()
+      for (let i = 0; i < words.length; i++) {
+        const chunk = (i === 0 ? "" : " ") + words[i]
+        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ text: chunk })}\n\n`))
+        await new Promise((r) => setTimeout(r, 15))
       }
+      controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+      controller.close()
     },
   })
 
