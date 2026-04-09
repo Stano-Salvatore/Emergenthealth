@@ -7,6 +7,7 @@ interface ExistValue {
 
 interface ExistAttributeResult {
   attribute: string
+  name: string
   label: string
   values: ExistValue[]
 }
@@ -39,9 +40,10 @@ export async function fetchExistHealthData(
     const data: ExistResponse = await res.json()
 
     for (const attr of data.results ?? []) {
+      const key = attr.name ?? attr.attribute
       for (const v of attr.values ?? []) {
         if (!byDate[v.date]) byDate[v.date] = {}
-        byDate[v.date][attr.attribute] = typeof v.value === "number" ? v.value : null
+        byDate[v.date][key] = typeof v.value === "number" ? v.value : null
       }
     }
 

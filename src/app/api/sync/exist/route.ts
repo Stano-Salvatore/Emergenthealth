@@ -3,15 +3,20 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { fetchExistHealthData } from "@/lib/exist-io"
 
-// Debug: GET returns raw exist.io data so we can see attribute names
+// Debug: GET returns raw exist.io first page so we can see exact field names
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const token = process.env.EXIST_IO_TOKEN
   if (!token) return NextResponse.json({ error: "EXIST_IO_TOKEN not configured" }, { status: 503 })
   try {
-    const data = await fetchExistHealthData(token, 3)
-    return NextResponse.json(data)
+    const res = await fetch("https://exist.io/api/2/attributes/with-values/?limit=1", {
+      headers: { Authorization: `Token ${token}` },
+      cache: "no-store",
+    })
+    const raw = await res.json()
+    // Return first result only to see structure
+    return NextResponse.json({ first: raw.results?.[0], count: raw.count })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
