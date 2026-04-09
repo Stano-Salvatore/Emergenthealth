@@ -33,7 +33,7 @@ export async function fetchExistHealthData(
 
   while (url) {
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Token ${token}` },
       cache: "no-store",
     })
     if (!res.ok) throw new Error(`exist.io API error: ${res.status}`)
