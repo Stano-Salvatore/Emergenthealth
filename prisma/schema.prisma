@@ -90,6 +90,7 @@ model HealthLog {
 
   workouts  Json?
   restingHR Int?
+  weight    Float?
 
   syncedAt DateTime @default(now())
 
