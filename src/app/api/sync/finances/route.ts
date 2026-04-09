@@ -21,6 +21,9 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const fs = await import("fs")
+    fs.mkdirSync("/tmp/actual-budget", { recursive: true })
+
     const api = await import("@actual-app/api")
 
     await api.init({
