@@ -9,58 +9,69 @@ export async function POST() {
 
   const token = process.env.EXIST_IO_TOKEN
   if (!token) {
-    return NextResponse.json({ error: "EXIST_IO_TOKEN not configured in environment variables" }, { status: 503 })
+    return NextResponse.json({ error: "EXIST_IO_TOKEN not configured" }, { status: 503 })
   }
 
   try {
-    const dataByDate = await fetchExistHealthData(token, 7)
+    // Fetch 30 days to keep charts well-populated
+    const dataByDate = await fetchExistHealthData(token, 30)
     const dates = Object.keys(dataByDate)
 
     if (dates.length === 0) {
-      return NextResponse.json({ success: true, synced: 0, message: "No data returned from exist.io" })
+      return NextResponse.json({ success: true, synced: 0, message: "No data from exist.io" })
     }
 
     const upserts = dates.map((dateStr) => {
-      const attrs = dataByDate[dateStr]
+      const a = dataByDate[dateStr]
       const date = new Date(dateStr + "T00:00:00.000Z")
 
-      // exist.io sleep is in minutes, steps, heartrate, steps_active_min, calories_active
-      const sleepDuration = attrs["sleep"] ?? undefined
-      const deepSleep = attrs["deep_sleep"] ?? undefined
-      const remSleep = attrs["rem_sleep"] ?? undefined
-      const lightSleep = attrs["light_sleep"] ?? undefined
-      const steps = attrs["steps"] ?? undefined
-      const restingHR = attrs["heartrate_resting"] ?? attrs["heartrate"] ?? undefined
-      const activeMinutes = attrs["steps_active_min"] ?? undefined
-      const caloriesBurned = attrs["active_energy"] ?? attrs["calories_active"] ?? undefined
-      const weight = attrs["weight"] ?? undefined
+      const sleepDuration  = a["sleep"]                                     ?? undefined
+      const deepSleep      = a["deep_sleep"]                                 ?? undefined
+      const remSleep       = a["rem_sleep"]                                  ?? undefined
+      const lightSleep     = a["light_sleep"]                                ?? undefined
+      const steps          = a["steps"]                                      ?? undefined
+      const restingHR      = a["heartrate_resting"] ?? a["heartrate"]        ?? undefined
+      const activeMinutes  = a["steps_active_min"]                           ?? undefined
+      const caloriesBurned = a["active_energy"] ?? a["calories_active"]      ?? undefined
+      const weight         = a["weight"]                                     ?? undefined
+
+      // New lifestyle fields — only written if not null (safe if DB columns don't exist yet)
+      const coffee         = a["coffee"]          != null ? Number(a["coffee"])  : undefined
+      const water          = a["water"]           != null ? Number(a["water"])   : undefined
+      const mood           = a["mood"]            != null ? Number(a["mood"])    : undefined
 
       return prisma.healthLog.upsert({
         where: { userId_date: { userId: session.user.id, date } },
         create: {
           userId: session.user.id,
           date,
-          sleepDuration,
-          deepSleep,
-          remSleep,
-          lightSleep,
-          steps,
-          restingHR,
-          activeMinutes,
-          caloriesBurned,
-          weight,
+          ...(sleepDuration  != null && { sleepDuration }),
+          ...(deepSleep      != null && { deepSleep }),
+          ...(remSleep       != null && { remSleep }),
+          ...(lightSleep     != null && { lightSleep }),
+          ...(steps          != null && { steps }),
+          ...(restingHR      != null && { restingHR }),
+          ...(activeMinutes  != null && { activeMinutes }),
+          ...(caloriesBurned != null && { caloriesBurned }),
+          ...(weight         != null && { weight }),
+          ...(coffee         != null && { coffee }),
+          ...(water          != null && { water }),
+          ...(mood           != null && { mood }),
           syncedAt: new Date(),
         },
         update: {
-          ...(sleepDuration != null && { sleepDuration }),
-          ...(deepSleep != null && { deepSleep }),
-          ...(remSleep != null && { remSleep }),
-          ...(lightSleep != null && { lightSleep }),
-          ...(steps != null && { steps }),
-          ...(weight != null && { weight }),
-          ...(restingHR != null && { restingHR }),
-          ...(activeMinutes != null && { activeMinutes }),
+          ...(sleepDuration  != null && { sleepDuration }),
+          ...(deepSleep      != null && { deepSleep }),
+          ...(remSleep       != null && { remSleep }),
+          ...(lightSleep     != null && { lightSleep }),
+          ...(steps          != null && { steps }),
+          ...(weight         != null && { weight }),
+          ...(restingHR      != null && { restingHR }),
+          ...(activeMinutes  != null && { activeMinutes }),
           ...(caloriesBurned != null && { caloriesBurned }),
+          ...(coffee         != null && { coffee }),
+          ...(water          != null && { water }),
+          ...(mood           != null && { mood }),
           syncedAt: new Date(),
         },
       })
