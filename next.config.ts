@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  serverExternalPackages: ["@actual-app/api", "@actual-app/core"],
   turbopack: {},
   experimental: {
     serverActions: {
