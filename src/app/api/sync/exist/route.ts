@@ -3,25 +3,24 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { fetchExistHealthData } from "@/lib/exist-io"
 
-// Debug: GET returns all sleep-related attributes from exist.io
+// Debug: GET returns all attribute names from exist.io (paginated)
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const token = process.env.EXIST_IO_TOKEN
   if (!token) return NextResponse.json({ error: "EXIST_IO_TOKEN not configured" }, { status: 503 })
   try {
-    const res = await fetch("https://exist.io/api/2/attributes/with-values/?limit=1", {
-      headers: { Authorization: `Token ${token}` },
-      cache: "no-store",
-    })
-    const raw = await res.json()
-    // Return all attribute names and their latest values
-    const summary = (raw.results ?? []).map((r: { name: string; label: string; values: {date: string; value: unknown}[] }) => ({
-      name: r.name,
-      label: r.label,
-      latestValue: r.values?.[0] ?? null,
-    }))
-    return NextResponse.json(summary)
+    const all: { name: string; label: string; value: unknown }[] = []
+    let url: string | null = "https://exist.io/api/2/attributes/with-values/?limit=1"
+    while (url) {
+      const res = await fetch(url, { headers: { Authorization: `Token ${token}` }, cache: "no-store" })
+      const raw = await res.json()
+      for (const r of raw.results ?? []) {
+        all.push({ name: r.name, label: r.label, value: r.values?.[0]?.value ?? null })
+      }
+      url = raw.next ?? null
+    }
+    return NextResponse.json(all)
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
