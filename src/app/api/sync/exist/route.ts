@@ -49,13 +49,13 @@ export async function POST() {
 
       // exist.io sleep is in minutes, steps, heartrate, steps_active_min, calories_active
       const sleepDuration = attrs["sleep"] ?? undefined
-      const deepSleep = attrs["sleep_deep"] ?? undefined
-      const remSleep = attrs["sleep_rem"] ?? undefined
-      const lightSleep = attrs["sleep_light"] ?? undefined
+      const deepSleep = attrs["deep_sleep"] ?? undefined
+      const remSleep = attrs["rem_sleep"] ?? undefined
+      const lightSleep = attrs["light_sleep"] ?? undefined
       const steps = attrs["steps"] ?? undefined
-      const restingHR = attrs["heartrate"] ?? undefined
+      const restingHR = attrs["heartrate_resting"] ?? attrs["heartrate"] ?? undefined
       const activeMinutes = attrs["steps_active_min"] ?? undefined
-      const caloriesBurned = attrs["calories_active"] ?? undefined
+      const caloriesBurned = attrs["active_energy"] ?? attrs["calories_active"] ?? undefined
 
       return prisma.healthLog.upsert({
         where: { userId_date: { userId: session.user.id, date } },
