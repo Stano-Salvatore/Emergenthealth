@@ -93,7 +93,7 @@ export default async function HealthPage() {
                     <StatBox
                       icon={<Scale className="h-4 w-4 text-blue-400" />}
                       label="Weight"
-                      value={(log as { weight?: number | null }).weight != null ? `${(log as { weight: number }).weight} kg` : "—"}
+                      value={log.weight != null ? `${log.weight} kg` : "—"}
                     />
                   </div>
 

@@ -7,5 +7,6 @@ export const config = {
     "/api/habits/:path*",
     "/api/reminders/:path*",
     "/api/chat/:path*",
+    "/api/transactions/:path*",
   ],
 }
