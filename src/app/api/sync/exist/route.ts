@@ -3,7 +3,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { fetchExistHealthData } from "@/lib/exist-io"
 
-// Debug: GET returns raw exist.io first page so we can see exact field names
+// Debug: GET returns all sleep-related attributes from exist.io
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -15,8 +15,13 @@ export async function GET() {
       cache: "no-store",
     })
     const raw = await res.json()
-    // Return first result only to see structure
-    return NextResponse.json({ first: raw.results?.[0], count: raw.count })
+    // Return all attribute names and their latest values
+    const summary = (raw.results ?? []).map((r: { name: string; label: string; values: {date: string; value: unknown}[] }) => ({
+      name: r.name,
+      label: r.label,
+      latestValue: r.values?.[0] ?? null,
+    }))
+    return NextResponse.json(summary)
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
