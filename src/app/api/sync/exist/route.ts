@@ -56,6 +56,7 @@ export async function POST() {
       const restingHR = attrs["heartrate_resting"] ?? attrs["heartrate"] ?? undefined
       const activeMinutes = attrs["steps_active_min"] ?? undefined
       const caloriesBurned = attrs["active_energy"] ?? attrs["calories_active"] ?? undefined
+      const weight = attrs["weight"] ?? undefined
 
       return prisma.healthLog.upsert({
         where: { userId_date: { userId: session.user.id, date } },
@@ -70,6 +71,7 @@ export async function POST() {
           restingHR,
           activeMinutes,
           caloriesBurned,
+          weight,
           syncedAt: new Date(),
         },
         update: {
@@ -78,6 +80,7 @@ export async function POST() {
           ...(remSleep != null && { remSleep }),
           ...(lightSleep != null && { lightSleep }),
           ...(steps != null && { steps }),
+          ...(weight != null && { weight }),
           ...(restingHR != null && { restingHR }),
           ...(activeMinutes != null && { activeMinutes }),
           ...(caloriesBurned != null && { caloriesBurned }),

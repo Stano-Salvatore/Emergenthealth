@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { HealthEntryForm } from "@/components/health/HealthEntryForm"
 import { ExistSyncButton } from "@/components/health/ExistSyncButton"
-import { Moon, Footprints, Heart } from "lucide-react"
+import { Moon, Footprints, Heart, Scale } from "lucide-react"
 import { format } from "date-fns"
 
 const STEP_GOAL = 8000
@@ -89,6 +89,11 @@ export default async function HealthPage() {
                       icon={<Heart className="h-4 w-4 text-red-400" />}
                       label="Resting HR"
                       value={log.restingHR != null ? `${log.restingHR} bpm` : "—"}
+                    />
+                    <StatBox
+                      icon={<Scale className="h-4 w-4 text-blue-400" />}
+                      label="Weight"
+                      value={(log as { weight?: number | null }).weight != null ? `${(log as { weight: number }).weight} kg` : "—"}
                     />
                   </div>
 
