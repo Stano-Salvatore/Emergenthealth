@@ -46,6 +46,8 @@ export async function POST() {
       // exist.io sleep is in minutes, steps, heartrate, steps_active_min, calories_active
       const sleepDuration = attrs["sleep"] ?? undefined
       const deepSleep = attrs["sleep_deep"] ?? undefined
+      const remSleep = attrs["sleep_rem"] ?? undefined
+      const lightSleep = attrs["sleep_light"] ?? undefined
       const steps = attrs["steps"] ?? undefined
       const restingHR = attrs["heartrate"] ?? undefined
       const activeMinutes = attrs["steps_active_min"] ?? undefined
@@ -58,6 +60,8 @@ export async function POST() {
           date,
           sleepDuration,
           deepSleep,
+          remSleep,
+          lightSleep,
           steps,
           restingHR,
           activeMinutes,
@@ -67,6 +71,8 @@ export async function POST() {
         update: {
           ...(sleepDuration != null && { sleepDuration }),
           ...(deepSleep != null && { deepSleep }),
+          ...(remSleep != null && { remSleep }),
+          ...(lightSleep != null && { lightSleep }),
           ...(steps != null && { steps }),
           ...(restingHR != null && { restingHR }),
           ...(activeMinutes != null && { activeMinutes }),
