@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, Bot, User, Trash2 } from "lucide-react"
+import { Send, Bot, User, Trash2, Mic, MicOff } from "lucide-react"
 
 interface Message {
   id?: string
@@ -46,8 +46,36 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
+  const [listening, setListening] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
+
+  const startListening = useCallback(() => {
+    const SR = (window as unknown as { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition
+      ?? (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition
+    if (!SR) return
+
+    const rec = new SR()
+    rec.continuous = false
+    rec.interimResults = false
+    rec.lang = "en-US"
+    rec.onresult = (e) => {
+      const transcript = e.results[0][0].transcript
+      setInput((prev) => prev ? prev + " " + transcript : transcript)
+      setListening(false)
+    }
+    rec.onerror = () => setListening(false)
+    rec.onend = () => setListening(false)
+    recognitionRef.current = rec
+    rec.start()
+    setListening(true)
+  }, [])
+
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.stop()
+    setListening(false)
+  }, [])
 
   useEffect(() => {
     fetch("/api/chat").then(async (r) => {
@@ -199,6 +227,16 @@ export default function ChatPage() {
           className="resize-none flex-1 bg-secondary border-border"
         />
         <Button
+          onClick={listening ? stopListening : startListening}
+          disabled={sending}
+          size="icon"
+          variant={listening ? "destructive" : "outline"}
+          className={`h-10 w-10 shrink-0 ${listening ? "animate-pulse" : ""}`}
+          title={listening ? "Stop recording" : "Voice input"}
+        >
+          {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+        </Button>
+        <Button
           onClick={sendMessage}
           disabled={!input.trim() || sending}
           size="icon"
@@ -208,7 +246,7 @@ export default function ChatPage() {
         </Button>
       </div>
       <p className="text-xs text-muted-foreground text-center mt-2">
-        Enter to send · Shift+Enter for new line
+        {listening ? "Listening… speak now" : "Enter to send · Shift+Enter for new line · 🎤 for voice"}
       </p>
     </div>
   )

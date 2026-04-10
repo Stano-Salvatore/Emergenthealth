@@ -11,6 +11,7 @@ import {
   Bell,
   MessageSquare,
   LayoutDashboard,
+  Home,
 } from "lucide-react"
 
 const navItems = [
@@ -20,6 +21,7 @@ const navItems = [
   { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
   { href: "/dashboard/habits", label: "Habits", icon: CheckSquare },
   { href: "/dashboard/reminders", label: "Reminders", icon: Bell },
+  { href: "/dashboard/home", label: "Home", icon: Home },
   { href: "/dashboard/chat", label: "Claude AI", icon: MessageSquare },
 ]
 
