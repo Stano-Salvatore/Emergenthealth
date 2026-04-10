@@ -3,76 +3,221 @@
 import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { RefreshCw, Lightbulb, Thermometer, ToggleLeft, ToggleRight, Radio, Tv, Wind, AlertCircle } from "lucide-react"
+import {
+  RefreshCw, Thermometer, Camera, Bell, Monitor,
+  Minus, Plus, AlertCircle, Wifi, WifiOff,
+} from "lucide-react"
+import type { SmartDevice } from "@/lib/google-home"
 
-interface HaEntity {
-  entity_id: string
-  state: string
-  attributes: Record<string, string | number | boolean | null>
+// ─── Trait helpers ────────────────────────────────────────────────────────────
+
+function trait<T = Record<string, unknown>>(device: SmartDevice, traitName: string): T | null {
+  return (device.traits[`sdm.devices.traits.${traitName}`] as T) ?? null
 }
 
-const DOMAIN_CONFIG: Record<string, {
-  label: string
-  icon: React.ElementType
-  color: string
-  show: (e: HaEntity) => boolean
-}> = {
-  light:        { label: "Lights",       icon: Lightbulb,   color: "text-yellow-400", show: () => true },
-  switch:       { label: "Switches",     icon: ToggleLeft,  color: "text-blue-400",   show: () => true },
-  climate:      { label: "Climate",      icon: Thermometer, color: "text-orange-400", show: () => true },
-  media_player: { label: "Media",        icon: Tv,          color: "text-purple-400", show: () => true },
-  fan:          { label: "Fans",         icon: Wind,        color: "text-cyan-400",   show: () => true },
-  sensor:       { label: "Sensors",      icon: Radio,       color: "text-green-400",  show: (e) => e.state !== "unavailable" },
+function deviceIcon(type: string) {
+  if (type.includes("THERMOSTAT")) return Thermometer
+  if (type.includes("CAMERA"))     return Camera
+  if (type.includes("DOORBELL"))   return Bell
+  return Monitor
 }
 
-const DOMAIN_ORDER = ["light", "switch", "climate", "fan", "media_player", "sensor"]
-
-function friendlyName(entity: HaEntity): string {
-  return String(entity.attributes.friendly_name ?? entity.entity_id.split(".")[1].replace(/_/g, " "))
+function deviceLabel(type: string) {
+  if (type.includes("THERMOSTAT")) return "Thermostats"
+  if (type.includes("CAMERA"))     return "Cameras"
+  if (type.includes("DOORBELL"))   return "Doorbells"
+  return "Devices"
 }
 
-function domain(entity_id: string) {
-  return entity_id.split(".")[0]
-}
+// ─── Thermostat card ─────────────────────────────────────────────────────────
 
-function isToggleable(d: string) {
-  return d === "light" || d === "switch" || d === "fan"
-}
+function ThermostatCard({ device, onCommand }: {
+  device: SmartDevice
+  onCommand: (deviceName: string, command: string, params: Record<string, unknown>) => Promise<void>
+}) {
+  const temp    = trait<{ ambientTemperatureCelsius: number }>(device, "Temperature")
+  const hvac    = trait<{ status: string }>(device, "ThermostatHvac")
+  const modeT   = trait<{ mode: string; availableModes: string[] }>(device, "ThermostatMode")
+  const setpt   = trait<{ heatCelsius?: number; coolCelsius?: number }>(device, "ThermostatTemperatureSetpoint")
 
-function stateColor(state: string, d: string) {
-  if (state === "unavailable" || state === "unknown") return "text-muted-foreground"
-  if (d === "light" || d === "switch" || d === "fan") return state === "on" ? "text-yellow-400" : "text-muted-foreground"
-  return "text-foreground"
-}
+  const current   = temp?.ambientTemperatureCelsius
+  const hvacStatus = hvac?.status ?? "OFF"
+  const mode      = modeT?.mode ?? "OFF"
+  const heatSp    = setpt?.heatCelsius
+  const coolSp    = setpt?.coolCelsius
+  const setpoint  = mode === "COOL" ? coolSp : heatSp
 
-function formatState(entity: HaEntity, d: string): string {
-  const { state, attributes } = entity
-  if (state === "unavailable") return "unavailable"
-  if (d === "climate") {
-    const cur = attributes.current_temperature
-    const set = attributes.temperature
-    const mode = state
-    return `${cur != null ? cur + "°" : "—"} → ${set != null ? set + "°" : "—"} (${mode})`
+  const [busy, setBusy] = useState(false)
+
+  async function adjustTemp(delta: number) {
+    if (setpoint == null || mode === "OFF" || mode === "HEATCOOL") return
+    setBusy(true)
+    const newVal = Math.round((setpoint + delta) * 2) / 2
+    const command = mode === "COOL"
+      ? "sdm.devices.commands.ThermostatTemperatureSetpoint.SetCool"
+      : "sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat"
+    const params = mode === "COOL"
+      ? { coolCelsius: newVal }
+      : { heatCelsius: newVal }
+    await onCommand(device.name, command, params)
+    setBusy(false)
   }
-  if (d === "sensor") {
-    const unit = attributes.unit_of_measurement
-    return unit ? `${state} ${unit}` : state
+
+  async function setMode(newMode: string) {
+    setBusy(true)
+    await onCommand(device.name, "sdm.devices.commands.ThermostatMode.SetMode", { mode: newMode })
+    setBusy(false)
   }
-  if (d === "media_player") {
-    if (state === "playing") {
-      const title = attributes.media_title
-      return title ? `Playing: ${title}` : "Playing"
-    }
-    return state
-  }
-  return state
+
+  const MODES = modeT?.availableModes ?? ["HEAT", "COOL", "OFF"]
+  const hvacColor = hvacStatus === "HEATING" ? "text-orange-400"
+    : hvacStatus === "COOLING" ? "text-blue-400" : "text-muted-foreground"
+
+  return (
+    <Card>
+      <CardContent className="pt-5 pb-5">
+        <div className="flex items-start justify-between gap-2 mb-4">
+          <div>
+            <p className="font-medium text-sm">{device.displayName}</p>
+            <p className={`text-xs mt-0.5 ${hvacColor}`}>{hvacStatus}</p>
+          </div>
+          {device.connectivity !== "ONLINE"
+            ? <WifiOff className="h-4 w-4 text-muted-foreground" />
+            : <Wifi className="h-4 w-4 text-green-400" />}
+        </div>
+
+        {/* Temperature display */}
+        <div className="flex items-end gap-4 mb-4">
+          <div>
+            <p className="text-xs text-muted-foreground">Current</p>
+            <p className="text-3xl font-bold">
+              {current != null ? `${current.toFixed(1)}°` : "—"}
+            </p>
+          </div>
+          {setpoint != null && mode !== "OFF" && (
+            <div className="mb-1">
+              <p className="text-xs text-muted-foreground">Set to</p>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => adjustTemp(-0.5)}
+                  disabled={busy}
+                  className="h-6 w-6 rounded-md bg-secondary flex items-center justify-center hover:bg-accent disabled:opacity-50"
+                >
+                  <Minus className="h-3 w-3" />
+                </button>
+                <span className="text-lg font-semibold w-12 text-center">{setpoint.toFixed(1)}°</span>
+                <button
+                  onClick={() => adjustTemp(0.5)}
+                  disabled={busy}
+                  className="h-6 w-6 rounded-md bg-secondary flex items-center justify-center hover:bg-accent disabled:opacity-50"
+                >
+                  <Plus className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Mode buttons */}
+        <div className="flex gap-1.5 flex-wrap">
+          {MODES.map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              disabled={busy}
+              className={`px-2.5 py-1 rounded-full text-xs border transition-colors disabled:opacity-50 ${
+                mode === m
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:border-muted-foreground"
+              }`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
+
+// ─── Camera / Doorbell card ───────────────────────────────────────────────────
+
+function CameraCard({ device }: { device: SmartDevice }) {
+  const live = trait<{ maxVideoResolution?: { width: number; height: number } }>(device, "CameraLiveStream")
+
+  return (
+    <Card>
+      <CardContent className="pt-5 pb-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-sm">{device.displayName}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {live?.maxVideoResolution
+                ? `${live.maxVideoResolution.width}×${live.maxVideoResolution.height}`
+                : "Camera"}
+            </p>
+          </div>
+          {device.connectivity !== "ONLINE"
+            ? <WifiOff className="h-4 w-4 text-muted-foreground" />
+            : <div className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
+                <span className="text-xs text-green-400">Live</span>
+              </div>
+          }
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Setup card ───────────────────────────────────────────────────────────────
+
+function SetupCard({ error, needsReauth }: { error: string; needsReauth?: boolean }) {
+  const noProject = error.includes("SDM_PROJECT_ID")
+  const noPermission = needsReauth || error.includes("PERMISSION_DENIED")
+
+  return (
+    <Card className="border-amber-500/30">
+      <CardContent className="pt-5 flex items-start gap-3">
+        <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+        <div className="space-y-2 text-sm">
+          {noProject && (
+            <>
+              <p className="font-medium">Set up Google Smart Device Management</p>
+              <ol className="text-muted-foreground space-y-1 list-decimal list-inside text-xs">
+                <li>Go to <code className="bg-secondary px-1 rounded">console.nest.google.com/services</code></li>
+                <li>Create a Device Access project ($5 one-time fee)</li>
+                <li>Copy your Project ID</li>
+                <li>Add <code className="bg-secondary px-1 rounded">SDM_PROJECT_ID</code> to Vercel env vars</li>
+                <li>Redeploy, then sign out and back in</li>
+              </ol>
+            </>
+          )}
+          {noPermission && !noProject && (
+            <>
+              <p className="font-medium">Re-authorization needed</p>
+              <p className="text-muted-foreground text-xs">
+                The SDM scope was recently added. Sign out and back in to grant access to your Nest devices.
+              </p>
+              <a href="/api/auth/signout" className="text-xs text-primary underline">Sign out to re-authorize →</a>
+            </>
+          )}
+          {!noProject && !noPermission && (
+            <p className="text-muted-foreground">Error: {error}</p>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
-  const [entities, setEntities] = useState<HaEntity[]>([])
+  const [devices, setDevices] = useState<SmartDevice[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [toggling, setToggling] = useState<string | null>(null)
+  const [needsReauth, setNeedsReauth] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const load = useCallback(async () => {
@@ -81,9 +226,14 @@ export default function HomePage() {
     try {
       const res = await fetch("/api/home")
       const data = await res.json()
-      if (!res.ok) { setError(data.error); setEntities([]); return }
-      setEntities(data)
-      setLastUpdated(new Date())
+      if (!res.ok) {
+        setError(data.error)
+        setNeedsReauth(!!data.needsReauth)
+        setDevices([])
+      } else {
+        setDevices(data.devices ?? [])
+        setLastUpdated(new Date())
+      }
     } catch (e) {
       setError(String(e))
     } finally {
@@ -93,35 +243,22 @@ export default function HomePage() {
 
   useEffect(() => { load() }, [load])
 
-  async function toggle(entity: HaEntity) {
-    const d = domain(entity.entity_id)
-    setToggling(entity.entity_id)
-    try {
-      await fetch("/api/home", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domain: d, service: "toggle", entity_id: entity.entity_id }),
-      })
-      // Optimistic update
-      setEntities((prev) =>
-        prev.map((e) =>
-          e.entity_id === entity.entity_id
-            ? { ...e, state: e.state === "on" ? "off" : "on" }
-            : e
-        )
-      )
-      setTimeout(load, 1500)
-    } finally {
-      setToggling(null)
-    }
+  async function handleCommand(deviceName: string, command: string, params: Record<string, unknown>) {
+    await fetch("/api/home", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceName, command, params }),
+    })
+    setTimeout(load, 1000)
   }
 
-  const grouped = DOMAIN_ORDER.reduce((acc, d) => {
-    const cfg = DOMAIN_CONFIG[d]
-    const items = entities.filter((e) => domain(e.entity_id) === d && cfg.show(e))
-    if (items.length) acc[d] = items
+  // Group by type
+  const grouped = devices.reduce((acc, d) => {
+    const key = d.type
+    if (!acc[key]) acc[key] = []
+    acc[key].push(d)
     return acc
-  }, {} as Record<string, HaEntity[]>)
+  }, {} as Record<string, SmartDevice[]>)
 
   return (
     <div className="space-y-6">
@@ -140,87 +277,48 @@ export default function HomePage() {
         </Button>
       </div>
 
-      {error && (
-        <Card className="border-destructive/50">
-          <CardContent className="pt-5 flex items-start gap-3">
-            <AlertCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-medium text-destructive">Home Assistant not connected</p>
-              <p className="text-xs text-muted-foreground mt-1">{error}</p>
-              <p className="text-xs text-muted-foreground mt-2">
-                Add <code className="bg-secondary px-1 rounded">HA_URL</code> and{" "}
-                <code className="bg-secondary px-1 rounded">HA_TOKEN</code> to your environment variables.
-                Get a long-lived token from your HA profile page.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {error && <SetupCard error={error} needsReauth={needsReauth} />}
 
-      {!error && loading && entities.length === 0 && (
+      {!error && loading && devices.length === 0 && (
         <div className="text-muted-foreground text-sm py-8 text-center">Loading devices…</div>
       )}
 
-      {Object.entries(grouped).map(([d, items]) => {
-        const cfg = DOMAIN_CONFIG[d]
-        const Icon = cfg.icon
-        const toggleable = isToggleable(d)
-        const onCount = items.filter((e) => e.state === "on").length
+      {Object.entries(grouped).map(([type, items]) => {
+        const Icon = deviceIcon(type)
+        const label = deviceLabel(type)
+        const isThermostat = type.includes("THERMOSTAT")
+        const isCamera = type.includes("CAMERA") || type.includes("DOORBELL")
 
         return (
-          <Card key={d}>
-            <CardHeader className="pb-3 pt-4">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Icon className={`h-4 w-4 ${cfg.color}`} />
-                {cfg.label}
-                {toggleable && (
-                  <span className="text-xs font-normal text-muted-foreground ml-auto">
-                    {onCount}/{items.length} on
-                  </span>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-                {items.map((entity) => {
-                  const d2 = domain(entity.entity_id)
-                  const isOn = entity.state === "on"
-                  const canToggle = toggleable && entity.state !== "unavailable"
-
-                  return (
-                    <button
-                      key={entity.entity_id}
-                      onClick={() => canToggle && toggle(entity)}
-                      disabled={!canToggle || toggling === entity.entity_id}
-                      className={`text-left p-3 rounded-xl border transition-all ${
-                        isOn
-                          ? "border-primary/40 bg-primary/5"
-                          : "border-border bg-secondary/50 hover:bg-secondary"
-                      } ${canToggle ? "cursor-pointer" : "cursor-default"} ${
-                        toggling === entity.entity_id ? "opacity-50" : ""
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-1">
-                        <p className="text-xs font-medium leading-tight truncate">
-                          {friendlyName(entity)}
-                        </p>
-                        {toggleable && (
-                          isOn
-                            ? <ToggleRight className="h-3.5 w-3.5 text-primary shrink-0" />
-                            : <ToggleLeft className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        )}
-                      </div>
-                      <p className={`text-xs mt-1 ${stateColor(entity.state, d2)}`}>
-                        {formatState(entity, d2)}
-                      </p>
-                    </button>
-                  )
-                })}
-              </div>
-            </CardContent>
-          </Card>
+          <div key={type}>
+            <div className="flex items-center gap-2 mb-3">
+              <Icon className="h-4 w-4 text-primary" />
+              <h2 className="text-sm font-medium">{label}</h2>
+              <span className="text-xs text-muted-foreground">({items.length})</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {items.map((device) =>
+                isThermostat ? (
+                  <ThermostatCard key={device.name} device={device} onCommand={handleCommand} />
+                ) : isCamera ? (
+                  <CameraCard key={device.name} device={device} />
+                ) : (
+                  <Card key={device.name}>
+                    <CardContent className="pt-5 pb-5">
+                      <p className="font-medium text-sm">{device.displayName}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{device.type.split(".").pop()}</p>
+                    </CardContent>
+                  </Card>
+                )
+              )}
+            </div>
+          </div>
         )
       })}
+
+      {!error && !loading && devices.length === 0 && (
+        <p className="text-muted-foreground text-sm text-center py-8">No devices found in your project.</p>
+      )}
     </div>
   )
 }
