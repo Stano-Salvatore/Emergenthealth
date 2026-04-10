@@ -268,7 +268,7 @@ export default function FinancesPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
-              <DollarSign className="h-4 w-4 text-primary" /> Net {monthLabel(year, month)}
+              <DollarSign className="h-4 w-4 text-primary" /> Remaining Balance {monthLabel(year, month)}
             </div>
             <div className={`text-2xl font-bold ${net >= 0 ? "text-green-400" : "text-red-400"}`}>
               {net >= 0 ? "+" : ""}{formatAmount(net)}
