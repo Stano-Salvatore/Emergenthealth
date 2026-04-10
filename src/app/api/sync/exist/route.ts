@@ -35,11 +35,6 @@ export async function POST() {
       const caloriesBurned = a["active_energy"] ?? a["calories_active"]      ?? undefined
       const weight         = a["weight"]                                     ?? undefined
 
-      // New lifestyle fields — only written if not null (safe if DB columns don't exist yet)
-      const coffee         = a["coffee"]          != null ? Number(a["coffee"])  : undefined
-      const water          = a["water"]           != null ? Number(a["water"])   : undefined
-      const mood           = a["mood"]            != null ? Number(a["mood"])    : undefined
-
       return prisma.healthLog.upsert({
         where: { userId_date: { userId: session.user.id, date } },
         create: {
@@ -54,9 +49,6 @@ export async function POST() {
           ...(activeMinutes  != null && { activeMinutes }),
           ...(caloriesBurned != null && { caloriesBurned }),
           ...(weight         != null && { weight }),
-          ...(coffee         != null && { coffee }),
-          ...(water          != null && { water }),
-          ...(mood           != null && { mood }),
           syncedAt: new Date(),
         },
         update: {
@@ -69,9 +61,6 @@ export async function POST() {
           ...(restingHR      != null && { restingHR }),
           ...(activeMinutes  != null && { activeMinutes }),
           ...(caloriesBurned != null && { caloriesBurned }),
-          ...(coffee         != null && { coffee }),
-          ...(water          != null && { water }),
-          ...(mood           != null && { mood }),
           syncedAt: new Date(),
         },
       })

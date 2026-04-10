@@ -19,9 +19,6 @@ export async function POST(req: NextRequest) {
     activeMinutes,
     restingHR,
     workouts,
-    coffee,
-    water,
-    mood,
   } = body
 
   if (!date) return NextResponse.json({ error: "date is required" }, { status: 400 })
@@ -50,9 +47,6 @@ export async function POST(req: NextRequest) {
       activeMinutes: activeMinutes != null ? Number(activeMinutes) : undefined,
       restingHR: restingHR != null ? Number(restingHR) : undefined,
       workouts: workouts ?? undefined,
-      ...(coffee != null && { coffee: Number(coffee) }),
-      ...(water  != null && { water:  Number(water)  }),
-      ...(mood   != null && { mood:   Number(mood)   }),
     },
     update: {
       sleepDuration,
@@ -64,9 +58,6 @@ export async function POST(req: NextRequest) {
       activeMinutes: activeMinutes != null ? Number(activeMinutes) : undefined,
       restingHR: restingHR != null ? Number(restingHR) : undefined,
       workouts: workouts ?? undefined,
-      ...(coffee != null && { coffee: Number(coffee) }),
-      ...(water  != null && { water:  Number(water)  }),
-      ...(mood   != null && { mood:   Number(mood)   }),
       syncedAt: new Date(),
     },
   })

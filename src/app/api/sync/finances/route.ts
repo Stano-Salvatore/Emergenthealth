@@ -44,6 +44,10 @@ export async function POST(req: NextRequest) {
     const payeeMap = new Map((payees as { id: string; name: string }[]).map((p) => [p.id, p.name]))
     let allTransactions: any[] = []
 
+    const accountBalances = (accounts as { id: string; name: string; balance: number; closed: boolean }[])
+      .filter((a) => !a.closed)
+      .map((a) => ({ id: a.id, name: a.name, balance: a.balance }))
+
     for (const account of accounts) {
       const txns = await api.getTransactions(account.id, startDate, endDate)
       allTransactions = allTransactions.concat(
@@ -86,7 +90,7 @@ export async function POST(req: NextRequest) {
       synced++
     }
 
-    return NextResponse.json({ success: true, synced })
+    return NextResponse.json({ success: true, synced, accounts: accountBalances })
   } catch (error: any) {
     console.error("Actual Budget sync error:", error)
     return NextResponse.json(

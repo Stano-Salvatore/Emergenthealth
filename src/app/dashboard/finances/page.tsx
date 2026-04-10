@@ -25,6 +25,12 @@ interface Transaction {
   actualId: string | null
 }
 
+interface AccountBalance {
+  id: string
+  name: string
+  balance: number
+}
+
 const CATEGORIES = [
   "Food & Drink", "Transport", "Shopping", "Entertainment",
   "Health", "Bills & Utilities", "Housing", "Income", "Other",
@@ -43,6 +49,12 @@ export default function FinancesPage() {
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [accountBalances, setAccountBalances] = useState<AccountBalance[]>(() => {
+    if (typeof window !== "undefined") {
+      try { return JSON.parse(localStorage.getItem("finance_accounts") ?? "[]") } catch { return [] }
+    }
+    return []
+  })
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
@@ -81,8 +93,16 @@ export default function FinancesPage() {
     try {
       const res = await fetch("/api/sync/finances", { method: "POST" })
       const data = await res.json()
-      setSyncMessage(res.ok ? `Synced ${data.synced} transactions` : `Error: ${data.error}`)
-      if (res.ok) await loadTransactions()
+      if (res.ok) {
+        setSyncMessage(`Synced ${data.synced} transactions`)
+        if (data.accounts) {
+          setAccountBalances(data.accounts)
+          localStorage.setItem("finance_accounts", JSON.stringify(data.accounts))
+        }
+        await loadTransactions()
+      } else {
+        setSyncMessage(`Error: ${data.error}`)
+      }
     } finally {
       setSyncing(false)
     }
@@ -210,6 +230,24 @@ export default function FinancesPage() {
         </div>
       </div>
 
+      {accountBalances.length > 0 && (
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground mb-2">Account Balances</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {accountBalances.map((acc) => (
+              <Card key={acc.id}>
+                <CardContent className="pt-4 pb-4">
+                  <p className="text-xs text-muted-foreground truncate mb-1">{acc.name}</p>
+                  <p className={`text-lg font-bold ${acc.balance >= 0 ? "text-foreground" : "text-red-400"}`}>
+                    {acc.balance < 0 ? "-" : ""}€{(Math.abs(acc.balance) / 100).toFixed(2)}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
@@ -230,7 +268,7 @@ export default function FinancesPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
-              <DollarSign className="h-4 w-4 text-primary" /> Net
+              <DollarSign className="h-4 w-4 text-primary" /> Net {monthLabel(year, month)}
             </div>
             <div className={`text-2xl font-bold ${net >= 0 ? "text-green-400" : "text-red-400"}`}>
               {net >= 0 ? "+" : ""}{formatAmount(net)}

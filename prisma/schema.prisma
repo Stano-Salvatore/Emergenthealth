@@ -92,11 +92,6 @@ model HealthLog {
   restingHR Int?
   weight    Float?
 
-  // Lifestyle — run prisma/add_health_columns.sql in Neon before using
-  coffee    Int?
-  water     Int?
-  mood      Int?
-
   syncedAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
