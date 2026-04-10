@@ -142,6 +142,7 @@ export default function FinancesPage() {
   const totalSpent = expenses.reduce((sum, t) => sum + Math.abs(t.amount), 0)
   const totalIncome = income.reduce((sum, t) => sum + t.amount, 0)
   const net = totalIncome - totalSpent
+  const totalBalance = accountBalances.reduce((sum, a) => sum + a.balance, 0)
 
   const byCategory = expenses.reduce((acc, t) => {
     const cat = t.category ?? "Uncategorized"
@@ -268,11 +269,17 @@ export default function FinancesPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 text-muted-foreground text-sm mb-1">
-              <DollarSign className="h-4 w-4 text-primary" /> Remaining Balance {monthLabel(year, month)}
+              <DollarSign className="h-4 w-4 text-primary" />
+              {accountBalances.length > 0 ? "Total Balance" : `Net ${monthLabel(year, month)}`}
             </div>
-            <div className={`text-2xl font-bold ${net >= 0 ? "text-green-400" : "text-red-400"}`}>
-              {net >= 0 ? "+" : ""}{formatAmount(net)}
+            <div className={`text-2xl font-bold ${(accountBalances.length > 0 ? totalBalance : net) >= 0 ? "text-green-400" : "text-red-400"}`}>
+              {accountBalances.length > 0
+                ? `€${(Math.abs(totalBalance) / 100).toFixed(2)}`
+                : `${net >= 0 ? "+" : ""}${formatAmount(net)}`}
             </div>
+            {accountBalances.length === 0 && (
+              <p className="text-xs text-muted-foreground mt-1">Sync Actual to see real balance</p>
+            )}
           </CardContent>
         </Card>
       </div>
