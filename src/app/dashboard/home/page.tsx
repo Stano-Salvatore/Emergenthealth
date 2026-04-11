@@ -5,179 +5,286 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
   RefreshCw, ChevronUp, ChevronDown, Square,
-  Wifi, WifiOff, Radio, Thermometer, AlertCircle, Pencil, Check,
+  Wifi, WifiOff, Radio, Thermometer, AlertCircle,
+  Pencil, Check, Plug, Lightbulb, Bot, ToggleLeft, ToggleRight,
 } from "lucide-react"
 import type { EwelinkDevice } from "@/lib/ewelink"
 import type { SmartDevice } from "@/lib/google-home"
+import type { TuyaDevice } from "@/lib/tuya"
 
-// ─── RF Bridge ───────────────────────────────────────────────────────────────
+// ─── Tuya category helpers ───────────────────────────────────────────────────
+
+const PLUG_CATS     = ["cz", "pc", "kg", "socket"]
+const LIGHT_CATS    = ["dj", "tgq", "tgkg", "xdd", "fwd", "dc", "light"]
+const ROBOT_CATS    = ["sweep_robot", "mop", "robot"]
+
+function isPlug(d: TuyaDevice)  { return PLUG_CATS.some((c)  => d.category?.includes(c)) }
+function isLight(d: TuyaDevice) { return LIGHT_CATS.some((c) => d.category?.includes(c)) }
+function isRobot(d: TuyaDevice) { return ROBOT_CATS.some((c) => d.category?.includes(c)) }
+
+function getStatus(d: TuyaDevice, code: string) {
+  return d.status?.find((s) => s.code === code)?.value
+}
+
+// ─── Tuya Plug card ──────────────────────────────────────────────────────────
+
+function PlugCard({ device, onControl }: {
+  device: TuyaDevice
+  onControl: (id: string, commands: { code: string; value: unknown }[]) => Promise<void>
+}) {
+  const isOn = getStatus(device, "switch_1") as boolean ?? getStatus(device, "switch") as boolean ?? false
+  const power = getStatus(device, "cur_power") as number
+  const [busy, setBusy] = useState(false)
+
+  async function toggle() {
+    setBusy(true)
+    const code = device.status?.find((s) => s.code === "switch_1") ? "switch_1" : "switch"
+    await onControl(device.id, [{ code, value: !isOn }])
+    setBusy(false)
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={busy || !device.online}
+      className={`text-left p-4 rounded-xl border transition-all w-full ${
+        isOn ? "border-primary/40 bg-primary/5" : "border-border bg-secondary/50"
+      } disabled:opacity-50`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Plug className={`h-4 w-4 ${isOn ? "text-primary" : "text-muted-foreground"}`} />
+          <span className="text-sm font-medium truncate max-w-[140px]">{device.name}</span>
+        </div>
+        {isOn
+          ? <ToggleRight className="h-5 w-5 text-primary shrink-0" />
+          : <ToggleLeft  className="h-5 w-5 text-muted-foreground shrink-0" />
+        }
+      </div>
+      {power != null && (
+        <p className="text-xs text-muted-foreground mt-1.5">{(power / 10).toFixed(1)} W</p>
+      )}
+      {!device.online && <p className="text-xs text-muted-foreground mt-1">Offline</p>}
+    </button>
+  )
+}
+
+// ─── Tuya Light card ─────────────────────────────────────────────────────────
+
+function LightCard({ device, onControl }: {
+  device: TuyaDevice
+  onControl: (id: string, commands: { code: string; value: unknown }[]) => Promise<void>
+}) {
+  const isOn      = getStatus(device, "switch_led") as boolean ?? false
+  const brightness = getStatus(device, "bright_value_v2") as number ?? getStatus(device, "bright_value") as number
+  const [busy, setBusy] = useState(false)
+
+  async function toggle() {
+    setBusy(true)
+    await onControl(device.id, [{ code: "switch_led", value: !isOn }])
+    setBusy(false)
+  }
+
+  async function setBrightness(val: number) {
+    const code = device.status?.find((s) => s.code === "bright_value_v2") ? "bright_value_v2" : "bright_value"
+    await onControl(device.id, [{ code, value: val }])
+  }
+
+  const pct = brightness != null ? Math.round((brightness / 1000) * 100) : null
+
+  return (
+    <div className={`p-4 rounded-xl border transition-all ${
+      isOn ? "border-yellow-400/30 bg-yellow-400/5" : "border-border bg-secondary/50"
+    } ${!device.online ? "opacity-50" : ""}`}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Lightbulb className={`h-4 w-4 ${isOn ? "text-yellow-400" : "text-muted-foreground"}`} />
+          <span className="text-sm font-medium truncate max-w-[120px]">{device.name}</span>
+        </div>
+        <button
+          onClick={toggle}
+          disabled={busy || !device.online}
+          className="disabled:opacity-50"
+        >
+          {isOn
+            ? <ToggleRight className="h-5 w-5 text-yellow-400" />
+            : <ToggleLeft  className="h-5 w-5 text-muted-foreground" />
+          }
+        </button>
+      </div>
+      {isOn && pct != null && (
+        <div className="flex items-center gap-2 mt-2">
+          <button onClick={() => setBrightness(Math.max(10, (brightness ?? 500) - 100))}
+            className="h-5 w-5 rounded bg-secondary flex items-center justify-center text-xs hover:bg-accent">−</button>
+          <div className="flex-1 h-1.5 bg-secondary rounded-full">
+            <div className="h-full bg-yellow-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+          </div>
+          <button onClick={() => setBrightness(Math.min(1000, (brightness ?? 500) + 100))}
+            className="h-5 w-5 rounded bg-secondary flex items-center justify-center text-xs hover:bg-accent">+</button>
+          <span className="text-xs text-muted-foreground w-8 text-right">{pct}%</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Tuya Robot card ─────────────────────────────────────────────────────────
+
+function RobotCard({ device, onControl }: {
+  device: TuyaDevice
+  onControl: (id: string, commands: { code: string; value: unknown }[]) => Promise<void>
+}) {
+  const status   = getStatus(device, "status") as string ?? getStatus(device, "work_mode") as string ?? "—"
+  const battery  = getStatus(device, "battery_percentage") as number ?? getStatus(device, "battery") as number
+  const [busy, setBusy] = useState(false)
+
+  async function startCleaning() {
+    setBusy(true)
+    await onControl(device.id, [{ code: "switch_go", value: true }])
+    setBusy(false)
+  }
+  async function returnHome() {
+    setBusy(true)
+    await onControl(device.id, [{ code: "switch_charge", value: true }])
+    setBusy(false)
+  }
+
+  const isCleaning = status?.toLowerCase().includes("clean") || status?.toLowerCase().includes("sweep")
+
+  return (
+    <Card>
+      <CardContent className="pt-5 pb-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Bot className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">{device.name}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {battery != null && (
+              <span className="text-xs text-muted-foreground">{battery}%</span>
+            )}
+            {device.online
+              ? <Wifi className="h-3.5 w-3.5 text-green-400" />
+              : <WifiOff className="h-3.5 w-3.5 text-muted-foreground" />
+            }
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground capitalize mb-3">{status}</p>
+        <div className="flex gap-2">
+          <Button size="sm" variant={isCleaning ? "default" : "outline"} disabled={busy || !device.online}
+            onClick={startCleaning} className="flex-1 text-xs">
+            {isCleaning ? "Cleaning…" : "Start"}
+          </Button>
+          <Button size="sm" variant="outline" disabled={busy || !device.online}
+            onClick={returnHome} className="flex-1 text-xs">
+            Return home
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── RF Bridge shutter card ───────────────────────────────────────────────────
 
 const RF_BRIDGE_UIID = 28
 
-// Each shutter = 3 consecutive channels: up, stop, down
-// Stored in localStorage as { [deviceId]: { shutters: [{ name, up, stop, down }] } }
-interface ShutterConfig {
-  name: string
-  up: number
-  stop: number
-  down: number
+interface ShutterConfig { name: string; up: number; stop: number; down: number }
+interface DeviceConfig  { shutters: ShutterConfig[]; loose: { ch: number; label: string }[] }
+
+function loadCfg(id: string): DeviceConfig {
+  try { return JSON.parse(localStorage.getItem(`rfcfg_${id}`) ?? "null") ?? { shutters: [], loose: [] } }
+  catch { return { shutters: [], loose: [] } }
 }
-interface DeviceConfig {
-  shutters: ShutterConfig[]
-  loose: { ch: number; label: string }[] // individual buttons not in shutter groups
+function saveCfg(id: string, cfg: DeviceConfig) {
+  localStorage.setItem(`rfcfg_${id}`, JSON.stringify(cfg))
 }
 
-function loadConfig(deviceId: string): DeviceConfig {
-  try {
-    const raw = localStorage.getItem(`rfcfg_${deviceId}`)
-    return raw ? JSON.parse(raw) : { shutters: [], loose: [] }
-  } catch { return { shutters: [], loose: [] } }
-}
-function saveConfig(deviceId: string, cfg: DeviceConfig) {
-  localStorage.setItem(`rfcfg_${deviceId}`, JSON.stringify(cfg))
-}
-
-function ShutterButton({
-  icon: Icon, label, onClick, busy,
-}: { icon: React.ElementType; label: string; onClick: () => void; busy: boolean }) {
+function ShutterBtn({ icon: Icon, label, onClick, busy }: { icon: React.ElementType; label: string; onClick: () => void; busy: boolean }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={busy}
-      className="flex flex-col items-center gap-1 p-3 rounded-xl bg-secondary hover:bg-accent transition-colors disabled:opacity-50 flex-1"
-    >
+    <button onClick={onClick} disabled={busy}
+      className="flex flex-col items-center gap-1 p-3 rounded-xl bg-secondary hover:bg-accent transition-colors disabled:opacity-50 flex-1">
       <Icon className="h-5 w-5" />
       <span className="text-xs">{label}</span>
     </button>
   )
 }
 
-function RfBridgeCard({ device, onTransmit }: {
-  device: EwelinkDevice
-  onTransmit: (deviceId: string, ch: number) => Promise<void>
-}) {
+function RfBridgeCard({ device, onTransmit }: { device: EwelinkDevice; onTransmit: (id: string, ch: number) => Promise<void> }) {
   const [cfg, setCfg] = useState<DeviceConfig>({ shutters: [], loose: [] })
   const [busy, setBusy] = useState<number | null>(null)
   const [editing, setEditing] = useState(false)
-  const [newName, setNewName] = useState("")
 
   useEffect(() => {
-    const saved = loadConfig(device.deviceid)
-    // If no config yet and device has RF channels, auto-detect shutters
+    const saved = loadCfg(device.deviceid)
     if (saved.shutters.length === 0 && saved.loose.length === 0) {
-      const channels = device.params?.rfList ?? []
-      if (channels.length >= 3) {
-        // Group in sets of 3: up, stop, down
-        const shutters: ShutterConfig[] = []
-        for (let i = 0; i + 2 < channels.length; i += 3) {
-          shutters.push({ name: `Shutter ${shutters.length + 1}`, up: i, stop: i + 1, down: i + 2 })
-        }
-        // Remaining as loose channels
-        const used = shutters.length * 3
-        const loose = channels.slice(used).map((c) => ({ ch: c.rfChl, label: `CH ${c.rfChl}` }))
-        const auto = { shutters, loose }
-        saveConfig(device.deviceid, auto)
-        setCfg(auto)
-      } else {
-        const loose = (channels).map((c) => ({ ch: c.rfChl, label: `CH ${c.rfChl}` }))
-        const auto = { shutters: [], loose }
-        saveConfig(device.deviceid, auto)
-        setCfg(auto)
-      }
-    } else {
-      setCfg(saved)
-    }
+      const chs = device.params?.rfList ?? []
+      const shutters: ShutterConfig[] = []
+      for (let i = 0; i + 2 < chs.length; i += 3)
+        shutters.push({ name: `Shutter ${shutters.length + 1}`, up: i, stop: i + 1, down: i + 2 })
+      const used = shutters.length * 3
+      const loose = chs.slice(used).map((c) => ({ ch: c.rfChl, label: `CH ${c.rfChl}` }))
+      const auto = { shutters, loose }
+      saveCfg(device.deviceid, auto)
+      setCfg(auto)
+    } else { setCfg(saved) }
   }, [device])
 
   async function send(ch: number) {
-    setBusy(ch)
-    try { await onTransmit(device.deviceid, ch) }
-    finally { setBusy(null) }
+    setBusy(ch); try { await onTransmit(device.deviceid, ch) } finally { setBusy(null) }
   }
 
-  function renameShutter(i: number, name: string) {
+  function rename(i: number, name: string) {
     const next = { ...cfg, shutters: cfg.shutters.map((s, j) => j === i ? { ...s, name } : s) }
-    setCfg(next)
-    saveConfig(device.deviceid, next)
+    setCfg(next); saveCfg(device.deviceid, next)
   }
-
-  const channels = device.params?.rfList ?? []
 
   return (
     <Card>
       <CardHeader className="pb-2 pt-4">
         <CardTitle className="text-sm flex items-center gap-2">
-          <Radio className="h-4 w-4 text-primary" />
-          {device.name}
-          <span className="ml-auto text-xs font-normal text-muted-foreground">
-            {device.online ? (
-              <span className="flex items-center gap-1 text-green-400"><Wifi className="h-3 w-3" /> Online</span>
-            ) : (
-              <span className="flex items-center gap-1"><WifiOff className="h-3 w-3" /> Offline</span>
-            )}
+          <Radio className="h-4 w-4 text-primary" />{device.name}
+          <span className="ml-auto text-xs font-normal">
+            {device.online ? <span className="text-green-400 flex items-center gap-1"><Wifi className="h-3 w-3"/>Online</span>
+              : <span className="flex items-center gap-1"><WifiOff className="h-3 w-3"/>Offline</span>}
           </span>
-          <button onClick={() => setEditing(!editing)} className="text-muted-foreground hover:text-foreground ml-1">
-            <Pencil className="h-3.5 w-3.5" />
+          <button onClick={() => setEditing(!editing)} className="text-muted-foreground hover:text-foreground">
+            {editing ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Pencil className="h-3.5 w-3.5" />}
           </button>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {channels.length === 0 && (
-          <p className="text-xs text-muted-foreground">
-            No RF codes learned yet. Open the eWeLink app → RF Bridge → add remote codes first.
-          </p>
+        {(device.params?.rfList ?? []).length === 0 && (
+          <p className="text-xs text-muted-foreground">No RF codes learned yet. Add them in the eWeLink app first.</p>
         )}
-
-        {/* Shutter groups */}
         {cfg.shutters.map((s, i) => (
           <div key={i} className="space-y-2">
-            {editing ? (
-              <div className="flex items-center gap-2">
-                <input
-                  className="text-xs bg-secondary border border-border rounded px-2 py-1 flex-1"
-                  value={s.name}
-                  onChange={(e) => renameShutter(i, e.target.value)}
-                />
-                <Check className="h-4 w-4 text-green-400 shrink-0" />
-              </div>
-            ) : (
-              <p className="text-xs font-medium text-muted-foreground">{s.name}</p>
-            )}
+            {editing
+              ? <input className="text-xs bg-secondary border border-border rounded px-2 py-1 w-full"
+                  value={s.name} onChange={(e) => rename(i, e.target.value)} />
+              : <p className="text-xs font-medium text-muted-foreground">{s.name}</p>
+            }
             <div className="flex gap-2">
-              <ShutterButton icon={ChevronUp}   label="Up"   onClick={() => send(s.up)}   busy={busy === s.up} />
-              <ShutterButton icon={Square}      label="Stop" onClick={() => send(s.stop)} busy={busy === s.stop} />
-              <ShutterButton icon={ChevronDown} label="Down" onClick={() => send(s.down)} busy={busy === s.down} />
+              <ShutterBtn icon={ChevronUp}   label="Up"   onClick={() => send(s.up)}   busy={busy === s.up} />
+              <ShutterBtn icon={Square}      label="Stop" onClick={() => send(s.stop)} busy={busy === s.stop} />
+              <ShutterBtn icon={ChevronDown} label="Down" onClick={() => send(s.down)} busy={busy === s.down} />
             </div>
           </div>
         ))}
-
-        {/* Individual loose channels */}
         {cfg.loose.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {cfg.loose.map((l) => (
-              <button
-                key={l.ch}
-                onClick={() => send(l.ch)}
-                disabled={busy === l.ch}
-                className="px-3 py-2 rounded-lg bg-secondary hover:bg-accent text-xs transition-colors disabled:opacity-50"
-              >
-                {l.label}
-              </button>
+              <button key={l.ch} onClick={() => send(l.ch)} disabled={busy === l.ch}
+                className="px-3 py-2 rounded-lg bg-secondary hover:bg-accent text-xs">{l.label}</button>
             ))}
           </div>
-        )}
-
-        {editing && (
-          <p className="text-xs text-muted-foreground">
-            Channels auto-grouped as shutters (UP / STOP / DOWN sets of 3). Rename above to match your rooms.
-          </p>
         )}
       </CardContent>
     </Card>
   )
 }
 
-// ─── Thermostat card (SDM) ────────────────────────────────────────────────────
+// ─── SDM Thermostat card ─────────────────────────────────────────────────────
 
 function trait<T>(device: SmartDevice, name: string): T | null {
   return (device.traits[`sdm.devices.traits.${name}`] as T) ?? null
@@ -192,18 +299,16 @@ function ThermostatCard({ device, onCommand }: {
   const modeT = trait<{ mode: string; availableModes: string[] }>(device, "ThermostatMode")
   const setpt = trait<{ heatCelsius?: number; coolCelsius?: number }>(device, "ThermostatTemperatureSetpoint")
   const [busy, setBusy] = useState(false)
-
   const mode = modeT?.mode ?? "OFF"
-  const setpoint = mode === "COOL" ? setpt?.coolCelsius : setpt?.heatCelsius
+  const sp   = mode === "COOL" ? setpt?.coolCelsius : setpt?.heatCelsius
 
-  async function adjustTemp(delta: number) {
-    if (setpoint == null || mode === "OFF") return
+  async function adjust(delta: number) {
+    if (sp == null || mode === "OFF") return
     setBusy(true)
-    const val = Math.round((setpoint + delta) * 2) / 2
-    const cmd = mode === "COOL"
-      ? "sdm.devices.commands.ThermostatTemperatureSetpoint.SetCool"
+    const v = Math.round((sp + delta) * 2) / 2
+    const cmd = mode === "COOL" ? "sdm.devices.commands.ThermostatTemperatureSetpoint.SetCool"
       : "sdm.devices.commands.ThermostatTemperatureSetpoint.SetHeat"
-    await onCommand(device.name, cmd, mode === "COOL" ? { coolCelsius: val } : { heatCelsius: val })
+    await onCommand(device.name, cmd, mode === "COOL" ? { coolCelsius: v } : { heatCelsius: v })
     setBusy(false)
   }
 
@@ -212,7 +317,7 @@ function ThermostatCard({ device, onCommand }: {
       <CardContent className="pt-5 pb-5">
         <div className="flex items-center justify-between mb-3">
           <p className="font-medium text-sm flex items-center gap-2">
-            <Thermometer className="h-4 w-4 text-orange-400" /> {device.displayName}
+            <Thermometer className="h-4 w-4 text-orange-400" />{device.displayName}
           </p>
           <span className="text-xs text-muted-foreground">{hvac?.status ?? ""}</span>
         </div>
@@ -221,23 +326,19 @@ function ThermostatCard({ device, onCommand }: {
             <p className="text-xs text-muted-foreground">Now</p>
             <p className="text-3xl font-bold">{temp ? `${temp.ambientTemperatureCelsius.toFixed(1)}°` : "—"}</p>
           </div>
-          {setpoint != null && mode !== "OFF" && (
+          {sp != null && mode !== "OFF" && (
             <div>
               <p className="text-xs text-muted-foreground">Set</p>
               <div className="flex items-center gap-1">
-                <button onClick={() => adjustTemp(-0.5)} disabled={busy} className="h-6 w-6 rounded bg-secondary flex items-center justify-center hover:bg-accent">
-                  <span className="text-sm">−</span>
-                </button>
-                <span className="text-lg font-semibold w-12 text-center">{setpoint.toFixed(1)}°</span>
-                <button onClick={() => adjustTemp(0.5)} disabled={busy} className="h-6 w-6 rounded bg-secondary flex items-center justify-center hover:bg-accent">
-                  <span className="text-sm">+</span>
-                </button>
+                <button onClick={() => adjust(-0.5)} disabled={busy} className="h-6 w-6 rounded bg-secondary flex items-center justify-center hover:bg-accent text-sm">−</button>
+                <span className="text-lg font-semibold w-12 text-center">{sp.toFixed(1)}°</span>
+                <button onClick={() => adjust(0.5)} disabled={busy} className="h-6 w-6 rounded bg-secondary flex items-center justify-center hover:bg-accent text-sm">+</button>
               </div>
             </div>
           )}
         </div>
         <div className="flex gap-1.5 mt-3 flex-wrap">
-          {(modeT?.availableModes ?? ["HEAT", "COOL", "OFF"]).map((m) => (
+          {(modeT?.availableModes ?? ["HEAT","COOL","OFF"]).map((m) => (
             <button key={m} onClick={() => onCommand(device.name, "sdm.devices.commands.ThermostatMode.SetMode", { mode: m })}
               className={`px-2.5 py-1 rounded-full text-xs border transition-colors ${mode === m ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>
               {m}
@@ -249,24 +350,32 @@ function ThermostatCard({ device, onCommand }: {
   )
 }
 
-// ─── Setup card ───────────────────────────────────────────────────────────────
+// ─── Setup hint ───────────────────────────────────────────────────────────────
 
-function SetupCard() {
+function SetupHint() {
   return (
     <Card className="border-amber-500/30">
       <CardContent className="pt-5 flex gap-3">
         <AlertCircle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
-        <div className="text-sm space-y-2">
-          <p className="font-medium">Connect your Sonoff RF Bridge</p>
-          <p className="text-xs text-muted-foreground">Add these to Vercel environment variables:</p>
-          <div className="text-xs font-mono bg-secondary rounded p-2 space-y-0.5">
-            <p>EWELINK_EMAIL=your@email.com</p>
-            <p>EWELINK_PASSWORD=yourpassword</p>
-            <p>EWELINK_REGION=eu  <span className="text-muted-foreground"># eu / us / as</span></p>
+        <div className="text-sm space-y-3">
+          <p className="font-medium">No home integrations configured yet</p>
+          <div>
+            <p className="text-xs font-medium mb-1">Smart Life / Tuya (plugs, lights, robot)</p>
+            <div className="text-xs font-mono bg-secondary rounded p-2 space-y-0.5">
+              <p>TUYA_CLIENT_ID=...</p>
+              <p>TUYA_CLIENT_SECRET=...</p>
+              <p>TUYA_REGION=eu</p>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Register free at iot.tuya.com → create project → link Smart Life devices</p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Make sure your RF Bridge has RF codes learned via the eWeLink app first.
-          </p>
+          <div>
+            <p className="text-xs font-medium mb-1">Sonoff RF Bridge (shutters)</p>
+            <div className="text-xs font-mono bg-secondary rounded p-2 space-y-0.5">
+              <p>EWELINK_EMAIL=...</p>
+              <p>EWELINK_PASSWORD=...</p>
+              <p>EWELINK_REGION=eu</p>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -276,88 +385,121 @@ function SetupCard() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
-  const [rfDevices, setRfDevices] = useState<EwelinkDevice[]>([])
-  const [sdmDevices, setSdmDevices] = useState<SmartDevice[]>([])
-  const [loading, setLoading] = useState(true)
+  const [rfDevices,    setRfDevices]    = useState<EwelinkDevice[]>([])
+  const [sdmDevices,   setSdmDevices]   = useState<SmartDevice[]>([])
+  const [tuyaDevices,  setTuyaDevices]  = useState<TuyaDevice[]>([])
+  const [loading,      setLoading]      = useState(true)
   const [notConfigured, setNotConfigured] = useState(false)
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [lastUpdated,  setLastUpdated]  = useState<Date | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch("/api/home")
+      const res  = await fetch("/api/home")
       if (res.status === 503) { setNotConfigured(true); setLoading(false); return }
       const data = await res.json()
       setNotConfigured(false)
-      setRfDevices((data.ewelink as EwelinkDevice[]) ?? [])
-      setSdmDevices((data.sdm as SmartDevice[]) ?? [])
+      setRfDevices((data.ewelink  as EwelinkDevice[]) ?? [])
+      setSdmDevices((data.sdm     as SmartDevice[])   ?? [])
+      setTuyaDevices((data.tuya   as TuyaDevice[])    ?? [])
       setLastUpdated(new Date())
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }, [])
 
   useEffect(() => { load() }, [load])
 
   async function handleTransmit(deviceId: string, rfChl: number) {
-    await fetch("/api/home", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "ewelink_rf", deviceId, rfChl }),
-    })
+    await fetch("/api/home", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "ewelink_rf", deviceId, rfChl }) })
   }
 
   async function handleSdmCommand(deviceName: string, command: string, params: Record<string, unknown>) {
-    await fetch("/api/home", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "sdm", deviceName, command, params }),
-    })
+    await fetch("/api/home", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "sdm", deviceName, command, params }) })
     setTimeout(load, 1000)
   }
 
-  const rfBridges = rfDevices.filter((d) => d.extra?.uiid === RF_BRIDGE_UIID)
-  const thermostats = sdmDevices.filter((d) => d.type.includes("THERMOSTAT"))
+  async function handleTuya(deviceId: string, commands: { code: string; value: unknown }[]) {
+    await fetch("/api/home", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "tuya", deviceId, commands }) })
+    setTimeout(load, 800)
+  }
+
+  const rfBridges   = rfDevices.filter((d)  => d.extra?.uiid === RF_BRIDGE_UIID)
+  const thermostats = sdmDevices.filter((d)  => d.type.includes("THERMOSTAT"))
+  const plugs       = tuyaDevices.filter(isPlug)
+  const lights      = tuyaDevices.filter(isLight)
+  const robots      = tuyaDevices.filter(isRobot)
+  const hasAny      = rfBridges.length + thermostats.length + plugs.length + lights.length + robots.length > 0
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold">Home</h1>
-          {lastUpdated && (
-            <p className="text-xs text-muted-foreground mt-0.5">Updated {lastUpdated.toLocaleTimeString()}</p>
-          )}
+          {lastUpdated && <p className="text-xs text-muted-foreground mt-0.5">Updated {lastUpdated.toLocaleTimeString()}</p>}
         </div>
         <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1">
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
+          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh
         </Button>
       </div>
 
-      {notConfigured && <SetupCard />}
-
-      {!notConfigured && loading && rfBridges.length === 0 && thermostats.length === 0 && (
+      {notConfigured && <SetupHint />}
+      {!notConfigured && loading && !hasAny && (
         <p className="text-muted-foreground text-sm py-8 text-center">Loading devices…</p>
       )}
 
-      {rfBridges.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium text-muted-foreground">Shutters · RF Bridge</h2>
+      {lights.length > 0 && (
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+            <Lightbulb className="h-4 w-4" /> Lights
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {lights.map((d) => <LightCard key={d.id} device={d} onControl={handleTuya} />)}
+          </div>
+        </div>
+      )}
+
+      {plugs.length > 0 && (
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+            <Plug className="h-4 w-4" /> Plugs
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {plugs.map((d) => <PlugCard key={d.id} device={d} onControl={handleTuya} />)}
+          </div>
+        </div>
+      )}
+
+      {robots.length > 0 && (
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+            <Bot className="h-4 w-4" /> Robot
+          </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {rfBridges.map((d) => (
-              <RfBridgeCard key={d.deviceid} device={d} onTransmit={handleTransmit} />
-            ))}
+            {robots.map((d) => <RobotCard key={d.id} device={d} onControl={handleTuya} />)}
+          </div>
+        </div>
+      )}
+
+      {rfBridges.length > 0 && (
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+            <Radio className="h-4 w-4" /> Shutters
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {rfBridges.map((d) => <RfBridgeCard key={d.deviceid} device={d} onTransmit={handleTransmit} />)}
           </div>
         </div>
       )}
 
       {thermostats.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium text-muted-foreground">Climate · Nest</h2>
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+            <Thermometer className="h-4 w-4" /> Climate
+          </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {thermostats.map((d) => (
-              <ThermostatCard key={d.name} device={d} onCommand={handleSdmCommand} />
-            ))}
+            {thermostats.map((d) => <ThermostatCard key={d.name} device={d} onCommand={handleSdmCommand} />)}
           </div>
         </div>
       )}
