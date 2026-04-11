@@ -82,22 +82,28 @@ export async function getAcDevices(): Promise<AcDevice[]> {
   const data = await res.json()
   if (data.status !== 1) throw new Error(`EWPE devices failed: ${data.msg ?? JSON.stringify(data)}`)
 
-  const devices: AcDevice[] = (data.data?.devices ?? data.data ?? []).map((d: Record<string, unknown>) => ({
+  const discovered: AcDevice[] = (data.data?.devices ?? data.data ?? []).map((d: Record<string, unknown>) => ({
     deviceId:   String(d.deviceId ?? d.mac),
     deviceName: String(d.deviceName ?? d.alias ?? "AC"),
     mac:        String(d.mac ?? ""),
     online:     Boolean(d.online ?? d.isOnline),
   }))
 
+  // Merge in any hardcoded device from env vars (fallback if discovery misses it)
+  const hardcodedId  = process.env.EWPE_DEVICE_ID   // e.g. 9424b8badd3b
+  const hardcodedName = process.env.EWPE_DEVICE_NAME ?? "Sinclair AC"
+  if (hardcodedId && !discovered.find((d) => d.deviceId === hardcodedId || d.mac === hardcodedId)) {
+    discovered.push({ deviceId: hardcodedId, deviceName: hardcodedName, mac: hardcodedId, online: true })
+  }
+
   // Fetch current state for each device
-  await Promise.all(devices.map(async (dev) => {
+  await Promise.all(discovered.map(async (dev) => {
     try {
-      const s = await getDeviceStatus(dev.deviceId, uid, token)
-      dev.attrs = s
-    } catch { /* ignore if status fails */ }
+      dev.attrs = await getDeviceStatus(dev.deviceId, uid, token)
+    } catch { /* ignore if status fetch fails */ }
   }))
 
-  return devices
+  return discovered
 }
 
 async function getDeviceStatus(deviceId: string, uid: string, token: string): Promise<AcAttrs> {
