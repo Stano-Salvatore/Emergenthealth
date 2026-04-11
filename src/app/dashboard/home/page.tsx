@@ -11,6 +11,8 @@ import {
 import type { EwelinkDevice } from "@/lib/ewelink"
 import type { SmartDevice } from "@/lib/google-home"
 import type { TuyaDevice } from "@/lib/tuya"
+import type { AcDevice } from "@/lib/ewpe-smart"
+import { AC_MODES, FAN_SPEEDS } from "@/lib/ewpe-smart"
 
 // ─── Tuya category helpers ───────────────────────────────────────────────────
 
@@ -350,6 +352,100 @@ function ThermostatCard({ device, onCommand }: {
   )
 }
 
+// ─── AC card (EWPE Smart / Sinclair) ─────────────────────────────────────────
+
+function AcCard({ device, onControl }: {
+  device: AcDevice
+  onControl: (deviceId: string, attrs: Record<string, unknown>) => Promise<void>
+}) {
+  const a = device.attrs
+  const isOn   = a?.Pow === 1
+  const mode   = a?.Mod ?? 1
+  const temp   = a?.SetTem ?? 22
+  const curTemp = a?.TemSen
+  const fanSpd = a?.WdSpd ?? 0
+  const [busy, setBusy] = useState(false)
+
+  async function send(attrs: Record<string, unknown>) {
+    setBusy(true)
+    await onControl(device.deviceId, attrs)
+    setBusy(false)
+  }
+
+  const modeColors = ["text-muted-foreground","text-blue-400","text-cyan-400","text-gray-400","text-orange-400"]
+
+  return (
+    <Card className={isOn ? "border-primary/30" : ""}>
+      <CardContent className="pt-5 pb-5 space-y-4">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-sm">{device.deviceName}</p>
+            {curTemp != null && (
+              <p className="text-xs text-muted-foreground mt-0.5">Room: {curTemp}°C</p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {device.online
+              ? <Wifi className="h-3.5 w-3.5 text-green-400" />
+              : <WifiOff className="h-3.5 w-3.5 text-muted-foreground" />}
+            <button
+              onClick={() => send({ Pow: isOn ? 0 : 1 })}
+              disabled={busy || !device.online}
+              className={`px-3 py-1 rounded-full text-xs border transition-colors disabled:opacity-50 ${
+                isOn ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"
+              }`}
+            >
+              {isOn ? "ON" : "OFF"}
+            </button>
+          </div>
+        </div>
+
+        {isOn && (
+          <>
+            {/* Temperature */}
+            <div className="flex items-center gap-3">
+              <button onClick={() => send({ SetTem: Math.max(16, temp - 1) })} disabled={busy}
+                className="h-8 w-8 rounded-lg bg-secondary flex items-center justify-center hover:bg-accent text-lg disabled:opacity-50">−</button>
+              <div className="flex-1 text-center">
+                <span className="text-3xl font-bold">{temp}°</span>
+              </div>
+              <button onClick={() => send({ SetTem: Math.min(30, temp + 1) })} disabled={busy}
+                className="h-8 w-8 rounded-lg bg-secondary flex items-center justify-center hover:bg-accent text-lg disabled:opacity-50">+</button>
+            </div>
+
+            {/* Mode */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-1.5">Mode</p>
+              <div className="flex gap-1.5 flex-wrap">
+                {AC_MODES.map((m, i) => (
+                  <button key={m} onClick={() => send({ Mod: i })} disabled={busy}
+                    className={`px-2.5 py-1 rounded-full text-xs border transition-colors disabled:opacity-50 ${
+                      mode === i ? `border-primary bg-primary/10 ${modeColors[i]}` : "border-border text-muted-foreground"
+                    }`}>{m}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Fan speed */}
+            <div>
+              <p className="text-xs text-muted-foreground mb-1.5">Fan</p>
+              <div className="flex gap-1.5 flex-wrap">
+                {FAN_SPEEDS.map((s, i) => (
+                  <button key={s} onClick={() => send({ WdSpd: i })} disabled={busy}
+                    className={`px-2.5 py-1 rounded-full text-xs border transition-colors disabled:opacity-50 ${
+                      fanSpd === i ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"
+                    }`}>{s}</button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // ─── Setup hint ───────────────────────────────────────────────────────────────
 
 function SetupHint() {
@@ -367,6 +463,14 @@ function SetupHint() {
               <p>TUYA_REGION=eu</p>
             </div>
             <p className="text-xs text-muted-foreground mt-1">Register free at iot.tuya.com → create project → link Smart Life devices</p>
+          </div>
+          <div>
+            <p className="text-xs font-medium mb-1">Sinclair AC / EWPE Smart</p>
+            <div className="text-xs font-mono bg-secondary rounded p-2 space-y-0.5">
+              <p>EWPE_EMAIL=...</p>
+              <p>EWPE_PASSWORD=...</p>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Same credentials as your EWPE Smart app</p>
           </div>
           <div>
             <p className="text-xs font-medium mb-1">Sonoff RF Bridge (shutters)</p>
@@ -388,6 +492,7 @@ export default function HomePage() {
   const [rfDevices,    setRfDevices]    = useState<EwelinkDevice[]>([])
   const [sdmDevices,   setSdmDevices]   = useState<SmartDevice[]>([])
   const [tuyaDevices,  setTuyaDevices]  = useState<TuyaDevice[]>([])
+  const [acDevices,    setAcDevices]    = useState<AcDevice[]>([])
   const [loading,      setLoading]      = useState(true)
   const [notConfigured, setNotConfigured] = useState(false)
   const [lastUpdated,  setLastUpdated]  = useState<Date | null>(null)
@@ -402,6 +507,7 @@ export default function HomePage() {
       setRfDevices((data.ewelink  as EwelinkDevice[]) ?? [])
       setSdmDevices((data.sdm     as SmartDevice[])   ?? [])
       setTuyaDevices((data.tuya   as TuyaDevice[])    ?? [])
+      setAcDevices((data.ewpe     as AcDevice[])      ?? [])
       setLastUpdated(new Date())
     } finally { setLoading(false) }
   }, [])
@@ -425,12 +531,18 @@ export default function HomePage() {
     setTimeout(load, 800)
   }
 
+  async function handleAc(deviceId: string, attrs: Record<string, unknown>) {
+    await fetch("/api/home", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "ewpe", deviceId, attrs }) })
+    setTimeout(load, 1000)
+  }
+
   const rfBridges   = rfDevices.filter((d)  => d.extra?.uiid === RF_BRIDGE_UIID)
   const thermostats = sdmDevices.filter((d)  => d.type.includes("THERMOSTAT"))
   const plugs       = tuyaDevices.filter(isPlug)
   const lights      = tuyaDevices.filter(isLight)
   const robots      = tuyaDevices.filter(isRobot)
-  const hasAny      = rfBridges.length + thermostats.length + plugs.length + lights.length + robots.length > 0
+  const hasAny      = rfBridges.length + thermostats.length + plugs.length + lights.length + robots.length + acDevices.length > 0
 
   return (
     <div className="space-y-6">
@@ -456,6 +568,17 @@ export default function HomePage() {
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {lights.map((d) => <LightCard key={d.id} device={d} onControl={handleTuya} />)}
+          </div>
+        </div>
+      )}
+
+      {acDevices.length > 0 && (
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+            <Thermometer className="h-4 w-4" /> Air Conditioning
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {acDevices.map((d) => <AcCard key={d.deviceId} device={d} onControl={handleAc} />)}
           </div>
         </div>
       )}

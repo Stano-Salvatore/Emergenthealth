@@ -6,8 +6,8 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const results: {
-    sdm?: unknown; ewelink?: unknown; tuya?: unknown
-    sdmError?: string; ewelinkError?: string; tuyaError?: string
+    sdm?: unknown; ewelink?: unknown; tuya?: unknown; ewpe?: unknown
+    sdmError?: string; ewelinkError?: string; tuyaError?: string; ewpeError?: string
   } = {}
 
   // ── Google Nest (SDM) ─────────────────────────────────────────────────────
@@ -40,7 +40,17 @@ export async function GET() {
     }
   }
 
-  if (!process.env.SDM_PROJECT_ID && !process.env.EWELINK_EMAIL && !process.env.TUYA_CLIENT_ID) {
+  // ── EWPE Smart / Sinclair AC ─────────────────────────────────────────────
+  if (process.env.EWPE_EMAIL) {
+    try {
+      const { getAcDevices } = await import("@/lib/ewpe-smart")
+      results.ewpe = await getAcDevices()
+    } catch (e: unknown) {
+      results.ewpeError = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  if (!process.env.SDM_PROJECT_ID && !process.env.EWELINK_EMAIL && !process.env.TUYA_CLIENT_ID && !process.env.EWPE_EMAIL) {
     return NextResponse.json({ error: "No home integrations configured" }, { status: 503 })
   }
 
@@ -68,6 +78,12 @@ export async function POST(req: NextRequest) {
   if (body.type === "tuya") {
     const { controlTuya } = await import("@/lib/tuya")
     await controlTuya(body.deviceId, body.commands)
+    return NextResponse.json({ success: true })
+  }
+
+  if (body.type === "ewpe") {
+    const { controlAc } = await import("@/lib/ewpe-smart")
+    await controlAc(body.deviceId, body.attrs)
     return NextResponse.json({ success: true })
   }
 
