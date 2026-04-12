@@ -1,0 +1,10 @@
+services:
+  ac-bridge:
+    build: .
+    network_mode: host          # shares host network — no NAT, reaches AC directly
+    restart: unless-stopped
+    environment:
+      PORT:      8088
+      GREE_MAC:  "9424b8badd3b"   # your AC's MAC (no colons)
+      GREE_IP:   "192.168.100.49" # your AC's local IP
+      GREE_NAME: "Sinclair AC"
