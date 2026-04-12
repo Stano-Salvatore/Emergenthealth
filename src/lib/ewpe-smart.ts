@@ -1,5 +1,10 @@
 // EWPE Smart / Gree Cloud API — reverse-engineered from the mobile app
 // Works for Sinclair, Gree, and other OEM AC brands using the EWPE Smart / Gree+ app
+//
+// NOTE: Gree cloud servers block datacenter IPs (like Vercel).
+// If you see "All EWPE endpoints unreachable", run scripts/ewpe-bridge.mjs
+// on your home PC, expose it via Cloudflare Tunnel, and set:
+//   EWPE_API_URL=https://<your-tunnel>.trycloudflare.com/apiv2
 
 import { createHash } from "crypto"
 
