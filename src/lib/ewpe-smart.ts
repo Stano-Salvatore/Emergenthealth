@@ -1,51 +1,64 @@
 // EWPE Smart / Gree Cloud API — reverse-engineered from the mobile app
 // Works for Sinclair, Gree, and other OEM AC brands using the EWPE Smart / Gree+ app
-// Endpoint: EU cloud (euapi.gree.com)
 
 import { createHash } from "crypto"
 
-const BASE = "https://euapi.gree.com/apiv2"
+// Try multiple known Gree cloud endpoints — override with EWPE_API_URL if needed
+const CANDIDATES = [
+  process.env.EWPE_API_URL,
+  "https://openapi.gree.com/apiv2",
+  "https://euapi.gree.com/apiv2",
+  "https://account.gree.com/apiv2",
+].filter(Boolean) as string[]
 
-// Credentials embedded in the EWPE Smart app (common across all app users)
+// Credentials embedded in the EWPE Smart / Gree+ app
 const APP_CLIENT_ID     = "8e6e58b4-c539-48b7-98c9-bd26699d4a04"
 const APP_CLIENT_SECRET = "f2d95a79-6e68-4b24-b01d-195e34f7e71b"
 
-let cached: { uid: string; token: string; expiresAt: number } | null = null
+let cached: { uid: string; token: string; base: string; expiresAt: number } | null = null
 
 function md5(str: string) {
   return createHash("md5").update(str).digest("hex")
 }
 
-async function login(): Promise<{ uid: string; token: string }> {
+async function tryLogin(base: string, email: string, password: string) {
+  try {
+    const res = await fetch(`${base}/account/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username:      email,
+        password:      md5(password),
+        client_id:     APP_CLIENT_ID,
+        client_secret: APP_CLIENT_SECRET,
+        appversion:    "4.0.0",
+        version:       "0.4.0",
+      }),
+      signal: AbortSignal.timeout(8000),
+    })
+    const data = await res.json()
+    if (data.status === 1) return { uid: String(data.data.uid), token: String(data.data.token) }
+    return null
+  } catch { return null }
+}
+
+async function login(): Promise<{ uid: string; token: string; base: string }> {
   if (cached && cached.expiresAt > Date.now() + 60_000)
-    return { uid: cached.uid, token: cached.token }
+    return { uid: cached.uid, token: cached.token, base: cached.base }
 
   const email    = process.env.EWPE_EMAIL
   const password = process.env.EWPE_PASSWORD
   if (!email || !password) throw new Error("EWPE_EMAIL and EWPE_PASSWORD not configured")
 
-  const res = await fetch(`${BASE}/account/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      username:      email,
-      password:      md5(password),
-      client_id:     APP_CLIENT_ID,
-      client_secret: APP_CLIENT_SECRET,
-      appversion:    "4.0.0",
-      version:       "0.4.0",
-    }),
-  })
-
-  const data = await res.json()
-  if (data.status !== 1) throw new Error(`EWPE login failed: ${data.msg ?? JSON.stringify(data)}`)
-
-  cached = {
-    uid:       data.data.uid,
-    token:     data.data.token,
-    expiresAt: Date.now() + 60 * 60 * 1000, // refresh after 1h to be safe
+  for (const base of CANDIDATES) {
+    const result = await tryLogin(base, email, password)
+    if (result) {
+      cached = { ...result, base, expiresAt: Date.now() + 60 * 60 * 1000 }
+      return { ...result, base }
+    }
   }
-  return { uid: cached.uid, token: cached.token }
+
+  throw new Error(`All EWPE endpoints unreachable (tried: ${CANDIDATES.join(", ")})`)
 }
 
 export interface AcDevice {
@@ -77,9 +90,9 @@ export async function getAcDevices(): Promise<{ devices: AcDevice[]; loginError?
   let loginError: string | undefined
 
   try {
-    const { uid, token } = await login()
+    const { uid, token, base } = await login()
 
-    const res = await fetch(`${BASE}/binding/getUserDeviceList`, {
+    const res = await fetch(`${base}/binding/getUserDeviceList`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ uid, token }),
@@ -96,7 +109,7 @@ export async function getAcDevices(): Promise<{ devices: AcDevice[]; loginError?
       }))
 
       await Promise.all(discovered.map(async (dev) => {
-        try { dev.attrs = await getDeviceStatus(dev.deviceId, uid, token) } catch { /* ignore */ }
+        try { dev.attrs = await getDeviceStatus(dev.deviceId, uid, token, base) } catch { /* ignore */ }
       }))
     } else {
       loginError = `Device list failed: ${data.msg ?? JSON.stringify(data)}`
@@ -105,7 +118,7 @@ export async function getAcDevices(): Promise<{ devices: AcDevice[]; loginError?
     // Merge hardcoded device if not already in list
     if (hardcodedId && !discovered.find((d) => d.deviceId === hardcodedId || d.mac === hardcodedId)) {
       const dev: AcDevice = { deviceId: hardcodedId, deviceName: hardcodedName, mac: hardcodedId, online: true }
-      try { dev.attrs = await getDeviceStatus(hardcodedId, uid, token) } catch { /* ignore */ }
+      try { dev.attrs = await getDeviceStatus(hardcodedId, uid, token, base) } catch { /* ignore */ }
       discovered.push(dev)
     }
   } catch (e) {
@@ -118,8 +131,8 @@ export async function getAcDevices(): Promise<{ devices: AcDevice[]; loginError?
   return { devices: discovered, loginError }
 }
 
-async function getDeviceStatus(deviceId: string, uid: string, token: string): Promise<AcAttrs> {
-  const res = await fetch(`${BASE}/aircon/devstatus`, {
+async function getDeviceStatus(deviceId: string, uid: string, token: string, base: string): Promise<AcAttrs> {
+  const res = await fetch(`${base}/aircon/devstatus`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ deviceId, uid, token }),
@@ -129,9 +142,9 @@ async function getDeviceStatus(deviceId: string, uid: string, token: string): Pr
 }
 
 export async function controlAc(deviceId: string, attrs: Partial<AcAttrs>): Promise<void> {
-  const { uid, token } = await login()
+  const { uid, token, base } = await login()
 
-  const res = await fetch(`${BASE}/aircon/devcontrol`, {
+  const res = await fetch(`${base}/aircon/devcontrol`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ deviceId, uid, token, attrs }),
