@@ -493,6 +493,7 @@ export default function HomePage() {
   const [sdmDevices,   setSdmDevices]   = useState<SmartDevice[]>([])
   const [tuyaDevices,  setTuyaDevices]  = useState<TuyaDevice[]>([])
   const [acDevices,    setAcDevices]    = useState<AcDevice[]>([])
+  const [errors,       setErrors]       = useState<Record<string, string>>({})
   const [loading,      setLoading]      = useState(true)
   const [notConfigured, setNotConfigured] = useState(false)
   const [lastUpdated,  setLastUpdated]  = useState<Date | null>(null)
@@ -508,6 +509,12 @@ export default function HomePage() {
       setSdmDevices((data.sdm     as SmartDevice[])   ?? [])
       setTuyaDevices((data.tuya   as TuyaDevice[])    ?? [])
       setAcDevices((data.ewpe     as AcDevice[])      ?? [])
+      const errs: Record<string, string> = {}
+      if (data.ewpeError)    errs["EWPE Smart"] = data.ewpeError
+      if (data.tuyaError)    errs["Tuya"] = data.tuyaError
+      if (data.ewelinkError) errs["eWeLink"] = data.ewelinkError
+      if (data.sdmError)     errs["Nest"] = data.sdmError
+      setErrors(errs)
       setLastUpdated(new Date())
     } finally { setLoading(false) }
   }, [])
@@ -557,6 +564,19 @@ export default function HomePage() {
       </div>
 
       {notConfigured && <SetupHint />}
+
+      {Object.entries(errors).map(([src, msg]) => (
+        <Card key={src} className="border-red-500/30">
+          <CardContent className="pt-4 pb-4 flex gap-3">
+            <AlertCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-medium text-red-400">{src} error</p>
+              <p className="text-xs text-muted-foreground mt-0.5 font-mono">{msg}</p>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+
       {!notConfigured && loading && !hasAny && (
         <p className="text-muted-foreground text-sm py-8 text-center">Loading devices…</p>
       )}

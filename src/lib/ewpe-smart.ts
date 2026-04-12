@@ -70,38 +70,48 @@ export interface AcAttrs {
 }
 
 export async function getAcDevices(): Promise<AcDevice[]> {
-  const { uid, token } = await login()
-
-  const res = await fetch(`${BASE}/binding/getUserDeviceList`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ uid, token }),
-    cache: "no-store",
-  })
-
-  const data = await res.json()
-  if (data.status !== 1) throw new Error(`EWPE devices failed: ${data.msg ?? JSON.stringify(data)}`)
-
-  const discovered: AcDevice[] = (data.data?.devices ?? data.data ?? []).map((d: Record<string, unknown>) => ({
-    deviceId:   String(d.deviceId ?? d.mac),
-    deviceName: String(d.deviceName ?? d.alias ?? "AC"),
-    mac:        String(d.mac ?? ""),
-    online:     Boolean(d.online ?? d.isOnline),
-  }))
-
-  // Merge in any hardcoded device from env vars (fallback if discovery misses it)
-  const hardcodedId  = process.env.EWPE_DEVICE_ID   // e.g. 9424b8badd3b
+  const hardcodedId   = process.env.EWPE_DEVICE_ID
   const hardcodedName = process.env.EWPE_DEVICE_NAME ?? "Sinclair AC"
-  if (hardcodedId && !discovered.find((d) => d.deviceId === hardcodedId || d.mac === hardcodedId)) {
-    discovered.push({ deviceId: hardcodedId, deviceName: hardcodedName, mac: hardcodedId, online: true })
-  }
 
-  // Fetch current state for each device
-  await Promise.all(discovered.map(async (dev) => {
-    try {
-      dev.attrs = await getDeviceStatus(dev.deviceId, uid, token)
-    } catch { /* ignore if status fetch fails */ }
-  }))
+  let discovered: AcDevice[] = []
+
+  try {
+    const { uid, token } = await login()
+
+    const res = await fetch(`${BASE}/binding/getUserDeviceList`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ uid, token }),
+      cache: "no-store",
+    })
+
+    const data = await res.json()
+    if (data.status === 1) {
+      discovered = (data.data?.devices ?? data.data ?? []).map((d: Record<string, unknown>) => ({
+        deviceId:   String(d.deviceId ?? d.mac),
+        deviceName: String(d.deviceName ?? d.alias ?? "AC"),
+        mac:        String(d.mac ?? ""),
+        online:     Boolean(d.online ?? d.isOnline ?? true),
+      }))
+
+      // Fetch current state for each discovered device
+      await Promise.all(discovered.map(async (dev) => {
+        try { dev.attrs = await getDeviceStatus(dev.deviceId, uid, token) } catch { /* ignore */ }
+      }))
+    }
+
+    // Merge hardcoded device if not already in list
+    if (hardcodedId && !discovered.find((d) => d.deviceId === hardcodedId || d.mac === hardcodedId)) {
+      const dev: AcDevice = { deviceId: hardcodedId, deviceName: hardcodedName, mac: hardcodedId, online: true }
+      try { dev.attrs = await getDeviceStatus(hardcodedId, uid, token) } catch { /* ignore */ }
+      discovered.push(dev)
+    }
+  } catch {
+    // Login failed — still show the hardcoded device so the card appears
+    if (hardcodedId) {
+      discovered = [{ deviceId: hardcodedId, deviceName: hardcodedName, mac: hardcodedId, online: false }]
+    }
+  }
 
   return discovered
 }
