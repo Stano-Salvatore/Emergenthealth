@@ -44,7 +44,9 @@ export async function GET() {
   if (process.env.EWPE_EMAIL) {
     try {
       const { getAcDevices } = await import("@/lib/ewpe-smart")
-      results.ewpe = await getAcDevices()
+      const { devices, loginError } = await getAcDevices()
+      results.ewpe = devices
+      if (loginError) results.ewpeError = loginError
     } catch (e: unknown) {
       results.ewpeError = e instanceof Error ? e.message : String(e)
     }

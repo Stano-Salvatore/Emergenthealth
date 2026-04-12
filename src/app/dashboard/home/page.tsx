@@ -365,10 +365,16 @@ function AcCard({ device, onControl }: {
   const curTemp = a?.TemSen
   const fanSpd = a?.WdSpd ?? 0
   const [busy, setBusy] = useState(false)
+  const [controlError, setControlError] = useState<string | null>(null)
 
   async function send(attrs: Record<string, unknown>) {
     setBusy(true)
-    await onControl(device.deviceId, attrs)
+    setControlError(null)
+    try {
+      await onControl(device.deviceId, attrs)
+    } catch (e) {
+      setControlError(e instanceof Error ? e.message : String(e))
+    }
     setBusy(false)
   }
 
@@ -391,15 +397,19 @@ function AcCard({ device, onControl }: {
               : <WifiOff className="h-3.5 w-3.5 text-muted-foreground" />}
             <button
               onClick={() => send({ Pow: isOn ? 0 : 1 })}
-              disabled={busy || !device.online}
+              disabled={busy}
               className={`px-3 py-1 rounded-full text-xs border transition-colors disabled:opacity-50 ${
                 isOn ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"
               }`}
             >
-              {isOn ? "ON" : "OFF"}
+              {busy ? "…" : isOn ? "ON" : "OFF"}
             </button>
           </div>
         </div>
+
+        {controlError && (
+          <p className="text-xs text-red-400 font-mono break-all">{controlError}</p>
+        )}
 
         {isOn && (
           <>

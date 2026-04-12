@@ -69,11 +69,12 @@ export interface AcAttrs {
   SwUpDn:    number  // vertical swing
 }
 
-export async function getAcDevices(): Promise<AcDevice[]> {
+export async function getAcDevices(): Promise<{ devices: AcDevice[]; loginError?: string }> {
   const hardcodedId   = process.env.EWPE_DEVICE_ID
   const hardcodedName = process.env.EWPE_DEVICE_NAME ?? "Sinclair AC"
 
   let discovered: AcDevice[] = []
+  let loginError: string | undefined
 
   try {
     const { uid, token } = await login()
@@ -94,10 +95,11 @@ export async function getAcDevices(): Promise<AcDevice[]> {
         online:     Boolean(d.online ?? d.isOnline ?? true),
       }))
 
-      // Fetch current state for each discovered device
       await Promise.all(discovered.map(async (dev) => {
         try { dev.attrs = await getDeviceStatus(dev.deviceId, uid, token) } catch { /* ignore */ }
       }))
+    } else {
+      loginError = `Device list failed: ${data.msg ?? JSON.stringify(data)}`
     }
 
     // Merge hardcoded device if not already in list
@@ -106,14 +108,14 @@ export async function getAcDevices(): Promise<AcDevice[]> {
       try { dev.attrs = await getDeviceStatus(hardcodedId, uid, token) } catch { /* ignore */ }
       discovered.push(dev)
     }
-  } catch {
-    // Login failed — still show the hardcoded device so the card appears
+  } catch (e) {
+    loginError = e instanceof Error ? e.message : String(e)
     if (hardcodedId) {
       discovered = [{ deviceId: hardcodedId, deviceName: hardcodedName, mac: hardcodedId, online: false }]
     }
   }
 
-  return discovered
+  return { devices: discovered, loginError }
 }
 
 async function getDeviceStatus(deviceId: string, uid: string, token: string): Promise<AcAttrs> {
