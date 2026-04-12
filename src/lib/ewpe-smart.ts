@@ -9,8 +9,10 @@
 import { createHash } from "crypto"
 
 // Try multiple known Gree cloud endpoints — override with EWPE_API_URL if needed
+// eugrih.gree.com is the real EU endpoint (CNAME → AWS eu-central-1 Frankfurt)
 const CANDIDATES = [
   process.env.EWPE_API_URL,
+  "https://eugrih.gree.com/apiv2",
   "https://openapi.gree.com/apiv2",
   "https://euapi.gree.com/apiv2",
   "https://account.gree.com/apiv2",

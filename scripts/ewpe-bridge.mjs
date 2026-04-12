@@ -23,7 +23,9 @@ import https from "https"
 const PORT = Number(process.env.PORT ?? 3001)
 
 // Try these Gree endpoints in order — first one that responds wins
+// eugrih.gree.com is the real EU endpoint (CNAME → AWS eu-central-1 Frankfurt)
 const GREE_HOSTS = [
+  "eugrih.gree.com",
   "euapi.gree.com",
   "openapi.gree.com",
   "account.gree.com",
