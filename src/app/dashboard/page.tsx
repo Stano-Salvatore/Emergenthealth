@@ -13,6 +13,7 @@ import {
 import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"
 import { LiveClock } from "@/components/dashboard/LiveClock"
 import { WeatherWidget } from "@/components/dashboard/WeatherWidget"
+import { AcCard } from "@/components/dashboard/AcCard"
 
 const STEP_GOAL = 8_000
 
@@ -528,6 +529,11 @@ export default async function DashboardPage() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+        {/* Sinclair AC */}
+        <AcCard />
+
       </div>
     </div>
   )
