@@ -134,7 +134,7 @@ http.createServer((req, res) => {
   let body = ""
   req.on("data", c => body += c)
   req.on("end", async () => {
-    const route = `${req.method} ${req.url}`
+    const route = `${req.method} ${req.url.replace(/^\/apiv2/, "") || "/"}` // normalise — accept with or without /apiv2 prefix
     const ts    = new Date().toISOString().slice(11, 19)
     console.log(`[${ts}] ${route}`)
 
