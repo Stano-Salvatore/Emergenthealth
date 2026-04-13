@@ -6,8 +6,8 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const results: {
-    sdm?: unknown; ewelink?: unknown; tuya?: unknown; ewpe?: unknown
-    sdmError?: string; ewelinkError?: string; tuyaError?: string; ewpeError?: string
+    sdm?: unknown; ewelink?: unknown; tuya?: unknown; ewpe?: unknown; rowenta?: unknown
+    sdmError?: string; ewelinkError?: string; tuyaError?: string; ewpeError?: string; rowentaError?: string
   } = {}
 
   // ── Google Nest (SDM) ─────────────────────────────────────────────────────
@@ -49,6 +49,20 @@ export async function GET() {
       if (loginError) results.ewpeError = loginError
     } catch (e: unknown) {
       results.ewpeError = e instanceof Error ? e.message : String(e)
+    }
+  }
+
+  // ── Rowenta Vacuum (via bridge) ──────────────────────────────────────────────
+  const bridgeUrl = process.env.EWPE_API_URL?.replace(/\/apiv2\/?$/, "") || process.env.BRIDGE_URL
+  if (bridgeUrl) {
+    try {
+      const res = await fetch(`${bridgeUrl}/vacuum/status`, {
+        signal: AbortSignal.timeout(8000),
+        cache: "no-store",
+      })
+      results.rowenta = await res.json()
+    } catch (e: unknown) {
+      results.rowentaError = e instanceof Error ? e.message : String(e)
     }
   }
 

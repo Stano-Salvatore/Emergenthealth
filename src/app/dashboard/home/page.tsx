@@ -7,6 +7,7 @@ import {
   RefreshCw, ChevronUp, ChevronDown, Square,
   Wifi, WifiOff, Radio, Thermometer, AlertCircle,
   Pencil, Check, Plug, Lightbulb, Bot, ToggleLeft, ToggleRight,
+  Battery, BatteryCharging, BatteryFull, BatteryLow, BatteryMedium,
 } from "lucide-react"
 import type { EwelinkDevice } from "@/lib/ewelink"
 import type { SmartDevice } from "@/lib/google-home"
@@ -182,6 +183,121 @@ function RobotCard({ device, onControl }: {
             Return home
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Rowenta Vacuum card ──────────────────────────────────────────────────────
+
+interface RowentaStatus {
+  batteryLevel: number | null
+  charging: boolean
+  mode: string
+  online: boolean
+  error: string | null
+  statistics: {
+    totalRuns: number
+    totalDistanceMeters: number
+    totalCleanTimeSecs: number
+  } | null
+}
+
+function BatteryIcon({ level, charging }: { level: number | null; charging: boolean }) {
+  if (charging) return <BatteryCharging className="h-4 w-4 text-green-400" />
+  if (level == null) return <Battery className="h-4 w-4 text-muted-foreground" />
+  if (level >= 80)  return <BatteryFull    className="h-4 w-4 text-green-400" />
+  if (level >= 40)  return <BatteryMedium  className="h-4 w-4 text-yellow-400" />
+  return <BatteryLow className="h-4 w-4 text-red-400" />
+}
+
+function RowentaCard({ status }: { status: RowentaStatus | null }) {
+  const modeLabel: Record<string, string> = {
+    auto: "Auto", spot: "Spot", edge: "Edge", manual: "Manual",
+    cleaning: "Cleaning", returning: "Returning to dock",
+    paused: "Paused", charging: "Charging", idle: "Idle", standby: "Standby",
+  }
+
+  const isCleaning = status?.mode === "cleaning" || status?.mode === "auto" || status?.mode === "spot"
+
+  return (
+    <Card>
+      <CardContent className="pt-5 pb-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Bot className="h-4 w-4 text-primary" />
+            <span className="text-sm font-medium">Rowenta X-Plorer 80</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {status?.batteryLevel != null && (
+              <span className="text-xs text-muted-foreground">{status.batteryLevel}%</span>
+            )}
+            <BatteryIcon level={status?.batteryLevel ?? null} charging={status?.charging ?? false} />
+            {status?.online
+              ? <Wifi    className="h-3.5 w-3.5 text-green-400" />
+              : <WifiOff className="h-3.5 w-3.5 text-muted-foreground" />
+            }
+          </div>
+        </div>
+
+        {status?.batteryLevel != null && (
+          <div className="mb-3">
+            <div className="flex-1 h-1.5 bg-secondary rounded-full">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  status.charging ? "bg-green-400" :
+                  status.batteryLevel >= 50 ? "bg-primary" :
+                  status.batteryLevel >= 20 ? "bg-yellow-400" : "bg-red-400"
+                }`}
+                style={{ width: `${status.batteryLevel}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs text-muted-foreground capitalize mb-3">
+          {status == null ? "Loading…" :
+           !status.online ? (status.error ?? "Offline") :
+           modeLabel[status.mode] ?? status.mode}
+        </p>
+
+        {status?.statistics && (
+          <div className="grid grid-cols-3 gap-2 pt-2 border-t">
+            <div className="text-center">
+              <p className="text-xs font-semibold">{status.statistics.totalRuns ?? "—"}</p>
+              <p className="text-[10px] text-muted-foreground">Runs</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs font-semibold">
+                {status.statistics.totalDistanceMeters != null
+                  ? `${(status.statistics.totalDistanceMeters / 1000).toFixed(1)} km`
+                  : "—"}
+              </p>
+              <p className="text-[10px] text-muted-foreground">Distance</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs font-semibold">
+                {status.statistics.totalCleanTimeSecs != null
+                  ? `${Math.round(status.statistics.totalCleanTimeSecs / 3600)} h`
+                  : "—"}
+              </p>
+              <p className="text-[10px] text-muted-foreground">Clean time</p>
+            </div>
+          </div>
+        )}
+
+        {!status?.online && !status?.error && (
+          <p className="text-[10px] text-muted-foreground mt-2">
+            Make sure the bridge is running and ROWENTA_IP is set in scripts/.env
+          </p>
+        )}
+
+        {isCleaning && (
+          <div className="mt-3 flex items-center gap-1.5">
+            <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+            <span className="text-xs text-primary">Cleaning in progress</span>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
@@ -503,6 +619,7 @@ export default function HomePage() {
   const [sdmDevices,   setSdmDevices]   = useState<SmartDevice[]>([])
   const [tuyaDevices,  setTuyaDevices]  = useState<TuyaDevice[]>([])
   const [acDevices,    setAcDevices]    = useState<AcDevice[]>([])
+  const [rowenta,      setRowenta]      = useState<RowentaStatus | null>(null)
   const [errors,       setErrors]       = useState<Record<string, string>>({})
   const [loading,      setLoading]      = useState(true)
   const [notConfigured, setNotConfigured] = useState(false)
@@ -519,11 +636,13 @@ export default function HomePage() {
       setSdmDevices((data.sdm     as SmartDevice[])   ?? [])
       setTuyaDevices((data.tuya   as TuyaDevice[])    ?? [])
       setAcDevices((data.ewpe     as AcDevice[])      ?? [])
+      if (data.rowenta) setRowenta(data.rowenta as RowentaStatus)
       const errs: Record<string, string> = {}
       if (data.ewpeError)    errs["EWPE Smart"] = data.ewpeError
       if (data.tuyaError)    errs["Tuya"] = data.tuyaError
       if (data.ewelinkError) errs["eWeLink"] = data.ewelinkError
       if (data.sdmError)     errs["Nest"] = data.sdmError
+      if (data.rowentaError) errs["Rowenta"] = data.rowentaError
       setErrors(errs)
       setLastUpdated(new Date())
     } finally { setLoading(false) }
@@ -559,7 +678,7 @@ export default function HomePage() {
   const plugs       = tuyaDevices.filter(isPlug)
   const lights      = tuyaDevices.filter(isLight)
   const robots      = tuyaDevices.filter(isRobot)
-  const hasAny      = rfBridges.length + thermostats.length + plugs.length + lights.length + robots.length + acDevices.length > 0
+  const hasAny      = rfBridges.length + thermostats.length + plugs.length + lights.length + robots.length + acDevices.length > 0 || rowenta != null
 
   return (
     <div className="space-y-6">
@@ -609,6 +728,17 @@ export default function HomePage() {
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {acDevices.map((d) => <AcCard key={d.deviceId} device={d} onControl={handleAc} />)}
+          </div>
+        </div>
+      )}
+
+      {rowenta != null && (
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+            <Bot className="h-4 w-4" /> Robot Vacuum
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <RowentaCard status={rowenta} />
           </div>
         </div>
       )}

@@ -22,8 +22,23 @@
 
 import http from "http"
 import https from "https"
+import fs from "fs"
+import path from "path"
+import { fileURLToPath } from "url"
 
 const PORT = Number(process.env.PORT ?? 3001)
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// ── Load .env from scripts/ directory ────────────────────────────────────────
+const envPath = path.join(__dirname, ".env")
+if (fs.existsSync(envPath)) {
+  fs.readFileSync(envPath, "utf8").split("\n").forEach((line) => {
+    const [k, ...v] = line.trim().split("=")
+    if (k && !k.startsWith("#") && v.length) process.env[k] = v.join("=")
+  })
+}
+
+let ROWENTA_IP = process.env.ROWENTA_IP || null
 const START_TIME = Date.now()
 
 // Try Gree endpoints in order — first to return a valid {status:…} wins
@@ -36,6 +51,43 @@ const GREE_HOSTS = [
 ]
 
 const stats = { requests: 0, successes: 0, errors: 0 }
+
+// ── Rowenta vacuum helpers ────────────────────────────────────────────────────
+
+function httpGetLocal(url, timeoutMs = 6000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("HTTP timeout")), timeoutMs)
+    http.get(url, (res) => {
+      const chunks = []
+      res.on("data", (c) => chunks.push(c))
+      res.on("end", () => {
+        clearTimeout(timer)
+        try { resolve(JSON.parse(Buffer.concat(chunks).toString())) }
+        catch (e) { reject(e) }
+      })
+    }).on("error", (e) => { clearTimeout(timer); reject(e) })
+  })
+}
+
+async function getVacuumStatus() {
+  if (!ROWENTA_IP) throw new Error("Vacuum IP not configured. Set ROWENTA_IP in scripts/.env")
+  const [status, statsData] = await Promise.all([
+    httpGetLocal(`http://${ROWENTA_IP}:8080/get/status`).catch((e) => ({ _error: e.message })),
+    httpGetLocal(`http://${ROWENTA_IP}:8080/get/statistics`).catch((e) => ({ _error: e.message })),
+  ])
+  return {
+    batteryLevel:  status.battery_level != null ? Math.round(status.battery_level / 100) : null,
+    charging:      status.charging === "charging",
+    mode:          status.mode || "unknown",
+    online:        !status._error,
+    error:         status._error || null,
+    statistics:    statsData._error ? null : {
+      totalRuns:           statsData.runs,
+      totalDistanceMeters: statsData.distance,
+      totalCleanTimeSecs:  statsData.clean_time,
+    },
+  }
+}
 
 function proxyRequest(host, path, method, body) {
   return new Promise((resolve, reject) => {
@@ -65,6 +117,36 @@ function proxyRequest(host, path, method, body) {
 }
 
 const server = http.createServer((req, res) => {
+  // ── Vacuum status ─────────────────────────────────────────────
+  if (req.url === "/vacuum/status" && req.method === "GET") {
+    res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" })
+    getVacuumStatus()
+      .then((data) => res.end(JSON.stringify(data)))
+      .catch((e) => res.end(JSON.stringify({ online: false, error: e.message })))
+    return
+  }
+
+  // ── Vacuum IP configuration ────────────────────────────────────
+  if (req.url === "/vacuum/configure" && req.method === "POST") {
+    let body = ""
+    req.on("data", (c) => (body += c))
+    req.on("end", () => {
+      try {
+        const { ip } = JSON.parse(body)
+        if (!ip) { res.writeHead(400); res.end(JSON.stringify({ error: "Missing ip" })); return }
+        ROWENTA_IP = ip
+        const envContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf8") : ""
+        const updated = envContent.includes("ROWENTA_IP=")
+          ? envContent.replace(/ROWENTA_IP=.*/, `ROWENTA_IP=${ip}`)
+          : envContent + `\nROWENTA_IP=${ip}\n`
+        fs.writeFileSync(envPath, updated)
+        res.writeHead(200, { "Content-Type": "application/json" })
+        res.end(JSON.stringify({ success: true, ip }))
+      } catch (e) { res.writeHead(400); res.end(JSON.stringify({ error: e.message })) }
+    })
+    return
+  }
+
   // ── Health check endpoint (used by start-bridge.sh) ──────────
   if (req.url === "/health" || req.url === "/") {
     res.writeHead(200, { "Content-Type": "application/json" })

@@ -534,7 +534,6 @@ export default async function DashboardPage() {
         {/* Sinclair AC */}
         <AcCard />
 
-      </div>
     </div>
   )
 }
