@@ -1,0 +1,5 @@
+name = "emergenthealth-ac-bridge"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+
+# Free tier: 100,000 requests/day — more than enough for a personal dashboard
