@@ -134,7 +134,9 @@ http.createServer((req, res) => {
   let body = ""
   req.on("data", c => body += c)
   req.on("end", async () => {
-    const route = `${req.method} ${req.url.replace(/^\/apiv2/, "") || "/"}` // normalise — accept with or without /apiv2 prefix
+    // Normalise: ensure /apiv2 prefix so ROUTES always match regardless of EWPE_API_URL format
+    const normUrl = req.url.startsWith("/apiv2") ? req.url : `/apiv2${req.url}`
+    const route = `${req.method} ${normUrl}`
     const ts    = new Date().toISOString().slice(11, 19)
     console.log(`[${ts}] ${route}`)
 
