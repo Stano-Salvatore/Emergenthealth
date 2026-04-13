@@ -10,8 +10,10 @@ import { createHash } from "crypto"
 
 // Try multiple known Gree cloud endpoints — override with EWPE_API_URL if needed
 // eugrih.gree.com is the real EU endpoint (CNAME → AWS eu-central-1 Frankfurt)
+// BRIDGE_URL points to the local Cloudflare tunnel bridge running on your home PC
 const CANDIDATES = [
   process.env.EWPE_API_URL,
+  process.env.BRIDGE_URL ? `${process.env.BRIDGE_URL.replace(/\/+$/, "")}/apiv2` : undefined,
   "https://eugrih.gree.com/apiv2",
   "https://openapi.gree.com/apiv2",
   "https://euapi.gree.com/apiv2",
