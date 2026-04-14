@@ -58,11 +58,20 @@ function udp(payload, ms = 4000) {
 
 async function bind() {
   console.log(`Binding to ${IP}:${AC_PORT} (MAC ${MAC})…`)
+
+  // Step 1: scan to wake the device (some firmware requires this before bind)
+  try {
+    await udp({ t: "scan" }, 3000)
+    console.log("  scan ok")
+  } catch { /* ignore — carry on to bind even if scan times out */ }
+
+  // Step 2: send bind
   const r = await udp({
     cid: "app", i: 1,
     pack: enc({ mac: MAC, t: "bind", uid: 0 }, GKEY),
     t: "pack", tcid: MAC, uid: 0,
   }, 6000)
+
   const result = dec(r.pack, GKEY)
   if (result.t !== "bindok") throw new Error("bind failed: " + JSON.stringify(result))
   devKey = result.key
