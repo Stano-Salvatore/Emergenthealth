@@ -18,12 +18,54 @@ import crypto from "node:crypto"
 const PORT    = Number(process.env.PORT     ?? 8088)
 const AC_PORT = 7000
 const MAC     = (process.env.GREE_MAC ?? "9424b8badd3b").toLowerCase().replace(/:/g, "")
-const IP      = process.env.GREE_IP  ?? "192.168.100.49"
 const NAME    = process.env.GREE_NAME ?? "Sinclair AC"
+const SCAN_NET = process.env.GREE_SCAN_NET ?? "192.168.100"   // e.g. "10.0.1"
 const GKEY    = "a3K8Bx%2r8Y7#xDh"
 
 // ── Device key — obtained from EWPE Smart app, no LAN bind needed ─────────────
 let devKey = process.env.GREE_DEV_KEY ?? "60230602AA85C1BF"
+
+// ── Dynamic IP discovery ────────────────────────────────────────────────────
+// Prefer env override; otherwise scan the LAN to find the AC's current IP
+let IP = process.env.GREE_IP ?? null
+let ipDiscoveredAt = 0
+const IP_TTL = 5 * 60 * 1000  // re-discover after 5 minutes
+
+async function discoverIp() {
+  if (IP && Date.now() - ipDiscoveredAt < IP_TTL) return IP
+  console.log(`[discover] Scanning ${SCAN_NET}.1-254 for MAC ${MAC}…`)
+  const pkt = Buffer.from(JSON.stringify({ t: "scan" }))
+  return new Promise((resolve) => {
+    const s = dgram.createSocket({ type: "udp4", reuseAddr: true })
+    let found = null
+    s.bind(0, () => {
+      s.on("message", (msg, rinfo) => {
+        try {
+          const data = JSON.parse(msg.toString())
+          const mac = (data.cid ?? data.mac ?? "").toLowerCase().replace(/[^0-9a-f]/g, "")
+          if (mac === MAC) {
+            found = rinfo.address
+            console.log(`[discover] Found AC at ${found}`)
+            clearTimeout(timer)
+            s.close()
+            IP = found
+            ipDiscoveredAt = Date.now()
+            resolve(found)
+          }
+        } catch {}
+      })
+      for (let i = 1; i <= 254; i++) s.send(pkt, AC_PORT, `${SCAN_NET}.${i}`)
+    })
+    const timer = setTimeout(() => {
+      try { s.close() } catch {}
+      if (!found) {
+        console.warn(`[discover] AC not found on ${SCAN_NET}.0/24`)
+        // Keep using last known IP if we have one
+        resolve(IP)
+      }
+    }, 5000)
+  })
+}
 
 // ── Crypto ────────────────────────────────────────────────────────────────────
 
@@ -51,7 +93,8 @@ function udp(payload, ms = 4000) {
     s.on("message", m => end(() => { try { resolve(JSON.parse(m.toString())) } catch (e) { reject(e) } }))
     s.on("error",   e => end(() => reject(e)))
     setTimeout(()  => end(() => reject(new Error("UDP timeout"))), ms)
-    s.send(Buffer.from(JSON.stringify(payload)), AC_PORT, IP, e => { if (e) end(() => reject(e)) })
+    // IP may be null if AC not yet discovered — caller ensures discoverIp() ran first
+    s.send(Buffer.from(JSON.stringify(payload)), AC_PORT, IP ?? "192.168.100.49", e => { if (e) end(() => reject(e)) })
   })
 }
 
@@ -87,6 +130,7 @@ const STATUS_COLS = [
 ]
 
 async function getStatus() {
+  await discoverIp()
   if (!devKey) await bind()
   const r = await udp({
     cid: "app", i: 0,
@@ -100,6 +144,7 @@ async function getStatus() {
 }
 
 async function setControl(attrs) {
+  await discoverIp()
   if (!devKey) await bind()
   const keys = Object.keys(attrs)
   const vals = Object.values(attrs)
@@ -135,7 +180,7 @@ const ROUTES = {
     return { status: 1 }
   },
 
-  "GET /health": async () => ({ ok: true, devKey: devKey ? "bound" : "unbound" }),
+  "GET /health": async () => ({ ok: true, ip: IP, mac: MAC, devKey: devKey ? "set" : "unset" }),
 }
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
@@ -175,7 +220,8 @@ http.createServer((req, res) => {
 }).listen(PORT, "0.0.0.0", () => {
   console.log("")
   console.log(`  AC Bridge running on http://localhost:${PORT}`)
-  console.log(`  AC: ${NAME}  MAC=${MAC}  IP=${IP}:${AC_PORT}`)
+  console.log(`  AC: ${NAME}  MAC=${MAC}`)
+  console.log(`  Scan net: ${SCAN_NET}.0/24  (override: GREE_IP=x.x.x.x)`)
   console.log(`  devKey: ${devKey}  (pre-set — no LAN bind required)`)
   console.log("")
   console.log("  Next: expose via Cloudflare Tunnel:")
