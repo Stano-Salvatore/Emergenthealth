@@ -22,7 +22,8 @@ const IP      = process.env.GREE_IP  ?? "192.168.100.49"
 const NAME    = process.env.GREE_NAME ?? "Sinclair AC"
 const GKEY    = "a3K8Bx%2r8Y7#xDh"
 
-let devKey = null
+// ── Device key — obtained from EWPE Smart app, no LAN bind needed ─────────────
+let devKey = process.env.GREE_DEV_KEY ?? "60230602AA85C1BF"
 
 // ── Crypto ────────────────────────────────────────────────────────────────────
 
@@ -166,8 +167,7 @@ http.createServer((req, res) => {
       res.end(JSON.stringify(result))
     } catch (e) {
       console.error(`  → FAIL: ${e.message}`)
-      // If devKey is stale (e.g. AC rebooted), clear it so next request re-binds
-      if (e.message.includes("UDP timeout") || e.message.includes("bind")) devKey = null
+      // devKey is hardcoded — do not clear it on timeout
       res.writeHead(500)
       res.end(JSON.stringify({ status: 0, msg: e.message }))
     }
@@ -176,6 +176,7 @@ http.createServer((req, res) => {
   console.log("")
   console.log(`  AC Bridge running on http://localhost:${PORT}`)
   console.log(`  AC: ${NAME}  MAC=${MAC}  IP=${IP}:${AC_PORT}`)
+  console.log(`  devKey: ${devKey}  (pre-set — no LAN bind required)`)
   console.log("")
   console.log("  Next: expose via Cloudflare Tunnel:")
   console.log("    npx cloudflared tunnel --url http://localhost:" + PORT)
