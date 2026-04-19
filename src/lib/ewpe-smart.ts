@@ -55,9 +55,8 @@ async function login(): Promise<{ uid: string; token: string; base: string }> {
   if (cached && cached.expiresAt > Date.now() + 60_000)
     return { uid: cached.uid, token: cached.token, base: cached.base }
 
-  const email    = process.env.EWPE_EMAIL
-  const password = process.env.EWPE_PASSWORD
-  if (!email || !password) throw new Error("EWPE_EMAIL and EWPE_PASSWORD not configured")
+  const email    = process.env.EWPE_EMAIL    ?? "bridge@local"
+  const password = process.env.EWPE_PASSWORD ?? "bridge"
 
   for (const base of CANDIDATES) {
     const result = await tryLogin(base, email, password)

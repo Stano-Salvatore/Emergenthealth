@@ -41,7 +41,7 @@ export async function GET() {
   }
 
   // ── EWPE Smart / Sinclair AC ─────────────────────────────────────────────
-  if (process.env.EWPE_EMAIL) {
+  if (process.env.EWPE_EMAIL || process.env.EWPE_API_URL) {
     try {
       const { getAcDevices } = await import("@/lib/ewpe-smart")
       const { devices, loginError } = await getAcDevices()
@@ -66,7 +66,7 @@ export async function GET() {
     }
   }
 
-  if (!process.env.SDM_PROJECT_ID && !process.env.EWELINK_EMAIL && !process.env.TUYA_CLIENT_ID && !process.env.EWPE_EMAIL) {
+  if (!process.env.SDM_PROJECT_ID && !process.env.EWELINK_EMAIL && !process.env.TUYA_CLIENT_ID && !process.env.EWPE_EMAIL && !process.env.EWPE_API_URL) {
     return NextResponse.json({ error: "No home integrations configured" }, { status: 503 })
   }
 
