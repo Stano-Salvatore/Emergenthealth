@@ -138,7 +138,7 @@ export function AcCard() {
               <span className="text-xs leading-tight">{error}</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Start the bridge on your home PC and set EWPE_API_URL in Vercel.
+              Bridge must run on a device connected to your home WiFi (192.168.100.x), not the Chromebook. Run <code className="text-xs bg-muted px-1 rounded">node docker/ac-bridge/bridge.mjs</code> on a Windows/Mac/Pi on your LAN, expose with cloudflared, then set EWPE_API_URL in Vercel.
             </p>
           </div>
         ) : device ? (
