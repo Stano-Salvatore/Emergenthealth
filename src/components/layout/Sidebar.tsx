@@ -12,6 +12,7 @@ import {
   MessageSquare,
   LayoutDashboard,
   Home,
+  Settings,
 } from "lucide-react"
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
   { href: "/dashboard/reminders", label: "Reminders", icon: Bell },
   { href: "/dashboard/home", label: "Home", icon: Home },
   { href: "/dashboard/chat", label: "Claude AI", icon: MessageSquare },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ]
 
 export function Sidebar() {
