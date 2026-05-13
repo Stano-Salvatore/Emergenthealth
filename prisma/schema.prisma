@@ -24,6 +24,8 @@ model User {
   habits       Habit[]
   reminders    Reminder[]
   chatMessages ChatMessage[]
+  mcpApiKeys   McpApiKey[]
+  fitToken     FitToken?
 }
 
 model Account {
@@ -188,4 +190,31 @@ model ChatMessage {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+// ─── MCP / Google Fit ────────────────────────────────────────────────────────
+
+model McpApiKey {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  name      String   @default("Default")
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model FitToken {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  accessToken  String    @db.Text
+  refreshToken String?   @db.Text
+  expiresAt    DateTime?
+  scope        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
