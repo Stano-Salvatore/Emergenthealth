@@ -19,10 +19,24 @@ export const runtime = "nodejs"
 
 async function resolveUser(req: NextRequest): Promise<string | null> {
   const auth = req.headers.get("authorization") ?? ""
-  if (!auth.startsWith("Bearer ")) return null
-  const token = auth.slice(7).trim()
-  const key = await prisma.mcpApiKey.findUnique({ where: { token } })
-  return key?.userId ?? null
+
+  if (auth.startsWith("Bearer ")) {
+    const token = auth.slice(7).trim()
+    const key = await prisma.mcpApiKey.findUnique({ where: { token } })
+    return key?.userId ?? null
+  }
+
+  // Also accept Basic auth where the password is the MCP key
+  if (auth.startsWith("Basic ")) {
+    const decoded = Buffer.from(auth.slice(6), "base64").toString()
+    const password = decoded.split(":")[1]
+    if (password) {
+      const key = await prisma.mcpApiKey.findUnique({ where: { token: password } })
+      return key?.userId ?? null
+    }
+  }
+
+  return null
 }
 
 function buildMcpServer(userId: string): McpServer {
@@ -122,9 +136,16 @@ function buildMcpServer(userId: string): McpServer {
 async function handleMcp(req: NextRequest): Promise<Response> {
   const userId = await resolveUser(req)
   if (!userId) {
+    const origin = new URL(req.url).origin
     return new Response(
       JSON.stringify({ error: "Unauthorized. Provide a Bearer token from /api/mcp/key" }),
-      { status: 401, headers: { "Content-Type": "application/json" } },
+      {
+        status: 401,
+        headers: {
+          "Content-Type": "application/json",
+          "WWW-Authenticate": `Bearer realm="${origin}", resource_metadata="${origin}/.well-known/oauth-protected-resource", as_uri="${origin}"`,
+        },
+      },
     )
   }
 
