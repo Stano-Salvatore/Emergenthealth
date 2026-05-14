@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
 
   if (error || !code || !userId) {
     return NextResponse.redirect(
-      new URL(`/dashboard/health?fit_error=${error ?? "missing_code"}`, req.url),
+      new URL(`/dashboard/settings?fit_error=${error ?? "missing_code"}`, req.url),
     )
   }
 
@@ -23,24 +23,40 @@ export async function GET(req: NextRequest) {
     callbackUrl,
   )
 
-  const { tokens } = await oauth2.getToken(code)
+  let tokens: Awaited<ReturnType<typeof oauth2.getToken>>["tokens"]
+  try {
+    const result = await oauth2.getToken(code)
+    tokens = result.tokens
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error("[fit-auth/callback] getToken error:", msg)
+    // invalid_grant usually means code was replayed — send user back to re-auth
+    const reason = msg.includes("invalid_grant") ? "invalid_grant" : "token_error"
+    return NextResponse.redirect(new URL(`/dashboard/settings?fit_error=${reason}`, req.url))
+  }
 
-  await prisma.fitToken.upsert({
-    where: { userId },
-    create: {
-      userId,
-      accessToken: tokens.access_token!,
-      refreshToken: tokens.refresh_token ?? null,
-      expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-      scope: tokens.scope ?? null,
-    },
-    update: {
-      accessToken: tokens.access_token!,
-      ...(tokens.refresh_token && { refreshToken: tokens.refresh_token }),
-      expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-      scope: tokens.scope ?? null,
-    },
-  })
+  try {
+    await prisma.fitToken.upsert({
+      where: { userId },
+      create: {
+        userId,
+        accessToken: tokens.access_token!,
+        refreshToken: tokens.refresh_token ?? null,
+        expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+        scope: tokens.scope ?? null,
+      },
+      update: {
+        accessToken: tokens.access_token!,
+        ...(tokens.refresh_token && { refreshToken: tokens.refresh_token }),
+        expiresAt: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+        scope: tokens.scope ?? null,
+      },
+    })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error("[fit-auth/callback] prisma.fitToken.upsert error:", msg)
+    return NextResponse.redirect(new URL(`/dashboard/settings?fit_error=db_error`, req.url))
+  }
 
   return NextResponse.redirect(new URL("/dashboard/settings?fit_connected=1", req.url))
 }
