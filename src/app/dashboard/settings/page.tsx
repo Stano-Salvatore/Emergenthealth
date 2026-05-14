@@ -11,14 +11,22 @@ export default async function SettingsPage() {
   const session = await auth()
   const userId = session!.user.id
 
-  const [fitToken, keys] = await Promise.all([
-    prisma.fitToken.findUnique({ where: { userId }, select: { updatedAt: true, scope: true } }),
-    prisma.mcpApiKey.findMany({
-      where: { userId },
-      select: { id: true, name: true, token: true, createdAt: true },
-      orderBy: { createdAt: "desc" },
-    }),
-  ])
+  // Tables may not exist yet if migration hasn't run — fail gracefully
+  let fitToken = null
+  let keys: { id: string; name: string; token: string; createdAt: Date }[] = []
+  let dbMissing = false
+  try {
+    ;[fitToken, keys] = await Promise.all([
+      prisma.fitToken.findUnique({ where: { userId }, select: { updatedAt: true, scope: true } }),
+      prisma.mcpApiKey.findMany({
+        where: { userId },
+        select: { id: true, name: true, token: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+      }),
+    ])
+  } catch {
+    dbMissing = true
+  }
 
   const isConnected = !!fitToken
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL ?? ""
@@ -36,6 +44,17 @@ export default async function SettingsPage() {
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-muted-foreground text-sm mt-0.5">Manage integrations and API access</p>
       </div>
+
+      {dbMissing && (
+        <Card className="border-yellow-500/30 bg-yellow-500/5">
+          <CardContent className="pt-4 pb-3 space-y-1">
+            <p className="text-sm font-medium text-yellow-400">Database migration needed</p>
+            <p className="text-xs text-muted-foreground">
+              The MCP tables haven&apos;t been created in your database yet. Run the SQL migration in your Neon dashboard, then reload this page.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Google Fit connection */}
       <Card>
@@ -63,7 +82,7 @@ export default async function SettingsPage() {
                 Your Google Fit account is linked. Claude can read your health data via the MCP server.
               </p>
               <p className="text-xs text-muted-foreground">
-                Last updated: {fitToken.updatedAt.toLocaleDateString()}
+                Last updated: {fitToken?.updatedAt.toLocaleDateString()}
               </p>
             </div>
           ) : (
