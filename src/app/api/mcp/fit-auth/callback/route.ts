@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { buildFitOAuthClient } from "@/lib/google-fit"
+import { google } from "googleapis"
 import { prisma } from "@/lib/prisma"
 
 export async function GET(req: NextRequest) {
@@ -14,7 +14,15 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  const oauth2 = buildFitOAuthClient()
+  // Must use the same callback URL that was used to generate the auth URL
+  const callbackUrl = new URL("/api/mcp/fit-auth/callback", req.url).toString()
+
+  const oauth2 = new google.auth.OAuth2(
+    process.env.GOOGLE_FIT_CLIENT_ID,
+    process.env.GOOGLE_FIT_CLIENT_SECRET,
+    callbackUrl,
+  )
+
   const { tokens } = await oauth2.getToken(code)
 
   await prisma.fitToken.upsert({
@@ -34,5 +42,5 @@ export async function GET(req: NextRequest) {
     },
   })
 
-  return NextResponse.redirect(new URL("/dashboard/health?fit_connected=1", req.url))
+  return NextResponse.redirect(new URL("/dashboard/settings?fit_connected=1", req.url))
 }
