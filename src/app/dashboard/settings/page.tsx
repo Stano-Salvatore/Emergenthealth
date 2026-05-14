@@ -7,9 +7,16 @@ import { FitKeyManager } from "@/components/settings/FitKeyManager"
 import { Activity, CheckCircle, XCircle, ExternalLink } from "lucide-react"
 import Link from "next/link"
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ fit_connected?: string; fit_error?: string }>
+}) {
   const session = await auth()
   const userId = session!.user.id
+  const params = await searchParams
+  const fitConnected = params.fit_connected === "1"
+  const fitError = params.fit_error
 
   // Tables may not exist yet if migration hasn't run — fail gracefully
   let fitToken = null
@@ -51,6 +58,30 @@ export default async function SettingsPage() {
             <p className="text-sm font-medium text-yellow-400">Database migration needed</p>
             <p className="text-xs text-muted-foreground">
               The MCP tables haven&apos;t been created in your database yet. Run the SQL migration in your Neon dashboard, then reload this page.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {fitConnected && (
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-green-400">Google Fit connected successfully!</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Your health data is now accessible via the MCP server. Generate an API key below to connect Claude.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {fitError && (
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-red-400">Google Fit connection failed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {fitError === "invalid_grant"
+                ? "The authorisation code expired or was already used. Please try connecting again."
+                : fitError === "db_error"
+                  ? "Tokens were received but could not be saved. Run the FitToken SQL migration in Neon, then try again."
+                  : `Error: ${fitError}. Please try again.`}
             </p>
           </CardContent>
         </Card>
