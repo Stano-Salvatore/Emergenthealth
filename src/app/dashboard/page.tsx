@@ -14,6 +14,7 @@ import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"
 import { LiveClock } from "@/components/dashboard/LiveClock"
 import { WeatherWidget } from "@/components/dashboard/WeatherWidget"
 import { AcCard } from "@/components/dashboard/AcCard"
+import { BookScanCard } from "@/components/dashboard/BookScanCard"
 
 const STEP_GOAL = 8_000
 
@@ -531,8 +532,11 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-        {/* Sinclair AC */}
+      {/* Extras row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <AcCard />
+        <BookScanCard />
+      </div>
 
     </div>
   )
