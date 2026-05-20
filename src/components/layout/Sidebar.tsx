@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { signOut } from "next-auth/react"
 import { cn } from "@/lib/utils"
 import {
   Activity,
@@ -13,6 +14,7 @@ import {
   LayoutDashboard,
   Home,
   Settings,
+  LogOut,
 } from "lucide-react"
 
 const navItems = [
@@ -57,6 +59,15 @@ export function Sidebar() {
           )
         })}
       </nav>
+      <div className="p-3 border-t border-border">
+        <button
+          onClick={() => signOut({ callbackUrl: "/signin" })}
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          Sign out
+        </button>
+      </div>
     </aside>
   )
 }
