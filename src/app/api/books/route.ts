@@ -61,7 +61,7 @@ async function extractBookFromImage(
     : "image/jpeg"
 
   const response = await anthropic.messages.create({
-    model: "claude-opus-4-6",
+    model: "claude-haiku-4-5-20251001",
     max_tokens: 512,
     messages: [
       {
@@ -73,18 +73,7 @@ async function extractBookFromImage(
           },
           {
             type: "text",
-            text: `This is a photo of a book cover or spine. Extract the book information.
-
-Return ONLY a JSON object:
-{
-  "title": "exact book title",
-  "author": "author name(s)",
-  "isbn": "ISBN if visible, otherwise omit this field",
-  "confidence": "high|medium|low",
-  "notes": "optional notes or explanation if not a book"
-}
-
-If not a book image, set title and author to "Unknown", confidence to "low".`,
+            text: `This is a photo of a book cover or spine. Extract the book information.\n\nReturn ONLY a JSON object:\n{\n  "title": "exact book title",\n  "author": "author name(s)",\n  "isbn": "ISBN if visible, otherwise omit this field",\n  "confidence": "high|medium|low",\n  "notes": "optional notes or explanation if not a book"\n}\n\nIf not a book image, set title and author to "Unknown", confidence to "low".`,
           },
         ],
       },
