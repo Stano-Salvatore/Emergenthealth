@@ -73,7 +73,24 @@ async function extractBookFromImage(
           },
           {
             type: "text",
-            text: `This is a photo of a book cover or spine. Extract the book information.\n\nReturn ONLY a JSON object:\n{\n  "title": "exact book title",\n  "author": "author name(s)",\n  "isbn": "ISBN if visible, otherwise omit this field",\n  "confidence": "high|medium|low",\n  "notes": "optional notes or explanation if not a book"\n}\n\nIf not a book image, set title and author to "Unknown", confidence to "low".`,
+            text: `You are identifying a book from a photo. The photo may show:
+- A book cover or spine (easiest — read title/author directly)
+- An open book page with text (identify from character names, plot, writing style, language, or visible title/chapter headings)
+- A title page (title and author usually visible)
+- Something that is not a book at all
+
+Read ALL visible text carefully. Use character names, locations, dialogue, and any headings to identify the book even if the cover is not shown.
+
+Return ONLY a JSON object:
+{
+  "title": "book title",
+  "author": "author name",
+  "isbn": "ISBN if visible, otherwise omit",
+  "confidence": "high|medium|low",
+  "notes": "brief explanation of how you identified it, or why confidence is low"
+}
+
+If you truly cannot identify it (not a book, or no text visible), set title and author to "Unknown" with confidence "low".`,
           },
         ],
       },
@@ -92,6 +109,7 @@ async function addBookToNotion(book: {
   author: string
   isbn?: string
   driveFileName?: string
+  notes?: string
 }): Promise<string | null> {
   const token = process.env.NOTION_TOKEN
   const dbId = process.env.NOTION_DB_ID
@@ -100,6 +118,7 @@ async function addBookToNotion(book: {
   try {
     const bodyLines: string[] = [`Author: ${book.author}`]
     if (book.isbn) bodyLines.push(`ISBN: ${book.isbn}`)
+    if (book.notes) bodyLines.push(`Notes: ${book.notes}`)
     if (book.driveFileName) bodyLines.push(`Source file: ${book.driveFileName}`)
 
     const res = await fetch("https://api.notion.com/v1/pages", {
@@ -173,7 +192,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ results, processed: results.length })
   }
 
-  // Collect all file metadata via Drive pagination
   const allFiles: { id: string; name: string; mimeType: string }[] = []
   let pageToken: string | undefined
   do {
@@ -199,7 +217,7 @@ export async function POST(req: NextRequest) {
 
   const results: Array<{
     file: string
-    book?: { title: string; author: string; isbn?: string; confidence: string }
+    book?: { title: string; author: string; isbn?: string; confidence: string; notes?: string }
     notionUrl?: string | null
     error?: string
   }> = []
