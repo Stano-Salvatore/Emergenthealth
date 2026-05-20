@@ -130,8 +130,6 @@ async function addBookToNotion(book: {
   }
 }
 
-// POST /api/books
-// Body: { fileId?: string } — omit fileId to scan entire DRIVE_FOLDER_ID folder
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -141,7 +139,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "DRIVE_FOLDER_ID not configured" }, { status: 503 })
   }
 
-  const body = await req.json().catch(() => ({})) as { fileId?: string }
+  const body = await req.json().catch(() => ({})) as { fileId?: string; offset?: number }
+  const offset = body.offset ?? 0
+  const batchSize = 20
 
   let drive: ReturnType<typeof google.drive>
   try {
@@ -153,28 +153,48 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  let files: { id: string; name: string; mimeType: string }[]
-
   if (body.fileId) {
     const file = await drive.files.get({ fileId: body.fileId, fields: "id,name,mimeType" })
-    files = file.data.id
+    const files = file.data.id
       ? [{ id: file.data.id, name: file.data.name ?? "unknown", mimeType: file.data.mimeType ?? "image/jpeg" }]
       : []
-  } else {
-    const list = await drive.files.list({
-      q: `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`,
-      fields: "files(id,name,mimeType)",
-      pageSize: 20,
-    })
-    files = (list.data.files ?? []).map((f: { id?: string | null; name?: string | null; mimeType?: string | null }) => ({
-      id: f.id!,
-      name: f.name ?? "unknown",
-      mimeType: f.mimeType ?? "image/jpeg",
-    }))
+    const results = []
+    for (const f of files) {
+      try {
+        const media = await drive.files.get({ fileId: f.id, alt: "media" }, { responseType: "arraybuffer" })
+        const base64 = Buffer.from(media.data as ArrayBuffer).toString("base64")
+        const book = await extractBookFromImage(base64, f.mimeType)
+        const notionUrl = await addBookToNotion({ ...book, driveFileName: f.name })
+        results.push({ file: f.name, book, notionUrl })
+      } catch (err: unknown) {
+        results.push({ file: f.name, error: err instanceof Error ? err.message : "Failed" })
+      }
+    }
+    return NextResponse.json({ results, processed: results.length })
   }
 
-  if (files.length === 0) {
-    return NextResponse.json({ results: [], message: "No images found in folder" })
+  // Collect all file metadata via Drive pagination
+  const allFiles: { id: string; name: string; mimeType: string }[] = []
+  let pageToken: string | undefined
+  do {
+    const list: { data: { files?: { id?: string | null; name?: string | null; mimeType?: string | null }[]; nextPageToken?: string | null } } = await drive.files.list({
+      q: `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`,
+      fields: "nextPageToken,files(id,name,mimeType)",
+      pageSize: 100,
+      ...(pageToken && { pageToken }),
+    })
+    for (const f of list.data.files ?? []) {
+      if (f.id) allFiles.push({ id: f.id, name: f.name ?? "unknown", mimeType: f.mimeType ?? "image/jpeg" })
+    }
+    pageToken = list.data.nextPageToken ?? undefined
+  } while (pageToken)
+
+  const total = allFiles.length
+  const batch = allFiles.slice(offset, offset + batchSize)
+  const hasMore = offset + batchSize < total
+
+  if (batch.length === 0) {
+    return NextResponse.json({ results: [], message: "No images found in folder", total, hasMore: false })
   }
 
   const results: Array<{
@@ -184,7 +204,7 @@ export async function POST(req: NextRequest) {
     error?: string
   }> = []
 
-  for (const file of files) {
+  for (const file of batch) {
     try {
       const media = await drive.files.get(
         { fileId: file.id, alt: "media" },
@@ -199,10 +219,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ results, processed: results.length })
+  return NextResponse.json({ results, processed: results.length, total, hasMore, nextOffset: hasMore ? offset + batchSize : null })
 }
 
-// GET /api/books — list books from Notion DB
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

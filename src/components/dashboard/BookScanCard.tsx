@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { BookOpen, Loader2, CheckCircle, XCircle, ScanLine } from "lucide-react"
+import { BookOpen, Loader2, CheckCircle, XCircle, ScanLine, ChevronRight } from "lucide-react"
 
 interface BookResult {
   file: string
@@ -20,18 +20,26 @@ interface BookResult {
 
 export function BookScanCard() {
   const [scanning, setScanning] = useState(false)
-  const [results, setResults] = useState<BookResult[] | null>(null)
+  const [results, setResults] = useState<BookResult[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [total, setTotal] = useState<number | null>(null)
+  const [nextOffset, setNextOffset] = useState<number | null>(null)
 
-  async function scan() {
+  async function scan(offset = 0) {
     setScanning(true)
     setError(null)
-    setResults(null)
+    if (offset === 0) setResults([])
     try {
-      const res = await fetch("/api/books", { method: "POST" })
+      const res = await fetch("/api/books", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offset }),
+      })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
-      setResults(data.results ?? [])
+      setResults(prev => offset === 0 ? (data.results ?? []) : [...prev, ...(data.results ?? [])])
+      setTotal(data.total ?? null)
+      setNextOffset(data.nextOffset ?? null)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Scan failed")
     } finally {
@@ -49,20 +57,15 @@ export function BookScanCard() {
           <span className="flex items-center gap-1.5">
             <BookOpen className="h-4 w-4" /> Books
           </span>
-          {results && (
+          {total !== null && (
             <Badge variant="secondary" className="text-xs">
-              {results.length} scanned
+              {results.length}/{total}
             </Badge>
           )}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <Button
-          onClick={scan}
-          disabled={scanning}
-          size="sm"
-          className="w-full"
-        >
+        <Button onClick={() => scan(0)} disabled={scanning} size="sm" className="w-full">
           {scanning ? (
             <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Scanning…</>
           ) : (
@@ -76,11 +79,7 @@ export function BookScanCard() {
           </p>
         )}
 
-        {results && results.length === 0 && (
-          <p className="text-sm text-muted-foreground">No images found in folder.</p>
-        )}
-
-        {results && results.length > 0 && (
+        {results.length > 0 && (
           <div className="space-y-2">
             {results.map((r, i) => (
               <div key={i} className="rounded-lg bg-secondary/50 px-3 py-2">
@@ -117,6 +116,22 @@ export function BookScanCard() {
                 ) : null}
               </div>
             ))}
+
+            {nextOffset !== null && (
+              <Button
+                onClick={() => scan(nextOffset)}
+                disabled={scanning}
+                size="sm"
+                variant="outline"
+                className="w-full"
+              >
+                {scanning ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Scanning…</>
+                ) : (
+                  <><ChevronRight className="h-4 w-4 mr-2" /> Scan next 20</>
+                )}
+              </Button>
+            )}
           </div>
         )}
       </CardContent>
