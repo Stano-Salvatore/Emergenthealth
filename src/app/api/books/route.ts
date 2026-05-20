@@ -152,7 +152,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "DRIVE_FOLDER_ID not configured" }, { status: 503 })
   }
 
-  const body = await req.json().catch(() => ({})) as { fileId?: string }
+  const body = await req.json().catch(() => ({})) as { fileId?: string; offset?: number }
+  const offset = body.offset ?? 0
+  const batchSize = 20
 
   let drive: ReturnType<typeof google.drive>
   try {
@@ -172,16 +174,53 @@ export async function POST(req: NextRequest) {
       ? [{ id: file.data.id, name: file.data.name ?? "unknown", mimeType: file.data.mimeType ?? "image/jpeg" }]
       : []
   } else {
-    const list = await drive.files.list({
-      q: `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`,
-      fields: "files(id,name,mimeType)",
-      pageSize: 20,
-    })
-    files = (list.data.files ?? []).map((f: { id?: string | null; name?: string | null; mimeType?: string | null }) => ({
-      id: f.id!,
-      name: f.name ?? "unknown",
-      mimeType: f.mimeType ?? "image/jpeg",
-    }))
+    // Collect all file metadata via pagination (metadata-only calls are fast)
+    const allFiles: { id: string; name: string; mimeType: string }[] = []
+    let pageToken: string | undefined
+    do {
+      const list: { data: { files?: { id?: string | null; name?: string | null; mimeType?: string | null }[]; nextPageToken?: string | null } } = await drive.files.list({
+        q: `'${folderId}' in parents and mimeType contains 'image/' and trashed = false`,
+        fields: "nextPageToken,files(id,name,mimeType)",
+        pageSize: 100,
+        ...(pageToken && { pageToken }),
+      })
+      for (const f of list.data.files ?? []) {
+        if (f.id) allFiles.push({ id: f.id, name: f.name ?? "unknown", mimeType: f.mimeType ?? "image/jpeg" })
+      }
+      pageToken = list.data.nextPageToken ?? undefined
+    } while (pageToken)
+
+    files = allFiles.slice(offset, offset + batchSize)
+    const total = allFiles.length
+    const hasMore = offset + batchSize < total
+
+    if (files.length === 0) {
+      return NextResponse.json({ results: [], message: "No images found in folder", total, hasMore: false })
+    }
+
+    const results: Array<{
+      file: string
+      book?: { title: string; author: string; isbn?: string; confidence: string }
+      notionUrl?: string | null
+      error?: string
+    }> = []
+
+    for (const file of files) {
+      try {
+        const media = await drive.files.get(
+          { fileId: file.id, alt: "media" },
+          { responseType: "arraybuffer" },
+        )
+        const base64 = Buffer.from(media.data as ArrayBuffer).toString("base64")
+        const book = await extractBookFromImage(base64, file.mimeType)
+        const notionUrl = await addBookToNotion({ ...book, driveFileName: file.name })
+        results.push({ file: file.name, book, notionUrl })
+      } catch (err: unknown) {
+        results.push({ file: file.name, error: err instanceof Error ? err.message : "Failed" })
+      }
+    }
+
+    return NextResponse.json({ results, processed: results.length, total, hasMore, nextOffset: hasMore ? offset + batchSize : null })
   }
 
   if (files.length === 0) {
