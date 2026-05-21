@@ -51,6 +51,37 @@ const migrations: { label: string; sql: string }[] = [
   { label: "HealthLog.recoveryHigh",         sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "recoveryHigh" INTEGER` },
   { label: "HealthLog.sedentaryTime",        sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sedentaryTime" INTEGER` },
   { label: "HealthLog.breathingDisturbance", sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "breathingDisturbance" DOUBLE PRECISION` },
+  // Tags on Reminder
+  { label: "Reminder.tags", sql: `ALTER TABLE "Reminder" ADD COLUMN IF NOT EXISTS "tags" text[] DEFAULT ARRAY[]::text[]` },
+  // MoodLog table
+  {
+    label: "MoodLog table",
+    sql: `CREATE TABLE IF NOT EXISTS "MoodLog" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "date" DATE NOT NULL,
+      "mood" INTEGER NOT NULL,
+      "note" TEXT,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "MoodLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE,
+      CONSTRAINT "MoodLog_userId_date_key" UNIQUE ("userId", "date")
+    )`,
+  },
+  { label: "MoodLog index", sql: `CREATE INDEX IF NOT EXISTS "MoodLog_userId_date_idx" ON "MoodLog"("userId", "date")` },
+  // Tag table
+  {
+    label: "Tag table",
+    sql: `CREATE TABLE IF NOT EXISTS "Tag" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "name" TEXT NOT NULL,
+      "color" TEXT NOT NULL DEFAULT '#6366f1',
+      CONSTRAINT "Tag_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE,
+      CONSTRAINT "Tag_userId_name_key" UNIQUE ("userId", "name")
+    )`,
+  },
+  { label: "Tag index", sql: `CREATE INDEX IF NOT EXISTS "Tag_userId_idx" ON "Tag"("userId")` },
 ]
 
 async function runMigrations() {

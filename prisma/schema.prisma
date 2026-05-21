@@ -27,6 +27,8 @@ model User {
   mcpApiKeys   McpApiKey[]
   fitToken     FitToken?
   ouraToken    OuraToken? @relation("OuraToken")
+  moodLogs     MoodLog[]
+  tags         Tag[]
 }
 
 model Account {
@@ -190,6 +192,7 @@ model Reminder {
   isCompleted Boolean   @default(false)
   completedAt DateTime?
   priority    String    @default("normal")
+  tags        String[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -197,6 +200,37 @@ model Reminder {
 
   @@index([userId, dueDate])
   @@index([userId, isCompleted])
+}
+
+// ─── Mood ────────────────────────────────────────────────────────────────────
+
+model MoodLog {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @db.Date
+  mood      Int      // 1–5: 1=awful, 2=bad, 3=ok, 4=good, 5=great
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+// ─── Tags ────────────────────────────────────────────────────────────────────
+
+model Tag {
+  id     String @id @default(cuid())
+  userId String
+  name   String
+  color  String @default("#6366f1")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
 }
 
 // ─── Chat ────────────────────────────────────────────────────────────────────

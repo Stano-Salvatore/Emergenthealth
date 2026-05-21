@@ -15,6 +15,7 @@ import {
   Home,
   Settings,
   LogOut,
+  Mail,
 } from "lucide-react"
 
 const navItems = [
