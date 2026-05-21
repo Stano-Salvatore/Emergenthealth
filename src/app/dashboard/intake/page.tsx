@@ -41,11 +41,18 @@ function progressColor(pct: number) {
   return "bg-blue-400/60"
 }
 
+interface WeekDay {
+  date: string
+  waterMl: number
+  label: string
+}
+
 export default function IntakePage() {
   const [logs, setLogs] = useState<IntakeLog[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState<string | null>(null)
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
+  const [weekData, setWeekData] = useState<WeekDay[]>([])
   const isToday = date === new Date().toISOString().split("T")[0]
 
   const load = useCallback(async () => {
@@ -56,6 +63,26 @@ export default function IntakePage() {
   }, [date])
 
   useEffect(() => { load() }, [load])
+
+  // Load 7-day water trend (only once on mount)
+  useEffect(() => {
+    async function loadWeek() {
+      const days: WeekDay[] = []
+      const now = new Date()
+      for (let i = 6; i >= 0; i--) {
+        const d = subDays(now, i)
+        const str = d.toISOString().split("T")[0]
+        const res = await fetch(`/api/intake?date=${str}`)
+        if (res.ok) {
+          const dayLogs: IntakeLog[] = await res.json()
+          const ml = dayLogs.filter(l => l.type === "water").reduce((a, l) => a + l.amountMl, 0)
+          days.push({ date: str, waterMl: ml, label: i === 0 ? "Today" : format(d, "EEE") })
+        }
+      }
+      setWeekData(days)
+    }
+    loadWeek()
+  }, [])
 
   async function addEntry(type: string, amountMl: number) {
     setAdding(`${type}-${amountMl}`)
@@ -124,6 +151,38 @@ export default function IntakePage() {
         <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕" />
         <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />
       </div>
+
+      {/* 7-day water trend */}
+      {weekData.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">7-day water trend</p>
+          <div className="flex items-end gap-1.5 h-16">
+            {weekData.map(d => {
+              const pct = Math.min(100, (d.waterMl / 2000) * 100)
+              const isSelected = d.date === date
+              const goalMet = d.waterMl >= 2000
+              return (
+                <button key={d.date} onClick={() => setDate(d.date)}
+                  className="flex-1 flex flex-col items-center gap-0.5 group">
+                  <div className="w-full flex items-end justify-center h-12">
+                    <div
+                      className={`w-full rounded-t-sm transition-all ${goalMet ? "bg-blue-500" : isSelected ? "bg-blue-400" : "bg-blue-500/30 group-hover:bg-blue-500/50"}`}
+                      style={{ height: `${Math.max(4, pct)}%` }}
+                    />
+                  </div>
+                  <span className={`text-[9px] ${isSelected ? "text-blue-400 font-bold" : "text-muted-foreground"}`}>
+                    {d.label}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+            <span>Goal: 2L/day</span>
+            <span>{weekData.filter(d => d.waterMl >= 2000).length}/7 days ✓</span>
+          </div>
+        </div>
+      )}
 
       {/* quick add buttons */}
       {isToday && (
