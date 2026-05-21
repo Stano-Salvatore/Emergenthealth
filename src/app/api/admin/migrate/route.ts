@@ -40,8 +40,17 @@ const migrations: { label: string; sql: string }[] = [
   { label: "HealthLog.sleepEfficiency",sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepEfficiency" INTEGER` },
   { label: "HealthLog.sleepLatency",   sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepLatency" INTEGER` },
   { label: "HealthLog.stressHigh",     sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "stressHigh" INTEGER` },
-  { label: "HealthLog.totalCalories",  sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "totalCalories" INTEGER` },
-  { label: "HealthLog.distanceKm",     sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "distanceKm" DOUBLE PRECISION` },
+  { label: "HealthLog.totalCalories",        sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "totalCalories" INTEGER` },
+  { label: "HealthLog.distanceKm",           sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "distanceKm" DOUBLE PRECISION` },
+  // Oura v2 additional metrics
+  { label: "HealthLog.breathingRate",        sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "breathingRate" DOUBLE PRECISION` },
+  { label: "HealthLog.awakeTime",            sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "awakeTime" INTEGER` },
+  { label: "HealthLog.timeInBed",            sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "timeInBed" INTEGER` },
+  { label: "HealthLog.restlessPeriods",      sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "restlessPeriods" INTEGER` },
+  { label: "HealthLog.activityScore",        sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "activityScore" INTEGER` },
+  { label: "HealthLog.recoveryHigh",         sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "recoveryHigh" INTEGER` },
+  { label: "HealthLog.sedentaryTime",        sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sedentaryTime" INTEGER` },
+  { label: "HealthLog.breathingDisturbance", sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "breathingDisturbance" DOUBLE PRECISION` },
 ]
 
 async function runMigrations() {

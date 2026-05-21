@@ -54,7 +54,7 @@ async function makeOuraRequest(
   return response.json()
 }
 
-// ── Daily activity (steps, calories, distance, active minutes) ────────────────
+// ── Daily activity (steps, calories, distance, active minutes, score) ─────────
 
 export async function getDailyActivity(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
@@ -72,6 +72,8 @@ export async function getDailyActivity(userId: string, startDate: string, endDat
     activeMinutes: item.high_activity_time != null && item.medium_activity_time != null
       ? Math.round(((item.high_activity_time as number) + (item.medium_activity_time as number)) / 60)
       : null,
+    activityScore: (item.score as number) ?? null,
+    sedentaryTimeSeconds: (item.sedentary_time as number) ?? null,
   }))
 }
 
@@ -88,10 +90,16 @@ export async function getDailySleep(userId: string, startDate: string, endDate: 
     deepSleepSeconds: (item.deep_sleep_duration as number) ?? null,
     remSleepSeconds: (item.rem_sleep_duration as number) ?? null,
     lightSleepSeconds: (item.light_sleep_duration as number) ?? null,
+    awakeTimeSeconds: (item.awake_time as number) ?? null,
+    timeInBedSeconds: (item.time_in_bed as number) ?? null,
+    restlessPeriods: (item.restless_periods as number) ?? null,
     avgRestingHR: (item.average_heart_rate as number) ?? (item.average_resting_heart_rate as number) ?? null,
+    breathRate: (item.average_breath as number) ?? null,
     hrv: (item.average_hrv as number) ?? null,
     efficiency: (item.efficiency as number) ?? null,
     latencySeconds: (item.latency as number) ?? null,
+    bedtimeStart: (item.bedtime_start as string) ?? null,
+    bedtimeEnd: (item.bedtime_end as string) ?? null,
   }))
 }
 
@@ -121,6 +129,7 @@ export async function getDailySpo2(userId: string, startDate: string, endDate: s
     return {
       date: item.day as string,
       spo2: pct?.average ?? null,
+      breathingDisturbance: (item.breathing_disturbance_index as number) ?? null,
     }
   })
 }
@@ -135,6 +144,7 @@ export async function getDailyStress(userId: string, startDate: string, endDate:
   return (data.data || []).map((item: Record<string, unknown>) => ({
     date: item.day as string,
     stressHighMin: item.stress_high != null ? Math.round((item.stress_high as number) / 60) : null,
+    recoveryHighMin: item.recovery_high != null ? Math.round((item.recovery_high as number) / 60) : null,
   }))
 }
 
@@ -185,25 +195,6 @@ export async function getWeight(_userId: string, _startDate: string, _endDate: s
 export async function getDistance(userId: string, startDate: string, endDate: string) {
   const rows = await getDailyActivity(userId, startDate, endDate)
   return rows.map(r => ({ date: r.date, distanceMeters: r.distanceKm != null ? Math.round(r.distanceKm * 1000) : 0 }))
-}
-
-export async function getDailySleep(userId: string, startDate: string, endDate: string) {
-  const client = await buildOuraClient(userId)
-  const data = await makeOuraRequest(
-    "/daily_sleep",
-    client.accessToken,
-    userId,
-    { start_date: startDate, end_date: endDate },
-  )
-
-  return (data.data || []).map((item: Record<string, unknown>) => ({
-    date: item.day as string,
-    totalSleepSeconds: (item.total_sleep_duration as number) ?? null,
-    deepSleepSeconds: (item.deep_sleep_duration as number) ?? null,
-    remSleepSeconds: (item.rem_sleep_duration as number) ?? null,
-    lightSleepSeconds: (item.light_sleep_duration as number) ?? null,
-    avgRestingHR: (item.average_resting_heart_rate as number) ?? null,
-  }))
 }
 
 export async function getDailySummary(userId: string, date: string) {

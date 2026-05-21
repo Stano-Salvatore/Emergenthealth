@@ -29,6 +29,7 @@ export interface ChartDay {
   deepMin: number | null
   remMin: number | null
   lightMin: number | null
+  awakeMin: number | null
   steps: number | null
   restingHR: number | null
   weight: number | null
@@ -38,6 +39,11 @@ export interface ChartDay {
   hrv: number | null
   spo2: number | null
   distanceKm: number | null
+  breathingRate: number | null
+  activityScore: number | null
+  stressHigh: number | null
+  recoveryHigh: number | null
+  sedentaryMin: number | null
 }
 
 export function SleepChart({ data }: { data: ChartDay[] }) {
@@ -73,7 +79,8 @@ export function SleepChart({ data }: { data: ChartDay[] }) {
               <Tooltip content={<Tip />} />
               <Bar dataKey="deepMin" name="Deep" stackId="s" fill="#4338ca" radius={0} />
               <Bar dataKey="remMin" name="REM" stackId="s" fill="#818cf8" radius={0} />
-              <Bar dataKey="lightMin" name="Light" stackId="s" fill="#c7d2fe" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="lightMin" name="Light" stackId="s" fill="#c7d2fe" radius={0} />
+              <Bar dataKey="awakeMin" name="Awake" stackId="s" fill="#f87171" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -244,6 +251,76 @@ export function SpO2Chart({ data }: { data: ChartDay[] }) {
           <Tooltip content={<Tip />} />
           <ReferenceLine y={95} stroke="#06b6d4" strokeDasharray="4 2" strokeOpacity={0.5} />
           <Line type="monotone" dataKey="spo2" name="SpO₂" stroke="#06b6d4" strokeWidth={2} dot={{ r: 2, fill: "#06b6d4" }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+export function ActivityScoreChart({ data }: { data: ChartDay[] }) {
+  const d = [...data].reverse().filter(r => r.activityScore != null)
+  if (!d.length) return null
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground font-medium mb-2">Activity score (0–100)</p>
+      <ResponsiveContainer width="100%" height={130}>
+        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={GRID} />
+          <XAxis dataKey="date" tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+          <YAxis tick={AXIS} axisLine={false} tickLine={false} domain={[0, 100]} />
+          <Tooltip content={<Tip />} />
+          <ReferenceLine y={70} stroke="#f59e0b" strokeDasharray="4 2" strokeOpacity={0.5} />
+          <Bar dataKey="activityScore" name="Activity score" radius={[3, 3, 0, 0]}>
+            {d.map((row, i) => (
+              <Cell key={i} fill={
+                row.activityScore != null && row.activityScore >= 85 ? "#f59e0b" :
+                row.activityScore != null && row.activityScore >= 70 ? "#f59e0b88" :
+                "#ef444488"
+              } />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+export function StressRecoveryChart({ data }: { data: ChartDay[] }) {
+  const d = [...data].reverse().filter(r => r.stressHigh != null || r.recoveryHigh != null)
+  if (!d.length) return null
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground font-medium mb-2">Stress vs recovery (minutes)</p>
+      <ResponsiveContainer width="100%" height={130}>
+        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -4, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={GRID} />
+          <XAxis dataKey="date" tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+          <YAxis tick={AXIS} axisLine={false} tickLine={false} />
+          <Tooltip content={<Tip />} />
+          <Bar dataKey="stressHigh" name="High stress" fill="#ef4444" fillOpacity={0.75} radius={[3, 3, 0, 0]} />
+          <Bar dataKey="recoveryHigh" name="Recovery" fill="#10b981" fillOpacity={0.75} radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+export function BreathingRateChart({ data }: { data: ChartDay[] }) {
+  const d = [...data].reverse().filter(r => r.breathingRate != null)
+  if (!d.length) return null
+  const vals = d.map(r => r.breathingRate!).filter(Boolean)
+  const min = Math.max(0, Math.min(...vals) - 1)
+  const max = Math.max(...vals) + 1
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground font-medium mb-2">Breathing rate during sleep (breaths/min)</p>
+      <ResponsiveContainer width="100%" height={130}>
+        <LineChart data={d} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+          <CartesianGrid stroke={GRID} />
+          <XAxis dataKey="date" tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+          <YAxis tick={AXIS} axisLine={false} tickLine={false} domain={[min, max]} />
+          <Tooltip content={<Tip />} />
+          <Line type="monotone" dataKey="breathingRate" name="Breaths/min" stroke="#14b8a6" strokeWidth={2} dot={{ r: 2, fill: "#14b8a6" }} />
         </LineChart>
       </ResponsiveContainer>
     </div>

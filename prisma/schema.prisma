@@ -96,15 +96,24 @@ model HealthLog {
   weight    Float?
 
   // Oura extended metrics
-  readinessScore  Int?
-  hrv             Float?
-  spo2            Float?
-  skinTemp        Float?
-  sleepEfficiency Int?
-  sleepLatency    Int?
-  stressHigh      Int?
-  totalCalories   Int?
-  distanceKm      Float?
+  readinessScore       Int?
+  hrv                  Float?
+  spo2                 Float?
+  skinTemp             Float?
+  sleepEfficiency      Int?
+  sleepLatency         Int?
+  stressHigh           Int?
+  totalCalories        Int?
+  distanceKm           Float?
+  // Oura v2 additional metrics
+  breathingRate        Float?
+  awakeTime            Int?
+  timeInBed            Int?
+  restlessPeriods      Int?
+  activityScore        Int?
+  recoveryHigh         Int?
+  sedentaryTime        Int?
+  breathingDisturbance Float?
 
   syncedAt DateTime @default(now())
 
