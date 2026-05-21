@@ -55,7 +55,7 @@ export function FitKeyManager({ initialKeys }: { initialKeys: KeyRow[] }) {
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-medium">MCP API Keys</CardTitle>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Use a key as a Bearer token to connect Claude Code or Claude.ai mobile to your Google Fit data.
+          Use a key as a Bearer token to connect Claude Code or Claude.ai mobile to your health data.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">

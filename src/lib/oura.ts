@@ -209,6 +209,25 @@ export async function getActivitySessions(userId: string, startDate: string, end
   }))
 }
 
+export async function getDailySleep(userId: string, startDate: string, endDate: string) {
+  const client = await buildOuraClient(userId)
+  const data = await makeOuraRequest(
+    "/daily_sleep",
+    client.accessToken,
+    userId,
+    { start_date: startDate, end_date: endDate },
+  )
+
+  return (data.data || []).map((item: Record<string, unknown>) => ({
+    date: item.day as string,
+    totalSleepSeconds: (item.total_sleep_duration as number) ?? null,
+    deepSleepSeconds: (item.deep_sleep_duration as number) ?? null,
+    remSleepSeconds: (item.rem_sleep_duration as number) ?? null,
+    lightSleepSeconds: (item.light_sleep_duration as number) ?? null,
+    avgRestingHR: (item.average_resting_heart_rate as number) ?? null,
+  }))
+}
+
 export async function getDailySummary(userId: string, date: string) {
   const [steps, calories, heartRate, distance] = await Promise.all([
     getSteps(userId, date, date),
