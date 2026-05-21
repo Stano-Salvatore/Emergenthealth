@@ -19,11 +19,13 @@ import {
   BookOpen,
   Droplets,
   Timer,
+  BarChart3,
 } from "lucide-react"
 
 const navItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/dashboard/health", label: "Health", icon: Activity },
+  { href: "/dashboard/stats", label: "Insights", icon: BarChart3 },
   { href: "/dashboard/finances", label: "Finances", icon: DollarSign },
   { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
   { href: "/dashboard/habits", label: "Habits", icon: CheckSquare },

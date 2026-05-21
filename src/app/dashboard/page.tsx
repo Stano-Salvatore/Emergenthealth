@@ -561,49 +561,64 @@ export default async function DashboardPage() {
         </Link>
 
         {/* ── Gmail ── */}
-        <Card className="hover:border-rose-500/40 transition-all h-full">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-              <span className="flex items-center gap-1.5"><Mail className="h-4 w-4 text-rose-400" /> Gmail</span>
-              {gmailData.unreadCount > 0 && (
-                <Badge className="text-xs bg-rose-500 hover:bg-rose-500">{gmailData.unreadCount} unread</Badge>
-              )}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {gmailData.messages.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                {gmailData.unreadCount === 0 && gmailData.messages.length === 0
-                  ? "Re-sign in to grant Gmail access"
-                  : "Inbox empty"}
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {gmailData.messages.slice(0, 5).map(m => (
-                  <div key={m.id} className="flex items-start gap-2 min-w-0">
-                    <div className={`h-1.5 w-1.5 rounded-full shrink-0 mt-1.5 ${m.isUnread ? "bg-rose-400" : "bg-muted-foreground/40"}`} />
-                    <div className="min-w-0">
-                      <p className={`text-xs leading-tight truncate ${m.isUnread ? "font-semibold" : "text-muted-foreground"}`}>
-                        {m.subject}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground truncate">{m.fromName}</p>
+        <Link href="/dashboard/gmail">
+          <Card className="hover:border-rose-500/40 transition-all cursor-pointer h-full group">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
+                <span className="flex items-center gap-1.5"><Mail className="h-4 w-4 text-rose-400" /> Gmail</span>
+                <div className="flex items-center gap-1">
+                  {gmailData.unreadCount > 0 && (
+                    <Badge className="text-xs bg-rose-500 hover:bg-rose-500">{gmailData.unreadCount} unread</Badge>
+                  )}
+                  <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+                </div>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {gmailData.messages.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {gmailData.unreadCount === 0 && gmailData.messages.length === 0
+                    ? "Re-sign in to grant Gmail access"
+                    : "Inbox empty"}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {gmailData.messages.slice(0, 5).map(m => (
+                    <div key={m.id} className="flex items-start gap-2 min-w-0">
+                      <div className={`h-1.5 w-1.5 rounded-full shrink-0 mt-1.5 ${m.isUnread ? "bg-rose-400" : "bg-muted-foreground/40"}`} />
+                      <div className="min-w-0">
+                        <p className={`text-xs leading-tight truncate ${m.isUnread ? "font-semibold" : "text-muted-foreground"}`}>
+                          {m.subject}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground truncate">{m.fromName}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </Link>
 
       </div>
 
       {/* ── bottom stats row ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile label="Water today" value={waterMl >= 1000 ? `${(waterMl/1000).toFixed(1)}L` : `${waterMl}ml`}
-          sub="goal 2L" icon={<Droplets className="h-4 w-4 text-blue-400"/>} ok={waterMl >= 2000} />
-        <StatTile label="Focus today" value={focusMinToday >= 60 ? `${(focusMinToday/60).toFixed(1)}h` : `${focusMinToday}m`}
-          icon={<Timer className="h-4 w-4 text-indigo-400"/>} />
-        <StatTile label="Habits today" value={`${doneToday}/${habits.length}`} icon={<CheckSquare className="h-4 w-4 text-amber-400"/>} />
+        <Link href="/dashboard/intake">
+          <StatTile label="Water today" value={waterMl >= 1000 ? `${(waterMl/1000).toFixed(1)}L` : `${waterMl}ml`}
+            sub={waterMl >= 2000 ? "Goal reached ✓" : `${Math.max(0, 2000-waterMl)}ml to go`}
+            icon={<Droplets className="h-4 w-4 text-blue-400"/>} ok={waterMl >= 2000}
+            progress={Math.min(100, (waterMl/2000)*100)} />
+        </Link>
+        <Link href="/dashboard/focus">
+          <StatTile label="Focus today" value={focusMinToday >= 60 ? `${(focusMinToday/60).toFixed(1)}h` : `${focusMinToday}m`}
+            sub="deep work"
+            icon={<Timer className="h-4 w-4 text-indigo-400"/>} />
+        </Link>
+        <Link href="/dashboard/habits">
+          <StatTile label="Habits today" value={`${doneToday}/${habits.length}`} icon={<CheckSquare className="h-4 w-4 text-amber-400"/>}
+            progress={habits.length > 0 ? (doneToday/habits.length)*100 : 0} />
+        </Link>
         <StatTile label="Spent this month" value={`€${(totalSpent/100).toFixed(0)}`} icon={<Flame className="h-4 w-4 text-emerald-400"/>} />
       </div>
 
@@ -628,14 +643,21 @@ function MetricBox({ icon, label, value, sub, ok }: {
   )
 }
 
-function StatTile({ label, value, sub, icon, ok }: { label: string; value: string; sub?: string; icon: React.ReactNode; ok?: boolean }) {
+function StatTile({ label, value, sub, icon, ok, progress }: {
+  label: string; value: string; sub?: string; icon: React.ReactNode; ok?: boolean; progress?: number
+}) {
   return (
-    <div className={`rounded-xl bg-card border px-4 py-3 flex items-center gap-3 ${ok === true ? "border-green-500/30" : ""}`}>
+    <div className={`rounded-xl bg-card border px-4 py-3 flex items-center gap-3 hover:bg-secondary/30 transition-colors cursor-pointer ${ok === true ? "border-green-500/30" : ""}`}>
       {icon}
-      <div>
+      <div className="flex-1 min-w-0">
         <p className="text-[10px] text-muted-foreground">{label}</p>
         <p className={`text-lg font-bold tabular-nums ${ok === true ? "text-green-400" : ""}`}>{value}</p>
         {sub && <p className="text-[10px] text-muted-foreground">{sub}</p>}
+        {progress !== undefined && (
+          <div className="mt-1 h-1 bg-secondary rounded-full overflow-hidden">
+            <div className={`h-full rounded-full ${ok ? "bg-green-500" : "bg-primary/60"}`} style={{ width: `${progress}%` }} />
+          </div>
+        )}
       </div>
     </div>
   )
