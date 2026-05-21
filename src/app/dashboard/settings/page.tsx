@@ -4,27 +4,32 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { FitKeyManager } from "@/components/settings/FitKeyManager"
+import { OuraManager } from "@/components/settings/OuraManager"
 import { Activity, CheckCircle, XCircle, ExternalLink } from "lucide-react"
 import Link from "next/link"
 
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ fit_connected?: string; fit_error?: string }>
+  searchParams: Promise<{ fit_connected?: string; fit_error?: string; oura_connected?: string; oura_error?: string }>
 }) {
   const session = await auth()
   const userId = session!.user.id
   const params = await searchParams
   const fitConnected = params.fit_connected === "1"
   const fitError = params.fit_error
+  const ouraConnected = params.oura_connected === "1"
+  const ouraError = params.oura_error
 
   // Tables may not exist yet if migration hasn't run — fail gracefully
   let fitToken = null
+  let ouraToken = null
   let keys: { id: string; name: string; token: string; createdAt: Date }[] = []
   let dbMissing = false
   try {
-    ;[fitToken, keys] = await Promise.all([
+    ;[fitToken, ouraToken, keys] = await Promise.all([
       prisma.fitToken.findUnique({ where: { userId }, select: { updatedAt: true, scope: true } }),
+      prisma.ouraToken.findUnique({ where: { userId }, select: { updatedAt: true, scope: true } }),
       prisma.mcpApiKey.findMany({
         where: { userId },
         select: { id: true, name: true, token: true, createdAt: true },
@@ -35,7 +40,8 @@ export default async function SettingsPage({
     dbMissing = true
   }
 
-  const isConnected = !!fitToken
+  const isFitConnected = !!fitToken
+  const isOuraConnected = !!ouraToken
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL ?? ""
 
   const keyRows = keys.map((k) => ({
@@ -72,6 +78,15 @@ export default async function SettingsPage({
         </Card>
       )}
 
+      {ouraConnected && (
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-green-400">Oura Ring connected successfully!</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Your health data is now accessible via the MCP server. Generate an API key below to connect Claude.</p>
+          </CardContent>
+        </Card>
+      )}
+
       {fitError && (
         <Card className="border-red-500/30 bg-red-500/5">
           <CardContent className="pt-4 pb-3">
@@ -87,6 +102,21 @@ export default async function SettingsPage({
         </Card>
       )}
 
+      {ouraError && (
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-red-400">Oura Ring connection failed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {ouraError === "invalid_grant"
+                ? "The authorisation code expired or was already used. Please try connecting again."
+                : ouraError === "db_error"
+                  ? "Tokens were received but could not be saved. Run the OuraToken SQL migration in Neon, then try again."
+                  : `Error: ${ouraError}. Please try again.`}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Google Fit connection */}
       <Card>
         <CardHeader className="pb-3">
@@ -95,7 +125,7 @@ export default async function SettingsPage({
               <Activity className="h-4 w-4 text-primary" />
               Google Fit
             </CardTitle>
-            {isConnected ? (
+            {isFitConnected ? (
               <Badge className="bg-green-500/15 text-green-400 border-green-500/30 gap-1">
                 <CheckCircle className="h-3 w-3" /> Connected
               </Badge>
@@ -107,7 +137,7 @@ export default async function SettingsPage({
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          {isConnected ? (
+          {isFitConnected ? (
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">
                 Your Google Fit account is linked. Claude can read your health data via the MCP server.
@@ -121,10 +151,10 @@ export default async function SettingsPage({
               Connect your Google Fit account so Claude can access your health data (steps, sleep, heart rate, etc.).
             </p>
           )}
-          <Button asChild size="sm" variant={isConnected ? "outline" : "default"}>
+          <Button asChild size="sm" variant={isFitConnected ? "outline" : "default"}>
             <Link href="/api/mcp/fit-auth">
               <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
-              {isConnected ? "Reconnect Google Fit" : "Connect Google Fit"}
+              {isFitConnected ? "Reconnect Google Fit" : "Connect Google Fit"}
             </Link>
           </Button>
         </CardContent>
@@ -142,6 +172,9 @@ export default async function SettingsPage({
           </p>
         </CardContent>
       </Card>
+
+      {/* Oura Ring connection (client component) */}
+      <OuraManager isConnected={isOuraConnected} />
 
       {/* Key manager (client component) */}
       <FitKeyManager initialKeys={keyRows} />

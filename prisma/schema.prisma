@@ -26,6 +26,7 @@ model User {
   chatMessages ChatMessage[]
   mcpApiKeys   McpApiKey[]
   fitToken     FitToken?
+  ouraToken    OuraToken? @relation("OuraToken")
 }
 
 model Account {
@@ -217,4 +218,17 @@ model FitToken {
   updatedAt    DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model OuraToken {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  accessToken  String    @db.Text
+  refreshToken String?   @db.Text
+  expiresAt    DateTime?
+  scope        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation("OuraToken", fields: [userId], references: [id], onDelete: Cascade)
 }

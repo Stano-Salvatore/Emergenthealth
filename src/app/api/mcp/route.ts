@@ -12,7 +12,7 @@ import {
   getDistance,
   getActivitySessions,
   getDailySummary,
-} from "@/lib/google-fit"
+} from "@/lib/oura"
 
 // Only run in Node.js (not Edge runtime) — needed for googleapis
 export const runtime = "nodejs"
@@ -41,7 +41,7 @@ async function resolveUser(req: NextRequest): Promise<string | null> {
 
 function buildMcpServer(userId: string): McpServer {
   const server = new McpServer({
-    name: "google-fit",
+    name: "oura",
     version: "1.0.0",
   })
 
@@ -52,7 +52,7 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_steps",
-    "Get daily step counts from Google Fit for a date range",
+    "Get daily step counts from Oura Ring for a date range",
     dateRangeSchema,
     async ({ startDate, endDate }) => {
       const data = await getSteps(userId, startDate, endDate)
@@ -62,7 +62,7 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_calories",
-    "Get daily calories burned from Google Fit for a date range",
+    "Get daily calories burned from Oura Ring for a date range",
     dateRangeSchema,
     async ({ startDate, endDate }) => {
       const data = await getCalories(userId, startDate, endDate)
@@ -72,7 +72,7 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_heart_rate",
-    "Get daily average, min, and max heart rate (BPM) from Google Fit for a date range",
+    "Get daily average, min, and max heart rate (BPM) from Oura Ring for a date range",
     dateRangeSchema,
     async ({ startDate, endDate }) => {
       const data = await getHeartRate(userId, startDate, endDate)
@@ -82,7 +82,7 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_sleep",
-    "Get sleep sessions from Google Fit for a date range",
+    "Get sleep sessions from Oura Ring for a date range",
     dateRangeSchema,
     async ({ startDate, endDate }) => {
       const data = await getSleep(userId, startDate, endDate)
@@ -92,7 +92,7 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_weight",
-    "Get body weight measurements (kg) from Google Fit for a date range",
+    "Get body weight measurements (kg) from Oura Ring for a date range",
     dateRangeSchema,
     async ({ startDate, endDate }) => {
       const data = await getWeight(userId, startDate, endDate)
@@ -102,7 +102,7 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_distance",
-    "Get daily distance walked/run (meters) from Google Fit for a date range",
+    "Get daily distance walked/run (meters) from Oura Ring for a date range",
     dateRangeSchema,
     async ({ startDate, endDate }) => {
       const data = await getDistance(userId, startDate, endDate)
@@ -112,7 +112,7 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_activity_sessions",
-    "Get workout and activity sessions (runs, cycling, etc.) from Google Fit for a date range",
+    "Get workout and activity sessions (runs, cycling, etc.) from Oura Ring for a date range",
     dateRangeSchema,
     async ({ startDate, endDate }) => {
       const data = await getActivitySessions(userId, startDate, endDate)
