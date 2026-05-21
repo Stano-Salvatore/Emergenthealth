@@ -5,15 +5,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
-import { CheckSquare, Flame, Plus, Check, Trash2 } from "lucide-react"
+import { CheckSquare, Flame, Plus, Check, Trash2, Trophy } from "lucide-react"
+import { format, subDays } from "date-fns"
 
 interface Habit {
   id: string
@@ -26,9 +23,33 @@ interface Habit {
 }
 
 const COLORS = [
-  "#6366f1", "#22c55e", "#f59e0b", "#ef4444",
-  "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6",
+  "#6366f1","#22c55e","#f59e0b","#ef4444",
+  "#8b5cf6","#06b6d4","#ec4899","#14b8a6",
 ]
+
+function HeatmapRow({ habit, days }: { habit: Habit; days: Date[] }) {
+  const doneSet = new Set(habit.completions.map(c => c.date?.split("T")[0]))
+  return (
+    <div className="flex gap-0.5">
+      {days.map((d, i) => {
+        const str = d.toISOString().split("T")[0]
+        const done = doneSet.has(str)
+        const isToday = str === new Date().toISOString().split("T")[0]
+        return (
+          <div key={i}
+            className={`h-3 flex-1 rounded-[2px] transition-all ${isToday ? "ring-1 ring-offset-1 ring-offset-card" : ""}`}
+            style={{
+              backgroundColor: done ? habit.color : "var(--secondary)",
+              opacity: done ? 1 : 0.35,
+              ...(isToday && done ? { ringColor: habit.color } : {}),
+            }}
+            title={`${format(d,"MMM d")}: ${done?"done":"not done"}`}
+          />
+        )
+      })}
+    </div>
+  )
+}
 
 export default function HabitsPage() {
   const [habits, setHabits] = useState<Habit[]>([])
@@ -37,6 +58,9 @@ export default function HabitsPage() {
   const [newName, setNewName] = useState("")
   const [newColor, setNewColor] = useState(COLORS[0])
   const [saving, setSaving] = useState(false)
+
+  // last 28 days for heatmap
+  const days28 = Array.from({ length: 28 }, (_, i) => subDays(new Date(), 27 - i))
 
   async function loadHabits() {
     const res = await fetch("/api/habits")
@@ -63,18 +87,11 @@ export default function HabitsPage() {
 
   async function toggleComplete(habit: Habit) {
     const url = `/api/habits/${habit.id}/complete`
+    const dateStr = new Date().toISOString().split("T")[0]
     if (habit.completedToday) {
-      await fetch(url, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: new Date().toISOString().split("T")[0] }),
-      })
+      await fetch(url, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dateStr }) })
     } else {
-      await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: new Date().toISOString().split("T")[0] }),
-      })
+      await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dateStr }) })
     }
     loadHabits()
   }
@@ -84,8 +101,10 @@ export default function HabitsPage() {
     loadHabits()
   }
 
-  const completed = habits.filter((h) => h.completedToday).length
+  const completed = habits.filter(h => h.completedToday).length
   const total = habits.length
+  const completionRate = total > 0 ? completed / total : 0
+  const topStreak = habits.reduce((max, h) => Math.max(max, h.streak), 0)
 
   return (
     <div className="space-y-6">
@@ -98,54 +117,62 @@ export default function HabitsPage() {
         </div>
         <Dialog open={formOpen} onOpenChange={setFormOpen}>
           <DialogTrigger asChild>
-            <Button size="sm" className="gap-1">
-              <Plus className="h-4 w-4" /> New Habit
-            </Button>
+            <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> New Habit</Button>
           </DialogTrigger>
           <DialogContent className="bg-card border-border max-w-sm">
-            <DialogHeader>
-              <DialogTitle>New Habit</DialogTitle>
-            </DialogHeader>
+            <DialogHeader><DialogTitle>New Habit</DialogTitle></DialogHeader>
             <form onSubmit={createHabit} className="space-y-4">
               <div>
                 <Label>Name</Label>
-                <Input
-                  className="mt-1"
-                  placeholder="Morning run"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  autoFocus
-                />
+                <Input className="mt-1" placeholder="Morning run" value={newName}
+                  onChange={e => setNewName(e.target.value)} autoFocus />
               </div>
               <div>
                 <Label>Color</Label>
                 <div className="flex gap-2 mt-2 flex-wrap">
-                  {COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setNewColor(c)}
+                  {COLORS.map(c => (
+                    <button key={c} type="button" onClick={() => setNewColor(c)}
                       className="h-7 w-7 rounded-full border-2 transition-transform"
-                      style={{
-                        backgroundColor: c,
-                        borderColor: newColor === c ? "white" : "transparent",
-                        transform: newColor === c ? "scale(1.15)" : "scale(1)",
-                      }}
-                    />
+                      style={{ backgroundColor: c, borderColor: newColor===c?"white":"transparent", transform: newColor===c?"scale(1.15)":"scale(1)" }} />
                   ))}
                 </div>
               </div>
               <Button type="submit" className="w-full" disabled={saving || !newName.trim()}>
-                {saving ? "Creating..." : "Create"}
+                {saving ? "Creating…" : "Create"}
               </Button>
             </form>
           </DialogContent>
         </Dialog>
       </div>
 
+      {/* summary row */}
+      {total > 0 && (
+        <div className="grid grid-cols-3 gap-3">
+          <Card>
+            <CardContent className="pt-4 pb-3 text-center">
+              <p className="text-2xl font-black">{completed}<span className="text-base text-muted-foreground font-normal">/{total}</span></p>
+              <p className="text-xs text-muted-foreground mt-0.5">Done today</p>
+              <Progress value={completionRate*100} className="h-1 mt-2" />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-3 text-center">
+              <p className="text-2xl font-black text-orange-400">{topStreak}<span className="text-base text-muted-foreground font-normal">d</span></p>
+              <p className="text-xs text-muted-foreground mt-0.5">Best streak</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4 pb-3 text-center">
+              <p className="text-2xl font-black">{Math.round(completionRate*100)}<span className="text-base text-muted-foreground font-normal">%</span></p>
+              <p className="text-xs text-muted-foreground mt-0.5">Completion</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {[...Array(4)].map((_, i) => (
+          {[...Array(4)].map((_,i) => (
             <Card key={i}>
               <CardContent className="py-4">
                 <div className="h-4 bg-secondary rounded animate-pulse w-24 mb-2" />
@@ -163,67 +190,44 @@ export default function HabitsPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {habits.map((habit) => (
-            <Card
-              key={habit.id}
-              className={`transition-colors ${
-                habit.completedToday ? "border-green-500/30 bg-green-500/5" : ""
-              }`}
-            >
+        <div className="space-y-3">
+          {habits.map(habit => (
+            <Card key={habit.id}
+              className={`transition-all ${habit.completedToday ? "border-green-500/30 bg-green-500/[0.03]" : ""}`}>
               <CardContent className="py-4 px-5">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className="h-3 w-3 rounded-full shrink-0"
-                      style={{ backgroundColor: habit.color }}
-                    />
+                    <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: habit.color }} />
                     <div className="min-w-0">
-                      <p className="font-medium text-sm truncate">{habit.name}</p>
-                      <div className="flex items-center gap-1 mt-0.5">
+                      <p className="font-semibold text-sm">{habit.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
                         <Flame className="h-3 w-3 text-orange-400" />
-                        <span className="text-xs text-muted-foreground">
-                          {habit.streak} day streak
-                        </span>
+                        <span className="text-xs text-muted-foreground">{habit.streak} day streak</span>
+                        {habit.streak >= 7 && <Trophy className="h-3 w-3 text-amber-400" />}
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => deleteHabit(habit.id)}
-                      className="text-muted-foreground hover:text-destructive transition-colors p-1"
-                    >
+                    <button onClick={() => deleteHabit(habit.id)}
+                      className="text-muted-foreground hover:text-destructive transition-colors p-1">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
-                    <button
-                      onClick={() => toggleComplete(habit)}
-                      className={`h-8 w-8 rounded-full border-2 flex items-center justify-center transition-colors ${
-                        habit.completedToday
-                          ? "bg-green-500 border-green-500 text-white"
-                          : "border-border hover:border-green-500"
-                      }`}
-                    >
+                    <button onClick={() => toggleComplete(habit)}
+                      className={`h-9 w-9 rounded-full border-2 flex items-center justify-center transition-all ${
+                        habit.completedToday ? "bg-green-500 border-green-500 text-white scale-110" : "border-border hover:border-green-500 hover:scale-105"
+                      }`}>
                       {habit.completedToday && <Check className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>
 
-                {/* Last 7 days mini grid */}
-                <div className="flex gap-1 mt-3">
-                  {[...Array(7)].map((_, i) => {
-                    const d = new Date()
-                    d.setDate(d.getDate() - (6 - i))
-                    const dateStr = d.toISOString().split("T")[0]
-                    const done = habit.completions?.some((c) => c.date?.startsWith(dateStr))
-                    return (
-                      <div
-                        key={i}
-                        className="h-2 flex-1 rounded-sm"
-                        style={{ backgroundColor: done ? habit.color : "var(--secondary)" }}
-                        title={dateStr}
-                      />
-                    )
-                  })}
+                {/* 28-day heatmap */}
+                <div>
+                  <div className="flex justify-between text-[9px] text-muted-foreground mb-1">
+                    <span>4 weeks ago</span>
+                    <span>Today</span>
+                  </div>
+                  <HeatmapRow habit={habit} days={days28} />
                 </div>
               </CardContent>
             </Card>

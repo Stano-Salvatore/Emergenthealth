@@ -44,6 +44,7 @@ export interface ChartDay {
   stressHigh: number | null
   recoveryHigh: number | null
   sedentaryMin: number | null
+  mood: number | null
 }
 
 export function SleepChart({ data }: { data: ChartDay[] }) {
@@ -299,6 +300,31 @@ export function StressRecoveryChart({ data }: { data: ChartDay[] }) {
           <Tooltip content={<Tip />} />
           <Bar dataKey="stressHigh" name="High stress" fill="#ef4444" fillOpacity={0.75} radius={[3, 3, 0, 0]} />
           <Bar dataKey="recoveryHigh" name="Recovery" fill="#10b981" fillOpacity={0.75} radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+export function MoodChart({ data }: { data: ChartDay[] }) {
+  const d = [...data].reverse().filter(r => r.mood != null)
+  if (!d.length) return null
+  const MOOD_LABELS: Record<number, string> = { 1: "Awful", 2: "Bad", 3: "OK", 4: "Good", 5: "Great" }
+  const MOOD_COLORS: Record<number, string> = { 1: "#ef4444", 2: "#f97316", 3: "#eab308", 4: "#22c55e", 5: "#10b981" }
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground font-medium mb-2">Mood (1–5)</p>
+      <ResponsiveContainer width="100%" height={130}>
+        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={GRID} />
+          <XAxis dataKey="date" tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+          <YAxis tick={AXIS} axisLine={false} tickLine={false} domain={[0, 5]} tickFormatter={v => MOOD_LABELS[v as number] ?? ""} />
+          <Tooltip content={<Tip />} formatter={(v: any) => [MOOD_LABELS[v as number] ?? v, "Mood"]} />
+          <Bar dataKey="mood" name="Mood" radius={[3, 3, 0, 0]}>
+            {d.map((row, i) => (
+              <Cell key={i} fill={MOOD_COLORS[row.mood!] ?? "#6366f1"} />
+            ))}
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>

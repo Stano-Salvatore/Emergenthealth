@@ -8,7 +8,7 @@ import { OuraSyncButton } from "@/components/health/OuraSyncButton"
 import {
   SleepChart, StepsChart, HRChart, WeightChart, ActivityChart,
   ReadinessChart, HRVChart, SpO2Chart, ActivityScoreChart,
-  StressRecoveryChart, BreathingRateChart,
+  StressRecoveryChart, BreathingRateChart, MoodChart,
   type ChartDay,
 } from "@/components/health/HealthCharts"
 import { Moon, Footprints, Heart, Scale, Zap, Activity, Thermometer, Wind, Shield } from "lucide-react"
@@ -24,7 +24,16 @@ export default async function HealthPage() {
   const ouraToken = await prisma.ouraToken.findUnique({ where: { userId }, select: { id: true } })
   const isOuraConnected = !!ouraToken
 
-  const logs = await prisma.healthLog.findMany({
+  const since30 = new Date()
+  since30.setDate(since30.getDate() - 29)
+
+  const [moodLogs, logs] = await Promise.all([
+    prisma.moodLog.findMany({
+      where: { userId, date: { gte: since30 } },
+      orderBy: { date: "desc" },
+      take: 30,
+    }),
+    prisma.healthLog.findMany({
     where: { userId },
     orderBy: { date: "desc" },
     take: 30,
@@ -60,7 +69,12 @@ export default async function HealthPage() {
       sleepStart: true,
       sleepEnd: true,
     },
-  })
+  }),
+  ])
+
+  const moodByDate = Object.fromEntries(
+    moodLogs.map(m => [m.date.toISOString().split("T")[0], m.mood])
+  )
 
   const recent7 = logs.slice(0, 7)
   function avg(arr: (number | null)[]) {
@@ -99,6 +113,7 @@ export default async function HealthPage() {
     stressHigh:    l.stressHigh ?? null,
     recoveryHigh:  l.recoveryHigh ?? null,
     sedentaryMin:  l.sedentaryTime ?? null,
+    mood:          moodByDate[l.date.toISOString().split("T")[0]] ?? null,
   }))
 
   const latestLog = logs[0] ?? null
@@ -461,6 +476,17 @@ export default async function HealthPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent><WeightChart data={chartData} /></CardContent>
+              </Card>
+            )}
+
+            {chartData.some(d => d.mood != null) && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+                    <span>😊</span> Mood
+                  </CardTitle>
+                </CardHeader>
+                <CardContent><MoodChart data={chartData} /></CardContent>
               </Card>
             )}
 

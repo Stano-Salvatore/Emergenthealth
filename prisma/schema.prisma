@@ -29,6 +29,8 @@ model User {
   ouraToken    OuraToken? @relation("OuraToken")
   moodLogs     MoodLog[]
   tags         Tag[]
+  checkIns     CheckIn[]
+  dailyNotes   DailyNote[]
 }
 
 model Account {
@@ -231,6 +233,36 @@ model Tag {
 
   @@unique([userId, name])
   @@index([userId])
+}
+
+// ─── Check-ins ───────────────────────────────────────────────────────────────
+
+model CheckIn {
+  id        String   @id @default(cuid())
+  userId    String
+  place     String
+  emoji     String   @default("📍")
+  note      String?
+  checkedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, checkedAt])
+}
+
+// ─── Daily Notes ─────────────────────────────────────────────────────────────
+
+model DailyNote {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @db.Date
+  content   String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
 }
 
 // ─── Chat ────────────────────────────────────────────────────────────────────

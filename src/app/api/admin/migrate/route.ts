@@ -82,6 +82,34 @@ const migrations: { label: string; sql: string }[] = [
     )`,
   },
   { label: "Tag index", sql: `CREATE INDEX IF NOT EXISTS "Tag_userId_idx" ON "Tag"("userId")` },
+  // CheckIn table
+  {
+    label: "CheckIn table",
+    sql: `CREATE TABLE IF NOT EXISTS "CheckIn" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "place" TEXT NOT NULL,
+      "emoji" TEXT NOT NULL DEFAULT '📍',
+      "note" TEXT,
+      "checkedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "CheckIn_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
+    )`,
+  },
+  { label: "CheckIn index", sql: `CREATE INDEX IF NOT EXISTS "CheckIn_userId_checkedAt_idx" ON "CheckIn"("userId", "checkedAt")` },
+  // DailyNote table
+  {
+    label: "DailyNote table",
+    sql: `CREATE TABLE IF NOT EXISTS "DailyNote" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "date" DATE NOT NULL,
+      "content" TEXT NOT NULL,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "DailyNote_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE,
+      CONSTRAINT "DailyNote_userId_date_key" UNIQUE ("userId", "date")
+    )`,
+  },
+  { label: "DailyNote index", sql: `CREATE INDEX IF NOT EXISTS "DailyNote_userId_date_idx" ON "DailyNote"("userId", "date")` },
 ]
 
 async function runMigrations() {
