@@ -4,12 +4,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { HealthEntryForm } from "@/components/health/HealthEntryForm"
-import { ExistSyncButton } from "@/components/health/ExistSyncButton"
+import { OuraSyncButton } from "@/components/health/OuraSyncButton"
 import {
   SleepChart, StepsChart, HRChart, WeightChart, ActivityChart,
   type ChartDay,
 } from "@/components/health/HealthCharts"
-import { Moon, Footprints, Heart, Scale, Zap, Activity, Coffee, Droplets } from "lucide-react"
+import { Moon, Footprints, Heart, Scale, Zap, Activity } from "lucide-react"
 import { format, subDays } from "date-fns"
 
 const STEP_GOAL = 8_000
@@ -18,6 +18,9 @@ const SLEEP_GOAL_H = 7
 export default async function HealthPage() {
   const session = await auth()
   const userId = session!.user.id
+
+  const ouraToken = await prisma.ouraToken.findUnique({ where: { userId }, select: { id: true } })
+  const isOuraConnected = !!ouraToken
 
   // Fetch 30 days for charts; only select existing DB columns
   const logs = await prisma.healthLog.findMany({
@@ -74,11 +77,11 @@ export default async function HealthPage() {
         <div>
           <h1 className="text-2xl font-bold">Health</h1>
           <p className="text-muted-foreground text-sm mt-0.5">
-            {logs.length} days of data · synced from exist.io
+            {logs.length} days of data · synced from Oura Ring
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {!!process.env.EXIST_IO_TOKEN && <ExistSyncButton />}
+          {isOuraConnected && <OuraSyncButton />}
           <HealthEntryForm />
         </div>
       </div>
@@ -88,7 +91,7 @@ export default async function HealthPage() {
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Moon className="h-10 w-10 text-muted-foreground mb-3" />
             <p className="text-muted-foreground">No health data yet</p>
-            <p className="text-sm text-muted-foreground mt-1">Sync from exist.io or click &quot;Log Day&quot;</p>
+            <p className="text-sm text-muted-foreground mt-1">Connect your Oura Ring in Settings and sync, or click &quot;Log Day&quot;</p>
           </CardContent>
         </Card>
       ) : (
@@ -263,23 +266,6 @@ export default async function HealthPage() {
             )}
 
           </div>
-
-          {/* ── coffee & water coming soon notice ── */}
-          <Card className="border-dashed border-muted">
-            <CardContent className="py-4">
-              <div className="flex items-center gap-3">
-                <Coffee className="h-5 w-5 text-amber-600 shrink-0" />
-                <Droplets className="h-5 w-5 text-blue-400 shrink-0" />
-                <div>
-                  <p className="text-sm font-medium">Coffee & Water tracking</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Run the SQL migration in <code className="text-xs bg-secondary px-1 rounded">prisma/add_health_columns.sql</code> in
-                    your Neon SQL editor, then re-deploy to enable coffee ☕ and water 💧 from exist.io.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
 
           {/* ── recent log ── */}
           <Card>
