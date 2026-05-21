@@ -110,6 +110,38 @@ const migrations: { label: string; sql: string }[] = [
     )`,
   },
   { label: "DailyNote index", sql: `CREATE INDEX IF NOT EXISTS "DailyNote_userId_date_idx" ON "DailyNote"("userId", "date")` },
+  // IntakeLog table
+  {
+    label: "IntakeLog table",
+    sql: `CREATE TABLE IF NOT EXISTS "IntakeLog" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "type" TEXT NOT NULL,
+      "amountMl" INTEGER NOT NULL,
+      "note" TEXT,
+      "loggedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "IntakeLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
+    )`,
+  },
+  { label: "IntakeLog index", sql: `CREATE INDEX IF NOT EXISTS "IntakeLog_userId_loggedAt_idx" ON "IntakeLog"("userId", "loggedAt")` },
+  // HealthLog sleep timestamps
+  { label: "HealthLog.sleepStart", sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepStart" TIMESTAMP(3)` },
+  { label: "HealthLog.sleepEnd",   sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepEnd" TIMESTAMP(3)` },
+  // FocusSession table
+  {
+    label: "FocusSession table",
+    sql: `CREATE TABLE IF NOT EXISTS "FocusSession" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "durationMin" INTEGER NOT NULL,
+      "type" TEXT NOT NULL DEFAULT 'focus',
+      "label" TEXT,
+      "startedAt" TIMESTAMP(3) NOT NULL,
+      "endedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "FocusSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
+    )`,
+  },
+  { label: "FocusSession index", sql: `CREATE INDEX IF NOT EXISTS "FocusSession_userId_endedAt_idx" ON "FocusSession"("userId", "endedAt")` },
 ]
 
 async function runMigrations() {

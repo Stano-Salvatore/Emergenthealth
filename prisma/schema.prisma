@@ -31,6 +31,8 @@ model User {
   tags         Tag[]
   checkIns     CheckIn[]
   dailyNotes   DailyNote[]
+  intakeLogs    IntakeLog[]
+  focusSessions FocusSession[]
 }
 
 model Account {
@@ -263,6 +265,37 @@ model DailyNote {
 
   @@unique([userId, date])
   @@index([userId, date])
+}
+
+// ─── Intake Log (water / coffee / etc.) ─────────────────────────────────────
+
+model IntakeLog {
+  id       String   @id @default(cuid())
+  userId   String
+  type     String   // "water" | "coffee" | "tea" | "alcohol" | "other"
+  amountMl Int
+  note     String?
+  loggedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, loggedAt])
+}
+
+// ─── Focus Sessions (Pomodoro) ───────────────────────────────────────────────
+
+model FocusSession {
+  id          String   @id @default(cuid())
+  userId      String
+  durationMin Int
+  type        String   @default("focus") // "focus" | "short_break" | "long_break"
+  label       String?
+  startedAt   DateTime
+  endedAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, endedAt])
 }
 
 // ─── Chat ────────────────────────────────────────────────────────────────────

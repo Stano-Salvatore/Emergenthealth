@@ -8,9 +8,9 @@ import { Progress } from "@/components/ui/progress"
 import Link from "next/link"
 import {
   Activity, Euro, Calendar, CheckSquare, Bell, Moon,
-  Footprints, ChevronRight, Heart, Scale, Clock,
-  TrendingUp, TrendingDown, Zap, Mail, Shield,
-  Wind, Thermometer, Flame,
+  Footprints, ChevronRight, Heart, Clock,
+  TrendingUp, TrendingDown, Mail, Shield,
+  Wind, Flame, Droplets, Timer,
 } from "lucide-react"
 import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"
 import { LiveClock } from "@/components/dashboard/LiveClock"
@@ -118,7 +118,10 @@ export default async function DashboardPage() {
   const todayStr = today.toISOString().split("T")[0]
   const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
 
-  const [healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData] = await Promise.all([
+  const todayStart = new Date(todayStr + "T00:00:00.000Z")
+  const todayEnd = new Date(todayStr + "T23:59:59.999Z")
+
+  const [healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData, todayIntake, todayFocus] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId },
       orderBy: { date: "desc" },
@@ -151,7 +154,18 @@ export default async function DashboardPage() {
       take: 1,
     }),
     getGmailSummary(userId),
+    prisma.intakeLog.findMany({
+      where: { userId, loggedAt: { gte: todayStart, lte: todayEnd } },
+    }).catch(() => [] as any[]),
+    prisma.focusSession.findMany({
+      where: { userId, endedAt: { gte: todayStart, lte: todayEnd }, type: "focus" },
+    }).catch(() => [] as any[]),
   ])
+
+  // ── intake
+  const waterMl = todayIntake.filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
+  const coffeeMl = todayIntake.filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0)
+  const focusMinToday = todayFocus.reduce((a: number, s: any) => a + s.durationMin, 0)
 
   // ── health
   const latestHealth = healthLogs[0] ?? null
@@ -585,10 +599,12 @@ export default async function DashboardPage() {
 
       {/* ── bottom stats row ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatTile label="Events (14d)" value={String(calendarEvents.length)} icon={<Calendar className="h-4 w-4 text-blue-400"/>} />
-        <StatTile label="Reminders" value={String(reminders.length)} icon={<Bell className="h-4 w-4 text-violet-400"/>} />
+        <StatTile label="Water today" value={waterMl >= 1000 ? `${(waterMl/1000).toFixed(1)}L` : `${waterMl}ml`}
+          sub="goal 2L" icon={<Droplets className="h-4 w-4 text-blue-400"/>} ok={waterMl >= 2000} />
+        <StatTile label="Focus today" value={focusMinToday >= 60 ? `${(focusMinToday/60).toFixed(1)}h` : `${focusMinToday}m`}
+          icon={<Timer className="h-4 w-4 text-indigo-400"/>} />
         <StatTile label="Habits today" value={`${doneToday}/${habits.length}`} icon={<CheckSquare className="h-4 w-4 text-amber-400"/>} />
-        <StatTile label="Spent / Income" value={`€${(totalSpent/100).toFixed(0)}`} icon={<Euro className="h-4 w-4 text-emerald-400"/>} />
+        <StatTile label="Spent this month" value={`€${(totalSpent/100).toFixed(0)}`} icon={<Flame className="h-4 w-4 text-emerald-400"/>} />
       </div>
 
       {/* ── extras ── */}
@@ -612,13 +628,14 @@ function MetricBox({ icon, label, value, sub, ok }: {
   )
 }
 
-function StatTile({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
+function StatTile({ label, value, sub, icon, ok }: { label: string; value: string; sub?: string; icon: React.ReactNode; ok?: boolean }) {
   return (
-    <div className="rounded-xl bg-card border px-4 py-3 flex items-center gap-3">
+    <div className={`rounded-xl bg-card border px-4 py-3 flex items-center gap-3 ${ok === true ? "border-green-500/30" : ""}`}>
       {icon}
       <div>
         <p className="text-[10px] text-muted-foreground">{label}</p>
-        <p className="text-lg font-bold tabular-nums">{value}</p>
+        <p className={`text-lg font-bold tabular-nums ${ok === true ? "text-green-400" : ""}`}>{value}</p>
+        {sub && <p className="text-[10px] text-muted-foreground">{sub}</p>}
       </div>
     </div>
   )

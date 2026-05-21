@@ -17,6 +17,8 @@ import {
   LogOut,
   Mail,
   BookOpen,
+  Droplets,
+  Timer,
 } from "lucide-react"
 
 const navItems = [
@@ -27,7 +29,10 @@ const navItems = [
   { href: "/dashboard/habits", label: "Habits", icon: CheckSquare },
   { href: "/dashboard/reminders", label: "Reminders", icon: Bell },
   { href: "/dashboard/journal", label: "Journal", icon: BookOpen },
+  { href: "/dashboard/intake", label: "Intake", icon: Droplets },
+  { href: "/dashboard/focus", label: "Focus", icon: Timer },
   { href: "/dashboard/home", label: "Home", icon: Home },
+  { href: "/dashboard/gmail", label: "Gmail", icon: Mail },
   { href: "/dashboard/chat", label: "Claude AI", icon: MessageSquare },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ]
