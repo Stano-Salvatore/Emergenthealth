@@ -24,9 +24,9 @@ function Tip({ active, payload, label }: any) {
 }
 
 export interface ChartDay {
-  date: string       // e.g. "Apr 1"
-  sleepH: number | null   // hours
-  deepMin: number | null  // minutes
+  date: string
+  sleepH: number | null
+  deepMin: number | null
   remMin: number | null
   lightMin: number | null
   steps: number | null
@@ -34,6 +34,10 @@ export interface ChartDay {
   weight: number | null
   activeMin: number | null
   calories: number | null
+  readiness: number | null
+  hrv: number | null
+  spo2: number | null
+  distanceKm: number | null
 }
 
 export function SleepChart({ data }: { data: ChartDay[] }) {
@@ -42,7 +46,7 @@ export function SleepChart({ data }: { data: ChartDay[] }) {
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-xs text-muted-foreground font-medium mb-2">Duration (hours) — dashed line = 7h goal</p>
+        <p className="text-xs text-muted-foreground font-medium mb-2">Duration (hours) — dashed = 7h goal</p>
         <ResponsiveContainer width="100%" height={130}>
           <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={GRID} />
@@ -168,6 +172,79 @@ export function WeightChart({ data }: { data: ChartDay[] }) {
           <Tooltip content={<Tip />} />
           <Area type="monotone" dataKey="weight" name="Weight" fill="url(#wGrad)" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2, fill: "#3b82f6" }} />
         </ComposedChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+export function ReadinessChart({ data }: { data: ChartDay[] }) {
+  const d = [...data].reverse().filter(r => r.readiness != null)
+  if (!d.length) return null
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground font-medium mb-2">Readiness score (0–100)</p>
+      <ResponsiveContainer width="100%" height={130}>
+        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+          <CartesianGrid vertical={false} stroke={GRID} />
+          <XAxis dataKey="date" tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+          <YAxis tick={AXIS} axisLine={false} tickLine={false} domain={[0, 100]} />
+          <Tooltip content={<Tip />} />
+          <ReferenceLine y={70} stroke="#10b981" strokeDasharray="4 2" strokeOpacity={0.5} />
+          <Bar dataKey="readiness" name="Readiness" radius={[3, 3, 0, 0]}>
+            {d.map((row, i) => (
+              <Cell key={i} fill={
+                row.readiness != null && row.readiness >= 85 ? "#10b981" :
+                row.readiness != null && row.readiness >= 70 ? "#10b98188" :
+                "#ef444488"
+              } />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+export function HRVChart({ data }: { data: ChartDay[] }) {
+  const d = [...data].reverse().filter(r => r.hrv != null)
+  if (!d.length) return null
+  const vals = d.map(r => r.hrv!).filter(Boolean)
+  const min = Math.max(0, Math.min(...vals) - 5)
+  const max = Math.max(...vals) + 5
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground font-medium mb-2">HRV — heart rate variability (ms)</p>
+      <ResponsiveContainer width="100%" height={130}>
+        <LineChart data={d} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+          <CartesianGrid stroke={GRID} />
+          <XAxis dataKey="date" tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+          <YAxis tick={AXIS} axisLine={false} tickLine={false} domain={[min, max]} />
+          <Tooltip content={<Tip />} />
+          <Line type="monotone" dataKey="hrv" name="HRV (ms)" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 2, fill: "#8b5cf6" }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+export function SpO2Chart({ data }: { data: ChartDay[] }) {
+  const d = [...data].reverse().filter(r => r.spo2 != null)
+  if (!d.length) return null
+  const vals = d.map(r => r.spo2!).filter(Boolean)
+  const min = Math.max(90, Math.min(...vals) - 1)
+  const max = Math.min(100, Math.max(...vals) + 0.5)
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground font-medium mb-2">Blood oxygen SpO₂ (%)</p>
+      <ResponsiveContainer width="100%" height={130}>
+        <LineChart data={d} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+          <CartesianGrid stroke={GRID} />
+          <XAxis dataKey="date" tick={AXIS} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+          <YAxis tick={AXIS} axisLine={false} tickLine={false} domain={[min, max]} tickFormatter={v => `${v}%`} />
+          <Tooltip content={<Tip />} />
+          <ReferenceLine y={95} stroke="#06b6d4" strokeDasharray="4 2" strokeOpacity={0.5} />
+          <Line type="monotone" dataKey="spo2" name="SpO₂" stroke="#06b6d4" strokeWidth={2} dot={{ r: 2, fill: "#06b6d4" }} />
+        </LineChart>
       </ResponsiveContainer>
     </div>
   )

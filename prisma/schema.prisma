@@ -95,6 +95,17 @@ model HealthLog {
   restingHR Int?
   weight    Float?
 
+  // Oura extended metrics
+  readinessScore  Int?
+  hrv             Float?
+  spo2            Float?
+  skinTemp        Float?
+  sleepEfficiency Int?
+  sleepLatency    Int?
+  stressHigh      Int?
+  totalCalories   Int?
+  distanceKm      Float?
+
   syncedAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
