@@ -42,6 +42,39 @@ const TOOLS: Anthropic.Tool[] = [
       required: ["title"],
     },
   },
+  {
+    name: "log_water",
+    description: "Log water intake for the user (adds to today's total)",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        amountMl: { type: "number", description: "Amount in millilitres (e.g. 250, 500, 1000)" },
+      },
+      required: ["amountMl"],
+    },
+  },
+  {
+    name: "log_mood",
+    description: "Log the user's mood for today (1=awful, 2=bad, 3=ok, 4=good, 5=great)",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        mood: { type: "number", description: "Mood score 1-5" },
+      },
+      required: ["mood"],
+    },
+  },
+  {
+    name: "log_weight",
+    description: "Log the user's body weight in kg for today",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        weightKg: { type: "number", description: "Weight in kilograms" },
+      },
+      required: ["weightKg"],
+    },
+  },
 ]
 
 async function executeTool(name: string, input: Record<string, string>, userId: string): Promise<string> {
@@ -79,6 +112,34 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     return `Created reminder "${input.title}".`
   }
 
+  if (name === "log_water") {
+    const amountMl = parseInt(String(input.amountMl), 10)
+    await prisma.intakeLog.create({ data: { userId, type: "water", amountMl } }).catch(() => null)
+    return `Logged ${amountMl}ml of water.`
+  }
+
+  if (name === "log_mood") {
+    const mood = Math.min(5, Math.max(1, parseInt(String(input.mood), 10)))
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    await prisma.moodLog.upsert({
+      where: { userId_date: { userId, date: today } },
+      create: { userId, date: today, mood },
+      update: { mood },
+    }).catch(() => null)
+    return `Logged mood: ${mood}/5 for today.`
+  }
+
+  if (name === "log_weight") {
+    const weight = parseFloat(String(input.weightKg))
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    await prisma.healthLog.upsert({
+      where: { userId_date: { userId, date: today } },
+      create: { userId, date: today, weight },
+      update: { weight },
+    }).catch(() => null)
+    return `Logged weight: ${weight}kg for today.`
+  }
+
   return "Unknown tool."
 }
 
@@ -87,11 +148,15 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const todayStr = today.toISOString().split("T")[0]
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
 
-  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents] =
+  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake] =
     await Promise.all([
       prisma.healthLog.findMany({
         where: { userId }, orderBy: { date: "desc" }, take: 7,
-        select: { id: true, date: true, sleepDuration: true, deepSleep: true, remSleep: true, steps: true, restingHR: true, weight: true, activeMinutes: true, caloriesBurned: true },
+        select: {
+          id: true, date: true, sleepDuration: true, deepSleep: true, remSleep: true,
+          steps: true, restingHR: true, weight: true, activeMinutes: true, caloriesBurned: true,
+          readinessScore: true, hrv: true, spo2: true, activityScore: true, breathingRate: true,
+        },
       }),
       prisma.transaction.findMany({ where: { userId, date: { gte: monthStart } }, orderBy: { date: "desc" }, take: 100 }),
       prisma.habit.findMany({
@@ -105,6 +170,8 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       }),
       prisma.reminder.findMany({ where: { userId, isCompleted: false }, orderBy: { dueDate: "asc" }, take: 20 }),
       getUpcomingEvents(userId, 14),
+      prisma.moodLog.findFirst({ where: { userId, date: { gte: new Date(todayStr) } } }).catch(() => null),
+      prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: new Date(todayStr) } } }).catch(() => []),
     ])
 
   const habitsWithStreaks = habits.map((h) => {
@@ -128,11 +195,21 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const totalSpent = Object.values(spendingByCategory).reduce((a, b) => a + b, 0)
   const totalIncome = recentTransactions.filter((t) => t.amount > 0 && !t.isTransfer).reduce((sum, t) => sum + t.amount, 0)
 
+  // Intake totals for today
+  const waterToday = (todayIntake as any[]).filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
+  const coffeeToday = (todayIntake as any[]).filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0)
+
+  const moodLabels: Record<number, string> = { 1: "awful", 2: "bad", 3: "ok", 4: "good", 5: "great" }
+
   return `You are the personal AI assistant embedded in the user's health and life dashboard. Today is ${todayStr}.
-You have tools to CREATE habits and reminders, and COMPLETE habits — use them when the user asks.
+You have tools to CREATE habits/reminders, COMPLETE habits, and LOG water/mood/weight — use them when asked.
+
+## Today's snapshot
+- Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
+- Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}
 
 ## Health (last 7 days)
-${recentHealth.length === 0 ? "No health data yet." : recentHealth.map((h) => `- ${h.date.toISOString().split("T")[0]}: ${h.steps ?? "?"}steps | sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"} (deep:${h.deepSleep ?? "?"}min REM:${h.remSleep ?? "?"}min) | weight:${(h as { weight?: number | null }).weight ?? "?"}kg | HR:${h.restingHR ?? "?"}bpm`).join("\n")}
+${recentHealth.length === 0 ? "No health data yet." : recentHealth.map((h) => `- ${h.date.toISOString().split("T")[0]}: sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"}${h.readinessScore != null ? ` | readiness ${h.readinessScore}` : ""}${h.hrv != null ? ` | HRV ${Math.round(h.hrv)}ms` : ""} | ${h.steps ?? "?"}steps | HR ${h.restingHR ?? "?"}bpm${h.activityScore != null ? ` | activity ${h.activityScore}` : ""}${h.weight != null ? ` | ${h.weight}kg` : ""}`).join("\n")}
 
 ## Finances (this month)
 Spent: €${(totalSpent / 100).toFixed(2)} | Income: €${(totalIncome / 100).toFixed(2)}
