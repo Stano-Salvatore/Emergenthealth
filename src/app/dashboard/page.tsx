@@ -18,6 +18,7 @@ import { WeatherWidget } from "@/components/dashboard/WeatherWidget"
 import { AcCard } from "@/components/dashboard/AcCard"
 import { BookScanCard } from "@/components/dashboard/BookScanCard"
 import { MoodWidget } from "@/components/dashboard/MoodWidget"
+import { QuickLog } from "@/components/dashboard/QuickLog"
 
 const STEP_GOAL = 8_000
 const SLEEP_GOAL_H = 7
@@ -601,6 +602,9 @@ export default async function DashboardPage() {
         </Link>
 
       </div>
+
+      {/* ── quick log strip ── */}
+      <QuickLog todayWaterMl={waterMl} todayFocusMin={focusMinToday} todayMood={todayMood} />
 
       {/* ── bottom stats row ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
