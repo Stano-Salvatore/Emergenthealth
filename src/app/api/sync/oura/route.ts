@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { getDailySleep, getSteps, getCalories } from "@/lib/oura"
+import { getDailySleep, getDailyActivity, getDailyReadiness, getDailySpo2, getDailyStress } from "@/lib/oura"
 import { format, subDays } from "date-fns"
 
 export async function POST() {
@@ -9,54 +9,71 @@ export async function POST() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const userId = session.user.id
-
   const ouraToken = await prisma.ouraToken.findUnique({ where: { userId } })
-  if (!ouraToken) {
-    return NextResponse.json({ error: "Oura Ring not connected" }, { status: 503 })
-  }
+  if (!ouraToken) return NextResponse.json({ error: "Oura Ring not connected" }, { status: 503 })
 
   try {
     const endDate = format(new Date(), "yyyy-MM-dd")
     const startDate = format(subDays(new Date(), 29), "yyyy-MM-dd")
 
-    const [sleepData, stepsData, caloriesData] = await Promise.all([
+    const [sleepData, activityData, readinessData, spo2Data, stressData] = await Promise.allSettled([
       getDailySleep(userId, startDate, endDate),
-      getSteps(userId, startDate, endDate),
-      getCalories(userId, startDate, endDate),
+      getDailyActivity(userId, startDate, endDate),
+      getDailyReadiness(userId, startDate, endDate),
+      getDailySpo2(userId, startDate, endDate),
+      getDailyStress(userId, startDate, endDate),
     ])
 
-    const sleepByDate = Object.fromEntries(sleepData.map(s => [s.date, s]))
-    const stepsByDate = Object.fromEntries(stepsData.map(s => [s.date as string, s]))
-    const caloriesByDate = Object.fromEntries(caloriesData.map(s => [s.date as string, s]))
+    const byDate = <T extends { date: string }>(result: PromiseSettledResult<T[]>): Record<string, T> =>
+      result.status === "fulfilled"
+        ? Object.fromEntries(result.value.map(r => [r.date, r]))
+        : {}
+
+    const sleep     = byDate(sleepData)
+    const activity  = byDate(activityData)
+    const readiness = byDate(readinessData)
+    const spo2      = byDate(spo2Data)
+    const stress    = byDate(stressData)
 
     const allDates = new Set([
-      ...sleepData.map(s => s.date),
-      ...stepsData.map(s => s.date as string),
-      ...caloriesData.map(s => s.date as string),
+      ...Object.keys(sleep),
+      ...Object.keys(activity),
+      ...Object.keys(readiness),
+      ...Object.keys(spo2),
+      ...Object.keys(stress),
     ])
 
     const upserts = Array.from(allDates).map(dateStr => {
       const date = new Date(dateStr + "T00:00:00.000Z")
-      const sleep = sleepByDate[dateStr]
-      const steps = stepsByDate[dateStr]
-      const cals = caloriesByDate[dateStr]
-
-      const sleepDuration  = sleep?.totalSleepSeconds  != null ? Math.round(sleep.totalSleepSeconds / 60)  : undefined
-      const deepSleep      = sleep?.deepSleepSeconds   != null ? Math.round(sleep.deepSleepSeconds / 60)   : undefined
-      const remSleep       = sleep?.remSleepSeconds    != null ? Math.round(sleep.remSleepSeconds / 60)    : undefined
-      const lightSleep     = sleep?.lightSleepSeconds  != null ? Math.round(sleep.lightSleepSeconds / 60)  : undefined
-      const restingHR      = sleep?.avgRestingHR       != null ? Math.round(sleep.avgRestingHR)            : undefined
-      const stepCount      = steps?.steps              != null ? (steps.steps as number)                   : undefined
-      const caloriesBurned = cals?.calories            != null ? (cals.calories as number)                 : undefined
+      const s = sleep[dateStr]
+      const a = activity[dateStr]
+      const r = readiness[dateStr]
+      const o = spo2[dateStr]
+      const t = stress[dateStr]
 
       const fields = {
-        ...(sleepDuration  != null && { sleepDuration }),
-        ...(deepSleep      != null && { deepSleep }),
-        ...(remSleep       != null && { remSleep }),
-        ...(lightSleep     != null && { lightSleep }),
-        ...(restingHR      != null && { restingHR }),
-        ...(stepCount      != null && { steps: stepCount }),
-        ...(caloriesBurned != null && { caloriesBurned }),
+        // Sleep
+        ...(s?.totalSleepSeconds  != null && { sleepDuration:  Math.round(s.totalSleepSeconds / 60) }),
+        ...(s?.deepSleepSeconds   != null && { deepSleep:      Math.round(s.deepSleepSeconds / 60) }),
+        ...(s?.remSleepSeconds    != null && { remSleep:       Math.round(s.remSleepSeconds / 60) }),
+        ...(s?.lightSleepSeconds  != null && { lightSleep:     Math.round(s.lightSleepSeconds / 60) }),
+        ...(s?.avgRestingHR       != null && { restingHR:      Math.round(s.avgRestingHR) }),
+        ...(s?.hrv                != null && { hrv:            s.hrv }),
+        ...(s?.efficiency         != null && { sleepEfficiency: s.efficiency }),
+        ...(s?.latencySeconds     != null && { sleepLatency:   Math.round(s.latencySeconds / 60) }),
+        // Activity
+        ...(a?.steps              != null && { steps:          a.steps }),
+        ...(a?.activeCalories     != null && { caloriesBurned: a.activeCalories }),
+        ...(a?.totalCalories      != null && { totalCalories:  a.totalCalories }),
+        ...(a?.distanceKm         != null && { distanceKm:     a.distanceKm }),
+        ...(a?.activeMinutes      != null && { activeMinutes:  a.activeMinutes }),
+        // Readiness
+        ...(r?.score              != null && { readinessScore: r.score }),
+        ...(r?.skinTemp           != null && { skinTemp:       r.skinTemp }),
+        // SpO2
+        ...(o?.spo2               != null && { spo2:           o.spo2 }),
+        // Stress
+        ...(t?.stressHighMin      != null && { stressHigh:     t.stressHighMin }),
         syncedAt: new Date(),
       }
 
