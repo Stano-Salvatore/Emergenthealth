@@ -80,6 +80,13 @@ export default async function WeekPage() {
 
   // Aggregate
   const daysInWeek = thisWeekLogs.length
+
+  // Sleep debt: sum of (goal - actual) for each day with sleep data
+  const sleepDebtMin = thisWeekLogs
+    .filter(l => l.sleepDuration != null)
+    .reduce((debt, l) => debt + Math.max(0, SLEEP_GOAL_H * 60 - l.sleepDuration!), 0)
+  const sleepDebtH = (sleepDebtMin / 60).toFixed(1)
+
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = subDays(today, 6 - i)
     return format(d, "yyyy-MM-dd")
@@ -227,6 +234,21 @@ export default async function WeekPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* sleep debt */}
+      {sleepDebtMin > 0 && (
+        <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 ${sleepDebtMin > 120 ? "border-red-500/30 bg-red-500/5" : "border-amber-500/30 bg-amber-500/5"}`}>
+          <Moon className={`h-5 w-5 shrink-0 ${sleepDebtMin > 120 ? "text-red-400" : "text-amber-400"}`} />
+          <div>
+            <p className={`text-sm font-semibold ${sleepDebtMin > 120 ? "text-red-400" : "text-amber-400"}`}>
+              Sleep debt this week: {sleepDebtH}h
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Based on {SLEEP_GOAL_H}h nightly goal · {sleepDebtMin > 120 ? "try to prioritise sleep" : "getting there"}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* lifestyle row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

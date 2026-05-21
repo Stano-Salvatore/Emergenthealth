@@ -604,7 +604,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── quick log strip ── */}
-      <QuickLog todayWaterMl={waterMl} todayFocusMin={focusMinToday} todayMood={todayMood} />
+      <QuickLog todayWaterMl={waterMl} todayFocusMin={focusMinToday} todayMood={todayMood} latestWeight={latestHealth?.weight ?? null} />
 
       {/* ── bottom stats row ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
