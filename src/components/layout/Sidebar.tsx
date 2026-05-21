@@ -20,11 +20,13 @@ import {
   Droplets,
   Timer,
   BarChart3,
+  CalendarDays,
 } from "lucide-react"
 
 const navItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/dashboard/health", label: "Health", icon: Activity },
+  { href: "/dashboard/week", label: "This Week", icon: CalendarDays },
   { href: "/dashboard/stats", label: "Insights", icon: BarChart3 },
   { href: "/dashboard/finances", label: "Finances", icon: DollarSign },
   { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },

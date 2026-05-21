@@ -36,6 +36,19 @@ const CATEGORIES = [
   "Health", "Bills & Utilities", "Housing", "Income", "Other",
 ]
 
+const CATEGORY_META: Record<string, { color: string; emoji: string }> = {
+  "Food & Drink":    { color: "bg-orange-500", emoji: "🍕" },
+  "Transport":       { color: "bg-blue-500",   emoji: "🚗" },
+  "Shopping":        { color: "bg-pink-500",   emoji: "🛍️" },
+  "Entertainment":   { color: "bg-purple-500", emoji: "🎬" },
+  "Health":          { color: "bg-green-500",  emoji: "💊" },
+  "Bills & Utilities":{ color: "bg-yellow-500",emoji: "⚡" },
+  "Housing":         { color: "bg-teal-500",   emoji: "🏠" },
+  "Income":          { color: "bg-emerald-500",emoji: "💰" },
+  "Other":           { color: "bg-slate-500",  emoji: "📦" },
+  "Uncategorized":   { color: "bg-gray-500",   emoji: "❓" },
+}
+
 function formatAmount(milliunits: number) {
   return `€${(Math.abs(milliunits) / 100).toFixed(2)}`
 }
@@ -291,17 +304,24 @@ export default function FinancesPage() {
             {categories.length === 0 ? (
               <p className="text-muted-foreground text-sm">No spending data</p>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {categories.map(([cat, amt]) => {
                   const pct = (amt / totalSpent) * 100
+                  const meta = CATEGORY_META[cat] ?? CATEGORY_META["Other"]
                   return (
-                    <div key={cat} className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span>{cat}</span>
-                        <span className="text-muted-foreground">{formatAmount(amt)}</span>
+                    <div key={cat}>
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="flex items-center gap-1.5">
+                          <span>{meta.emoji}</span>
+                          <span className="truncate max-w-[160px]">{cat}</span>
+                        </span>
+                        <div className="text-right shrink-0">
+                          <span className="text-muted-foreground">{formatAmount(amt)}</span>
+                          <span className="text-[10px] text-muted-foreground/60 ml-1">({pct.toFixed(0)}%)</span>
+                        </div>
                       </div>
-                      <div className="h-1.5 bg-secondary rounded-full">
-                        <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
+                      <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${meta.color}`} style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                   )
@@ -322,27 +342,29 @@ export default function FinancesPage() {
               </p>
             ) : (
               <div className="space-y-0 max-h-80 overflow-y-auto">
-                {transactions.slice(0, 50).map((t) => (
-                  <div key={t.id} className="flex items-center justify-between py-2 border-b border-border last:border-0 gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate">{t.payee ?? "Unknown"}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t.category ?? "—"} · {new Date(t.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                      </p>
+                {transactions.slice(0, 50).map((t) => {
+                  const meta = CATEGORY_META[t.category ?? "Uncategorized"] ?? CATEGORY_META["Other"]
+                  return (
+                    <div key={t.id} className="flex items-center gap-2 py-2 border-b border-border last:border-0">
+                      <span className="text-base shrink-0">{meta.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm truncate">{t.payee ?? "Unknown"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {t.category ?? "—"} · {new Date(t.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                        </p>
+                      </div>
+                      <span className={`text-sm font-medium shrink-0 ${t.amount < 0 ? "text-red-400" : "text-green-400"}`}>
+                        {t.amount < 0 ? "-" : "+"}{formatAmount(t.amount)}
+                      </span>
+                      {!t.actualId && (
+                        <button onClick={() => handleDelete(t.id)}
+                          className="text-muted-foreground hover:text-destructive transition-colors p-1 shrink-0">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                     </div>
-                    <span className={`text-sm font-medium shrink-0 ${t.amount < 0 ? "text-red-400" : "text-green-400"}`}>
-                      {t.amount < 0 ? "-" : "+"}{formatAmount(t.amount)}
-                    </span>
-                    {!t.actualId && (
-                      <button
-                        onClick={() => handleDelete(t.id)}
-                        className="text-muted-foreground hover:text-destructive transition-colors p-1 shrink-0"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </CardContent>
