@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, LogOut, LogIn, Key } from "lucide-react"
 
-export function OuraManager({ isConnected }: { isConnected: boolean }) {
+export function OuraManager({ isConnected, hasOauthConfig = false }: { isConnected: boolean; hasOauthConfig?: boolean }) {
   const [connecting, setConnecting] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [pat, setPat] = useState("")
@@ -88,20 +88,23 @@ export function OuraManager({ isConnected }: { isConnected: boolean }) {
           </Button>
         ) : (
           <div className="space-y-3">
-            {/* OAuth option */}
-            <Button onClick={handleConnect} disabled={connecting} className="w-full" size="sm">
-              {connecting ? (
-                <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Connecting…</>
-              ) : (
-                <><LogIn className="h-3.5 w-3.5 mr-2" />Connect via OAuth</>
-              )}
-            </Button>
-
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-px bg-border" />
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">or</span>
-              <div className="flex-1 h-px bg-border" />
-            </div>
+            {/* OAuth option — only shown when client credentials are configured */}
+            {hasOauthConfig && (
+              <>
+                <Button onClick={handleConnect} disabled={connecting} className="w-full" size="sm">
+                  {connecting ? (
+                    <><Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />Connecting…</>
+                  ) : (
+                    <><LogIn className="h-3.5 w-3.5 mr-2" />Connect via OAuth</>
+                  )}
+                </Button>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide">or</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+              </>
+            )}
 
             {/* Personal Access Token option */}
             <div className="space-y-2">

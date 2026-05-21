@@ -98,7 +98,7 @@ export default async function SettingsPage({
       </Card>
 
       {/* Oura Ring connection (client component) */}
-      <OuraManager isConnected={isOuraConnected} />
+      <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
 
       {/* Key manager (client component) */}
       <FitKeyManager initialKeys={keyRows} />
