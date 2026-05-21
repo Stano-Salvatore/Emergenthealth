@@ -142,6 +142,27 @@ const migrations: { label: string; sql: string }[] = [
     )`,
   },
   { label: "FocusSession index", sql: `CREATE INDEX IF NOT EXISTS "FocusSession_userId_endedAt_idx" ON "FocusSession"("userId", "endedAt")` },
+  // Book table
+  {
+    label: "Book table",
+    sql: `CREATE TABLE IF NOT EXISTS "Book" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "title" TEXT NOT NULL,
+      "author" TEXT,
+      "pages" INTEGER,
+      "status" TEXT NOT NULL DEFAULT 'reading',
+      "rating" INTEGER,
+      "startedAt" TIMESTAMP(3),
+      "finishedAt" TIMESTAMP(3),
+      "notes" TEXT,
+      "coverColor" TEXT NOT NULL DEFAULT '#6366f1',
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "Book_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
+    )`,
+  },
+  { label: "Book index", sql: `CREATE INDEX IF NOT EXISTS "Book_userId_status_idx" ON "Book"("userId", "status")` },
 ]
 
 async function runMigrations() {
