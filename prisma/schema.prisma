@@ -33,6 +33,7 @@ model User {
   dailyNotes   DailyNote[]
   intakeLogs    IntakeLog[]
   focusSessions FocusSession[]
+  driveImportLogs DriveImportLog[]
   books         Book[]
 }
 
@@ -151,6 +152,22 @@ model Transaction {
 
   @@index([userId, date])
   @@index([userId, category])
+}
+
+// ─── Drive Import Log ────────────────────────────────────────────────────────
+
+model DriveImportLog {
+  id         String   @id @default(cuid())
+  userId     String
+  fileId     String
+  fileName   String
+  importedAt DateTime @default(now())
+  rowCount   Int
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fileId])
+  @@index([userId])
 }
 
 // ─── Habits ──────────────────────────────────────────────────────────────────

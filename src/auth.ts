@@ -36,21 +36,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   events: {
     async signIn({ account }) {
       if (account?.provider === "google" && account.access_token) {
-        await prisma.account.update({
-          where: {
-            provider_providerAccountId: {
-              provider: account.provider,
-              providerAccountId: account.providerAccountId,
+        try {
+          await prisma.account.update({
+            where: {
+              provider_providerAccountId: {
+                provider: account.provider,
+                providerAccountId: account.providerAccountId,
+              },
             },
-          },
-          data: {
-            access_token: account.access_token,
-            ...(account.refresh_token && { refresh_token: account.refresh_token }),
-            ...(account.expires_at && { expires_at: account.expires_at }),
-            ...(account.scope && { scope: account.scope }),
-            ...(account.id_token && { id_token: account.id_token }),
-          },
-        })
+            data: {
+              access_token: account.access_token,
+              // Only overwrite refresh_token if Google returned a new one
+              ...(account.refresh_token != null && { refresh_token: account.refresh_token }),
+              ...(account.expires_at != null && { expires_at: account.expires_at }),
+              ...(account.scope != null && { scope: account.scope }),
+              ...(account.id_token != null && { id_token: account.id_token }),
+            },
+          })
+        } catch (e) {
+          // PrismaAdapter may not have created the account yet on first sign-in — that's fine
+          console.error("[auth] signIn token persist failed:", e)
+        }
       }
     },
   },
