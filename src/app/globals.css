@@ -27,6 +27,7 @@
   --radius-sm: calc(var(--radius) - 4px);
 }
 
+/* ── Dark theme (default) ── */
 :root {
   --background: #09090f;
   --foreground: #f2f2fa;
@@ -48,6 +49,51 @@
   --input: #201f32;
   --ring: #6366f1;
   --radius: 0.75rem;
+  --sidebar-from: #0e0d1a;
+  --sidebar-to: #09090f;
+}
+
+/* ── Light theme ── */
+.light {
+  --background: #f5f5fb;
+  --foreground: #0f0f1a;
+  --card: #ffffff;
+  --card-foreground: #0f0f1a;
+  --popover: #ffffff;
+  --popover-foreground: #0f0f1a;
+  --primary: #6366f1;
+  --primary-foreground: #ffffff;
+  --secondary: #ededf8;
+  --secondary-foreground: #0f0f1a;
+  --muted: #ededf8;
+  --muted-foreground: #6b7280;
+  --accent: #ededf8;
+  --accent-foreground: #0f0f1a;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #e0e0f0;
+  --input: #e0e0f0;
+  --ring: #6366f1;
+  --sidebar-from: #ededf8;
+  --sidebar-to: #e6e6f4;
+}
+
+/* ── Accent color overrides ── */
+[data-accent="emerald"] {
+  --primary: #10b981;
+  --ring: #10b981;
+}
+[data-accent="rose"] {
+  --primary: #f43f5e;
+  --ring: #f43f5e;
+}
+[data-accent="amber"] {
+  --primary: #f59e0b;
+  --ring: #f59e0b;
+}
+[data-accent="sky"] {
+  --primary: #0ea5e9;
+  --ring: #0ea5e9;
 }
 
 body {
