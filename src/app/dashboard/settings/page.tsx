@@ -5,6 +5,7 @@ import { FitKeyManager } from "@/components/settings/FitKeyManager"
 import { OuraManager } from "@/components/settings/OuraManager"
 import { MigrateButton } from "@/components/settings/MigrateButton"
 import { GoalsEditor } from "@/components/settings/GoalsEditor"
+import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
 
 export default async function SettingsPage({
   searchParams,
@@ -85,6 +86,13 @@ export default async function SettingsPage({
           </CardContent>
         </Card>
       )}
+
+      {/* Theme */}
+      <Card>
+        <CardContent className="pt-4 pb-4">
+          <ThemeSwitcher />
+        </CardContent>
+      </Card>
 
       {/* MCP server info */}
       <Card className="border-dashed">

@@ -152,6 +152,76 @@ function extractServiceName(from: string, subject: string): string {
   return subject.slice(0, 30)
 }
 
+export interface BillEmail {
+  id: string
+  sender: string
+  senderName: string
+  subject: string
+  snippet: string
+  date: string
+  estimatedAmount?: number
+  dueDateText?: string
+}
+
+const BILL_AMOUNT_RE = /(?:€|£|\$|EUR|USD|GBP)\s*([\d,]+(?:\.\d{2})?)/i
+const DUE_DATE_RE = /(?:due|pay\s*by|due\s*(?:date|on)|payment\s*(?:due|by))[:\s]+([A-Za-z0-9\s,]+\d{4}|\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d+\s+\w+\s+\d{4})/i
+
+export async function getBillEmails(userId: string): Promise<BillEmail[]> {
+  try {
+    const gmail = await buildGmailClient(userId)
+    const queries = [
+      "subject:(payment due)",
+      "subject:(invoice)",
+      "subject:(amount due)",
+      "subject:(bill) subject:(pay)",
+      "subject:(direct debit)",
+      "subject:(statement) -subject:(bank statement)",
+      "subject:(renewal notice)",
+    ]
+    const res = await gmail.users.messages.list({
+      userId: "me",
+      q: queries.join(" OR "),
+      maxResults: 40,
+    })
+
+    const items = res.data.messages ?? []
+    const messages = await Promise.all(
+      items.map(async m => {
+        const msg = await gmail.users.messages.get({
+          userId: "me",
+          id: m.id!,
+          format: "metadata",
+          metadataHeaders: ["Subject", "From", "Date"],
+        })
+        const headers = msg.data.payload?.headers ?? []
+        const subject = decodeHeader(headers.find(h => h.name === "Subject")?.value ?? "(no subject)")
+        const fromRaw = headers.find(h => h.name === "From")?.value ?? ""
+        const date = headers.find(h => h.name === "Date")?.value ?? ""
+        const { name: senderName, email: senderEmail } = parseFrom(fromRaw)
+        const snippet = msg.data.snippet ?? ""
+
+        const amountMatch = (subject + " " + snippet).match(BILL_AMOUNT_RE)
+        const dueDateMatch = (subject + " " + snippet).match(DUE_DATE_RE)
+
+        return {
+          id: m.id!,
+          sender: senderEmail,
+          senderName: senderName || extractServiceName(senderEmail, subject),
+          subject,
+          snippet,
+          date,
+          estimatedAmount: amountMatch ? parseFloat(amountMatch[1].replace(/,/g, "")) : undefined,
+          dueDateText: dueDateMatch ? dueDateMatch[1].trim() : undefined,
+        } satisfies BillEmail
+      })
+    )
+    return messages
+  } catch (e: any) {
+    console.error("[gmail] getBillEmails failed:", e?.message ?? e)
+    return []
+  }
+}
+
 export async function getSubscriptionEmails(userId: string): Promise<SubscriptionEmail[]> {
   try {
     const gmail = await buildGmailClient(userId)

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { getDailySleep, getDailyActivity, getDailyReadiness, getDailySpo2, getDailyStress } from "@/lib/oura"
+import { getDailySleep, getDailyActivity, getDailyReadiness, getDailySpo2, getDailyStress, getOuraTags } from "@/lib/oura"
 import { format, subDays } from "date-fns"
 
 export async function POST() {
@@ -97,7 +97,35 @@ export async function POST() {
     })
 
     const results = await Promise.all(upserts)
-    return NextResponse.json({ success: true, synced: results.length })
+
+    // Sync Oura tags (best-effort — table may not exist yet)
+    let tagsSynced = 0
+    try {
+      await prisma.$executeRaw`
+        CREATE TABLE IF NOT EXISTS "OuraTag" (
+          "id"        TEXT PRIMARY KEY,
+          "userId"    TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
+          "day"       TEXT NOT NULL,
+          "timestamp" TIMESTAMPTZ NOT NULL,
+          "text"      TEXT,
+          "tags"      TEXT[] NOT NULL DEFAULT '{}'
+        )
+      `
+      await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "OuraTag_userId_day_idx" ON "OuraTag"("userId","day")`
+      const tagData = await getOuraTags(userId, startDate, endDate)
+      for (const t of tagData) {
+        await prisma.$executeRaw`
+          INSERT INTO "OuraTag"("id","userId","day","timestamp","text","tags")
+          VALUES (${t.id},${userId},${t.day},${new Date(t.timestamp)},${t.text},${t.tags})
+          ON CONFLICT("id") DO UPDATE SET "text"=EXCLUDED."text","tags"=EXCLUDED."tags"
+        `
+      }
+      tagsSynced = tagData.length
+    } catch {
+      // silently skip if tag scope not granted yet
+    }
+
+    return NextResponse.json({ success: true, synced: results.length, tagsSynced })
   } catch (e) {
     console.error("Oura sync error:", e)
     return NextResponse.json({ error: String(e) }, { status: 500 })

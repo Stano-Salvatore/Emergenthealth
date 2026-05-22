@@ -10,6 +10,7 @@ const OURA_SCOPES = [
   "workout",
   "session",
   "spo2",
+  "tag",
 ]
 
 export async function GET(req: NextRequest) {

@@ -167,6 +167,30 @@ export async function getActivitySessions(userId: string, startDate: string, end
   }))
 }
 
+// ── Oura Tags (user-created annotations) ─────────────────────────────────────
+
+export interface OuraTagEntry {
+  id: string
+  day: string
+  timestamp: string
+  text: string | null
+  tags: string[]
+}
+
+export async function getOuraTags(userId: string, startDate: string, endDate: string): Promise<OuraTagEntry[]> {
+  const client = await buildOuraClient(userId)
+  const data = await makeOuraRequest("/tag", client.accessToken, userId, {
+    start_date: startDate, end_date: endDate,
+  })
+  return (data.data ?? []).map((item: Record<string, unknown>) => ({
+    id: item.id as string,
+    day: item.day as string,
+    timestamp: item.timestamp as string,
+    text: (item.text as string) ?? null,
+    tags: (item.tags as string[]) ?? [],
+  }))
+}
+
 // ── Legacy helpers (used by MCP route) ───────────────────────────────────────
 
 export async function getSteps(userId: string, startDate: string, endDate: string) {

@@ -24,6 +24,8 @@ import {
   CalendarDays,
   MapPin,
   Repeat,
+  Pill,
+  Receipt,
 } from "lucide-react"
 
 type NavItem = { href: string; label: string; icon: React.ElementType }
@@ -42,6 +44,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/dashboard/health", label: "Health", icon: Activity },
       { href: "/dashboard/habits", label: "Habits", icon: CheckSquare },
+      { href: "/dashboard/medications", label: "Medications", icon: Pill },
       { href: "/dashboard/intake", label: "Intake", icon: Droplets },
       { href: "/dashboard/focus", label: "Focus", icon: Timer },
       { href: "/dashboard/reading", label: "Reading", icon: Library },
@@ -53,6 +56,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { href: "/dashboard/finances", label: "Finances", icon: DollarSign },
       { href: "/dashboard/subscriptions", label: "Subscriptions", icon: Repeat },
+      { href: "/dashboard/bills", label: "Bills", icon: Receipt },
       { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
       { href: "/dashboard/reminders", label: "Reminders", icon: Bell },
       { href: "/dashboard/gmail", label: "Gmail", icon: Mail },
@@ -75,13 +79,13 @@ export function Sidebar() {
   return (
     <aside
       className="w-56 shrink-0 h-screen flex flex-col border-r border-border"
-      style={{ background: "linear-gradient(180deg, #0e0d1a 0%, #09090f 100%)" }}
+      style={{ background: "linear-gradient(180deg, var(--sidebar-from) 0%, var(--sidebar-to) 100%)" }}
     >
       {/* ── Logo ── */}
       <div className="flex items-center gap-3 px-4 h-14 border-b border-border/60">
         <div className="relative shrink-0">
-          <div className="absolute inset-0 bg-indigo-500/50 rounded-lg blur-md" />
-          <div className="relative bg-gradient-to-br from-indigo-500 to-violet-600 rounded-lg p-1.5">
+          <div className="absolute inset-0 bg-primary/50 rounded-lg blur-md" />
+          <div className="relative bg-gradient-to-br from-primary to-violet-600 rounded-lg p-1.5">
             <Activity className="h-3.5 w-3.5 text-white" />
           </div>
         </div>
@@ -106,7 +110,7 @@ export function Sidebar() {
                       "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150",
                       active
                         ? "bg-gradient-to-r from-primary/20 to-primary/5 text-primary font-semibold border border-primary/25 shadow-sm"
-                        : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                        : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
                     )}
                   >
                     <Icon className={cn("h-4 w-4 shrink-0 transition-colors", active ? "text-primary" : "")} />
@@ -123,7 +127,7 @@ export function Sidebar() {
       <div className="p-3 border-t border-border/60">
         <button
           onClick={() => signOut({ callbackUrl: "/signin" })}
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-all duration-150"
         >
           <LogOut className="h-4 w-4 shrink-0" />
           Sign out
