@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { verifyState } from "@/lib/state-token"
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const code = searchParams.get("code")
-  const userId = searchParams.get("state")
+  const state = searchParams.get("state")
   const error = searchParams.get("error")
+  const userId = verifyState(state)
 
   if (error || !code || !userId) {
     return NextResponse.redirect(

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { google } from "googleapis"
+import { signState } from "@/lib/state-token"
 
 const FIT_SCOPES = [
   "https://www.googleapis.com/auth/fitness.activity.read",
@@ -30,7 +31,7 @@ export async function GET(req: NextRequest) {
     access_type: "offline",
     prompt: "consent",
     scope: FIT_SCOPES,
-    state: session.user.id,
+    state: signState(session.user.id),
   })
 
   return NextResponse.redirect(url)

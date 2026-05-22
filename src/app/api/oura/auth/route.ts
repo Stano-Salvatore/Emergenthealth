@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { signState } from "@/lib/state-token"
 
 const OURA_SCOPES = [
   "personal",
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
     client_id: process.env.OURA_CLIENT_ID!,
     redirect_uri: callbackUrl,
     scope: OURA_SCOPES.join(" "),
-    state: session.user.id,
+    state: signState(session.user.id),
   })
 
   const authUrl = `https://cloud.ouraring.com/oauth/authorize?${params.toString()}`
