@@ -52,28 +52,40 @@ export async function POST() {
       const t = stress[dateStr]
 
       const fields = {
-        // Sleep
-        ...(s?.totalSleepSeconds  != null && { sleepDuration:  Math.round(s.totalSleepSeconds / 60) }),
-        ...(s?.deepSleepSeconds   != null && { deepSleep:      Math.round(s.deepSleepSeconds / 60) }),
-        ...(s?.remSleepSeconds    != null && { remSleep:       Math.round(s.remSleepSeconds / 60) }),
-        ...(s?.lightSleepSeconds  != null && { lightSleep:     Math.round(s.lightSleepSeconds / 60) }),
-        ...(s?.avgRestingHR       != null && { restingHR:      Math.round(s.avgRestingHR) }),
-        ...(s?.hrv                != null && { hrv:            s.hrv }),
-        ...(s?.efficiency         != null && { sleepEfficiency: s.efficiency }),
-        ...(s?.latencySeconds     != null && { sleepLatency:   Math.round(s.latencySeconds / 60) }),
-        // Activity
-        ...(a?.steps              != null && { steps:          a.steps }),
-        ...(a?.activeCalories     != null && { caloriesBurned: a.activeCalories }),
-        ...(a?.totalCalories      != null && { totalCalories:  a.totalCalories }),
-        ...(a?.distanceKm         != null && { distanceKm:     a.distanceKm }),
-        ...(a?.activeMinutes      != null && { activeMinutes:  a.activeMinutes }),
+        // Sleep core
+        ...(s?.totalSleepSeconds  != null && { sleepDuration:        Math.round(s.totalSleepSeconds / 60) }),
+        ...(s?.deepSleepSeconds   != null && { deepSleep:            Math.round(s.deepSleepSeconds / 60) }),
+        ...(s?.remSleepSeconds    != null && { remSleep:             Math.round(s.remSleepSeconds / 60) }),
+        ...(s?.lightSleepSeconds  != null && { lightSleep:           Math.round(s.lightSleepSeconds / 60) }),
+        ...(s?.avgRestingHR       != null && { restingHR:            Math.round(s.avgRestingHR) }),
+        ...(s?.hrv                != null && { hrv:                  s.hrv }),
+        ...(s?.efficiency         != null && { sleepEfficiency:      s.efficiency }),
+        ...(s?.latencySeconds     != null && { sleepLatency:         Math.round(s.latencySeconds / 60) }),
+        // Sleep extended
+        ...(s?.breathRate         != null && { breathingRate:        s.breathRate }),
+        ...(s?.awakeTimeSeconds   != null && { awakeTime:            Math.round(s.awakeTimeSeconds / 60) }),
+        ...(s?.timeInBedSeconds   != null && { timeInBed:            Math.round(s.timeInBedSeconds / 60) }),
+        ...(s?.restlessPeriods    != null && { restlessPeriods:      s.restlessPeriods }),
+        ...(s?.bedtimeStart       != null && { sleepStart:           new Date(s.bedtimeStart) }),
+        ...(s?.bedtimeEnd         != null && { sleepEnd:             new Date(s.bedtimeEnd) }),
+        // Activity core
+        ...(a?.steps              != null && { steps:                a.steps }),
+        ...(a?.activeCalories     != null && { caloriesBurned:       a.activeCalories }),
+        ...(a?.totalCalories      != null && { totalCalories:        a.totalCalories }),
+        ...(a?.distanceKm         != null && { distanceKm:           a.distanceKm }),
+        ...(a?.activeMinutes      != null && { activeMinutes:        a.activeMinutes }),
+        // Activity extended
+        ...(a?.activityScore      != null && { activityScore:        a.activityScore }),
+        ...(a?.sedentaryTimeSeconds != null && { sedentaryTime:      Math.round(a.sedentaryTimeSeconds / 60) }),
         // Readiness
-        ...(r?.score              != null && { readinessScore: r.score }),
-        ...(r?.skinTemp           != null && { skinTemp:       r.skinTemp }),
+        ...(r?.score              != null && { readinessScore:       r.score }),
+        ...(r?.skinTemp           != null && { skinTemp:             r.skinTemp }),
         // SpO2
-        ...(o?.spo2               != null && { spo2:           o.spo2 }),
+        ...(o?.spo2               != null && { spo2:                 o.spo2 }),
+        ...(o?.breathingDisturbance != null && { breathingDisturbance: o.breathingDisturbance }),
         // Stress
-        ...(t?.stressHighMin      != null && { stressHigh:     t.stressHighMin }),
+        ...(t?.stressHighMin      != null && { stressHigh:           t.stressHighMin }),
+        ...(t?.recoveryHighMin    != null && { recoveryHigh:         t.recoveryHighMin }),
         syncedAt: new Date(),
       }
 

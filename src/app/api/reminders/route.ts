@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { title, description, dueDate, priority } = await req.json()
+  const { title, description, dueDate, priority, tags } = await req.json()
   if (!title) return NextResponse.json({ error: "title is required" }, { status: 400 })
 
   const reminder = await prisma.reminder.create({
@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
       description,
       dueDate: dueDate ? new Date(dueDate) : undefined,
       priority: priority ?? "normal",
+      tags: Array.isArray(tags) ? tags : [],
     },
   })
 

@@ -7,7 +7,8 @@ import { HealthEntryForm } from "@/components/health/HealthEntryForm"
 import { OuraSyncButton } from "@/components/health/OuraSyncButton"
 import {
   SleepChart, StepsChart, HRChart, WeightChart, ActivityChart,
-  ReadinessChart, HRVChart, SpO2Chart,
+  ReadinessChart, HRVChart, SpO2Chart, ActivityScoreChart,
+  StressRecoveryChart, BreathingRateChart, MoodChart,
   type ChartDay,
 } from "@/components/health/HealthCharts"
 import { Moon, Footprints, Heart, Scale, Zap, Activity, Thermometer, Wind, Shield } from "lucide-react"
@@ -23,7 +24,16 @@ export default async function HealthPage() {
   const ouraToken = await prisma.ouraToken.findUnique({ where: { userId }, select: { id: true } })
   const isOuraConnected = !!ouraToken
 
-  const logs = await prisma.healthLog.findMany({
+  const since30 = new Date()
+  since30.setDate(since30.getDate() - 29)
+
+  const [moodLogs, logs] = await Promise.all([
+    prisma.moodLog.findMany({
+      where: { userId, date: { gte: since30 } },
+      orderBy: { date: "desc" },
+      take: 30,
+    }),
+    prisma.healthLog.findMany({
     where: { userId },
     orderBy: { date: "desc" },
     take: 30,
@@ -48,8 +58,23 @@ export default async function HealthPage() {
       stressHigh: true,
       totalCalories: true,
       distanceKm: true,
+      breathingRate: true,
+      awakeTime: true,
+      timeInBed: true,
+      restlessPeriods: true,
+      activityScore: true,
+      recoveryHigh: true,
+      sedentaryTime: true,
+      breathingDisturbance: true,
+      sleepStart: true,
+      sleepEnd: true,
     },
-  })
+  }),
+  ])
+
+  const moodByDate = Object.fromEntries(
+    moodLogs.map(m => [m.date.toISOString().split("T")[0], m.mood])
+  )
 
   const recent7 = logs.slice(0, 7)
   function avg(arr: (number | null)[]) {
@@ -62,30 +87,44 @@ export default async function HealthPage() {
   const avgHR           = avg(recent7.map(l => l.restingHR))
   const avgWeight       = avg(recent7.map(l => l.weight))
   const avgActiveMins   = avg(recent7.map(l => l.activeMinutes))
-  const avgReadiness    = avg(recent7.map(l => (l as any).readinessScore))
-  const avgHRV          = avg(recent7.map(l => (l as any).hrv))
-  const avgSpo2         = avg(recent7.map(l => (l as any).spo2))
+  const avgReadiness    = avg(recent7.map(l => l.readinessScore))
+  const avgHRV          = avg(recent7.map(l => l.hrv))
+  const avgSpo2         = avg(recent7.map(l => l.spo2))
+  const avgActivityScore = avg(recent7.map(l => l.activityScore))
 
   const chartData: ChartDay[] = logs.map(l => ({
     date: format(l.date, "MMM d"),
-    sleepH:    l.sleepDuration != null ? Math.round((l.sleepDuration / 60) * 10) / 10 : null,
-    deepMin:   l.deepSleep ?? null,
-    remMin:    l.remSleep ?? null,
-    lightMin:  l.lightSleep ?? null,
-    steps:     l.steps ?? null,
-    restingHR: l.restingHR ?? null,
-    weight:    l.weight ?? null,
-    activeMin: l.activeMinutes ?? null,
-    calories:  l.caloriesBurned ?? null,
-    readiness: (l as any).readinessScore ?? null,
-    hrv:       (l as any).hrv ?? null,
-    spo2:      (l as any).spo2 ?? null,
-    distanceKm:(l as any).distanceKm ?? null,
+    sleepH:        l.sleepDuration != null ? Math.round((l.sleepDuration / 60) * 10) / 10 : null,
+    deepMin:       l.deepSleep ?? null,
+    remMin:        l.remSleep ?? null,
+    lightMin:      l.lightSleep ?? null,
+    awakeMin:      l.awakeTime ?? null,
+    steps:         l.steps ?? null,
+    restingHR:     l.restingHR ?? null,
+    weight:        l.weight ?? null,
+    activeMin:     l.activeMinutes ?? null,
+    calories:      l.caloriesBurned ?? null,
+    readiness:     l.readinessScore ?? null,
+    hrv:           l.hrv ?? null,
+    spo2:          l.spo2 ?? null,
+    distanceKm:    l.distanceKm ?? null,
+    breathingRate: l.breathingRate ?? null,
+    activityScore: l.activityScore ?? null,
+    stressHigh:    l.stressHigh ?? null,
+    recoveryHigh:  l.recoveryHigh ?? null,
+    sedentaryMin:  l.sedentaryTime ?? null,
+    mood:          moodByDate[l.date.toISOString().split("T")[0]] ?? null,
   }))
 
   const latestLog = logs[0] ?? null
 
   function readinessColor(score: number) {
+    if (score >= 85) return "text-green-400"
+    if (score >= 70) return "text-amber-400"
+    return "text-red-400"
+  }
+
+  function scoreColor(score: number) {
     if (score >= 85) return "text-green-400"
     if (score >= 70) return "text-amber-400"
     return "text-red-400"
@@ -118,7 +157,7 @@ export default async function HealthPage() {
       ) : (
         <>
           {/* ── 7-day summary ── */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-3">
             <SummaryCard icon={<Moon className="h-4 w-4 text-indigo-400" />} label="Avg sleep"
               value={avgSleepMin != null ? `${(avgSleepMin / 60).toFixed(1)}h` : "—"}
               good={avgSleepMin != null && avgSleepMin / 60 >= SLEEP_GOAL_H} target={`goal ${SLEEP_GOAL_H}h`} />
@@ -139,6 +178,9 @@ export default async function HealthPage() {
             <SummaryCard icon={<Wind className="h-4 w-4 text-cyan-400" />} label="Avg SpO₂"
               value={avgSpo2 != null ? `${avgSpo2.toFixed(1)}%` : "—"}
               good={avgSpo2 != null && avgSpo2 >= 95} />
+            <SummaryCard icon={<Zap className="h-4 w-4 text-amber-300" />} label="Avg activity"
+              value={avgActivityScore != null ? `${Math.round(avgActivityScore)}` : "—"}
+              good={avgActivityScore != null && avgActivityScore >= 70} target="goal 70+" />
           </div>
 
           {/* ── latest day detail ── */}
@@ -149,95 +191,166 @@ export default async function HealthPage() {
                   <CardTitle className="text-base font-medium">
                     {format(latestLog.date, "EEEE, MMM d")} — latest
                   </CardTitle>
-                  {(latestLog as any).readinessScore != null && (
-                    <Badge variant="secondary" className={`text-xs ${readinessColor((latestLog as any).readinessScore)}`}>
-                      Readiness {(latestLog as any).readinessScore}
-                    </Badge>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {latestLog.readinessScore != null && (
+                      <Badge variant="secondary" className={`text-xs ${readinessColor(latestLog.readinessScore)}`}>
+                        Readiness {latestLog.readinessScore}
+                      </Badge>
+                    )}
+                    {latestLog.activityScore != null && (
+                      <Badge variant="secondary" className={`text-xs ${scoreColor(latestLog.activityScore)}`}>
+                        Activity {latestLog.activityScore}
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <StatBox icon={<Moon className="h-4 w-4 text-indigo-400" />} label="Sleep"
-                    value={latestLog.sleepDuration != null ? `${(latestLog.sleepDuration / 60).toFixed(1)}h` : "—"} />
-                  <StatBox icon={<span className="text-sm">💤</span>} label="Deep / REM"
-                    value={latestLog.deepSleep != null || latestLog.remSleep != null
-                      ? `${latestLog.deepSleep ?? "?"}m / ${latestLog.remSleep ?? "?"}m` : "—"} />
-                  {(latestLog as any).sleepEfficiency != null && (
-                    <StatBox icon={<span className="text-sm">⚡</span>} label="Sleep efficiency"
-                      value={`${(latestLog as any).sleepEfficiency}%`} />
-                  )}
-                  {(latestLog as any).sleepLatency != null && (
-                    <StatBox icon={<span className="text-sm">🕐</span>} label="Sleep latency"
-                      value={`${(latestLog as any).sleepLatency} min`} />
-                  )}
-                  <StatBox icon={<Footprints className="h-4 w-4 text-green-400" />} label="Steps"
-                    value={latestLog.steps != null ? latestLog.steps.toLocaleString() : "—"} />
-                  {(latestLog as any).distanceKm != null && (
-                    <StatBox icon={<span className="text-sm">🏃</span>} label="Distance"
-                      value={`${(latestLog as any).distanceKm.toFixed(2)} km`} />
-                  )}
-                  <StatBox icon={<Heart className="h-4 w-4 text-red-400" />} label="Resting HR"
-                    value={latestLog.restingHR != null ? `${latestLog.restingHR} bpm` : "—"} />
-                  {(latestLog as any).hrv != null && (
-                    <StatBox icon={<Activity className="h-4 w-4 text-violet-400" />} label="HRV"
-                      value={`${Math.round((latestLog as any).hrv)} ms`} />
-                  )}
-                  {(latestLog as any).spo2 != null && (
-                    <StatBox icon={<Wind className="h-4 w-4 text-cyan-400" />} label="SpO₂"
-                      value={`${((latestLog as any).spo2 as number).toFixed(1)}%`} />
-                  )}
-                  {(latestLog as any).skinTemp != null && (
-                    <StatBox icon={<Thermometer className="h-4 w-4 text-orange-400" />} label="Skin temp Δ"
-                      value={`${(latestLog as any).skinTemp > 0 ? "+" : ""}${((latestLog as any).skinTemp as number).toFixed(2)}°C`} />
-                  )}
-                  <StatBox icon={<Scale className="h-4 w-4 text-blue-400" />} label="Weight"
-                    value={(latestLog as any).weight != null ? `${(latestLog as any).weight} kg` : "—"} />
-                  {latestLog.activeMinutes != null && (
-                    <StatBox icon={<Zap className="h-4 w-4 text-amber-400" />} label="Active min"
-                      value={`${latestLog.activeMinutes} min`} />
-                  )}
-                  {latestLog.caloriesBurned != null && (
-                    <StatBox icon={<span className="text-sm">🔥</span>} label="Active cal"
-                      value={`${latestLog.caloriesBurned} kcal`} />
-                  )}
-                  {(latestLog as any).totalCalories != null && (
-                    <StatBox icon={<span className="text-sm">🍽️</span>} label="Total cal"
-                      value={`${(latestLog as any).totalCalories} kcal`} />
-                  )}
-                  {(latestLog as any).stressHigh != null && (
-                    <StatBox icon={<span className="text-sm">😤</span>} label="High stress"
-                      value={`${(latestLog as any).stressHigh} min`} />
-                  )}
+                {/* Sleep section */}
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Sleep</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <StatBox icon={<Moon className="h-4 w-4 text-indigo-400" />} label="Sleep"
+                      value={latestLog.sleepDuration != null ? `${(latestLog.sleepDuration / 60).toFixed(1)}h` : "—"} />
+                    <StatBox icon={<span className="text-sm">💤</span>} label="Deep / REM"
+                      value={latestLog.deepSleep != null || latestLog.remSleep != null
+                        ? `${latestLog.deepSleep ?? "?"}m / ${latestLog.remSleep ?? "?"}m` : "—"} />
+                    {latestLog.awakeTime != null && (
+                      <StatBox icon={<span className="text-sm">👁️</span>} label="Awake"
+                        value={`${latestLog.awakeTime} min`} />
+                    )}
+                    {latestLog.timeInBed != null && (
+                      <StatBox icon={<span className="text-sm">🛏️</span>} label="Time in bed"
+                        value={`${(latestLog.timeInBed / 60).toFixed(1)}h`} />
+                    )}
+                    {latestLog.sleepEfficiency != null && (
+                      <StatBox icon={<span className="text-sm">⚡</span>} label="Efficiency"
+                        value={`${latestLog.sleepEfficiency}%`} />
+                    )}
+                    {latestLog.sleepLatency != null && (
+                      <StatBox icon={<span className="text-sm">🕐</span>} label="Latency"
+                        value={`${latestLog.sleepLatency} min`} />
+                    )}
+                    {latestLog.restlessPeriods != null && (
+                      <StatBox icon={<span className="text-sm">🔄</span>} label="Restless"
+                        value={`${latestLog.restlessPeriods}×`} />
+                    )}
+                    {latestLog.breathingRate != null && (
+                      <StatBox icon={<Wind className="h-4 w-4 text-teal-400" />} label="Breathing rate"
+                        value={`${latestLog.breathingRate.toFixed(1)} /min`} />
+                    )}
+                    {latestLog.sleepStart != null && latestLog.sleepEnd != null && (
+                      <StatBox icon={<span className="text-sm">🌙</span>} label="Bedtime"
+                        value={`${format(latestLog.sleepStart, "HH:mm")}–${format(latestLog.sleepEnd, "HH:mm")}`} />
+                    )}
+                  </div>
                 </div>
 
-                {latestLog.steps != null && (
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Steps to goal</span>
-                      <span>{latestLog.steps.toLocaleString()} / {STEP_GOAL.toLocaleString()}</span>
-                    </div>
-                    <Progress value={Math.min((latestLog.steps / STEP_GOAL) * 100, 100)} className="h-1.5" />
+                {/* Activity section */}
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Activity</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <StatBox icon={<Footprints className="h-4 w-4 text-green-400" />} label="Steps"
+                      value={latestLog.steps != null ? latestLog.steps.toLocaleString() : "—"} />
+                    {latestLog.distanceKm != null && (
+                      <StatBox icon={<span className="text-sm">🏃</span>} label="Distance"
+                        value={`${latestLog.distanceKm.toFixed(2)} km`} />
+                    )}
+                    {latestLog.activeMinutes != null && (
+                      <StatBox icon={<Zap className="h-4 w-4 text-amber-400" />} label="Active min"
+                        value={`${latestLog.activeMinutes} min`} />
+                    )}
+                    {latestLog.sedentaryTime != null && (
+                      <StatBox icon={<span className="text-sm">🪑</span>} label="Sedentary"
+                        value={`${Math.round(latestLog.sedentaryTime / 60)}h`} />
+                    )}
+                    {latestLog.caloriesBurned != null && (
+                      <StatBox icon={<span className="text-sm">🔥</span>} label="Active cal"
+                        value={`${latestLog.caloriesBurned} kcal`} />
+                    )}
+                    {latestLog.totalCalories != null && (
+                      <StatBox icon={<span className="text-sm">🍽️</span>} label="Total cal"
+                        value={`${latestLog.totalCalories} kcal`} />
+                    )}
                   </div>
-                )}
-                {latestLog.sleepDuration != null && (
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Sleep to goal</span>
-                      <span>{(latestLog.sleepDuration / 60).toFixed(1)}h / {SLEEP_GOAL_H}h</span>
-                    </div>
-                    <Progress value={Math.min((latestLog.sleepDuration / (SLEEP_GOAL_H * 60)) * 100, 100)} className="h-1.5" />
+                </div>
+
+                {/* Body & recovery section */}
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Body & Recovery</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <StatBox icon={<Heart className="h-4 w-4 text-red-400" />} label="Resting HR"
+                      value={latestLog.restingHR != null ? `${latestLog.restingHR} bpm` : "—"} />
+                    {latestLog.hrv != null && (
+                      <StatBox icon={<Activity className="h-4 w-4 text-violet-400" />} label="HRV"
+                        value={`${Math.round(latestLog.hrv)} ms`} />
+                    )}
+                    {latestLog.spo2 != null && (
+                      <StatBox icon={<Wind className="h-4 w-4 text-cyan-400" />} label="SpO₂"
+                        value={`${(latestLog.spo2 as number).toFixed(1)}%`} />
+                    )}
+                    {latestLog.breathingDisturbance != null && (
+                      <StatBox icon={<span className="text-sm">🌬️</span>} label="Breath disturb."
+                        value={`${(latestLog.breathingDisturbance as number).toFixed(1)}`} />
+                    )}
+                    {latestLog.skinTemp != null && (
+                      <StatBox icon={<Thermometer className="h-4 w-4 text-orange-400" />} label="Skin temp Δ"
+                        value={`${latestLog.skinTemp > 0 ? "+" : ""}${(latestLog.skinTemp as number).toFixed(2)}°C`} />
+                    )}
+                    {latestLog.stressHigh != null && (
+                      <StatBox icon={<span className="text-sm">😤</span>} label="High stress"
+                        value={`${latestLog.stressHigh} min`} />
+                    )}
+                    {latestLog.recoveryHigh != null && (
+                      <StatBox icon={<span className="text-sm">🌿</span>} label="Recovery"
+                        value={`${latestLog.recoveryHigh} min`} />
+                    )}
+                    {latestLog.weight != null && (
+                      <StatBox icon={<Scale className="h-4 w-4 text-blue-400" />} label="Weight"
+                        value={`${latestLog.weight} kg`} />
+                    )}
                   </div>
-                )}
-                {(latestLog as any).readinessScore != null && (
-                  <div className="space-y-1">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Readiness</span>
-                      <span>{(latestLog as any).readinessScore} / 100</span>
+                </div>
+
+                {/* Progress bars */}
+                <div className="space-y-2">
+                  {latestLog.steps != null && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Steps to goal</span>
+                        <span>{latestLog.steps.toLocaleString()} / {STEP_GOAL.toLocaleString()}</span>
+                      </div>
+                      <Progress value={Math.min((latestLog.steps / STEP_GOAL) * 100, 100)} className="h-1.5" />
                     </div>
-                    <Progress value={(latestLog as any).readinessScore} className="h-1.5" />
-                  </div>
-                )}
+                  )}
+                  {latestLog.sleepDuration != null && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Sleep to goal</span>
+                        <span>{(latestLog.sleepDuration / 60).toFixed(1)}h / {SLEEP_GOAL_H}h</span>
+                      </div>
+                      <Progress value={Math.min((latestLog.sleepDuration / (SLEEP_GOAL_H * 60)) * 100, 100)} className="h-1.5" />
+                    </div>
+                  )}
+                  {latestLog.readinessScore != null && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Readiness</span>
+                        <span>{latestLog.readinessScore} / 100</span>
+                      </div>
+                      <Progress value={latestLog.readinessScore} className="h-1.5" />
+                    </div>
+                  )}
+                  {latestLog.activityScore != null && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Activity score</span>
+                        <span>{latestLog.activityScore} / 100</span>
+                      </div>
+                      <Progress value={latestLog.activityScore} className="h-1.5" />
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )}
@@ -257,13 +370,24 @@ export default async function HealthPage() {
             )}
 
             {chartData.some(d => d.readiness != null) && (
-              <Card className="lg:col-span-2">
+              <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium flex items-center gap-1.5">
                     <Shield className="h-4 w-4 text-emerald-400" /> Readiness Score
                   </CardTitle>
                 </CardHeader>
                 <CardContent><ReadinessChart data={chartData} /></CardContent>
+              </Card>
+            )}
+
+            {chartData.some(d => d.activityScore != null) && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+                    <Zap className="h-4 w-4 text-amber-400" /> Activity Score
+                  </CardTitle>
+                </CardHeader>
+                <CardContent><ActivityScoreChart data={chartData} /></CardContent>
               </Card>
             )}
 
@@ -289,6 +413,17 @@ export default async function HealthPage() {
               </Card>
             )}
 
+            {chartData.some(d => d.stressHigh != null || d.recoveryHigh != null) && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+                    <span className="text-sm">😤</span> Stress & Recovery
+                  </CardTitle>
+                </CardHeader>
+                <CardContent><StressRecoveryChart data={chartData} /></CardContent>
+              </Card>
+            )}
+
             {chartData.some(d => d.hrv != null) && (
               <Card>
                 <CardHeader className="pb-2">
@@ -308,6 +443,17 @@ export default async function HealthPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent><HRChart data={chartData} /></CardContent>
+              </Card>
+            )}
+
+            {chartData.some(d => d.breathingRate != null) && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+                    <Wind className="h-4 w-4 text-teal-400" /> Breathing Rate
+                  </CardTitle>
+                </CardHeader>
+                <CardContent><BreathingRateChart data={chartData} /></CardContent>
               </Card>
             )}
 
@@ -333,6 +479,17 @@ export default async function HealthPage() {
               </Card>
             )}
 
+            {chartData.some(d => d.mood != null) && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+                    <span>😊</span> Mood
+                  </CardTitle>
+                </CardHeader>
+                <CardContent><MoodChart data={chartData} /></CardContent>
+              </Card>
+            )}
+
           </div>
 
           {/* ── recent log ── */}
@@ -346,9 +503,14 @@ export default async function HealthPage() {
                   <div key={log.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
                     <span className="text-muted-foreground w-20 shrink-0">{format(log.date, "EEE MMM d")}</span>
                     <div className="flex items-center gap-4 flex-1 justify-end flex-wrap">
-                      {(log as any).readinessScore != null && (
-                        <span className={`flex items-center gap-1 text-xs ${readinessColor((log as any).readinessScore)}`}>
-                          <Shield className="h-3 w-3" />{(log as any).readinessScore}
+                      {log.readinessScore != null && (
+                        <span className={`flex items-center gap-1 text-xs ${readinessColor(log.readinessScore)}`}>
+                          <Shield className="h-3 w-3" />{log.readinessScore}
+                        </span>
+                      )}
+                      {log.activityScore != null && (
+                        <span className={`flex items-center gap-1 text-xs ${scoreColor(log.activityScore)}`}>
+                          <Zap className="h-3 w-3" />{log.activityScore}
                         </span>
                       )}
                       {log.sleepDuration != null && (
@@ -366,14 +528,14 @@ export default async function HealthPage() {
                           <Heart className="h-3 w-3" />{log.restingHR}
                         </span>
                       )}
-                      {(log as any).hrv != null && (
+                      {log.hrv != null && (
                         <span className="flex items-center gap-1 text-violet-400 text-xs">
-                          <Activity className="h-3 w-3" />{Math.round((log as any).hrv)}ms
+                          <Activity className="h-3 w-3" />{Math.round(log.hrv)}ms
                         </span>
                       )}
-                      {(log as any).spo2 != null && (
+                      {log.spo2 != null && (
                         <span className="flex items-center gap-1 text-cyan-400 text-xs">
-                          <Wind className="h-3 w-3" />{((log as any).spo2 as number).toFixed(1)}%
+                          <Wind className="h-3 w-3" />{(log.spo2 as number).toFixed(1)}%
                         </span>
                       )}
                     </div>

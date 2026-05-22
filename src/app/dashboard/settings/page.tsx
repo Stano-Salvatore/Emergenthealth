@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma"
 import { Card, CardContent } from "@/components/ui/card"
 import { FitKeyManager } from "@/components/settings/FitKeyManager"
 import { OuraManager } from "@/components/settings/OuraManager"
+import { MigrateButton } from "@/components/settings/MigrateButton"
+import { GoalsEditor } from "@/components/settings/GoalsEditor"
 
 export default async function SettingsPage({
   searchParams,
@@ -97,8 +99,14 @@ export default async function SettingsPage({
         </CardContent>
       </Card>
 
+      {/* DB migration */}
+      <MigrateButton />
+
       {/* Oura Ring connection (client component) */}
       <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
+
+      {/* Personal goals */}
+      <GoalsEditor />
 
       {/* Key manager (client component) */}
       <FitKeyManager initialKeys={keyRows} />

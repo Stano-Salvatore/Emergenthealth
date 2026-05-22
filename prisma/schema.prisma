@@ -27,6 +27,13 @@ model User {
   mcpApiKeys   McpApiKey[]
   fitToken     FitToken?
   ouraToken    OuraToken? @relation("OuraToken")
+  moodLogs     MoodLog[]
+  tags         Tag[]
+  checkIns     CheckIn[]
+  dailyNotes   DailyNote[]
+  intakeLogs    IntakeLog[]
+  focusSessions FocusSession[]
+  books         Book[]
 }
 
 model Account {
@@ -96,15 +103,24 @@ model HealthLog {
   weight    Float?
 
   // Oura extended metrics
-  readinessScore  Int?
-  hrv             Float?
-  spo2            Float?
-  skinTemp        Float?
-  sleepEfficiency Int?
-  sleepLatency    Int?
-  stressHigh      Int?
-  totalCalories   Int?
-  distanceKm      Float?
+  readinessScore       Int?
+  hrv                  Float?
+  spo2                 Float?
+  skinTemp             Float?
+  sleepEfficiency      Int?
+  sleepLatency         Int?
+  stressHigh           Int?
+  totalCalories        Int?
+  distanceKm           Float?
+  // Oura v2 additional metrics
+  breathingRate        Float?
+  awakeTime            Int?
+  timeInBed            Int?
+  restlessPeriods      Int?
+  activityScore        Int?
+  recoveryHigh         Int?
+  sedentaryTime        Int?
+  breathingDisturbance Float?
 
   syncedAt DateTime @default(now())
 
@@ -181,6 +197,7 @@ model Reminder {
   isCompleted Boolean   @default(false)
   completedAt DateTime?
   priority    String    @default("normal")
+  tags        String[]
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -188,6 +205,120 @@ model Reminder {
 
   @@index([userId, dueDate])
   @@index([userId, isCompleted])
+}
+
+// ─── Mood ────────────────────────────────────────────────────────────────────
+
+model MoodLog {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @db.Date
+  mood      Int      // 1–5: 1=awful, 2=bad, 3=ok, 4=good, 5=great
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+// ─── Tags ────────────────────────────────────────────────────────────────────
+
+model Tag {
+  id     String @id @default(cuid())
+  userId String
+  name   String
+  color  String @default("#6366f1")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+// ─── Check-ins ───────────────────────────────────────────────────────────────
+
+model CheckIn {
+  id        String   @id @default(cuid())
+  userId    String
+  place     String
+  emoji     String   @default("📍")
+  note      String?
+  checkedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, checkedAt])
+}
+
+// ─── Daily Notes ─────────────────────────────────────────────────────────────
+
+model DailyNote {
+  id        String   @id @default(cuid())
+  userId    String
+  date      DateTime @db.Date
+  content   String   @db.Text
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+// ─── Intake Log (water / coffee / etc.) ─────────────────────────────────────
+
+model IntakeLog {
+  id       String   @id @default(cuid())
+  userId   String
+  type     String   // "water" | "coffee" | "tea" | "alcohol" | "other"
+  amountMl Int
+  note     String?
+  loggedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, loggedAt])
+}
+
+// ─── Reading Tracker ─────────────────────────────────────────────────────────
+
+model Book {
+  id          String    @id @default(cuid())
+  userId      String
+  title       String
+  author      String?
+  pages       Int?
+  status      String    @default("reading") // "reading" | "done" | "wishlist"
+  rating      Int?      // 1-5
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  notes       String?
+  coverColor  String    @default("#6366f1")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+}
+
+// ─── Focus Sessions (Pomodoro) ───────────────────────────────────────────────
+
+model FocusSession {
+  id          String   @id @default(cuid())
+  userId      String
+  durationMin Int
+  type        String   @default("focus") // "focus" | "short_break" | "long_break"
+  label       String?
+  startedAt   DateTime
+  endedAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, endedAt])
 }
 
 // ─── Chat ────────────────────────────────────────────────────────────────────

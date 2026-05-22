@@ -40,8 +40,129 @@ const migrations: { label: string; sql: string }[] = [
   { label: "HealthLog.sleepEfficiency",sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepEfficiency" INTEGER` },
   { label: "HealthLog.sleepLatency",   sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepLatency" INTEGER` },
   { label: "HealthLog.stressHigh",     sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "stressHigh" INTEGER` },
-  { label: "HealthLog.totalCalories",  sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "totalCalories" INTEGER` },
-  { label: "HealthLog.distanceKm",     sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "distanceKm" DOUBLE PRECISION` },
+  { label: "HealthLog.totalCalories",        sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "totalCalories" INTEGER` },
+  { label: "HealthLog.distanceKm",           sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "distanceKm" DOUBLE PRECISION` },
+  // Oura v2 additional metrics
+  { label: "HealthLog.breathingRate",        sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "breathingRate" DOUBLE PRECISION` },
+  { label: "HealthLog.awakeTime",            sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "awakeTime" INTEGER` },
+  { label: "HealthLog.timeInBed",            sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "timeInBed" INTEGER` },
+  { label: "HealthLog.restlessPeriods",      sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "restlessPeriods" INTEGER` },
+  { label: "HealthLog.activityScore",        sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "activityScore" INTEGER` },
+  { label: "HealthLog.recoveryHigh",         sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "recoveryHigh" INTEGER` },
+  { label: "HealthLog.sedentaryTime",        sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sedentaryTime" INTEGER` },
+  { label: "HealthLog.breathingDisturbance", sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "breathingDisturbance" DOUBLE PRECISION` },
+  // Tags on Reminder
+  { label: "Reminder.tags", sql: `ALTER TABLE "Reminder" ADD COLUMN IF NOT EXISTS "tags" text[] DEFAULT ARRAY[]::text[]` },
+  // MoodLog table
+  {
+    label: "MoodLog table",
+    sql: `CREATE TABLE IF NOT EXISTS "MoodLog" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "date" DATE NOT NULL,
+      "mood" INTEGER NOT NULL,
+      "note" TEXT,
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "MoodLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE,
+      CONSTRAINT "MoodLog_userId_date_key" UNIQUE ("userId", "date")
+    )`,
+  },
+  { label: "MoodLog index", sql: `CREATE INDEX IF NOT EXISTS "MoodLog_userId_date_idx" ON "MoodLog"("userId", "date")` },
+  // Tag table
+  {
+    label: "Tag table",
+    sql: `CREATE TABLE IF NOT EXISTS "Tag" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "name" TEXT NOT NULL,
+      "color" TEXT NOT NULL DEFAULT '#6366f1',
+      CONSTRAINT "Tag_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE,
+      CONSTRAINT "Tag_userId_name_key" UNIQUE ("userId", "name")
+    )`,
+  },
+  { label: "Tag index", sql: `CREATE INDEX IF NOT EXISTS "Tag_userId_idx" ON "Tag"("userId")` },
+  // CheckIn table
+  {
+    label: "CheckIn table",
+    sql: `CREATE TABLE IF NOT EXISTS "CheckIn" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "place" TEXT NOT NULL,
+      "emoji" TEXT NOT NULL DEFAULT '📍',
+      "note" TEXT,
+      "checkedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "CheckIn_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
+    )`,
+  },
+  { label: "CheckIn index", sql: `CREATE INDEX IF NOT EXISTS "CheckIn_userId_checkedAt_idx" ON "CheckIn"("userId", "checkedAt")` },
+  // DailyNote table
+  {
+    label: "DailyNote table",
+    sql: `CREATE TABLE IF NOT EXISTS "DailyNote" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "date" DATE NOT NULL,
+      "content" TEXT NOT NULL,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "DailyNote_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE,
+      CONSTRAINT "DailyNote_userId_date_key" UNIQUE ("userId", "date")
+    )`,
+  },
+  { label: "DailyNote index", sql: `CREATE INDEX IF NOT EXISTS "DailyNote_userId_date_idx" ON "DailyNote"("userId", "date")` },
+  // IntakeLog table
+  {
+    label: "IntakeLog table",
+    sql: `CREATE TABLE IF NOT EXISTS "IntakeLog" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "type" TEXT NOT NULL,
+      "amountMl" INTEGER NOT NULL,
+      "note" TEXT,
+      "loggedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "IntakeLog_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
+    )`,
+  },
+  { label: "IntakeLog index", sql: `CREATE INDEX IF NOT EXISTS "IntakeLog_userId_loggedAt_idx" ON "IntakeLog"("userId", "loggedAt")` },
+  // HealthLog sleep timestamps
+  { label: "HealthLog.sleepStart", sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepStart" TIMESTAMP(3)` },
+  { label: "HealthLog.sleepEnd",   sql: `ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepEnd" TIMESTAMP(3)` },
+  // FocusSession table
+  {
+    label: "FocusSession table",
+    sql: `CREATE TABLE IF NOT EXISTS "FocusSession" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "durationMin" INTEGER NOT NULL,
+      "type" TEXT NOT NULL DEFAULT 'focus',
+      "label" TEXT,
+      "startedAt" TIMESTAMP(3) NOT NULL,
+      "endedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "FocusSession_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
+    )`,
+  },
+  { label: "FocusSession index", sql: `CREATE INDEX IF NOT EXISTS "FocusSession_userId_endedAt_idx" ON "FocusSession"("userId", "endedAt")` },
+  // Book table
+  {
+    label: "Book table",
+    sql: `CREATE TABLE IF NOT EXISTS "Book" (
+      "id" TEXT NOT NULL PRIMARY KEY,
+      "userId" TEXT NOT NULL,
+      "title" TEXT NOT NULL,
+      "author" TEXT,
+      "pages" INTEGER,
+      "status" TEXT NOT NULL DEFAULT 'reading',
+      "rating" INTEGER,
+      "startedAt" TIMESTAMP(3),
+      "finishedAt" TIMESTAMP(3),
+      "notes" TEXT,
+      "coverColor" TEXT NOT NULL DEFAULT '#6366f1',
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "Book_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
+    )`,
+  },
+  { label: "Book index", sql: `CREATE INDEX IF NOT EXISTS "Book_userId_status_idx" ON "Book"("userId", "status")` },
 ]
 
 async function runMigrations() {
