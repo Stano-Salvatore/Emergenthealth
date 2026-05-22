@@ -12,7 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { RefreshCw, TrendingDown, TrendingUp, DollarSign, Plus, Trash2, ChevronLeft, ChevronRight } from "lucide-react"
+import { RefreshCw, TrendingDown, TrendingUp, DollarSign, Plus, Trash2, ChevronLeft, ChevronRight, CloudDownload } from "lucide-react"
 
 interface Transaction {
   id: string
@@ -81,6 +81,8 @@ export default function FinancesPage() {
     notes: "",
   })
   const [saving, setSaving] = useState(false)
+  const [driveSyncing, setDriveSyncing] = useState(false)
+  const [driveMessage, setDriveMessage] = useState<string | null>(null)
 
   const loadTransactions = useCallback(async () => {
     setLoading(true)
@@ -118,6 +120,19 @@ export default function FinancesPage() {
       }
     } finally {
       setSyncing(false)
+    }
+  }
+
+  async function handleDriveSync() {
+    setDriveSyncing(true)
+    setDriveMessage(null)
+    try {
+      const res = await fetch("/api/import/drive", { method: "POST" })
+      const data = await res.json()
+      setDriveMessage(data.message ?? (res.ok ? "Done" : "Error"))
+      if (data.imported > 0) await loadTransactions()
+    } finally {
+      setDriveSyncing(false)
     }
   }
 
@@ -180,7 +195,13 @@ export default function FinancesPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {syncMessage && <span className="text-xs text-muted-foreground">{syncMessage}</span>}
+          {(syncMessage || driveMessage) && (
+            <span className="text-xs text-muted-foreground">{driveMessage ?? syncMessage}</span>
+          )}
+          <Button size="sm" variant="outline" onClick={handleDriveSync} disabled={driveSyncing} className="gap-1">
+            <CloudDownload className={`h-4 w-4 ${driveSyncing ? "animate-pulse" : ""}`} />
+            Sync Drive
+          </Button>
           <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing} className="gap-1">
             <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
             Sync Actual
