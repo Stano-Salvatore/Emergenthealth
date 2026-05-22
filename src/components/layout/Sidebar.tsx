@@ -23,6 +23,7 @@ import {
   BarChart3,
   CalendarDays,
   MapPin,
+  Repeat,
 } from "lucide-react"
 
 type NavItem = { href: string; label: string; icon: React.ElementType }
@@ -51,6 +52,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: "Life",
     items: [
       { href: "/dashboard/finances", label: "Finances", icon: DollarSign },
+      { href: "/dashboard/subscriptions", label: "Subscriptions", icon: Repeat },
       { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
       { href: "/dashboard/reminders", label: "Reminders", icon: Bell },
       { href: "/dashboard/gmail", label: "Gmail", icon: Mail },

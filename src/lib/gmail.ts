@@ -49,6 +49,16 @@ export interface GmailMessage {
 export interface GmailSummary {
   unreadCount: number
   messages: GmailMessage[]
+  error?: string
+}
+
+export interface SubscriptionEmail {
+  id: string
+  service: string
+  subject: string
+  snippet: string
+  date: string
+  from: string
 }
 
 function decodeHeader(raw: string): string {
@@ -118,7 +128,71 @@ export async function getGmailSummary(userId: string): Promise<GmailSummary> {
     )
 
     return { unreadCount, messages }
-  } catch {
-    return { unreadCount: 0, messages: [] }
+  } catch (e: any) {
+    console.error("[gmail] getGmailSummary failed:", e?.message ?? e)
+    return { unreadCount: 0, messages: [], error: e?.message ?? "Unknown error" }
+  }
+}
+
+function extractServiceName(from: string, subject: string): string {
+  // Common senders
+  if (from.includes("googleplay")) return "Google Play"
+  if (from.includes("payments-noreply@google")) return "Google Pay"
+  if (from.includes("netflix")) return "Netflix"
+  if (from.includes("spotify")) return "Spotify"
+  if (from.includes("apple")) return "Apple"
+  if (from.includes("amazon")) return "Amazon"
+  if (from.includes("paypal")) return "PayPal"
+  // Fall back to domain
+  const domainMatch = from.match(/@([a-zA-Z0-9-]+)\.[a-z]+/)
+  if (domainMatch) {
+    const d = domainMatch[1].replace(/[-_]/g, " ")
+    return d.charAt(0).toUpperCase() + d.slice(1)
+  }
+  return subject.slice(0, 30)
+}
+
+export async function getSubscriptionEmails(userId: string): Promise<SubscriptionEmail[]> {
+  try {
+    const gmail = await buildGmailClient(userId)
+    const res = await gmail.users.messages.list({
+      userId: "me",
+      q: [
+        "from:googleplay-noreply@google.com",
+        "from:payments-noreply@google.com",
+        "subject:(subscription renewal)",
+        "subject:(receipt) subject:(subscription)",
+      ].join(" OR "),
+      maxResults: 30,
+    })
+
+    const items = res.data.messages ?? []
+    const messages = await Promise.all(
+      items.map(async m => {
+        const msg = await gmail.users.messages.get({
+          userId: "me",
+          id: m.id!,
+          format: "metadata",
+          metadataHeaders: ["Subject", "From", "Date"],
+        })
+        const headers = msg.data.payload?.headers ?? []
+        const subject = decodeHeader(headers.find(h => h.name === "Subject")?.value ?? "(no subject)")
+        const fromRaw = headers.find(h => h.name === "From")?.value ?? ""
+        const date = headers.find(h => h.name === "Date")?.value ?? ""
+        const { email: fromEmail } = parseFrom(fromRaw)
+        return {
+          id: m.id!,
+          service: extractServiceName(fromEmail, subject),
+          subject,
+          snippet: msg.data.snippet ?? "",
+          date,
+          from: fromEmail,
+        } satisfies SubscriptionEmail
+      })
+    )
+    return messages
+  } catch (e: any) {
+    console.error("[gmail] getSubscriptionEmails failed:", e?.message ?? e)
+    return []
   }
 }
