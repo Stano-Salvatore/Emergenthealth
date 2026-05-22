@@ -28,45 +28,71 @@
 }
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #fafafa;
-  --card: #111111;
-  --card-foreground: #fafafa;
-  --popover: #111111;
-  --popover-foreground: #fafafa;
+  --background: #09090f;
+  --foreground: #f2f2fa;
+  --card: #100f1a;
+  --card-foreground: #f2f2fa;
+  --popover: #100f1a;
+  --popover-foreground: #f2f2fa;
   --primary: #6366f1;
   --primary-foreground: #ffffff;
-  --secondary: #1e1e1e;
-  --secondary-foreground: #fafafa;
-  --muted: #1e1e1e;
-  --muted-foreground: #888888;
-  --accent: #1e1e1e;
-  --accent-foreground: #fafafa;
+  --secondary: #1a192a;
+  --secondary-foreground: #f2f2fa;
+  --muted: #1a192a;
+  --muted-foreground: #7a7a96;
+  --accent: #1a192a;
+  --accent-foreground: #f2f2fa;
   --destructive: #ef4444;
-  --destructive-foreground: #fafafa;
-  --border: #2a2a2a;
-  --input: #2a2a2a;
+  --destructive-foreground: #ffffff;
+  --border: #201f32;
+  --input: #201f32;
   --ring: #6366f1;
-  --radius: 0.625rem;
+  --radius: 0.75rem;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
   border-color: var(--border);
 }
 
-.scrollbar-thin::-webkit-scrollbar {
-  width: 4px;
+/* ── Gradient text ── */
+.text-gradient {
+  background: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
+
+/* ── Card gradient accents (top-left colored wash) ── */
+.card-health {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, var(--card) 55%);
 }
+.card-finances {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.08) 0%, var(--card) 55%);
+}
+.card-calendar {
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.08) 0%, var(--card) 55%);
+}
+.card-habits {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.08) 0%, var(--card) 55%);
+}
+.card-reminders {
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.08) 0%, var(--card) 55%);
+}
+.card-gmail {
+  background: linear-gradient(135deg, rgba(251, 113, 133, 0.08) 0%, var(--card) 55%);
+}
+
+/* ── Scrollbar ── */
+.scrollbar-thin::-webkit-scrollbar { width: 4px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
 .scrollbar-thin::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 2px;
