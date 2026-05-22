@@ -228,8 +228,12 @@ export default async function DashboardPage() {
   return (
     <div className="space-y-5">
       {/* ── header ── */}
-      <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-primary/20 via-primary/5 to-background border border-primary/20 p-5">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+      <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-500/20 via-violet-500/8 to-background border border-indigo-500/20 p-5">
+        {/* Decorative glow orbs */}
+        <div className="absolute -top-12 -right-12 w-56 h-56 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-10 left-1/3 w-40 h-40 bg-violet-500/15 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute top-2 right-1/3 w-24 h-24 bg-blue-400/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 relative">
           <div>
             <h1 className="text-2xl font-bold">
               Good {getTimeGreeting()}, {session!.user.name?.split(" ")[0] ?? "there"}
@@ -242,7 +246,7 @@ export default async function DashboardPage() {
 
         {/* ── wellness score strip ── */}
         <div className="mt-4 flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-3 bg-background/60 backdrop-blur rounded-xl px-4 py-2.5 border border-border/60">
+          <div className="flex items-center gap-3 bg-background/50 backdrop-blur rounded-xl px-4 py-2.5 border border-white/8">
             <div className="text-center">
               <p className={`text-3xl font-black ${scoreColor}`}>{wellnessScore}</p>
               <p className={`text-[10px] font-semibold uppercase tracking-wider ${scoreColor}`}>{scoreLabel}</p>
@@ -259,7 +263,7 @@ export default async function DashboardPage() {
           </div>
 
           {/* mood today */}
-          <div className="flex-1 min-w-[200px] bg-background/60 backdrop-blur rounded-xl px-4 py-2 border border-border/60">
+          <div className="flex-1 min-w-[200px] bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-white/8">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">How do you feel?</p>
             <MoodWidget todayMood={todayMood} />
           </div>
@@ -294,7 +298,7 @@ export default async function DashboardPage() {
 
         {/* ── Health ── */}
         <Link href="/dashboard/health">
-          <Card className="hover:border-indigo-500/40 transition-all cursor-pointer h-full group">
+          <Card className="card-health hover:border-indigo-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-indigo-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
                 <span className="flex items-center gap-1.5"><Activity className="h-4 w-4 text-indigo-400" /> Health</span>
@@ -370,7 +374,7 @@ export default async function DashboardPage() {
 
         {/* ── Finances ── */}
         <Link href="/dashboard/finances">
-          <Card className="hover:border-emerald-500/40 transition-all cursor-pointer h-full group">
+          <Card className="card-finances hover:border-emerald-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-emerald-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
                 <span className="flex items-center gap-1.5"><Euro className="h-4 w-4 text-emerald-400" /> Finances</span>
@@ -417,7 +421,7 @@ export default async function DashboardPage() {
 
         {/* ── Calendar ── */}
         <Link href="/dashboard/calendar" className="sm:col-span-2 xl:col-span-1">
-          <Card className="hover:border-blue-500/40 transition-all cursor-pointer h-full group">
+          <Card className="card-calendar hover:border-blue-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-blue-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
@@ -476,7 +480,7 @@ export default async function DashboardPage() {
 
         {/* ── Habits ── */}
         <Link href="/dashboard/habits">
-          <Card className="hover:border-amber-500/40 transition-all cursor-pointer h-full group">
+          <Card className="card-habits hover:border-amber-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-amber-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
                 <span className="flex items-center gap-1.5"><CheckSquare className="h-4 w-4 text-amber-400" /> Habits</span>
@@ -514,7 +518,7 @@ export default async function DashboardPage() {
 
         {/* ── Reminders ── */}
         <Link href="/dashboard/reminders">
-          <Card className={`hover:border-primary/40 transition-all cursor-pointer h-full group ${overdueReminders.length>0?"border-red-500/30":""}`}>
+          <Card className={`card-reminders hover:border-violet-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-violet-500/5 ${overdueReminders.length>0?"border-red-500/30":""}`}>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
                 <span className="flex items-center gap-1.5"><Bell className="h-4 w-4 text-violet-400" /> Reminders</span>
@@ -563,7 +567,7 @@ export default async function DashboardPage() {
 
         {/* ── Gmail ── */}
         <Link href="/dashboard/gmail">
-          <Card className="hover:border-rose-500/40 transition-all cursor-pointer h-full group">
+          <Card className="card-gmail hover:border-rose-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-rose-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
                 <span className="flex items-center gap-1.5"><Mail className="h-4 w-4 text-rose-400" /> Gmail</span>
@@ -651,15 +655,22 @@ function StatTile({ label, value, sub, icon, ok, progress }: {
   label: string; value: string; sub?: string; icon: React.ReactNode; ok?: boolean; progress?: number
 }) {
   return (
-    <div className={`rounded-xl bg-card border px-4 py-3 flex items-center gap-3 hover:bg-secondary/30 transition-colors cursor-pointer ${ok === true ? "border-green-500/30" : ""}`}>
+    <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 transition-all cursor-pointer hover:border-primary/30 hover:shadow-sm ${ok === true ? "border-green-500/30" : ""}`}
+      style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.06) 0%, var(--card) 60%)" }}>
       {icon}
       <div className="flex-1 min-w-0">
-        <p className="text-[10px] text-muted-foreground">{label}</p>
+        <p className="text-[10px] text-muted-foreground tracking-wide">{label}</p>
         <p className={`text-lg font-bold tabular-nums ${ok === true ? "text-green-400" : ""}`}>{value}</p>
         {sub && <p className="text-[10px] text-muted-foreground">{sub}</p>}
         {progress !== undefined && (
-          <div className="mt-1 h-1 bg-secondary rounded-full overflow-hidden">
-            <div className={`h-full rounded-full ${ok ? "bg-green-500" : "bg-primary/60"}`} style={{ width: `${progress}%` }} />
+          <div className="mt-1.5 h-1 bg-secondary rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width: `${progress}%`,
+                background: ok ? "linear-gradient(90deg, #22c55e, #4ade80)" : "linear-gradient(90deg, #6366f1, #8b5cf6)",
+              }}
+            />
           </div>
         )}
       </div>

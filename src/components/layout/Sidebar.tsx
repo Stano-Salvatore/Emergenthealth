@@ -69,16 +69,26 @@ export function Sidebar() {
   const pathname = usePathname()
 
   return (
-    <aside className="w-56 shrink-0 h-screen flex flex-col border-r border-border bg-card">
-      <div className="flex items-center gap-2 px-4 h-14 border-b border-border">
-        <Activity className="h-5 w-5 text-primary" />
-        <span className="font-semibold text-sm">Emergenthealth</span>
+    <aside
+      className="w-56 shrink-0 h-screen flex flex-col border-r border-border"
+      style={{ background: "linear-gradient(180deg, #0e0d1a 0%, #09090f 100%)" }}
+    >
+      {/* ── Logo ── */}
+      <div className="flex items-center gap-3 px-4 h-14 border-b border-border/60">
+        <div className="relative shrink-0">
+          <div className="absolute inset-0 bg-indigo-500/50 rounded-lg blur-md" />
+          <div className="relative bg-gradient-to-br from-indigo-500 to-violet-600 rounded-lg p-1.5">
+            <Activity className="h-3.5 w-3.5 text-white" />
+          </div>
+        </div>
+        <span className="font-bold text-sm text-gradient">Emergenthealth</span>
       </div>
 
-      <nav className="flex-1 p-3 overflow-y-auto space-y-4">
+      {/* ── Nav ── */}
+      <nav className="flex-1 p-3 overflow-y-auto space-y-5 scrollbar-thin">
         {navGroups.map(group => (
           <div key={group.label}>
-            <p className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/60 px-3 mb-1">
+            <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground/40 px-3 mb-2">
               {group.label}
             </p>
             <div className="space-y-0.5">
@@ -89,13 +99,13 @@ export function Sidebar() {
                     key={href}
                     href={href}
                     className={cn(
-                      "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
+                      "flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all duration-150",
                       active
-                        ? "bg-primary/10 text-primary font-medium"
-                        : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                        ? "bg-gradient-to-r from-primary/20 to-primary/5 text-primary font-semibold border border-primary/25 shadow-sm"
+                        : "text-muted-foreground hover:text-foreground hover:bg-white/5"
                     )}
                   >
-                    <Icon className="h-4 w-4 shrink-0" />
+                    <Icon className={cn("h-4 w-4 shrink-0 transition-colors", active ? "text-primary" : "")} />
                     {label}
                   </Link>
                 )
@@ -105,10 +115,11 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="p-3 border-t border-border">
+      {/* ── Sign out ── */}
+      <div className="p-3 border-t border-border/60">
         <button
           onClick={() => signOut({ callbackUrl: "/signin" })}
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"
         >
           <LogOut className="h-4 w-4 shrink-0" />
           Sign out
