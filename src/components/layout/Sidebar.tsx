@@ -22,6 +22,7 @@ import {
   Timer,
   BarChart3,
   CalendarDays,
+  MapPin,
 } from "lucide-react"
 
 type NavItem = { href: string; label: string; icon: React.ElementType }
@@ -53,6 +54,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { href: "/dashboard/calendar", label: "Calendar", icon: Calendar },
       { href: "/dashboard/reminders", label: "Reminders", icon: Bell },
       { href: "/dashboard/gmail", label: "Gmail", icon: Mail },
+      { href: "/dashboard/location", label: "Location", icon: MapPin },
       { href: "/dashboard/home", label: "Home", icon: Home },
     ],
   },

@@ -19,6 +19,7 @@ import { AcCard } from "@/components/dashboard/AcCard"
 import { BookScanCard } from "@/components/dashboard/BookScanCard"
 import { MoodWidget } from "@/components/dashboard/MoodWidget"
 import { QuickLog } from "@/components/dashboard/QuickLog"
+import { LocationCard } from "@/components/dashboard/LocationCard"
 
 const STEP_GOAL = 8_000
 const SLEEP_GOAL_H = 7
@@ -631,7 +632,8 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── extras ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        <LocationCard />
         <AcCard />
         <BookScanCard />
       </div>
