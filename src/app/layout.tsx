@@ -38,10 +38,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`} suppressHydrationWarning>
       <head>
-        {/* Apply saved accent color before paint to avoid flash */}
+        {/* Apply saved accent + base theme before paint to avoid flash */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{const a=localStorage.getItem('accent');if(a&&a!=='indigo')document.documentElement.setAttribute('data-accent',a)}catch(e){}`,
+            __html: `try{const a=localStorage.getItem('accent');if(a&&a!=='indigo')document.documentElement.setAttribute('data-accent',a);const t=localStorage.getItem('base_theme');if(t&&t!=='midnight')document.documentElement.setAttribute('data-theme',t)}catch(e){}`,
           }}
         />
       </head>

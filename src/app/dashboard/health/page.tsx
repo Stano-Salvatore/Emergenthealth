@@ -68,6 +68,7 @@ export default async function HealthPage() {
       breathingDisturbance: true,
       sleepStart: true,
       sleepEnd: true,
+      sleepScore: true,
     },
   }),
   ])
@@ -91,6 +92,7 @@ export default async function HealthPage() {
   const avgHRV          = avg(recent7.map(l => l.hrv))
   const avgSpo2         = avg(recent7.map(l => l.spo2))
   const avgActivityScore = avg(recent7.map(l => l.activityScore))
+  const avgSleepScore   = avg(recent7.map(l => l.sleepScore))
 
   const chartData: ChartDay[] = logs.map(l => ({
     date: format(l.date, "MMM d"),
@@ -157,7 +159,10 @@ export default async function HealthPage() {
       ) : (
         <>
           {/* ── 7-day summary ── */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-9 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-10 gap-3">
+            <SummaryCard icon={<Moon className="h-4 w-4 text-indigo-400" />} label="Sleep score"
+              value={avgSleepScore != null ? `${Math.round(avgSleepScore)}` : "—"}
+              good={avgSleepScore != null && avgSleepScore >= 85} target="goal 85+" />
             <SummaryCard icon={<Moon className="h-4 w-4 text-indigo-400" />} label="Avg sleep"
               value={avgSleepMin != null ? `${(avgSleepMin / 60).toFixed(1)}h` : "—"}
               good={avgSleepMin != null && avgSleepMin / 60 >= SLEEP_GOAL_H} target={`goal ${SLEEP_GOAL_H}h`} />
@@ -192,6 +197,11 @@ export default async function HealthPage() {
                     {format(latestLog.date, "EEEE, MMM d")} — latest
                   </CardTitle>
                   <div className="flex items-center gap-2">
+                    {latestLog.sleepScore != null && (
+                      <Badge variant="secondary" className={`text-xs ${scoreColor(latestLog.sleepScore)}`}>
+                        Sleep {latestLog.sleepScore}
+                      </Badge>
+                    )}
                     {latestLog.readinessScore != null && (
                       <Badge variant="secondary" className={`text-xs ${readinessColor(latestLog.readinessScore)}`}>
                         Readiness {latestLog.readinessScore}

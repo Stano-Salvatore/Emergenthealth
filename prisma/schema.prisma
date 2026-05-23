@@ -123,6 +123,7 @@ model HealthLog {
   recoveryHigh         Int?
   sedentaryTime        Int?
   breathingDisturbance Float?
+  sleepScore           Int?
 
   syncedAt DateTime @default(now())
 
@@ -385,6 +386,7 @@ model OuraTag {
   userId    String
   day       String
   timestamp DateTime
+  tagName   String?
   text      String?
   tags      String[]
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)

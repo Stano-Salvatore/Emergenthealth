@@ -27,7 +27,7 @@
   --radius-sm: calc(var(--radius) - 4px);
 }
 
-/* ── Dark theme (default) ── */
+/* ── Midnight (default dark) ── */
 :root {
   --background: #09090f;
   --foreground: #f2f2fa;
@@ -53,7 +53,7 @@
   --sidebar-to: #09090f;
 }
 
-/* ── Light theme ── */
+/* ── Light ── */
 .light {
   --background: #f5f5fb;
   --foreground: #0f0f1a;
@@ -78,23 +78,115 @@
   --sidebar-to: #e6e6f4;
 }
 
-/* ── Accent color overrides ── */
-[data-accent="emerald"] {
-  --primary: #10b981;
-  --ring: #10b981;
-}
-[data-accent="rose"] {
-  --primary: #f43f5e;
-  --ring: #f43f5e;
-}
-[data-accent="amber"] {
+/* ── Warm ☕ ── */
+[data-theme="warm"] {
+  --background: #120d06;
+  --foreground: #f5ede0;
+  --card: #1c1409;
+  --card-foreground: #f5ede0;
+  --popover: #1c1409;
+  --popover-foreground: #f5ede0;
   --primary: #f59e0b;
+  --primary-foreground: #1c1409;
+  --secondary: #271c0c;
+  --secondary-foreground: #f5ede0;
+  --muted: #271c0c;
+  --muted-foreground: #a08060;
+  --accent: #271c0c;
+  --accent-foreground: #f5ede0;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #352510;
+  --input: #352510;
   --ring: #f59e0b;
+  --sidebar-from: #180f05;
+  --sidebar-to: #120d06;
 }
-[data-accent="sky"] {
-  --primary: #0ea5e9;
-  --ring: #0ea5e9;
+
+/* ── Forest 🌿 ── */
+[data-theme="forest"] {
+  --background: #07100a;
+  --foreground: #e4efe6;
+  --card: #0c1a0f;
+  --card-foreground: #e4efe6;
+  --popover: #0c1a0f;
+  --popover-foreground: #e4efe6;
+  --primary: #22c55e;
+  --primary-foreground: #0c1a0f;
+  --secondary: #112016;
+  --secondary-foreground: #e4efe6;
+  --muted: #112016;
+  --muted-foreground: #5a8a68;
+  --accent: #112016;
+  --accent-foreground: #e4efe6;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #1a3020;
+  --input: #1a3020;
+  --ring: #22c55e;
+  --sidebar-from: #0a1a0e;
+  --sidebar-to: #07100a;
 }
+
+/* ── Ocean 🌊 ── */
+[data-theme="ocean"] {
+  --background: #060c18;
+  --foreground: #deeaf8;
+  --card: #091424;
+  --card-foreground: #deeaf8;
+  --popover: #091424;
+  --popover-foreground: #deeaf8;
+  --primary: #38bdf8;
+  --primary-foreground: #091424;
+  --secondary: #0d1e30;
+  --secondary-foreground: #deeaf8;
+  --muted: #0d1e30;
+  --muted-foreground: #4a7a9a;
+  --accent: #0d1e30;
+  --accent-foreground: #deeaf8;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #122436;
+  --input: #122436;
+  --ring: #38bdf8;
+  --sidebar-from: #081020;
+  --sidebar-to: #060c18;
+}
+
+/* ── Amoled ⚫ ── */
+[data-theme="amoled"] {
+  --background: #000000;
+  --foreground: #f0f0f8;
+  --card: #0a0a0f;
+  --card-foreground: #f0f0f8;
+  --popover: #0a0a0f;
+  --popover-foreground: #f0f0f8;
+  --primary: #818cf8;
+  --primary-foreground: #000000;
+  --secondary: #111118;
+  --secondary-foreground: #f0f0f8;
+  --muted: #111118;
+  --muted-foreground: #606080;
+  --accent: #111118;
+  --accent-foreground: #f0f0f8;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #1a1a28;
+  --input: #1a1a28;
+  --ring: #818cf8;
+  --sidebar-from: #050508;
+  --sidebar-to: #000000;
+}
+
+/* ── Accent overrides ── */
+[data-accent="emerald"] { --primary: #10b981; --ring: #10b981; }
+[data-accent="rose"]    { --primary: #f43f5e; --ring: #f43f5e; }
+[data-accent="amber"]   { --primary: #f59e0b; --ring: #f59e0b; }
+[data-accent="sky"]     { --primary: #0ea5e9; --ring: #0ea5e9; }
+[data-accent="orange"]  { --primary: #f97316; --ring: #f97316; }
+[data-accent="violet"]  { --primary: #8b5cf6; --ring: #8b5cf6; }
+[data-accent="teal"]    { --primary: #14b8a6; --ring: #14b8a6; }
+[data-accent="pink"]    { --primary: #ec4899; --ring: #ec4899; }
 
 body {
   background: var(--background);
@@ -104,9 +196,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-* {
-  border-color: var(--border);
-}
+* { border-color: var(--border); }
 
 /* ── Gradient text ── */
 .text-gradient {
@@ -115,31 +205,37 @@ body {
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
+[data-theme="warm"] .text-gradient {
+  background: linear-gradient(135deg, #fbbf24 0%, #fb923c 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+[data-theme="forest"] .text-gradient {
+  background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+[data-theme="ocean"] .text-gradient {
+  background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
 
-/* ── Card gradient accents (top-left colored wash) ── */
-.card-health {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, var(--card) 55%);
-}
-.card-finances {
-  background: linear-gradient(135deg, rgba(52, 211, 153, 0.08) 0%, var(--card) 55%);
-}
-.card-calendar {
-  background: linear-gradient(135deg, rgba(96, 165, 250, 0.08) 0%, var(--card) 55%);
-}
-.card-habits {
-  background: linear-gradient(135deg, rgba(251, 191, 36, 0.08) 0%, var(--card) 55%);
-}
-.card-reminders {
-  background: linear-gradient(135deg, rgba(167, 139, 250, 0.08) 0%, var(--card) 55%);
-}
-.card-gmail {
-  background: linear-gradient(135deg, rgba(251, 113, 133, 0.08) 0%, var(--card) 55%);
-}
+/* ── Card gradient accents ── */
+.card-health    { background: linear-gradient(135deg, rgba(99,102,241,0.14) 0%, var(--card) 55%); }
+.card-finances  { background: linear-gradient(135deg, rgba(52,211,153,0.14) 0%, var(--card) 55%); }
+.card-calendar  { background: linear-gradient(135deg, rgba(96,165,250,0.14) 0%, var(--card) 55%); }
+.card-habits    { background: linear-gradient(135deg, rgba(251,191,36,0.16) 0%, var(--card) 55%); }
+.card-reminders { background: linear-gradient(135deg, rgba(167,139,250,0.14) 0%, var(--card) 55%); }
+.card-gmail     { background: linear-gradient(135deg, rgba(251,113,133,0.14) 0%, var(--card) 55%); }
+
+/* Theme-aware card gradients */
+[data-theme="warm"] .card-health    { background: linear-gradient(135deg, rgba(245,158,11,0.14) 0%, var(--card) 55%); }
+[data-theme="warm"] .card-finances  { background: linear-gradient(135deg, rgba(251,146,60,0.14) 0%, var(--card) 55%); }
+[data-theme="forest"] .card-health  { background: linear-gradient(135deg, rgba(34,197,94,0.14) 0%, var(--card) 55%); }
+[data-theme="ocean"] .card-health   { background: linear-gradient(135deg, rgba(56,189,248,0.14) 0%, var(--card) 55%); }
 
 /* ── Scrollbar ── */
 .scrollbar-thin::-webkit-scrollbar { width: 4px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
-}
+.scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }

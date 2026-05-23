@@ -20,6 +20,7 @@ import { BookScanCard } from "@/components/dashboard/BookScanCard"
 import { MoodWidget } from "@/components/dashboard/MoodWidget"
 import { QuickLog } from "@/components/dashboard/QuickLog"
 import { LocationCard } from "@/components/dashboard/LocationCard"
+import { TogglTile } from "@/components/dashboard/TogglTile"
 import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
 
 const STEP_GOAL = 8_000
@@ -102,10 +103,10 @@ function computeWellnessScore({
 }
 
 function scoreGrade(s: number) {
-  if (s >= 85) return { label: "Excellent", color: "text-emerald-400" }
-  if (s >= 70) return { label: "Good", color: "text-green-400" }
-  if (s >= 50) return { label: "Fair", color: "text-amber-400" }
-  return { label: "Low", color: "text-red-400" }
+  if (s >= 85) return { label: "Excellent", color: "text-emerald-400", emoji: "🌟" }
+  if (s >= 70) return { label: "Good", color: "text-green-400", emoji: "✨" }
+  if (s >= 50) return { label: "Fair", color: "text-amber-400", emoji: "🌤️" }
+  return { label: "Low", color: "text-red-400", emoji: "💤" }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -135,6 +136,7 @@ export default async function DashboardPage() {
         steps: true, restingHR: true, weight: true,
         readinessScore: true, hrv: true, spo2: true,
         activeMinutes: true, caloriesBurned: true, activityScore: true,
+        sleepScore: true, syncedAt: true,
       },
     }),
     prisma.habit.findMany({
@@ -225,7 +227,7 @@ export default async function DashboardPage() {
     readiness: latestHealth?.readinessScore ?? null,
     habitsRatio: habits.length > 0 ? doneToday / habits.length : 0,
   })
-  const { label: scoreLabel, color: scoreColor } = scoreGrade(wellnessScore)
+  const { label: scoreLabel, color: scoreColor, emoji: scoreEmoji } = scoreGrade(wellnessScore)
 
   return (
     <div className="space-y-5">
@@ -250,8 +252,9 @@ export default async function DashboardPage() {
         <div className="mt-4 flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-3 bg-background/50 backdrop-blur rounded-xl px-4 py-2.5 border border-white/8">
             <div className="text-center">
-              <p className={`text-3xl font-black ${scoreColor}`}>{wellnessScore}</p>
-              <p className={`text-[10px] font-semibold uppercase tracking-wider ${scoreColor}`}>{scoreLabel}</p>
+              <p className="text-2xl leading-none mb-0.5">{scoreEmoji}</p>
+              <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>
+              <p className={`text-[10px] font-semibold uppercase tracking-wider mt-0.5 ${scoreColor}`}>{scoreLabel}</p>
             </div>
             <div className="h-10 w-px bg-border" />
             <div className="grid grid-cols-4 gap-3">
@@ -303,14 +306,32 @@ export default async function DashboardPage() {
           <Card className="card-health hover:border-indigo-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-indigo-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5"><Activity className="h-4 w-4 text-indigo-400" /> Health</span>
+                <span className="flex items-center gap-1.5">❤️ Health</span>
                 <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {latestHealth ? (
                 <>
-                  <p className="text-xs text-muted-foreground">Latest · {format(latestHealth.date,"EEE MMM d")}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">Latest · {format(latestHealth.date,"EEE MMM d")}</p>
+                    {latestHealth.syncedAt && (
+                      <p className="text-[10px] text-muted-foreground/50">
+                        Synced {Math.round((Date.now() - new Date(latestHealth.syncedAt).getTime()) / 60000)}m ago
+                      </p>
+                    )}
+                  </div>
+
+                  {/* sleep score badge */}
+                  {latestHealth.sleepScore != null && (
+                    <div className="flex items-center gap-2 rounded-lg bg-indigo-500/8 border border-indigo-500/15 px-3 py-1.5">
+                      <Moon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                      <span className="text-xs text-muted-foreground">Sleep Score</span>
+                      <span className={`ml-auto text-sm font-bold tabular-nums ${latestHealth.sleepScore >= 85 ? "text-green-400" : latestHealth.sleepScore >= 70 ? "text-amber-400" : "text-red-400"}`}>
+                        {latestHealth.sleepScore}
+                      </span>
+                    </div>
+                  )}
 
                   {/* key metrics row */}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
@@ -379,7 +400,7 @@ export default async function DashboardPage() {
           <Card className="card-finances hover:border-emerald-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-emerald-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5"><Euro className="h-4 w-4 text-emerald-400" /> Finances</span>
+                <span className="flex items-center gap-1.5">💰 Finances</span>
                 <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
               </CardTitle>
             </CardHeader>
@@ -427,8 +448,7 @@ export default async function DashboardPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  <Calendar className="h-4 w-4 text-blue-400" />
-                  {format(now,"MMMM yyyy")}
+                  🗓️ {format(now,"MMMM yyyy")}
                 </span>
                 <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
               </CardTitle>
@@ -485,7 +505,7 @@ export default async function DashboardPage() {
           <Card className="card-habits hover:border-amber-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-amber-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5"><CheckSquare className="h-4 w-4 text-amber-400" /> Habits</span>
+                <span className="flex items-center gap-1.5">✅ Habits</span>
                 <div className="flex items-center gap-1">
                   <span className="text-xs font-normal tabular-nums">{doneToday}/{habits.length}</span>
                   <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
@@ -523,7 +543,7 @@ export default async function DashboardPage() {
           <Card className={`card-reminders hover:border-violet-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-violet-500/5 ${overdueReminders.length>0?"border-red-500/30":""}`}>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5"><Bell className="h-4 w-4 text-violet-400" /> Reminders</span>
+                <span className="flex items-center gap-1.5">🔔 Reminders</span>
                 <div className="flex items-center gap-1">
                   {overdueReminders.length>0 && <Badge variant="destructive" className="text-xs py-0 px-1.5">{overdueReminders.length} overdue</Badge>}
                   <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
@@ -572,7 +592,7 @@ export default async function DashboardPage() {
           <Card className="card-gmail hover:border-rose-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-rose-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5"><Mail className="h-4 w-4 text-rose-400" /> Gmail</span>
+                <span className="flex items-center gap-1.5">📬 Gmail</span>
                 <div className="flex items-center gap-1">
                   {gmailData.unreadCount > 0 && (
                     <Badge className="text-xs bg-rose-500 hover:bg-rose-500">{gmailData.unreadCount} unread</Badge>
@@ -614,7 +634,7 @@ export default async function DashboardPage() {
       <QuickLog todayWaterMl={waterMl} todayFocusMin={focusMinToday} todayMood={todayMood} latestWeight={latestHealth?.weight ?? null} />
 
       {/* ── bottom stats row ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-5 gap-3">
         <Link href="/dashboard/intake">
           <StatTile label="Water today" value={waterMl >= 1000 ? `${(waterMl/1000).toFixed(1)}L` : `${waterMl}ml`}
             sub={waterMl >= 2000 ? "Goal reached ✓" : `${Math.max(0, 2000-waterMl)}ml to go`}
@@ -631,6 +651,7 @@ export default async function DashboardPage() {
             progress={habits.length > 0 ? (doneToday/habits.length)*100 : 0} />
         </Link>
         <StatTile label="Spent this month" value={`€${(totalSpent/100).toFixed(0)}`} icon={<Flame className="h-4 w-4 text-emerald-400"/>} />
+        <TogglTile />
       </div>
 
       {/* ── extras ── */}

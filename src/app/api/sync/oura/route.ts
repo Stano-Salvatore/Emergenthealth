@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { getDailySleep, getDailyActivity, getDailyReadiness, getDailySpo2, getDailyStress, getOuraTags } from "@/lib/oura"
+import { getDailySleep, getDailySleepScores, getDailyActivity, getDailyReadiness, getDailySpo2, getDailyStress, getOuraTags } from "@/lib/oura"
 import { format, subDays } from "date-fns"
 
 export async function POST() {
@@ -16,8 +16,12 @@ export async function POST() {
     const endDate = format(new Date(), "yyyy-MM-dd")
     const startDate = format(subDays(new Date(), 29), "yyyy-MM-dd")
 
-    const [sleepData, activityData, readinessData, spo2Data, stressData] = await Promise.allSettled([
+    // Auto-provision sleepScore column (added after initial deploy)
+    await prisma.$executeRaw`ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepScore" INTEGER`
+
+    const [sleepData, sleepScoreData, activityData, readinessData, spo2Data, stressData] = await Promise.allSettled([
       getDailySleep(userId, startDate, endDate),
+      getDailySleepScores(userId, startDate, endDate),
       getDailyActivity(userId, startDate, endDate),
       getDailyReadiness(userId, startDate, endDate),
       getDailySpo2(userId, startDate, endDate),
@@ -29,14 +33,16 @@ export async function POST() {
         ? Object.fromEntries(result.value.map(r => [r.date, r]))
         : {}
 
-    const sleep     = byDate(sleepData)
-    const activity  = byDate(activityData)
-    const readiness = byDate(readinessData)
-    const spo2      = byDate(spo2Data)
-    const stress    = byDate(stressData)
+    const sleep      = byDate(sleepData)
+    const sleepScore = byDate(sleepScoreData)
+    const activity   = byDate(activityData)
+    const readiness  = byDate(readinessData)
+    const spo2       = byDate(spo2Data)
+    const stress     = byDate(stressData)
 
     const allDates = new Set([
       ...Object.keys(sleep),
+      ...Object.keys(sleepScore),
       ...Object.keys(activity),
       ...Object.keys(readiness),
       ...Object.keys(spo2),
@@ -46,6 +52,7 @@ export async function POST() {
     const upserts = Array.from(allDates).map(dateStr => {
       const date = new Date(dateStr + "T00:00:00.000Z")
       const s = sleep[dateStr]
+      const sc = sleepScore[dateStr]
       const a = activity[dateStr]
       const r = readiness[dateStr]
       const o = spo2[dateStr]
@@ -83,6 +90,8 @@ export async function POST() {
         // SpO2
         ...(o?.spo2               != null && { spo2:                 o.spo2 }),
         ...(o?.breathingDisturbance != null && { breathingDisturbance: o.breathingDisturbance }),
+        // Sleep score (from /daily_sleep, separate from /sleep metrics)
+        ...(sc?.score             != null && { sleepScore:           sc.score }),
         // Stress
         ...(t?.stressHighMin      != null && { stressHigh:           t.stressHighMin }),
         ...(t?.recoveryHighMin    != null && { recoveryHigh:         t.recoveryHighMin }),
@@ -107,17 +116,20 @@ export async function POST() {
           "userId"    TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
           "day"       TEXT NOT NULL,
           "timestamp" TIMESTAMPTZ NOT NULL,
+          "tagName"   TEXT,
           "text"      TEXT,
           "tags"      TEXT[] NOT NULL DEFAULT '{}'
         )
       `
       await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "OuraTag_userId_day_idx" ON "OuraTag"("userId","day")`
+      await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "tagName" TEXT`
       const tagData = await getOuraTags(userId, startDate, endDate)
       for (const t of tagData) {
         await prisma.$executeRaw`
-          INSERT INTO "OuraTag"("id","userId","day","timestamp","text","tags")
-          VALUES (${t.id},${userId},${t.day},${new Date(t.timestamp)},${t.text},${t.tags})
-          ON CONFLICT("id") DO UPDATE SET "text"=EXCLUDED."text","tags"=EXCLUDED."tags"
+          INSERT INTO "OuraTag"("id","userId","day","timestamp","tagName","text","tags")
+          VALUES (${t.id},${userId},${t.day},${new Date(t.timestamp)},${t.tagName},${t.comment},${t.tags})
+          ON CONFLICT("id") DO UPDATE
+            SET "tagName"=EXCLUDED."tagName","text"=EXCLUDED."text","tags"=EXCLUDED."tags"
         `
       }
       tagsSynced = tagData.length
