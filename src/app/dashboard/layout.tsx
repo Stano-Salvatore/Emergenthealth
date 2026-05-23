@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { Sidebar } from "@/components/layout/Sidebar"
 import { TogglPanel } from "@/components/toggl/TogglPanel"
+import { AutoSync } from "@/components/layout/AutoSync"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth()
@@ -14,6 +15,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         {children}
       </main>
       <TogglPanel />
+      <AutoSync />
     </div>
   )
 }
