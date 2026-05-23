@@ -20,6 +20,7 @@ import { BookScanCard } from "@/components/dashboard/BookScanCard"
 import { MoodWidget } from "@/components/dashboard/MoodWidget"
 import { QuickLog } from "@/components/dashboard/QuickLog"
 import { LocationCard } from "@/components/dashboard/LocationCard"
+import { TogglTile } from "@/components/dashboard/TogglTile"
 import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
 
 const STEP_GOAL = 8_000
@@ -135,6 +136,7 @@ export default async function DashboardPage() {
         steps: true, restingHR: true, weight: true,
         readinessScore: true, hrv: true, spo2: true,
         activeMinutes: true, caloriesBurned: true, activityScore: true,
+        sleepScore: true, syncedAt: true,
       },
     }),
     prisma.habit.findMany({
@@ -310,7 +312,25 @@ export default async function DashboardPage() {
             <CardContent className="space-y-3">
               {latestHealth ? (
                 <>
-                  <p className="text-xs text-muted-foreground">Latest · {format(latestHealth.date,"EEE MMM d")}</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">Latest · {format(latestHealth.date,"EEE MMM d")}</p>
+                    {latestHealth.syncedAt && (
+                      <p className="text-[10px] text-muted-foreground/50">
+                        Synced {Math.round((Date.now() - new Date(latestHealth.syncedAt).getTime()) / 60000)}m ago
+                      </p>
+                    )}
+                  </div>
+
+                  {/* sleep score badge */}
+                  {latestHealth.sleepScore != null && (
+                    <div className="flex items-center gap-2 rounded-lg bg-indigo-500/8 border border-indigo-500/15 px-3 py-1.5">
+                      <Moon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                      <span className="text-xs text-muted-foreground">Sleep Score</span>
+                      <span className={`ml-auto text-sm font-bold tabular-nums ${latestHealth.sleepScore >= 85 ? "text-green-400" : latestHealth.sleepScore >= 70 ? "text-amber-400" : "text-red-400"}`}>
+                        {latestHealth.sleepScore}
+                      </span>
+                    </div>
+                  )}
 
                   {/* key metrics row */}
                   <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
@@ -614,7 +634,7 @@ export default async function DashboardPage() {
       <QuickLog todayWaterMl={waterMl} todayFocusMin={focusMinToday} todayMood={todayMood} latestWeight={latestHealth?.weight ?? null} />
 
       {/* ── bottom stats row ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-5 gap-3">
         <Link href="/dashboard/intake">
           <StatTile label="Water today" value={waterMl >= 1000 ? `${(waterMl/1000).toFixed(1)}L` : `${waterMl}ml`}
             sub={waterMl >= 2000 ? "Goal reached ✓" : `${Math.max(0, 2000-waterMl)}ml to go`}
@@ -631,6 +651,7 @@ export default async function DashboardPage() {
             progress={habits.length > 0 ? (doneToday/habits.length)*100 : 0} />
         </Link>
         <StatTile label="Spent this month" value={`€${(totalSpent/100).toFixed(0)}`} icon={<Flame className="h-4 w-4 text-emerald-400"/>} />
+        <TogglTile />
       </div>
 
       {/* ── extras ── */}

@@ -116,6 +116,19 @@ export async function getDailySleep(userId: string, startDate: string, endDate: 
   }))
 }
 
+// ── Daily sleep scores (/daily_sleep gives the score; /sleep gives metrics) ──
+
+export async function getDailySleepScores(userId: string, startDate: string, endDate: string) {
+  const client = await buildOuraClient(userId)
+  const data = await makeOuraRequest("/daily_sleep", client.accessToken, userId, {
+    start_date: startDate, end_date: endDate,
+  })
+  return (data.data || []).map((item: Record<string, unknown>) => ({
+    date: item.day as string,
+    score: (item.score as number) ?? null,
+  }))
+}
+
 // ── Daily readiness (score, skin temperature) ────────────────────────────────
 
 export async function getDailyReadiness(userId: string, startDate: string, endDate: string) {

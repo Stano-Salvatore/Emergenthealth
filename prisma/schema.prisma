@@ -123,6 +123,7 @@ model HealthLog {
   recoveryHigh         Int?
   sedentaryTime        Int?
   breathingDisturbance Float?
+  sleepScore           Int?
 
   syncedAt DateTime @default(now())
 

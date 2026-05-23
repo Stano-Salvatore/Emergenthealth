@@ -1,23 +1,35 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
+import { RefreshCw } from "lucide-react"
 
 const SYNC_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
 const SYNC_KEY = "eh_last_sync"
 
 export function AutoSync() {
+  const [syncing, setSyncing] = useState(false)
+
   useEffect(() => {
     const last = parseInt(localStorage.getItem(SYNC_KEY) ?? "0", 10)
     if (Date.now() - last < SYNC_INTERVAL_MS) return
 
-    // Fire and forget — don't block UI
+    setSyncing(true)
     Promise.allSettled([
       fetch("/api/sync/oura", { method: "POST" }),
       fetch("/api/sync/calendar", { method: "POST" }),
     ]).then(() => {
       localStorage.setItem(SYNC_KEY, String(Date.now()))
+    }).finally(() => {
+      setSyncing(false)
     })
   }, [])
 
-  return null
+  if (!syncing) return null
+
+  return (
+    <div className="fixed bottom-24 right-6 z-30 flex items-center gap-2 rounded-full bg-card border border-border px-3 py-1.5 text-xs text-muted-foreground shadow-lg">
+      <RefreshCw className="h-3 w-3 animate-spin" />
+      Syncing…
+    </div>
+  )
 }
