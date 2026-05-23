@@ -103,10 +103,10 @@ function computeWellnessScore({
 }
 
 function scoreGrade(s: number) {
-  if (s >= 85) return { label: "Excellent", color: "text-emerald-400" }
-  if (s >= 70) return { label: "Good", color: "text-green-400" }
-  if (s >= 50) return { label: "Fair", color: "text-amber-400" }
-  return { label: "Low", color: "text-red-400" }
+  if (s >= 85) return { label: "Excellent", color: "text-emerald-400", emoji: "🌟" }
+  if (s >= 70) return { label: "Good", color: "text-green-400", emoji: "✨" }
+  if (s >= 50) return { label: "Fair", color: "text-amber-400", emoji: "🌤️" }
+  return { label: "Low", color: "text-red-400", emoji: "💤" }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ export default async function DashboardPage() {
     readiness: latestHealth?.readinessScore ?? null,
     habitsRatio: habits.length > 0 ? doneToday / habits.length : 0,
   })
-  const { label: scoreLabel, color: scoreColor } = scoreGrade(wellnessScore)
+  const { label: scoreLabel, color: scoreColor, emoji: scoreEmoji } = scoreGrade(wellnessScore)
 
   return (
     <div className="space-y-5">
@@ -252,8 +252,9 @@ export default async function DashboardPage() {
         <div className="mt-4 flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-3 bg-background/50 backdrop-blur rounded-xl px-4 py-2.5 border border-white/8">
             <div className="text-center">
-              <p className={`text-3xl font-black ${scoreColor}`}>{wellnessScore}</p>
-              <p className={`text-[10px] font-semibold uppercase tracking-wider ${scoreColor}`}>{scoreLabel}</p>
+              <p className="text-2xl leading-none mb-0.5">{scoreEmoji}</p>
+              <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>
+              <p className={`text-[10px] font-semibold uppercase tracking-wider mt-0.5 ${scoreColor}`}>{scoreLabel}</p>
             </div>
             <div className="h-10 w-px bg-border" />
             <div className="grid grid-cols-4 gap-3">
@@ -305,7 +306,7 @@ export default async function DashboardPage() {
           <Card className="card-health hover:border-indigo-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-indigo-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5"><Activity className="h-4 w-4 text-indigo-400" /> Health</span>
+                <span className="flex items-center gap-1.5">❤️ Health</span>
                 <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
               </CardTitle>
             </CardHeader>
@@ -399,7 +400,7 @@ export default async function DashboardPage() {
           <Card className="card-finances hover:border-emerald-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-emerald-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5"><Euro className="h-4 w-4 text-emerald-400" /> Finances</span>
+                <span className="flex items-center gap-1.5">💰 Finances</span>
                 <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
               </CardTitle>
             </CardHeader>
@@ -447,8 +448,7 @@ export default async function DashboardPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  <Calendar className="h-4 w-4 text-blue-400" />
-                  {format(now,"MMMM yyyy")}
+                  🗓️ {format(now,"MMMM yyyy")}
                 </span>
                 <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
               </CardTitle>
@@ -505,7 +505,7 @@ export default async function DashboardPage() {
           <Card className="card-habits hover:border-amber-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-amber-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5"><CheckSquare className="h-4 w-4 text-amber-400" /> Habits</span>
+                <span className="flex items-center gap-1.5">✅ Habits</span>
                 <div className="flex items-center gap-1">
                   <span className="text-xs font-normal tabular-nums">{doneToday}/{habits.length}</span>
                   <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
@@ -543,7 +543,7 @@ export default async function DashboardPage() {
           <Card className={`card-reminders hover:border-violet-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-violet-500/5 ${overdueReminders.length>0?"border-red-500/30":""}`}>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5"><Bell className="h-4 w-4 text-violet-400" /> Reminders</span>
+                <span className="flex items-center gap-1.5">🔔 Reminders</span>
                 <div className="flex items-center gap-1">
                   {overdueReminders.length>0 && <Badge variant="destructive" className="text-xs py-0 px-1.5">{overdueReminders.length} overdue</Badge>}
                   <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
@@ -592,7 +592,7 @@ export default async function DashboardPage() {
           <Card className="card-gmail hover:border-rose-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-rose-500/5">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5"><Mail className="h-4 w-4 text-rose-400" /> Gmail</span>
+                <span className="flex items-center gap-1.5">📬 Gmail</span>
                 <div className="flex items-center gap-1">
                   {gmailData.unreadCount > 0 && (
                     <Badge className="text-xs bg-rose-500 hover:bg-rose-500">{gmailData.unreadCount} unread</Badge>
