@@ -81,19 +81,32 @@ export async function getDailyActivity(userId: string, startDate: string, endDat
 
 export async function getDailySleep(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
-  const data = await makeOuraRequest("/daily_sleep", client.accessToken, userId, {
+  const data = await makeOuraRequest("/sleep", client.accessToken, userId, {
     start_date: startDate, end_date: endDate,
   })
-  return (data.data || []).map((item: Record<string, unknown>) => ({
+  // Group sessions by day, preferring long_sleep type then longest duration
+  const byDay: Record<string, Record<string, unknown>> = {}
+  for (const item of (data.data || [])) {
+    const day = item.day as string
+    const existing = byDay[day]
+    const itemDur = (item.total_sleep_duration as number) ?? 0
+    const existDur = existing ? ((existing.total_sleep_duration as number) ?? 0) : 0
+    if (!existing
+      || (item.type === "long_sleep" && existing.type !== "long_sleep")
+      || (item.type === existing.type && itemDur > existDur)) {
+      byDay[day] = item
+    }
+  }
+  return Object.values(byDay).map((item: Record<string, unknown>) => ({
     date: item.day as string,
     totalSleepSeconds: (item.total_sleep_duration as number) ?? null,
     deepSleepSeconds: (item.deep_sleep_duration as number) ?? null,
     remSleepSeconds: (item.rem_sleep_duration as number) ?? null,
     lightSleepSeconds: (item.light_sleep_duration as number) ?? null,
-    awakeTimeSeconds: (item.awake_time as number) ?? null,
+    awakeTimeSeconds: (item.awake_duration as number) ?? null,
     timeInBedSeconds: (item.time_in_bed as number) ?? null,
     restlessPeriods: (item.restless_periods as number) ?? null,
-    avgRestingHR: (item.average_heart_rate as number) ?? (item.average_resting_heart_rate as number) ?? null,
+    avgRestingHR: (item.average_heart_rate as number) ?? null,
     breathRate: (item.average_breath as number) ?? null,
     hrv: (item.average_hrv as number) ?? null,
     efficiency: (item.efficiency as number) ?? null,
