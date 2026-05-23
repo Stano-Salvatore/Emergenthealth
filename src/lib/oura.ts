@@ -199,21 +199,24 @@ export interface OuraTagEntry {
   id: string
   day: string
   timestamp: string
-  text: string | null
+  tagName: string       // human-readable label from enhanced_tag.custom_name
+  comment: string | null // user's written note
   tags: string[]
 }
 
 export async function getOuraTags(userId: string, startDate: string, endDate: string): Promise<OuraTagEntry[]> {
   const client = await buildOuraClient(userId)
-  const data = await makeOuraRequest("/tag", client.accessToken, userId, {
+  // /enhanced_tag gives custom_name (readable label) + comment (user note)
+  const data = await makeOuraRequest("/enhanced_tag", client.accessToken, userId, {
     start_date: startDate, end_date: endDate,
   })
   return (data.data ?? []).map((item: Record<string, unknown>) => ({
     id: item.id as string,
     day: item.day as string,
-    timestamp: item.timestamp as string,
-    text: (item.text as string) ?? null,
-    tags: (item.tags as string[]) ?? [],
+    timestamp: (item.start_time as string) ?? (item.day as string),
+    tagName: (item.custom_name as string) || (item.tag_type_code as string) || "Tag",
+    comment: (item.comment as string) || null,
+    tags: item.tag_type_code ? [item.tag_type_code as string] : [],
   }))
 }
 

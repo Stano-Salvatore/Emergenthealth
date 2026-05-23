@@ -116,17 +116,20 @@ export async function POST() {
           "userId"    TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
           "day"       TEXT NOT NULL,
           "timestamp" TIMESTAMPTZ NOT NULL,
+          "tagName"   TEXT,
           "text"      TEXT,
           "tags"      TEXT[] NOT NULL DEFAULT '{}'
         )
       `
       await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "OuraTag_userId_day_idx" ON "OuraTag"("userId","day")`
+      await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "tagName" TEXT`
       const tagData = await getOuraTags(userId, startDate, endDate)
       for (const t of tagData) {
         await prisma.$executeRaw`
-          INSERT INTO "OuraTag"("id","userId","day","timestamp","text","tags")
-          VALUES (${t.id},${userId},${t.day},${new Date(t.timestamp)},${t.text},${t.tags})
-          ON CONFLICT("id") DO UPDATE SET "text"=EXCLUDED."text","tags"=EXCLUDED."tags"
+          INSERT INTO "OuraTag"("id","userId","day","timestamp","tagName","text","tags")
+          VALUES (${t.id},${userId},${t.day},${new Date(t.timestamp)},${t.tagName},${t.comment},${t.tags})
+          ON CONFLICT("id") DO UPDATE
+            SET "tagName"=EXCLUDED."tagName","text"=EXCLUDED."text","tags"=EXCLUDED."tags"
         `
       }
       tagsSynced = tagData.length
