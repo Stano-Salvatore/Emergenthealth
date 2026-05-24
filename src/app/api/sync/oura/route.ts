@@ -125,15 +125,20 @@ export async function POST() {
       await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "tagName" TEXT`
       const tagData = await getOuraTags(userId, startDate, endDate)
       for (const t of tagData) {
+        // Serialize JS string[] → PostgreSQL array literal (UUIDs contain only hex+hyphen, no quoting needed)
+        const tagsLiteral = `{${t.tags.join(",")}}`
+        const tagName = t.tagName || null
+        const text = t.comment || null
         await prisma.$executeRaw`
           INSERT INTO "OuraTag"("id","userId","day","timestamp","tagName","text","tags")
-          VALUES (${t.id},${userId},${t.day},${new Date(t.timestamp)},${t.tagName},${t.comment},${t.tags})
+          VALUES (${t.id},${userId},${t.day},${new Date(t.timestamp)},${tagName},${text},${tagsLiteral}::text[])
           ON CONFLICT("id") DO UPDATE
             SET "tagName"=EXCLUDED."tagName","text"=EXCLUDED."text","tags"=EXCLUDED."tags"
         `
       }
       tagsSynced = tagData.length
-    } catch {
+    } catch (tagErr) {
+      console.error("[sync] tag upsert error:", tagErr)
       // silently skip if tag scope not granted yet
     }
 

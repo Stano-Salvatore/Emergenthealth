@@ -228,10 +228,6 @@ export async function getOuraTags(userId: string, startDate: string, endDate: st
   const data = await makeOuraRequest("/enhanced_tag", client.accessToken, userId, {
     start_date: startDate, end_date: endDate,
   })
-  // Log first 3 raw items so we can inspect the actual field structure from Vercel logs
-  if (data.data?.length) {
-    console.log("[oura-tags-raw] sample:", JSON.stringify(data.data.slice(0, 3), null, 2))
-  }
   return (data.data ?? []).map((item: Record<string, unknown>) => {
     const name = resolveTagName(item.custom_name, item.tag_type_code, item.comment)
     return {
