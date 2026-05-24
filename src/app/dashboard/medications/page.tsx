@@ -17,6 +17,9 @@ interface TagItem {
   emoji: string
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+function isUuid(s: string | null): boolean { return !!s && UUID_RE.test(s.trim()) }
+
 const CATEGORIES = [
   { id: "",            label: "All",         emoji: "✨" },
   { id: "Medications", label: "Medications", emoji: "💊" },
@@ -224,24 +227,14 @@ export default function MedicationsPage() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-semibold leading-snug">
-                                {item.tagName ?? item.tags[0] ?? "(unnamed tag)"}
+                                {isUuid(item.tagName) || !item.tagName
+                                  ? (item.text && !isUuid(item.text) ? item.text : "Unsynced tag")
+                                  : item.tagName}
                               </p>
-                              {item.text && (
+                              {item.text && !isUuid(item.text) && item.text !== item.tagName && (
                                 <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
                                   {item.text}
                                 </p>
-                              )}
-                              {item.tags.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mt-1.5">
-                                  {item.tags.map(t => (
-                                    <span
-                                      key={t}
-                                      className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground"
-                                    >
-                                      {t}
-                                    </span>
-                                  ))}
-                                </div>
                               )}
                             </div>
                             <span className="text-xs text-muted-foreground/60 shrink-0 mt-0.5">

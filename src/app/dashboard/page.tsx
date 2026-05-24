@@ -16,7 +16,6 @@ import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"
 import { LiveClock } from "@/components/dashboard/LiveClock"
 import { WeatherWidget } from "@/components/dashboard/WeatherWidget"
 import { AcCard } from "@/components/dashboard/AcCard"
-import { BookScanCard } from "@/components/dashboard/BookScanCard"
 import { MoodWidget } from "@/components/dashboard/MoodWidget"
 import { QuickLog } from "@/components/dashboard/QuickLog"
 import { LocationCard } from "@/components/dashboard/LocationCard"
@@ -658,10 +657,9 @@ export default async function DashboardPage() {
       </div>
 
       {/* ── extras ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <LocationCard />
         <AcCard />
-        <BookScanCard />
       </div>
     </div>
   )
