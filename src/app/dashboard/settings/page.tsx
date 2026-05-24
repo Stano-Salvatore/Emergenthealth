@@ -6,6 +6,8 @@ import { OuraManager } from "@/components/settings/OuraManager"
 import { MigrateButton } from "@/components/settings/MigrateButton"
 import { GoalsEditor } from "@/components/settings/GoalsEditor"
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
+import { ExportButton } from "@/components/settings/ExportButton"
+import { DigestButton } from "@/components/settings/DigestButton"
 
 export default async function SettingsPage({
   searchParams,
@@ -119,6 +121,24 @@ export default async function SettingsPage({
 
       {/* Key manager (client component) */}
       <FitKeyManager initialKeys={keyRows} />
+
+      {/* Weekly digest */}
+      <DigestButton />
+
+      {/* Data export */}
+      <Card>
+        <CardContent className="pt-4 pb-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Data export</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Download your last 90 days of health data as a CSV file
+              </p>
+            </div>
+            <ExportButton />
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
