@@ -16,6 +16,14 @@ async function ensureTable() {
   `
   await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "OuraTag_userId_day_idx" ON "OuraTag"("userId","day")`
   await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "tagName" TEXT`
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS "TagAlias" (
+      "userId"      TEXT NOT NULL,
+      "tagTypeUuid" TEXT NOT NULL,
+      "name"        TEXT NOT NULL,
+      PRIMARY KEY ("userId", "tagTypeUuid")
+    )
+  `
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -58,19 +66,25 @@ export async function GET(req: Request) {
 
   try {
     await ensureTable()
-    const rows = await prisma.$queryRaw<
-      { id: string; day: string; timestamp: Date; tagName: string | null; text: string | null; tags: string[] }[]
-    >`
-      SELECT "id","day","timestamp","tagName","text","tags"
-      FROM "OuraTag"
-      WHERE "userId" = ${userId}
-      ORDER BY "timestamp" DESC
-      LIMIT 500
-    `
+    const [rows, aliasRows] = await Promise.all([
+      prisma.$queryRaw<
+        { id: string; day: string; timestamp: Date; tagName: string | null; text: string | null; tags: string[] }[]
+      >`
+        SELECT "id","day","timestamp","tagName","text","tags"
+        FROM "OuraTag"
+        WHERE "userId" = ${userId}
+        ORDER BY "timestamp" DESC
+        LIMIT 500
+      `,
+      prisma.$queryRaw<{ tagTypeUuid: string; name: string }[]>`
+        SELECT "tagTypeUuid","name" FROM "TagAlias" WHERE "userId" = ${userId}
+      `,
+    ])
+
+    // User-defined aliases take highest priority
+    const aliasMap = new Map(aliasRows.map(r => [r.tagTypeUuid, r.name]))
 
     // Build UUID → display name inference from entries that have readable text.
-    // If tag type UUID "abc" has ever been logged with text "Atarax", future nameless
-    // entries of that same UUID also get labelled "Atarax".
     const uuidToName = new Map<string, string>()
     for (const r of rows) {
       const uuid = r.tags[0]
@@ -81,8 +95,9 @@ export async function GET(req: Request) {
     }
 
     let items = rows.map(r => {
-      // Resolve best display name: tagName → text → inferred from UUID history → null
+      // Resolve best display name: user alias → tagName → text → UUID inference
       const resolved =
+        (r.tags[0] ? aliasMap.get(r.tags[0]) ?? null : null) ??
         (r.tagName && !isUuid(r.tagName) ? r.tagName : null) ??
         (r.text && r.text.trim() && !isUuid(r.text) ? r.text.trim() : null) ??
         (r.tags[0] ? uuidToName.get(r.tags[0]) ?? null : null)

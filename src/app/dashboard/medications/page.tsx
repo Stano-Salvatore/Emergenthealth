@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { Card, CardContent } from "@/components/ui/card"
-import { RefreshCw, Search } from "lucide-react"
+import { RefreshCw, Search, Pencil } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 
@@ -42,6 +42,9 @@ export default function MedicationsPage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState<{ uuid: string; current: string } | null>(null)
+  const [renameValue, setRenameValue] = useState("")
+  const renameInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async (q = filter, cat = activeCategory) => {
     setLoading(true)
@@ -77,6 +80,23 @@ export default function MedicationsPage() {
   function switchCategory(cat: string) {
     setActiveCategory(cat)
     load(filter, cat)
+  }
+
+  function startRename(uuid: string, current: string) {
+    setRenaming({ uuid, current })
+    setRenameValue(current === "Custom tag" ? "" : current)
+    setTimeout(() => renameInputRef.current?.focus(), 50)
+  }
+
+  async function submitRename() {
+    if (!renaming || !renameValue.trim()) { setRenaming(null); return }
+    await fetch("/api/tag-aliases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tagTypeUuid: renaming.uuid, name: renameValue.trim() }),
+    })
+    setRenaming(null)
+    load()
   }
 
   // Group by day then within day by category
@@ -226,9 +246,34 @@ export default function MedicationsPage() {
                               {item.emoji}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold leading-snug">
-                                {item.tagName ?? "Custom tag"}
-                              </p>
+                              {renaming?.uuid === item.tags[0] ? (
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    ref={renameInputRef}
+                                    value={renameValue}
+                                    onChange={e => setRenameValue(e.target.value)}
+                                    onKeyDown={e => { if (e.key === "Enter") submitRename(); if (e.key === "Escape") setRenaming(null) }}
+                                    placeholder="Name this tag…"
+                                    className="flex-1 text-sm bg-secondary/60 border border-primary/40 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                                  />
+                                  <button onClick={submitRename} className="text-xs text-primary font-medium px-2 py-0.5 rounded hover:bg-primary/10">Save</button>
+                                  <button onClick={() => setRenaming(null)} className="text-xs text-muted-foreground px-1">✕</button>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5 group/name">
+                                  <p className={cn("text-sm font-semibold leading-snug", !item.tagName && "text-muted-foreground italic")}>
+                                    {item.tagName ?? "Custom tag"}
+                                  </p>
+                                  {item.tags[0] && (
+                                    <button
+                                      onClick={() => startRename(item.tags[0], item.tagName ?? "Custom tag")}
+                                      className="opacity-0 group/name:opacity-100 hover:opacity-100 text-muted-foreground/50 hover:text-primary transition-opacity p-0.5"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                               {item.text && item.text !== item.tagName && (
                                 <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
                                   {item.text}
