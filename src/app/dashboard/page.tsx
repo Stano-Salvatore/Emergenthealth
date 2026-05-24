@@ -21,6 +21,7 @@ import { QuickLog } from "@/components/dashboard/QuickLog"
 import { LocationCard } from "@/components/dashboard/LocationCard"
 import { TogglTile } from "@/components/dashboard/TogglTile"
 import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
+import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
 
 const STEP_GOAL = 8_000
 const SLEEP_GOAL_H = 7
@@ -232,11 +233,10 @@ export default async function DashboardPage() {
   })
   const { label: scoreLabel, color: scoreColor, emoji: scoreEmoji } = scoreGrade(wellnessScore)
 
-  return (
-    <div className="space-y-5">
+  const header = (
+    <>
       {/* ── header ── */}
       <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-500/20 via-violet-500/8 to-background border border-indigo-500/20 p-5">
-        {/* Decorative glow orbs */}
         <div className="absolute -top-12 -right-12 w-56 h-56 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-10 left-1/3 w-40 h-40 bg-violet-500/15 rounded-full blur-2xl pointer-events-none" />
         <div className="absolute top-2 right-1/3 w-24 h-24 bg-blue-400/10 rounded-full blur-2xl pointer-events-none" />
@@ -250,8 +250,6 @@ export default async function DashboardPage() {
           </div>
           <WeatherWidget />
         </div>
-
-        {/* ── wellness score strip ── */}
         <div className="mt-4 flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-3 bg-background/50 backdrop-blur rounded-xl px-4 py-2.5 border border-white/8">
             <div className="text-center">
@@ -269,8 +267,6 @@ export default async function DashboardPage() {
               ))}
             </div>
           </div>
-
-          {/* mood today */}
           <div className="flex-1 min-w-[200px] bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-white/8">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">How do you feel?</p>
             <MoodWidget todayMood={todayMood} />
@@ -300,344 +296,322 @@ export default async function DashboardPage() {
           </div>
         </div>
       )}
+    </>
+  )
 
-      {/* ── main grid ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-
-        {/* ── Health ── */}
-        <Link href="/dashboard/health">
-          <Card className="card-health hover:border-indigo-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-indigo-500/5">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5">❤️ Health</span>
-                <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {latestHealth ? (
-                <>
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs text-muted-foreground">Latest · {format(latestHealth.date,"EEE MMM d")}</p>
-                    {latestHealth.syncedAt && (
-                      <p className="text-[10px] text-muted-foreground/50">
-                        Synced {Math.round((Date.now() - new Date(latestHealth.syncedAt).getTime()) / 60000)}m ago
-                      </p>
-                    )}
-                  </div>
-
-                  {/* sleep score badge */}
-                  {latestHealth.sleepScore != null && (
-                    <div className="flex items-center gap-2 rounded-lg bg-indigo-500/8 border border-indigo-500/15 px-3 py-1.5">
-                      <Moon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
-                      <span className="text-xs text-muted-foreground">Sleep Score</span>
-                      <span className={`ml-auto text-sm font-bold tabular-nums ${latestHealth.sleepScore >= 85 ? "text-green-400" : latestHealth.sleepScore >= 70 ? "text-amber-400" : "text-red-400"}`}>
-                        {latestHealth.sleepScore}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* key metrics row */}
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-                    {latestHealth.sleepDuration != null && (
-                      <MetricBox icon={<Moon className="h-3.5 w-3.5 text-indigo-400"/>} label="Sleep"
-                        value={`${(latestHealth.sleepDuration/60).toFixed(1)}h`}
-                        sub={latestHealth.deepSleep!=null?`Deep ${latestHealth.deepSleep}m · REM ${latestHealth.remSleep??'?'}m`:undefined}
-                        ok={(latestHealth.sleepDuration/60)>=SLEEP_GOAL_H} />
-                    )}
-                    {latestHealth.steps != null && (
-                      <MetricBox icon={<Footprints className="h-3.5 w-3.5 text-green-400"/>} label="Steps"
-                        value={latestHealth.steps.toLocaleString()} sub={`goal ${STEP_GOAL.toLocaleString()}`}
-                        ok={latestHealth.steps>=STEP_GOAL} />
-                    )}
-                    {latestHealth.restingHR != null && (
-                      <MetricBox icon={<Heart className="h-3.5 w-3.5 text-red-400"/>} label="Resting HR"
-                        value={`${latestHealth.restingHR} bpm`} />
-                    )}
-                    {latestHealth.readinessScore != null && (
-                      <MetricBox icon={<Shield className="h-3.5 w-3.5 text-emerald-400"/>} label="Readiness"
-                        value={String(latestHealth.readinessScore)} ok={latestHealth.readinessScore>=70} />
-                    )}
-                    {latestHealth.hrv != null && (
-                      <MetricBox icon={<Activity className="h-3.5 w-3.5 text-violet-400"/>} label="HRV"
-                        value={`${Math.round(latestHealth.hrv)} ms`} />
-                    )}
-                    {latestHealth.spo2 != null && (
-                      <MetricBox icon={<Wind className="h-3.5 w-3.5 text-cyan-400"/>} label="SpO₂"
-                        value={`${(latestHealth.spo2 as number).toFixed(1)}%`} ok={(latestHealth.spo2 as number)>=95} />
-                    )}
-                  </div>
-
-                  {/* 7-day sleep sparkline */}
-                  {sleepLogs.length > 1 && (
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1.5">Sleep · 7 days</p>
-                      <div className="flex items-end gap-0.5 h-8">
-                        {[...healthLogs].reverse().map(l => {
-                          const hrs = l.sleepDuration!=null ? l.sleepDuration/60 : 0
-                          return (
-                            <div key={l.id}
-                              className={`flex-1 rounded-sm ${hrs>=7?"bg-indigo-500":"bg-indigo-500/35"}`}
-                              style={{height:`${Math.max(10,Math.min(100,(hrs/10)*100))}%`}}
-                              title={`${format(l.date,"MMM d")}: ${hrs.toFixed(1)}h`}
-                            />
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-                  {sleepAvg!=null && (
-                    <p className="text-xs text-muted-foreground">
-                      7-day avg: {(sleepAvg/60).toFixed(1)}h sleep{stepsAvg!=null?` · ${Math.round(stepsAvg).toLocaleString()} steps`:""}
+  const blocks = {
+    health: (
+      <Link href="/dashboard/health" className="block h-full">
+        <Card className="card-health hover:border-indigo-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-indigo-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
+              <span className="flex items-center gap-1.5">❤️ Health</span>
+              <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {latestHealth ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">Latest · {format(latestHealth.date,"EEE MMM d")}</p>
+                  {latestHealth.syncedAt && (
+                    <p className="text-[10px] text-muted-foreground/50">
+                      Synced {Math.round((Date.now() - new Date(latestHealth.syncedAt).getTime()) / 60000)}m ago
                     </p>
                   )}
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground">No health data yet</p>
-              )}
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* ── Finances ── */}
-        <Link href="/dashboard/finances">
-          <Card className="card-finances hover:border-emerald-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-emerald-500/5">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5">💰 Finances</span>
-                <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-end justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Spent this month</p>
-                  <p className="text-2xl font-black text-red-400">€{(totalSpent/100).toFixed(2)}</p>
                 </div>
-                {totalIncome>0 && (
-                  <div className="text-right">
-                    <p className="text-xs text-muted-foreground">Income</p>
-                    <p className="text-sm font-bold text-green-400">€{(totalIncome/100).toFixed(2)}</p>
+                {latestHealth.sleepScore != null && (
+                  <div className="flex items-center gap-2 rounded-lg bg-indigo-500/8 border border-indigo-500/15 px-3 py-1.5">
+                    <Moon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                    <span className="text-xs text-muted-foreground">Sleep Score</span>
+                    <span className={`ml-auto text-sm font-bold tabular-nums ${latestHealth.sleepScore >= 85 ? "text-green-400" : latestHealth.sleepScore >= 70 ? "text-amber-400" : "text-red-400"}`}>
+                      {latestHealth.sleepScore}
+                    </span>
                   </div>
                 )}
-              </div>
-              {totalIncome>0 && (
-                <div className="flex items-center gap-1.5 bg-secondary/50 rounded-lg px-2.5 py-1.5">
-                  {net>=0 ? <TrendingUp className="h-3.5 w-3.5 text-green-400 shrink-0"/> : <TrendingDown className="h-3.5 w-3.5 text-red-400 shrink-0"/>}
-                  <span className={`text-sm font-semibold ${net>=0?"text-green-400":"text-red-400"}`}>
-                    Net: {net>=0?"+":""}€{(net/100).toFixed(2)}
-                  </span>
-                </div>
-              )}
-              {topCategories.length>0 && (
-                <div className="space-y-1.5">
-                  {topCategories.map(([cat,amt]) => (
-                    <div key={cat}>
-                      <div className="flex justify-between text-xs mb-0.5">
-                        <span className="text-muted-foreground truncate max-w-[60%]">{cat}</span>
-                        <span className="font-medium">€{(amt/100).toFixed(2)}</span>
-                      </div>
-                      <Progress value={(amt/maxCat)*100} className="h-1" />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* ── Calendar ── */}
-        <Link href="/dashboard/calendar" className="sm:col-span-2 xl:col-span-1">
-          <Card className="card-calendar hover:border-blue-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-blue-500/5">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  🗓️ {format(now,"MMMM yyyy")}
-                </span>
-                <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex gap-4">
-                <MiniMonthCalendar year={now.getFullYear()} month={now.getMonth()} todayDate={now.getDate()} eventDays={eventDays} />
-                <div className="flex-1 min-w-0 border-l pl-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
-                    {format(now,"MMM d").toUpperCase()}
-                  </p>
-                  {todayEvents.length===0 ? (
-                    <div>
-                      <p className="text-sm font-medium">No events</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">Enjoy your day!</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {todayEvents.map(e => (
-                        <div key={e.id} className="flex gap-1.5">
-                          <div className="h-1.5 w-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0" />
-                          <div>
-                            <p className="text-xs font-medium leading-tight">{e.title}</p>
-                            {e.start&&!e.isAllDay && <p className="text-[10px] text-muted-foreground">{format(parseISO(e.start),"h:mm a")}</p>}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                  {latestHealth.sleepDuration != null && (
+                    <MetricBox icon={<Moon className="h-3.5 w-3.5 text-indigo-400"/>} label="Sleep"
+                      value={`${(latestHealth.sleepDuration/60).toFixed(1)}h`}
+                      sub={latestHealth.deepSleep!=null?`Deep ${latestHealth.deepSleep}m · REM ${latestHealth.remSleep??'?'}m`:undefined}
+                      ok={(latestHealth.sleepDuration/60)>=SLEEP_GOAL_H} />
                   )}
-                  {nextEvents.length>0 && (
-                    <div className="mt-2 pt-2 border-t space-y-1.5">
-                      {nextEvents.slice(0,3).map(e => {
-                        const d=parseEDay(e)
+                  {latestHealth.steps != null && (
+                    <MetricBox icon={<Footprints className="h-3.5 w-3.5 text-green-400"/>} label="Steps"
+                      value={latestHealth.steps.toLocaleString()} sub={`goal ${STEP_GOAL.toLocaleString()}`}
+                      ok={latestHealth.steps>=STEP_GOAL} />
+                  )}
+                  {latestHealth.restingHR != null && (
+                    <MetricBox icon={<Heart className="h-3.5 w-3.5 text-red-400"/>} label="Resting HR"
+                      value={`${latestHealth.restingHR} bpm`} />
+                  )}
+                  {latestHealth.readinessScore != null && (
+                    <MetricBox icon={<Shield className="h-3.5 w-3.5 text-emerald-400"/>} label="Readiness"
+                      value={String(latestHealth.readinessScore)} ok={latestHealth.readinessScore>=70} />
+                  )}
+                  {latestHealth.hrv != null && (
+                    <MetricBox icon={<Activity className="h-3.5 w-3.5 text-violet-400"/>} label="HRV"
+                      value={`${Math.round(latestHealth.hrv)} ms`} />
+                  )}
+                  {latestHealth.spo2 != null && (
+                    <MetricBox icon={<Wind className="h-3.5 w-3.5 text-cyan-400"/>} label="SpO₂"
+                      value={`${(latestHealth.spo2 as number).toFixed(1)}%`} ok={(latestHealth.spo2 as number)>=95} />
+                  )}
+                </div>
+                {sleepLogs.length > 1 && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1.5">Sleep · 7 days</p>
+                    <div className="flex items-end gap-0.5 h-8">
+                      {[...healthLogs].reverse().map(l => {
+                        const hrs = l.sleepDuration!=null ? l.sleepDuration/60 : 0
                         return (
-                          <div key={e.id} className="flex gap-1.5">
-                            <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40 mt-1.5 shrink-0" />
-                            <div>
-                              <p className="text-xs text-muted-foreground leading-tight truncate">{e.title}</p>
-                              <p className="text-[10px] text-muted-foreground/60">{d?(isTomorrow(d)?"Tomorrow":format(d,"EEE MMM d")):""}</p>
-                            </div>
-                          </div>
+                          <div key={l.id}
+                            className={`flex-1 rounded-sm ${hrs>=7?"bg-indigo-500":"bg-indigo-500/35"}`}
+                            style={{height:`${Math.max(10,Math.min(100,(hrs/10)*100))}%`}}
+                            title={`${format(l.date,"MMM d")}: ${hrs.toFixed(1)}h`}
+                          />
                         )
                       })}
                     </div>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* ── Habits ── */}
-        <Link href="/dashboard/habits">
-          <Card className="card-habits hover:border-amber-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-amber-500/5">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5">✅ Habits</span>
-                <div className="flex items-center gap-1">
-                  <span className="text-xs font-normal tabular-nums">{doneToday}/{habits.length}</span>
-                  <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-                </div>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {habits.length===0 ? (
-                <p className="text-sm text-muted-foreground">No habits set up</p>
-              ) : (
-                <>
-                  {/* completion bar */}
-                  <div className="mb-3">
-                    <Progress value={habits.length>0?(doneToday/habits.length)*100:0} className="h-1.5" />
                   </div>
+                )}
+                {sleepAvg!=null && (
+                  <p className="text-xs text-muted-foreground">
+                    7-day avg: {(sleepAvg/60).toFixed(1)}h sleep{stepsAvg!=null?` · ${Math.round(stepsAvg).toLocaleString()} steps`:""}
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">No health data yet</p>
+            )}
+          </CardContent>
+        </Card>
+      </Link>
+    ),
+
+    finances: (
+      <Link href="/dashboard/finances" className="block h-full">
+        <Card className="card-finances hover:border-emerald-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-emerald-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
+              <span className="flex items-center gap-1.5">💰 Finances</span>
+              <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-end justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Spent this month</p>
+                <p className="text-2xl font-black text-red-400">€{(totalSpent/100).toFixed(2)}</p>
+              </div>
+              {totalIncome>0 && (
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">Income</p>
+                  <p className="text-sm font-bold text-green-400">€{(totalIncome/100).toFixed(2)}</p>
+                </div>
+              )}
+            </div>
+            {totalIncome>0 && (
+              <div className="flex items-center gap-1.5 bg-secondary/50 rounded-lg px-2.5 py-1.5">
+                {net>=0 ? <TrendingUp className="h-3.5 w-3.5 text-green-400 shrink-0"/> : <TrendingDown className="h-3.5 w-3.5 text-red-400 shrink-0"/>}
+                <span className={`text-sm font-semibold ${net>=0?"text-green-400":"text-red-400"}`}>
+                  Net: {net>=0?"+":""}€{(net/100).toFixed(2)}
+                </span>
+              </div>
+            )}
+            {topCategories.length>0 && (
+              <div className="space-y-1.5">
+                {topCategories.map(([cat,amt]) => (
+                  <div key={cat}>
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="text-muted-foreground truncate max-w-[60%]">{cat}</span>
+                      <span className="font-medium">€{(amt/100).toFixed(2)}</span>
+                    </div>
+                    <Progress value={(amt/maxCat)*100} className="h-1" />
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </Link>
+    ),
+
+    calendar: (
+      <Link href="/dashboard/calendar" className="block h-full">
+        <Card className="card-calendar hover:border-blue-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-blue-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
+              <span className="flex items-center gap-1.5">🗓️ {format(now,"MMMM yyyy")}</span>
+              <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex gap-4">
+              <MiniMonthCalendar year={now.getFullYear()} month={now.getMonth()} todayDate={now.getDate()} eventDays={eventDays} />
+              <div className="flex-1 min-w-0 border-l pl-3">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">{format(now,"MMM d").toUpperCase()}</p>
+                {todayEvents.length===0 ? (
+                  <div><p className="text-sm font-medium">No events</p><p className="text-xs text-muted-foreground mt-0.5">Enjoy your day!</p></div>
+                ) : (
                   <div className="space-y-2">
-                    {habitsWithStreaks.slice(0,6).map(h => (
-                      <div key={h.id} className="flex items-center gap-2">
-                        <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${h.completedToday?"opacity-100":"opacity-25"}`}
-                          style={{backgroundColor:h.color}} />
-                        <span className={`text-sm flex-1 truncate ${h.completedToday?"":"text-muted-foreground"}`}>{h.name}</span>
-                        {h.streak>0&&<span className="text-xs text-orange-400 font-medium shrink-0"><Flame className="h-3 w-3 inline mb-0.5"/>{h.streak}</span>}
+                    {todayEvents.map(e => (
+                      <div key={e.id} className="flex gap-1.5">
+                        <div className="h-1.5 w-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0" />
+                        <div>
+                          <p className="text-xs font-medium leading-tight">{e.title}</p>
+                          {e.start&&!e.isAllDay && <p className="text-[10px] text-muted-foreground">{format(parseISO(e.start),"h:mm a")}</p>}
+                        </div>
                       </div>
                     ))}
-                    {habits.length>6&&<p className="text-xs text-muted-foreground">+{habits.length-6} more</p>}
                   </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </Link>
+                )}
+                {nextEvents.length>0 && (
+                  <div className="mt-2 pt-2 border-t space-y-1.5">
+                    {nextEvents.slice(0,3).map(e => {
+                      const d=parseEDay(e)
+                      return (
+                        <div key={e.id} className="flex gap-1.5">
+                          <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40 mt-1.5 shrink-0" />
+                          <div>
+                            <p className="text-xs text-muted-foreground leading-tight truncate">{e.title}</p>
+                            <p className="text-[10px] text-muted-foreground/60">{d?(isTomorrow(d)?"Tomorrow":format(d,"EEE MMM d")):""}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
+    ),
 
-        {/* ── Reminders ── */}
-        <Link href="/dashboard/reminders">
-          <Card className={`card-reminders hover:border-violet-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-violet-500/5 ${overdueReminders.length>0?"border-red-500/30":""}`}>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5">🔔 Reminders</span>
-                <div className="flex items-center gap-1">
-                  {overdueReminders.length>0 && <Badge variant="destructive" className="text-xs py-0 px-1.5">{overdueReminders.length} overdue</Badge>}
-                  <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-                </div>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {reminders.length===0 ? (
-                <div className="flex items-center gap-2 text-green-400">
-                  <span className="text-lg">✓</span>
-                  <p className="text-sm font-medium">All clear!</p>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {overdueReminders.slice(0,2).map(r => (
-                    <div key={r.id} className="flex items-center gap-2">
-                      <div className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0" />
-                      <span className="text-sm text-red-300 truncate flex-1">{r.title}</span>
-                      <span className="text-xs text-red-400/70 shrink-0">overdue</span>
-                    </div>
-                  ))}
-                  {dueToday.slice(0,2).map(r => (
-                    <div key={r.id} className="flex items-center gap-2">
-                      <div className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
-                      <span className="text-sm truncate flex-1">{r.title}</span>
-                      {(r as any).tags?.slice(0,2).map((t: string) => (
-                        <span key={t} className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full shrink-0">{t}</span>
-                      ))}
-                    </div>
-                  ))}
-                  {upcomingR.slice(0,3).map(r => (
-                    <div key={r.id} className="flex items-center gap-2">
-                      <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground shrink-0" />
-                      <span className="text-sm truncate flex-1 text-muted-foreground">{r.title}</span>
-                      {r.dueDate&&<span className="text-xs text-muted-foreground shrink-0">{format(r.dueDate,"MMM d")}</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* ── Gmail ── */}
-        <Link href="/dashboard/gmail">
-          <Card className="card-gmail hover:border-rose-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-rose-500/5">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                <span className="flex items-center gap-1.5">📬 Gmail</span>
-                <div className="flex items-center gap-1">
-                  {gmailData.unreadCount > 0 && (
-                    <Badge className="text-xs bg-rose-500 hover:bg-rose-500">{gmailData.unreadCount} unread</Badge>
-                  )}
-                  <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-                </div>
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {gmailData.error ? (
+    habits: (
+      <Link href="/dashboard/habits" className="block h-full">
+        <Card className="card-habits hover:border-amber-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-amber-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
+              <span className="flex items-center gap-1.5">✅ Habits</span>
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-normal tabular-nums">{doneToday}/{habits.length}</span>
+                <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {habits.length===0 ? (
+              <p className="text-sm text-muted-foreground">No habits set up</p>
+            ) : (
+              <>
+                <div className="mb-3"><Progress value={habits.length>0?(doneToday/habits.length)*100:0} className="h-1.5" /></div>
                 <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground">Gmail access needs to be re-granted.</p>
-                  <ReconnectGoogleButton label="Reconnect Google" className="text-xs h-7 gap-1.5" />
-                </div>
-              ) : gmailData.messages.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Inbox empty</p>
-              ) : (
-                <div className="space-y-2">
-                  {gmailData.messages.slice(0, 5).map(m => (
-                    <div key={m.id} className="flex items-start gap-2 min-w-0">
-                      <div className={`h-1.5 w-1.5 rounded-full shrink-0 mt-1.5 ${m.isUnread ? "bg-rose-400" : "bg-muted-foreground/40"}`} />
-                      <div className="min-w-0">
-                        <p className={`text-xs leading-tight truncate ${m.isUnread ? "font-semibold" : "text-muted-foreground"}`}>
-                          {m.subject}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground truncate">{m.fromName}</p>
-                      </div>
+                  {habitsWithStreaks.slice(0,6).map(h => (
+                    <div key={h.id} className="flex items-center gap-2">
+                      <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${h.completedToday?"opacity-100":"opacity-25"}`} style={{backgroundColor:h.color}} />
+                      <span className={`text-sm flex-1 truncate ${h.completedToday?"":"text-muted-foreground"}`}>{h.name}</span>
+                      {h.streak>0&&<span className="text-xs text-orange-400 font-medium shrink-0"><Flame className="h-3 w-3 inline mb-0.5"/>{h.streak}</span>}
                     </div>
                   ))}
+                  {habits.length>6&&<p className="text-xs text-muted-foreground">+{habits.length-6} more</p>}
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </Link>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </Link>
+    ),
 
-      </div>
+    reminders: (
+      <Link href="/dashboard/reminders" className="block h-full">
+        <Card className={`card-reminders hover:border-violet-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-violet-500/5 ${overdueReminders.length>0?"border-red-500/30":""}`}>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
+              <span className="flex items-center gap-1.5">🔔 Reminders</span>
+              <div className="flex items-center gap-1">
+                {overdueReminders.length>0 && <Badge variant="destructive" className="text-xs py-0 px-1.5">{overdueReminders.length} overdue</Badge>}
+                <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {reminders.length===0 ? (
+              <div className="flex items-center gap-2 text-green-400"><span className="text-lg">✓</span><p className="text-sm font-medium">All clear!</p></div>
+            ) : (
+              <div className="space-y-1.5">
+                {overdueReminders.slice(0,2).map(r => (
+                  <div key={r.id} className="flex items-center gap-2">
+                    <div className="h-1.5 w-1.5 rounded-full bg-red-400 shrink-0" />
+                    <span className="text-sm text-red-300 truncate flex-1">{r.title}</span>
+                    <span className="text-xs text-red-400/70 shrink-0">overdue</span>
+                  </div>
+                ))}
+                {dueToday.slice(0,2).map(r => (
+                  <div key={r.id} className="flex items-center gap-2">
+                    <div className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                    <span className="text-sm truncate flex-1">{r.title}</span>
+                  </div>
+                ))}
+                {upcomingR.slice(0,3).map(r => (
+                  <div key={r.id} className="flex items-center gap-2">
+                    <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground shrink-0" />
+                    <span className="text-sm truncate flex-1 text-muted-foreground">{r.title}</span>
+                    {r.dueDate&&<span className="text-xs text-muted-foreground shrink-0">{format(r.dueDate,"MMM d")}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </Link>
+    ),
 
-      {/* ── quick log strip ── */}
+    gmail: (
+      <Link href="/dashboard/gmail" className="block h-full">
+        <Card className="card-gmail hover:border-rose-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-rose-500/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
+              <span className="flex items-center gap-1.5">📬 Gmail</span>
+              <div className="flex items-center gap-1">
+                {gmailData.unreadCount > 0 && <Badge className="text-xs bg-rose-500 hover:bg-rose-500">{gmailData.unreadCount} unread</Badge>}
+                <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {gmailData.error ? (
+              <div className="space-y-2">
+                <p className="text-xs text-muted-foreground">Gmail access needs to be re-granted.</p>
+                <ReconnectGoogleButton label="Reconnect Google" className="text-xs h-7 gap-1.5" />
+              </div>
+            ) : gmailData.messages.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Inbox empty</p>
+            ) : (
+              <div className="space-y-2">
+                {gmailData.messages.slice(0, 5).map(m => (
+                  <div key={m.id} className="flex items-start gap-2 min-w-0">
+                    <div className={`h-1.5 w-1.5 rounded-full shrink-0 mt-1.5 ${m.isUnread ? "bg-rose-400" : "bg-muted-foreground/40"}`} />
+                    <div className="min-w-0">
+                      <p className={`text-xs leading-tight truncate ${m.isUnread ? "font-semibold" : "text-muted-foreground"}`}>{m.subject}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">{m.fromName}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </Link>
+    ),
+
+    quicklog: (
       <QuickLog todayWaterMl={waterMl} todayFocusMin={focusMinToday} todayMood={todayMood} latestWeight={latestHealth?.weight ?? null} />
+    ),
 
-      {/* ── bottom stats row ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-5 gap-3">
+    stats: (
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-5 gap-3 h-full content-start">
         <Link href="/dashboard/intake">
           <StatTile label="Water today" value={waterMl >= 1000 ? `${(waterMl/1000).toFixed(1)}L` : `${waterMl}ml`}
             sub={waterMl >= 2000 ? "Goal reached ✓" : `${Math.max(0, 2000-waterMl)}ml to go`}
@@ -646,8 +620,7 @@ export default async function DashboardPage() {
         </Link>
         <Link href="/dashboard/focus">
           <StatTile label="Focus today" value={focusMinToday >= 60 ? `${(focusMinToday/60).toFixed(1)}h` : `${focusMinToday}m`}
-            sub="deep work"
-            icon={<Timer className="h-4 w-4 text-indigo-400"/>} />
+            sub="deep work" icon={<Timer className="h-4 w-4 text-indigo-400"/>} />
         </Link>
         <Link href="/dashboard/habits">
           <StatTile label="Habits today" value={`${doneToday}/${habits.length}`} icon={<CheckSquare className="h-4 w-4 text-amber-400"/>}
@@ -656,14 +629,13 @@ export default async function DashboardPage() {
         <StatTile label="Spent this month" value={`€${(totalSpent/100).toFixed(0)}`} icon={<Flame className="h-4 w-4 text-emerald-400"/>} />
         <TogglTile />
       </div>
+    ),
 
-      {/* ── extras ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <LocationCard />
-        <AcCard />
-      </div>
-    </div>
-  )
+    location: <LocationCard />,
+    ac: <AcCard />,
+  }
+
+  return <DashboardGrid header={header} blocks={blocks} />
 }
 
 function MetricBox({ icon, label, value, sub, ok }: {
