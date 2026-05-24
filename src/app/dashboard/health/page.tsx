@@ -19,7 +19,8 @@ const SLEEP_GOAL_H = 7
 
 export default async function HealthPage() {
   const session = await auth()
-  const userId = session!.user.id
+  if (!session?.user?.id) return null
+  const userId = session.user.id
 
   const ouraToken = await prisma.ouraToken.findUnique({ where: { userId }, select: { id: true } })
   const isOuraConnected = !!ouraToken

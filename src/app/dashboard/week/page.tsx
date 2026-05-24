@@ -33,7 +33,8 @@ function TrendArrow({ current, prev, higherIsBetter = true }: {
 
 export default async function WeekPage() {
   const session = await auth()
-  const userId = session!.user.id
+  if (!session?.user?.id) return null
+  const userId = session.user.id
 
   const today = new Date()
   const weekStart = startOfWeek(today, { weekStartsOn: 1 })

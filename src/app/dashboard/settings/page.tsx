@@ -13,7 +13,8 @@ export default async function SettingsPage({
   searchParams: Promise<{ oura_connected?: string; oura_error?: string }>
 }) {
   const session = await auth()
-  const userId = session!.user.id
+  if (!session?.user?.id) return null
+  const userId = session.user.id
   const params = await searchParams
   const ouraConnected = params.oura_connected === "1"
   const ouraError = params.oura_error
