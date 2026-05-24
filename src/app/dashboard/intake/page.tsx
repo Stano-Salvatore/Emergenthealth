@@ -47,8 +47,16 @@ interface WeekDay {
   label: string
 }
 
+interface OuraEntry {
+  id: string
+  text: string
+  amountMl: number
+  timestamp: string
+}
+
 export default function IntakePage() {
   const [logs, setLogs] = useState<IntakeLog[]>([])
+  const [ouraEntries, setOuraEntries] = useState<OuraEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState<string | null>(null)
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
@@ -57,8 +65,15 @@ export default function IntakePage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const res = await fetch(`/api/intake?date=${date}`)
-    if (res.ok) setLogs(await res.json())
+    const [logRes, ouraRes] = await Promise.all([
+      fetch(`/api/intake?date=${date}`),
+      fetch(`/api/intake/oura?date=${date}`),
+    ])
+    if (logRes.ok) setLogs(await logRes.json())
+    if (ouraRes.ok) {
+      const d = await ouraRes.json()
+      setOuraEntries(d.entries ?? [])
+    }
     setLoading(false)
   }, [date])
 
@@ -72,12 +87,20 @@ export default function IntakePage() {
       for (let i = 6; i >= 0; i--) {
         const d = subDays(now, i)
         const str = d.toISOString().split("T")[0]
-        const res = await fetch(`/api/intake?date=${str}`)
+        const [res, ouraRes] = await Promise.all([
+          fetch(`/api/intake?date=${str}`),
+          fetch(`/api/intake/oura?date=${str}`),
+        ])
+        let ml = 0
         if (res.ok) {
           const dayLogs: IntakeLog[] = await res.json()
-          const ml = dayLogs.filter(l => l.type === "water").reduce((a, l) => a + l.amountMl, 0)
-          days.push({ date: str, waterMl: ml, label: i === 0 ? "Today" : format(d, "EEE") })
+          ml += dayLogs.filter(l => l.type === "water").reduce((a, l) => a + l.amountMl, 0)
         }
+        if (ouraRes.ok) {
+          const od = await ouraRes.json()
+          ml += od.totalMl ?? 0
+        }
+        days.push({ date: str, waterMl: ml, label: i === 0 ? "Today" : format(d, "EEE") })
       }
       setWeekData(days)
     }
@@ -117,7 +140,8 @@ export default function IntakePage() {
     return acc
   }, {} as Record<string, number>)
 
-  const waterTotal = totals.water ?? 0
+  const ouraTotalMl = ouraEntries.reduce((s, e) => s + e.amountMl, 0)
+  const waterTotal = (totals.water ?? 0) + ouraTotalMl
   const coffeeTotal = totals.coffee ?? 0
   const teaTotal = totals.tea ?? 0
 
@@ -207,7 +231,7 @@ export default function IntakePage() {
       {/* log timeline */}
       <div>
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-          {logs.length} {logs.length === 1 ? "entry" : "entries"}
+          {logs.length + ouraEntries.length} {logs.length + ouraEntries.length === 1 ? "entry" : "entries"}
         </p>
         {loading ? (
           <div className="space-y-2">
@@ -215,7 +239,7 @@ export default function IntakePage() {
               <div key={i} className="h-12 rounded-xl border bg-card animate-pulse" />
             ))}
           </div>
-        ) : logs.length === 0 ? (
+        ) : logs.length === 0 && ouraEntries.length === 0 ? (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center">
               <Droplets className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
@@ -246,6 +270,22 @@ export default function IntakePage() {
                 </div>
               )
             })}
+            {ouraEntries.map(entry => (
+              <div key={entry.id}
+                className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-blue-500/20 bg-blue-500/5">
+                <div className="h-2 w-2 rounded-full shrink-0 bg-blue-400" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium text-blue-300">💧 {entry.amountMl} ml</span>
+                  {entry.text !== `${entry.amountMl}ml` && entry.text !== `${entry.amountMl} ml` && (
+                    <span className="text-xs text-muted-foreground ml-2">({entry.text})</span>
+                  )}
+                  <span className="text-xs text-muted-foreground/50 ml-2">· Oura Ring</span>
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {format(new Date(entry.timestamp), "HH:mm")}
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </div>
