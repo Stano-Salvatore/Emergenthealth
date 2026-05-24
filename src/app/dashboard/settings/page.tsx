@@ -122,17 +122,17 @@ export default async function SettingsPage({
       {/* Key manager (client component) */}
       <FitKeyManager initialKeys={keyRows} />
 
-      {/* Weekly digest */}
-      <DigestButton />
-
-      {/* Data export */}
+      {/* Data: digest + export */}
       <Card>
-        <CardContent className="pt-4 pb-4 space-y-3">
-          <div className="flex items-center justify-between">
+        <CardContent className="pt-4 pb-4 space-y-4">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Data</p>
+          <DigestButton />
+          <div className="border-t border-border/50" />
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium">Data export</p>
+              <p className="text-sm font-medium">Export CSV</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Download your last 90 days of health data as a CSV file
+                Last 90 days of health data as a CSV file.
               </p>
             </div>
             <ExportButton />
