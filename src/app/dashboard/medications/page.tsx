@@ -227,11 +227,9 @@ export default function MedicationsPage() {
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-semibold leading-snug">
-                                {item.tagName && !isUuid(item.tagName)
-                                  ? item.tagName
-                                  : (item.text && !isUuid(item.text) ? item.text : "Custom tag")}
+                                {item.tagName ?? "Custom tag"}
                               </p>
-                              {item.text && !isUuid(item.text) && item.text !== item.tagName && (
+                              {item.text && item.text !== item.tagName && (
                                 <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
                                   {item.text}
                                 </p>

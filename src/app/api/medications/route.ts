@@ -18,16 +18,32 @@ async function ensureTable() {
   await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "tagName" TEXT`
 }
 
-function categorize(tagName: string | null, tags: string[]): { category: string; emoji: string } {
-  const label = (tagName ?? tags.join(" ")).toLowerCase()
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+function isUuid(s: string) { return UUID_RE.test(s.trim()) }
 
-  const drinkKeywords = ["coffee", "alcohol", "beer", "wine", "spirit", "cocktail", "drink", "water", "tea", "juice", "soda", "energy drink", "protein shake", "shake"]
-  const vitaminKeywords = ["vitamin", "vit ", "omega", "zinc", "magnesium", "calcium", "iron", "probiotic", "supplement", "fish oil", "d3", "b12", "folate", "biotin", "collagen", "melatonin"]
-  const medicationKeywords = ["pill", "tablet", "capsule", "medication", "medicine", "drug", "dose", "mg ", "ibuprofen", "paracetamol", "aspirin", "antibiotic", "prescription", "painkiller", "antihistamine", "inhaler", "injection", "cream", "gel", "spray"]
+function categorize(label: string): { category: string; emoji: string } {
+  const l = label.toLowerCase()
 
-  if (drinkKeywords.some(k => label.includes(k))) return { category: "Drinks", emoji: "🥤" }
-  if (vitaminKeywords.some(k => label.includes(k))) return { category: "Vitamins", emoji: "🌿" }
-  if (medicationKeywords.some(k => label.includes(k))) return { category: "Medications", emoji: "💊" }
+  // Volume amounts (200ml, 300ml …) → Drinks
+  if (/\d+\s*ml/.test(l)) return { category: "Drinks", emoji: "🥤" }
+
+  const drinkKeywords = ["coffee", "alcohol", "beer", "wine", "spirit", "cocktail", "drink", "water", "tea",
+    "juice", "soda", "energy drink", "protein shake", "shake", "beverage", "smoothie", "latte",
+    "espresso", "cappuccino", "whisky", "whiskey", "vodka", "rum", "gin", "cider"]
+  const vitaminKeywords = ["vitamin", "vit ", "omega", "zinc", "magnesium", "calcium", "iron", "probiotic",
+    "supplement", "fish oil", "d3", "b12", "folate", "biotin", "collagen", "melatonin", "glutamine",
+    "creatine", "coq10", "ashwagandha", "turmeric", "curcumin", "quercetin"]
+  const medicationKeywords = ["pill", "tablet", "capsule", "medication", "medicine", "drug", "dose", "mg ",
+    "ibuprofen", "paracetamol", "aspirin", "antibiotic", "prescription", "painkiller", "antihistamine",
+    "inhaler", "injection", "cream", "gel", "spray", "meds", "med ", "rx",
+    // common drug name suffixes
+    "zepam", "prazole", "mycin", "cillin", "azole", "tidine", "vastatin", "sartan", "pril",
+    "olol", "triptan", "setron", "gliptin", "gliflozin", "oxetine", "zepine", "razine",
+    "atarax", "elicea", "mirzatem"]
+
+  if (drinkKeywords.some(k => l.includes(k))) return { category: "Drinks", emoji: "🥤" }
+  if (vitaminKeywords.some(k => l.includes(k))) return { category: "Vitamins", emoji: "🌿" }
+  if (medicationKeywords.some(k => l.includes(k))) return { category: "Medications", emoji: "💊" }
   return { category: "General", emoji: "🏷️" }
 }
 
@@ -52,9 +68,27 @@ export async function GET(req: Request) {
       LIMIT 500
     `
 
+    // Build UUID → display name inference from entries that have readable text.
+    // If tag type UUID "abc" has ever been logged with text "Atarax", future nameless
+    // entries of that same UUID also get labelled "Atarax".
+    const uuidToName = new Map<string, string>()
+    for (const r of rows) {
+      const uuid = r.tags[0]
+      const readable = [r.tagName, r.text].find(s => s && s.trim() && !isUuid(s))
+      if (uuid && readable && !uuidToName.has(uuid)) {
+        uuidToName.set(uuid, readable.trim())
+      }
+    }
+
     let items = rows.map(r => {
-      const { category: cat, emoji } = categorize(r.tagName, r.tags)
-      return { ...r, category: cat, emoji }
+      // Resolve best display name: tagName → text → inferred from UUID history → null
+      const resolved =
+        (r.tagName && !isUuid(r.tagName) ? r.tagName : null) ??
+        (r.text && r.text.trim() && !isUuid(r.text) ? r.text.trim() : null) ??
+        (r.tags[0] ? uuidToName.get(r.tags[0]) ?? null : null)
+
+      const { category: cat, emoji } = categorize(resolved ?? "")
+      return { ...r, tagName: resolved, category: cat, emoji }
     })
 
     if (filter) {
