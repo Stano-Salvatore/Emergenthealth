@@ -74,7 +74,7 @@ export async function GET(req: Request) {
         FROM "OuraTag"
         WHERE "userId" = ${userId}
         ORDER BY "timestamp" DESC
-        LIMIT 500
+        LIMIT 2000
       `,
       prisma.$queryRaw<{ tagTypeUuid: string; name: string }[]>`
         SELECT "tagTypeUuid","name" FROM "TagAlias" WHERE "userId" = ${userId}
@@ -84,14 +84,13 @@ export async function GET(req: Request) {
     // User-defined aliases take highest priority
     const aliasMap = new Map(aliasRows.map(r => [r.tagTypeUuid, r.name]))
 
-    // Build UUID → display name inference from entries that have readable text.
+    // Build UUID → display name from any entry that has a readable name or comment
     const uuidToName = new Map<string, string>()
     for (const r of rows) {
       const uuid = r.tags[0]
-      const readable = [r.tagName, r.text].find(s => s && s.trim() && !isUuid(s))
-      if (uuid && readable && !uuidToName.has(uuid)) {
-        uuidToName.set(uuid, readable.trim())
-      }
+      if (!uuid || uuidToName.has(uuid)) continue
+      const readable = [r.tagName, r.text].find(s => s && s.trim() && !isUuid(s.trim()))
+      if (readable) uuidToName.set(uuid, readable.trim())
     }
 
     let items = rows.map(r => {

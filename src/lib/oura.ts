@@ -229,13 +229,25 @@ export async function getOuraTags(userId: string, startDate: string, endDate: st
     start_date: startDate, end_date: endDate,
   })
   return (data.data ?? []).map((item: Record<string, unknown>) => {
-    const name = resolveTagName(item.custom_name, item.tag_type_code, item.comment)
+    // custom_name is always null from Oura API in practice; the user-typed name is in comment
+    const comment = typeof item.comment === "string" ? item.comment.trim() : ""
+    const customName = typeof item.custom_name === "string" ? item.custom_name.trim() : ""
+
+    let tagName = ""
+    if (customName && !UUID_PATTERN.test(customName)) {
+      tagName = customName
+    } else if (comment && !UUID_PATTERN.test(comment) && comment.length < 120) {
+      tagName = comment
+    } else if (typeof item.tag_type_code === "string" && item.tag_type_code.startsWith("tag_")) {
+      tagName = item.tag_type_code.slice(4).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+    }
+
     return {
       id: item.id as string,
       day: item.day as string,
       timestamp: (item.start_time as string) ?? (item.day as string),
-      tagName: name,
-      comment: (item.comment as string) || null,
+      tagName,
+      comment: comment || null,
       tags: item.tag_type_code ? [item.tag_type_code as string] : [],
     }
   })
