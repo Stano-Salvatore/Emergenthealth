@@ -14,10 +14,18 @@ export function AutoSync() {
     if (Date.now() - last < SYNC_INTERVAL_MS) return
 
     setSyncing(true)
-    Promise.allSettled([
-      fetch("/api/sync/oura", { method: "POST" }),
-      fetch("/api/sync/calendar", { method: "POST" }),
-    ]).then(() => {
+
+    // Check if YNAB is connected before including it in the sync batch
+    const ynabCheck = fetch("/api/ynab/connect").then(r => r.json()).catch(() => ({ connected: false }))
+
+    ynabCheck.then(ynab => {
+      const syncs = [
+        fetch("/api/sync/oura", { method: "POST" }),
+        fetch("/api/sync/calendar", { method: "POST" }),
+      ]
+      if (ynab.connected) syncs.push(fetch("/api/sync/ynab", { method: "POST" }))
+      return Promise.allSettled(syncs)
+    }).then(() => {
       localStorage.setItem(SYNC_KEY, String(Date.now()))
     }).finally(() => {
       setSyncing(false)

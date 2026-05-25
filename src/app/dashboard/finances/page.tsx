@@ -106,17 +106,21 @@ export default function FinancesPage() {
     setSyncing(true)
     setSyncMessage(null)
     try {
-      const res = await fetch("/api/sync/finances", { method: "POST" })
-      const data = await res.json()
-      if (res.ok) {
-        setSyncMessage(`Synced ${data.synced} transactions`)
-        if (data.accounts) {
-          setAccountBalances(data.accounts)
-          localStorage.setItem("finance_accounts", JSON.stringify(data.accounts))
-        }
-        await loadTransactions()
+      // Try YNAB first; fall back to Actual Budget
+      const ynabStatus = await fetch("/api/ynab/connect").then(r => r.json()).catch(() => ({ connected: false }))
+      if (ynabStatus.connected) {
+        const res = await fetch("/api/sync/ynab", { method: "POST" })
+        const data = await res.json()
+        if (res.ok) { setSyncMessage(`Synced ${data.synced} transactions from YNAB`); await loadTransactions() }
+        else setSyncMessage(`YNAB error: ${data.error}`)
       } else {
-        setSyncMessage(`Error: ${data.error}`)
+        const res = await fetch("/api/sync/finances", { method: "POST" })
+        const data = await res.json()
+        if (res.ok) {
+          setSyncMessage(`Synced ${data.synced} transactions`)
+          if (data.accounts) { setAccountBalances(data.accounts); localStorage.setItem("finance_accounts", JSON.stringify(data.accounts)) }
+          await loadTransactions()
+        } else setSyncMessage(`Error: ${data.error}`)
       }
     } finally {
       setSyncing(false)
@@ -204,7 +208,7 @@ export default function FinancesPage() {
           </Button>
           <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing} className="gap-1">
             <RefreshCw className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
-            Sync Actual
+            Sync
           </Button>
           <Dialog open={formOpen} onOpenChange={setFormOpen}>
             <DialogTrigger asChild>
@@ -312,7 +316,7 @@ export default function FinancesPage() {
                 : `${net >= 0 ? "+" : ""}${formatAmount(net)}`}
             </div>
             {accountBalances.length === 0 && (
-              <p className="text-xs text-muted-foreground mt-1">Sync Actual to see real balance</p>
+              <p className="text-xs text-muted-foreground mt-1">Connect YNAB or Actual Budget in Settings</p>
             )}
           </CardContent>
         </Card>

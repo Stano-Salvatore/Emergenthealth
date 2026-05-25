@@ -6,6 +6,7 @@ import { OuraManager } from "@/components/settings/OuraManager"
 import { MigrateButton } from "@/components/settings/MigrateButton"
 import { GoalsEditor } from "@/components/settings/GoalsEditor"
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
+import { YnabManager } from "@/components/settings/YnabManager"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
 
@@ -115,6 +116,9 @@ export default async function SettingsPage({
 
       {/* Oura Ring connection (client component) */}
       <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
+
+      {/* YNAB */}
+      <YnabManager />
 
       {/* Personal goals */}
       <GoalsEditor />
