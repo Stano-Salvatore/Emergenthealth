@@ -12,7 +12,7 @@ interface Correlation {
   n: number
   emoji: string
   insight: string
-  strength: "strong" | "moderate" | "weak" | "insufficient"
+  strength: "strong" | "moderate" | "weak" | "none" | "insufficient"
   direction: "positive" | "negative" | null
 }
 
@@ -138,38 +138,7 @@ export default function StatsPage() {
         )}
       </div>
 
-      {/* ── Correlations ── */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium">Correlations</CardTitle>
-          <p className="text-xs text-muted-foreground">How your habits and metrics relate to each other</p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {correlations.map(c => (
-            <div key={c.key}>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-base leading-none">{c.emoji}</span>
-                <span className="text-xs font-medium flex-1">{c.label}</span>
-                <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0",
-                  c.strength === "strong" ? "bg-green-500/15 text-green-400"
-                  : c.strength === "moderate" ? "bg-amber-500/15 text-amber-400"
-                  : c.strength === "weak" ? "bg-secondary text-muted-foreground"
-                  : "bg-secondary text-muted-foreground/50"
-                )}>
-                  {c.strength === "insufficient" ? `need ${Math.max(0, 5 - c.n)} more pts`
-                    : c.strength === "strong" ? `r=${c.r?.toFixed(2)}`
-                    : c.strength === "moderate" ? `r=${c.r?.toFixed(2)}`
-                    : `r=${c.r?.toFixed(2)}`}
-                </span>
-              </div>
-              <CorrelationBar r={c.r} />
-              <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">{c.insight}</p>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      {/* ── Top insights strip (strong/moderate only) ── */}
+      {/* ── Key findings strip ── */}
       {strongCorrelations.length > 0 && (
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
           <p className="text-xs font-bold uppercase tracking-widest text-primary mb-3">Key findings</p>
@@ -183,6 +152,56 @@ export default function StatsPage() {
           </div>
         </div>
       )}
+
+      {/* ── Correlations ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium">Correlations</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            How your habits relate to each other · {correlations.filter(c => c.r != null).length} pairs computed from {dataPoints} days
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {correlations.filter(c => c.strength !== "none" && c.strength !== "insufficient").map(c => (
+            <div key={c.key}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-base leading-none">{c.emoji}</span>
+                <span className="text-xs font-medium flex-1">{c.label}</span>
+                <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0",
+                  c.strength === "strong" ? "bg-green-500/15 text-green-400"
+                  : c.strength === "moderate" ? "bg-amber-500/15 text-amber-400"
+                  : "bg-secondary text-muted-foreground"
+                )}>
+                  {c.r != null ? `r=${c.r.toFixed(2)}` : "—"} · {c.n}d
+                </span>
+              </div>
+              <CorrelationBar r={c.r} />
+              <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">{c.insight}</p>
+            </div>
+          ))}
+          {correlations.filter(c => c.strength === "insufficient" || c.strength === "none").length > 0 && (
+            <details className="group">
+              <summary className="text-[11px] text-muted-foreground/60 cursor-pointer hover:text-muted-foreground list-none flex items-center gap-1">
+                <span className="group-open:hidden">▶</span>
+                <span className="hidden group-open:inline">▼</span>
+                {correlations.filter(c => c.strength === "insufficient" || c.strength === "none").length} pairs need more data
+              </summary>
+              <div className="mt-3 space-y-3 opacity-50">
+                {correlations.filter(c => c.strength === "insufficient" || c.strength === "none").map(c => (
+                  <div key={c.key}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm leading-none">{c.emoji}</span>
+                      <span className="text-xs flex-1">{c.label}</span>
+                      <span className="text-[10px] text-muted-foreground/50">{c.n}d</span>
+                    </div>
+                    <CorrelationBar r={c.r} />
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ── Week-over-week trends ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
