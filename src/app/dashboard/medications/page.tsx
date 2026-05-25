@@ -84,7 +84,7 @@ export default function MedicationsPage() {
 
   function startRename(uuid: string, current: string) {
     setRenaming({ uuid, current })
-    setRenameValue(current === "Custom tag" ? "" : current)
+    setRenameValue(current)
     setTimeout(() => renameInputRef.current?.focus(), 50)
   }
 
@@ -178,6 +178,24 @@ export default function MedicationsPage() {
         })}
       </div>
 
+      {/* Unnamed tags prompt */}
+      {(() => {
+        const unnamed = [...new Set(
+          items.filter(i => !i.tagName && i.tags[0]).map(i => i.tags[0])
+        )]
+        if (unnamed.length === 0) return null
+        return (
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardContent className="pt-3 pb-3 flex items-center justify-between gap-3">
+              <p className="text-xs text-amber-400">
+                <span className="font-semibold">{unnamed.length} unnamed tag {unnamed.length === 1 ? "type" : "types"}</span>
+                {" "}— tap the ✏️ next to any entry to name it. Naming one renames all entries of that type.
+              </p>
+            </CardContent>
+          </Card>
+        )
+      })()}
+
       {error && (
         <Card className="border-yellow-500/30 bg-yellow-500/5">
           <CardContent className="pt-3 pb-3 text-sm text-yellow-400">
@@ -260,14 +278,15 @@ export default function MedicationsPage() {
                                   <button onClick={() => setRenaming(null)} className="text-xs text-muted-foreground px-1">✕</button>
                                 </div>
                               ) : (
-                                <div className="flex items-center gap-1.5 group/name">
+                                <div className="flex items-center gap-1.5">
                                   <p className={cn("text-sm font-semibold leading-snug", !item.tagName && "text-muted-foreground italic")}>
-                                    {item.tagName ?? "Custom tag"}
+                                    {item.tagName ?? "Unnamed tag"}
                                   </p>
                                   {item.tags[0] && (
                                     <button
-                                      onClick={() => startRename(item.tags[0], item.tagName ?? "Custom tag")}
-                                      className="opacity-0 group/name:opacity-100 hover:opacity-100 text-muted-foreground/50 hover:text-primary transition-opacity p-0.5"
+                                      onClick={() => startRename(item.tags[0], item.tagName ?? "")}
+                                      className="text-muted-foreground/40 hover:text-primary active:text-primary transition-colors p-0.5"
+                                      title="Rename this tag type"
                                     >
                                       <Pencil className="h-3 w-3" />
                                     </button>
