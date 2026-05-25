@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { Resend } from "resend"
 import { format, subDays, startOfWeek } from "date-fns"
+import Anthropic from "@anthropic-ai/sdk"
 
 // Vercel cron jobs send Authorization: Bearer <CRON_SECRET>
 export const runtime = "nodejs"
@@ -12,9 +13,43 @@ function avg(arr: (number | null | undefined)[]): number | null {
   return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null
 }
 
+async function generateNarrative(params: {
+  name: string
+  avgSleepH: number | null
+  avgHrv: number | null
+  avgReadiness: number | null
+  totalSteps: number | null
+  habitRate: number | null
+}): Promise<string> {
+  if (!process.env.ANTHROPIC_API_KEY) return ""
+  try {
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    const { name, avgSleepH, avgHrv, avgReadiness, totalSteps, habitRate } = params
+    const data = [
+      avgSleepH     != null ? `avg sleep ${avgSleepH}h/night`      : null,
+      avgHrv        != null ? `avg HRV ${avgHrv}ms`                : null,
+      avgReadiness  != null ? `avg readiness score ${avgReadiness}` : null,
+      totalSteps    != null ? `${totalSteps.toLocaleString()} total steps` : null,
+      habitRate     != null ? `${habitRate}% habit completion`      : null,
+    ].filter(Boolean).join(", ")
+
+    const msg = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 120,
+      system: "You write friendly, personal 2-sentence weekly health summaries. Be specific, warm, and motivating. No emojis. No markdown. Just plain prose.",
+      messages: [{ role: "user", content: `Write a 2-sentence summary of ${name}'s health week: ${data || "no data recorded"}.` }],
+    })
+    const block = msg.content[0]
+    return block.type === "text" ? block.text.trim() : ""
+  } catch {
+    return ""
+  }
+}
+
 function digestHtml(params: {
   name: string
   weekOf: string
+  aiNarrative: string
   avgSleepH: number | null
   avgHrv: number | null
   avgReadiness: number | null
@@ -23,7 +58,7 @@ function digestHtml(params: {
   totalSpend: string | null
   habitRate: number | null
 }): string {
-  const { name, weekOf, avgSleepH, avgHrv, avgReadiness, totalSteps, avgSteps, totalSpend, habitRate } = params
+  const { name, weekOf, aiNarrative, avgSleepH, avgHrv, avgReadiness, totalSteps, avgSteps, totalSpend, habitRate } = params
 
   const metric = (label: string, value: string, color: string) => `
     <div style="background:#1a192a;border-radius:12px;padding:16px 20px;flex:1;min-width:140px;">
@@ -43,6 +78,13 @@ function digestHtml(params: {
       <div style="font-size:26px;font-weight:800;color:#ffffff;">Hey ${name} 👋</div>
       <div style="font-size:14px;color:#c7d2fe;margin-top:6px;">Week of ${weekOf}</div>
     </div>
+
+    <!-- AI narrative -->
+    ${aiNarrative ? `
+    <div style="background:#13122b;border:1px solid #312e81;border-radius:12px;padding:18px 20px;margin-bottom:20px;">
+      <div style="font-size:12px;color:#818cf8;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">✦ AI Summary</div>
+      <p style="margin:0;font-size:14px;line-height:1.6;color:#e0e0f0;">${aiNarrative}</p>
+    </div>` : ""}
 
     <!-- Health metrics -->
     <div style="margin-bottom:20px;">
@@ -153,9 +195,20 @@ export async function GET(req: NextRequest) {
         ? Math.round((completions.length / possibleCompletions) * 100)
         : null
 
+      const firstName = user.name?.split(" ")[0] ?? "there"
+      const aiNarrative = await generateNarrative({
+        name: firstName,
+        avgSleepH,
+        avgHrv,
+        avgReadiness,
+        totalSteps,
+        habitRate,
+      })
+
       const html = digestHtml({
-        name: user.name?.split(" ")[0] ?? "there",
+        name: firstName,
         weekOf,
+        aiNarrative,
         avgSleepH,
         avgHrv,
         avgReadiness,
