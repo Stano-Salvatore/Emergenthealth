@@ -29,6 +29,7 @@ export async function GET() {
       workspaceId: stored.workspaceId,
     })
   } catch (e) {
-    return NextResponse.json({ connected: true, error: String(e), current: null, entries: [], projects: [], totalSecondsToday: 0 })
+    console.error("[toggl/state]", e)
+    return NextResponse.json({ connected: true, error: "Failed to load Toggl data", current: null, entries: [], projects: [], totalSecondsToday: 0 })
   }
 }

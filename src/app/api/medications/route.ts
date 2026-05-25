@@ -122,6 +122,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ items })
   } catch (e) {
     console.error("[medications] GET error:", e)
-    return NextResponse.json({ items: [], error: String(e) })
+    return NextResponse.json({ items: [], error: "Failed to load tags" })
   }
 }

@@ -53,6 +53,14 @@ function keyForm(redirectUri: string, state: string, codeChallenge: string, code
   )
 }
 
+const ALLOWED_REDIRECT_HOSTS = ["claude.ai", "localhost"]
+function isAllowedRedirect(uri: string): boolean {
+  try {
+    const host = new URL(uri).hostname
+    return ALLOWED_REDIRECT_HOSTS.some(h => host === h || host.endsWith(`.${h}`))
+  } catch { return false }
+}
+
 // OAuth 2.0 Authorization Endpoint for Claude.ai mobile.
 // If the user has a NextAuth session with an MCP key, redirect immediately.
 // Otherwise show a simple form so they can paste their API key directly —
@@ -64,8 +72,8 @@ export async function GET(req: NextRequest) {
   const codeChallenge = searchParams.get("code_challenge") ?? ""
   const codeChallengeMethod = searchParams.get("code_challenge_method") ?? ""
 
-  if (!redirectUri) {
-    return Response.json({ error: "invalid_request", error_description: "redirect_uri is required" }, { status: 400 })
+  if (!redirectUri || !isAllowedRedirect(redirectUri)) {
+    return Response.json({ error: "invalid_request", error_description: "redirect_uri is missing or not allowed" }, { status: 400 })
   }
 
   // Fast path: if the user is already signed in and has a key, skip the form
@@ -95,7 +103,7 @@ export async function POST(req: NextRequest) {
   const codeChallenge = (data.get("code_challenge") as string) ?? ""
   const codeChallengeMethod = (data.get("code_challenge_method") as string) ?? ""
 
-  if (!redirectUri) {
+  if (!redirectUri || !isAllowedRedirect(redirectUri)) {
     return Response.json({ error: "invalid_request" }, { status: 400 })
   }
 

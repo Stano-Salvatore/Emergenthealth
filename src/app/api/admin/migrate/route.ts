@@ -178,9 +178,14 @@ async function runMigrations() {
   return results
 }
 
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? "").split(",").map(e => e.trim()).filter(Boolean)
+
 export async function POST() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (ADMIN_EMAILS.length > 0 && !ADMIN_EMAILS.includes(session.user.email ?? "")) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
   const results = await runMigrations()
   return NextResponse.json({ success: true, results })
 }

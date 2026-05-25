@@ -27,7 +27,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (status === "done" && !existing.finishedAt) data.finishedAt = new Date()
   }
 
-  const book = await prisma.book.update({ where: { id }, data })
+  const book = await prisma.book.update({ where: { id, userId }, data })
   return NextResponse.json(book)
 }
 
@@ -40,6 +40,6 @@ export async function DELETE(_req: Request, { params }: { params: { id: string }
   const existing = await prisma.book.findFirst({ where: { id, userId } })
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  await prisma.book.delete({ where: { id } })
+  await prisma.book.delete({ where: { id, userId } })
   return NextResponse.json({ ok: true })
 }

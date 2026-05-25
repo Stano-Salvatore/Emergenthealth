@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
     const entry = await startTimer(stored.apiToken, stored.workspaceId, description ?? "", projectId ?? null)
     return NextResponse.json({ entry })
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 })
+    console.error("[toggl/start]", e)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
