@@ -20,17 +20,62 @@ interface YnabTransaction {
   deleted: boolean
 }
 
+interface TokenRow {
+  accessToken: string
+  refreshToken: string | null
+  expiresAt: Date | null
+  budgetId: string
+}
+
+async function getFreshToken(userId: string, row: TokenRow): Promise<string> {
+  if (!row.refreshToken) return row.accessToken
+  if (row.expiresAt && row.expiresAt.getTime() - Date.now() > 5 * 60 * 1000) {
+    return row.accessToken
+  }
+
+  const res = await fetch("https://api.youneedabudget.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      client_id: process.env.YNAB_CLIENT_ID!,
+      client_secret: process.env.YNAB_CLIENT_SECRET!,
+      refresh_token: row.refreshToken,
+    }).toString(),
+  })
+
+  if (!res.ok) {
+    console.error("[sync/ynab] token refresh failed:", res.status)
+    return row.accessToken
+  }
+
+  const { access_token, refresh_token, expires_in } = await res.json()
+  const expiresAt = expires_in ? new Date(Date.now() + expires_in * 1000) : null
+
+  await prisma.$executeRaw`
+    UPDATE "YnabToken"
+    SET "accessToken"  = ${access_token},
+        "refreshToken" = ${refresh_token ?? row.refreshToken},
+        "expiresAt"    = ${expiresAt},
+        "updatedAt"    = NOW()
+    WHERE "userId" = ${userId}
+  `
+  return access_token
+}
+
 export async function POST() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const rows = await prisma.$queryRaw<{ accessToken: string; budgetId: string }[]>`
-    SELECT "accessToken","budgetId" FROM "YnabToken" WHERE "userId" = ${userId}
+  const rows = await prisma.$queryRaw<TokenRow[]>`
+    SELECT "accessToken","refreshToken","expiresAt","budgetId"
+    FROM "YnabToken" WHERE "userId" = ${userId}
   `.catch(() => [])
 
   if (!rows[0]) return NextResponse.json({ error: "YNAB not connected" }, { status: 400 })
-  const { accessToken, budgetId } = rows[0]
+  const accessToken = await getFreshToken(userId, rows[0])
+  const { budgetId } = rows[0]
 
   // Sync last 60 days
   const since = new Date()

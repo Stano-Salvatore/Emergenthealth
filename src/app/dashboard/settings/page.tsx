@@ -13,7 +13,12 @@ import { DigestButton } from "@/components/settings/DigestButton"
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ oura_connected?: string; oura_error?: string }>
+  searchParams: Promise<{
+    oura_connected?: string
+    oura_error?: string
+    ynab_connected?: string
+    ynab_error?: string
+  }>
 }) {
   const session = await auth()
   if (!session?.user?.id) return null
@@ -21,6 +26,8 @@ export default async function SettingsPage({
   const params = await searchParams
   const ouraConnected = params.oura_connected === "1"
   const ouraError = params.oura_error
+  const ynabConnected = params.ynab_connected === "1"
+  const ynabError = params.ynab_error
 
   // Tables may not exist yet if migration hasn't run — fail gracefully
   let ouraToken = null
@@ -117,8 +124,32 @@ export default async function SettingsPage({
       {/* Oura Ring connection (client component) */}
       <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
 
+      {ynabConnected && (
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-green-400">YNAB connected successfully!</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Your budget is now syncing. Hit "Sync now" to pull your latest transactions.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {ynabError && (
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-red-400">YNAB connection failed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {ynabError === "token_error"
+                ? "Could not exchange the authorisation code. Please try connecting again."
+                : ynabError === "db_error"
+                  ? "Tokens were received but could not be saved. Please try again."
+                  : `Error: ${ynabError}. Please try again.`}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* YNAB */}
-      <YnabManager />
+      <YnabManager hasOauthConfig={!!(process.env.YNAB_CLIENT_ID && process.env.YNAB_CLIENT_SECRET)} />
 
       {/* Personal goals */}
       <GoalsEditor />

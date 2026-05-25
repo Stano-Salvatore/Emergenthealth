@@ -3,13 +3,12 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Loader2, CheckCircle, Unlink, RefreshCw } from "lucide-react"
+import { Loader2, CheckCircle, Unlink, RefreshCw, LogIn } from "lucide-react"
 
-type State = "loading" | "disconnected" | "connecting" | "connected" | "syncing" | "error"
+type State = "loading" | "disconnected" | "connected" | "syncing"
 
-export function YnabManager() {
+export function YnabManager({ hasOauthConfig }: { hasOauthConfig: boolean }) {
   const [state, setState]           = useState<State>("loading")
-  const [token, setToken]           = useState("")
   const [budgetName, setBudgetName] = useState<string | null>(null)
   const [error, setError]           = useState<string | null>(null)
   const [syncMsg, setSyncMsg]       = useState<string | null>(null)
@@ -24,33 +23,27 @@ export function YnabManager() {
       .catch(() => setState("disconnected"))
   }, [])
 
-  async function connect() {
-    if (!token.trim()) return
-    setState("connecting")
-    setError(null)
-    const res = await fetch("/api/ynab/connect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ accessToken: token.trim() }),
-    })
-    const d = await res.json()
-    if (d.ok) { setBudgetName(d.budgetName); setState("connected"); setSyncMsg(null) }
-    else { setError(d.error ?? "Connection failed"); setState("disconnected") }
+  function connect() {
+    window.location.href = "/api/ynab/auth"
   }
 
   async function disconnect() {
     await fetch("/api/ynab/connect", { method: "DELETE" })
-    setBudgetName(null); setToken(""); setState("disconnected"); setSyncMsg(null)
+    setBudgetName(null)
+    setState("disconnected")
+    setSyncMsg(null)
+    setError(null)
   }
 
   async function sync() {
     setState("syncing")
     setSyncMsg(null)
+    setError(null)
     const res = await fetch("/api/sync/ynab", { method: "POST" })
     const d = await res.json()
     setState("connected")
     if (d.success) setSyncMsg(`Synced ${d.synced} transactions`)
-    else { setError(d.error ?? "Sync failed") }
+    else setError(d.error ?? "Sync failed")
   }
 
   return (
@@ -77,7 +70,12 @@ export function YnabManager() {
                 <RefreshCw className="h-3.5 w-3.5" />
                 Sync now
               </Button>
-              <Button size="sm" variant="ghost" onClick={disconnect} className="gap-1.5 text-muted-foreground hover:text-destructive">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={disconnect}
+                className="gap-1.5 text-muted-foreground hover:text-destructive"
+              >
                 <Unlink className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -91,30 +89,18 @@ export function YnabManager() {
           )}
         </div>
 
-        {(state === "disconnected" || state === "connecting") && (
-          <div className="space-y-2">
-            <p className="text-xs text-muted-foreground">
-              Get your Personal Access Token from{" "}
-              <a href="https://app.youneedabudget.com/settings/developer" target="_blank" rel="noopener noreferrer"
-                className="underline hover:text-foreground">
-                YNAB → Settings → Developer Settings
-              </a>
+        {state === "disconnected" && (
+          hasOauthConfig ? (
+            <Button size="sm" onClick={connect} className="w-full gap-1.5">
+              <LogIn className="h-3.5 w-3.5" />
+              Connect with YNAB
+            </Button>
+          ) : (
+            <p className="text-xs text-amber-400 bg-amber-500/10 rounded-md px-3 py-2">
+              Set <code className="font-mono">YNAB_CLIENT_ID</code> and{" "}
+              <code className="font-mono">YNAB_CLIENT_SECRET</code> in your Vercel environment variables.
             </p>
-            <div className="flex gap-2">
-              <input
-                type="password"
-                placeholder="Paste your YNAB token…"
-                value={token}
-                onChange={e => setToken(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && connect()}
-                className="flex-1 h-8 px-3 text-sm rounded-lg border border-border bg-secondary/50 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 font-mono"
-              />
-              <Button size="sm" onClick={connect} disabled={state === "connecting" || !token.trim()} className="gap-1.5">
-                {state === "connecting" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                Connect
-              </Button>
-            </div>
-          </div>
+          )
         )}
 
         {error && <p className="text-xs text-red-400 bg-red-500/10 rounded-md px-3 py-2">{error}</p>}
