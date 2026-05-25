@@ -9,6 +9,7 @@ import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
 import { YnabManager } from "@/components/settings/YnabManager"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
+import { PushManager } from "@/components/settings/PushManager"
 
 export default async function SettingsPage({
   searchParams,
@@ -150,6 +151,9 @@ export default async function SettingsPage({
 
       {/* YNAB */}
       <YnabManager hasOauthConfig={!!(process.env.YNAB_CLIENT_ID && process.env.YNAB_CLIENT_SECRET)} />
+
+      {/* Push notifications */}
+      <PushManager />
 
       {/* Personal goals */}
       <GoalsEditor />

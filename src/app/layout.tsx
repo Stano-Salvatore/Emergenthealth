@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
 import { SessionProvider } from "next-auth/react"
 import { ThemeProvider } from "next-themes"
+import { ServiceWorkerRegistration } from "@/components/layout/ServiceWorkerRegistration"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -48,6 +49,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="h-full antialiased bg-background text-foreground">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <SessionProvider>{children}</SessionProvider>
+          <ServiceWorkerRegistration />
         </ThemeProvider>
       </body>
     </html>
