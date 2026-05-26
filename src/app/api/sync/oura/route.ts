@@ -123,9 +123,17 @@ export async function POST() {
       `
       await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "OuraTag_userId_day_idx" ON "OuraTag"("userId","day")`
       await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "tagName" TEXT`
+      await prisma.$executeRaw`
+        CREATE TABLE IF NOT EXISTS "TagAlias" (
+          "userId"      TEXT NOT NULL,
+          "tagTypeUuid" TEXT NOT NULL,
+          "name"        TEXT NOT NULL,
+          PRIMARY KEY ("userId", "tagTypeUuid")
+        )
+      `
+
       const tagData = await getOuraTags(userId, startDate, endDate)
       for (const t of tagData) {
-        // Serialize JS string[] → PostgreSQL array literal (UUIDs contain only hex+hyphen, no quoting needed)
         const tagsLiteral = `{${t.tags.join(",")}}`
         const tagName = t.tagName || null
         const text = t.comment || null
@@ -136,6 +144,24 @@ export async function POST() {
             SET "tagName"=EXCLUDED."tagName","text"=EXCLUDED."text","tags"=EXCLUDED."tags"
         `
       }
+
+      // Auto-create TagAlias for any UUID that has a resolved name, without
+      // overriding aliases the user already set manually via the rename modal.
+      const uuidNameMap = new Map<string, string>()
+      for (const t of tagData) {
+        const uuid = t.tags[0]
+        if (uuid && t.tagName && !uuidNameMap.has(uuid)) {
+          uuidNameMap.set(uuid, t.tagName)
+        }
+      }
+      for (const [uuid, name] of uuidNameMap.entries()) {
+        await prisma.$executeRaw`
+          INSERT INTO "TagAlias"("userId","tagTypeUuid","name")
+          VALUES (${userId}, ${uuid}, ${name})
+          ON CONFLICT DO NOTHING
+        `
+      }
+
       tagsSynced = tagData.length
     } catch (tagErr) {
       console.error("[sync] tag upsert error:", tagErr)

@@ -54,7 +54,7 @@ async function makeOuraRequest(
   return response.json()
 }
 
-// ── Daily activity (steps, calories, distance, active minutes, score) ─────────
+// ── Daily activity (steps, calories, distance, active minutes, score) ───────────
 
 export async function getDailyActivity(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
@@ -129,7 +129,7 @@ export async function getDailySleepScores(userId: string, startDate: string, end
   }))
 }
 
-// ── Daily readiness (score, skin temperature) ────────────────────────────────
+// ── Daily readiness (score, skin temperature) ────────────────────────────
 
 export async function getDailyReadiness(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
@@ -143,7 +143,7 @@ export async function getDailyReadiness(userId: string, startDate: string, endDa
   }))
 }
 
-// ── Daily SpO2 ───────────────────────────────────────────────────────────────
+// ── Daily SpO2 ────────────────────────────────────────────────
 
 export async function getDailySpo2(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
@@ -160,7 +160,7 @@ export async function getDailySpo2(userId: string, startDate: string, endDate: s
   })
 }
 
-// ── Daily stress ─────────────────────────────────────────────────────────────
+// ── Daily stress ─────────────────────────────────────────────────────
 
 export async function getDailyStress(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
@@ -174,7 +174,7 @@ export async function getDailyStress(userId: string, startDate: string, endDate:
   }))
 }
 
-// ── Workouts ─────────────────────────────────────────────────────────────────
+// ── Workouts ─────────────────────────────────────────────────────────────
 
 export async function getActivitySessions(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
@@ -193,26 +193,9 @@ export async function getActivitySessions(userId: string, startDate: string, end
   }))
 }
 
-// ── Oura Tags (user-created annotations) ─────────────────────────────────────
+// ── Oura Tags (user-created annotations) ──────────────────────────────────────────
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-function resolveTagName(customName: unknown, typeCode: unknown, comment: unknown): string {
-  // 1. custom_name — user-defined label
-  if (typeof customName === "string" && customName.trim() && !UUID_PATTERN.test(customName.trim())) {
-    return customName.trim()
-  }
-  // 2. tag_type_code starting with "tag_" — strip prefix and title-case
-  if (typeof typeCode === "string" && typeCode.startsWith("tag_")) {
-    const readable = typeCode.slice(4).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
-    if (readable) return readable
-  }
-  // 3. comment — use as display name if it looks like a label (short, no UUID)
-  if (typeof comment === "string" && comment.trim() && !UUID_PATTERN.test(comment.trim()) && comment.trim().length < 60) {
-    return comment.trim()
-  }
-  return ""
-}
 
 export interface OuraTagEntry {
   id: string
@@ -229,14 +212,18 @@ export async function getOuraTags(userId: string, startDate: string, endDate: st
     start_date: startDate, end_date: endDate,
   })
   return (data.data ?? []).map((item: Record<string, unknown>) => {
-    // custom_name is always null from Oura API in practice; the user-typed name is in comment
+    // enhanced_tag uses start_day (not day) and start_time (not timestamp)
+    const day = ((item.day ?? item.start_day) as string) ?? ""
+    const timestamp = ((item.start_time ?? item.timestamp ?? item.day ?? item.start_day) as string) ?? day
+
+    // Resolve name: custom_name (null in practice) → comment → tag_type_code prefix
     const comment = typeof item.comment === "string" ? item.comment.trim() : ""
     const customName = typeof item.custom_name === "string" ? item.custom_name.trim() : ""
 
     let tagName = ""
     if (customName && !UUID_PATTERN.test(customName)) {
       tagName = customName
-    } else if (comment && !UUID_PATTERN.test(comment) && comment.length < 120) {
+    } else if (comment && !UUID_PATTERN.test(comment)) {
       tagName = comment
     } else if (typeof item.tag_type_code === "string" && item.tag_type_code.startsWith("tag_")) {
       tagName = item.tag_type_code.slice(4).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
@@ -244,8 +231,8 @@ export async function getOuraTags(userId: string, startDate: string, endDate: st
 
     return {
       id: item.id as string,
-      day: item.day as string,
-      timestamp: (item.start_time as string) ?? (item.day as string),
+      day,
+      timestamp,
       tagName,
       comment: comment || null,
       tags: item.tag_type_code ? [item.tag_type_code as string] : [],
@@ -253,7 +240,7 @@ export async function getOuraTags(userId: string, startDate: string, endDate: st
   })
 }
 
-// ── Legacy helpers (used by MCP route) ───────────────────────────────────────
+// ── Legacy helpers (used by MCP route) ────────────────────────────────────────────────
 
 export async function getSteps(userId: string, startDate: string, endDate: string) {
   const rows = await getDailyActivity(userId, startDate, endDate)
