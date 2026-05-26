@@ -45,6 +45,7 @@ export default function MedicationsPage() {
   const [renaming, setRenaming] = useState<{ uuid: string; current: string } | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const [renameSaving, setRenameSaving] = useState(false)
 
   const load = useCallback(async (q = filter, cat = activeCategory) => {
     setLoading(true)
@@ -84,19 +85,23 @@ export default function MedicationsPage() {
 
   function startRename(uuid: string, current: string) {
     setRenaming({ uuid, current })
-    setRenameValue(current === "Custom tag" ? "" : current)
-    setTimeout(() => renameInputRef.current?.focus(), 50)
+    setRenameValue(current)
   }
 
   async function submitRename() {
     if (!renaming || !renameValue.trim()) { setRenaming(null); return }
-    await fetch("/api/tag-aliases", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tagTypeUuid: renaming.uuid, name: renameValue.trim() }),
-    })
-    setRenaming(null)
-    load()
+    setRenameSaving(true)
+    try {
+      await fetch("/api/tag-aliases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tagTypeUuid: renaming.uuid, name: renameValue.trim() }),
+      })
+      setRenaming(null)
+      await load()
+    } finally {
+      setRenameSaving(false)
+    }
   }
 
   // Group by day then within day by category
@@ -246,34 +251,20 @@ export default function MedicationsPage() {
                               {item.emoji}
                             </div>
                             <div className="flex-1 min-w-0">
-                              {renaming?.uuid === item.tags[0] ? (
-                                <div className="flex items-center gap-1.5">
-                                  <input
-                                    ref={renameInputRef}
-                                    value={renameValue}
-                                    onChange={e => setRenameValue(e.target.value)}
-                                    onKeyDown={e => { if (e.key === "Enter") submitRename(); if (e.key === "Escape") setRenaming(null) }}
-                                    placeholder="Name this tag…"
-                                    className="flex-1 text-sm bg-secondary/60 border border-primary/40 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                                  />
-                                  <button onClick={submitRename} className="text-xs text-primary font-medium px-2 py-0.5 rounded hover:bg-primary/10">Save</button>
-                                  <button onClick={() => setRenaming(null)} className="text-xs text-muted-foreground px-1">✕</button>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-1.5 group/name">
-                                  <p className={cn("text-sm font-semibold leading-snug", !item.tagName && "text-muted-foreground italic")}>
-                                    {item.tagName ?? "Custom tag"}
-                                  </p>
-                                  {item.tags[0] && (
-                                    <button
-                                      onClick={() => startRename(item.tags[0], item.tagName ?? "Custom tag")}
-                                      className="opacity-0 group/name:opacity-100 hover:opacity-100 text-muted-foreground/50 hover:text-primary transition-opacity p-0.5"
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                    </button>
-                                  )}
-                                </div>
-                              )}
+                              <div className="flex items-center gap-2">
+                                <p className={cn("text-sm font-semibold leading-snug", !item.tagName && "text-muted-foreground italic")}>
+                                  {item.tagName ?? "Unnamed tag"}
+                                </p>
+                                {item.tags[0] && (
+                                  <button
+                                    onClick={() => startRename(item.tags[0], item.tagName ?? "")}
+                                    className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground/50 hover:text-primary hover:bg-primary/10 active:bg-primary/20 transition-colors shrink-0"
+                                    title="Rename this tag type"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
                               {item.text && item.text !== item.tagName && (
                                 <p className="text-xs text-muted-foreground mt-0.5 leading-snug">
                                   {item.text}
@@ -294,6 +285,45 @@ export default function MedicationsPage() {
           )
         })}
       </div>
+
+      {/* Rename modal — single focused dialog, mobile-friendly */}
+      {renaming && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={e => { if (e.target === e.currentTarget) setRenaming(null) }}
+        >
+          <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl p-5 space-y-4">
+            <div>
+              <h3 className="font-semibold text-base">Name this tag type</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">This will rename all entries of this tag type.</p>
+            </div>
+            <input
+              ref={renameInputRef}
+              autoFocus
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") submitRename(); if (e.key === "Escape") setRenaming(null) }}
+              placeholder="e.g. Vitamin D, Coffee, Ibuprofen…"
+              className="w-full text-sm bg-secondary/60 border border-border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => setRenaming(null)}
+                className="flex-1 h-11 rounded-xl border border-border text-sm text-muted-foreground hover:bg-secondary/50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitRename}
+                disabled={renameSaving || !renameValue.trim()}
+                className="flex-1 h-11 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+              >
+                {renameSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
