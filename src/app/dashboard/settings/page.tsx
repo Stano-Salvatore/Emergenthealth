@@ -9,6 +9,8 @@ import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
 import { YnabManager } from "@/components/settings/YnabManager"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
+import { StravaManager } from "@/components/settings/StravaManager"
+import { GitHubManager } from "@/components/settings/GitHubManager"
 
 export default async function SettingsPage({
   searchParams,
@@ -18,6 +20,8 @@ export default async function SettingsPage({
     oura_error?: string
     ynab_connected?: string
     ynab_error?: string
+    strava_connected?: string
+    strava_error?: string
   }>
 }) {
   const session = await auth()
@@ -28,6 +32,8 @@ export default async function SettingsPage({
   const ouraError = params.oura_error
   const ynabConnected = params.ynab_connected === "1"
   const ynabError = params.ynab_error
+  const stravaConnected = params.strava_connected === "1"
+  const stravaError = params.strava_error
 
   // Tables may not exist yet if migration hasn't run — fail gracefully
   let ouraToken = null
@@ -45,6 +51,18 @@ export default async function SettingsPage({
   } catch {
     dbMissing = true
   }
+
+  // Strava token check — table may not exist yet
+  const stravaTokenRows = await prisma.$queryRaw<{ userId: string }[]>`
+    SELECT "userId" FROM "StravaToken" WHERE "userId" = ${userId} LIMIT 1
+  `.catch(() => [] as { userId: string }[])
+  const isStravaConnected = stravaTokenRows.length > 0
+
+  // GitHub profile check — table may not exist yet
+  const githubRows = await prisma.$queryRaw<{ username: string }[]>`
+    SELECT "username" FROM "GitHubProfile" WHERE "userId" = ${userId} LIMIT 1
+  `.catch(() => [] as { username: string }[])
+  const githubUsername = githubRows[0]?.username ?? null
 
   const isOuraConnected = !!ouraToken
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL ?? ""
@@ -150,6 +168,36 @@ export default async function SettingsPage({
 
       {/* YNAB */}
       <YnabManager hasOauthConfig={!!(process.env.YNAB_CLIENT_ID && process.env.YNAB_CLIENT_SECRET)} />
+
+      {stravaConnected && (
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-green-400">Strava connected successfully!</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Hit &quot;Sync now&quot; to pull your recent activities.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {stravaError && (
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-red-400">Strava connection failed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {stravaError === "invalid_grant"
+                ? "The authorisation code expired or was already used. Please try connecting again."
+                : stravaError === "db_error"
+                  ? "Tokens were received but could not be saved. Please try again."
+                  : `Error: ${stravaError}. Please try again.`}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Strava */}
+      <StravaManager isConnected={isStravaConnected} />
+
+      {/* GitHub */}
+      <GitHubManager username={githubUsername} />
 
       {/* Personal goals */}
       <GoalsEditor />

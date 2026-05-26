@@ -14,6 +14,16 @@ import {
 import { Moon, Footprints, Heart, Scale, Zap, Activity, Thermometer, Wind, Shield } from "lucide-react"
 import { format, subDays } from "date-fns"
 
+interface StravaActivityRow {
+  id: string
+  type: string
+  name: string | null
+  distanceM: number | null
+  movingTimeSec: number
+  startDate: Date
+  day: string
+}
+
 const STEP_GOAL = 8_000
 const SLEEP_GOAL_H = 7
 
@@ -24,6 +34,17 @@ export default async function HealthPage() {
 
   const ouraToken = await prisma.ouraToken.findUnique({ where: { userId }, select: { id: true } })
   const isOuraConnected = !!ouraToken
+
+  // Recent Strava activities — table may not exist yet
+  const since14str = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const stravaActivities = await prisma.$queryRaw<StravaActivityRow[]>`
+    SELECT "id", "type", "name", "distanceM", "movingTimeSec", "startDate", "day"
+    FROM "StravaActivity"
+    WHERE "userId" = ${userId}
+      AND "day" >= ${since14str}
+    ORDER BY "startDate" DESC
+    LIMIT 30
+  `.catch(() => [] as StravaActivityRow[])
 
   const since30 = new Date()
   since30.setDate(since30.getDate() - 29)
@@ -556,6 +577,51 @@ export default async function HealthPage() {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {/* ── Recent Workouts (Strava) ── */}
+      {stravaActivities.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Recent Workouts</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y">
+              {stravaActivities.map(activity => {
+                const emoji =
+                  activity.type === "Run"           ? "🏃" :
+                  activity.type === "Ride"          ? "🚴" :
+                  activity.type === "WeightTraining"? "🏋️" :
+                  activity.type === "Walk"          ? "🚶" :
+                  activity.type === "Swim"          ? "🏊" :
+                  activity.type === "Yoga"          ? "🧘" :
+                  "💪"
+                const distKm = activity.distanceM != null
+                  ? (activity.distanceM / 1000).toFixed(2) + " km"
+                  : null
+                const totalSec = activity.movingTimeSec
+                const hours = Math.floor(totalSec / 3600)
+                const mins = Math.floor((totalSec % 3600) / 60)
+                const duration = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`
+                return (
+                  <div key={activity.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                    <span className="text-muted-foreground w-20 shrink-0 text-xs">
+                      {format(new Date(activity.startDate), "EEE MMM d")}
+                    </span>
+                    <div className="flex items-center gap-2 flex-1">
+                      <span>{emoji}</span>
+                      <span className="font-medium truncate">{activity.name ?? activity.type}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
+                      {distKm && <span>{distKm}</span>}
+                      <span>{duration}</span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   )

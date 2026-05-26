@@ -2,6 +2,20 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 
+interface GitHubProfileRow {
+  username: string
+  accessToken: string | null
+}
+
+interface PushEvent {
+  type: string
+  created_at: string
+  payload: {
+    commits?: { sha: string }[]
+    size?: number
+  }
+}
+
 const LEVEL_THRESHOLDS = [0, 100, 250, 500, 900, 1500, 2500, 4000, 6000, 9000, 13000]
 
 function getLevel(xp: number): { level: number; progress: number; xpToNext: number; xpInLevel: number } {
@@ -55,7 +69,7 @@ export async function GET() {
 
   const since = new Date(Date.now() - 365 * 86400000)
 
-  const [habits, completions, healthLogs, moodLogs, dailyNotes, intakeDays, focusSessions, finishedBooks, ouraTagDays] = await Promise.all([
+  const [habits, completions, healthLogs, moodLogs, dailyNotes, intakeDays, focusSessions, finishedBooks, ouraTagDays, githubProfile] = await Promise.all([
     prisma.habit.findMany({
       where: { userId, isArchived: false },
       select: { id: true, name: true, color: true, icon: true },
@@ -90,7 +104,39 @@ export async function GET() {
         AND "tagName" NOT ILIKE '%wine%'
         AND "tagName" NOT ILIKE '%ml%'
     `.catch(() => [] as { day: string }[]),
+    prisma.$queryRaw<GitHubProfileRow[]>`
+      SELECT "username", "accessToken" FROM "GitHubProfile" WHERE "userId" = ${userId} LIMIT 1
+    `.catch(() => [] as GitHubProfileRow[]),
   ])
+
+  // GitHub commit data
+  let githubCommitDays = 0
+  let githubStreak = 0
+  const profile = (githubProfile as GitHubProfileRow[])[0]
+  if (profile) {
+    const headers: Record<string, string> = {
+      "User-Agent": "emergenthealth/1.0",
+      Accept: "application/vnd.github+json",
+    }
+    if (profile.accessToken) headers["Authorization"] = `Bearer ${profile.accessToken}`
+    const eventsRes = await fetch(
+      `https://api.github.com/users/${profile.username}/events?per_page=100`,
+      { headers },
+    ).catch(() => null)
+    if (eventsRes?.ok) {
+      const events: PushEvent[] = await eventsRes.json().catch(() => [])
+      const commitsByDay: Record<string, number> = {}
+      for (const event of events) {
+        if (event.type !== "PushEvent") continue
+        const day = event.created_at.slice(0, 10)
+        const count = event.payload.commits?.length ?? event.payload.size ?? 0
+        commitsByDay[day] = (commitsByDay[day] ?? 0) + count
+      }
+      const commitDays = Object.keys(commitsByDay).filter(d => (commitsByDay[d] ?? 0) > 0)
+      githubCommitDays = commitDays.length
+      githubStreak = currentStreak(commitDays.sort())
+    }
+  }
 
   // per-habit streaks
   const byHabit = new Map<string, string[]>()
@@ -130,7 +176,8 @@ export async function GET() {
   const readingXp = finishedBooks * 20
   const supplementDays = (ouraTagDays as { day: string }[]).length
   const supplementXp = supplementDays * 5
-  const totalXp = habitXp + sleepXp + weightXp + moodXp + journalXp + intakeXp + focusXp + readingXp + supplementXp
+  const githubXp = githubCommitDays * 8
+  const totalXp = habitXp + sleepXp + weightXp + moodXp + journalXp + intakeXp + focusXp + readingXp + supplementXp + githubXp
   const levelInfo = getLevel(totalXp)
 
   // achievements
