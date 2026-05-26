@@ -54,7 +54,7 @@ export async function GET() {
   const since30 = subDays(new Date(), 29)
   const since90 = subDays(new Date(), 89)
 
-  const [logs, focusSessions, intakeLogs, moodLogs] = await Promise.all([
+  const [logs, focusSessions, intakeLogs, moodLogs, customMetrics, customLogs] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since90 } },
       orderBy: { date: "asc" },
@@ -77,6 +77,16 @@ export async function GET() {
       where: { userId, date: { gte: since90 } },
       select: { date: true, mood: true },
     }).catch(() => [] as { date: Date; mood: number }[]),
+    prisma.$queryRaw<{ id: string; name: string; emoji: string; color: string; type: string }[]>`
+      SELECT "id","name","emoji","color","type" FROM "CustomMetric" WHERE "userId" = ${userId}
+    `.catch(() => []),
+    prisma.$queryRaw<{ metricId: string; date: string; value: number }[]>`
+      SELECT "metricId", "date"::text, "value"
+      FROM "CustomMetricLog"
+      WHERE "userId" = ${userId}
+        AND "date" >= CURRENT_DATE - INTERVAL '90 days'
+      ORDER BY "date" ASC
+    `.catch(() => []),
   ])
 
   const recent30 = logs.filter(l => l.date >= since30)
@@ -314,7 +324,69 @@ export async function GET() {
       : Math.abs(c.r) >= 0.25 ? "moderate"
       : "weak",
     direction: c.r == null ? null : c.r >= 0 ? "positive" : "negative",
+    isCustom: false,
   }))
+
+  // ── Custom metric correlations ───────────────────────────────────────────────
+  // Build date→value map for each custom metric
+  const customByMetric: Record<string, Record<string, number>> = {}
+  for (const l of customLogs) {
+    const date = l.date.slice(0, 10)
+    if (!customByMetric[l.metricId]) customByMetric[l.metricId] = {}
+    customByMetric[l.metricId][date] = l.value
+  }
+
+  const healthTargets: { key: string; label: string; fn: (d: string) => number | null }[] = [
+    { key: "sleep",     label: "sleep score",  fn: d => get(d, "sleepScore") },
+    { key: "readiness", label: "readiness",    fn: d => get(d, "readinessScore") },
+    { key: "hrv",       label: "HRV",          fn: d => get(d, "hrv") },
+    { key: "steps",     label: "step count",   fn: d => get(d, "steps") },
+    { key: "mood",      label: "mood",         fn: getMood },
+  ]
+
+  const customCorrelations: typeof richCorrelations = []
+
+  for (const metric of customMetrics) {
+    const metricByDate = customByMetric[metric.id] ?? {}
+    const metricDates = Object.keys(metricByDate)
+    if (metricDates.length < 7) continue
+
+    // For each health target, compute correlation
+    const pairs: { target: typeof healthTargets[0]; r: number | null; n: number }[] = []
+    for (const target of healthTargets) {
+      const { r, n } = corr(d => metricByDate[d] ?? null, target.fn, allDateStrs)
+      pairs.push({ target, r, n })
+    }
+
+    // Keep the pair with highest |r| that has enough data
+    const best = pairs
+      .filter(p => p.n >= 7 && p.r != null)
+      .sort((a, b) => Math.abs(b.r!) - Math.abs(a.r!))
+      .slice(0, 2)
+
+    for (const { target, r, n } of best) {
+      const abs = r != null ? Math.abs(r) : 0
+      const dir = r != null ? (r >= 0 ? "higher" : "lower") : ""
+      const inv = r != null ? (r >= 0 ? "lower" : "higher") : ""
+      customCorrelations.push({
+        key: `custom_${metric.id}_${target.key}`,
+        label: `${metric.name} → ${target.label}`,
+        r,
+        n,
+        emoji: metric.emoji,
+        insight: r == null
+          ? `Need more data to detect a pattern`
+          : abs >= 0.4
+          ? `Strong link: ${dir} ${metric.name} correlates with ${dir} ${target.label} (r=${r.toFixed(2)}, ${n} days)`
+          : abs >= 0.2
+          ? `Moderate pattern: ${dir} ${metric.name} tends to go with ${dir} ${target.label} (r=${r.toFixed(2)}, ${n} days)`
+          : `Weak or no link between ${metric.name} and ${target.label} so far (r=${r.toFixed(2)}, ${n} days)`,
+        strength: abs >= 0.5 ? "strong" : abs >= 0.25 ? "moderate" : "weak",
+        direction: r == null ? null : r >= 0 ? "positive" : "negative",
+        isCustom: true,
+      })
+    }
+  }
 
   return NextResponse.json({
     dowStats,
@@ -334,6 +406,7 @@ export async function GET() {
     avgBedtime,
     bedtimeStdDevMin: bedtimeStdDev != null ? Math.round(bedtimeStdDev) : null,
     correlations: richCorrelations,
+    customCorrelations,
     dataPoints: allDateStrs.length,
   })
 }
