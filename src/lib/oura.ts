@@ -198,7 +198,7 @@ export async function getActivitySessions(userId: string, startDate: string, end
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function resolveTagName(customName: unknown, typeCode: unknown, comment: unknown): string {
-  // 1. custom_name — user-defined label
+  // 1. custom_name — user-defined label for the tag type
   if (typeof customName === "string" && customName.trim() && !UUID_PATTERN.test(customName.trim())) {
     return customName.trim()
   }
@@ -207,10 +207,9 @@ function resolveTagName(customName: unknown, typeCode: unknown, comment: unknown
     const readable = typeCode.slice(4).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
     if (readable) return readable
   }
-  // 3. comment — use as display name if it looks like a label (short, no UUID)
-  if (typeof comment === "string" && comment.trim() && !UUID_PATTERN.test(comment.trim()) && comment.trim().length < 60) {
-    return comment.trim()
-  }
+  // 3. comment / note / text — per-entry description written by the user
+  const commentStr = [comment].find(v => typeof v === "string" && (v as string).trim() && !UUID_PATTERN.test((v as string).trim()))
+  if (commentStr) return (commentStr as string).trim()
   return ""
 }
 
@@ -221,6 +220,7 @@ export interface OuraTagEntry {
   tagName: string
   comment: string | null
   tags: string[]
+  uuid: string | null
 }
 
 export async function getOuraTags(userId: string, startDate: string, endDate: string): Promise<OuraTagEntry[]> {
@@ -229,14 +229,20 @@ export async function getOuraTags(userId: string, startDate: string, endDate: st
     start_date: startDate, end_date: endDate,
   })
   return (data.data ?? []).map((item: Record<string, unknown>) => {
-    const name = resolveTagName(item.custom_name, item.tag_type_code, item.comment)
+    // Try all text fields Oura might use for the per-entry description
+    const commentText = (item.comment ?? item.note ?? item.text ?? item.label ?? item.title ?? null) as string | null
+    const name = resolveTagName(item.custom_name, item.tag_type_code, commentText)
+    const uuid = item.tag_type_code && UUID_PATTERN.test(String(item.tag_type_code))
+      ? String(item.tag_type_code)
+      : null
     return {
       id: item.id as string,
       day: item.day as string,
       timestamp: (item.start_time as string) ?? (item.day as string),
       tagName: name,
-      comment: (item.comment as string) || null,
+      comment: commentText || null,
       tags: item.tag_type_code ? [item.tag_type_code as string] : [],
+      uuid,
     }
   })
 }
