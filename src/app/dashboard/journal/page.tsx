@@ -1,11 +1,11 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { format, subDays } from "date-fns"
-import { BookOpen, MapPin, Plus, Trash2, ChevronLeft, ChevronRight, Save } from "lucide-react"
+import { BookOpen, MapPin, Plus, Trash2, ChevronLeft, ChevronRight, Check } from "lucide-react"
 
 const MOODS = [
   { value: 1, emoji: "😴", label: "Awful" },
@@ -38,8 +38,8 @@ export default function JournalPage() {
   const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
   const [mood, setMood] = useState<MoodEntry | null>(null)
   const [note, setNote] = useState<DailyNote>({ content: "" })
-  const [noteEdited, setNoteEdited] = useState(false)
-  const [noteSaving, setNoteSaving] = useState(false)
+  const [noteSaveState, setNoteSaveState] = useState<"idle" | "saving" | "saved">("idle")
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [checkIns, setCheckIns] = useState<CheckIn[]>([])
   const [newPlace, setNewPlace] = useState("")
   const [newEmoji, setNewEmoji] = useState("📍")
@@ -68,7 +68,7 @@ export default function JournalPage() {
       const all: CheckIn[] = await checkinsRes.json()
       setCheckIns(all.filter(c => c.checkedAt.startsWith(d)))
     }
-    setNoteEdited(false)
+    setNoteSaveState("idle")
   }
 
   useEffect(() => { loadDay(date) }, [date])
@@ -89,15 +89,21 @@ export default function JournalPage() {
     setMood({ mood: value, note: null })
   }
 
-  async function saveNote() {
-    setNoteSaving(true)
+  async function saveNote(content: string, forDate: string) {
+    setNoteSaveState("saving")
     await fetch("/api/daily-note", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: note.content, date }),
+      body: JSON.stringify({ content, date: forDate }),
     })
-    setNoteSaving(false)
-    setNoteEdited(false)
+    setNoteSaveState("saved")
+  }
+
+  function handleNoteChange(content: string) {
+    setNote({ content })
+    setNoteSaveState("idle")
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+    autoSaveTimer.current = setTimeout(() => saveNote(content, date), 2000)
   }
 
   async function addCheckIn(e: React.FormEvent) {
@@ -176,12 +182,10 @@ export default function JournalPage() {
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center justify-between">
             <span>Daily Note</span>
-            {noteEdited && (
-              <Button size="sm" variant="outline" onClick={saveNote} disabled={noteSaving} className="h-7 gap-1 text-xs">
-                <Save className="h-3 w-3" />
-                {noteSaving ? "Saving…" : "Save"}
-              </Button>
-            )}
+            <span className={`text-[10px] transition-opacity duration-300 ${noteSaveState === "idle" ? "opacity-0" : "opacity-100"}`}>
+              {noteSaveState === "saving" && <span className="text-muted-foreground">Saving…</span>}
+              {noteSaveState === "saved" && <span className="text-green-400 flex items-center gap-1"><Check className="h-3 w-3" />Saved</span>}
+            </span>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -189,13 +193,9 @@ export default function JournalPage() {
             className="w-full min-h-[120px] bg-secondary/30 rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground leading-relaxed"
             placeholder={isToday ? "What's on your mind today? Wins, learnings, gratitude…" : "No note for this day."}
             value={note.content}
-            onChange={e => { setNote({ content: e.target.value }); setNoteEdited(true) }}
-            readOnly={false}
+            onChange={e => handleNoteChange(e.target.value)}
           />
-          <p className="text-[10px] text-muted-foreground mt-1.5">
-            {isToday && !noteEdited && note.content && "Saved"}
-            {noteEdited && "Unsaved changes — click Save"}
-          </p>
+          <p className="text-[10px] text-muted-foreground mt-1.5">Auto-saves as you type</p>
         </CardContent>
       </Card>
 

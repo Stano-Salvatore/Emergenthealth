@@ -55,7 +55,7 @@ export async function GET() {
 
   const since = new Date(Date.now() - 365 * 86400000)
 
-  const [habits, completions, healthLogs, moodLogs, dailyNotes, intakeDays, focusSessions, finishedBooks] = await Promise.all([
+  const [habits, completions, healthLogs, moodLogs, dailyNotes, intakeDays, focusSessions, finishedBooks, ouraTagDays] = await Promise.all([
     prisma.habit.findMany({
       where: { userId, isArchived: false },
       select: { id: true, name: true, color: true, icon: true },
@@ -77,6 +77,19 @@ export async function GET() {
       select: { id: true },
     }),
     prisma.book.count({ where: { userId, status: "done" } }),
+    // Unique days where the user logged a supplement/med via Oura Ring
+    prisma.$queryRaw<{ day: string }[]>`
+      SELECT DISTINCT "day" FROM "OuraTag"
+      WHERE "userId" = ${userId}
+        AND "tagName" IS NOT NULL
+        AND "tagName" != ''
+        AND "tagName" NOT ILIKE '%coffee%'
+        AND "tagName" NOT ILIKE '%water%'
+        AND "tagName" NOT ILIKE '%tea%'
+        AND "tagName" NOT ILIKE '%beer%'
+        AND "tagName" NOT ILIKE '%wine%'
+        AND "tagName" NOT ILIKE '%ml%'
+    `.catch(() => [] as { day: string }[]),
   ])
 
   // per-habit streaks
@@ -115,7 +128,9 @@ export async function GET() {
   const intakeXp = intakeDateSet.size * 5
   const focusXp = focusSessions.length * 10
   const readingXp = finishedBooks * 20
-  const totalXp = habitXp + sleepXp + weightXp + moodXp + journalXp + intakeXp + focusXp + readingXp
+  const supplementDays = (ouraTagDays as { day: string }[]).length
+  const supplementXp = supplementDays * 5
+  const totalXp = habitXp + sleepXp + weightXp + moodXp + journalXp + intakeXp + focusXp + readingXp + supplementXp
   const levelInfo = getLevel(totalXp)
 
   // achievements
@@ -151,6 +166,8 @@ export async function GET() {
     { id: "intake_30",      emoji: "🌊", title: "Hydration Hero",   desc: "Log intake on 30 different days",      unlocked: intakeDateSet.size >= 30,     progress: Math.min(30, intakeDateSet.size),  target: 30 },
     { id: "book_1",         emoji: "📚", title: "Bookworm",         desc: "Finish your first book",               unlocked: finishedBooks >= 1,           progress: Math.min(1, finishedBooks),        target: 1 },
     { id: "book_5",         emoji: "🏛️", title: "Avid Reader",      desc: "Finish 5 books",                       unlocked: finishedBooks >= 5,           progress: Math.min(5, finishedBooks),        target: 5 },
+    { id: "supplement_7",   emoji: "💊", title: "Consistent",       desc: "Log supplements via Oura 7 days",      unlocked: supplementDays >= 7,          progress: Math.min(7, supplementDays),       target: 7 },
+    { id: "supplement_30",  emoji: "🌿", title: "Supplement Pro",   desc: "Log supplements via Oura 30 days",     unlocked: supplementDays >= 30,         progress: Math.min(30, supplementDays),      target: 30 },
     { id: "level_5",        emoji: "🚀", title: "Level 5",          desc: "Reach level 5",                        unlocked: levelInfo.level >= 5,         progress: Math.min(5, levelInfo.level),      target: 5 },
     { id: "level_10",       emoji: "👑", title: "Level 10",         desc: "Reach level 10",                       unlocked: levelInfo.level >= 10,        progress: Math.min(10, levelInfo.level),     target: 10 },
   ]
@@ -158,7 +175,7 @@ export async function GET() {
   return NextResponse.json({
     xp: {
       total: totalXp,
-      byCategory: { habits: habitXp, sleep: sleepXp, weight: weightXp, mood: moodXp, journal: journalXp, intake: intakeXp, focus: focusXp, reading: readingXp },
+      byCategory: { habits: habitXp, sleep: sleepXp, weight: weightXp, mood: moodXp, journal: journalXp, intake: intakeXp, focus: focusXp, reading: readingXp, supplements: supplementXp },
     },
     ...levelInfo,
     habitStreaks,
