@@ -89,13 +89,13 @@ export default function ChatPage() {
     }
   }, [messages])
 
-  async function sendMessage() {
-    const text = input.trim()
+  async function sendMessage(overrideText?: string) {
+    const text = (overrideText ?? input).trim()
     if (!text || sending) return
 
-    const userMsg: Message = { role: "user", content: text }
+    const userMsg: Message = { role: "user", content: overrideText ?? text }
     setMessages((m) => [...m, userMsg])
-    setInput("")
+    if (!overrideText) setInput("")
     setSending(true)
 
     const history = messages.map((m) => ({ role: m.role, content: m.content }))
@@ -165,6 +165,12 @@ export default function ChatPage() {
     }
   }
 
+  function quickSend(prompt: string) {
+    if (sending) return
+    setInput("")
+    sendMessage(prompt)
+  }
+
   return (
     <div className="flex flex-col h-[calc(100vh-3rem-3rem)]">
       <div className="flex items-center justify-between mb-4">
@@ -188,22 +194,28 @@ export default function ChatPage() {
             <div>
               <p className="font-medium">Claude knows your data</p>
               <p className="text-sm text-muted-foreground mt-1 max-w-xs">
-                Ask about sleep patterns, spending habits, upcoming events, or get insights on your health trends.
+                Sleep, habits, finances, meds, calendar — all in context.
               </p>
             </div>
-            <div className="grid grid-cols-1 gap-2 mt-2 w-full max-w-sm">
+            {/* Morning briefing CTA */}
+            <button
+              onClick={() => quickSend("Give me a morning briefing: last night's sleep score and quality, today's schedule, which habits I still need to do, any overdue reminders, and what supplements/meds I've taken so far.")}
+              disabled={sending}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary/10 border border-primary/20 hover:bg-primary/15 transition-colors text-sm font-medium text-primary disabled:opacity-50"
+            >
+              ☀️ Morning Briefing
+            </button>
+            <div className="grid grid-cols-1 gap-2 w-full max-w-sm">
               {[
-                "What did I spend the most on this month?",
                 "How was my sleep this week?",
                 "What habits am I missing today?",
-                "What's coming up on my calendar?",
+                "What did I spend the most on this month?",
+                "What supplements did I take today?",
+                "What's on my calendar this week?",
               ].map((prompt) => (
                 <button
                   key={prompt}
-                  onClick={() => {
-                    setInput(prompt)
-                    textareaRef.current?.focus()
-                  }}
+                  onClick={() => { setInput(prompt); textareaRef.current?.focus() }}
                   className="text-left text-sm px-4 py-2.5 rounded-xl border border-border bg-secondary hover:bg-accent transition-colors"
                 >
                   {prompt}
@@ -237,7 +249,7 @@ export default function ChatPage() {
           {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
         </Button>
         <Button
-          onClick={sendMessage}
+          onClick={() => sendMessage()}
           disabled={!input.trim() || sending}
           size="icon"
           className="h-10 w-10 shrink-0"
