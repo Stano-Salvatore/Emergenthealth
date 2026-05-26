@@ -22,6 +22,7 @@ import { LocationCard } from "@/components/dashboard/LocationCard"
 import { TogglTile } from "@/components/dashboard/TogglTile"
 import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
+import { QuickHabits } from "@/components/dashboard/QuickHabits"
 
 const STEP_GOAL = 8_000
 const SLEEP_GOAL_H = 7
@@ -540,38 +541,7 @@ export default async function DashboardPage() {
     ),
 
     habits: (
-      <Link href="/dashboard/habits" className="block h-full">
-        <Card className="card-habits hover:border-amber-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-amber-500/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-              <span className="flex items-center gap-1.5">✅ Habits</span>
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-normal tabular-nums">{doneToday}/{habits.length}</span>
-                <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-              </div>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {habits.length===0 ? (
-              <p className="text-sm text-muted-foreground">No habits set up</p>
-            ) : (
-              <>
-                <div className="mb-3"><Progress value={habits.length>0?(doneToday/habits.length)*100:0} className="h-1.5" /></div>
-                <div className="space-y-2">
-                  {habitsWithStreaks.slice(0,6).map(h => (
-                    <div key={h.id} className="flex items-center gap-2">
-                      <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${h.completedToday?"opacity-100":"opacity-25"}`} style={{backgroundColor:h.color}} />
-                      <span className={`text-sm flex-1 truncate ${h.completedToday?"":"text-muted-foreground"}`}>{h.name}</span>
-                      {h.streak>0&&<span className="text-xs text-orange-400 font-medium shrink-0"><Flame className="h-3 w-3 inline mb-0.5"/>{h.streak}</span>}
-                    </div>
-                  ))}
-                  {habits.length>6&&<p className="text-xs text-muted-foreground">+{habits.length-6} more</p>}
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </Link>
+      <QuickHabits habits={habitsWithStreaks.slice(0, 6).map(h => ({ id: h.id, name: h.name, color: h.color, completedToday: h.completedToday, streak: h.streak }))} />
     ),
 
     reminders: (

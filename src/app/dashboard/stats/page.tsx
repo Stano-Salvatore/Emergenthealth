@@ -41,6 +41,7 @@ interface StatsData {
   bedtimeStdDevMin: number | null
   correlations: Correlation[]
   customCorrelations: Correlation[]
+  weatherCorrelations: Correlation[]
   dataPoints: number
 }
 
@@ -126,7 +127,7 @@ export default function StatsPage() {
 
   const { dowStats, focusDowStats, trendData, bestSleepDay, bestStepsDay, bestReadinessDay, bestHrvDay,
     waterStreak, totalFocusMin30, stepStreak, sleepStreak, hrvTrend, hrvAvg7,
-    sleepConsistency, avgBedtime, bedtimeStdDevMin, correlations, customCorrelations, dataPoints } = data
+    sleepConsistency, avgBedtime, bedtimeStdDevMin, correlations, customCorrelations, weatherCorrelations, dataPoints } = data
 
   const maxSleep = Math.max(...dowStats.map(d => d.avgSleep ?? 0), 9)
   const maxSteps = Math.max(...dowStats.map(d => d.avgSteps ?? 0), 8000)
@@ -193,6 +194,17 @@ export default function StatsPage() {
               Create custom trackers and log 7+ days to unlock tracker correlations →{" "}
               <a href="/dashboard/custom" className="underline underline-offset-2 hover:text-muted-foreground">Trackers</a>
             </p>
+          )}
+
+          {(weatherCorrelations ?? []).length > 0 && (
+            <div className="pt-2 border-t border-border/40">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
+                🌤️ Weather
+              </p>
+              <div className="space-y-4">
+                {(weatherCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
