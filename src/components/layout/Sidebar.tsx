@@ -29,6 +29,7 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
       { href: "/dashboard/medications",  label: "Medications",  emoji: "💊" },
       { href: "/dashboard/intake",       label: "Intake",       emoji: "🥤" },
       { href: "/dashboard/focus",        label: "Focus",        emoji: "🎯" },
+      { href: "/dashboard/custom",       label: "Trackers",     emoji: "📐" },
       { href: "/dashboard/reading",      label: "Reading",      emoji: "📚" },
       { href: "/dashboard/journal",      label: "Journal",      emoji: "📝" },
     ],
