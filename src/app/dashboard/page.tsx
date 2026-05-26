@@ -129,6 +129,12 @@ export default async function DashboardPage() {
   const todayStart = new Date(todayStr + "T00:00:00.000Z")
   const todayEnd = new Date(todayStr + "T23:59:59.999Z")
 
+  const todayCheckin = await prisma.$queryRaw<{id: string}[]>`
+    SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId}
+    AND "date" = ${todayStr} LIMIT 1
+  `.catch(() => [] as {id: string}[])
+  const hasCheckedInToday = todayCheckin.length > 0
+
   const [healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData, todayIntake, todayFocus, todayOuraTags] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId },

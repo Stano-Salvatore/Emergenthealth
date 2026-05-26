@@ -54,7 +54,7 @@ export async function GET() {
   const since30 = subDays(new Date(), 29)
   const since90 = subDays(new Date(), 89)
 
-  const [logs, focusSessions, intakeLogs, moodLogs, customMetrics, customLogs] = await Promise.all([
+  const [logs, focusSessions, intakeLogs, moodLogs, customMetrics, customLogs, weatherLogs] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since90 } },
       orderBy: { date: "asc" },
@@ -85,6 +85,13 @@ export async function GET() {
       FROM "CustomMetricLog"
       WHERE "userId" = ${userId}
         AND "date" >= CURRENT_DATE - INTERVAL '90 days'
+      ORDER BY "date" ASC
+    `.catch(() => []),
+    prisma.$queryRaw<{ date: string; tempMaxC: number | null; precipMm: number | null; uvIndex: number | null }[]>`
+      SELECT "date","tempMaxC","precipMm","uvIndex"
+      FROM "WeatherLog"
+      WHERE "userId" = ${userId}
+        AND "date" >= (CURRENT_DATE - INTERVAL '90 days')::text
       ORDER BY "date" ASC
     `.catch(() => []),
   ])
@@ -388,6 +395,87 @@ export async function GET() {
     }
   }
 
+  // ── Weather correlations ─────────────────────────────────────────────────────
+  const weatherByDay: Record<string, { tempMaxC: number | null; precipMm: number | null; uvIndex: number | null }> = {}
+  for (const w of weatherLogs) {
+    weatherByDay[w.date] = { tempMaxC: w.tempMaxC, precipMm: w.precipMm, uvIndex: w.uvIndex }
+  }
+
+  const weatherCorrelations: typeof richCorrelations = []
+
+  if (Object.keys(weatherByDay).length >= 7) {
+    const weatherDates = allDateStrs.filter(d => weatherByDay[d] != null)
+
+    const weatherCorrDefs = [
+      {
+        key: "weather_temp_sleep",
+        label: "Temperature → Sleep",
+        emoji: "🌡️",
+        xFn: (d: string) => weatherByDay[d]?.tempMaxC ?? null,
+        yFn: (d: string) => get(d, "sleepScore"),
+        insightFn: (r: number) => r > 0.2
+          ? "Warmer days link to better sleep"
+          : r < -0.2
+          ? "Cooler days link to better sleep"
+          : "Temperature has little effect on your sleep",
+      },
+      {
+        key: "weather_temp_steps",
+        label: "Temperature → Steps",
+        emoji: "🌡️",
+        xFn: (d: string) => weatherByDay[d]?.tempMaxC ?? null,
+        yFn: (d: string) => get(d, "steps"),
+        insightFn: (r: number) => r > 0.2
+          ? "Warmer days link to more steps"
+          : r < -0.2
+          ? "Cooler days link to more steps"
+          : "Temperature has little effect on your step count",
+      },
+      {
+        key: "weather_rain_mood",
+        label: "Rain → Mood",
+        emoji: "🌧️",
+        xFn: (d: string) => weatherByDay[d]?.precipMm ?? null,
+        yFn: (d: string) => getMood(d),
+        insightFn: (r: number) => r > 0.2
+          ? "Rainier days link to better mood"
+          : r < -0.2
+          ? "Rainy days link to lower mood"
+          : "Rainfall has little effect on your mood",
+      },
+      {
+        key: "weather_uv_readiness",
+        label: "UV Index → Readiness",
+        emoji: "☀️",
+        xFn: (d: string) => weatherByDay[d]?.uvIndex ?? null,
+        yFn: (d: string) => get(d, "readinessScore"),
+        insightFn: (r: number) => r > 0.2
+          ? "Sunnier days link to better readiness"
+          : r < -0.2
+          ? "Higher UV days link to lower readiness"
+          : "UV index has little effect on your readiness",
+      },
+    ]
+
+    for (const def of weatherCorrDefs) {
+      const { r, n } = corr(def.xFn, def.yFn, weatherDates)
+      weatherCorrelations.push({
+        key: def.key,
+        label: def.label,
+        r,
+        n,
+        emoji: def.emoji,
+        insight: r != null ? def.insightFn(r) : `Need at least 5 paired data points (have ${n})`,
+        strength: r == null ? "insufficient"
+          : Math.abs(r) >= 0.5 ? "strong"
+          : Math.abs(r) >= 0.25 ? "moderate"
+          : "weak",
+        direction: r == null ? null : r >= 0 ? "positive" : "negative",
+        isCustom: false,
+      })
+    }
+  }
+
   return NextResponse.json({
     dowStats,
     focusDowStats,
@@ -407,6 +495,7 @@ export async function GET() {
     bedtimeStdDevMin: bedtimeStdDev != null ? Math.round(bedtimeStdDev) : null,
     correlations: richCorrelations,
     customCorrelations,
+    weatherCorrelations,
     dataPoints: allDateStrs.length,
   })
 }

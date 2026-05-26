@@ -54,7 +54,7 @@ export function WeatherWidget() {
           url.searchParams.set("latitude", String(coords.latitude))
           url.searchParams.set("longitude", String(coords.longitude))
           url.searchParams.set("current_weather", "true")
-          url.searchParams.set("daily", "weathercode,temperature_2m_max,temperature_2m_min")
+          url.searchParams.set("daily", "weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,uv_index_max")
           url.searchParams.set("timezone", "auto")
           url.searchParams.set("forecast_days", "4")
 
@@ -69,6 +69,21 @@ export function WeatherWidget() {
               max: Math.round(data.daily.temperature_2m_max[i]),
               min: Math.round(data.daily.temperature_2m_min[i]),
             })),
+          })
+          const today = new Date().toISOString().slice(0, 10)
+          fetch("/api/weather", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              date: today,
+              tempMaxC: data.daily.temperature_2m_max[0],
+              tempMinC: data.daily.temperature_2m_min[0],
+              precipMm: data.daily.precipitation_sum[0],
+              uvIndex: data.daily.uv_index_max[0],
+              weatherCode: data.daily.weathercode[0],
+              lat: coords.latitude,
+              lon: coords.longitude,
+            }),
           })
         } catch { /* silent */ }
         setLoading(false)
