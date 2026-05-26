@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
+import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 type NavItem = { href: string; label: string; emoji: string }
@@ -62,7 +63,7 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
   },
 ]
 
-export function Sidebar() {
+export function Sidebar({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname()
 
   return (
@@ -78,7 +79,16 @@ export function Sidebar() {
             💚
           </div>
         </div>
-        <span className="font-bold text-sm text-gradient">Emergenthealth</span>
+        <span className="font-bold text-sm text-gradient flex-1">Emergenthealth</span>
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="Close sidebar"
+            className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       {/* ── Nav ── */}
