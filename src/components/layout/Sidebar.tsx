@@ -16,7 +16,8 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
       { href: "/dashboard",       label: "Overview",   emoji: "🏠" },
       { href: "/dashboard/week",  label: "This Week",  emoji: "📅" },
       { href: "/dashboard/timeline", label: "Timeline", emoji: "🕐" },
-      { href: "/dashboard/stats", label: "Insights",   emoji: "💡" },
+      { href: "/dashboard/stats",    label: "Insights",  emoji: "💡" },
+      { href: "/dashboard/streaks", label: "Streaks",   emoji: "🔥" },
     ],
   },
   {
