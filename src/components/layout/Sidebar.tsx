@@ -26,6 +26,7 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
     emoji: "🌿",
     color: "text-green-400",
     items: [
+      { href: "/dashboard/checkin",       label: "Check-in",     emoji: "🌅" },
       { href: "/dashboard/health",       label: "Health",       emoji: "❤️" },
       { href: "/dashboard/weight",       label: "Weight",       emoji: "⚖️" },
       { href: "/dashboard/habits",       label: "Habits",       emoji: "✅" },

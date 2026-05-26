@@ -310,6 +310,20 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      {!hasCheckedInToday && (
+        <Link href="/dashboard/checkin" className="block">
+          <Card className="border-violet-500/30 bg-violet-500/5 hover:bg-violet-500/10 transition-colors cursor-pointer">
+            <CardContent className="pt-4 pb-3 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">🌅 Morning check-in</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Log your energy, mood, and focus for today — takes 10 seconds</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            </CardContent>
+          </Card>
+        </Link>
+      )}
+
       {/* ── today's schedule strip ── */}
       {todayEvents.length > 0 && (
         <div className="rounded-xl border bg-primary/5 border-primary/20 px-4 py-3">
