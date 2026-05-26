@@ -215,6 +215,8 @@ export async function GET() {
     { id: "book_5",         emoji: "🏛️", title: "Avid Reader",      desc: "Finish 5 books",                       unlocked: finishedBooks >= 5,           progress: Math.min(5, finishedBooks),        target: 5 },
     { id: "supplement_7",   emoji: "💊", title: "Consistent",       desc: "Log supplements via Oura 7 days",      unlocked: supplementDays >= 7,          progress: Math.min(7, supplementDays),       target: 7 },
     { id: "supplement_30",  emoji: "🌿", title: "Supplement Pro",   desc: "Log supplements via Oura 30 days",     unlocked: supplementDays >= 30,         progress: Math.min(30, supplementDays),      target: 30 },
+    { id: "github_7",       emoji: "💻", title: "Committed",        desc: "Code for 7 days",                      unlocked: githubCommitDays >= 7,        progress: Math.min(7, githubCommitDays),     target: 7 },
+    { id: "github_30",      emoji: "🤖", title: "Code Machine",     desc: "Code for 30 days",                     unlocked: githubCommitDays >= 30,       progress: Math.min(30, githubCommitDays),    target: 30 },
     { id: "level_5",        emoji: "🚀", title: "Level 5",          desc: "Reach level 5",                        unlocked: levelInfo.level >= 5,         progress: Math.min(5, levelInfo.level),      target: 5 },
     { id: "level_10",       emoji: "👑", title: "Level 10",         desc: "Reach level 10",                       unlocked: levelInfo.level >= 10,        progress: Math.min(10, levelInfo.level),     target: 10 },
   ]
@@ -222,10 +224,11 @@ export async function GET() {
   return NextResponse.json({
     xp: {
       total: totalXp,
-      byCategory: { habits: habitXp, sleep: sleepXp, weight: weightXp, mood: moodXp, journal: journalXp, intake: intakeXp, focus: focusXp, reading: readingXp, supplements: supplementXp },
+      byCategory: { habits: habitXp, sleep: sleepXp, weight: weightXp, mood: moodXp, journal: journalXp, intake: intakeXp, focus: focusXp, reading: readingXp, supplements: supplementXp, github: githubXp },
     },
     ...levelInfo,
     habitStreaks,
     achievements,
+    githubStreak,
   })
 }

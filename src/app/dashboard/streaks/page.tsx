@@ -29,6 +29,7 @@ interface StreaksData {
     byCategory: {
       habits: number; sleep: number; weight: number; mood: number
       journal: number; intake: number; focus: number; reading: number; supplements: number
+      github: number
     }
   }
   level: number
@@ -37,6 +38,7 @@ interface StreaksData {
   xpInLevel: number
   habitStreaks: HabitStreak[]
   achievements: Achievement[]
+  githubStreak: number
 }
 
 const XP_COLORS: Record<string, string> = {
@@ -49,12 +51,13 @@ const XP_COLORS: Record<string, string> = {
   focus:       "bg-red-500",
   reading:     "bg-pink-500",
   supplements: "bg-green-500",
+  github:      "bg-slate-500",
 }
 
 const XP_LABELS: Record<string, string> = {
   habits: "Habits", sleep: "Sleep", weight: "Weight", mood: "Mood",
   journal: "Journal", intake: "Intake", focus: "Focus", reading: "Reading",
-  supplements: "Supplements",
+  supplements: "Supplements", github: "GitHub",
 }
 
 function LevelBadge({ level }: { level: number }) {
@@ -92,7 +95,7 @@ export default function StreaksPage() {
   )
   if (!data) return null
 
-  const { xp, level, progress, xpToNext, habitStreaks, achievements } = data
+  const { xp, level, progress, xpToNext, habitStreaks, achievements, githubStreak } = data
   const total = xp.total
   const cats = Object.entries(xp.byCategory).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
 
@@ -153,7 +156,7 @@ export default function StreaksPage() {
       </div>
 
       {/* Habit streaks */}
-      {habitStreaks.length > 0 && (
+      {(habitStreaks.length > 0 || githubStreak > 0) && (
         <div>
           <h2 className="text-base font-semibold mb-3">Habit Streaks</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -177,6 +180,20 @@ export default function StreaksPage() {
                 </div>
               </div>
             ))}
+            {githubStreak > 0 && (
+              <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 bg-slate-500/10 border-2 border-slate-500/20">
+                  💻
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">GitHub Commits</p>
+                  <p className="text-xs text-muted-foreground">coding streak</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <FireStreak n={githubStreak} size="md" />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
