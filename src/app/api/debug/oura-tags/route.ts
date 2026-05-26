@@ -2,9 +2,9 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
-// Temporary diagnostic endpoint — returns the raw Oura enhanced_tag response
-// plus what we have stored in OuraTag, so we can see exactly what fields Oura sends.
-// Hit GET /api/debug/oura-tags to inspect.
+// Diagnostic endpoint — fetches both /enhanced_tag and /tag endpoints raw,
+// shows all fields and values so we can find where the tag name lives.
+// GET /api/debug/oura-tags
 
 export async function GET() {
   const session = await auth()
@@ -17,36 +17,48 @@ export async function GET() {
   const today = new Date().toISOString().slice(0, 10)
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
 
-  // Fetch raw from Oura — no field mapping, return everything as-is
-  let rawOura: unknown[] = []
-  let ouraError: string | null = null
-  try {
-    const url = new URL("https://api.ouraring.com/v2/usercollection/enhanced_tag")
-    url.searchParams.set("start_date", monthAgo)
-    url.searchParams.set("end_date", today)
-    const res = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${stored.accessToken}` },
-    })
-    const data = await res.json()
-    rawOura = (data.data ?? []).slice(0, 5) // first 5 entries only
-  } catch (e) {
-    ouraError = String(e)
+  async function fetchOura(endpoint: string) {
+    try {
+      const url = new URL(`https://api.ouraring.com/v2/usercollection/${endpoint}`)
+      url.searchParams.set("start_date", monthAgo)
+      url.searchParams.set("end_date", today)
+      const res = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${stored!.accessToken}` },
+      })
+      const data = await res.json()
+      return { status: res.status, items: (data.data ?? data ?? []).slice(0, 5), fullKeys: data }
+    } catch (e) {
+      return { status: 0, items: [], error: String(e), fullKeys: {} }
+    }
   }
 
-  // What we have stored
-  const storedRows = await prisma.$queryRaw<{ id: string; tagName: string | null; text: string | null; tags: string[] }[]>`
-    SELECT "id","tagName","text","tags"
-    FROM "OuraTag"
-    WHERE "userId" = ${userId}
-    ORDER BY "timestamp" DESC
-    LIMIT 5
+  const [enhancedTag, tagV2] = await Promise.all([
+    fetchOura("enhanced_tag"),
+    fetchOura("tag"),
+  ])
+
+  // Stored rows with all columns
+  const storedRows = await prisma.$queryRaw<Record<string, unknown>[]>`
+    SELECT * FROM "OuraTag" WHERE "userId" = ${userId} ORDER BY "timestamp" DESC LIMIT 5
+  `.catch(() => [])
+
+  const aliases = await prisma.$queryRaw<Record<string, unknown>[]>`
+    SELECT * FROM "TagAlias" WHERE "userId" = ${userId}
   `.catch(() => [])
 
   return NextResponse.json({
-    note: "First 5 raw entries from Oura API + first 5 stored rows. Check field names here.",
-    rawOuraFields: rawOura.length > 0 ? Object.keys(rawOura[0] as object) : [],
-    rawOura,
-    ouraError,
-    stored: storedRows,
+    enhanced_tag: {
+      httpStatus: enhancedTag.status,
+      topLevelKeys: Object.keys(enhancedTag.fullKeys),
+      fields: enhancedTag.items.length > 0 ? Object.keys(enhancedTag.items[0] as object) : [],
+      items: enhancedTag.items,
+    },
+    tag_endpoint: {
+      httpStatus: tagV2.status,
+      fields: tagV2.items.length > 0 ? Object.keys(tagV2.items[0] as object) : [],
+      items: tagV2.items,
+    },
+    stored_oura_tags: storedRows,
+    tag_aliases: aliases,
   })
 }
