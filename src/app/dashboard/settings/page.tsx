@@ -11,6 +11,7 @@ import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
 import { StravaManager } from "@/components/settings/StravaManager"
 import { GitHubManager } from "@/components/settings/GitHubManager"
+import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
 
 export default async function SettingsPage({
   searchParams,
@@ -63,6 +64,11 @@ export default async function SettingsPage({
     SELECT "username" FROM "GitHubProfile" WHERE "userId" = ${userId} LIMIT 1
   `.catch(() => [] as { username: string }[])
   const githubUsername = githubRows[0]?.username ?? null
+
+  const rescuetimeRows = await prisma.$queryRaw<{ userId: string }[]>`
+    SELECT "userId" FROM "RescuetimeKey" WHERE "userId" = ${userId} LIMIT 1
+  `.catch(() => [] as { userId: string }[])
+  const hasRescuetimeKey = rescuetimeRows.length > 0
 
   const isOuraConnected = !!ouraToken
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL ?? ""
@@ -198,6 +204,9 @@ export default async function SettingsPage({
 
       {/* GitHub */}
       <GitHubManager username={githubUsername} />
+
+      {/* RescueTime */}
+      <RescuetimeManager hasKey={hasRescuetimeKey} />
 
       {/* Personal goals */}
       <GoalsEditor />
