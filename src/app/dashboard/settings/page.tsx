@@ -16,6 +16,7 @@ import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
 import { LastfmManager } from "@/components/settings/LastfmManager"
 import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
 import { WidgetSetup } from "@/components/settings/WidgetSetup"
+import { DeleteAccount } from "@/components/settings/DeleteAccount"
 
 export default async function SettingsPage({
   searchParams,
@@ -251,6 +252,9 @@ export default async function SettingsPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* Danger zone */}
+      <DeleteAccount />
     </div>
   )
 }
