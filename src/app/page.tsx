@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import Link from "next/link"
+import { NewsletterForm } from "@/components/ui/NewsletterForm"
 
 export default async function HomePage() {
   const session = await auth()
@@ -220,6 +221,14 @@ export default async function HomePage() {
             >
               Get started →
             </Link>
+
+            <div className="mt-10 pt-8" style={{ borderTop: "1px solid rgba(99,102,241,0.1)" }}>
+              <p className="text-xs mb-4" style={{ color: "rgba(122,122,150,0.7)" }}>
+                Not ready yet? Get notified when new integrations launch.
+              </p>
+              <NewsletterForm />
+            </div>
+
             <p className="mt-6 text-xs" style={{ color: "rgba(122,122,150,0.6)" }}>
               <Link href="/privacy" className="hover:opacity-80 transition-opacity">Privacy policy</Link>
               {" · "}
