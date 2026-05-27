@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { BookOpen, Plus, Star, Trash2, Check, ChevronDown, ChevronUp } from "lucide-react"
+import { BookOpen, BookMarked, Plus, Star, Trash2, Check, ChevronDown, ChevronUp } from "lucide-react"
+import { EmptyState } from "@/components/ui/EmptyState"
 
 interface Book {
   id: string
@@ -314,13 +315,11 @@ export default function ReadingPage() {
           {[...Array(4)].map((_, i) => <div key={i} className="h-20 rounded-xl border bg-card animate-pulse" />)}
         </div>
       ) : books.length === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="py-14 text-center">
-            <BookOpen className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-sm font-medium mb-1">No books yet</p>
-            <p className="text-xs text-muted-foreground">Add your first book to start tracking</p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={<BookMarked className="h-10 w-10" />}
+          title="No books yet"
+          description="Add books you're reading or want to read."
+        />
       ) : (
         <>
           {reading.length > 0 && (

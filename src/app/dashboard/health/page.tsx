@@ -181,7 +181,7 @@ export default async function HealthPage() {
       ) : (
         <>
           {/* ── 7-day summary ── */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-10 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-10 gap-3">
             <SummaryCard icon={<Moon className="h-4 w-4 text-indigo-400" />} label="Sleep score"
               value={avgSleepScore != null ? `${Math.round(avgSleepScore)}` : "—"}
               good={avgSleepScore != null && avgSleepScore >= 85} target="goal 85+" />
@@ -214,11 +214,11 @@ export default async function HealthPage() {
           {latestLog && (
             <Card>
               <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base font-medium">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <CardTitle className="text-base font-medium min-w-0">
                     {format(latestLog.date, "EEEE, MMM d")} — latest
                   </CardTitle>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap shrink-0">
                     {latestLog.sleepScore != null && (
                       <Badge variant="secondary" className={`text-xs ${scoreColor(latestLog.sleepScore)}`}>
                         Sleep {latestLog.sleepScore}
@@ -388,7 +388,7 @@ export default async function HealthPage() {
           )}
 
           {/* ── charts ── */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-w-0">
 
             {chartData.some(d => d.sleepH != null) && (
               <Card className="lg:col-span-2">
@@ -397,7 +397,7 @@ export default async function HealthPage() {
                     <Moon className="h-4 w-4 text-indigo-400" /> Sleep — last {Math.min(logs.length, 30)} days
                   </CardTitle>
                 </CardHeader>
-                <CardContent><SleepChart data={chartData} /></CardContent>
+                <CardContent className="min-w-0 overflow-x-auto"><SleepChart data={chartData} /></CardContent>
               </Card>
             )}
 
@@ -532,9 +532,9 @@ export default async function HealthPage() {
             <CardContent className="p-0">
               <div className="divide-y">
                 {logs.slice(0, 10).map(log => (
-                  <div key={log.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-                    <span className="text-muted-foreground w-20 shrink-0">{format(log.date, "EEE MMM d")}</span>
-                    <div className="flex items-center gap-4 flex-1 justify-end flex-wrap">
+                  <div key={log.id} className="flex items-center justify-between px-4 py-2.5 text-sm min-w-0">
+                    <span className="text-muted-foreground w-20 shrink-0 text-xs">{format(log.date, "EEE MMM d")}</span>
+                    <div className="flex items-center gap-3 flex-1 justify-end flex-wrap min-w-0 overflow-hidden">
                       {log.readinessScore != null && (
                         <span className={`flex items-center gap-1 text-xs ${readinessColor(log.readinessScore)}`}>
                           <Shield className="h-3 w-3" />{log.readinessScore}
@@ -604,16 +604,16 @@ export default async function HealthPage() {
                 const mins = Math.floor((totalSec % 3600) / 60)
                 const duration = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`
                 return (
-                  <div key={activity.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <div key={activity.id} className="flex items-center justify-between px-4 py-2.5 text-sm min-w-0">
                     <span className="text-muted-foreground w-20 shrink-0 text-xs">
                       {format(new Date(activity.startDate), "EEE MMM d")}
                     </span>
-                    <div className="flex items-center gap-2 flex-1">
-                      <span>{emoji}</span>
-                      <span className="font-medium truncate">{activity.name ?? activity.type}</span>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="shrink-0">{emoji}</span>
+                      <span className="font-medium truncate min-w-0">{activity.name ?? activity.type}</span>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground shrink-0">
-                      {distKm && <span>{distKm}</span>}
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground shrink-0">
+                      {distKm && <span className="hidden sm:inline">{distKm}</span>}
                       <span>{duration}</span>
                     </div>
                   </div>

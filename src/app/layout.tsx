@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
 import { SessionProvider } from "next-auth/react"
 import { ThemeProvider } from "next-themes"
+import Link from "next/link"
+import { ServiceWorkerRegistration } from "@/components/layout/ServiceWorkerRegistration"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -49,6 +51,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
           <SessionProvider>{children}</SessionProvider>
         </ThemeProvider>
+        <ServiceWorkerRegistration />
+        <footer className="fixed bottom-0 right-0 z-50 p-3 flex gap-3 pointer-events-none">
+          <Link href="/privacy" className="pointer-events-auto text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors">Privacy</Link>
+          <Link href="/terms" className="pointer-events-auto text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors">Terms</Link>
+        </footer>
       </body>
     </html>
   )

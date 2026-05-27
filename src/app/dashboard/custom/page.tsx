@@ -346,14 +346,14 @@ export default function CustomMetricsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {/* Name + emoji */}
-            <div className="flex gap-3">
-              <div className="space-y-1 flex-1">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="space-y-1 flex-1 min-w-0">
                 <label className="text-xs text-muted-foreground">Name</label>
                 <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                   placeholder="e.g. Energy level, Headache, Alcohol units"
                   className="w-full h-9 px-3 text-sm rounded-lg border border-border bg-secondary/50 focus:outline-none focus:ring-1 focus:ring-primary/50" />
               </div>
-              <div className="space-y-1 w-28">
+              <div className="space-y-1 w-full sm:w-28">
                 <label className="text-xs text-muted-foreground">Unit (optional)</label>
                 <input value={form.unit} onChange={e => setForm(f => ({ ...f, unit: e.target.value }))}
                   placeholder="e.g. cups, mg"
@@ -364,7 +364,7 @@ export default function CustomMetricsPage() {
             {/* Type */}
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">Type</label>
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 {TYPES.map(t => (
                   <button key={t.id} onClick={() => setForm(f => ({ ...f, type: t.id as typeof f.type }))}
                     className={cn("flex-1 text-left px-3 py-2 rounded-lg border text-xs transition-colors",
@@ -379,12 +379,12 @@ export default function CustomMetricsPage() {
             {/* Scale range */}
             {form.type === "scale" && (
               <div className="flex gap-3">
-                <div className="space-y-1 w-24">
+                <div className="space-y-1 flex-1 sm:flex-none sm:w-24">
                   <label className="text-xs text-muted-foreground">Min</label>
                   <input type="number" value={form.minVal} onChange={e => setForm(f => ({ ...f, minVal: e.target.value }))}
                     className="w-full h-9 px-3 text-sm rounded-lg border border-border bg-secondary/50 focus:outline-none" />
                 </div>
-                <div className="space-y-1 w-24">
+                <div className="space-y-1 flex-1 sm:flex-none sm:w-24">
                   <label className="text-xs text-muted-foreground">Max</label>
                   <input type="number" value={form.maxVal} onChange={e => setForm(f => ({ ...f, maxVal: e.target.value }))}
                     className="w-full h-9 px-3 text-sm rounded-lg border border-border bg-secondary/50 focus:outline-none" />

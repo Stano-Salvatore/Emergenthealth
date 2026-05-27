@@ -54,7 +54,7 @@ export async function GET() {
   const since30 = subDays(new Date(), 29)
   const since90 = subDays(new Date(), 89)
 
-  const [logs, focusSessions, intakeLogs, moodLogs, customMetrics, customLogs, weatherLogs] = await Promise.all([
+  const [logs, focusSessions, intakeLogs, moodLogs, customMetrics, customLogs, weatherLogs, lastfmLogs, checkinLogs] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since90 } },
       orderBy: { date: "asc" },
@@ -94,6 +94,18 @@ export async function GET() {
         AND "date" >= (CURRENT_DATE - INTERVAL '90 days')::text
       ORDER BY "date" ASC
     `.catch(() => []),
+    prisma.$queryRaw<{date: string, listeningMin: number, tracksPlayed: number}[]>`
+      SELECT "date", "listeningMin", "tracksPlayed"
+      FROM "LastfmLog" WHERE "userId" = ${userId}
+      AND "date" >= ${format(since90, 'yyyy-MM-dd')}
+      ORDER BY "date" ASC
+    `.catch(() => [] as {date: string, listeningMin: number, tracksPlayed: number}[]),
+    prisma.$queryRaw<{date: string, energy: number, mood: number}[]>`
+      SELECT "date", "energy", "mood"
+      FROM "MorningCheckIn" WHERE "userId" = ${userId}
+      AND "date" >= ${format(since90, 'yyyy-MM-dd')}
+      ORDER BY "date" ASC
+    `.catch(() => [] as {date: string, energy: number, mood: number}[]),
   ])
 
   const recent30 = logs.filter(l => l.date >= since30)
@@ -395,6 +407,156 @@ export async function GET() {
     }
   }
 
+  const lastfmByDay: Record<string, number> = {}
+  for (const l of lastfmLogs) lastfmByDay[l.date] = l.listeningMin
+
+  const checkinEnergyByDay: Record<string, number> = {}
+  const checkinMoodByDay: Record<string, number> = {}
+  for (const c of checkinLogs) {
+    checkinEnergyByDay[c.date] = c.energy
+    checkinMoodByDay[c.date] = c.mood
+  }
+
+  const sleepScoreByDay: Record<string, number> = {}
+  const moodByDay: Record<string, number> = {}
+  const focusMinByDay: Record<string, number> = {}
+  for (const l of allLogs) {
+    const d = l.date.toISOString().split("T")[0]
+    if (l.sleepScore != null) sleepScoreByDay[d] = l.sleepScore
+  }
+  for (const m of moodLogs) {
+    const d = m.date.toISOString().split("T")[0]
+    moodByDay[d] = m.mood
+  }
+  for (const s of focusSessions) {
+    const d = format(new Date(s.endedAt), "yyyy-MM-dd")
+    focusMinByDay[d] = (focusMinByDay[d] ?? 0) + s.durationMin
+  }
+
+  const lastfmCorrelations: typeof richCorrelations = []
+
+  if (Object.keys(lastfmByDay).length >= 7) {
+    const lastfmDefs = [
+      {
+        key: "lastfm_listen_sleep",
+        label: "Listening → Sleep",
+        emoji: "🎵",
+        xFn: (d: string) => lastfmByDay[d] ?? null,
+        yFn: (d: string) => sleepScoreByDay[d] ?? null,
+        insightFn: (r: number) => r > 0.2
+          ? "More listening time links to better sleep scores"
+          : r < -0.2
+          ? "Heavy listening days link to lower sleep scores"
+          : "Listening time has little effect on your sleep",
+      },
+      {
+        key: "lastfm_listen_mood",
+        label: "Listening → Mood",
+        emoji: "🎵",
+        xFn: (d: string) => lastfmByDay[d] ?? null,
+        yFn: (d: string) => moodByDay[d] ?? null,
+        insightFn: (r: number) => r > 0.2
+          ? "More listening time links to better mood"
+          : r < -0.2
+          ? "Heavy listening days link to lower mood"
+          : "Listening time has little effect on your mood",
+      },
+      {
+        key: "lastfm_listen_focus",
+        label: "Listening → Focus",
+        emoji: "🎵",
+        xFn: (d: string) => lastfmByDay[d] ?? null,
+        yFn: (d: string) => focusMinByDay[d] ?? null,
+        insightFn: (r: number) => r > 0.2
+          ? "More listening time links to longer focus sessions"
+          : r < -0.2
+          ? "Heavy listening days link to less focus time"
+          : "Listening time has little effect on your focus",
+      },
+    ]
+
+    for (const def of lastfmDefs) {
+      const dates = allDateStrs.filter(d => lastfmByDay[d] != null)
+      const { r, n } = corr(def.xFn, def.yFn, dates)
+      lastfmCorrelations.push({
+        key: def.key,
+        label: def.label,
+        r,
+        n,
+        emoji: def.emoji,
+        insight: r != null ? def.insightFn(r) : `Need at least 5 paired data points (have ${n})`,
+        strength: r == null ? "insufficient"
+          : Math.abs(r) >= 0.5 ? "strong"
+          : Math.abs(r) >= 0.25 ? "moderate"
+          : "weak",
+        direction: r == null ? null : r >= 0 ? "positive" : "negative",
+        isCustom: false,
+      })
+    }
+  }
+
+  const checkinCorrelations: typeof richCorrelations = []
+
+  if (Object.keys(checkinEnergyByDay).length >= 5) {
+    const checkinDefs = [
+      {
+        key: "checkin_energy_sleep",
+        label: "Morning energy → Sleep score",
+        emoji: "🌅",
+        xFn: (d: string) => sleepScoreByDay[d] ?? null,
+        yFn: (d: string) => checkinEnergyByDay[d] ?? null,
+        insightFn: (r: number) => r > 0.2
+          ? "Better sleep predicts higher morning energy"
+          : r < -0.2
+          ? "Higher sleep scores don't reliably predict morning energy"
+          : "Sleep score and morning energy aren't strongly linked yet",
+      },
+      {
+        key: "checkin_energy_steps",
+        label: "Morning energy → Steps",
+        emoji: "🌅",
+        xFn: (d: string) => checkinEnergyByDay[d] ?? null,
+        yFn: (d: string) => get(d, "steps"),
+        insightFn: (r: number) => r > 0.2
+          ? "High-energy mornings lead to more steps during the day"
+          : r < -0.2
+          ? "Morning energy and steps appear inversely linked"
+          : "Morning energy doesn't strongly predict step count yet",
+      },
+      {
+        key: "checkin_mood_focus",
+        label: "Morning mood → Focus",
+        emoji: "🌅",
+        xFn: (d: string) => checkinMoodByDay[d] ?? null,
+        yFn: (d: string) => focusMinByDay[d] ?? null,
+        insightFn: (r: number) => r > 0.2
+          ? "Better morning mood links to longer focus sessions"
+          : r < -0.2
+          ? "Morning mood and focus time appear inversely linked"
+          : "Morning mood doesn't strongly predict focus time yet",
+      },
+    ]
+
+    for (const def of checkinDefs) {
+      const dates = allDateStrs.filter(d => checkinEnergyByDay[d] != null || checkinMoodByDay[d] != null)
+      const { r, n } = corr(def.xFn, def.yFn, dates)
+      checkinCorrelations.push({
+        key: def.key,
+        label: def.label,
+        r,
+        n,
+        emoji: def.emoji,
+        insight: r != null ? def.insightFn(r) : `Need at least 5 paired data points (have ${n})`,
+        strength: r == null ? "insufficient"
+          : Math.abs(r) >= 0.5 ? "strong"
+          : Math.abs(r) >= 0.25 ? "moderate"
+          : "weak",
+        direction: r == null ? null : r >= 0 ? "positive" : "negative",
+        isCustom: false,
+      })
+    }
+  }
+
   // ── Weather correlations ─────────────────────────────────────────────────────
   const weatherByDay: Record<string, { tempMaxC: number | null; precipMm: number | null; uvIndex: number | null }> = {}
   for (const w of weatherLogs) {
@@ -496,6 +658,8 @@ export async function GET() {
     correlations: richCorrelations,
     customCorrelations,
     weatherCorrelations,
+    lastfmCorrelations,
+    checkinCorrelations,
     dataPoints: allDateStrs.length,
   })
 }

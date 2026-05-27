@@ -10,6 +10,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
 import { CheckSquare, Flame, Plus, Check, Trash2, Trophy } from "lucide-react"
+import { EmptyState } from "@/components/ui/EmptyState"
 import { format, subDays } from "date-fns"
 
 interface Habit {
@@ -182,13 +183,12 @@ export default function HabitsPage() {
           ))}
         </div>
       ) : habits.length === 0 ? (
-        <Card className="border-dashed">
-          <CardContent className="py-16 text-center">
-            <CheckSquare className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">No habits yet</p>
-            <p className="text-sm text-muted-foreground mt-1">Click &quot;New Habit&quot; to start tracking</p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={<CheckSquare className="h-10 w-10" />}
+          title="No habits yet"
+          description="Add your first habit to start tracking streaks."
+          action={{ label: "New Habit", onClick: () => setFormOpen(true) }}
+        />
       ) : (
         <div className="space-y-3">
           {habits.map(habit => (
