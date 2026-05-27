@@ -1,19 +1,61 @@
 {
   "name": "Emergenthealth",
-  "short_name": "Emergenthealth",
-  "description": "Personal health, finances, and life dashboard",
+  "short_name": "Health",
+  "description": "Your personal health, fitness, and life dashboard",
   "start_url": "/dashboard",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0a0a0f",
+  "background_color": "#09090f",
   "theme_color": "#4f46e5",
-  "orientation": "portrait",
+  "orientation": "portrait-primary",
+  "categories": ["health", "fitness", "productivity"],
   "icons": [
     {
       "src": "/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
-  "categories": ["health", "finance", "productivity"]
+  "screenshots": [
+    {
+      "src": "/screenshot-wide.png",
+      "sizes": "1280x800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Health dashboard overview"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Morning Check-in",
+      "short_name": "Check-in",
+      "url": "/dashboard/checkin",
+      "description": "Log your morning energy and mood"
+    },
+    {
+      "name": "Log Mood",
+      "short_name": "Mood",
+      "url": "/dashboard/home",
+      "description": "Quick mood log"
+    }
+  ]
 }
