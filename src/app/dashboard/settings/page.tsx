@@ -228,6 +228,8 @@ export default async function SettingsPage({
       <Card>
         <CardContent className="pt-4 pb-4 space-y-4">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Data</p>
+          <DigestPreferences />
+          <div className="border-t border-border/50" />
           <DigestButton />
           <div className="border-t border-border/50" />
           <div className="flex items-center justify-between gap-4">
