@@ -14,6 +14,7 @@ import { StravaManager } from "@/components/settings/StravaManager"
 import { GitHubManager } from "@/components/settings/GitHubManager"
 import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
 import { LastfmManager } from "@/components/settings/LastfmManager"
+import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
 
 export default async function SettingsPage({
   searchParams,
@@ -223,6 +224,9 @@ export default async function SettingsPage({
 
       {/* Key manager (client component) */}
       <FitKeyManager initialKeys={keyRows} />
+
+      {/* Feedback inbox */}
+      <FeedbackInbox />
 
       {/* Data: digest + export */}
       <Card>

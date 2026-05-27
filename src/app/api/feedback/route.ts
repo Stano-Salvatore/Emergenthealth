@@ -1,0 +1,66 @@
+import { NextRequest, NextResponse } from "next/server"
+import { auth } from "@/auth"
+import { prisma } from "@/lib/prisma"
+
+async function ensureTable() {
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS "UserFeedback" (
+      "id" TEXT NOT NULL DEFAULT gen_random_uuid()::text,
+      "userId" TEXT NOT NULL,
+      "message" TEXT NOT NULL,
+      "type" TEXT NOT NULL DEFAULT 'suggestion',
+      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY ("id"),
+      CONSTRAINT "UserFeedback_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
+    )
+  `
+}
+
+export async function POST(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { message, type = "suggestion" } = await req.json()
+  if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { status: 400 })
+  if (message.length > 2000) return NextResponse.json({ error: "Too long" }, { status: 400 })
+
+  await ensureTable()
+
+  await prisma.$executeRaw`
+    INSERT INTO "UserFeedback" ("userId", "message", "type")
+    VALUES (${session.user.id}, ${message.trim()}, ${type})
+  `
+
+  return NextResponse.json({ ok: true })
+}
+
+export async function GET() {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  await ensureTable()
+
+  const rows = await prisma.$queryRaw<{ id: string; userId: string; message: string; type: string; createdAt: Date }[]>`
+    SELECT f.id, f."userId", f.message, f.type, f."createdAt", u.email, u.name
+    FROM "UserFeedback" f
+    JOIN "User" u ON u.id = f."userId"
+    ORDER BY f."createdAt" DESC
+    LIMIT 100
+  `
+
+  return NextResponse.json(rows)
+}
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { id } = await req.json()
+  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
+
+  await prisma.$executeRaw`
+    DELETE FROM "UserFeedback" WHERE id = ${id} AND "userId" = ${session.user.id}
+  `
+
+  return NextResponse.json({ ok: true })
+}
