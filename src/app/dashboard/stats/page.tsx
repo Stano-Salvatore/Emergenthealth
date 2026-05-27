@@ -42,6 +42,8 @@ interface StatsData {
   correlations: Correlation[]
   customCorrelations: Correlation[]
   weatherCorrelations: Correlation[]
+  lastfmCorrelations: Correlation[]
+  checkinCorrelations: Correlation[]
   dataPoints: number
 }
 
@@ -89,8 +91,8 @@ function CorrRow({ c }: { c: Correlation }) {
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
-        <span className="text-base leading-none">{c.emoji}</span>
-        <span className="text-xs font-medium flex-1">{c.label}</span>
+        <span className="text-base leading-none shrink-0">{c.emoji}</span>
+        <span className="text-xs font-medium flex-1 min-w-0 break-words">{c.label}</span>
         <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0",
           c.strength === "strong" ? "bg-green-500/15 text-green-400"
           : c.strength === "moderate" ? "bg-amber-500/15 text-amber-400"
@@ -127,7 +129,8 @@ export default function StatsPage() {
 
   const { dowStats, focusDowStats, trendData, bestSleepDay, bestStepsDay, bestReadinessDay, bestHrvDay,
     waterStreak, totalFocusMin30, stepStreak, sleepStreak, hrvTrend, hrvAvg7,
-    sleepConsistency, avgBedtime, bedtimeStdDevMin, correlations, customCorrelations, weatherCorrelations, dataPoints } = data
+    sleepConsistency, avgBedtime, bedtimeStdDevMin, correlations, customCorrelations, weatherCorrelations,
+    lastfmCorrelations, checkinCorrelations, dataPoints } = data
 
   const maxSleep = Math.max(...dowStats.map(d => d.avgSleep ?? 0), 9)
   const maxSteps = Math.max(...dowStats.map(d => d.avgSteps ?? 0), 8000)
@@ -148,17 +151,17 @@ export default function StatsPage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <BarChart3 className="h-6 w-6 text-primary" /> Insights
+            <BarChart3 className="h-6 w-6 text-primary shrink-0" /> Insights
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">
             Patterns from {dataPoints} days of data · last 90 days
           </p>
         </div>
         {needsMoreData && (
-          <div className="text-xs text-muted-foreground bg-secondary/60 rounded-lg px-3 py-2 max-w-[180px] text-right">
+          <div className="text-xs text-muted-foreground bg-secondary/60 rounded-lg px-3 py-2 max-w-[180px] text-right shrink-0">
             Correlations improve with 14+ days of data
           </div>
         )}
@@ -206,6 +209,28 @@ export default function StatsPage() {
               </div>
             </div>
           )}
+
+          {(lastfmCorrelations ?? []).length > 0 && (
+            <div className="pt-2 border-t border-border/40">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
+                🎵 Music
+              </p>
+              <div className="space-y-4">
+                {(lastfmCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
+              </div>
+            </div>
+          )}
+
+          {(checkinCorrelations ?? []).length > 0 && (
+            <div className="pt-2 border-t border-border/40">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
+                🌅 Morning
+              </p>
+              <div className="space-y-4">
+                {(checkinCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -217,7 +242,7 @@ export default function StatsPage() {
             {strongCorrelations.slice(0, 3).map(c => (
               <div key={c.key} className="flex items-start gap-2">
                 <span className="text-sm shrink-0">{c.emoji}</span>
-                <p className="text-sm leading-snug">{c.insight}</p>
+                <p className="text-sm leading-snug break-words min-w-0">{c.insight}</p>
               </div>
             ))}
           </div>

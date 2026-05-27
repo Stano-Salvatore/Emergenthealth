@@ -338,7 +338,7 @@ export default function FinancesPage() {
           <CardHeader className="pb-2 pt-4">
             <CardTitle className="text-sm">6-month spending trend</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="min-w-0">
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={monthlyTrend.map(m => ({
                 ...m,
@@ -414,8 +414,11 @@ export default function FinancesPage() {
                       <span className="text-base shrink-0">{meta.emoji}</span>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm truncate">{t.payee ?? "Unknown"}</p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-muted-foreground hidden sm:block">
                           {t.category ?? "—"} · {new Date(t.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                        </p>
+                        <p className="text-xs text-muted-foreground sm:hidden">
+                          {new Date(t.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                         </p>
                       </div>
                       <span className={`text-sm font-medium shrink-0 ${t.amount < 0 ? "text-red-400" : "text-green-400"}`}>
