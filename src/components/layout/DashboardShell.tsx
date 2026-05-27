@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Menu } from "lucide-react"
 import { Sidebar } from "./Sidebar"
 import { FeedbackButton } from "@/components/dashboard/FeedbackButton"
+import { BottomNav } from "./BottomNav"
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "sidebar-open"
@@ -75,12 +76,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <Menu className="h-4 w-4 text-muted-foreground" />
         </button>
 
-        <div className={cn("p-6 transition-[padding] duration-300", !open && "lg:pl-6 pl-14")}>
+        <div className={cn("p-6 pb-16 lg:pb-6 transition-[padding] duration-300", !open && "lg:pl-6 pl-14")}>
           {children}
         </div>
       </main>
 
       <FeedbackButton />
+      <BottomNav />
     </div>
   )
 }
