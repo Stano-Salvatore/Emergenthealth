@@ -24,6 +24,7 @@ import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
 import { QuickHabits } from "@/components/dashboard/QuickHabits"
 import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
+import { InsightCard } from "@/components/dashboard/InsightCard"
 
 const STEP_GOAL = 8_000
 const SLEEP_GOAL_H = 7
@@ -327,6 +328,8 @@ export default async function DashboardPage() {
       )}
 
       <PlaceDetector />
+
+      <InsightCard />
 
       {/* ── today's schedule strip ── */}
       {todayEvents.length > 0 && (
