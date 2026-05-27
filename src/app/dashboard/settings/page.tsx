@@ -14,6 +14,9 @@ import { StravaManager } from "@/components/settings/StravaManager"
 import { GitHubManager } from "@/components/settings/GitHubManager"
 import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
 import { LastfmManager } from "@/components/settings/LastfmManager"
+import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
+import { WidgetSetup } from "@/components/settings/WidgetSetup"
+import { DeleteAccount } from "@/components/settings/DeleteAccount"
 
 export default async function SettingsPage({
   searchParams,
@@ -224,6 +227,12 @@ export default async function SettingsPage({
       {/* Key manager (client component) */}
       <FitKeyManager initialKeys={keyRows} />
 
+      {/* Home screen & lock screen widgets */}
+      <WidgetSetup appUrl={appUrl} />
+
+      {/* Feedback inbox */}
+      <FeedbackInbox />
+
       {/* Data: digest + export */}
       <Card>
         <CardContent className="pt-4 pb-4 space-y-4">
@@ -243,6 +252,9 @@ export default async function SettingsPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* Danger zone */}
+      <DeleteAccount />
     </div>
   )
 }

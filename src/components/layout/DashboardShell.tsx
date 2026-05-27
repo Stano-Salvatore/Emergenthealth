@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Menu } from "lucide-react"
 import { Sidebar } from "./Sidebar"
+import { FeedbackButton } from "@/components/dashboard/FeedbackButton"
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "sidebar-open"
@@ -78,6 +79,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
+
+      <FeedbackButton />
     </div>
   )
 }
