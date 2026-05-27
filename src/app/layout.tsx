@@ -17,14 +17,30 @@ const geistMono = Geist_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "Emergenthealth Dashboard",
-  description: "Personal health, finances, and life dashboard",
+  title: {
+    default: "Emergenthealth — Your health, finally in one place",
+    template: "%s | Emergenthealth",
+  },
+  description: "Connect your wearables, apps, and habits. Oura Ring, YNAB, Strava, GitHub and more — all in one beautiful dashboard.",
   manifest: "/manifest.json",
+  openGraph: {
+    type: "website",
+    siteName: "Emergenthealth",
+    title: "Emergenthealth — Your health, finally in one place",
+    description: "Connect your wearables, apps, and habits. See patterns you'd never notice alone.",
+    url: "https://emergenthealth.vercel.app",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Emergenthealth — Your health, finally in one place",
+    description: "Connect your wearables, apps, and habits. See patterns you'd never notice alone.",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "Emergenthealth",
   },
+  keywords: ["health dashboard", "oura ring", "habit tracking", "health analytics", "YNAB", "strava", "sleep tracking"],
   other: {
     "mobile-web-app-capable": "yes",
   },
