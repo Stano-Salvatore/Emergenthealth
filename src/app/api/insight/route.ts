@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import Anthropic from "@anthropic-ai/sdk"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 const INSIGHT_KEY = new Date("0002-01-01")
 
@@ -137,6 +138,14 @@ export async function POST() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
+
+  const rl = checkRateLimit(userId, "insight", 5, 24 * 60 * 60 * 1000) // 5/day
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded for insight regeneration.", resetAt: rl.resetAt },
+      { status: 429 }
+    )
+  }
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ bullets: [], error: "no_key" })

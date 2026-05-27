@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { streamChatResponse } from "@/lib/claude"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -11,6 +12,14 @@ export async function POST(req: NextRequest) {
   if (!message) return NextResponse.json({ error: "message is required" }, { status: 400 })
 
   const userId = session.user.id
+
+  const rl = checkRateLimit(userId, "chat", 20, 60 * 60 * 1000) // 20/hr
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Rate limit exceeded. Try again later.", resetAt: rl.resetAt },
+      { status: 429 }
+    )
+  }
 
   await prisma.chatMessage.create({ data: { userId, role: "user", content: message } })
 
