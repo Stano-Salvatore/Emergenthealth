@@ -9,9 +9,11 @@ import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
 import { YnabManager } from "@/components/settings/YnabManager"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
+import { DigestPreferences } from "@/components/settings/DigestPreferences"
 import { StravaManager } from "@/components/settings/StravaManager"
 import { GitHubManager } from "@/components/settings/GitHubManager"
 import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
+import { LastfmManager } from "@/components/settings/LastfmManager"
 
 export default async function SettingsPage({
   searchParams,
@@ -69,6 +71,11 @@ export default async function SettingsPage({
     SELECT "userId" FROM "RescuetimeKey" WHERE "userId" = ${userId} LIMIT 1
   `.catch(() => [] as { userId: string }[])
   const hasRescuetimeKey = rescuetimeRows.length > 0
+
+  const lastfmRows = await prisma.$queryRaw<{ username: string }[]>`
+    SELECT "username" FROM "LastfmKey" WHERE "userId" = ${userId} LIMIT 1
+  `.catch(() => [] as { username: string }[])
+  const lastfmUsername = lastfmRows[0]?.username ?? null
 
   const isOuraConnected = !!ouraToken
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL ?? ""
@@ -207,6 +214,9 @@ export default async function SettingsPage({
 
       {/* RescueTime */}
       <RescuetimeManager hasKey={hasRescuetimeKey} />
+
+      {/* Last.fm */}
+      <LastfmManager />
 
       {/* Personal goals */}
       <GoalsEditor />
