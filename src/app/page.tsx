@@ -1,10 +1,198 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
+import Link from "next/link"
 
 export default async function HomePage() {
   const session = await auth()
   if (session?.user) {
     redirect("/dashboard")
   }
-  redirect("/signin")
+
+  return (
+    <div className="min-h-screen" style={{ background: "#09090f", color: "#f2f2fa" }}>
+      {/* Background orbs */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+        <div
+          className="absolute -top-40 -left-40 w-[700px] h-[700px] rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(99,102,241,0.06) 0%, transparent 70%)" }}
+        />
+        <div
+          className="absolute top-1/3 -right-60 w-[600px] h-[600px] rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(99,102,241,0.05) 0%, transparent 70%)" }}
+        />
+        <div
+          className="absolute bottom-0 left-1/3 w-[500px] h-[500px] rounded-full"
+          style={{ background: "radial-gradient(circle, rgba(99,102,241,0.04) 0%, transparent 70%)" }}
+        />
+      </div>
+
+      <div className="relative z-10">
+        {/* Nav */}
+        <nav className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
+          <span className="text-lg font-semibold tracking-tight" style={{ color: "#6366f1" }}>
+            ◉ Emergenthealth
+          </span>
+          <Link
+            href="/signin"
+            className="text-sm transition-colors hover:opacity-80"
+            style={{ color: "#7a7a96" }}
+          >
+            Sign in
+          </Link>
+        </nav>
+
+        {/* Hero */}
+        <section className="max-w-6xl mx-auto px-6 pt-20 pb-28 text-center">
+          <h1 className="text-5xl sm:text-6xl font-bold tracking-tight leading-tight mb-6" style={{ color: "#f2f2fa" }}>
+            Your health, finally<br />in one place.
+          </h1>
+          <p className="text-xl max-w-2xl mx-auto mb-10" style={{ color: "#7a7a96" }}>
+            Connect your wearables, apps, and habits. See patterns you&apos;d never notice alone.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <Link
+              href="/signin"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-opacity hover:opacity-90"
+              style={{ background: "#6366f1", color: "#ffffff" }}
+            >
+              Get started free →
+            </Link>
+            <a
+              href="#features"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium border transition-colors hover:opacity-80"
+              style={{ borderColor: "rgba(99,102,241,0.3)", color: "#7a7a96" }}
+            >
+              See what it tracks ↓
+            </a>
+          </div>
+        </section>
+
+        {/* Features */}
+        <section id="features" className="max-w-6xl mx-auto px-6 pb-28">
+          <h2 className="text-center text-2xl font-semibold mb-12" style={{ color: "#f2f2fa" }}>
+            Everything about you, connected
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[
+              {
+                emoji: "🩺",
+                name: "Health metrics",
+                desc: "Sleep, HRV, readiness, and steps from Oura Ring, auto-synced daily.",
+              },
+              {
+                emoji: "📊",
+                name: "Smart correlations",
+                desc: "Discover if rain affects your mood or bad sleep tanks your steps.",
+              },
+              {
+                emoji: "💰",
+                name: "Finances",
+                desc: "YNAB spending trends, category breakdowns, and monthly patterns.",
+              },
+              {
+                emoji: "🤖",
+                name: "AI insights",
+                desc: "Weekly digest and daily bullet points from Claude, based on your actual data.",
+              },
+              {
+                emoji: "🏃",
+                name: "Activities",
+                desc: "Strava workouts, GPS tracks, coding streaks, and music listening.",
+              },
+              {
+                emoji: "🎯",
+                name: "Habits & goals",
+                desc: "Daily habit streaks, custom trackers, and a morning check-in ritual.",
+              },
+            ].map(({ emoji, name, desc }) => (
+              <div
+                key={name}
+                className="rounded-2xl p-6"
+                style={{
+                  border: "1px solid rgba(32,31,50,0.8)",
+                  background: "rgba(16,15,26,0.3)",
+                }}
+              >
+                <div className="text-3xl mb-3">{emoji}</div>
+                <h3 className="font-semibold mb-2 text-base" style={{ color: "#f2f2fa" }}>
+                  {name}
+                </h3>
+                <p className="text-sm leading-relaxed" style={{ color: "#7a7a96" }}>
+                  {desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Integrations strip */}
+        <section className="max-w-6xl mx-auto px-6 pb-28">
+          <h2 className="text-center text-sm font-medium uppercase tracking-widest mb-8" style={{ color: "#7a7a96" }}>
+            Works with what you already use
+          </h2>
+          <div className="flex flex-wrap justify-center gap-x-8 gap-y-4">
+            {[
+              { emoji: "💍", label: "Oura Ring" },
+              { emoji: "📅", label: "Google Calendar" },
+              { emoji: "🚴", label: "Strava" },
+              { emoji: "💵", label: "YNAB" },
+              { emoji: "🎵", label: "Last.fm" },
+              { emoji: "⏱️", label: "RescueTime" },
+              { emoji: "🐙", label: "GitHub" },
+              { emoji: "📍", label: "GPSLogger" },
+            ].map(({ emoji, label }) => (
+              <span
+                key={label}
+                className="text-sm flex items-center gap-1.5"
+                style={{ color: "#7a7a96" }}
+              >
+                <span>{emoji}</span>
+                <span>{label}</span>
+              </span>
+            ))}
+          </div>
+        </section>
+
+        {/* CTA */}
+        <section className="max-w-6xl mx-auto px-6 pb-28 text-center">
+          <div
+            className="rounded-3xl px-8 py-16 mx-auto max-w-2xl"
+            style={{
+              border: "1px solid rgba(99,102,241,0.15)",
+              background: "rgba(99,102,241,0.04)",
+            }}
+          >
+            <h2 className="text-3xl font-bold mb-4 tracking-tight" style={{ color: "#f2f2fa" }}>
+              Ready to understand yourself better?
+            </h2>
+            <p className="text-base mb-8" style={{ color: "#7a7a96" }}>
+              Sign in with Google to get started. Free, private, your data stays yours.
+            </p>
+            <Link
+              href="/signin"
+              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-sm font-medium transition-opacity hover:opacity-90"
+              style={{ background: "#6366f1", color: "#ffffff" }}
+            >
+              Get started →
+            </Link>
+            <p className="mt-6 text-xs" style={{ color: "rgba(122,122,150,0.6)" }}>
+              <Link href="/privacy" className="hover:opacity-80 transition-opacity">Privacy policy</Link>
+              {" · "}
+              <Link href="/terms" className="hover:opacity-80 transition-opacity">Terms of service</Link>
+            </p>
+          </div>
+        </section>
+
+        {/* Footer */}
+        <footer className="max-w-6xl mx-auto px-6 pb-8 text-center">
+          <p className="text-xs" style={{ color: "rgba(122,122,150,0.4)" }}>
+            © 2026 Emergenthealth{" · "}
+            <Link href="/privacy" className="hover:opacity-80 transition-opacity">Privacy</Link>
+            {" · "}
+            <Link href="/terms" className="hover:opacity-80 transition-opacity">Terms</Link>
+          </p>
+        </footer>
+      </div>
+    </div>
+  )
 }
