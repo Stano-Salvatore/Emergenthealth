@@ -15,6 +15,7 @@ import { GitHubManager } from "@/components/settings/GitHubManager"
 import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
 import { LastfmManager } from "@/components/settings/LastfmManager"
 import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
+import { WidgetSetup } from "@/components/settings/WidgetSetup"
 
 export default async function SettingsPage({
   searchParams,
@@ -224,6 +225,9 @@ export default async function SettingsPage({
 
       {/* Key manager (client component) */}
       <FitKeyManager initialKeys={keyRows} />
+
+      {/* Home screen & lock screen widgets */}
+      <WidgetSetup appUrl={appUrl} />
 
       {/* Feedback inbox */}
       <FeedbackInbox />
