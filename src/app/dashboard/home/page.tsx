@@ -20,10 +20,12 @@ import { AC_MODES, FAN_SPEEDS } from "@/lib/ewpe-smart"
 const PLUG_CATS     = ["cz", "pc", "kg", "socket"]
 const LIGHT_CATS    = ["dj", "tgq", "tgkg", "xdd", "fwd", "dc", "light"]
 const ROBOT_CATS    = ["sweep_robot", "mop", "robot"]
+const SENSOR_CATS   = ["wsdcg", "ldcg", "zwjcy", "ms", "hjjcy", "ywbj", "co2bj", "wfsd"]
 
-function isPlug(d: TuyaDevice)  { return PLUG_CATS.some((c)  => d.category?.includes(c)) }
-function isLight(d: TuyaDevice) { return LIGHT_CATS.some((c) => d.category?.includes(c)) }
-function isRobot(d: TuyaDevice) { return ROBOT_CATS.some((c) => d.category?.includes(c)) }
+function isPlug(d: TuyaDevice)   { return PLUG_CATS.some((c)   => d.category?.includes(c)) }
+function isLight(d: TuyaDevice)  { return LIGHT_CATS.some((c)  => d.category?.includes(c)) }
+function isRobot(d: TuyaDevice)  { return ROBOT_CATS.some((c)  => d.category?.includes(c)) }
+function isSensor(d: TuyaDevice) { return SENSOR_CATS.some((c) => d.category?.includes(c)) }
 
 function getStatus(d: TuyaDevice, code: string) {
   return d.status?.find((s) => s.code === code)?.value
@@ -185,6 +187,45 @@ function RobotCard({ device, onControl }: {
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+// ─── Tuya Sensor card (temp/humidity, e.g. RETLUX RSH 309) ──────────────────
+
+function SensorCard({ device }: { device: TuyaDevice }) {
+  // Temperature: "va_temperature" (0.1°C units) or "temp_current"
+  const rawTemp  = getStatus(device, "va_temperature") as number ?? getStatus(device, "temp_current") as number
+  // Humidity: "va_humidity" (0.1% units) or "humidity_value"
+  const rawHum   = getStatus(device, "va_humidity") as number ?? getStatus(device, "humidity_value") as number
+  const battery  = getStatus(device, "battery_percentage") as number ?? getStatus(device, "battery") as number
+
+  const temp = rawTemp != null ? rawTemp / 10 : null
+  const hum  = rawHum  != null ? rawHum  / 10 : null
+
+  return (
+    <div className={`p-4 rounded-xl border transition-all ${
+      device.online ? "border-sky-400/30 bg-sky-400/5" : "border-border bg-secondary/50 opacity-50"
+    }`}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Thermometer className="h-4 w-4 text-sky-400" />
+          <span className="text-sm font-medium truncate max-w-[160px]">{device.name}</span>
+        </div>
+        {battery != null && (
+          <span className="text-xs text-muted-foreground">{battery}%</span>
+        )}
+      </div>
+      <div className="flex items-end gap-4 mt-1">
+        {temp != null
+          ? <p className="text-2xl font-bold">{temp.toFixed(1)}<span className="text-sm font-normal text-muted-foreground">°C</span></p>
+          : <p className="text-2xl font-bold text-muted-foreground">—</p>
+        }
+        {hum != null && (
+          <p className="text-sm text-muted-foreground mb-0.5">{hum.toFixed(0)}%<span className="text-xs ml-0.5">RH</span></p>
+        )}
+      </div>
+      {!device.online && <p className="text-xs text-muted-foreground mt-1">Offline</p>}
+    </div>
   )
 }
 
@@ -588,7 +629,7 @@ function SetupHint() {
               <p>TUYA_CLIENT_SECRET=...</p>
               <p>TUYA_REGION=eu</p>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Register free at iot.tuya.com → create project → link Smart Life devices</p>
+            <p className="text-xs text-muted-foreground mt-1">Register free at iot.tuya.com → create project → link Smart Life devices. iQtech WS020 and RETLUX RSH 309 are Smart Life compatible — just add them in the Smart Life app first.</p>
           </div>
           <div>
             <p className="text-xs font-medium mb-1">Sinclair AC / EWPE Smart</p>
@@ -678,7 +719,8 @@ export default function HomePage() {
   const plugs       = tuyaDevices.filter(isPlug)
   const lights      = tuyaDevices.filter(isLight)
   const robots      = tuyaDevices.filter(isRobot)
-  const hasAny      = rfBridges.length + thermostats.length + plugs.length + lights.length + robots.length + acDevices.length > 0 || rowenta != null
+  const sensors     = tuyaDevices.filter(isSensor)
+  const hasAny      = rfBridges.length + thermostats.length + plugs.length + lights.length + robots.length + sensors.length + acDevices.length > 0 || rowenta != null
 
   return (
     <div className="space-y-6">
@@ -717,6 +759,17 @@ export default function HomePage() {
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {lights.map((d) => <LightCard key={d.id} device={d} onControl={handleTuya} />)}
+          </div>
+        </div>
+      )}
+
+      {sensors.length > 0 && (
+        <div>
+          <h2 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+            <Thermometer className="h-4 w-4" /> Sensors
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            {sensors.map((d) => <SensorCard key={d.id} device={d} />)}
           </div>
         </div>
       )}

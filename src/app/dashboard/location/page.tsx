@@ -1,10 +1,120 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
-import { format, parseISO, subDays, addDays } from "date-fns"
-import { ChevronLeft, ChevronRight, MapPin, Clock, Zap, Navigation, RefreshCw } from "lucide-react"
+import { format, parseISO, subDays, addDays, formatDistanceToNow } from "date-fns"
+import { ChevronLeft, ChevronRight, MapPin, Clock, Zap, Navigation, RefreshCw, Trash2, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { trackToSvgPath } from "@/lib/gpx"
+
+interface CheckIn {
+  id: string
+  place: string
+  emoji: string
+  note: string | null
+  checkedAt: string
+}
+
+function PlacesSection() {
+  const [checkins, setCheckins] = useState<CheckIn[]>([])
+  const [loading, setLoading] = useState(true)
+  const [newPlace, setNewPlace] = useState("")
+  const [adding, setAdding] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+
+  useEffect(() => {
+    fetch("/api/checkins?limit=30")
+      .then(r => r.json())
+      .then(data => setCheckins(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  async function handleAdd() {
+    if (!newPlace.trim()) return
+    setAdding(true)
+    try {
+      const res = await fetch("/api/checkins", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ place: newPlace.trim(), emoji: "📍" }),
+      })
+      if (res.ok) {
+        const created: CheckIn = await res.json()
+        setCheckins(prev => [created, ...prev])
+        setNewPlace("")
+        setShowAdd(false)
+      }
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setCheckins(prev => prev.filter(c => c.id !== id))
+    await fetch("/api/checkins", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    })
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">📍 Places visited</p>
+        <Button size="sm" variant="ghost" className="h-7 text-xs gap-1" onClick={() => setShowAdd(v => !v)}>
+          <Plus className="h-3.5 w-3.5" /> Add
+        </Button>
+      </div>
+
+      {showAdd && (
+        <div className="flex gap-2 mb-3">
+          <Input
+            value={newPlace}
+            onChange={e => setNewPlace(e.target.value)}
+            placeholder="Place name…"
+            className="h-8 text-sm"
+            onKeyDown={e => e.key === "Enter" && handleAdd()}
+            autoFocus
+          />
+          <Button size="sm" className="h-8 shrink-0" onClick={handleAdd} disabled={adding || !newPlace.trim()}>
+            Save
+          </Button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-sm text-muted-foreground">Loading…</div>
+      ) : checkins.length === 0 ? (
+        <div className="rounded-xl border border-dashed bg-card/30 p-6 text-center">
+          <MapPin className="h-6 w-6 text-muted-foreground/30 mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">No places logged yet</p>
+          <p className="text-xs text-muted-foreground/60 mt-1">The app auto-detects your location when you open the dashboard</p>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {checkins.map(c => (
+            <div key={c.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-secondary/40 transition-colors group">
+              <span className="text-lg shrink-0">{c.emoji}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate">{c.place}</p>
+                <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(c.checkedAt), { addSuffix: true })}</p>
+              </div>
+              {c.note && <p className="text-xs text-muted-foreground truncate max-w-[120px]">{c.note}</p>}
+              <button
+                onClick={() => handleDelete(c.id)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-400 p-1 shrink-0"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 type TrackData = {
   points: { lat: number; lon: number }[]
@@ -180,6 +290,8 @@ export default function LocationPage() {
           </div>
         </div>
       )}
+
+      <PlacesSection />
     </div>
   )
 }

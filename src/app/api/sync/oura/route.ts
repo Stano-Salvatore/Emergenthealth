@@ -123,15 +123,6 @@ export async function POST() {
       `
       await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "OuraTag_userId_day_idx" ON "OuraTag"("userId","day")`
       await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "tagName" TEXT`
-      await prisma.$executeRaw`
-        CREATE TABLE IF NOT EXISTS "TagAlias" (
-          "userId"      TEXT NOT NULL,
-          "tagTypeUuid" TEXT NOT NULL,
-          "name"        TEXT NOT NULL,
-          PRIMARY KEY ("userId", "tagTypeUuid")
-        )
-      `
-
       const tagData = await getOuraTags(userId, startDate, endDate)
       for (const t of tagData) {
         const tagsLiteral = `{${t.tags.join(",")}}`
@@ -149,17 +140,24 @@ export async function POST() {
       // overriding aliases the user already set manually via the rename modal.
       const uuidNameMap = new Map<string, string>()
       for (const t of tagData) {
-        const uuid = t.tags[0]
-        if (uuid && t.tagName && !uuidNameMap.has(uuid)) {
-          uuidNameMap.set(uuid, t.tagName)
+        if (t.uuid && t.tagName && !uuidNameMap.has(t.uuid)) {
+          uuidNameMap.set(t.uuid, t.tagName)
         }
       }
-      for (const [uuid, name] of uuidNameMap.entries()) {
-        await prisma.$executeRaw`
-          INSERT INTO "TagAlias"("userId","tagTypeUuid","name")
-          VALUES (${userId}, ${uuid}, ${name})
-          ON CONFLICT DO NOTHING
+      if (uuidNameMap.size > 0) {
+        const existing = await prisma.$queryRaw<{ tagTypeUuid: string }[]>`
+          SELECT "tagTypeUuid" FROM "TagAlias" WHERE "userId" = ${userId}
         `
+        const existingUuids = new Set(existing.map(r => r.tagTypeUuid))
+        for (const [uuid, name] of uuidNameMap.entries()) {
+          if (!existingUuids.has(uuid)) {
+            await prisma.$executeRaw`
+              INSERT INTO "TagAlias"("userId","tagTypeUuid","name")
+              VALUES (${userId}, ${uuid}, ${name})
+              ON CONFLICT DO NOTHING
+            `
+          }
+        }
       }
 
       tagsSynced = tagData.length

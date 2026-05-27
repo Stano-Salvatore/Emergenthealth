@@ -18,8 +18,9 @@ function stddev(arr: number[]) {
   return Math.sqrt(arr.reduce((a, x) => a + (x - m) ** 2, 0) / arr.length)
 }
 
+// Pearson correlation: returns null if insufficient data
 function pearson(pairs: [number, number][]): number | null {
-  if (pairs.length < 7) return null
+  if (pairs.length < 5) return null
   const xs = pairs.map(p => p[0])
   const ys = pairs.map(p => p[1])
   const n = pairs.length
@@ -33,6 +34,7 @@ function pearson(pairs: [number, number][]): number | null {
   return den === 0 ? null : Math.max(-1, Math.min(1, num / den))
 }
 
+// Linear regression slope (for trend direction)
 function slope(ys: number[]): number {
   const n = ys.length
   if (n < 3) return 0
@@ -44,56 +46,15 @@ function slope(ys: number[]): number {
   return (n * sxy - sx * sy) / (n * sx2 - sx ** 2)
 }
 
-// Split pairs at median of X, return avg Y for each half
-function medianSplit(pairs: [number, number][]) {
-  if (pairs.length < 7) return null
-  const sorted = [...pairs].sort((a, b) => a[0] - b[0])
-  const mid = Math.floor(sorted.length / 2)
-  const lowY = sorted.slice(0, mid).map(p => p[1])
-  const highY = sorted.slice(mid).map(p => p[1])
-  const median = sorted[mid][0]
-  return {
-    median,
-    lowAvg: lowY.reduce((a, b) => a + b, 0) / lowY.length,
-    highAvg: highY.reduce((a, b) => a + b, 0) / highY.length,
-  }
-}
-
-function fmt(v: number, unit: string): string {
-  if (unit === "h") return `${(v / 60).toFixed(1)}h`
-  if (unit === "score") return Math.round(v).toString()
-  if (unit === "steps") return Math.round(v).toLocaleString()
-  if (unit === "ms") return `${Math.round(v)}ms`
-  if (unit === "ml") return `${Math.round(v)}ml`
-  if (unit === "mood") return ["", "😞", "😕", "😐", "🙂", "😊"][Math.round(v)] ?? Math.round(v).toString()
-  if (unit === "%") return `${Math.round(v)}%`
-  return Math.round(v).toString()
-}
-
-function buildInsight(
-  aLabel: string,
-  bLabel: string,
-  bUnit: string,
-  lag: number,
-  r: number,
-  split: ReturnType<typeof medianSplit>,
-): string {
-  const lagStr = lag === 1 ? " the next day" : lag === -1 ? " the previous day" : ""
-  const when = split ? `When ${aLabel} is high: ${fmt(split.highAvg, bUnit)}${lagStr} vs ${fmt(split.lowAvg, bUnit)} when low.` : ""
-  if (Math.abs(r) < 0.2) return `Weak link between ${aLabel} and ${bLabel}${lagStr}. ${when}`
-  const dir = r > 0 ? "higher" : "lower"
-  return `Higher ${aLabel} → ${dir} ${bLabel}${lagStr}. ${when}`
-}
-
 export async function GET() {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const userId = session.user!.id!
+  const userId = session.user.id
 
   const since30 = subDays(new Date(), 29)
   const since90 = subDays(new Date(), 89)
 
-  const [logs, focusSessions, intakeLogs, moodLogs, habitCompletions, habits] = await Promise.all([
+  const [logs, focusSessions, intakeLogs, moodLogs, customMetrics, customLogs, weatherLogs] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since90 } },
       orderBy: { date: "asc" },
@@ -101,29 +62,38 @@ export async function GET() {
         date: true, sleepDuration: true, sleepScore: true, steps: true,
         readinessScore: true, activityScore: true, hrv: true,
         sleepStart: true, sleepEnd: true, sleepEfficiency: true,
-        caloriesBurned: true, activeMinutes: true, stressHigh: true,
+        caloriesBurned: true, activeMinutes: true,
       },
     }),
     prisma.focusSession.findMany({
-      where: { userId, endedAt: { gte: since90 }, type: "focus" },
+      where: { userId, endedAt: { gte: since30 }, type: "focus" },
       select: { durationMin: true, endedAt: true },
     }).catch(() => [] as { durationMin: number; endedAt: Date }[]),
     prisma.intakeLog.findMany({
-      where: { userId, loggedAt: { gte: since90 } },
-      select: { amountMl: true, loggedAt: true, type: true },
-    }).catch(() => [] as { amountMl: number; loggedAt: Date; type: string }[]),
+      where: { userId, loggedAt: { gte: since30 }, type: "water" },
+      select: { amountMl: true, loggedAt: true },
+    }).catch(() => [] as { amountMl: number; loggedAt: Date }[]),
     prisma.moodLog.findMany({
       where: { userId, date: { gte: since90 } },
       select: { date: true, mood: true },
     }).catch(() => [] as { date: Date; mood: number }[]),
-    prisma.habitCompletion.findMany({
-      where: { userId, date: { gte: since90 } },
-      select: { date: true },
-    }).catch(() => [] as { date: Date }[]),
-    prisma.habit.findMany({
-      where: { userId, isArchived: false },
-      select: { id: true },
-    }).catch(() => [] as { id: string }[]),
+    prisma.$queryRaw<{ id: string; name: string; emoji: string; color: string; type: string }[]>`
+      SELECT "id","name","emoji","color","type" FROM "CustomMetric" WHERE "userId" = ${userId}
+    `.catch(() => []),
+    prisma.$queryRaw<{ metricId: string; date: string; value: number }[]>`
+      SELECT "metricId", "date"::text, "value"
+      FROM "CustomMetricLog"
+      WHERE "userId" = ${userId}
+        AND "date" >= CURRENT_DATE - INTERVAL '90 days'
+      ORDER BY "date" ASC
+    `.catch(() => []),
+    prisma.$queryRaw<{ date: string; tempMaxC: number | null; precipMm: number | null; uvIndex: number | null }[]>`
+      SELECT "date","tempMaxC","precipMm","uvIndex"
+      FROM "WeatherLog"
+      WHERE "userId" = ${userId}
+        AND "date" >= (CURRENT_DATE - INTERVAL '90 days')::text
+      ORDER BY "date" ASC
+    `.catch(() => []),
   ])
 
   const recent30 = logs.filter(l => l.date >= since30)
@@ -170,8 +140,10 @@ export async function GET() {
 
   // ── Personal records ─────────────────────────────────────────────────────────
   const allLogs = [...logs].sort((a, b) => b.date.getTime() - a.date.getTime())
-  const bestSleepDay = allLogs.filter(l => l.sleepDuration != null)
-    .reduce<typeof allLogs[0] | null>((b, l) => !b || l.sleepDuration! > b.sleepDuration! ? l : b, null)
+  const sleepLogs = allLogs.filter(l => l.sleepDuration != null)
+  const bestSleepDay = sleepLogs.length
+    ? sleepLogs.reduce((b, l) => l.sleepDuration! > b.sleepDuration! ? l : b)
+    : null
   const bestStepsDay = allLogs.filter(l => l.steps != null)
     .reduce<typeof allLogs[0] | null>((b, l) => !b || l.steps! > b.steps! ? l : b, null)
   const bestReadinessDay = allLogs.filter(l => l.readinessScore != null)
@@ -181,7 +153,7 @@ export async function GET() {
 
   // ── Water streak ─────────────────────────────────────────────────────────────
   const waterByDay: Record<string, number> = {}
-  for (const w of intakeLogs.filter(i => i.type === "water")) {
+  for (const w of intakeLogs) {
     const d = format(new Date(w.loggedAt), "yyyy-MM-dd")
     waterByDay[d] = (waterByDay[d] ?? 0) + w.amountMl
   }
@@ -210,14 +182,18 @@ export async function GET() {
   // ── HRV 30-day trend ─────────────────────────────────────────────────────────
   const hrvSeries = recent30.filter(l => l.hrv != null).map(l => l.hrv!)
   const hrvSlope = slope(hrvSeries)
-  const hrvTrend = Math.abs(hrvSlope) < 0.05 ? "stable" : hrvSlope > 0 ? "improving" : "declining"
+  const hrvTrend = Math.abs(hrvSlope) < 0.05 ? "stable"
+    : hrvSlope > 0 ? "improving"
+    : "declining"
 
   // ── Sleep consistency ────────────────────────────────────────────────────────
+  // Bedtime in minutes since 6pm (handles midnight crossover)
   const bedtimes = recent30
     .filter(l => l.sleepStart != null)
     .map(l => {
       const t = new Date(l.sleepStart!)
       let mins = t.getHours() * 60 + t.getMinutes()
+      // Normalise: shift so 6pm = 0; times before 6pm are assumed next-day
       mins = mins >= 18 * 60 ? mins - 18 * 60 : mins + 6 * 60
       return mins
     })
@@ -226,7 +202,9 @@ export async function GET() {
     : bedtimeStdDev < 30 ? "consistent"
     : bedtimeStdDev < 60 ? "moderate"
     : "irregular"
-  const avgBedtimeMin = bedtimes.length ? bedtimes.reduce((a, b) => a + b, 0) / bedtimes.length : null
+  const avgBedtimeMin = bedtimes.length
+    ? bedtimes.reduce((a, b) => a + b, 0) / bedtimes.length
+    : null
   const avgBedtime = avgBedtimeMin != null
     ? (() => {
         const totalMin = Math.round(avgBedtimeMin) + 18 * 60
@@ -236,124 +214,267 @@ export async function GET() {
       })()
     : null
 
-  // ── Correlations engine ───────────────────────────────────────────────────────
-  // Build per-day lookup maps
-  const healthByDate = Object.fromEntries(allLogs.map(l => [l.date.toISOString().split("T")[0], l]))
-  const moodByDate = Object.fromEntries(moodLogs.map(m => [m.date.toISOString().split("T")[0], m.mood]))
+  // ── Correlations ─────────────────────────────────────────────────────────────
+  // Build a date-indexed map across all data
+  const moodByDate = Object.fromEntries(moodLogs.map(m => [
+    m.date.toISOString().split("T")[0], m.mood,
+  ]))
+  const healthByDate = Object.fromEntries(allLogs.map(l => [
+    l.date.toISOString().split("T")[0], l,
+  ]))
 
-  // Focus: total minutes per day
-  const focusByDate: Record<string, number> = {}
-  for (const s of focusSessions) {
-    const d = format(new Date(s.endedAt), "yyyy-MM-dd")
-    focusByDate[d] = (focusByDate[d] ?? 0) + s.durationMin
+  // Helper: get value for date
+  const get = (dateStr: string, field: keyof typeof allLogs[0]) => {
+    const l = healthByDate[dateStr]
+    return l ? (l[field] as number | null | undefined) ?? null : null
   }
-
-  // Coffee: total ml per day
-  const coffeeByDate: Record<string, number> = {}
-  for (const i of intakeLogs.filter(x => x.type === "coffee")) {
-    const d = format(new Date(i.loggedAt), "yyyy-MM-dd")
-    coffeeByDate[d] = (coffeeByDate[d] ?? 0) + i.amountMl
-  }
-
-  // Habit completion rate per day (0-1): completions / total active habits
-  const totalHabits = habits.length
-  const habitsByDate: Record<string, number> = {}
-  if (totalHabits > 0) {
-    for (const c of habitCompletions) {
-      const d = c.date.toISOString().split("T")[0]
-      habitsByDate[d] = ((habitsByDate[d] ?? 0) + 1) / totalHabits
-    }
+  const getMood = (dateStr: string) => moodByDate[dateStr] ?? null
+  const nextDay = (dateStr: string) => {
+    const d = new Date(dateStr + "T12:00:00Z")
+    d.setDate(d.getDate() + 1)
+    return d.toISOString().split("T")[0]
   }
 
   const allDateStrs = Object.keys(healthByDate).sort()
 
-  function nextDay(d: string) {
-    const dt = new Date(d + "T12:00:00Z")
-    dt.setDate(dt.getDate() + 1)
-    return dt.toISOString().split("T")[0]
-  }
-
-  type Getter = (d: string) => number | null
-  const H = (field: keyof typeof allLogs[0]) => (d: string) => {
-    const l = healthByDate[d]
-    return l ? (l[field] as number | null | undefined) ?? null : null
-  }
-  const mood: Getter = d => moodByDate[d] ?? null
-  const focus: Getter = d => focusByDate[d] ?? null
-  const coffee: Getter = d => coffeeByDate[d] != null ? coffeeByDate[d] : null
-  const habitRate: Getter = d => habitsByDate[d] ?? null
-  const sleepH: Getter = d => { const v = H("sleepDuration")(d); return v != null ? v / 60 : null }
-
-  function buildCorr(
-    key: string, label: string, emoji: string,
-    xFn: Getter, yFn: Getter, yUnit: string,
-    aLabel: string, bLabel: string, lag: number,
+  function corr(
+    xFn: (d: string) => number | null,
+    yFn: (d: string) => number | null,
     dates = allDateStrs,
   ) {
     const pairs: [number, number][] = []
     for (const d of dates) {
-      const target = lag === 1 ? nextDay(d) : d
-      const x = xFn(d), y = yFn(target)
+      const x = xFn(d), y = yFn(d)
       if (x != null && y != null) pairs.push([x, y])
     }
-    const r = pearson(pairs)
-    const n = pairs.length
-    const split = r != null ? medianSplit(pairs) : null
-    const insight = r != null
-      ? buildInsight(aLabel, bLabel, yUnit, lag, r, split)
-      : `Need more data (${n} days so far — aim for 14+)`
-    const strength = r == null ? "insufficient"
-      : Math.abs(r) >= 0.5 ? "strong"
-      : Math.abs(r) >= 0.3 ? "moderate"
-      : Math.abs(r) >= 0.15 ? "weak"
-      : "none"
-    return { key, label, emoji, r, n, insight, strength, direction: r == null ? null : r >= 0 ? "positive" : "negative" }
+    return { r: pearson(pairs), n: pairs.length }
   }
 
   const correlations = [
-    buildCorr("sleep_next_readiness", "Sleep → Next-day readiness", "⚡",
-      H("sleepScore"), H("readinessScore"), "score", "sleep score", "readiness", 1),
-    buildCorr("sleep_next_steps",     "Sleep → Next-day steps", "🦶",
-      H("sleepScore"), H("steps"), "steps", "sleep score", "step count", 1),
-    buildCorr("sleep_next_focus",     "Sleep → Next-day focus", "🧠",
-      H("sleepScore"), focus, "h", "sleep score", "focus time", 1),
-    buildCorr("sleep_mood",           "Sleep → Mood", "😊",
-      H("sleepScore"), mood, "mood", "sleep score", "mood", 0),
-    buildCorr("hrv_mood",             "HRV → Mood", "💜",
-      H("hrv"), mood, "mood", "HRV", "mood", 0),
-    buildCorr("hrv_next_readiness",   "HRV → Next-day readiness", "🔋",
-      H("hrv"), H("readinessScore"), "score", "HRV", "readiness", 1),
-    buildCorr("steps_next_sleep",     "Steps → Next-night sleep", "🏃",
-      H("steps"), H("sleepScore"), "score", "step count", "sleep score", 1),
-    buildCorr("steps_next_readiness", "Steps → Next-day readiness", "🔄",
-      H("steps"), H("readinessScore"), "score", "step count", "readiness", 1),
-    buildCorr("readiness_steps",      "Readiness → Steps", "📈",
-      H("readinessScore"), H("steps"), "steps", "readiness score", "step count", 0),
-    buildCorr("focus_mood",           "Focus → Mood", "🎯",
-      focus, mood, "mood", "focus time", "mood", 0),
-    buildCorr("focus_next_sleep",     "Focus → Next-night sleep", "💤",
-      focus, H("sleepScore"), "score", "focus time", "sleep score", 1),
-    buildCorr("coffee_sleep",         "Coffee → Same-night sleep", "☕",
-      coffee, H("sleepScore"), "score", "coffee intake", "sleep score", 0),
-    buildCorr("coffee_next_sleep",    "Coffee → Next-night sleep", "☕",
-      coffee, H("sleepScore"), "score", "coffee intake", "sleep score", 1),
-    buildCorr("habits_mood",          "Habits → Mood", "✅",
-      habitRate, mood, "mood", "habit completion", "mood", 0),
-    buildCorr("habits_next_sleep",    "Habits → Next-night sleep", "🌙",
-      habitRate, H("sleepScore"), "score", "habit completion", "sleep score", 1),
-    buildCorr("stress_sleep",         "Stress → Sleep", "😰",
-      H("stressHigh"), H("sleepScore"), "score", "high-stress time", "sleep score", 0),
-    buildCorr("active_next_sleep",    "Active minutes → Sleep", "🏋️",
-      H("activeMinutes"), H("sleepScore"), "score", "active minutes", "sleep score", 1),
-    buildCorr("sleep_dur_focus",      "Sleep duration → Focus", "⏰",
-      sleepH, focus, "h", "hours slept", "focus time", 0),
-  ].sort((a, b) => {
-    // Sort: strong > moderate > weak > insufficient, then by |r| desc
-    const order = { strong: 0, moderate: 1, weak: 2, none: 3, insufficient: 4 }
-    const so = order[a.strength as keyof typeof order] - order[b.strength as keyof typeof order]
-    if (so !== 0) return so
-    return (Math.abs(b.r ?? 0)) - (Math.abs(a.r ?? 0))
-  })
+    {
+      key: "steps_sleep",
+      label: "Steps → Sleep score",
+      ...corr(d => get(d, "steps"), d => get(d, "sleepScore")),
+      insight: (r: number) => r > 0.3
+        ? `Active days (more steps) correlate with higher sleep scores (+${Math.round(r * 100)}% link)`
+        : r < -0.3
+        ? `Surprisingly, heavier step days here link to slightly lower sleep`
+        : "No strong link between your step count and sleep quality yet",
+      emoji: "🦶",
+    },
+    {
+      key: "sleep_readiness_next",
+      label: "Sleep → Next-day readiness",
+      ...corr(d => get(d, "sleepScore"), d => get(nextDay(d), "readinessScore")),
+      insight: (r: number) => r > 0.3
+        ? `Good sleep reliably predicts higher readiness the next day (+${Math.round(r * 100)}% link)`
+        : r < -0.3
+        ? `Sleep quality and next-day readiness appear inversely linked in your data`
+        : "Sleep score and next-day readiness aren't strongly linked yet",
+      emoji: "⚡",
+    },
+    {
+      key: "hrv_mood",
+      label: "HRV → Mood",
+      ...corr(d => get(d, "hrv"), d => getMood(d)),
+      insight: (r: number) => r > 0.3
+        ? `Higher HRV days consistently match better mood (+${Math.round(r * 100)}% link)`
+        : r < -0.3
+        ? `Interesting inverse: your highest HRV days aren't your happiest`
+        : "HRV and mood don't show a strong pattern yet",
+      emoji: "💜",
+    },
+    {
+      key: "steps_readiness_next",
+      label: "Steps → Next-day readiness",
+      ...corr(d => get(d, "steps"), d => get(nextDay(d), "readinessScore")),
+      insight: (r: number) => r > 0.3
+        ? `Active days lead to better recovery — higher steps predict better next-day readiness`
+        : r < -0.3
+        ? `Heavy activity days seem to lower your readiness the day after — you may need more recovery time`
+        : "No clear pattern between activity level and recovery yet",
+      emoji: "🔄",
+    },
+    {
+      key: "sleep_mood",
+      label: "Sleep → Mood",
+      ...corr(d => get(d, "sleepScore"), d => getMood(d)),
+      insight: (r: number) => r > 0.3
+        ? `Better sleep nights lead to noticeably better mood (+${Math.round(r * 100)}% link)`
+        : r < -0.3
+        ? `Your mood doesn't seem to follow your sleep quality — other factors may dominate`
+        : "Sleep and mood link isn't clear enough yet — need more mood logs",
+      emoji: "😊",
+    },
+    {
+      key: "readiness_steps",
+      label: "Readiness → Steps",
+      ...corr(d => get(d, "readinessScore"), d => get(d, "steps")),
+      insight: (r: number) => r > 0.3
+        ? `High-readiness days, you naturally move more — body and behaviour are in sync`
+        : r < -0.3
+        ? `You actually push harder on low-readiness days — watch out for overtraining`
+        : "Readiness score and daily steps don't strongly predict each other yet",
+      emoji: "🏃",
+    },
+  ]
+
+  const richCorrelations = correlations.map(c => ({
+    key: c.key,
+    label: c.label,
+    r: c.r,
+    n: c.n,
+    emoji: c.emoji,
+    insight: c.r != null ? c.insight(c.r) : `Need at least 5 paired data points (have ${c.n})`,
+    strength: c.r == null ? "insufficient"
+      : Math.abs(c.r) >= 0.5 ? "strong"
+      : Math.abs(c.r) >= 0.25 ? "moderate"
+      : "weak",
+    direction: c.r == null ? null : c.r >= 0 ? "positive" : "negative",
+    isCustom: false,
+  }))
+
+  // ── Custom metric correlations ───────────────────────────────────────────────
+  // Build date→value map for each custom metric
+  const customByMetric: Record<string, Record<string, number>> = {}
+  for (const l of customLogs) {
+    const date = l.date.slice(0, 10)
+    if (!customByMetric[l.metricId]) customByMetric[l.metricId] = {}
+    customByMetric[l.metricId][date] = l.value
+  }
+
+  const healthTargets: { key: string; label: string; fn: (d: string) => number | null }[] = [
+    { key: "sleep",     label: "sleep score",  fn: d => get(d, "sleepScore") },
+    { key: "readiness", label: "readiness",    fn: d => get(d, "readinessScore") },
+    { key: "hrv",       label: "HRV",          fn: d => get(d, "hrv") },
+    { key: "steps",     label: "step count",   fn: d => get(d, "steps") },
+    { key: "mood",      label: "mood",         fn: getMood },
+  ]
+
+  const customCorrelations: typeof richCorrelations = []
+
+  for (const metric of customMetrics) {
+    const metricByDate = customByMetric[metric.id] ?? {}
+    const metricDates = Object.keys(metricByDate)
+    if (metricDates.length < 7) continue
+
+    // For each health target, compute correlation
+    const pairs: { target: typeof healthTargets[0]; r: number | null; n: number }[] = []
+    for (const target of healthTargets) {
+      const { r, n } = corr(d => metricByDate[d] ?? null, target.fn, allDateStrs)
+      pairs.push({ target, r, n })
+    }
+
+    // Keep the pair with highest |r| that has enough data
+    const best = pairs
+      .filter(p => p.n >= 7 && p.r != null)
+      .sort((a, b) => Math.abs(b.r!) - Math.abs(a.r!))
+      .slice(0, 2)
+
+    for (const { target, r, n } of best) {
+      const abs = r != null ? Math.abs(r) : 0
+      const dir = r != null ? (r >= 0 ? "higher" : "lower") : ""
+      const inv = r != null ? (r >= 0 ? "lower" : "higher") : ""
+      customCorrelations.push({
+        key: `custom_${metric.id}_${target.key}`,
+        label: `${metric.name} → ${target.label}`,
+        r,
+        n,
+        emoji: metric.emoji,
+        insight: r == null
+          ? `Need more data to detect a pattern`
+          : abs >= 0.4
+          ? `Strong link: ${dir} ${metric.name} correlates with ${dir} ${target.label} (r=${r.toFixed(2)}, ${n} days)`
+          : abs >= 0.2
+          ? `Moderate pattern: ${dir} ${metric.name} tends to go with ${dir} ${target.label} (r=${r.toFixed(2)}, ${n} days)`
+          : `Weak or no link between ${metric.name} and ${target.label} so far (r=${r.toFixed(2)}, ${n} days)`,
+        strength: abs >= 0.5 ? "strong" : abs >= 0.25 ? "moderate" : "weak",
+        direction: r == null ? null : r >= 0 ? "positive" : "negative",
+        isCustom: true,
+      })
+    }
+  }
+
+  // ── Weather correlations ─────────────────────────────────────────────────────
+  const weatherByDay: Record<string, { tempMaxC: number | null; precipMm: number | null; uvIndex: number | null }> = {}
+  for (const w of weatherLogs) {
+    weatherByDay[w.date] = { tempMaxC: w.tempMaxC, precipMm: w.precipMm, uvIndex: w.uvIndex }
+  }
+
+  const weatherCorrelations: typeof richCorrelations = []
+
+  if (Object.keys(weatherByDay).length >= 7) {
+    const weatherDates = allDateStrs.filter(d => weatherByDay[d] != null)
+
+    const weatherCorrDefs = [
+      {
+        key: "weather_temp_sleep",
+        label: "Temperature → Sleep",
+        emoji: "🌡️",
+        xFn: (d: string) => weatherByDay[d]?.tempMaxC ?? null,
+        yFn: (d: string) => get(d, "sleepScore"),
+        insightFn: (r: number) => r > 0.2
+          ? "Warmer days link to better sleep"
+          : r < -0.2
+          ? "Cooler days link to better sleep"
+          : "Temperature has little effect on your sleep",
+      },
+      {
+        key: "weather_temp_steps",
+        label: "Temperature → Steps",
+        emoji: "🌡️",
+        xFn: (d: string) => weatherByDay[d]?.tempMaxC ?? null,
+        yFn: (d: string) => get(d, "steps"),
+        insightFn: (r: number) => r > 0.2
+          ? "Warmer days link to more steps"
+          : r < -0.2
+          ? "Cooler days link to more steps"
+          : "Temperature has little effect on your step count",
+      },
+      {
+        key: "weather_rain_mood",
+        label: "Rain → Mood",
+        emoji: "🌧️",
+        xFn: (d: string) => weatherByDay[d]?.precipMm ?? null,
+        yFn: (d: string) => getMood(d),
+        insightFn: (r: number) => r > 0.2
+          ? "Rainier days link to better mood"
+          : r < -0.2
+          ? "Rainy days link to lower mood"
+          : "Rainfall has little effect on your mood",
+      },
+      {
+        key: "weather_uv_readiness",
+        label: "UV Index → Readiness",
+        emoji: "☀️",
+        xFn: (d: string) => weatherByDay[d]?.uvIndex ?? null,
+        yFn: (d: string) => get(d, "readinessScore"),
+        insightFn: (r: number) => r > 0.2
+          ? "Sunnier days link to better readiness"
+          : r < -0.2
+          ? "Higher UV days link to lower readiness"
+          : "UV index has little effect on your readiness",
+      },
+    ]
+
+    for (const def of weatherCorrDefs) {
+      const { r, n } = corr(def.xFn, def.yFn, weatherDates)
+      weatherCorrelations.push({
+        key: def.key,
+        label: def.label,
+        r,
+        n,
+        emoji: def.emoji,
+        insight: r != null ? def.insightFn(r) : `Need at least 5 paired data points (have ${n})`,
+        strength: r == null ? "insufficient"
+          : Math.abs(r) >= 0.5 ? "strong"
+          : Math.abs(r) >= 0.25 ? "moderate"
+          : "weak",
+        direction: r == null ? null : r >= 0 ? "positive" : "negative",
+        isCustom: false,
+      })
+    }
+  }
 
   return NextResponse.json({
     dowStats,
@@ -364,7 +485,7 @@ export async function GET() {
     bestReadinessDay: bestReadinessDay ? { date: format(bestReadinessDay.date, "MMM d"), score: bestReadinessDay.readinessScore! } : null,
     bestHrvDay: bestHrvDay ? { date: format(bestHrvDay.date, "MMM d"), hrv: Math.round(bestHrvDay.hrv!) } : null,
     waterStreak,
-    totalFocusMin30: focusSessions.filter(s => s.endedAt >= since30).reduce((a, s) => a + s.durationMin, 0),
+    totalFocusMin30: focusSessions.reduce((a, s) => a + s.durationMin, 0),
     stepStreak,
     sleepStreak,
     hrvTrend,
@@ -372,7 +493,9 @@ export async function GET() {
     sleepConsistency,
     avgBedtime,
     bedtimeStdDevMin: bedtimeStdDev != null ? Math.round(bedtimeStdDev) : null,
-    correlations,
+    correlations: richCorrelations,
+    customCorrelations,
+    weatherCorrelations,
     dataPoints: allDateStrs.length,
   })
 }

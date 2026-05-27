@@ -2,19 +2,90 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { Resend } from "resend"
 import { format, subDays, startOfWeek } from "date-fns"
+import Anthropic from "@anthropic-ai/sdk"
 
 // Vercel cron jobs send Authorization: Bearer <CRON_SECRET>
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+
+interface DigestSections {
+  sleep: boolean
+  steps: boolean
+  hrv: boolean
+  habits: boolean
+  mood: boolean
+  focus: boolean
+  weight: boolean
+  strava: boolean
+  github: boolean
+  spending: boolean
+  lastfm: boolean
+}
+
+interface DigestPrefs {
+  sections: DigestSections
+  thresholds: { minDays: number }
+}
+
+const defaultPrefs: DigestPrefs = {
+  sections: {
+    sleep: true,
+    steps: true,
+    hrv: true,
+    habits: true,
+    mood: true,
+    focus: true,
+    weight: true,
+    strava: true,
+    github: true,
+    spending: true,
+    lastfm: true,
+  },
+  thresholds: { minDays: 3 },
+}
 
 function avg(arr: (number | null | undefined)[]): number | null {
   const vals = arr.filter((v): v is number => v != null)
   return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null
 }
 
+async function generateNarrative(params: {
+  name: string
+  avgSleepH: number | null
+  avgHrv: number | null
+  avgReadiness: number | null
+  totalSteps: number | null
+  habitRate: number | null
+}): Promise<string> {
+  if (!process.env.ANTHROPIC_API_KEY) return ""
+  try {
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    const { name, avgSleepH, avgHrv, avgReadiness, totalSteps, habitRate } = params
+    const data = [
+      avgSleepH     != null ? `avg sleep ${avgSleepH}h/night`      : null,
+      avgHrv        != null ? `avg HRV ${avgHrv}ms`                : null,
+      avgReadiness  != null ? `avg readiness score ${avgReadiness}` : null,
+      totalSteps    != null ? `${totalSteps.toLocaleString()} total steps` : null,
+      habitRate     != null ? `${habitRate}% habit completion`      : null,
+    ].filter(Boolean).join(", ")
+
+    const msg = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 120,
+      system: "You write friendly, personal 2-sentence weekly health summaries. Be specific, warm, and motivating. No emojis. No markdown. Just plain prose.",
+      messages: [{ role: "user", content: `Write a 2-sentence summary of ${name}'s health week: ${data || "no data recorded"}.` }],
+    })
+    const block = msg.content[0]
+    return block.type === "text" ? block.text.trim() : ""
+  } catch {
+    return ""
+  }
+}
+
 function digestHtml(params: {
   name: string
   weekOf: string
+  aiNarrative: string
   avgSleepH: number | null
   avgHrv: number | null
   avgReadiness: number | null
@@ -22,14 +93,26 @@ function digestHtml(params: {
   avgSteps: number | null
   totalSpend: string | null
   habitRate: number | null
+  prefs: DigestPrefs
 }): string {
-  const { name, weekOf, avgSleepH, avgHrv, avgReadiness, totalSteps, avgSteps, totalSpend, habitRate } = params
+  const { name, weekOf, aiNarrative, avgSleepH, avgHrv, avgReadiness, totalSteps, avgSteps, totalSpend, habitRate, prefs } = params
 
   const metric = (label: string, value: string, color: string) => `
     <div style="background:#1a192a;border-radius:12px;padding:16px 20px;flex:1;min-width:140px;">
       <div style="font-size:11px;color:#7a7a96;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;">${label}</div>
       <div style="font-size:24px;font-weight:700;color:${color};">${value}</div>
     </div>`
+
+  const showSleep = prefs.sections.sleep && avgSleepH != null
+  const showHrv = prefs.sections.hrv && avgHrv != null
+  const showReadiness = avgReadiness != null
+  const showHealthSection = showSleep || showHrv || showReadiness
+
+  const showSteps = prefs.sections.steps && totalSteps != null
+  const showActivitySection = showSteps
+
+  const showSpending = prefs.sections.spending && !!totalSpend
+  const showHabits = prefs.sections.habits && habitRate != null
 
   return `<!DOCTYPE html>
 <html>
@@ -44,36 +127,45 @@ function digestHtml(params: {
       <div style="font-size:14px;color:#c7d2fe;margin-top:6px;">Week of ${weekOf}</div>
     </div>
 
+    <!-- AI narrative -->
+    ${aiNarrative ? `
+    <div style="background:#13122b;border:1px solid #312e81;border-radius:12px;padding:18px 20px;margin-bottom:20px;">
+      <div style="font-size:12px;color:#818cf8;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px;">✦ AI Summary</div>
+      <p style="margin:0;font-size:14px;line-height:1.6;color:#e0e0f0;">${aiNarrative}</p>
+    </div>` : ""}
+
     <!-- Health metrics -->
+    ${showHealthSection ? `
     <div style="margin-bottom:20px;">
       <div style="font-size:12px;color:#7a7a96;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Health</div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        ${metric("Avg Sleep", avgSleepH != null ? `${avgSleepH}h` : "—", "#818cf8")}
-        ${metric("Avg HRV", avgHrv != null ? `${avgHrv}ms` : "—", "#34d399")}
-        ${metric("Readiness", avgReadiness != null ? `${avgReadiness}` : "—", "#60a5fa")}
+        ${showSleep ? metric("Avg Sleep", `${avgSleepH}h`, "#818cf8") : ""}
+        ${showHrv ? metric("Avg HRV", `${avgHrv}ms`, "#34d399") : ""}
+        ${showReadiness ? metric("Readiness", `${avgReadiness}`, "#60a5fa") : ""}
       </div>
-    </div>
+    </div>` : ""}
 
     <!-- Activity -->
+    ${showActivitySection ? `
     <div style="margin-bottom:20px;">
       <div style="font-size:12px;color:#7a7a96;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Activity</div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
         ${metric("Total Steps", totalSteps != null ? totalSteps.toLocaleString() : "—", "#fbbf24")}
-        ${metric("Daily Avg", avgSteps != null ? avgSteps.toLocaleString() : "—", "#fb923c")}
+        ${avgSteps != null ? metric("Daily Avg", avgSteps.toLocaleString(), "#fb923c") : ""}
       </div>
-    </div>
+    </div>` : ""}
 
     <!-- Finances -->
-    ${totalSpend ? `
+    ${showSpending ? `
     <div style="margin-bottom:20px;">
       <div style="font-size:12px;color:#7a7a96;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Finances</div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
-        ${metric("Total Spent", totalSpend, "#f43f5e")}
+        ${metric("Total Spent", totalSpend!, "#f43f5e")}
       </div>
     </div>` : ""}
 
     <!-- Habits -->
-    ${habitRate != null ? `
+    ${showHabits ? `
     <div style="margin-bottom:20px;">
       <div style="font-size:12px;color:#7a7a96;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px;">Habits</div>
       <div style="background:#1a192a;border-radius:12px;padding:16px 20px;">
@@ -121,6 +213,16 @@ export async function GET(req: NextRequest) {
 
   for (const user of users) {
     try {
+      const prefRows = await prisma.$queryRaw<{ value: string }[]>`
+        SELECT "value" FROM "UserPreference" WHERE "userId" = ${user.id} AND "key" = 'digest_prefs' LIMIT 1
+      `.catch(() => [] as { value: string }[])
+      const savedPrefs = prefRows[0] ? JSON.parse(prefRows[0].value) : {}
+      const prefs: DigestPrefs = {
+        sections: { ...defaultPrefs.sections, ...(savedPrefs.sections ?? {}) },
+        thresholds: { ...defaultPrefs.thresholds, ...(savedPrefs.thresholds ?? {}) },
+      }
+      const minDays = prefs.thresholds.minDays
+
       const [logs, habits, completions] = await Promise.all([
         prisma.healthLog.findMany({
           where: { userId: user.id, date: { gte: weekStart, lte: weekEnd } },
@@ -141,11 +243,15 @@ export async function GET(req: NextRequest) {
       const totalSpendCents = transactions.reduce((s, t) => s + Math.abs(t.amount), 0)
       const totalSpend = totalSpendCents > 0 ? `€${(totalSpendCents / 100).toFixed(2)}` : null
 
-      const avgSleepMin = avg(logs.map(l => l.sleepDuration))
+      const sleepLogs = logs.filter(l => l.sleepDuration != null)
+      const hrvLogs = logs.filter(l => l.hrv != null)
+      const stepLogs = logs.filter(l => l.steps != null)
+
+      const avgSleepMin = sleepLogs.length >= minDays ? avg(sleepLogs.map(l => l.sleepDuration)) : null
       const avgSleepH = avgSleepMin != null ? Math.round(avgSleepMin / 60 * 10) / 10 : null
-      const avgHrv = avg(logs.map(l => l.hrv))
+      const avgHrv = hrvLogs.length >= minDays ? avg(hrvLogs.map(l => l.hrv)) : null
       const avgReadiness = avg(logs.map(l => l.readinessScore))
-      const totalSteps = logs.reduce((s, l) => s + (l.steps ?? 0), 0) || null
+      const totalSteps = stepLogs.length >= minDays ? (logs.reduce((s, l) => s + (l.steps ?? 0), 0) || null) : null
       const avgSteps = totalSteps != null && logs.length ? Math.round(totalSteps / logs.length) : null
 
       const possibleCompletions = habits.length * 7
@@ -153,9 +259,20 @@ export async function GET(req: NextRequest) {
         ? Math.round((completions.length / possibleCompletions) * 100)
         : null
 
+      const firstName = user.name?.split(" ")[0] ?? "there"
+      const aiNarrative = await generateNarrative({
+        name: firstName,
+        avgSleepH: prefs.sections.sleep ? avgSleepH : null,
+        avgHrv: prefs.sections.hrv ? avgHrv : null,
+        avgReadiness,
+        totalSteps: prefs.sections.steps ? totalSteps : null,
+        habitRate: prefs.sections.habits ? habitRate : null,
+      })
+
       const html = digestHtml({
-        name: user.name?.split(" ")[0] ?? "there",
+        name: firstName,
         weekOf,
+        aiNarrative,
         avgSleepH,
         avgHrv,
         avgReadiness,
@@ -163,6 +280,7 @@ export async function GET(req: NextRequest) {
         avgSteps,
         totalSpend,
         habitRate,
+        prefs,
       })
 
       await resend.emails.send({

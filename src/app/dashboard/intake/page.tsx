@@ -49,8 +49,10 @@ interface WeekDay {
 
 interface OuraEntry {
   id: string
-  text: string
-  amountMl: number
+  name: string
+  type: string
+  emoji: string
+  amountMl: number | null
   timestamp: string
 }
 
@@ -140,10 +142,15 @@ export default function IntakePage() {
     return acc
   }, {} as Record<string, number>)
 
-  const ouraTotalMl = ouraEntries.reduce((s, e) => s + e.amountMl, 0)
-  const waterTotal = (totals.water ?? 0) + ouraTotalMl
-  const coffeeTotal = totals.coffee ?? 0
-  const teaTotal = totals.tea ?? 0
+  const ouraTotals = ouraEntries.reduce((acc, e) => {
+    if (e.amountMl) acc[e.type] = (acc[e.type] ?? 0) + e.amountMl
+    return acc
+  }, {} as Record<string, number>)
+
+  const waterTotal = (totals.water ?? 0) + (ouraTotals.water ?? 0)
+  const coffeeTotal = (totals.coffee ?? 0) + (ouraTotals.coffee ?? 0)
+  const teaTotal = (totals.tea ?? 0) + (ouraTotals.tea ?? 0)
+  const alcoholTotal = (totals.alcohol ?? 0) + (ouraTotals.alcohol ?? 0)
 
   const dateLabel = isToday ? "Today" : format(new Date(date + "T12:00:00"), "EEE, MMM d")
 
@@ -170,10 +177,13 @@ export default function IntakePage() {
       </div>
 
       {/* summary cards */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className={`grid gap-3 ${alcoholTotal > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
         <SummaryCard label="Water" value={waterTotal} goal={2000} unit="ml" color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
         <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕" />
         <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />
+        {alcoholTotal > 0 && (
+          <SummaryCard label="Alcohol" value={alcoholTotal} unit="ml" color="text-yellow-500" barColor="bg-yellow-600" emoji="🍺" />
+        )}
       </div>
 
       {/* 7-day water trend */}
@@ -270,22 +280,25 @@ export default function IntakePage() {
                 </div>
               )
             })}
-            {ouraEntries.map(entry => (
-              <div key={entry.id}
-                className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-blue-500/20 bg-blue-500/5">
-                <div className="h-2 w-2 rounded-full shrink-0 bg-blue-400" />
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm font-medium text-blue-300">💧 {entry.amountMl} ml</span>
-                  {entry.text !== `${entry.amountMl}ml` && entry.text !== `${entry.amountMl} ml` && (
-                    <span className="text-xs text-muted-foreground ml-2">({entry.text})</span>
-                  )}
-                  <span className="text-xs text-muted-foreground/50 ml-2">· Oura Ring</span>
+            {ouraEntries.map(entry => {
+              const meta = TYPE_META[entry.type] ?? TYPE_META.other
+              return (
+                <div key={entry.id}
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-white/10 bg-white/[0.03]">
+                  <span className="text-base leading-none shrink-0">{entry.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm font-medium">{entry.name}</span>
+                    {entry.amountMl && (
+                      <span className="text-muted-foreground text-sm"> · {entry.amountMl} ml</span>
+                    )}
+                    <span className="text-xs text-muted-foreground/50 ml-2">· Oura Ring</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {format(new Date(entry.timestamp), "HH:mm")}
+                  </span>
                 </div>
-                <span className="text-xs text-muted-foreground shrink-0">
-                  {format(new Date(entry.timestamp), "HH:mm")}
-                </span>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

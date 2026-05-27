@@ -12,8 +12,9 @@ interface Correlation {
   n: number
   emoji: string
   insight: string
-  strength: "strong" | "moderate" | "weak" | "none" | "insufficient"
+  strength: "strong" | "moderate" | "weak" | "insufficient"
   direction: "positive" | "negative" | null
+  isCustom?: boolean
 }
 
 interface StatsData {
@@ -39,6 +40,8 @@ interface StatsData {
   avgBedtime: string | null
   bedtimeStdDevMin: number | null
   correlations: Correlation[]
+  customCorrelations: Correlation[]
+  weatherCorrelations: Correlation[]
   dataPoints: number
 }
 
@@ -82,6 +85,29 @@ function CorrelationBar({ r }: { r: number | null }) {
   )
 }
 
+function CorrRow({ c }: { c: Correlation }) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-base leading-none">{c.emoji}</span>
+        <span className="text-xs font-medium flex-1">{c.label}</span>
+        <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0",
+          c.strength === "strong" ? "bg-green-500/15 text-green-400"
+          : c.strength === "moderate" ? "bg-amber-500/15 text-amber-400"
+          : c.strength === "weak" ? "bg-secondary text-muted-foreground"
+          : "bg-secondary text-muted-foreground/50"
+        )}>
+          {c.strength === "insufficient"
+            ? `need ${Math.max(0, 7 - c.n)} more days`
+            : `r=${c.r?.toFixed(2)}`}
+        </span>
+      </div>
+      <CorrelationBar r={c.r} />
+      <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">{c.insight}</p>
+    </div>
+  )
+}
+
 export default function StatsPage() {
   const [data, setData] = useState<StatsData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -101,14 +127,14 @@ export default function StatsPage() {
 
   const { dowStats, focusDowStats, trendData, bestSleepDay, bestStepsDay, bestReadinessDay, bestHrvDay,
     waterStreak, totalFocusMin30, stepStreak, sleepStreak, hrvTrend, hrvAvg7,
-    sleepConsistency, avgBedtime, bedtimeStdDevMin, correlations, dataPoints } = data
+    sleepConsistency, avgBedtime, bedtimeStdDevMin, correlations, customCorrelations, weatherCorrelations, dataPoints } = data
 
   const maxSleep = Math.max(...dowStats.map(d => d.avgSleep ?? 0), 9)
   const maxSteps = Math.max(...dowStats.map(d => d.avgSteps ?? 0), 8000)
   const maxFocus = Math.max(...focusDowStats.map(d => d.avgFocusMin ?? 0), 60)
   const today = new Date().getDay()
 
-  const strongCorrelations = correlations.filter(c => c.strength === "strong" || c.strength === "moderate")
+  const strongCorrelations = [...correlations, ...(customCorrelations ?? [])].filter(c => c.strength === "strong" || c.strength === "moderate")
   const needsMoreData = dataPoints < 7
 
   const consistencyColor = sleepConsistency === "consistent" ? "text-green-400"
@@ -138,7 +164,52 @@ export default function StatsPage() {
         )}
       </div>
 
-      {/* ── Key findings strip ── */}
+      {/* ── Correlations ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium">Correlations</CardTitle>
+          <p className="text-xs text-muted-foreground">How your habits and metrics relate to each other</p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {correlations.map(c => (
+            <CorrRow key={c.key} c={c} />
+          ))}
+
+          {/* Custom metric correlations */}
+          {customCorrelations.length > 0 && (
+            <>
+              <div className="pt-2 border-t border-border/40">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
+                  📐 Your trackers
+                </p>
+                <div className="space-y-4">
+                  {customCorrelations.map(c => <CorrRow key={c.key} c={c} />)}
+                </div>
+              </div>
+            </>
+          )}
+
+          {customCorrelations.length === 0 && (
+            <p className="text-xs text-muted-foreground/40 border-t border-border/30 pt-3 mt-2">
+              Create custom trackers and log 7+ days to unlock tracker correlations →{" "}
+              <a href="/dashboard/custom" className="underline underline-offset-2 hover:text-muted-foreground">Trackers</a>
+            </p>
+          )}
+
+          {(weatherCorrelations ?? []).length > 0 && (
+            <div className="pt-2 border-t border-border/40">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
+                🌤️ Weather
+              </p>
+              <div className="space-y-4">
+                {(weatherCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Top insights strip (strong/moderate only) ── */}
       {strongCorrelations.length > 0 && (
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
           <p className="text-xs font-bold uppercase tracking-widest text-primary mb-3">Key findings</p>
@@ -152,56 +223,6 @@ export default function StatsPage() {
           </div>
         </div>
       )}
-
-      {/* ── Correlations ── */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium">Correlations</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            How your habits relate to each other · {correlations.filter(c => c.r != null).length} pairs computed from {dataPoints} days
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {correlations.filter(c => c.strength !== "none" && c.strength !== "insufficient").map(c => (
-            <div key={c.key}>
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="text-base leading-none">{c.emoji}</span>
-                <span className="text-xs font-medium flex-1">{c.label}</span>
-                <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0",
-                  c.strength === "strong" ? "bg-green-500/15 text-green-400"
-                  : c.strength === "moderate" ? "bg-amber-500/15 text-amber-400"
-                  : "bg-secondary text-muted-foreground"
-                )}>
-                  {c.r != null ? `r=${c.r.toFixed(2)}` : "—"} · {c.n}d
-                </span>
-              </div>
-              <CorrelationBar r={c.r} />
-              <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">{c.insight}</p>
-            </div>
-          ))}
-          {correlations.filter(c => c.strength === "insufficient" || c.strength === "none").length > 0 && (
-            <details className="group">
-              <summary className="text-[11px] text-muted-foreground/60 cursor-pointer hover:text-muted-foreground list-none flex items-center gap-1">
-                <span className="group-open:hidden">▶</span>
-                <span className="hidden group-open:inline">▼</span>
-                {correlations.filter(c => c.strength === "insufficient" || c.strength === "none").length} pairs need more data
-              </summary>
-              <div className="mt-3 space-y-3 opacity-50">
-                {correlations.filter(c => c.strength === "insufficient" || c.strength === "none").map(c => (
-                  <div key={c.key}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm leading-none">{c.emoji}</span>
-                      <span className="text-xs flex-1">{c.label}</span>
-                      <span className="text-[10px] text-muted-foreground/50">{c.n}d</span>
-                    </div>
-                    <CorrelationBar r={c.r} />
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-        </CardContent>
-      </Card>
 
       {/* ── Week-over-week trends ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

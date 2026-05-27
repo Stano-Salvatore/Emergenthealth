@@ -22,6 +22,8 @@ import { LocationCard } from "@/components/dashboard/LocationCard"
 import { TogglTile } from "@/components/dashboard/TogglTile"
 import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
+import { QuickHabits } from "@/components/dashboard/QuickHabits"
+import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
 
 const STEP_GOAL = 8_000
 const SLEEP_GOAL_H = 7
@@ -129,7 +131,13 @@ export default async function DashboardPage() {
   const todayStart = new Date(todayStr + "T00:00:00.000Z")
   const todayEnd = new Date(todayStr + "T23:59:59.999Z")
 
-  const [healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData, todayIntake, todayFocus] = await Promise.all([
+  const todayCheckin = await prisma.$queryRaw<{id: string}[]>`
+    SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId}
+    AND "date" = ${todayStr} LIMIT 1
+  `.catch(() => [] as {id: string}[])
+  const hasCheckedInToday = todayCheckin.length > 0
+
+  const [healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData, todayIntake, todayFocus, todayOuraTags] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId },
       orderBy: { date: "desc" },
@@ -169,12 +177,42 @@ export default async function DashboardPage() {
     prisma.focusSession.findMany({
       where: { userId, endedAt: { gte: todayStart, lte: todayEnd }, type: "focus" },
     }).catch(() => [] as any[]),
+    prisma.$queryRaw<{ tagName: string | null; text: string | null }[]>`
+      SELECT "tagName", "text" FROM "OuraTag"
+      WHERE "userId" = ${userId} AND "day" = ${todayStr}
+    `.catch(() => [] as any[]),
   ])
 
-  // ── intake
-  const waterMl = todayIntake.filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
-  const coffeeMl = todayIntake.filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0)
+  // ── intake (manual logs + Oura ring drink tags)
+  const manualWaterMl = todayIntake.filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
+  const manualCoffeeMl = todayIntake.filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0)
   const focusMinToday = todayFocus.reduce((a: number, s: any) => a + s.durationMin, 0)
+
+  // Classify today's Oura tags into drink types / meds
+  const ML_RE = /(\d+)\s*ml/i
+  let ouraWaterMl = 0, ouraCoffeeMl = 0
+  const todayMedTags: string[] = []
+  const seenMedNames = new Set<string>()
+
+  for (const t of (todayOuraTags as any[])) {
+    const label = (t.tagName ?? t.text ?? "").trim().toLowerCase()
+    if (!label) continue
+    const mlMatch = label.match(ML_RE)
+    const ml = mlMatch ? parseInt(mlMatch[1]) : 0
+    if (/\bwater\b/.test(label)) { ouraWaterMl += ml }
+    else if (/coffee|espresso|cappuccino|latte|americano|v60|aeropress|pour.?over|flat.?white|macchiato/.test(label)) { ouraCoffeeMl += ml }
+    else if (!/beer|wine|\balcohol\b|spirit|cocktail|whisky|whiskey|vodka|rum|\bgin\b|cider|juice|smoothie|shake|soda/.test(label)) {
+      // likely a medication or supplement — show name (de-duped, Title Case)
+      const name = (t.tagName ?? t.text ?? "").trim()
+      if (name && !seenMedNames.has(name.toLowerCase())) {
+        seenMedNames.add(name.toLowerCase())
+        todayMedTags.push(name)
+      }
+    }
+  }
+
+  const waterMl = manualWaterMl + ouraWaterMl
+  const coffeeMl = manualCoffeeMl + ouraCoffeeMl
 
   // ── health
   const latestHealth = healthLogs[0] ?? null
@@ -273,6 +311,22 @@ export default async function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {!hasCheckedInToday && (
+        <Link href="/dashboard/checkin" className="block">
+          <Card className="border-violet-500/30 bg-violet-500/5 hover:bg-violet-500/10 transition-colors cursor-pointer">
+            <CardContent className="pt-4 pb-3 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">🌅 Morning check-in</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Log your energy, mood, and focus for today — takes 10 seconds</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+            </CardContent>
+          </Card>
+        </Link>
+      )}
+
+      <PlaceDetector />
 
       {/* ── today's schedule strip ── */}
       {todayEvents.length > 0 && (
@@ -490,38 +544,7 @@ export default async function DashboardPage() {
     ),
 
     habits: (
-      <Link href="/dashboard/habits" className="block h-full">
-        <Card className="card-habits hover:border-amber-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-amber-500/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-              <span className="flex items-center gap-1.5">✅ Habits</span>
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-normal tabular-nums">{doneToday}/{habits.length}</span>
-                <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-              </div>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {habits.length===0 ? (
-              <p className="text-sm text-muted-foreground">No habits set up</p>
-            ) : (
-              <>
-                <div className="mb-3"><Progress value={habits.length>0?(doneToday/habits.length)*100:0} className="h-1.5" /></div>
-                <div className="space-y-2">
-                  {habitsWithStreaks.slice(0,6).map(h => (
-                    <div key={h.id} className="flex items-center gap-2">
-                      <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${h.completedToday?"opacity-100":"opacity-25"}`} style={{backgroundColor:h.color}} />
-                      <span className={`text-sm flex-1 truncate ${h.completedToday?"":"text-muted-foreground"}`}>{h.name}</span>
-                      {h.streak>0&&<span className="text-xs text-orange-400 font-medium shrink-0"><Flame className="h-3 w-3 inline mb-0.5"/>{h.streak}</span>}
-                    </div>
-                  ))}
-                  {habits.length>6&&<p className="text-xs text-muted-foreground">+{habits.length-6} more</p>}
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </Link>
+      <QuickHabits habits={habitsWithStreaks.slice(0, 6).map(h => ({ id: h.id, name: h.name, color: h.color, completedToday: h.completedToday, streak: h.streak }))} />
     ),
 
     reminders: (
@@ -611,12 +634,17 @@ export default async function DashboardPage() {
     ),
 
     stats: (
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-5 gap-3 h-full content-start">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 h-full content-start">
         <Link href="/dashboard/intake">
           <StatTile label="Water today" value={waterMl >= 1000 ? `${(waterMl/1000).toFixed(1)}L` : `${waterMl}ml`}
             sub={waterMl >= 2000 ? "Goal reached ✓" : `${Math.max(0, 2000-waterMl)}ml to go`}
             icon={<Droplets className="h-4 w-4 text-blue-400"/>} ok={waterMl >= 2000}
             progress={Math.min(100, (waterMl/2000)*100)} />
+        </Link>
+        <Link href="/dashboard/intake">
+          <StatTile label="Coffee today" value={coffeeMl >= 1000 ? `${(coffeeMl/1000).toFixed(1)}L` : `${coffeeMl}ml`}
+            sub={coffeeMl >= 400 ? "Over limit ⚠" : coffeeMl > 0 ? `${400-coffeeMl}ml to limit` : "none yet"}
+            icon={<span className="text-base leading-none">☕</span>} ok={coffeeMl > 0 && coffeeMl <= 400} />
         </Link>
         <Link href="/dashboard/focus">
           <StatTile label="Focus today" value={focusMinToday >= 60 ? `${(focusMinToday/60).toFixed(1)}h` : `${focusMinToday}m`}
@@ -627,7 +655,15 @@ export default async function DashboardPage() {
             progress={habits.length > 0 ? (doneToday/habits.length)*100 : 0} />
         </Link>
         <StatTile label="Spent this month" value={`€${(totalSpent/100).toFixed(0)}`} icon={<Flame className="h-4 w-4 text-emerald-400"/>} />
-        <TogglTile />
+        {todayMedTags.length > 0 ? (
+          <Link href="/dashboard/medications">
+            <StatTile label="Taken today" value={`${todayMedTags.length}`}
+              sub={todayMedTags.slice(0, 2).join(", ") + (todayMedTags.length > 2 ? ` +${todayMedTags.length - 2}` : "")}
+              icon={<span className="text-base leading-none">💊</span>} ok />
+          </Link>
+        ) : (
+          <TogglTile />
+        )}
       </div>
     ),
 

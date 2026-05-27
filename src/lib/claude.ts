@@ -54,6 +54,17 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "log_coffee",
+    description: "Log coffee intake for the user (adds to today's coffee total)",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        amountMl: { type: "number", description: "Amount in ml (e.g. 30 espresso, 200 americano, 300 latte)" },
+      },
+      required: ["amountMl"],
+    },
+  },
+  {
     name: "log_mood",
     description: "Log the user's mood for today (1=awful, 2=bad, 3=ok, 4=good, 5=great)",
     input_schema: {
@@ -73,6 +84,17 @@ const TOOLS: Anthropic.Tool[] = [
         weightKg: { type: "number", description: "Weight in kilograms" },
       },
       required: ["weightKg"],
+    },
+  },
+  {
+    name: "write_daily_note",
+    description: "Write or update the user's journal note for today",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        content: { type: "string", description: "The note content to save" },
+      },
+      required: ["content"],
     },
   },
 ]
@@ -118,6 +140,12 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     return `Logged ${amountMl}ml of water.`
   }
 
+  if (name === "log_coffee") {
+    const amountMl = parseInt(String(input.amountMl), 10)
+    await prisma.intakeLog.create({ data: { userId, type: "coffee", amountMl } }).catch(() => null)
+    return `Logged ${amountMl}ml of coffee.`
+  }
+
   if (name === "log_mood") {
     const mood = Math.min(5, Math.max(1, parseInt(String(input.mood), 10)))
     const today = new Date(); today.setHours(0, 0, 0, 0)
@@ -140,6 +168,17 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     return `Logged weight: ${weight}kg for today.`
   }
 
+  if (name === "write_daily_note") {
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const todayStr = today.toISOString().split("T")[0]
+    await prisma.$executeRaw`
+      INSERT INTO "DailyNote" ("id","userId","date","content","updatedAt")
+      VALUES (gen_random_uuid()::text, ${userId}, ${todayStr}::date, ${input.content}, NOW())
+      ON CONFLICT ("userId","date") DO UPDATE SET "content" = ${input.content}, "updatedAt" = NOW()
+    `.catch(() => null)
+    return `Journal note saved for today.`
+  }
+
   return "Unknown tool."
 }
 
@@ -148,7 +187,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const todayStr = today.toISOString().split("T")[0]
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
 
-  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake] =
+  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, todayOuraTags] =
     await Promise.all([
       prisma.healthLog.findMany({
         where: { userId }, orderBy: { date: "desc" }, take: 7,
@@ -156,6 +195,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
           id: true, date: true, sleepDuration: true, deepSleep: true, remSleep: true,
           steps: true, restingHR: true, weight: true, activeMinutes: true, caloriesBurned: true,
           readinessScore: true, hrv: true, spo2: true, activityScore: true, breathingRate: true,
+          sleepScore: true,
         },
       }),
       prisma.transaction.findMany({ where: { userId, date: { gte: monthStart } }, orderBy: { date: "desc" }, take: 100 }),
@@ -172,6 +212,9 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       getUpcomingEvents(userId, 14),
       prisma.moodLog.findFirst({ where: { userId, date: { gte: new Date(todayStr) } } }).catch(() => null),
       prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: new Date(todayStr) } } }).catch(() => []),
+      prisma.$queryRaw<{ tagName: string | null; text: string | null }[]>`
+        SELECT "tagName","text" FROM "OuraTag" WHERE "userId" = ${userId} AND "day" = ${todayStr}
+      `.catch(() => []),
     ])
 
   const habitsWithStreaks = habits.map((h) => {
@@ -195,21 +238,39 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const totalSpent = Object.values(spendingByCategory).reduce((a, b) => a + b, 0)
   const totalIncome = recentTransactions.filter((t) => t.amount > 0 && !t.isTransfer).reduce((sum, t) => sum + t.amount, 0)
 
-  // Intake totals for today
-  const waterToday = (todayIntake as any[]).filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
-  const coffeeToday = (todayIntake as any[]).filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0)
+  // Classify today's Oura tags
+  const ML_RE = /(\d+)\s*ml/i
+  let ouraWaterMl = 0, ouraCoffeeMl = 0
+  const ouraMeds: string[] = []
+  const seenMedNames = new Set<string>()
+  for (const t of (todayOuraTags as any[])) {
+    const label = (t.tagName ?? t.text ?? "").trim()
+    const l = label.toLowerCase()
+    if (!l) continue
+    const ml = (l.match(ML_RE)?.[1] ? parseInt(l.match(ML_RE)![1]) : 0)
+    if (/\bwater\b/.test(l)) ouraWaterMl += ml
+    else if (/coffee|espresso|latte|cappuccino|americano|v60|aeropress|pour.?over|flat.?white/.test(l)) ouraCoffeeMl += ml
+    else if (!/beer|wine|alcohol|vodka|rum|\bgin\b|whisky|cider|juice|smoothie|soda/.test(l)) {
+      if (label && !seenMedNames.has(l)) { seenMedNames.add(l); ouraMeds.push(label) }
+    }
+  }
+
+  // Intake totals (manual + Oura)
+  const waterToday = (todayIntake as any[]).filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0) + ouraWaterMl
+  const coffeeToday = (todayIntake as any[]).filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0) + ouraCoffeeMl
 
   const moodLabels: Record<number, string> = { 1: "awful", 2: "bad", 3: "ok", 4: "good", 5: "great" }
 
   return `You are the personal AI assistant embedded in the user's health and life dashboard. Today is ${todayStr}.
-You have tools to CREATE habits/reminders, COMPLETE habits, and LOG water/mood/weight — use them when asked.
+You have tools to CREATE habits/reminders, COMPLETE habits, and LOG water/coffee/mood/weight/journal — use them when asked.
 
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
 - Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}
+${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
 
 ## Health (last 7 days)
-${recentHealth.length === 0 ? "No health data yet." : recentHealth.map((h) => `- ${h.date.toISOString().split("T")[0]}: sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"}${h.readinessScore != null ? ` | readiness ${h.readinessScore}` : ""}${h.hrv != null ? ` | HRV ${Math.round(h.hrv)}ms` : ""} | ${h.steps ?? "?"}steps | HR ${h.restingHR ?? "?"}bpm${h.activityScore != null ? ` | activity ${h.activityScore}` : ""}${h.weight != null ? ` | ${h.weight}kg` : ""}`).join("\n")}
+${recentHealth.length === 0 ? "No health data yet." : recentHealth.map((h) => `- ${h.date.toISOString().split("T")[0]}: sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"}${(h as any).sleepScore != null ? ` (score ${(h as any).sleepScore})` : ""}${h.readinessScore != null ? ` | readiness ${h.readinessScore}` : ""}${h.hrv != null ? ` | HRV ${Math.round(h.hrv)}ms` : ""} | ${h.steps ?? "?"}steps | HR ${h.restingHR ?? "?"}bpm${h.activityScore != null ? ` | activity ${h.activityScore}` : ""}${h.weight != null ? ` | ${h.weight}kg` : ""}`).join("\n")}
 
 ## Finances (this month)
 Spent: €${(totalSpent / 100).toFixed(2)} | Income: €${(totalIncome / 100).toFixed(2)}
@@ -240,7 +301,7 @@ export async function streamChatResponse(
 
   // Non-streaming call with tools
   let response = await anthropic.messages.create({
-    model: "claude-opus-4-6",
+    model: "claude-opus-4-7",
     max_tokens: 2048,
     tools: TOOLS,
     system: systemPrompt,
@@ -260,7 +321,7 @@ export async function streamChatResponse(
     messages.push({ role: "user", content: toolResults })
 
     response = await anthropic.messages.create({
-      model: "claude-opus-4-6",
+      model: "claude-opus-4-7",
       max_tokens: 2048,
       tools: TOOLS,
       system: systemPrompt,
