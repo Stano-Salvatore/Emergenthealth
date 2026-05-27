@@ -6,6 +6,7 @@ import { Sidebar } from "./Sidebar"
 import { FeedbackButton } from "@/components/dashboard/FeedbackButton"
 import { BottomNav } from "./BottomNav"
 import { CommandPalette } from "./CommandPalette"
+import { WhatsNewBanner } from "./WhatsNewBanner"
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "sidebar-open"
@@ -85,6 +86,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <FeedbackButton />
       <BottomNav />
       <CommandPalette />
+      <WhatsNewBanner />
     </div>
   )
 }
