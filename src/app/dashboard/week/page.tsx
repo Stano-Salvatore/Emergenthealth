@@ -1,3 +1,6 @@
+import type { Metadata } from "next"
+export const metadata: Metadata = { title: "This Week" }
+
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { format, subDays, startOfWeek, endOfWeek } from "date-fns"

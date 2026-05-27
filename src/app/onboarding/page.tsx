@@ -271,12 +271,36 @@ export default function OnboardingPage() {
 
         {/* ── Step 4: Done ─────────────────────────────────── */}
         {step === 4 && (
-          <div className="text-center">
-            <div className="text-5xl mb-4">✅</div>
-            <h2 className="text-2xl font-bold text-foreground mb-2">You&apos;re all set!</h2>
-            <p className="text-muted-foreground mb-8 leading-relaxed">
-              Your dashboard is ready. We&apos;ll add more insights as data comes in.
-            </p>
+          <div>
+            <div className="text-center mb-6">
+              <div className="text-5xl mb-4">🎉</div>
+              <h2 className="text-2xl font-bold text-foreground mb-2">You&apos;re all set!</h2>
+              <p className="text-muted-foreground leading-relaxed">
+                Your dashboard is ready. Here&apos;s what to do first:
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-border/60 divide-y divide-border/40 mb-8">
+              {[
+                { emoji: "🌅", label: "Log your morning check-in", href: "/dashboard/checkin", hint: "Energy, mood, intention" },
+                { emoji: "🔗", label: "Connect Oura Ring or Strava", href: "/dashboard/settings", hint: "Auto-sync health & activity data" },
+                { emoji: "✅", label: "Create your first habit", href: "/dashboard/habits", hint: "Build streaks and earn XP" },
+              ].map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/40 transition-colors"
+                >
+                  <span className="text-xl shrink-0">{item.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground">{item.label}</p>
+                    <p className="text-xs text-muted-foreground">{item.hint}</p>
+                  </div>
+                  <span className="text-muted-foreground/40 text-sm">→</span>
+                </Link>
+              ))}
+            </div>
+
             <Button
               className="w-full"
               size="lg"

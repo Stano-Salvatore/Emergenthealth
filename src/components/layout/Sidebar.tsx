@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
-import { X, Settings2, Eye, EyeOff } from "lucide-react"
+import { X, Settings2, Eye, EyeOff, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState, useEffect, useRef } from "react"
 
@@ -225,7 +225,17 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             </button>
           </div>
         ) : (
-          <div className={cn("transition-opacity duration-150", bottomHovered ? "opacity-100" : "opacity-0")}>
+          <div className={cn("transition-opacity duration-150 space-y-0.5", bottomHovered ? "opacity-100" : "opacity-0")}>
+            <button
+              onClick={() => {
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))
+              }}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"
+            >
+              <Search className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left">Quick nav</span>
+              <kbd className="text-[9px] font-mono bg-secondary rounded px-1 py-0.5">⌘K</kbd>
+            </button>
             <button
               onClick={() => setEditing(true)}
               className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"

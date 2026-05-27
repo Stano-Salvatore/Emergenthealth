@@ -1,3 +1,6 @@
+import type { Metadata } from "next"
+export const metadata: Metadata = { title: "Settings" }
+
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { Card, CardContent } from "@/components/ui/card"
