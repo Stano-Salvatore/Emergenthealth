@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { Resend } from "resend"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 
@@ -15,6 +16,10 @@ async function ensureTable() {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown"
+  const rl = checkRateLimit(ip, "newsletter", 3, 60 * 60 * 1000) // 3/hr per IP
+  if (!rl.allowed) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
   const { email } = await req.json().catch(() => ({ email: "" }))
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "Valid email required" }, { status: 400 })
