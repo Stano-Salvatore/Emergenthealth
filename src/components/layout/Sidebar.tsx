@@ -3,8 +3,9 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
-import { X } from "lucide-react"
+import { X, Settings2, Eye, EyeOff } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useState, useEffect, useRef } from "react"
 
 type NavItem = { href: string; label: string; emoji: string }
 
@@ -64,8 +65,57 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
   },
 ]
 
+const NON_HIDEABLE = new Set(["/dashboard", "/dashboard/settings", "/dashboard/chat"])
+
 export function Sidebar({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname()
+  const [hidden, setHidden] = useState<string[]>([])
+  const [editing, setEditing] = useState(false)
+  const [bottomHovered, setBottomHovered] = useState(false)
+  const [hoveredItem, setHoveredItem] = useState<string | null>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const cached = localStorage.getItem("sidebar-hidden-v1")
+    if (cached) {
+      try { setHidden(JSON.parse(cached)) } catch {}
+    }
+    fetch("/api/preferences/sidebar")
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data.hidden)) {
+          setHidden(data.hidden)
+          localStorage.setItem("sidebar-hidden-v1", JSON.stringify(data.hidden))
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  function persistHidden(next: string[]) {
+    localStorage.setItem("sidebar-hidden-v1", JSON.stringify(next))
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      fetch("/api/preferences/sidebar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden: next }),
+      }).catch(() => {})
+    }, 800)
+  }
+
+  function toggleHidden(href: string) {
+    if (NON_HIDEABLE.has(href)) return
+    const next = hidden.includes(href)
+      ? hidden.filter(h => h !== href)
+      : [...hidden, href]
+    setHidden(next)
+    persistHidden(next)
+  }
+
+  function resetHidden() {
+    setHidden([])
+    persistHidden([])
+  }
 
   return (
     <aside
@@ -94,38 +144,97 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
 
       {/* ── Nav ── */}
       <nav className="flex-1 p-3 overflow-y-auto space-y-5 scrollbar-thin">
-        {navGroups.map(group => (
-          <div key={group.label}>
-            <p className={cn("text-[9px] font-bold uppercase tracking-[0.12em] px-3 mb-2 flex items-center gap-1", group.color, "opacity-70")}>
-              <span>{group.emoji}</span>
-              {group.label}
-            </p>
-            <div className="space-y-0.5">
-              {group.items.map(({ href, label, emoji }) => {
-                const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href))
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={cn(
-                      "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150",
-                      active
-                        ? "bg-gradient-to-r from-primary/20 to-primary/5 text-primary font-semibold border border-primary/25 shadow-sm"
-                        : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-                    )}
-                  >
-                    <span className="text-base leading-none w-5 text-center shrink-0" role="img">{emoji}</span>
-                    {label}
-                  </Link>
-                )
-              })}
+        {navGroups.map(group => {
+          const visibleItems = editing
+            ? group.items
+            : group.items.filter(item => !hidden.includes(item.href))
+          if (!editing && visibleItems.length === 0) return null
+          return (
+            <div key={group.label}>
+              <p className={cn("text-[9px] font-bold uppercase tracking-[0.12em] px-3 mb-2 flex items-center gap-1", group.color, "opacity-70")}>
+                <span>{group.emoji}</span>
+                {group.label}
+              </p>
+              <div className="space-y-0.5">
+                {visibleItems.map(({ href, label, emoji }) => {
+                  const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href))
+                  const isHidden = hidden.includes(href)
+                  const isHideable = !NON_HIDEABLE.has(href)
+                  const isHovered = hoveredItem === href
+                  return (
+                    <div
+                      key={href}
+                      className="relative group/item"
+                      onMouseEnter={() => setHoveredItem(href)}
+                      onMouseLeave={() => setHoveredItem(null)}
+                    >
+                      <Link
+                        href={href}
+                        className={cn(
+                          "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150",
+                          active
+                            ? "bg-gradient-to-r from-primary/20 to-primary/5 text-primary font-semibold border border-primary/25 shadow-sm"
+                            : "text-muted-foreground hover:text-foreground hover:bg-white/5",
+                          editing && isHidden && "opacity-40",
+                        )}
+                      >
+                        <span className="text-base leading-none w-5 text-center shrink-0" role="img">{emoji}</span>
+                        <span className={cn(editing && isHidden && "line-through")}>{label}</span>
+                      </Link>
+                      {editing && isHideable && isHovered && (
+                        <button
+                          onClick={() => toggleHidden(href)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+                          aria-label={isHidden ? "Show item" : "Hide item"}
+                        >
+                          {isHidden
+                            ? <EyeOff className="h-3.5 w-3.5" />
+                            : <Eye className="h-3.5 w-3.5" />
+                          }
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </nav>
 
-      {/* ── Sign out ── */}
-      <div className="p-3 border-t border-border/60">
+      {/* ── Bottom area ── */}
+      <div
+        className="p-3 border-t border-border/60 space-y-1"
+        onMouseEnter={() => setBottomHovered(true)}
+        onMouseLeave={() => setBottomHovered(false)}
+      >
+        {editing ? (
+          <div className="flex items-center gap-2 px-3 py-2">
+            <button
+              onClick={() => setEditing(false)}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Done
+            </button>
+            <span className="text-muted-foreground/40 text-xs">·</span>
+            <button
+              onClick={resetHidden}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Reset
+            </button>
+          </div>
+        ) : (
+          <div className={cn("transition-opacity duration-150", bottomHovered ? "opacity-100" : "opacity-0")}>
+            <button
+              onClick={() => setEditing(true)}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"
+            >
+              <Settings2 className="h-4 w-4 shrink-0" />
+              Customize
+            </button>
+          </div>
+        )}
         <button
           onClick={() => signOut({ callbackUrl: "/signin" })}
           className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"
