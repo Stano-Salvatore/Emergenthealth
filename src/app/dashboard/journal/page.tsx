@@ -5,7 +5,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { format, subDays } from "date-fns"
-import { BookOpen, MapPin, Plus, Trash2, ChevronLeft, ChevronRight, Check } from "lucide-react"
+import { BookOpen, MapPin, Plus, Trash2, ChevronLeft, ChevronRight, Check, Sparkles } from "lucide-react"
+
+const WRITING_PROMPTS = [
+  "What's one thing you're grateful for today?",
+  "What's the most important thing you want to accomplish today?",
+  "How are you feeling, and why?",
+  "What's something you learned recently?",
+  "What went well today?",
+  "What would make tomorrow even better?",
+  "What's been on your mind lately?",
+  "Describe a moment today that made you smile.",
+  "What are you looking forward to this week?",
+  "What's one thing you'd tell your past self?",
+  "What's draining your energy lately?",
+  "What small win can you celebrate today?",
+]
 
 const MOODS = [
   { value: 1, emoji: "😴", label: "Awful" },
@@ -40,6 +55,7 @@ export default function JournalPage() {
   const [note, setNote] = useState<DailyNote>({ content: "" })
   const [noteSaveState, setNoteSaveState] = useState<"idle" | "saving" | "saved">("idle")
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [promptIdx, setPromptIdx] = useState(() => Math.floor(Math.random() * WRITING_PROMPTS.length))
   const [checkIns, setCheckIns] = useState<CheckIn[]>([])
   const [newPlace, setNewPlace] = useState("")
   const [newEmoji, setNewEmoji] = useState("📍")
@@ -189,6 +205,18 @@ export default function JournalPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
+          {isToday && !note.content && (
+            <div className="mb-2 flex items-start gap-2 rounded-lg bg-primary/5 border border-primary/15 px-3 py-2">
+              <Sparkles className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground flex-1 italic">{WRITING_PROMPTS[promptIdx]}</p>
+              <button
+                onClick={() => setPromptIdx((i) => (i + 1) % WRITING_PROMPTS.length)}
+                className="text-[10px] text-primary/70 hover:text-primary shrink-0 transition-colors"
+              >
+                Next ↻
+              </button>
+            </div>
+          )}
           <textarea
             className="w-full min-h-[120px] bg-secondary/30 rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground leading-relaxed"
             placeholder={isToday ? "What's on your mind today? Wins, learnings, gratitude…" : "No note for this day."}

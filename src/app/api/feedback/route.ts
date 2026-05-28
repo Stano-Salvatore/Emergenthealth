@@ -1,6 +1,31 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { Resend } from "resend"
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
+
+const TYPE_EMOJI: Record<string, string> = {
+  suggestion: "💡",
+  bug: "🐛",
+  love: "❤️",
+}
+
+async function notifyOwner(userName: string | null, userEmail: string | null, message: string, type: string) {
+  if (!resend || !process.env.FEEDBACK_NOTIFY_EMAIL) return
+  const emoji = TYPE_EMOJI[type] ?? "💬"
+  await resend.emails.send({
+    from: "Emergenthealth <noreply@emergenthealth.app>",
+    to: process.env.FEEDBACK_NOTIFY_EMAIL,
+    subject: `[Feedback] ${emoji} ${type} from ${userName ?? userEmail ?? "unknown"}`,
+    html: `
+      <p><strong>Type:</strong> ${emoji} ${type}</p>
+      <p><strong>From:</strong> ${userName ?? "—"} (${userEmail ?? "—"})</p>
+      <hr/>
+      <p style="white-space:pre-wrap">${message}</p>
+    `,
+  }).catch(() => {})
+}
 
 async function ensureTable() {
   await prisma.$executeRaw`
@@ -30,6 +55,8 @@ export async function POST(req: NextRequest) {
     INSERT INTO "UserFeedback" ("userId", "message", "type")
     VALUES (${session.user.id}, ${message.trim()}, ${type})
   `
+
+  await notifyOwner(session.user.name ?? null, session.user.email ?? null, message.trim(), type)
 
   return NextResponse.json({ ok: true })
 }

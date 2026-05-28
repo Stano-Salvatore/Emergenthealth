@@ -1,3 +1,6 @@
+import type { Metadata } from "next"
+export const metadata: Metadata = { title: "Settings" }
+
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { Card, CardContent } from "@/components/ui/card"
@@ -17,6 +20,7 @@ import { LastfmManager } from "@/components/settings/LastfmManager"
 import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
 import { WidgetSetup } from "@/components/settings/WidgetSetup"
 import { DeleteAccount } from "@/components/settings/DeleteAccount"
+import { PushNotifications } from "@/components/settings/PushNotifications"
 
 export default async function SettingsPage({
   searchParams,
@@ -138,6 +142,9 @@ export default async function SettingsPage({
           <ThemeSwitcher />
         </CardContent>
       </Card>
+
+      {/* Push notifications */}
+      <PushNotifications />
 
       {/* MCP server info */}
       <Card className="border-dashed">

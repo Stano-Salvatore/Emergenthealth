@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import Link from "next/link"
+import { NewsletterForm } from "@/components/ui/NewsletterForm"
 
 export default async function HomePage() {
   const session = await auth()
@@ -153,6 +154,51 @@ export default async function HomePage() {
           </div>
         </section>
 
+        {/* FAQ */}
+        {(() => {
+          const faqs = [
+            {
+              q: "Is it free?",
+              a: "Yes — Emergenthealth is free to use. You connect your own accounts (Oura, YNAB, Strava, etc.) — no paid tiers.",
+            },
+            {
+              q: "What data sources does it support?",
+              a: "Oura Ring (sleep & readiness), Strava (workouts), YNAB (budget), GitHub (coding activity), RescueTime (focus), Last.fm (music), Google Calendar, and more integrations are added regularly.",
+            },
+            {
+              q: "Where is my data stored?",
+              a: "Your data lives in a private database (Neon PostgreSQL). We never sell your data or share it with advertisers.",
+            },
+            {
+              q: "Does it work on my phone?",
+              a: "Yes — Emergenthealth is a PWA. You can install it on your home screen from Safari (iOS) or Chrome (Android) and it works like a native app.",
+            },
+            {
+              q: "Do I need all the integrations?",
+              a: "No — connect only what you care about. The dashboard adapts to show only the data you've connected.",
+            },
+            {
+              q: "Is there a mobile app?",
+              a: "The web app works great on mobile via PWA. A native iOS/Android app is in the roadmap.",
+            },
+          ]
+          return (
+            <section className="max-w-3xl mx-auto px-6 pb-28">
+              <h2 className="text-center text-2xl font-semibold mb-12" style={{ color: "#f2f2fa" }}>
+                Frequently asked questions
+              </h2>
+              <div className="space-y-0 divide-y" style={{ borderColor: "rgba(99,102,241,0.15)" }}>
+                {faqs.map((faq) => (
+                  <div key={faq.q} className="py-5">
+                    <p className="font-medium text-sm mb-1.5" style={{ color: "#f2f2fa" }}>{faq.q}</p>
+                    <p className="text-sm" style={{ color: "#7a7a96" }}>{faq.a}</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )
+        })()}
+
         {/* CTA */}
         <section className="max-w-6xl mx-auto px-6 pb-28 text-center">
           <div
@@ -175,6 +221,14 @@ export default async function HomePage() {
             >
               Get started →
             </Link>
+
+            <div className="mt-10 pt-8" style={{ borderTop: "1px solid rgba(99,102,241,0.1)" }}>
+              <p className="text-xs mb-4" style={{ color: "rgba(122,122,150,0.7)" }}>
+                Not ready yet? Get notified when new integrations launch.
+              </p>
+              <NewsletterForm />
+            </div>
+
             <p className="mt-6 text-xs" style={{ color: "rgba(122,122,150,0.6)" }}>
               <Link href="/privacy" className="hover:opacity-80 transition-opacity">Privacy policy</Link>
               {" · "}

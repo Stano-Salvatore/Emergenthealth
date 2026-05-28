@@ -4,6 +4,9 @@ import { getUpcomingEvents } from "@/lib/google-calendar"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
+const CACHE: Anthropic.CacheControlEphemeral = { type: "ephemeral" }
+
+// Mark last tool as cacheable so the static tool definitions are cached together
 const TOOLS: Anthropic.Tool[] = [
   {
     name: "create_habit",
@@ -294,17 +297,34 @@ export async function streamChatResponse(
   messageHistory: Array<{ role: "user" | "assistant"; content: string }>
 ) {
   const systemPrompt = await buildSystemPrompt(userId)
-  const messages: Anthropic.MessageParam[] = [
-    ...messageHistory.slice(-20),
-    { role: "user", content: userMessage },
+
+  // Cache system prompt and tools — both are large and stable within a session
+  const system: Anthropic.TextBlockParam[] = [{ type: "text", text: systemPrompt, cache_control: CACHE }]
+  const cachedTools: Anthropic.Tool[] = [
+    ...TOOLS.slice(0, -1),
+    { ...TOOLS[TOOLS.length - 1], cache_control: CACHE },
   ]
+
+  // Cache the conversation history prefix (all but the current message)
+  const history = messageHistory.slice(-20)
+  const messages: Anthropic.MessageParam[] = history.length > 0
+    ? [
+        ...history.slice(0, -1),
+        // Mark the last historical turn as cacheable — stable across this turn's retries/tool loops
+        {
+          role: history[history.length - 1].role,
+          content: [{ type: "text" as const, text: history[history.length - 1].content, cache_control: CACHE }],
+        },
+        { role: "user" as const, content: userMessage },
+      ]
+    : [{ role: "user" as const, content: userMessage }]
 
   // Non-streaming call with tools
   let response = await anthropic.messages.create({
     model: "claude-opus-4-7",
     max_tokens: 2048,
-    tools: TOOLS,
-    system: systemPrompt,
+    tools: cachedTools,
+    system,
     messages,
   })
 
@@ -323,8 +343,8 @@ export async function streamChatResponse(
     response = await anthropic.messages.create({
       model: "claude-opus-4-7",
       max_tokens: 2048,
-      tools: TOOLS,
-      system: systemPrompt,
+      tools: cachedTools,
+      system,
       messages,
     })
   }
