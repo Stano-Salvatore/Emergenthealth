@@ -4,6 +4,46 @@ import { prisma } from "@/lib/prisma"
 
 const ML_RE = /(\d+)\s*ml/i
 
+// Default volumes when a tag is recognised as a drink but has no explicit ml
+const DEFAULT_ML: Record<string, number> = {
+  water:       300,  // a glass
+  espresso:     30,
+  macchiato:    60,
+  "flat white": 160,
+  cappuccino:  180,
+  latte:       300,
+  americano:   200,
+  coffee:      200,  // generic fallback
+  v60:         300,
+  aeropress:   200,
+  "pour over": 300,
+  tea:         250,
+  beer:        330,
+  wine:        150,
+  spirit:       40,
+  cocktail:    200,
+  whisky:       40,
+  whiskey:      40,
+  vodka:        40,
+  rum:          40,
+  gin:          40,
+  cider:       330,
+}
+
+function defaultMlForType(label: string, type: string): number {
+  const l = label.toLowerCase()
+  // Try specific drink names first
+  for (const [key, ml] of Object.entries(DEFAULT_ML)) {
+    if (l.includes(key)) return ml
+  }
+  // Fall back to type defaults
+  if (type === "water") return 300
+  if (type === "coffee") return 200
+  if (type === "tea") return 250
+  if (type === "alcohol") return 200
+  return 200
+}
+
 function drinkType(label: string): { type: string; emoji: string } | null {
   const l = label.toLowerCase()
 
@@ -45,7 +85,7 @@ export async function GET(req: Request) {
       const drink = drinkType(label)
       if (!drink) return []
       const mlMatch = label.match(ML_RE)
-      const amountMl = mlMatch ? parseInt(mlMatch[1]) : null
+      const amountMl = mlMatch ? parseInt(mlMatch[1]) : defaultMlForType(label, drink.type)
       return [{ id: r.id, name: label, type: drink.type, emoji: drink.emoji, amountMl, timestamp: r.timestamp }]
     })
 
