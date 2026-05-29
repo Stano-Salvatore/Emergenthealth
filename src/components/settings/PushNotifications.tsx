@@ -11,6 +11,7 @@ export function PushNotifications() {
   const [subscribed, setSubscribed] = useState(false)
   const [loading, setLoading] = useState(false)
   const [testStatus, setTestStatus] = useState<"idle" | "sent" | "error">("idle")
+  const [testError, setTestError] = useState<string | null>(null)
 
   useEffect(() => {
     const ok = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
@@ -74,9 +75,16 @@ export function PushNotifications() {
 
   async function sendTest() {
     setTestStatus("idle")
+    setTestError(null)
     const res = await fetch("/api/push/test", { method: "POST" })
-    setTestStatus(res.ok ? "sent" : "error")
-    setTimeout(() => setTestStatus("idle"), 3000)
+    if (res.ok) {
+      setTestStatus("sent")
+      setTimeout(() => setTestStatus("idle"), 3000)
+    } else {
+      const data = await res.json().catch(() => ({}))
+      setTestError(data.error ?? `Error ${res.status}`)
+      setTestStatus("error")
+    }
   }
 
   if (!supported) return null
@@ -112,12 +120,17 @@ export function PushNotifications() {
         </div>
 
         {subscribed && (
-          <div className="border-t border-border/50 pt-3 flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">Send a test notification to this device</p>
-            <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5" onClick={sendTest}>
-              <Send className="h-3 w-3" />
-              {testStatus === "sent" ? "Sent!" : testStatus === "error" ? "Failed" : "Test"}
-            </Button>
+          <div className="border-t border-border/50 pt-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-muted-foreground">Send a test notification to this device</p>
+              <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5" onClick={sendTest}>
+                <Send className="h-3 w-3" />
+                {testStatus === "sent" ? "Sent!" : testStatus === "error" ? "Retry" : "Test"}
+              </Button>
+            </div>
+            {testStatus === "error" && testError && (
+              <p className="text-xs text-red-400 bg-red-500/10 rounded-md px-3 py-2">{testError}</p>
+            )}
           </div>
         )}
       </CardContent>

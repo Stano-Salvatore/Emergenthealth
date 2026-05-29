@@ -117,7 +117,7 @@ export default function FinancesPage() {
     setSyncing(true)
     setSyncMessage(null)
     try {
-      // Try YNAB first; fall back to Actual Budget
+      // Try YNAB first; fall back to Actual Budget only if env vars are set
       const ynabStatus = await fetch("/api/ynab/connect").then(r => r.json()).catch(() => ({ connected: false }))
       if (ynabStatus.connected) {
         const res = await fetch("/api/sync/ynab", { method: "POST" })
@@ -125,13 +125,19 @@ export default function FinancesPage() {
         if (res.ok) { setSyncMessage(`Synced ${data.synced} transactions from YNAB`); await loadTransactions() }
         else setSyncMessage(`YNAB: ${data.error ?? "Sync failed"}`)
       } else {
+        // Check if Actual Budget is configured before trying
         const res = await fetch("/api/sync/finances", { method: "POST" })
         const data = await res.json()
-        if (res.ok) {
+        if (res.status === 503) {
+          // Neither budget source is available
+          setSyncMessage("No budget connected — reconnect YNAB in Settings")
+        } else if (res.ok) {
           setSyncMessage(`Synced ${data.synced} transactions`)
           if (data.accounts) { setAccountBalances(data.accounts); localStorage.setItem("finance_accounts", JSON.stringify(data.accounts)) }
           await loadTransactions()
-        } else setSyncMessage(`Error: ${data.error}`)
+        } else {
+          setSyncMessage(`Error: ${data.error}`)
+        }
       }
     } finally {
       setSyncing(false)
