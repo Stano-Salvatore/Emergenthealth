@@ -31,6 +31,7 @@ export default async function SettingsPage({
     oura_error?: string
     ynab_connected?: string
     ynab_error?: string
+    ynab_reason?: string
     strava_connected?: string
     strava_error?: string
   }>
@@ -43,6 +44,7 @@ export default async function SettingsPage({
   const ouraError = params.oura_error
   const ynabConnected = params.ynab_connected === "1"
   const ynabError = params.ynab_error
+  const ynabReason = params.ynab_reason
   const stravaConnected = params.strava_connected === "1"
   const stravaError = params.strava_error
 
@@ -187,6 +189,9 @@ export default async function SettingsPage({
                   ? "Tokens were received but could not be saved. Please try again."
                   : `Error: ${ynabError}. Please try again.`}
             </p>
+            {ynabReason && (
+              <p className="text-[11px] text-muted-foreground/60 mt-1 font-mono break-all">{ynabReason}</p>
+            )}
           </CardContent>
         </Card>
       )}
