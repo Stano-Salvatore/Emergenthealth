@@ -212,7 +212,8 @@ export default async function DashboardPage() {
   const seenMedNames = new Set<string>()
 
   for (const t of (todayOuraTags as any[])) {
-    const label = (t.tagName ?? t.text ?? "").trim().toLowerCase()
+    // Combine tagName + text so "Espresso" + "30ml" → "Espresso 30ml"
+    const label = [t.tagName, t.text].filter(Boolean).join(" ").trim().toLowerCase()
     if (!label) continue
     const mlMatch = label.match(ML_RE)
     const ml = mlMatch ? parseInt(mlMatch[1]) : ouraDefaultMl(label)

@@ -80,13 +80,19 @@ export async function GET(req: Request) {
     `
 
     const entries = rows.flatMap(r => {
-      const label = (r.tagName ?? r.text ?? "").trim()
-      if (!label) return []
-      const drink = drinkType(label)
+      // Combine tagName (the drink type, e.g. "Espresso") and text (the
+      // user's comment, e.g. "30ml") so that explicit volumes are found
+      // even when they live in the separate comment field.
+      const combined = [r.tagName, r.text].filter(Boolean).join(" ").trim()
+      if (!combined) return []
+      const drink = drinkType(combined)
       if (!drink) return []
-      const mlMatch = label.match(ML_RE)
-      const amountMl = mlMatch ? parseInt(mlMatch[1]) : defaultMlForType(label, drink.type)
-      return [{ id: r.id, name: label, type: drink.type, emoji: drink.emoji, amountMl, timestamp: r.timestamp }]
+      const mlMatch = combined.match(ML_RE)
+      const amountMl = mlMatch ? parseInt(mlMatch[1]) : defaultMlForType(combined, drink.type)
+      // Display name: prefer the tag type name alone (cleaner), but keep
+      // full combined label if tagName is absent.
+      const name = r.tagName?.trim() || combined
+      return [{ id: r.id, name, type: drink.type, emoji: drink.emoji, amountMl, timestamp: r.timestamp }]
     })
 
     // totalMl is water-only for the weekly water trend chart
