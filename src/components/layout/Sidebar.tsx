@@ -71,7 +71,6 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname()
   const [hidden, setHidden] = useState<string[]>([])
   const [editing, setEditing] = useState(false)
-  const [bottomHovered, setBottomHovered] = useState(false)
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -203,11 +202,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       </nav>
 
       {/* ── Bottom area ── */}
-      <div
-        className="p-3 border-t border-border/60 space-y-1"
-        onMouseEnter={() => setBottomHovered(true)}
-        onMouseLeave={() => setBottomHovered(false)}
-      >
+      <div className="p-3 border-t border-border/60 space-y-0.5">
         {editing ? (
           <div className="flex items-center gap-2 px-3 py-2">
             <button
@@ -225,7 +220,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             </button>
           </div>
         ) : (
-          <div className={cn("transition-opacity duration-150 space-y-0.5", bottomHovered ? "opacity-100" : "opacity-0")}>
+          <>
             <button
               onClick={() => {
                 window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))
@@ -243,11 +238,11 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               <Settings2 className="h-4 w-4 shrink-0" />
               Customize
             </button>
-          </div>
+          </>
         )}
         <button
           onClick={() => signOut({ callbackUrl: "/signin" })}
-          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"
+          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-red-400/70 hover:text-red-400 hover:bg-red-400/5 transition-all duration-150"
         >
           <span className="text-base leading-none w-5 text-center shrink-0">👋</span>
           Sign out
