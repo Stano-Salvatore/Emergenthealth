@@ -46,6 +46,8 @@ function slope(ys: number[]): number {
   return (n * sxy - sx * sy) / (n * sx2 - sx ** 2)
 }
 
+type CorrResult = { r: number | null; n: number; sparkPoints: { x: number; y: number }[] }
+
 export async function GET() {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -54,7 +56,7 @@ export async function GET() {
   const since30 = subDays(new Date(), 29)
   const since90 = subDays(new Date(), 89)
 
-  const [logs, focusSessions, intakeLogs, moodLogs, customMetrics, customLogs, weatherLogs, lastfmLogs, checkinLogs] = await Promise.all([
+  const [logs, focusSessions, intakeLogs, moodLogs, customMetrics, customLogs, weatherLogs, lastfmLogs, checkinLogs, transactions] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since90 } },
       orderBy: { date: "asc" },
@@ -70,9 +72,9 @@ export async function GET() {
       select: { durationMin: true, endedAt: true },
     }).catch(() => [] as { durationMin: number; endedAt: Date }[]),
     prisma.intakeLog.findMany({
-      where: { userId, loggedAt: { gte: since30 }, type: "water" },
-      select: { amountMl: true, loggedAt: true },
-    }).catch(() => [] as { amountMl: number; loggedAt: Date }[]),
+      where: { userId, loggedAt: { gte: since90 } },
+      select: { amountMl: true, loggedAt: true, type: true },
+    }).catch(() => [] as { amountMl: number; loggedAt: Date; type: string }[]),
     prisma.moodLog.findMany({
       where: { userId, date: { gte: since90 } },
       select: { date: true, mood: true },
@@ -106,6 +108,10 @@ export async function GET() {
       AND "date" >= ${format(since90, 'yyyy-MM-dd')}
       ORDER BY "date" ASC
     `.catch(() => [] as {date: string, energy: number, mood: number}[]),
+    prisma.transaction.findMany({
+      where: { userId, date: { gte: since90 }, isTransfer: false, amount: { lt: 0 } },
+      select: { date: true, amount: true },
+    }).catch(() => [] as { date: Date; amount: number }[]),
   ])
 
   const recent30 = logs.filter(l => l.date >= since30)
@@ -165,9 +171,13 @@ export async function GET() {
 
   // ── Water streak ─────────────────────────────────────────────────────────────
   const waterByDay: Record<string, number> = {}
+  const alcoholByDay: Record<string, number> = {}
+  const coffeeByDay: Record<string, number> = {}
   for (const w of intakeLogs) {
     const d = format(new Date(w.loggedAt), "yyyy-MM-dd")
-    waterByDay[d] = (waterByDay[d] ?? 0) + w.amountMl
+    if (w.type === "alcohol") alcoholByDay[d] = (alcoholByDay[d] ?? 0) + w.amountMl
+    else if (w.type === "coffee") coffeeByDay[d] = (coffeeByDay[d] ?? 0) + w.amountMl
+    else waterByDay[d] = (waterByDay[d] ?? 0) + w.amountMl
   }
   let waterStreak = 0
   const wCursor = new Date()
@@ -259,7 +269,23 @@ export async function GET() {
       const x = xFn(d), y = yFn(d)
       if (x != null && y != null) pairs.push([x, y])
     }
-    return { r: pearson(pairs), n: pairs.length }
+    return { r: pearson(pairs), n: pairs.length, sparkPoints: pairs.slice(-20).map(([x, y]) => ({ x, y })) }
+  }
+
+  function makeCorr(
+    key: string, label: string, emoji: string,
+    res: CorrResult,
+    insightFn: (r: number) => string,
+    isCustom = false,
+  ) {
+    const { r, n, sparkPoints } = res
+    return {
+      key, label, emoji, r, n, sparkPoints,
+      insight: r != null ? insightFn(r) : `Need at least 5 paired data points (have ${n})`,
+      strength: (r == null ? "insufficient" : Math.abs(r) >= 0.5 ? "strong" : Math.abs(r) >= 0.25 ? "moderate" : "weak") as "insufficient" | "strong" | "moderate" | "weak",
+      direction: r == null ? null : (r >= 0 ? "positive" : "negative") as "positive" | "negative",
+      isCustom,
+    }
   }
 
   const correlations = [
@@ -433,6 +459,12 @@ export async function GET() {
     focusMinByDay[d] = (focusMinByDay[d] ?? 0) + s.durationMin
   }
 
+  const spendByDay: Record<string, number> = {}
+  for (const t of transactions) {
+    const d = format(new Date(t.date), "yyyy-MM-dd")
+    spendByDay[d] = (spendByDay[d] ?? 0) + Math.abs(t.amount) / 100
+  }
+
   const lastfmCorrelations: typeof richCorrelations = []
 
   if (Object.keys(lastfmByDay).length >= 7) {
@@ -557,6 +589,108 @@ export async function GET() {
     }
   }
 
+  // ── Intake (alcohol / coffee) correlations ───────────────────────────────────
+  const intakeCorrelations: ReturnType<typeof makeCorr>[] = []
+
+  const alcoholDates = allDateStrs.filter(d => alcoholByDay[d] != null)
+  if (alcoholDates.length >= 5) {
+    for (const def of [
+      {
+        key: "alcohol_hrv_next", label: "Alcohol → Next-day HRV", emoji: "🍷",
+        xFn: (d: string) => alcoholByDay[d] ?? null,
+        yFn: (d: string) => get(nextDay(d), "hrv"),
+        insightFn: (r: number) => r < -0.25
+          ? `Drinking days link to lower HRV the next day (r=${r.toFixed(2)})`
+          : r > 0.25 ? "Moderate alcohol doesn't hurt your HRV in this dataset"
+          : "Alcohol and next-day HRV aren't strongly linked yet",
+      },
+      {
+        key: "alcohol_sleep", label: "Alcohol → Sleep score", emoji: "🍷",
+        xFn: (d: string) => alcoholByDay[d] ?? null,
+        yFn: (d: string) => get(d, "sleepScore"),
+        insightFn: (r: number) => r < -0.25
+          ? `More alcohol links to lower sleep score that night (r=${r.toFixed(2)})`
+          : r > 0.25 ? "Alcohol doesn't hurt your sleep score in this dataset"
+          : "Alcohol and sleep score aren't strongly linked yet",
+      },
+      {
+        key: "alcohol_readiness_next", label: "Alcohol → Next-day readiness", emoji: "🍷",
+        xFn: (d: string) => alcoholByDay[d] ?? null,
+        yFn: (d: string) => get(nextDay(d), "readinessScore"),
+        insightFn: (r: number) => r < -0.25
+          ? `Drinking days predict lower readiness the next day (r=${r.toFixed(2)})`
+          : r > 0.25 ? "Alcohol doesn't reduce next-day readiness in your data"
+          : "Alcohol and next-day readiness aren't strongly linked yet",
+      },
+    ]) {
+      intakeCorrelations.push(makeCorr(def.key, def.label, def.emoji, corr(def.xFn, def.yFn, alcoholDates), def.insightFn))
+    }
+  }
+
+  const coffeeDates = allDateStrs.filter(d => coffeeByDay[d] != null)
+  if (coffeeDates.length >= 5) {
+    for (const def of [
+      {
+        key: "coffee_sleep", label: "Coffee → Sleep score", emoji: "☕",
+        xFn: (d: string) => coffeeByDay[d] ?? null,
+        yFn: (d: string) => get(d, "sleepScore"),
+        insightFn: (r: number) => r < -0.25
+          ? `More coffee links to lower sleep score (r=${r.toFixed(2)})`
+          : r > 0.25 ? "Coffee doesn't hurt your sleep in this dataset"
+          : "Coffee and sleep score aren't strongly linked yet",
+      },
+      {
+        key: "coffee_hrv_next", label: "Coffee → Next-day HRV", emoji: "☕",
+        xFn: (d: string) => coffeeByDay[d] ?? null,
+        yFn: (d: string) => get(nextDay(d), "hrv"),
+        insightFn: (r: number) => r < -0.25
+          ? `High coffee days link to lower HRV the next day (r=${r.toFixed(2)})`
+          : r > 0.25 ? "Coffee doesn't seem to affect your HRV negatively"
+          : "Coffee and next-day HRV aren't strongly linked yet",
+      },
+    ]) {
+      intakeCorrelations.push(makeCorr(def.key, def.label, def.emoji, corr(def.xFn, def.yFn, coffeeDates), def.insightFn))
+    }
+  }
+
+  // ── Spending correlations ────────────────────────────────────────────────────
+  const spendingCorrelations: ReturnType<typeof makeCorr>[] = []
+
+  const spendDates = allDateStrs.filter(d => spendByDay[d] != null)
+  if (spendDates.length >= 5) {
+    for (const def of [
+      {
+        key: "spend_mood", label: "Spending → Mood", emoji: "💸",
+        xFn: (d: string) => spendByDay[d] ?? null,
+        yFn: getMood,
+        insightFn: (r: number) => r > 0.25
+          ? `Higher spending days link to better mood (r=${r.toFixed(2)})`
+          : r < -0.25 ? `Higher spending days link to lower mood (r=${r.toFixed(2)})`
+          : "Spending and same-day mood aren't strongly linked yet",
+      },
+      {
+        key: "spend_mood_next", label: "Spending → Next-day mood", emoji: "💸",
+        xFn: (d: string) => spendByDay[d] ?? null,
+        yFn: (d: string) => getMood(nextDay(d)),
+        insightFn: (r: number) => r > 0.25
+          ? "Spending days link to better mood the next day"
+          : r < -0.25 ? "Spending days link to lower mood the next day"
+          : "Spending and next-day mood aren't strongly linked yet",
+      },
+      {
+        key: "spend_focus", label: "Spending → Focus time", emoji: "💸",
+        xFn: (d: string) => spendByDay[d] ?? null,
+        yFn: (d: string) => focusMinByDay[d] ?? null,
+        insightFn: (r: number) => r > 0.25
+          ? "Higher spending days link to longer focus sessions"
+          : r < -0.25 ? "Higher spending days link to less focus time"
+          : "Spending and focus time aren't strongly linked yet",
+      },
+    ]) {
+      spendingCorrelations.push(makeCorr(def.key, def.label, def.emoji, corr(def.xFn, def.yFn, spendDates), def.insightFn))
+    }
+  }
+
   // ── Weather correlations ─────────────────────────────────────────────────────
   const weatherByDay: Record<string, { tempMaxC: number | null; precipMm: number | null; uvIndex: number | null }> = {}
   for (const w of weatherLogs) {
@@ -657,6 +791,8 @@ export async function GET() {
     bedtimeStdDevMin: bedtimeStdDev != null ? Math.round(bedtimeStdDev) : null,
     correlations: richCorrelations,
     customCorrelations,
+    intakeCorrelations,
+    spendingCorrelations,
     weatherCorrelations,
     lastfmCorrelations,
     checkinCorrelations,
