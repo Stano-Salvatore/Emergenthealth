@@ -191,15 +191,32 @@ export default async function DashboardPage() {
 
   // Classify today's Oura tags into drink types / meds
   const ML_RE = /(\d+)\s*ml/i
+  // Default volumes for tags without an explicit ml amount
+  const OURA_DEFAULTS: [RegExp, number][] = [
+    [/espresso/,              30],
+    [/macchiato/,             60],
+    [/flat.?white/,          160],
+    [/cappuccino/,           180],
+    [/latte/,                300],
+    [/americano/,            200],
+    [/v60|aeropress|pour.?over/, 300],
+    [/coffee/,               200],
+    [/\bwater\b/,            300],
+  ]
+  function ouraDefaultMl(label: string): number {
+    for (const [re, ml] of OURA_DEFAULTS) { if (re.test(label)) return ml }
+    return 200
+  }
   let ouraWaterMl = 0, ouraCoffeeMl = 0
   const todayMedTags: string[] = []
   const seenMedNames = new Set<string>()
 
   for (const t of (todayOuraTags as any[])) {
-    const label = (t.tagName ?? t.text ?? "").trim().toLowerCase()
+    // Combine tagName + text so "Espresso" + "30ml" → "Espresso 30ml"
+    const label = [t.tagName, t.text].filter(Boolean).join(" ").trim().toLowerCase()
     if (!label) continue
     const mlMatch = label.match(ML_RE)
-    const ml = mlMatch ? parseInt(mlMatch[1]) : 0
+    const ml = mlMatch ? parseInt(mlMatch[1]) : ouraDefaultMl(label)
     if (/\bwater\b/.test(label)) { ouraWaterMl += ml }
     else if (/coffee|espresso|cappuccino|latte|americano|v60|aeropress|pour.?over|flat.?white|macchiato/.test(label)) { ouraCoffeeMl += ml }
     else if (!/beer|wine|\balcohol\b|spirit|cocktail|whisky|whiskey|vodka|rum|\bgin\b|cider|juice|smoothie|shake|soda/.test(label)) {
