@@ -166,29 +166,35 @@ export function DashboardGrid({ blocks, header }: Props) {
             return (
               <div key={i} className="relative">
                 {editing && (
-                  <div className="drag-handle absolute inset-x-0 top-0 h-9 z-20 flex items-center justify-between px-3 cursor-grab active:cursor-grabbing bg-primary/15 backdrop-blur-sm rounded-t-xl border-b border-primary/25">
-                    <div className="flex items-center gap-1.5 select-none">
-                      <div className="flex flex-col gap-0.5 opacity-40">
-                        <div className="flex gap-0.5">
-                          <div className="w-1 h-1 rounded-full bg-current" />
-                          <div className="w-1 h-1 rounded-full bg-current" />
+                  <>
+                    {/* drag-handle only covers the left portion so react-draggable never sees the X button */}
+                    <div className="drag-handle absolute inset-x-0 top-0 h-9 z-20 flex items-center pr-10 px-3 cursor-grab active:cursor-grabbing bg-primary/15 backdrop-blur-sm rounded-t-xl border-b border-primary/25 select-none">
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex flex-col gap-0.5 opacity-40">
+                          <div className="flex gap-0.5">
+                            <div className="w-1 h-1 rounded-full bg-current" />
+                            <div className="w-1 h-1 rounded-full bg-current" />
+                          </div>
+                          <div className="flex gap-0.5">
+                            <div className="w-1 h-1 rounded-full bg-current" />
+                            <div className="w-1 h-1 rounded-full bg-current" />
+                          </div>
                         </div>
-                        <div className="flex gap-0.5">
-                          <div className="w-1 h-1 rounded-full bg-current" />
-                          <div className="w-1 h-1 rounded-full bg-current" />
-                        </div>
+                        <span className="text-[11px] font-semibold text-primary/80">{meta?.label}</span>
                       </div>
-                      <span className="text-[11px] font-semibold text-primary/80">{meta?.label}</span>
                     </div>
+                    {/* X button sits outside drag-handle so no event capture conflict */}
                     <button
-                      onPointerDown={e => e.stopPropagation()}
+                      onPointerDown={e => { e.stopPropagation(); e.preventDefault() }}
+                      onMouseDown={e => { e.stopPropagation(); e.preventDefault() }}
+                      onTouchStart={e => e.stopPropagation()}
                       onClick={() => toggleHide(id)}
-                      className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
+                      className="absolute right-2 top-1 z-30 flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-background/60 transition-colors"
                       aria-label={`Remove ${meta?.label}`}
                     >
                       <X className="h-4 w-4" />
                     </button>
-                  </div>
+                  </>
                 )}
                 <div className={`h-full overflow-auto ${editing ? "pt-9 rounded-xl ring-1 ring-primary/25" : ""}`}>
                   {node}

@@ -123,7 +123,7 @@ export default function FinancesPage() {
         const res = await fetch("/api/sync/ynab", { method: "POST" })
         const data = await res.json()
         if (res.ok) { setSyncMessage(`Synced ${data.synced} transactions from YNAB`); await loadTransactions() }
-        else setSyncMessage(`YNAB error: ${data.error}`)
+        else setSyncMessage(`YNAB: ${data.error ?? "Sync failed"}`)
       } else {
         const res = await fetch("/api/sync/finances", { method: "POST" })
         const data = await res.json()
