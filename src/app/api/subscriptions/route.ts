@@ -14,11 +14,14 @@ export async function GET() {
     getSubscriptionEmails(session.user.id),
     prisma.transaction.findMany({
       where: { userId: session.user.id, date: { gte: ninetyDaysAgo }, isTransfer: false },
-      select: { amount: true, description: true, date: true, category: true },
+      select: { amount: true, payee: true, date: true, category: true },
     }),
   ])
 
-  const recurring = detectRecurringCharges(transactions)
+  // detectRecurringCharges expects a `description` field; map payee → description
+  const recurring = detectRecurringCharges(
+    transactions.map(t => ({ ...t, description: t.payee ?? "" }))
+  )
 
   return NextResponse.json({ emailSubs, recurring })
 }

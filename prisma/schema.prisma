@@ -31,6 +31,7 @@ model User {
   moodLogs     MoodLog[]
   tags         Tag[]
   checkIns     CheckIn[]
+  savedPlaces  SavedPlace[]
   dailyNotes   DailyNote[]
   intakeLogs    IntakeLog[]
   focusSessions FocusSession[]
@@ -260,16 +261,36 @@ model Tag {
 // ─── Check-ins ───────────────────────────────────────────────────────────────
 
 model CheckIn {
-  id        String   @id @default(cuid())
-  userId    String
-  place     String
-  emoji     String   @default("📍")
-  note      String?
-  checkedAt DateTime @default(now())
+  id           String    @id @default(cuid())
+  userId       String
+  place        String
+  emoji        String    @default("📍")
+  note         String?
+  checkedAt    DateTime  @default(now())
+  isAuto       Boolean   @default(false)
+  savedPlaceId String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, checkedAt])
+}
+
+// ─── Saved Places ─────────────────────────────────────────────────────────────
+
+model SavedPlace {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  emoji     String   @default("📍")
+  address   String?
+  lat       Float
+  lng       Float
+  radiusM   Int      @default(100)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // ─── Daily Notes ─────────────────────────────────────────────────────────────
