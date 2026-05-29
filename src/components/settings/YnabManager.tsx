@@ -41,9 +41,14 @@ export function YnabManager({ hasOauthConfig }: { hasOauthConfig: boolean }) {
     setError(null)
     const res = await fetch("/api/sync/ynab", { method: "POST" })
     const d = await res.json()
-    setState("connected")
-    if (d.success) setSyncMsg(`Synced ${d.synced} transactions`)
-    else setError(d.error ?? "Sync failed")
+    if (res.status === 401) {
+      setState("disconnected")
+      setError(d.error ?? "Token expired — please reconnect")
+    } else {
+      setState("connected")
+      if (d.success) setSyncMsg(`Synced ${d.synced} transactions`)
+      else setError(d.error ?? "Sync failed")
+    }
   }
 
   return (

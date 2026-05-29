@@ -87,8 +87,12 @@ export async function POST() {
     { headers: { Authorization: `Bearer ${accessToken}` } }
   )
   if (!res.ok) {
-    console.error("[sync/ynab] YNAB API error:", res.status, await res.text())
-    return NextResponse.json({ error: "YNAB API error" }, { status: 502 })
+    const body = await res.text()
+    console.error("[sync/ynab] YNAB API error:", res.status, body)
+    if (res.status === 401) {
+      return NextResponse.json({ error: "YNAB token expired — reconnect in Settings" }, { status: 401 })
+    }
+    return NextResponse.json({ error: `YNAB API error (${res.status})` }, { status: 502 })
   }
 
   const { data } = await res.json()
@@ -97,44 +101,49 @@ export async function POST() {
   let synced = 0
   let deleted = 0
 
-  for (const t of txns) {
-    if (t.deleted) {
-      await prisma.transaction.deleteMany({ where: { userId, actualId: `ynab_${t.id}` } })
-      deleted++
-      continue
+  try {
+    for (const t of txns) {
+      if (t.deleted) {
+        await prisma.transaction.deleteMany({ where: { userId, actualId: `ynab_${t.id}` } })
+        deleted++
+        continue
+      }
+
+      // YNAB amounts: milliunits. Divide by 10 → cents (stored as Int cents).
+      const amountCents = Math.round(t.amount / 10)
+      const dateObj = new Date(t.date + "T12:00:00Z")
+
+      await prisma.transaction.upsert({
+        where: { actualId: `ynab_${t.id}` },
+        create: {
+          userId,
+          actualId: `ynab_${t.id}`,
+          date: dateObj,
+          amount: amountCents,
+          payee: t.payee_name ?? null,
+          category: t.category_name ?? null,
+          categoryGroup: t.category_group_name ?? null,
+          accountName: t.account_name ?? null,
+          notes: t.memo ?? null,
+          cleared: t.cleared === "cleared" || t.cleared === "reconciled",
+          isTransfer: !!t.transfer_account_id,
+        },
+        update: {
+          date: dateObj,
+          amount: amountCents,
+          payee: t.payee_name ?? null,
+          category: t.category_name ?? null,
+          categoryGroup: t.category_group_name ?? null,
+          notes: t.memo ?? null,
+          cleared: t.cleared === "cleared" || t.cleared === "reconciled",
+          syncedAt: new Date(),
+        },
+      })
+      synced++
     }
-
-    // YNAB amounts: milliunits. Divide by 10 → cents (stored as Int cents).
-    const amountCents = Math.round(t.amount / 10)
-    const dateObj = new Date(t.date + "T12:00:00Z")
-
-    await prisma.transaction.upsert({
-      where: { actualId: `ynab_${t.id}` },
-      create: {
-        userId,
-        actualId: `ynab_${t.id}`,
-        date: dateObj,
-        amount: amountCents,
-        payee: t.payee_name ?? null,
-        category: t.category_name ?? null,
-        categoryGroup: t.category_group_name ?? null,
-        accountName: t.account_name ?? null,
-        notes: t.memo ?? null,
-        cleared: t.cleared === "cleared" || t.cleared === "reconciled",
-        isTransfer: !!t.transfer_account_id,
-      },
-      update: {
-        date: dateObj,
-        amount: amountCents,
-        payee: t.payee_name ?? null,
-        category: t.category_name ?? null,
-        categoryGroup: t.category_group_name ?? null,
-        notes: t.memo ?? null,
-        cleared: t.cleared === "cleared" || t.cleared === "reconciled",
-        syncedAt: new Date(),
-      },
-    })
-    synced++
+  } catch (err: any) {
+    console.error("[sync/ynab] DB error after", synced, "transactions:", err)
+    return NextResponse.json({ error: `DB error: ${err.message}`, synced }, { status: 500 })
   }
 
   return NextResponse.json({ success: true, synced, deleted })

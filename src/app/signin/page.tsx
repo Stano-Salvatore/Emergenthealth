@@ -2,15 +2,26 @@ import { signIn } from "@/auth"
 import { Button } from "@/components/ui/button"
 import { Activity } from "lucide-react"
 
-export default function SignInPage() {
+const ERROR_MESSAGES: Record<string, string> = {
+  OAuthAccountNotLinked: "This email is already linked to a different sign-in method.",
+  OAuthCallbackError: "Something went wrong during sign-in. Please try again.",
+  OAuthSignin: "Could not start the sign-in flow. Please try again.",
+  OAuthCreateAccount: "Could not create your account. Please try again.",
+  Callback: "Sign-in callback failed. Please try again.",
+  InvalidState: "Sign-in expired or was interrupted. Please try again.",
+  Default: "An error occurred during sign-in. Please try again.",
+}
+
+export default function SignInPage({ searchParams }: { searchParams: { error?: string } }) {
+  const errorKey = searchParams.error ?? ""
+  const errorMsg = ERROR_MESSAGES[errorKey] ?? (errorKey ? ERROR_MESSAGES.Default : null)
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background overflow-hidden relative">
-      {/* Decorative background orbs */}
       <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-indigo-500/12 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-violet-500/10 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-blue-500/6 rounded-full blur-[80px] pointer-events-none" />
 
-      {/* Card */}
       <div className="relative w-full max-w-sm mx-4">
         <div
           className="rounded-2xl border border-white/8 p-8 space-y-8"
@@ -20,7 +31,6 @@ export default function SignInPage() {
             boxShadow: "0 25px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(99,102,241,0.1)",
           }}
         >
-          {/* Branding */}
           <div className="text-center space-y-3">
             <div className="flex items-center justify-center gap-3 mb-2">
               <div className="relative">
@@ -36,7 +46,12 @@ export default function SignInPage() {
             </p>
           </div>
 
-          {/* Sign-in form */}
+          {errorMsg && (
+            <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-3 text-sm text-red-400 text-center">
+              {errorMsg}
+            </div>
+          )}
+
           <form
             action={async () => {
               "use server"
@@ -66,7 +81,7 @@ export default function SignInPage() {
                   fill="#EA4335"
                 />
               </svg>
-              Continue with Google
+              {errorMsg ? "Try again with Google" : "Continue with Google"}
             </Button>
           </form>
 
