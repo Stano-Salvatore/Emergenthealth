@@ -1,7 +1,7 @@
 import { auth } from "@/auth"
 import { redirect } from "next/navigation"
 import { DashboardShell } from "@/components/layout/DashboardShell"
-import { TogglPanel } from "@/components/toggl/TogglPanel"
+import { EmergyPanel } from "@/components/emergy/EmergyPanel"
 import { AutoSync } from "@/components/layout/AutoSync"
 import { prisma } from "@/lib/prisma"
 
@@ -34,7 +34,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <>
       <DashboardShell>{children}</DashboardShell>
-      <TogglPanel />
+      <EmergyPanel />
       <AutoSync />
     </>
   )
