@@ -6,6 +6,9 @@ export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  // Ensure reminderTime column exists
+  await prisma.$executeRaw`ALTER TABLE "Habit" ADD COLUMN IF NOT EXISTS "reminderTime" TEXT`.catch(() => {})
+
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const thirtyDaysAgo = new Date(today)
@@ -46,7 +49,7 @@ export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { name, description, color, icon } = await req.json()
+  const { name, description, color, icon, reminderTime } = await req.json()
   if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 })
 
   const habit = await prisma.habit.create({
@@ -58,6 +61,10 @@ export async function POST(req: NextRequest) {
       icon,
     },
   })
+
+  if (reminderTime) {
+    await prisma.$executeRaw`UPDATE "Habit" SET "reminderTime" = ${reminderTime} WHERE id = ${habit.id}`.catch(() => {})
+  }
 
   return NextResponse.json(habit, { status: 201 })
 }

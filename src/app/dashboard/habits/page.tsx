@@ -21,6 +21,7 @@ interface Habit {
   streak: number
   completedToday: boolean
   completions: { date: string }[]
+  reminderTime?: string | null
 }
 
 const COLORS = [
@@ -58,6 +59,7 @@ export default function HabitsPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [newName, setNewName] = useState("")
   const [newColor, setNewColor] = useState(COLORS[0])
+  const [newReminderTime, setNewReminderTime] = useState("")
   const [saving, setSaving] = useState(false)
 
   // last 28 days for heatmap
@@ -78,9 +80,10 @@ export default function HabitsPage() {
     await fetch("/api/habits", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName, color: newColor }),
+      body: JSON.stringify({ name: newName, color: newColor, reminderTime: newReminderTime || undefined }),
     })
     setNewName("")
+    setNewReminderTime("")
     setFormOpen(false)
     setSaving(false)
     loadHabits()
@@ -137,6 +140,16 @@ export default function HabitsPage() {
                       style={{ backgroundColor: c, borderColor: newColor===c?"white":"transparent", transform: newColor===c?"scale(1.15)":"scale(1)" }} />
                   ))}
                 </div>
+              </div>
+              <div>
+                <Label>Reminder time <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                <input
+                  type="time"
+                  value={newReminderTime}
+                  onChange={e => setNewReminderTime(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">Get a push notification at this time if the habit isn&apos;t done yet</p>
               </div>
               <Button type="submit" className="w-full" disabled={saving || !newName.trim()}>
                 {saving ? "Creating…" : "Create"}
@@ -204,6 +217,9 @@ export default function HabitsPage() {
                         <Flame className="h-3 w-3 text-orange-400" />
                         <span className="text-xs text-muted-foreground">{habit.streak} day streak</span>
                         {habit.streak >= 7 && <Trophy className="h-3 w-3 text-amber-400" />}
+                        {habit.reminderTime && (
+                          <span className="text-xs text-muted-foreground">🔔 {habit.reminderTime}</span>
+                        )}
                       </div>
                     </div>
                   </div>

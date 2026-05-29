@@ -239,3 +239,34 @@ body {
 .scrollbar-thin::-webkit-scrollbar { width: 4px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ── Dashboard grid resize handles ── */
+.react-resizable-handle {
+  width: 20px !important;
+  height: 20px !important;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.react-resizable-handle::after {
+  width: 10px !important;
+  height: 10px !important;
+  border-color: var(--primary) !important;
+  border-width: 0 2px 2px 0 !important;
+  right: 4px !important;
+  bottom: 4px !important;
+  border-radius: 1px;
+}
+/* Show handles only when grid is in edit mode (parent has ring class) */
+.ring-1 .react-resizable-handle {
+  opacity: 0.6;
+}
+.ring-1 .react-resizable-handle:hover {
+  opacity: 1;
+}
+/* Corner-specific sizing */
+.react-resizable-handle-sw,
+.react-resizable-handle-nw,
+.react-resizable-handle-ne { width: 20px !important; height: 20px !important; }
+.react-resizable-handle-sw::after { transform: rotate(45deg); }
+.react-resizable-handle-nw::after { transform: rotate(135deg); }
+.react-resizable-handle-ne::after { transform: rotate(-45deg); }

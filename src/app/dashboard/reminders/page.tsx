@@ -19,6 +19,7 @@ interface Reminder {
   isCompleted: boolean
   priority: string
   tags: string[]
+  reminderTime?: string | null
 }
 
 interface TagItem {
@@ -71,7 +72,7 @@ export default function RemindersPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [filterTag, setFilterTag] = useState<string | null>(null)
   const [form, setForm] = useState({
-    title: "", description: "", dueDate: "", priority: "normal", tags: [] as string[],
+    title: "", description: "", dueDate: "", priority: "normal", tags: [] as string[], reminderTime: "",
   })
   const [newTagName, setNewTagName] = useState("")
   const [saving, setSaving] = useState(false)
@@ -98,9 +99,10 @@ export default function RemindersPage() {
         dueDate: form.dueDate || undefined,
         priority: form.priority,
         tags: form.tags,
+        reminderTime: form.reminderTime || undefined,
       }),
     })
-    setForm({ title: "", description: "", dueDate: "", priority: "normal", tags: [] })
+    setForm({ title: "", description: "", dueDate: "", priority: "normal", tags: [], reminderTime: "" })
     setFormOpen(false)
     setSaving(false)
     load()
@@ -166,6 +168,7 @@ export default function RemindersPage() {
             <Clock className="h-3 w-3" />
             {new Date(r.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
             {isOverdue(r.dueDate) && !r.isCompleted && " · Overdue"}
+            {r.reminderTime && <span className="ml-1">🔔 {r.reminderTime}</span>}
           </p>
         )}
         {r.tags.length > 0 && (
@@ -220,6 +223,18 @@ export default function RemindersPage() {
                 <Input type="date" className="mt-1" value={form.dueDate}
                   onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
               </div>
+              {form.dueDate && (
+                <div>
+                  <Label>Reminder time <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                  <input
+                    type="time"
+                    value={form.reminderTime}
+                    onChange={e => setForm(f => ({ ...f, reminderTime: e.target.value }))}
+                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">Push notification at this time on the due date</p>
+                </div>
+              )}
               <div>
                 <Label>Priority</Label>
                 <div className="flex gap-2 mt-1">

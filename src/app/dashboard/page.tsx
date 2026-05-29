@@ -19,7 +19,7 @@ import { AcCard } from "@/components/dashboard/AcCard"
 import { MoodWidget } from "@/components/dashboard/MoodWidget"
 import { QuickLog } from "@/components/dashboard/QuickLog"
 import { LocationCard } from "@/components/dashboard/LocationCard"
-import { TogglTile } from "@/components/dashboard/TogglTile"
+
 import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
 import { QuickHabits } from "@/components/dashboard/QuickHabits"
@@ -664,9 +664,7 @@ export default async function DashboardPage() {
               sub={todayMedTags.slice(0, 2).join(", ") + (todayMedTags.length > 2 ? ` +${todayMedTags.length - 2}` : "")}
               icon={<span className="text-base leading-none">💊</span>} ok />
           </Link>
-        ) : (
-          <TogglTile />
-        )}
+        ) : null}
       </div>
     ),
 

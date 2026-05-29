@@ -21,6 +21,7 @@ import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
 import { WidgetSetup } from "@/components/settings/WidgetSetup"
 import { DeleteAccount } from "@/components/settings/DeleteAccount"
 import { PushNotifications } from "@/components/settings/PushNotifications"
+import { TimezoneDetector } from "@/components/settings/TimezoneDetector"
 
 export default async function SettingsPage({
   searchParams,
@@ -145,6 +146,7 @@ export default async function SettingsPage({
 
       {/* Push notifications */}
       <PushNotifications />
+      <TimezoneDetector />
 
       {/* MCP server info */}
       <Card className="border-dashed">
