@@ -47,6 +47,37 @@ export interface CalendarEvent {
   url: string | null
 }
 
+export async function getTodayEvents(userId: string): Promise<CalendarEvent[]> {
+  try {
+    const calendar = await buildCalendarClient(userId)
+    const now = new Date()
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+
+    const response = await calendar.events.list({
+      calendarId: "primary",
+      timeMin: startOfDay.toISOString(),
+      timeMax: endOfDay.toISOString(),
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 20,
+    })
+
+    return (response.data.items ?? []).map((event) => ({
+      id: event.id!,
+      title: event.summary ?? "(No title)",
+      description: event.description ?? null,
+      location: event.location ?? null,
+      start: event.start?.dateTime ?? event.start?.date ?? null,
+      end: event.end?.dateTime ?? event.end?.date ?? null,
+      isAllDay: !event.start?.dateTime,
+      url: event.htmlLink ?? null,
+    }))
+  } catch {
+    return []
+  }
+}
+
 export async function getUpcomingEvents(userId: string, daysAhead = 14): Promise<CalendarEvent[]> {
   try {
     const calendar = await buildCalendarClient(userId)
