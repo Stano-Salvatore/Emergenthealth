@@ -45,8 +45,6 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
     color: "text-amber-400",
     items: [
       { href: "/dashboard/finances",      label: "Finances",      emoji: "💰" },
-      { href: "/dashboard/subscriptions", label: "Subscriptions", emoji: "🔄" },
-      { href: "/dashboard/bills",         label: "Bills",         emoji: "🧾" },
       { href: "/dashboard/calendar",      label: "Calendar",      emoji: "🗓️" },
       { href: "/dashboard/reminders",     label: "Reminders",     emoji: "🔔" },
       { href: "/dashboard/gmail",         label: "Gmail",         emoji: "📬" },
