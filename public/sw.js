@@ -56,31 +56,20 @@ self.addEventListener("fetch", (e) => {
   )
 })
 
-// ── Push notifications ────────────────────────────────────────────────────────
-self.addEventListener('push', (e) => {
-  const data = e.data?.json?.() ?? {}
-  const title = data.title ?? 'Emergenthealth'
-  const body = data.body ?? 'Time to check in!'
-  e.waitUntil(
-    self.registration.showNotification(title, {
-      body,
+self.addEventListener('push', function(event) {
+  let data = { title: 'Emergy 🌱', body: 'Check in on your health!', url: '/dashboard' }
+  try { data = { ...data, ...event.data.json() } } catch {}
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
-      tag: data.tag ?? 'emergenthealth',
-      data: { url: data.url ?? '/dashboard/checkin' },
-      requireInteraction: false,
+      data: { url: data.url },
     })
   )
 })
 
-self.addEventListener('notificationclick', (e) => {
-  e.notification.close()
-  const url = e.notification.data?.url ?? '/dashboard/checkin'
-  e.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-      const existing = list.find((c) => c.url.includes(self.location.origin))
-      if (existing) return existing.focus().then(() => existing.navigate(url))
-      return clients.openWindow(url)
-    })
-  )
+self.addEventListener('notificationclick', function(event) {
+  event.notification.close()
+  event.waitUntil(clients.openWindow(event.notification.data?.url ?? '/dashboard'))
 })

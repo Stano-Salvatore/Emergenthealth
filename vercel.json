@@ -5,7 +5,11 @@
       "schedule": "0 8 * * 0"
     },
     {
-      "path": "/api/cron/morning-reminder",
+      "path": "/api/cron/emergy-push",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/digest",
       "schedule": "0 8 * * *"
     }
   ]

@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
-import { X, Settings2, Eye, EyeOff, Search } from "lucide-react"
+import { X, Settings2, Eye, EyeOff } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState, useEffect, useRef } from "react"
 
@@ -59,7 +59,7 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
     emoji: "🔧",
     color: "text-violet-400",
     items: [
-      { href: "/dashboard/chat",     label: "Emergy",    emoji: "🌱" },
+      { href: "/dashboard/chat",     label: "Emergy", emoji: "🌱" },
       { href: "/dashboard/settings", label: "Settings",  emoji: "⚙️" },
     ],
   },
@@ -71,6 +71,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname()
   const [hidden, setHidden] = useState<string[]>([])
   const [editing, setEditing] = useState(false)
+  const [bottomHovered, setBottomHovered] = useState(false)
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -202,7 +203,11 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
       </nav>
 
       {/* ── Bottom area ── */}
-      <div className="p-3 border-t border-border/60 space-y-0.5">
+      <div
+        className="p-3 border-t border-border/60 space-y-1"
+        onMouseEnter={() => setBottomHovered(true)}
+        onMouseLeave={() => setBottomHovered(false)}
+      >
         {editing ? (
           <div className="flex items-center gap-2 px-3 py-2">
             <button
@@ -220,17 +225,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
             </button>
           </div>
         ) : (
-          <>
-            <button
-              onClick={() => {
-                window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true }))
-              }}
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"
-            >
-              <Search className="h-4 w-4 shrink-0" />
-              <span className="flex-1 text-left">Quick nav</span>
-              <kbd className="text-[9px] font-mono bg-secondary rounded px-1 py-0.5">⌘K</kbd>
-            </button>
+          <div className={cn("transition-opacity duration-150", bottomHovered ? "opacity-100" : "opacity-0")}>
             <button
               onClick={() => setEditing(true)}
               className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"
@@ -238,11 +233,11 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
               <Settings2 className="h-4 w-4 shrink-0" />
               Customize
             </button>
-          </>
+          </div>
         )}
         <button
           onClick={() => signOut({ callbackUrl: "/signin" })}
-          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-red-400/70 hover:text-red-400 hover:bg-red-400/5 transition-all duration-150"
+          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"
         >
           <span className="text-base leading-none w-5 text-center shrink-0">👋</span>
           Sign out

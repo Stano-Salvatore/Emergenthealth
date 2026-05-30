@@ -239,6 +239,92 @@ function SavedPlacesManager({ onClose }: { onClose: () => void }) {
   )
 }
 
+// ── Place-health correlation ──────────────────────────────────────────────────
+interface CorrelationResult {
+  placeId: string
+  placeName: string
+  placeEmoji: string
+  visitCount: number
+  insufficient?: boolean
+  visitAvg: { readiness: number | null; sleepHours: number | null; mood: number | null }
+  nonVisitAvg: { readiness: number | null; sleepHours: number | null; mood: number | null }
+}
+
+function DeltaBadge({ value, suffix }: { value: number; suffix: string }) {
+  const pos = value >= 0
+  return (
+    <span className={`inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded ${pos ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
+      {pos ? "+" : ""}{value.toFixed(1)} {suffix}
+    </span>
+  )
+}
+
+function PlaceHealthImpact() {
+  const [places, setPlaces] = useState<SavedPlace[]>([])
+  const [results, setResults] = useState<CorrelationResult[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      try {
+        const placesRes = await fetch("/api/saved-places").catch(() => null)
+        if (!placesRes?.ok) { setLoading(false); return }
+        const savedPlaces: SavedPlace[] = await placesRes.json()
+        setPlaces(savedPlaces)
+        const correlations = await Promise.all(
+          savedPlaces.map(p =>
+            fetch(`/api/location/correlation?placeId=${p.id}`)
+              .then(r => r.json())
+              .catch(() => null)
+          )
+        )
+        setResults(correlations.filter((c): c is CorrelationResult => c && !c.insufficient && c.visitCount >= 3))
+      } catch {}
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  if (loading) return null
+
+  if (places.length === 0 || results.length === 0) {
+    return (
+      <div className="mb-6">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Place Health Impact</p>
+        <p className="text-xs text-muted-foreground">Visit a saved place 3+ times to see health impact</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mb-6">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Place Health Impact</p>
+      <div className="space-y-3">
+        {results.map(r => {
+          const readinessDelta = r.visitAvg.readiness != null && r.nonVisitAvg.readiness != null ? r.visitAvg.readiness - r.nonVisitAvg.readiness : null
+          const sleepDelta = r.visitAvg.sleepHours != null && r.nonVisitAvg.sleepHours != null ? r.visitAvg.sleepHours - r.nonVisitAvg.sleepHours : null
+          const moodDelta = r.visitAvg.mood != null && r.nonVisitAvg.mood != null ? r.visitAvg.mood - r.nonVisitAvg.mood : null
+          return (
+            <div key={r.placeId} className="rounded-xl border bg-card px-4 py-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">{r.placeEmoji}</span>
+                <p className="font-medium text-sm">{r.placeName}</p>
+                <span className="text-xs text-muted-foreground ml-auto">{r.visitCount} visits</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {readinessDelta != null && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><span>🎯 Readiness:</span><DeltaBadge value={readinessDelta} suffix="pts" /></div>}
+                {sleepDelta != null && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><span>😴 Sleep:</span><DeltaBadge value={sleepDelta} suffix="hrs" /></div>}
+                {moodDelta != null && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><span>😊 Mood:</span><DeltaBadge value={moodDelta} suffix="pts" /></div>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Check-ins section ─────────────────────────────────────────────────────────
 function PlacesSection({ autoTagged }: { autoTagged: { name: string; emoji: string }[] }) {
   const [checkins, setCheckins]   = useState<CheckIn[]>([])
@@ -538,6 +624,7 @@ export default function LocationPage() {
       )}
 
       <PlacesSection autoTagged={track?.autoTagged ?? []}/>
+      <PlaceHealthImpact />
     </div>
   )
 }
