@@ -213,6 +213,10 @@ export async function POST() {
 </body>
 </html>`
 
+    if (!process.env.RESEND_API_KEY) {
+      return NextResponse.json({ error: "Email not configured — add RESEND_API_KEY to environment variables." }, { status: 503 })
+    }
+
     const resend = new Resend(process.env.RESEND_API_KEY)
 
     const { error } = await resend.emails.send({
@@ -228,8 +232,8 @@ export async function POST() {
     }
 
     return NextResponse.json({ ok: true })
-  } catch (err) {
+  } catch (err: any) {
     console.error("[digest] Unexpected error:", err)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    return NextResponse.json({ error: err?.message ?? "Unexpected error sending digest" }, { status: 500 })
   }
 }
