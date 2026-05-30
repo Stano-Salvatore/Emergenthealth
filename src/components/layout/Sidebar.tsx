@@ -55,6 +55,16 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
     ],
   },
   {
+    label: "Integrations",
+    emoji: "🔗",
+    color: "text-sky-400",
+    items: [
+      { href: "/dashboard/strava",      label: "Strava",      emoji: "🏃" },
+      { href: "/dashboard/lastfm",      label: "Last.fm",     emoji: "🎵" },
+      { href: "/dashboard/rescuetime",  label: "RescueTime",  emoji: "⏱️" },
+    ],
+  },
+  {
     label: "Tools",
     emoji: "🔧",
     color: "text-violet-400",
