@@ -15,7 +15,7 @@ function weatherEmoji(code: number): string {
 
 interface TodayData {
   calendar: { id: string; title: string; start: string; end: string }[]
-  sleep: { hours: number | null; score: number | null; adequate: boolean | null }
+  sleep: { hours: number | null; sleepScore: number | null; readiness: number | null; adequate: boolean | null }
   weather: {
     current: { temp: number; code: number }
     hourly: { hour: string; temp: number; code: number; rainPct: number }[]
@@ -50,6 +50,8 @@ export function TodayCard() {
 
   const sleepColor = data.sleep.adequate === true ? "text-green-400" : data.sleep.adequate === false && (data.sleep.hours ?? 0) >= 6 ? "text-yellow-400" : "text-red-400"
   const sleepLabel = data.sleep.adequate === true ? "Good" : data.sleep.hours != null && data.sleep.hours >= 6 ? "Okay" : "Short"
+  const readinessColor = data.sleep.readiness == null ? "" : data.sleep.readiness >= 85 ? "text-green-400" : data.sleep.readiness >= 70 ? "text-yellow-400" : "text-red-400"
+  const readinessLabel = data.sleep.readiness == null ? null : data.sleep.readiness >= 85 ? "Optimal" : data.sleep.readiness >= 70 ? "Good" : data.sleep.readiness >= 55 ? "Fair" : "Low"
 
   const displayEvents = data.calendar.slice(0, 4)
   const extraEvents = data.calendar.length - 4
@@ -60,7 +62,7 @@ export function TodayCard() {
         <CardTitle className="text-base">Today</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Top row: Calendar + Sleep */}
+        {/* Top row: Calendar + Sleep/Readiness */}
         <div className="grid grid-cols-2 gap-4">
           {/* Calendar */}
           <div>
@@ -84,25 +86,36 @@ export function TodayCard() {
             )}
           </div>
 
-          {/* Sleep */}
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">😴 Sleep</p>
-            {data.sleep.hours != null ? (
-              <div>
-                <span className={`text-2xl font-bold tabular-nums ${sleepColor}`}>
-                  {data.sleep.hours.toFixed(1)}
-                </span>
-                <span className="text-xs text-muted-foreground ml-1">hrs</span>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className={`text-xs font-medium ${sleepColor}`}>{sleepLabel}</span>
-                  {data.sleep.score != null && (
-                    <span className="text-xs text-muted-foreground">Score: {data.sleep.score}</span>
-                  )}
+          {/* Sleep + Readiness */}
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">😴 Sleep</p>
+              {data.sleep.hours != null ? (
+                <div className="flex items-baseline gap-1.5">
+                  <span className={`text-2xl font-bold tabular-nums ${sleepColor}`}>
+                    {data.sleep.hours.toFixed(1)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">hrs</span>
+                  <span className={`text-xs font-medium ${sleepColor} ml-1`}>{sleepLabel}</span>
                 </div>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">No data yet</p>
-            )}
+              ) : (
+                <p className="text-xs text-muted-foreground">No data</p>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1">🎯 Readiness</p>
+              {data.sleep.readiness != null ? (
+                <div className="flex items-baseline gap-1.5">
+                  <span className={`text-2xl font-bold tabular-nums ${readinessColor}`}>
+                    {data.sleep.readiness}
+                  </span>
+                  <span className="text-xs text-muted-foreground">/100</span>
+                  <span className={`text-xs font-medium ${readinessColor} ml-1`}>{readinessLabel}</span>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No data</p>
+              )}
+            </div>
           </div>
         </div>
 

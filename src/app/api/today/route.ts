@@ -31,17 +31,18 @@ export async function GET() {
 
   const userId = session.user.id
 
-  // Sleep from latest HealthLog
+  // Sleep + readiness from latest HealthLog
   const latestHealth = await prisma.healthLog.findFirst({
     where: { userId },
     orderBy: { date: "desc" },
-    select: { sleepDuration: true, readinessScore: true },
+    select: { sleepDuration: true, sleepScore: true, readinessScore: true },
   }).catch(() => null)
 
   const sleepHours = latestHealth?.sleepDuration != null ? latestHealth.sleepDuration / 60 : null
   const sleep = {
     hours: sleepHours ? Math.round(sleepHours * 10) / 10 : null,
-    score: latestHealth?.readinessScore ?? null,
+    sleepScore: latestHealth?.sleepScore ?? null,
+    readiness: latestHealth?.readinessScore ?? null,
     adequate: sleepHours != null ? sleepHours >= 7 : null,
   }
 
