@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
+import { getLevel } from "@/lib/xp"
 
 interface GitHubProfileRow {
   username: string
@@ -14,23 +15,6 @@ interface PushEvent {
     commits?: { sha: string }[]
     size?: number
   }
-}
-
-const LEVEL_THRESHOLDS = [0, 100, 250, 500, 900, 1500, 2500, 4000, 6000, 9000, 13000]
-
-function getLevel(xp: number): { level: number; progress: number; xpToNext: number; xpInLevel: number } {
-  let level = 1
-  for (let i = 1; i < LEVEL_THRESHOLDS.length; i++) {
-    if (xp >= LEVEL_THRESHOLDS[i]) level = i + 1
-    else break
-  }
-  const idx = level - 1
-  const floor = LEVEL_THRESHOLDS[idx] ?? LEVEL_THRESHOLDS[LEVEL_THRESHOLDS.length - 1]
-  const ceil = LEVEL_THRESHOLDS[idx + 1] ?? floor + 5000
-  const xpInLevel = xp - floor
-  const xpToNext = ceil - xp
-  const progress = Math.min(100, Math.round((xpInLevel / (ceil - floor)) * 100))
-  return { level, progress, xpToNext, xpInLevel }
 }
 
 function currentStreak(sortedDates: string[]): number {

@@ -25,6 +25,8 @@ import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
 import { QuickHabits } from "@/components/dashboard/QuickHabits"
 import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
 import { InsightCard } from "@/components/dashboard/InsightCard"
+import { TodayCard } from "@/components/dashboard/TodayCard"
+import { DailyQuests } from "@/components/dashboard/DailyQuests"
 
 const STEP_GOAL = 8_000
 const SLEEP_GOAL_H = 7
@@ -374,6 +376,8 @@ export default async function DashboardPage() {
   )
 
   const blocks = {
+    today: <TodayCard />,
+
     health: (
       <Link href="/dashboard/health" className="block h-full">
         <Card className="card-health hover:border-indigo-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-indigo-500/5">
@@ -687,6 +691,7 @@ export default async function DashboardPage() {
 
     location: <LocationCard />,
     ac: <AcCard />,
+    quests: <DailyQuests />,
   }
 
   return <DashboardGrid header={header} blocks={blocks} />

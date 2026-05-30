@@ -23,6 +23,7 @@ import { WidgetSetup } from "@/components/settings/WidgetSetup"
 import { DeleteAccount } from "@/components/settings/DeleteAccount"
 import { PushNotifications } from "@/components/settings/PushNotifications"
 import { TimezoneDetector } from "@/components/settings/TimezoneDetector"
+import { WeatherLocation } from "@/components/settings/WeatherLocation"
 
 export default async function SettingsPage({
   searchParams,
@@ -150,6 +151,7 @@ export default async function SettingsPage({
       {/* Push notifications */}
       <PushNotifications />
       <TimezoneDetector />
+      <WeatherLocation />
 
       {/* MCP server info */}
       <Card className="border-dashed">

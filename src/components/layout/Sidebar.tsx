@@ -30,6 +30,7 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
       { href: "/dashboard/checkin",       label: "Check-in",     emoji: "🌅" },
       { href: "/dashboard/health",       label: "Health",       emoji: "❤️" },
       { href: "/dashboard/weight",       label: "Weight",       emoji: "⚖️" },
+      { href: "/dashboard/body",         label: "Body",         emoji: "📏" },
       { href: "/dashboard/habits",       label: "Habits",       emoji: "✅" },
       { href: "/dashboard/medications",  label: "Medications",  emoji: "💊" },
       { href: "/dashboard/intake",       label: "Intake",       emoji: "🥤" },
@@ -37,6 +38,7 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
       { href: "/dashboard/custom",       label: "Trackers",     emoji: "📐" },
       { href: "/dashboard/reading",      label: "Reading",      emoji: "📚" },
       { href: "/dashboard/journal",      label: "Journal",      emoji: "📝" },
+      { href: "/dashboard/labs",         label: "Lab Results",  emoji: "🩸" },
     ],
   },
   {
@@ -45,8 +47,6 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
     color: "text-amber-400",
     items: [
       { href: "/dashboard/finances",      label: "Finances",      emoji: "💰" },
-      { href: "/dashboard/subscriptions", label: "Subscriptions", emoji: "🔄" },
-      { href: "/dashboard/bills",         label: "Bills",         emoji: "🧾" },
       { href: "/dashboard/calendar",      label: "Calendar",      emoji: "🗓️" },
       { href: "/dashboard/reminders",     label: "Reminders",     emoji: "🔔" },
       { href: "/dashboard/gmail",         label: "Gmail",         emoji: "📬" },
@@ -55,12 +55,23 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
     ],
   },
   {
+    label: "Integrations",
+    emoji: "🔗",
+    color: "text-sky-400",
+    items: [
+      { href: "/dashboard/strava",      label: "Strava",      emoji: "🏃" },
+      { href: "/dashboard/lastfm",      label: "Last.fm",     emoji: "🎵" },
+      { href: "/dashboard/rescuetime",  label: "RescueTime",  emoji: "⏱️" },
+    ],
+  },
+  {
     label: "Tools",
     emoji: "🔧",
     color: "text-violet-400",
     items: [
-      { href: "/dashboard/chat",     label: "Emergy", emoji: "🌱" },
-      { href: "/dashboard/settings", label: "Settings",  emoji: "⚙️" },
+      { href: "/dashboard/chat",    label: "Emergy",   emoji: "🌱" },
+      { href: "/dashboard/garden",  label: "Garden",   emoji: "🌻" },
+      { href: "/dashboard/settings", label: "Settings", emoji: "⚙️" },
     ],
   },
 ]

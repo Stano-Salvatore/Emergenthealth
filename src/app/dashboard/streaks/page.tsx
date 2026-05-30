@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { cn } from "@/lib/utils"
 
 interface HabitStreak {
@@ -33,6 +33,8 @@ interface StreaksData {
     }
   }
   level: number
+  levelName?: string
+  levelEmoji?: string
   progress: number
   xpToNext: number
   xpInLevel: number
@@ -40,6 +42,15 @@ interface StreaksData {
   achievements: Achievement[]
   githubStreak: number
 }
+
+interface Toast {
+  id: string
+  emoji: string
+  title: string
+  desc: string
+}
+
+const STORAGE_KEY = "emergenthealth:seen_achievements"
 
 const XP_COLORS: Record<string, string> = {
   habits:      "bg-violet-500",
@@ -82,11 +93,31 @@ function FireStreak({ n, size = "md" }: { n: number; size?: "sm" | "md" | "lg" }
 export default function StreaksPage() {
   const [data, setData] = useState<StreaksData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [toasts, setToasts] = useState<Toast[]>([])
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id))
+  }, [])
 
   useEffect(() => {
     fetch("/api/streaks")
       .then(r => r.json())
-      .then(setData)
+      .then((d: StreaksData) => {
+        setData(d)
+        // Check for newly unlocked achievements
+        const seenRaw = localStorage.getItem(STORAGE_KEY)
+        const seen: string[] = seenRaw ? JSON.parse(seenRaw) : []
+        const seenSet = new Set(seen)
+        const newlyUnlocked = d.achievements.filter(a => a.unlocked && !seenSet.has(a.id))
+        if (newlyUnlocked.length > 0) {
+          setToasts(newlyUnlocked.map(a => ({ id: a.id, emoji: a.emoji, title: a.title, desc: a.desc })))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(d.achievements.filter(a => a.unlocked).map(a => a.id)))
+          // Auto-dismiss after 5s
+          setTimeout(() => setToasts([]), 5000)
+        } else {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(d.achievements.filter(a => a.unlocked).map(a => a.id)))
+        }
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -95,7 +126,7 @@ export default function StreaksPage() {
   )
   if (!data) return null
 
-  const { xp, level, progress, xpToNext, habitStreaks, achievements, githubStreak } = data
+  const { xp, level, levelName, levelEmoji, progress, xpToNext, habitStreaks, achievements, githubStreak } = data
   const total = xp.total
   const cats = Object.entries(xp.byCategory).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
 
@@ -104,6 +135,27 @@ export default function StreaksPage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-8">
+      {/* Achievement toasts */}
+      {toasts.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
+          {toasts.map((t, i) => (
+            <div
+              key={t.id}
+              className="pointer-events-auto flex items-center gap-3 bg-card border border-primary/40 shadow-lg rounded-2xl px-4 py-3 min-w-[260px] animate-in slide-in-from-bottom-4 fade-in duration-300"
+              style={{ animationDelay: `${i * 80}ms` }}
+            >
+              <span className="text-3xl">{t.emoji}</span>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm leading-tight">🏆 Achievement Unlocked!</p>
+                <p className="text-xs text-foreground font-medium">{t.title}</p>
+                <p className="text-xs text-muted-foreground">{t.desc}</p>
+              </div>
+              <button onClick={() => dismissToast(t.id)} className="text-muted-foreground hover:text-foreground text-lg leading-none ml-1">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold">Streaks & Achievements</h1>
@@ -116,7 +168,7 @@ export default function StreaksPage() {
           <LevelBadge level={level} />
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline justify-between mb-2">
-              <span className="font-bold text-lg">Level {level}</span>
+              <span className="font-bold text-lg">{levelEmoji} {levelName ?? `Level ${level}`}</span>
               <span className="text-sm text-muted-foreground">{total.toLocaleString()} XP total</span>
             </div>
             <div className="h-3 rounded-full bg-secondary overflow-hidden">

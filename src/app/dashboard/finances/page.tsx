@@ -12,7 +12,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { RefreshCw, TrendingDown, TrendingUp, DollarSign, Plus, Trash2, ChevronLeft, ChevronRight, CloudDownload } from "lucide-react"
+import { RefreshCw, TrendingDown, TrendingUp, DollarSign, Plus, Trash2, ChevronLeft, ChevronRight, CloudDownload, Repeat2, ChevronDown, ChevronUp } from "lucide-react"
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts"
@@ -32,6 +32,25 @@ interface AccountBalance {
   id: string
   name: string
   balance: number
+}
+
+interface RecurringCharge {
+  description: string
+  amountCents: number
+  currency: string
+  occurrences: number
+  lastDate: string
+  avgIntervalDays: number
+  category: string | null
+}
+
+interface EmailSub {
+  id: string
+  service: string
+  subject: string
+  snippet: string
+  date: string
+  from: string
 }
 
 const CATEGORIES = [
@@ -54,6 +73,13 @@ const CATEGORY_META: Record<string, { color: string; emoji: string }> = {
 
 function formatAmount(milliunits: number) {
   return `€${(Math.abs(milliunits) / 100).toFixed(2)}`
+}
+
+function freqLabel(avgDays: number): string {
+  if (avgDays <= 10) return "Weekly"
+  if (avgDays <= 17) return "Bi-weekly"
+  if (avgDays <= 45) return "Monthly"
+  return "Yearly"
 }
 
 function monthLabel(year: number, month: number) {
@@ -86,6 +112,10 @@ export default function FinancesPage() {
   const [saving, setSaving] = useState(false)
   const [driveSyncing, setDriveSyncing] = useState(false)
   const [monthlyTrend, setMonthlyTrend] = useState<{ month: string; spent: number; income: number }[]>([])
+  const [recurring, setRecurring] = useState<RecurringCharge[]>([])
+  const [emailSubs, setEmailSubs] = useState<EmailSub[]>([])
+  const [subsLoading, setSubsLoading] = useState(false)
+  const [subsOpen, setSubsOpen] = useState(true)
 
   useEffect(() => {
     fetch("/api/transactions/monthly")
@@ -93,6 +123,22 @@ export default function FinancesPage() {
       .then(d => Array.isArray(d) ? setMonthlyTrend(d) : null)
       .catch(() => null)
   }, [])
+
+  async function loadSubscriptions() {
+    setSubsLoading(true)
+    try {
+      const res = await fetch("/api/subscriptions")
+      if (res.ok) {
+        const data = await res.json()
+        setRecurring(data.recurring ?? [])
+        setEmailSubs(data.emailSubs ?? [])
+      }
+    } finally {
+      setSubsLoading(false)
+    }
+  }
+
+  useEffect(() => { loadSubscriptions() }, [])
   const [driveMessage, setDriveMessage] = useState<string | null>(null)
 
   const loadTransactions = useCallback(async () => {
@@ -444,6 +490,97 @@ export default function FinancesPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Recurring & Subscriptions ── */}
+      <Card>
+        <CardHeader className="pb-2 pt-4 cursor-pointer select-none" onClick={() => setSubsOpen(o => !o)}>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Repeat2 className="h-4 w-4 text-primary" />
+              Recurring &amp; Subscriptions
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              {recurring.length > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  ~€{(recurring.reduce((s, r) => {
+                    const monthly = r.avgIntervalDays <= 10
+                      ? (r.amountCents / 100) * 4.33
+                      : r.avgIntervalDays <= 17
+                        ? (r.amountCents / 100) * 2.17
+                        : r.avgIntervalDays <= 45
+                          ? r.amountCents / 100
+                          : (r.amountCents / 100) / 12
+                    return s + monthly
+                  }, 0)).toFixed(0)}/mo
+                </span>
+              )}
+              <button
+                onClick={e => { e.stopPropagation(); loadSubscriptions() }}
+                className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                title="Refresh"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${subsLoading ? "animate-spin" : ""}`} />
+              </button>
+              {subsOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+            </div>
+          </div>
+        </CardHeader>
+
+        {subsOpen && (
+          <CardContent className="space-y-4">
+            {subsLoading && recurring.length === 0 && emailSubs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Analysing transactions…</p>
+            ) : (
+              <>
+                {/* Recurring bank charges */}
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Bank charges</p>
+                  {recurring.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No recurring charges detected in the last 90 days.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {recurring.map((r, i) => (
+                        <div key={i} className="flex items-center gap-3 py-2 border-b border-border/50 last:border-0">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm truncate capitalize">{r.description}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {freqLabel(r.avgIntervalDays)} · {r.occurrences}× · last {r.lastDate}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-semibold text-red-400">
+                              {r.currency === "EUR" ? "€" : r.currency}{(r.amountCents / 100).toFixed(2)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{freqLabel(r.avgIntervalDays).toLowerCase()}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Email subscriptions */}
+                {emailSubs.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Email subscriptions</p>
+                    <div className="space-y-1">
+                      {emailSubs.slice(0, 10).map(s => (
+                        <div key={s.id} className="flex items-start gap-3 py-2 border-b border-border/50 last:border-0">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{s.service}</p>
+                            <p className="text-xs text-muted-foreground truncate">{s.subject}</p>
+                          </div>
+                          <p className="text-xs text-muted-foreground shrink-0">{new Date(s.date).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        )}
+      </Card>
     </div>
   )
 }

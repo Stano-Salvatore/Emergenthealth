@@ -38,16 +38,17 @@ export function detectRecurringCharges(
     }
     const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length
 
-    // Only flag if interval looks monthly (20–40 days) or weekly (5–9 days) or yearly (330–395 days)
-    const isMonthly = avgInterval >= 20 && avgInterval <= 40
-    const isWeekly = avgInterval >= 5 && avgInterval <= 9
-    const isYearly = avgInterval >= 330 && avgInterval <= 395
-    if (!isMonthly && !isWeekly && !isYearly) continue
+    // Flag weekly (5–10d), biweekly (11–17d), monthly (18–45d), or yearly (330–400d)
+    const isWeekly    = avgInterval >= 5  && avgInterval <= 10
+    const isBiweekly  = avgInterval >= 11 && avgInterval <= 17
+    const isMonthly   = avgInterval >= 18 && avgInterval <= 45
+    const isYearly    = avgInterval >= 330 && avgInterval <= 400
+    if (!isWeekly && !isBiweekly && !isMonthly && !isYearly) continue
 
-    // Check amounts are similar (within 10% of the mean)
+    // Check amounts are similar (within 25% of the mean — allows for tax/FX variation)
     const amounts = sorted.map(t => Math.abs(t.amount))
     const mean = amounts.reduce((a, b) => a + b, 0) / amounts.length
-    const allSimilar = amounts.every(a => Math.abs(a - mean) / mean < 0.1)
+    const allSimilar = amounts.every(a => Math.abs(a - mean) / mean < 0.25)
     if (!allSimilar) continue
 
     const last = sorted[sorted.length - 1]
