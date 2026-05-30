@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import Anthropic from "@anthropic-ai/sdk"
+import { getWeatherCoords } from "@/lib/weather-location"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -58,8 +59,9 @@ export async function GET(req: NextRequest) {
 
   let weatherDesc = ""
   try {
+    const wc = await getWeatherCoords(userId)
     const weatherRes = await fetch(
-      "https://api.open-meteo.com/v1/forecast?latitude=48.1486&longitude=17.1077&current=temperature_2m,weathercode&timezone=auto",
+      `https://api.open-meteo.com/v1/forecast?latitude=${wc.lat}&longitude=${wc.lon}&current=temperature_2m,weathercode&timezone=${wc.tz}`,
       { signal: AbortSignal.timeout(3000) }
     ).catch(() => null)
     if (weatherRes?.ok) {

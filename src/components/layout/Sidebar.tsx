@@ -30,6 +30,7 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
       { href: "/dashboard/checkin",       label: "Check-in",     emoji: "🌅" },
       { href: "/dashboard/health",       label: "Health",       emoji: "❤️" },
       { href: "/dashboard/weight",       label: "Weight",       emoji: "⚖️" },
+      { href: "/dashboard/body",         label: "Body",         emoji: "📏" },
       { href: "/dashboard/habits",       label: "Habits",       emoji: "✅" },
       { href: "/dashboard/medications",  label: "Medications",  emoji: "💊" },
       { href: "/dashboard/intake",       label: "Intake",       emoji: "🥤" },
@@ -37,6 +38,7 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
       { href: "/dashboard/custom",       label: "Trackers",     emoji: "📐" },
       { href: "/dashboard/reading",      label: "Reading",      emoji: "📚" },
       { href: "/dashboard/journal",      label: "Journal",      emoji: "📝" },
+      { href: "/dashboard/labs",         label: "Lab Results",  emoji: "🩸" },
     ],
   },
   {

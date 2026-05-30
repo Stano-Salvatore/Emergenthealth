@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getWeatherCoords } from "@/lib/weather-location"
 
 export async function GET() {
   const session = await auth()
@@ -63,10 +64,11 @@ export async function GET() {
   }
 
   // Weather (Open-Meteo, cached 30 min)
+  const wc = await getWeatherCoords(userId)
   let weather: { code: number; temp: number } | null = null
   try {
     const res = await fetch(
-      "https://api.open-meteo.com/v1/forecast?latitude=48.1486&longitude=17.1077&current=temperature_2m,weathercode&forecast_days=1&timezone=Europe%2FBratislava",
+      `https://api.open-meteo.com/v1/forecast?latitude=${wc.lat}&longitude=${wc.lon}&current=temperature_2m,weathercode&forecast_days=1&timezone=${wc.tz}`,
       { signal: AbortSignal.timeout(3000), next: { revalidate: 1800 } }
     ).catch(() => null)
     if (res?.ok) {

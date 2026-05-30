@@ -27,18 +27,41 @@ export async function GET() {
 
   const todayStr = today.toISOString().split("T")[0]
 
+  // Load vacation mode — frozen days don't break streaks
+  let vacationFrom: Date | null = null
+  let vacationUntil: Date | null = null
+  try {
+    const vRows = await prisma.$queryRaw<{ value: string }[]>`
+      SELECT "value" FROM "UserPreference" WHERE "userId" = ${session.user.id} AND "key" = 'vacation_mode' LIMIT 1
+    `
+    if (vRows.length) {
+      const v = JSON.parse(vRows[0].value)
+      if (v.active && v.from && v.until) {
+        vacationFrom  = new Date(v.from)
+        vacationUntil = new Date(v.until)
+      }
+    }
+  } catch {}
+
+  function isFrozen(d: Date): boolean {
+    if (!vacationFrom || !vacationUntil) return false
+    return d >= vacationFrom && d <= vacationUntil
+  }
+
   const result = habits.map((h) => {
     const completionDates = new Set(h.completions.map((c) => c.date.toISOString().split("T")[0]))
     let streak = 0
     const cursor = new Date(today)
-    while (completionDates.has(cursor.toISOString().split("T")[0])) {
-      streak++
+    while (completionDates.has(cursor.toISOString().split("T")[0]) || isFrozen(cursor)) {
+      if (!isFrozen(cursor)) streak++ // frozen days don't count toward streak length but don't break it
       cursor.setDate(cursor.getDate() - 1)
+      if (streak > 365) break // safety
     }
     return {
       ...h,
       streak,
       completedToday: completionDates.has(todayStr),
+      frozen: isFrozen(today),
     }
   })
 

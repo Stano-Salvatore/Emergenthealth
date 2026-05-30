@@ -39,9 +39,12 @@ model User {
   focusSessions FocusSession[]
   driveImportLogs DriveImportLog[]
   books         Book[]
-  morningCheckIns MorningCheckIn[]
-  weatherLogs     WeatherLog[]
-  userPreferences UserPreference[]
+  morningCheckIns  MorningCheckIn[]
+  weatherLogs      WeatherLog[]
+  userPreferences  UserPreference[]
+  labResults       LabResult[]
+  bodyMeasurements BodyMeasurement[]
+  habitRoutines    HabitRoutine[]
 }
 
 model Account {
@@ -476,4 +479,65 @@ model TagAlias {
   tagTypeUuid String
   name        String
   @@id([userId, tagTypeUuid])
+}
+
+// ─── Lab Results (blood work) ─────────────────────────────────────────────────
+
+model LabResult {
+  id           String   @id @default(cuid())
+  userId       String
+  marker       String
+  value        Float
+  unit         String
+  referenceMin Float?
+  referenceMax Float?
+  date         DateTime @db.Date
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, marker])
+  @@index([userId, date])
+}
+
+// ─── Body Measurements ────────────────────────────────────────────────────────
+
+model BodyMeasurement {
+  id         String   @id @default(cuid())
+  userId     String
+  date       DateTime @db.Date
+  weightKg   Float?
+  waistCm    Float?
+  hipsCm     Float?
+  chestCm    Float?
+  neckCm     Float?
+  bodyFatPct Float?
+  musclePct  Float?
+  bmi        Float?
+  notes      String?
+  source     String?
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
+}
+
+// ─── Habit Routines ───────────────────────────────────────────────────────────
+
+model HabitRoutine {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  emoji     String   @default("⭐")
+  habitIds  String[]
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }

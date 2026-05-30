@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getWeatherCoords } from "@/lib/weather-location"
 
 // Weather code → emoji
 function weatherEmoji(code: number): string {
@@ -64,11 +65,12 @@ export async function GET() {
   } catch {}
 
   // Weather from Open-Meteo
+  const wc = await getWeatherCoords(userId)
   let weatherData: { current: { temp: number; code: number }; hourly: { hour: string; temp: number; code: number; rainPct: number }[] } | null = null
   let outfit = "Check the weather to plan your outfit"
   try {
     const res = await fetch(
-      "https://api.open-meteo.com/v1/forecast?latitude=48.1486&longitude=17.1077&hourly=temperature_2m,weathercode,precipitation_probability&current=temperature_2m,weathercode&forecast_days=1&timezone=Europe%2FBratislava",
+      `https://api.open-meteo.com/v1/forecast?latitude=${wc.lat}&longitude=${wc.lon}&hourly=temperature_2m,weathercode,precipitation_probability&current=temperature_2m,weathercode&forecast_days=1&timezone=${wc.tz}`,
       { signal: AbortSignal.timeout(4000), next: { revalidate: 1800 } }
     ).catch(() => null)
 

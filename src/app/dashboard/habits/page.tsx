@@ -9,7 +9,7 @@ import { Progress } from "@/components/ui/progress"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
-import { CheckSquare, Flame, Plus, Check, Trash2, Trophy } from "lucide-react"
+import { CheckSquare, Flame, Plus, Check, Trash2, Trophy, X } from "lucide-react"
 import { EmptyState } from "@/components/ui/EmptyState"
 import { format, subDays } from "date-fns"
 
@@ -61,6 +61,12 @@ export default function HabitsPage() {
   const [newColor, setNewColor] = useState(COLORS[0])
   const [newReminderTime, setNewReminderTime] = useState("")
   const [saving, setSaving] = useState(false)
+  const [vacation, setVacation] = useState<{ active: boolean; from: string; until: string } | null>(null)
+  const [showVacation, setShowVacation] = useState(false)
+  const [vacFrom, setVacFrom] = useState(new Date().toISOString().split("T")[0])
+  const [vacUntil, setVacUntil] = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split("T")[0]
+  })
 
   // last 28 days for heatmap
   const days28 = Array.from({ length: 28 }, (_, i) => subDays(new Date(), 27 - i))
@@ -71,7 +77,10 @@ export default function HabitsPage() {
     setLoading(false)
   }
 
-  useEffect(() => { loadHabits() }, [])
+  useEffect(() => {
+    loadHabits()
+    fetch("/api/habits/vacation").then(r => r.json()).then(v => { if (v.from) setVacation(v) }).catch(() => {})
+  }, [])
 
   async function createHabit(e: React.FormEvent) {
     e.preventDefault()
@@ -105,6 +114,14 @@ export default function HabitsPage() {
     loadHabits()
   }
 
+  async function saveVacation(active: boolean) {
+    const body = { active, from: vacFrom, until: vacUntil }
+    await fetch("/api/habits/vacation", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    setVacation(active ? body : { active: false, from: vacFrom, until: vacUntil })
+    setShowVacation(false)
+    loadHabits()
+  }
+
   const completed = habits.filter(h => h.completedToday).length
   const total = habits.length
   const completionRate = total > 0 ? completed / total : 0
@@ -119,6 +136,10 @@ export default function HabitsPage() {
             {total > 0 ? `${completed} / ${total} done today` : "Track daily habits"}
           </p>
         </div>
+          <button onClick={() => setShowVacation(v => !v)}
+            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors gap-1.5 flex items-center ${vacation?.active ? "border-amber-500/50 bg-amber-500/10 text-amber-400" : "border-border text-muted-foreground hover:text-foreground"}`}>
+            🌴 {vacation?.active ? "Vacation on" : "Vacation"}
+          </button>
         <Dialog open={formOpen} onOpenChange={setFormOpen}>
           <DialogTrigger asChild>
             <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> New Habit</Button>
@@ -158,6 +179,47 @@ export default function HabitsPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Vacation mode panel */}
+      {showVacation && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">🌴 Vacation / Streak Freeze</p>
+            <button onClick={() => setShowVacation(false)} className="text-muted-foreground hover:text-foreground p-1"><X className="h-3.5 w-3.5" /></button>
+          </div>
+          <p className="text-xs text-muted-foreground">Missing habits during this period won&apos;t break your streaks.</p>
+          <div className="flex gap-3 flex-wrap">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">From</label>
+              <input type="date" value={vacFrom} onChange={e => setVacFrom(e.target.value)}
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Until</label>
+              <input type="date" value={vacUntil} onChange={e => setVacUntil(e.target.value)}
+                className="rounded-md border border-input bg-background px-3 py-1.5 text-sm" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => saveVacation(true)} className="bg-amber-500 hover:bg-amber-600 text-black">
+              {vacation?.active ? "Update freeze" : "Activate freeze"}
+            </Button>
+            {vacation?.active && (
+              <Button size="sm" variant="outline" onClick={() => saveVacation(false)}>
+                Deactivate
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {vacation?.active && !showVacation && (
+        <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+          <span>🌴</span>
+          <span>Streaks frozen through {vacation.until} — enjoy your break!</span>
+          <button onClick={() => saveVacation(false)} className="ml-auto text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
+        </div>
+      )}
 
       {/* summary row */}
       {total > 0 && (
