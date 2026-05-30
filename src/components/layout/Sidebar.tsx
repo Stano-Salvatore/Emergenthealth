@@ -59,7 +59,7 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
     emoji: "🔧",
     color: "text-violet-400",
     items: [
-      { href: "/dashboard/chat",     label: "Claude AI", emoji: "🤖" },
+      { href: "/dashboard/chat",     label: "Emergy",    emoji: "🌱" },
       { href: "/dashboard/settings", label: "Settings",  emoji: "⚙️" },
     ],
   },

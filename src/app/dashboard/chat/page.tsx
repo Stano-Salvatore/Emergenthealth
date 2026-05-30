@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, Bot, User, Trash2, Mic, MicOff } from "lucide-react"
+import { Send, User, Mic, MicOff } from "lucide-react"
+import { EmergySVG, type EmergyState } from "@/components/emergy/EmergySVG"
 
 interface Message {
   id?: string
@@ -13,30 +14,28 @@ interface Message {
   streaming?: boolean
 }
 
-function MessageBubble({ msg }: { msg: Message }) {
+function MessageBubble({ msg, emergyState }: { msg: Message; emergyState: EmergyState }) {
   const isUser = msg.role === "user"
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
-      <div
-        className={`h-7 w-7 rounded-full flex items-center justify-center shrink-0 ${
-          isUser ? "bg-primary" : "bg-secondary border border-border"
-        }`}
-      >
+      <div className="shrink-0 mt-0.5">
         {isUser ? (
-          <User className="h-3.5 w-3.5 text-white" />
+          <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center">
+            <User className="h-3.5 w-3.5 text-white"/>
+          </div>
         ) : (
-          <Bot className="h-3.5 w-3.5 text-foreground" />
+          <EmergySVG state={emergyState} size={28}/>
         )}
       </div>
       <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${
+        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ${
           isUser
             ? "bg-primary text-white rounded-tr-sm"
-            : "bg-secondary text-foreground rounded-tl-sm"
-        } ${msg.streaming ? "opacity-90" : ""}`}
+            : "bg-[#1a2a1a] text-foreground rounded-tl-sm border border-green-900/30"
+        } ${msg.streaming ? "opacity-85" : ""}`}
       >
         {msg.content}
-        {msg.streaming && <span className="animate-pulse">▍</span>}
+        {msg.streaming && <span className="animate-pulse ml-0.5">▍</span>}
       </div>
     </div>
   )
@@ -46,6 +45,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
+  const [emergyState, setEmergyState] = useState<EmergyState>("okay")
   const [listening, setListening] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -81,6 +81,9 @@ export default function ChatPage() {
     fetch("/api/chat").then(async (r) => {
       if (r.ok) setMessages(await r.json())
     })
+    fetch("/api/emergy").then(async (r) => {
+      if (r.ok) { const d = await r.json(); setEmergyState(d.state) }
+    }).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -173,11 +176,12 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3rem-3rem)]">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center gap-3 mb-4">
+        <EmergySVG state={emergyState} size={52}/>
         <div>
-          <h1 className="text-2xl font-bold">Claude AI</h1>
+          <h1 className="text-2xl font-bold">Emergy</h1>
           <p className="text-muted-foreground text-sm mt-0.5">
-            Ask about your health, finances, habits, and more
+            Your plant companion — knows your health, habits &amp; finances
           </p>
         </div>
       </div>
@@ -187,21 +191,19 @@ export default function ChatPage() {
         className="flex-1 overflow-y-auto space-y-4 scrollbar-thin pr-1"
       >
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center space-y-3 py-16">
-            <div className="h-14 w-14 rounded-full bg-primary/10 flex items-center justify-center">
-              <Bot className="h-7 w-7 text-primary" />
-            </div>
+          <div className="flex flex-col items-center justify-center h-full text-center space-y-3 py-12">
+            <EmergySVG state={emergyState} size={100}/>
             <div>
-              <p className="font-medium">Claude knows your data</p>
+              <p className="font-semibold text-base">Hi!! I&apos;m Emergy 🌱</p>
               <p className="text-sm text-muted-foreground mt-1 max-w-xs">
-                Sleep, habits, finances, meds, calendar — all in context.
+                I know your sleep, habits, meds, finances, and calendar. Ask me anything or just say hi!
               </p>
             </div>
             {/* Morning briefing CTA */}
             <button
               onClick={() => quickSend("Give me a morning briefing: last night's sleep score and quality, today's schedule, which habits I still need to do, any overdue reminders, and what supplements/meds I've taken so far.")}
               disabled={sending}
-              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary/10 border border-primary/20 hover:bg-primary/15 transition-colors text-sm font-medium text-primary disabled:opacity-50"
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-green-700/20 border border-green-700/30 hover:bg-green-700/30 transition-colors text-sm font-medium text-green-400 disabled:opacity-50"
             >
               ☀️ Morning Briefing
             </button>
@@ -224,14 +226,14 @@ export default function ChatPage() {
             </div>
           </div>
         ) : (
-          messages.map((msg, i) => <MessageBubble key={i} msg={msg} />)
+          messages.map((msg, i) => <MessageBubble key={i} msg={msg} emergyState={emergyState}/>)
         )}
       </div>
 
       <div className="mt-4 flex gap-2 items-end">
         <Textarea
           ref={textareaRef}
-          placeholder="Ask Claude anything about your data..."
+          placeholder="Talk to Emergy..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
