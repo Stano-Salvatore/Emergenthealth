@@ -279,19 +279,21 @@ function buildMcpServer(userId: string): McpServer {
     {
       title: z.string().describe("What to remember"),
       due_date: z.string().optional().describe("Optional due date in YYYY-MM-DD format"),
+      reminder_time: z.string().optional().describe("Optional time for notification in HH:MM (24h) format"),
       priority: z.enum(["low", "normal", "high"]).optional().describe("Priority level, default is normal"),
     },
-    async ({ title, due_date, priority }) => {
+    async ({ title, due_date, reminder_time, priority }) => {
       const reminder = await prisma.reminder.create({
         data: {
           userId,
           title,
           dueDate: due_date ? new Date(due_date) : null,
+          reminderTime: reminder_time ?? null,
           priority: priority ?? "normal",
           tags: [],
         },
       })
-      return msg(`Reminder created: "${reminder.title}"${due_date ? ` (due ${due_date})` : ""}`)
+      return msg(`Reminder created: "${reminder.title}"${due_date ? ` (due ${due_date}${reminder_time ? ` at ${reminder_time}` : ""})` : ""}`)
     },
   )
 
