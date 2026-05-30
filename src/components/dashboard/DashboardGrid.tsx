@@ -10,7 +10,7 @@ import "react-resizable/css/styles.css"
 export type BlockId =
   | "health" | "finances" | "calendar" | "habits"
   | "reminders" | "gmail" | "quicklog" | "stats"
-  | "location" | "ac" | "today"
+  | "location" | "ac" | "today" | "quests"
 
 interface Block { id: BlockId; label: string }
 
@@ -26,6 +26,7 @@ const ALL_BLOCKS: Block[] = [
   { id: "stats",     label: "📊 Stats" },
   { id: "location",  label: "📍 Location" },
   { id: "ac",        label: "❄️ AC" },
+  { id: "quests",    label: "⚔️ Quests" },
 ]
 
 const DEFAULT_ITEMS: LayoutItem[] = [
@@ -40,9 +41,10 @@ const DEFAULT_ITEMS: LayoutItem[] = [
   { i: "stats",     x: 0, y: 29, w: 12, h: 4 },
   { i: "location",  x: 0, y: 33, w: 6,  h: 6 },
   { i: "ac",        x: 6, y: 33, w: 6,  h: 6 },
+  { i: "quests",    x: 0, y: 39, w: 6,  h: 8 },
 ]
 
-const STORAGE_KEY = "dashboard-layout-v4"
+const STORAGE_KEY = "dashboard-layout-v5"
 const HIDDEN_KEY  = "dashboard-hidden-v1"
 
 function loadItems(): LayoutItem[] {

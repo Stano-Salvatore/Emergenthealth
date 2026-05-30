@@ -1,24 +1,9 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
-import { subDays } from "date-fns"
+import { computeXp, getLevel } from "@/lib/xp"
 
 export type EmergyState = "thriving" | "happy" | "okay" | "tired" | "wilting" | "screaming"
-
-interface Level { level: number; name: string; emoji: string; minXp: number; nextXp: number }
-
-const LEVELS: Level[] = [
-  { level: 1, name: "Seed",    emoji: "🌱", minXp: 0,    nextXp: 100  },
-  { level: 2, name: "Sprout",  emoji: "🌿", minXp: 100,  nextXp: 300  },
-  { level: 3, name: "Plant",   emoji: "🍃", minXp: 300,  nextXp: 700  },
-  { level: 4, name: "Bush",    emoji: "🌺", minXp: 700,  nextXp: 1500 },
-  { level: 5, name: "Flower",  emoji: "🌸", minXp: 1500, nextXp: 3000 },
-  { level: 6, name: "Tree",    emoji: "🌳", minXp: 3000, nextXp: 9999 },
-]
-
-function getLevel(xp: number): Level {
-  return [...LEVELS].reverse().find(l => xp >= l.minXp) ?? LEVELS[0]
-}
 
 // Screaming messages
 const SCREAM_WATER = [
@@ -62,33 +47,24 @@ export async function GET() {
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const since90 = subDays(today, 90)
 
-  const [todayHealth, todayWater, todayHabitsDone, totalHabits, xpRaw] = await Promise.all([
-    prisma.healthLog.findFirst({
-      where: { userId, date: { gte: today } },
-      select: { sleepScore: true, readinessScore: true },
-    }).catch(() => null),
-
-    prisma.intakeLog.findMany({
-      where: { userId, type: "water", loggedAt: { gte: today } },
-      select: { amountMl: true },
-    }).catch(() => [] as { amountMl: number }[]),
-
-    prisma.habitCompletion.count({ where: { userId, date: { gte: today } } }).catch(() => 0),
-    prisma.habit.count({ where: { userId, isArchived: false } }).catch(() => 0),
-
+  const [[todayHealth, todayWater, todayHabitsDone, totalHabits], xpBreakdown] = await Promise.all([
     Promise.all([
-      prisma.habitCompletion.count({ where: { userId, date: { gte: since90 } } }).catch(() => 0),
-      prisma.intakeLog.count({ where: { userId, type: "water", loggedAt: { gte: since90 } } }).catch(() => 0),
-      prisma.healthLog.count({ where: { userId, date: { gte: since90 }, sleepScore: { gte: 70 } } }).catch(() => 0),
-      prisma.healthLog.count({ where: { userId, date: { gte: since90 }, readinessScore: { gte: 75 } } }).catch(() => 0),
-      prisma.moodLog.count({ where: { userId, date: { gte: since90 } } }).catch(() => 0),
+      prisma.healthLog.findFirst({
+        where: { userId, date: { gte: today } },
+        select: { sleepScore: true, readinessScore: true },
+      }).catch(() => null),
+      prisma.intakeLog.findMany({
+        where: { userId, type: "water", loggedAt: { gte: today } },
+        select: { amountMl: true },
+      }).catch(() => [] as { amountMl: number }[]),
+      prisma.habitCompletion.count({ where: { userId, date: { gte: today } } }).catch(() => 0),
+      prisma.habit.count({ where: { userId, isArchived: false } }).catch(() => 0),
     ]),
+    computeXp(userId),
   ])
 
-  const [habits90, water90, goodSleep90, goodReadiness90, mood90] = xpRaw
-  const xp = habits90 * 15 + water90 * 10 + goodSleep90 * 20 + goodReadiness90 * 25 + mood90 * 5
+  const xp = xpBreakdown.total
   const levelInfo = getLevel(xp)
 
   const waterMl    = todayWater.reduce((s: number, l: { amountMl: number }) => s + l.amountMl, 0)
@@ -135,9 +111,12 @@ export async function GET() {
     habitsPct,
     xp,
     level: levelInfo.level,
-    levelName: levelInfo.name,
-    levelEmoji: levelInfo.emoji,
+    levelName: levelInfo.levelName,
+    levelEmoji: levelInfo.levelEmoji,
     minXp: levelInfo.minXp,
     nextXp: levelInfo.nextXp,
+    progress: levelInfo.progress,
+    xpToNext: levelInfo.xpToNext,
+    xpBreakdown,
   })
 }
