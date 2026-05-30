@@ -41,7 +41,10 @@ const TAG_COLORS = [
 
 function isOverdue(dueDate: string | null) {
   if (!dueDate) return false
-  return new Date(dueDate) < new Date()
+  // Treat due date as end-of-day so today's reminders aren't immediately "overdue"
+  const d = new Date(dueDate)
+  d.setHours(23, 59, 59, 999)
+  return d < new Date()
 }
 
 function isToday(dueDate: string | null) {
