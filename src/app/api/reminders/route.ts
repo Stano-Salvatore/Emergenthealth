@@ -6,8 +6,6 @@ export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  await prisma.$executeRaw`ALTER TABLE "Reminder" ADD COLUMN IF NOT EXISTS "reminderTime" TEXT`.catch(() => {})
-
   const reminders = await prisma.reminder.findMany({
     where: { userId: session.user.id },
     orderBy: [{ isCompleted: "asc" }, { dueDate: "asc" }],
@@ -29,14 +27,11 @@ export async function POST(req: NextRequest) {
       title,
       description,
       dueDate: dueDate ? new Date(dueDate) : undefined,
+      reminderTime: reminderTime || null,
       priority: priority ?? "normal",
       tags: Array.isArray(tags) ? tags : [],
     },
   })
-
-  if (reminderTime) {
-    await prisma.$executeRaw`UPDATE "Reminder" SET "reminderTime" = ${reminderTime} WHERE id = ${reminder.id}`.catch(() => {})
-  }
 
   return NextResponse.json(reminder, { status: 201 })
 }
