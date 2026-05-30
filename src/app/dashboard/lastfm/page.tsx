@@ -367,45 +367,40 @@ function Dashboard({
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Top artists */}
-            {sortedArtists.length > 0 && (
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                    Top Artists
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0 pb-4 space-y-2">
-                  {sortedArtists.map(([artist, days], i) => {
-                    const pct = Math.round((days / (sortedArtists[0][1] ?? 1)) * 100)
-                    return (
-                      <div key={artist} className="space-y-1">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="flex items-center gap-2">
-                            <span className="text-[10px] text-muted-foreground w-3 text-right shrink-0">{i + 1}</span>
-                            <span className="font-medium truncate max-w-[160px]" title={artist}>{artist}</span>
-                          </span>
-                          <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                            {days} {days === 1 ? "day" : "days"}
-                          </span>
-                        </div>
-                        <div className="h-1 rounded-full bg-secondary overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-rose-500/70 transition-all"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
+          {/* Top artists */}
+          {sortedArtists.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+                  Top Artists
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0 pb-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+                {sortedArtists.map(([artist, days], i) => {
+                  const pct = Math.round((days / (sortedArtists[0][1] ?? 1)) * 100)
+                  return (
+                    <div key={artist} className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="flex items-center gap-2">
+                          <span className="text-[10px] text-muted-foreground w-3 text-right shrink-0">{i + 1}</span>
+                          <span className="font-medium truncate max-w-[160px]" title={artist}>{artist}</span>
+                        </span>
+                        <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                          {days} {days === 1 ? "day" : "days"}
+                        </span>
                       </div>
-                    )
-                  })}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Recent history placeholder if only 1 column */}
-            <div className="sm:col-span-1" />
-          </div>
+                      <div className="h-1 rounded-full bg-secondary overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-rose-500/70 transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Recent history table */}
           <Card>
