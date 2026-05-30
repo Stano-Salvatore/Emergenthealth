@@ -14,12 +14,15 @@ export async function PATCH(
 
   const habit = await prisma.habit.updateMany({
     where: { id, userId: session.user.id },
-    data: { name, description, color, icon, isArchived },
+    data: {
+      ...(name !== undefined && { name }),
+      ...(description !== undefined && { description }),
+      ...(color !== undefined && { color }),
+      ...(icon !== undefined && { icon }),
+      ...(isArchived !== undefined && { isArchived }),
+      ...(reminderTime !== undefined && { reminderTime: reminderTime || null }),
+    },
   })
-
-  if (reminderTime !== undefined) {
-    await prisma.$executeRaw`UPDATE "Habit" SET "reminderTime" = ${reminderTime || null} WHERE id = ${id} AND "userId" = ${session.user.id}`.catch(() => {})
-  }
 
   if (habit.count === 0) return NextResponse.json({ error: "Not found" }, { status: 404 })
   return NextResponse.json({ success: true })

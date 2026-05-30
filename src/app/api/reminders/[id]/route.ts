@@ -10,7 +10,7 @@ export async function PATCH(
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { id } = await params
-  const { title, description, dueDate, priority, isCompleted, tags } = await req.json()
+  const { title, description, dueDate, reminderTime, priority, isCompleted, tags } = await req.json()
 
   const result = await prisma.reminder.updateMany({
     where: { id, userId: session.user.id },
@@ -18,6 +18,7 @@ export async function PATCH(
       ...(title !== undefined && { title }),
       ...(description !== undefined && { description }),
       ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
+      ...(reminderTime !== undefined && { reminderTime: reminderTime || null }),
       ...(priority !== undefined && { priority }),
       ...(isCompleted !== undefined && { isCompleted, completedAt: isCompleted ? new Date() : null }),
       ...(tags !== undefined && { tags: Array.isArray(tags) ? tags : [] }),

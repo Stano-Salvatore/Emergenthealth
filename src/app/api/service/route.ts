@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
 
   // ── create_reminder ────────────────────────────────────────────────────────
   if (action === "create_reminder") {
-    const { title, dueDate, description, priority } = body
+    const { title, dueDate, description, priority, reminderTime } = body
     if (!title) return NextResponse.json({ error: "title required" }, { status: 400 })
 
     const reminder = await prisma.reminder.create({
@@ -35,6 +35,7 @@ export async function POST(req: NextRequest) {
         title,
         description: description ?? null,
         dueDate: dueDate ? new Date(dueDate) : null,
+        reminderTime: reminderTime ?? null,
         priority: priority ?? "normal",
       },
     })
