@@ -33,7 +33,9 @@ export async function POST() {
   since.setHours(0, 0, 0, 0)
 
   try {
-    // Fetch last 7 days of HealthLog and IntakeLog in parallel
+    // Fetch last 7 days of data in parallel. Each source is independently
+    // guarded so a missing table or column degrades gracefully instead of
+    // failing the whole digest — the email sends with whatever data exists.
     const [healthLogs, intakeLogs, habitCompletions] = await Promise.all([
       prisma.healthLog.findMany({
         where: { userId, date: { gte: since } },
@@ -45,12 +47,11 @@ export async function POST() {
           hrv: true,
           readinessScore: true,
         },
-      }),
+      }).catch(() => [] as { date: Date; sleepDuration: number | null; steps: number | null; hrv: number | null; readinessScore: number | null }[]),
       prisma.intakeLog.findMany({
         where: { userId, loggedAt: { gte: since }, type: "water" },
         select: { amountMl: true },
-      }),
-      // HabitCompletion lives on the schema — catch in case table is missing
+      }).catch(() => [] as { amountMl: number }[]),
       prisma.habitCompletion.findMany({
         where: { userId, date: { gte: since } },
         select: { id: true },

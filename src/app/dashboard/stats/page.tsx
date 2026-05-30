@@ -15,6 +15,7 @@ interface Correlation {
   strength: "strong" | "moderate" | "weak" | "insufficient"
   direction: "positive" | "negative" | null
   isCustom?: boolean
+  sparkPoints?: { x: number; y: number }[]
 }
 
 interface StatsData {
@@ -41,6 +42,8 @@ interface StatsData {
   bedtimeStdDevMin: number | null
   correlations: Correlation[]
   customCorrelations: Correlation[]
+  intakeCorrelations: Correlation[]
+  spendingCorrelations: Correlation[]
   weatherCorrelations: Correlation[]
   lastfmCorrelations: Correlation[]
   checkinCorrelations: Correlation[]
@@ -87,12 +90,90 @@ function CorrelationBar({ r }: { r: number | null }) {
   )
 }
 
+function Sparkline({ points, positive }: { points: { x: number; y: number }[]; positive: boolean }) {
+  if (points.length < 3) return null
+  const xs = points.map(p => p.x)
+  const ys = points.map(p => p.y)
+  const minX = Math.min(...xs), maxX = Math.max(...xs)
+  const minY = Math.min(...ys), maxY = Math.max(...ys)
+  const rangeX = maxX - minX || 1
+  const rangeY = maxY - minY || 1
+  const W = 80, H = 32
+  const color = positive ? "#4ade80" : "#f87171"
+  return (
+    <svg width={W} height={H} className="shrink-0 opacity-70">
+      {points.map((p, i) => {
+        const cx = ((p.x - minX) / rangeX) * (W - 6) + 3
+        const cy = H - 3 - ((p.y - minY) / rangeY) * (H - 6)
+        return <circle key={i} cx={cx} cy={cy} r={2} fill={color} />
+      })}
+    </svg>
+  )
+}
+
+function AIPanel() {
+  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle")
+  const [bullets, setBullets] = useState<string[]>([])
+  const [cached, setCached] = useState(false)
+
+  useEffect(() => {
+    setState("loading")
+    fetch("/api/insight")
+      .then(r => r.json())
+      .then(d => {
+        if (d.bullets?.length) { setBullets(d.bullets); setCached(!!d.cached); setState("done") }
+        else setState("error")
+      })
+      .catch(() => setState("error"))
+  }, [])
+
+  const regen = () => {
+    setState("loading")
+    fetch("/api/insight", { method: "POST" })
+      .then(r => r.json())
+      .then(d => {
+        if (d.bullets?.length) { setBullets(d.bullets); setCached(false); setState("done") }
+        else setState("error")
+      })
+      .catch(() => setState("error"))
+  }
+
+  if (state === "error") return null
+
+  return (
+    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-bold uppercase tracking-widest text-violet-400">AI weekly snapshot</p>
+        {state === "done" && (
+          <button onClick={regen} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+            {cached ? "regenerate" : "↻"}
+          </button>
+        )}
+      </div>
+      {state === "loading" && (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => <div key={i} className="h-3.5 bg-violet-500/10 rounded animate-pulse" style={{ width: `${70 + i * 10}%` }} />)}
+        </div>
+      )}
+      {state === "done" && (
+        <div className="space-y-1.5">
+          {bullets.map((b, i) => (
+            <p key={i} className="text-sm leading-snug">{b}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function CorrRow({ c }: { c: Correlation }) {
+  const showSpark = (c.sparkPoints?.length ?? 0) >= 3 && c.r != null && Math.abs(c.r) >= 0.2
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
         <span className="text-base leading-none shrink-0">{c.emoji}</span>
         <span className="text-xs font-medium flex-1 min-w-0 break-words">{c.label}</span>
+        {showSpark && <Sparkline points={c.sparkPoints!} positive={c.direction === "positive"} />}
         <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0",
           c.strength === "strong" ? "bg-green-500/15 text-green-400"
           : c.strength === "moderate" ? "bg-amber-500/15 text-amber-400"
@@ -129,7 +210,8 @@ export default function StatsPage() {
 
   const { dowStats, focusDowStats, trendData, bestSleepDay, bestStepsDay, bestReadinessDay, bestHrvDay,
     waterStreak, totalFocusMin30, stepStreak, sleepStreak, hrvTrend, hrvAvg7,
-    sleepConsistency, avgBedtime, bedtimeStdDevMin, correlations, customCorrelations, weatherCorrelations,
+    sleepConsistency, avgBedtime, bedtimeStdDevMin, correlations, customCorrelations,
+    intakeCorrelations, spendingCorrelations, weatherCorrelations,
     lastfmCorrelations, checkinCorrelations, dataPoints } = data
 
   const maxSleep = Math.max(...dowStats.map(d => d.avgSleep ?? 0), 9)
@@ -166,6 +248,9 @@ export default function StatsPage() {
           </div>
         )}
       </div>
+
+      {/* ── AI snapshot ── */}
+      <AIPanel />
 
       {/* ── Correlations ── */}
       <Card>
@@ -228,6 +313,28 @@ export default function StatsPage() {
               </p>
               <div className="space-y-4">
                 {(checkinCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
+              </div>
+            </div>
+          )}
+
+          {(intakeCorrelations ?? []).length > 0 && (
+            <div className="pt-2 border-t border-border/40">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
+                🍷 Alcohol &amp; Coffee
+              </p>
+              <div className="space-y-4">
+                {(intakeCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
+              </div>
+            </div>
+          )}
+
+          {(spendingCorrelations ?? []).length > 0 && (
+            <div className="pt-2 border-t border-border/40">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
+                💸 Spending
+              </p>
+              <div className="space-y-4">
+                {(spendingCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
               </div>
             </div>
           )}

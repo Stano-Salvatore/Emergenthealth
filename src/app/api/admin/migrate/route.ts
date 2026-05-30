@@ -163,6 +163,33 @@ const migrations: { label: string; sql: string }[] = [
     )`,
   },
   { label: "Book index", sql: `CREATE INDEX IF NOT EXISTS "Book_userId_status_idx" ON "Book"("userId", "status")` },
+  // YnabToken table (OAuth). Reconcile legacy PAT-only schema so OAuth saves work.
+  {
+    label: "YnabToken table",
+    sql: `CREATE TABLE IF NOT EXISTS "YnabToken" (
+      "userId"       TEXT NOT NULL PRIMARY KEY,
+      "accessToken"  TEXT,
+      "refreshToken" TEXT,
+      "expiresAt"    TIMESTAMPTZ,
+      "budgetId"     TEXT,
+      "budgetName"   TEXT,
+      "updatedAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
+  },
+  { label: "YnabToken.accessToken",  sql: `ALTER TABLE "YnabToken" ADD COLUMN IF NOT EXISTS "accessToken" TEXT` },
+  { label: "YnabToken.refreshToken", sql: `ALTER TABLE "YnabToken" ADD COLUMN IF NOT EXISTS "refreshToken" TEXT` },
+  { label: "YnabToken.expiresAt",    sql: `ALTER TABLE "YnabToken" ADD COLUMN IF NOT EXISTS "expiresAt" TIMESTAMPTZ` },
+  { label: "YnabToken.budgetId",     sql: `ALTER TABLE "YnabToken" ADD COLUMN IF NOT EXISTS "budgetId" TEXT` },
+  { label: "YnabToken.budgetName",   sql: `ALTER TABLE "YnabToken" ADD COLUMN IF NOT EXISTS "budgetName" TEXT` },
+  {
+    label: "YnabToken legacy token nullable",
+    sql: `DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'YnabToken' AND column_name = 'token') THEN
+        EXECUTE 'ALTER TABLE "YnabToken" ALTER COLUMN "token" DROP NOT NULL';
+      END IF;
+    END $$;`,
+  },
+  { label: "YnabToken userId unique", sql: `CREATE UNIQUE INDEX IF NOT EXISTS "YnabToken_userId_key" ON "YnabToken"("userId")` },
 ]
 
 async function runMigrations() {
