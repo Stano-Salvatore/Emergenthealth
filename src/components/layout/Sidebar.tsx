@@ -13,7 +13,7 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
   {
     label: "Dashboard",
     emoji: "📊",
-    color: "text-indigo-400",
+    color: "text-primary",
     items: [
       { href: "/dashboard",       label: "Overview",   emoji: "🏠" },
       { href: "/dashboard/week",  label: "This Week",  emoji: "📅" },
@@ -67,7 +67,7 @@ const navGroups: { label: string; emoji: string; color: string; items: NavItem[]
   {
     label: "Tools",
     emoji: "🔧",
-    color: "text-violet-400",
+    color: "text-primary",
     items: [
       { href: "/dashboard/chat",    label: "Emergy",   emoji: "🌱" },
       { href: "/dashboard/garden",  label: "Garden",   emoji: "🌻" },

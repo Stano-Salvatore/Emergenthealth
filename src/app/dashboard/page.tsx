@@ -573,7 +573,7 @@ export default async function DashboardPage() {
 
     reminders: (
       <Link href="/dashboard/reminders" className="block h-full">
-        <Card className={`card-reminders hover:border-violet-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-violet-500/5 ${overdueReminders.length>0?"border-red-500/30":""}`}>
+        <Card className={`card-reminders hover:border-primary/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-primary/5 ${overdueReminders.length>0?"border-red-500/30":""}`}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
               <span className="flex items-center gap-1.5">🔔 Reminders</span>
@@ -672,7 +672,7 @@ export default async function DashboardPage() {
         </Link>
         <Link href="/dashboard/focus">
           <StatTile label="Focus today" value={focusMinToday >= 60 ? `${(focusMinToday/60).toFixed(1)}h` : `${focusMinToday}m`}
-            sub="deep work" icon={<Timer className="h-4 w-4 text-indigo-400"/>} />
+            sub="deep work" icon={<Timer className="h-4 w-4 text-primary"/>} />
         </Link>
         <Link href="/dashboard/habits">
           <StatTile label="Habits today" value={`${doneToday}/${habits.length}`} icon={<CheckSquare className="h-4 w-4 text-amber-400"/>}

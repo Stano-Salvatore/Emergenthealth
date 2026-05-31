@@ -389,7 +389,7 @@ export default function StatsPage() {
             <p className="text-[10px] text-muted-foreground/70">8,000 steps/day</p>
           </CardContent>
         </Card>
-        <Card className={sleepStreak >= 3 ? "border-indigo-500/20" : ""}>
+        <Card className={sleepStreak >= 3 ? "border-primary/20" : ""}>
           <CardContent className="pt-3 pb-3 text-center">
             <p className="text-2xl mb-0.5">🌙</p>
             <p className="text-[10px] text-muted-foreground">Sleep goal streak</p>
