@@ -74,8 +74,8 @@ const XP_LABELS: Record<string, string> = {
 function LevelBadge({ level }: { level: number }) {
   const colors = ["", "from-slate-400 to-slate-600", "from-green-400 to-green-600", "from-blue-400 to-blue-600",
     "from-violet-400 to-violet-600", "from-amber-400 to-amber-600", "from-orange-400 to-orange-600",
-    "from-red-400 to-red-600", "from-pink-400 to-pink-600", "from-indigo-400 to-indigo-600", "from-yellow-400 to-yellow-600"]
-  const c = colors[Math.min(level, colors.length - 1)] ?? "from-indigo-400 to-indigo-600"
+    "from-red-400 to-red-600", "from-pink-400 to-pink-600", "from-primary to-primary/70", "from-yellow-400 to-yellow-600"]
+  const c = colors[Math.min(level, colors.length - 1)] ?? "from-primary to-primary/70"
   return (
     <div className={cn("inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br text-white font-black text-xl shadow-lg", c)}>
       {level}
@@ -122,7 +122,34 @@ export default function StreaksPage() {
   }, [])
 
   if (loading) return (
-    <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">Loading…</div>
+    <div className="p-6 max-w-4xl mx-auto space-y-8 animate-pulse">
+      <div className="h-7 w-48 bg-secondary rounded" />
+      <div className="rounded-2xl border border-border bg-card p-6">
+        <div className="flex items-center gap-5">
+          <div className="w-14 h-14 rounded-2xl bg-secondary" />
+          <div className="flex-1 space-y-2">
+            <div className="flex justify-between">
+              <div className="h-5 w-32 bg-secondary rounded" />
+              <div className="h-4 w-20 bg-secondary rounded" />
+            </div>
+            <div className="h-3 rounded-full bg-secondary" />
+            <div className="h-3 w-28 bg-secondary rounded" />
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-secondary" />
+            <div className="flex-1 space-y-1.5">
+              <div className="h-4 w-28 bg-secondary rounded" />
+              <div className="h-3 w-16 bg-secondary rounded" />
+            </div>
+            <div className="h-6 w-12 bg-secondary rounded" />
+          </div>
+        ))}
+      </div>
+    </div>
   )
   if (!data) return null
 

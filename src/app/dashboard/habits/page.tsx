@@ -63,11 +63,12 @@ function HeatmapRow({ habit, days }: { habit: Habit; days: Date[] }) {
         const isToday = str === new Date().toISOString().split("T")[0]
         return (
           <div key={i}
-            className={`h-3 flex-1 rounded-[2px] transition-all ${isToday ? "ring-1 ring-offset-1 ring-offset-card" : ""}`}
+            className="h-3 flex-1 rounded-[2px] transition-all"
             style={{
               backgroundColor: done ? habit.color : "var(--secondary)",
-              opacity: done ? 1 : 0.35,
-              ...(isToday && done ? { ringColor: habit.color } : {}),
+              opacity: done ? 1 : isToday ? 0.55 : 0.35,
+              outline: isToday ? `1.5px solid ${done ? habit.color : "var(--border)"}` : undefined,
+              outlineOffset: "1px",
             }}
             title={`${format(d,"MMM d")}: ${done?"done":"not done"}`}
           />
