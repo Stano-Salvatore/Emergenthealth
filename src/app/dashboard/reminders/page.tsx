@@ -221,23 +221,53 @@ export default function RemindersPage() {
                 <Input className="mt-1" placeholder="Additional details"
                   value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
               </div>
+              {/* Quick picks */}
               <div>
-                <Label>Due date (optional)</Label>
-                <Input type="date" className="mt-1" value={form.dueDate}
-                  onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
-              </div>
-              {form.dueDate && (
-                <div>
-                  <Label>Reminder time <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
-                  <input
-                    type="time"
-                    value={form.reminderTime}
-                    onChange={e => setForm(f => ({ ...f, reminderTime: e.target.value }))}
-                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  />
-                  <p className="text-[11px] text-muted-foreground mt-1">Push notification at this time on the due date</p>
+                <Label>When</Label>
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {[
+                    { label: "15 min", mins: 15 },
+                    { label: "1 hour", mins: 60 },
+                    { label: "3 hours", mins: 180 },
+                    { label: "Tonight 9pm", mins: null, fixed: { h: 21, m: 0 } },
+                    { label: "Tomorrow 9am", mins: null, fixed: { h: 9, m: 0, dayOffset: 1 } },
+                  ].map(opt => {
+                    function applyQuickPick() {
+                      const now = new Date()
+                      let target: Date
+                      if (opt.mins !== null) {
+                        target = new Date(now.getTime() + opt.mins * 60000)
+                      } else {
+                        target = new Date(now)
+                        if (opt.fixed!.dayOffset) target.setDate(target.getDate() + opt.fixed!.dayOffset)
+                        target.setHours(opt.fixed!.h, opt.fixed!.m, 0, 0)
+                      }
+                      const dateStr = target.toLocaleDateString("en-CA")
+                      const timeStr = `${String(target.getHours()).padStart(2,"0")}:${String(target.getMinutes()).padStart(2,"0")}`
+                      setForm(f => ({ ...f, dueDate: dateStr, reminderTime: timeStr }))
+                    }
+                    return (
+                      <button key={opt.label} type="button" onClick={applyQuickPick}
+                        className="text-xs px-2.5 py-1 rounded-full border border-border text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                        {opt.label}
+                      </button>
+                    )
+                  })}
                 </div>
-              )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Date</Label>
+                  <Input type="date" className="mt-1" value={form.dueDate}
+                    onChange={e => setForm(f => ({ ...f, dueDate: e.target.value }))} />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Time</Label>
+                  <input type="time" value={form.reminderTime}
+                    onChange={e => setForm(f => ({ ...f, reminderTime: e.target.value }))}
+                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+                </div>
+              </div>
               <div>
                 <Label>Priority</Label>
                 <div className="flex gap-2 mt-1">
