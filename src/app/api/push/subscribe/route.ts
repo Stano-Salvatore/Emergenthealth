@@ -34,3 +34,17 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true })
 }
+
+export async function DELETE(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { endpoint } = await req.json()
+  if (!endpoint) return NextResponse.json({ error: "endpoint required" }, { status: 400 })
+
+  await prisma.$executeRaw`
+    DELETE FROM "PushSubscription" WHERE endpoint = ${endpoint} AND "userId" = ${session.user.id}
+  `.catch(() => {})
+
+  return NextResponse.json({ ok: true })
+}
