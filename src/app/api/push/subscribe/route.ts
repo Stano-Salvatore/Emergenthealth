@@ -20,6 +20,7 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const body = await req.json()
+  // Accept both { subscription: {...} } and raw { endpoint, keys } formats
   const subscription = body.subscription ?? body
   if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
     return NextResponse.json({ error: "Invalid subscription" }, { status: 400 })
