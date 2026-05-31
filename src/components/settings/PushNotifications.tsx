@@ -40,11 +40,17 @@ export function PushNotifications() {
         applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
       })
       setPermission(Notification.permission)
-      await fetch("/api/push/subscribe", {
+      const res = await fetch("/api/push/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sub.toJSON()),
+        body: JSON.stringify({ subscription: sub.toJSON() }),
       })
+      if (!res.ok) {
+        await sub.unsubscribe()
+        console.error("Failed to save subscription", await res.text())
+        setLoading(false)
+        return
+      }
       setSubscribed(true)
     } catch (err) {
       console.error(err)
