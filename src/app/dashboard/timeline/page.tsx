@@ -396,7 +396,22 @@ export default function TimelinePage() {
       </p>
 
       {loading && (
-        <div className="py-16 text-center text-muted-foreground text-sm">Loading…</div>
+        <div className="space-y-3 animate-pulse">
+          <div className="flex gap-3 flex-wrap">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-14 w-24 rounded-xl bg-secondary/50 border border-border/40" />
+            ))}
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="h-3 w-10 rounded bg-border shrink-0" />
+                <div className="w-2 h-2 rounded-full bg-border shrink-0" />
+                <div className="h-3 rounded bg-border flex-1" style={{ width: `${60 + i * 8}%`, maxWidth: "100%" }} />
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {!loading && data && (

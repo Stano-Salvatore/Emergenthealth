@@ -341,7 +341,20 @@ export default function BodyPage() {
           </CardHeader>
           <CardContent>
             {loading ? (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <div className="space-y-1.5 animate-pulse">
+                <div className="flex gap-4 py-2 border-b border-border/40">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="h-3 rounded bg-border flex-1" />
+                  ))}
+                </div>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex gap-4 py-2 border-b border-border/40">
+                    {Array.from({ length: 5 }).map((_, j) => (
+                      <div key={j} className="h-3 rounded bg-border/60 flex-1" />
+                    ))}
+                  </div>
+                ))}
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
