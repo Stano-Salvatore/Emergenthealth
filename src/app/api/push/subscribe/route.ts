@@ -19,7 +19,8 @@ export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { subscription } = await req.json()
+  const body = await req.json()
+  const subscription = body.subscription ?? body
   if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
     return NextResponse.json({ error: "Invalid subscription" }, { status: 400 })
   }
