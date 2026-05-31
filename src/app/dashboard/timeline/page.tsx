@@ -188,7 +188,7 @@ function Timeline({ data }: { data: DayData }) {
     if (s.type !== "focus") continue
     events.push({
       hour: isoToHour(s.startedAt),
-      color: "#6366f1",
+      color: "var(--primary)",
       emoji: "🎯",
       label: s.label ?? "Focus session",
       pill: fmtMin(s.durationMin),

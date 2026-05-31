@@ -475,18 +475,18 @@ function TrackSvg({ points, width = 800, height = 400 }: { points: { lat: number
   }
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full rounded-2xl"
-      style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(16,15,26,0.8) 100%)" }}>
+      style={{ background: "linear-gradient(135deg, color-mix(in srgb, var(--primary) 6%, transparent) 0%, color-mix(in srgb, var(--card) 80%, transparent) 100%)" }}>
       <defs>
         <linearGradient id="trackGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#818cf8"/>
-          <stop offset="100%" stopColor="#a78bfa"/>
+          <stop offset="0%" style={{ stopColor: "var(--primary)" }}/>
+          <stop offset="100%" style={{ stopColor: "var(--primary)", stopOpacity: 0.6 }}/>
         </linearGradient>
         <filter id="glow">
           <feGaussianBlur stdDeviation="2" result="blur"/>
           <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
         </filter>
       </defs>
-      <path d={data.pathD} fill="none" stroke="#818cf8" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.2"/>
+      <path d={data.pathD} fill="none" stroke="var(--primary)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.2"/>
       <path d={data.pathD} fill="none" stroke="url(#trackGrad)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
       <circle cx={data.startX} cy={data.startY} r="6" fill="#22c55e" opacity="0.9"/>
       <circle cx={data.startX} cy={data.startY} r="10" fill="#22c55e" opacity="0.2"/>

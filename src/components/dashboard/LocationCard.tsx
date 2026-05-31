@@ -13,8 +13,8 @@ function TrackSvg({ points }: { points: { lat: number; lon: number }[] }) {
       style={{ background: "color-mix(in srgb, var(--primary) 5%, transparent)" }}>
       <defs>
         <linearGradient id="tg" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#818cf8" />
-          <stop offset="100%" stopColor="#a78bfa" />
+          <stop offset="0%" style={{ stopColor: "var(--primary)" }} />
+          <stop offset="100%" style={{ stopColor: "var(--primary)", stopOpacity: 0.6 }} />
         </linearGradient>
       </defs>
       <path d={data.pathD} fill="none" stroke="url(#tg)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

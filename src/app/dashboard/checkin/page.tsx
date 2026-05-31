@@ -111,8 +111,18 @@ export default function CheckInPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading...</p>
+      <div className="min-h-screen flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-sm space-y-6 animate-pulse">
+          <div className="h-1 rounded-full bg-border w-full" />
+          <div className="rounded-xl border bg-card p-6 space-y-4">
+            <div className="h-5 rounded bg-border w-48 mx-auto" />
+            <div className="grid grid-cols-5 gap-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-12 rounded-xl bg-border" />
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     )
   }

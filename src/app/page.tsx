@@ -10,33 +10,32 @@ export default async function HomePage() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: "#09090f", color: "#f2f2fa" }}>
+    <div className="min-h-screen bg-background text-foreground">
       {/* Background orbs */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
         <div
           className="absolute -top-40 -left-40 w-[700px] h-[700px] rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(99,102,241,0.06) 0%, transparent 70%)" }}
+          style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--primary) 6%, transparent) 0%, transparent 70%)" }}
         />
         <div
           className="absolute top-1/3 -right-60 w-[600px] h-[600px] rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(99,102,241,0.05) 0%, transparent 70%)" }}
+          style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--primary) 5%, transparent) 0%, transparent 70%)" }}
         />
         <div
           className="absolute bottom-0 left-1/3 w-[500px] h-[500px] rounded-full"
-          style={{ background: "radial-gradient(circle, rgba(99,102,241,0.04) 0%, transparent 70%)" }}
+          style={{ background: "radial-gradient(circle, color-mix(in srgb, var(--primary) 4%, transparent) 0%, transparent 70%)" }}
         />
       </div>
 
       <div className="relative z-10">
         {/* Nav */}
         <nav className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
-          <span className="text-lg font-semibold tracking-tight" style={{ color: "#6366f1" }}>
+          <span className="text-lg font-semibold tracking-tight text-primary">
             ◉ Emergenthealth
           </span>
           <Link
             href="/signin"
-            className="text-sm transition-colors hover:opacity-80"
-            style={{ color: "#7a7a96" }}
+            className="text-sm text-muted-foreground transition-colors hover:opacity-80"
           >
             Sign in
           </Link>
@@ -44,24 +43,23 @@ export default async function HomePage() {
 
         {/* Hero */}
         <section className="max-w-6xl mx-auto px-6 pt-20 pb-28 text-center">
-          <h1 className="text-5xl sm:text-6xl font-bold tracking-tight leading-tight mb-6" style={{ color: "#f2f2fa" }}>
+          <h1 className="text-5xl sm:text-6xl font-bold tracking-tight leading-tight mb-6">
             Your health, finally<br />in one place.
           </h1>
-          <p className="text-xl max-w-2xl mx-auto mb-10" style={{ color: "#7a7a96" }}>
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
             Connect your wearables, apps, and habits. See patterns you&apos;d never notice alone.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <Link
               href="/signin"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-opacity hover:opacity-90"
-              style={{ background: "#6366f1", color: "#ffffff" }}
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium bg-primary text-primary-foreground transition-opacity hover:opacity-90"
             >
               Get started free →
             </Link>
             <a
               href="#features"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium border transition-colors hover:opacity-80"
-              style={{ borderColor: "rgba(99,102,241,0.3)", color: "#7a7a96" }}
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium border text-muted-foreground transition-colors hover:opacity-80"
+              style={{ borderColor: "color-mix(in srgb, var(--primary) 30%, transparent)" }}
             >
               See what it tracks ↓
             </a>
@@ -70,7 +68,7 @@ export default async function HomePage() {
 
         {/* Features */}
         <section id="features" className="max-w-6xl mx-auto px-6 pb-28">
-          <h2 className="text-center text-2xl font-semibold mb-12" style={{ color: "#f2f2fa" }}>
+          <h2 className="text-center text-2xl font-semibold mb-12">
             Everything about you, connected
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -108,19 +106,11 @@ export default async function HomePage() {
             ].map(({ emoji, name, desc }) => (
               <div
                 key={name}
-                className="rounded-2xl p-6"
-                style={{
-                  border: "1px solid rgba(32,31,50,0.8)",
-                  background: "rgba(16,15,26,0.3)",
-                }}
+                className="rounded-2xl p-6 border border-border/80 bg-card/30"
               >
                 <div className="text-3xl mb-3">{emoji}</div>
-                <h3 className="font-semibold mb-2 text-base" style={{ color: "#f2f2fa" }}>
-                  {name}
-                </h3>
-                <p className="text-sm leading-relaxed" style={{ color: "#7a7a96" }}>
-                  {desc}
-                </p>
+                <h3 className="font-semibold mb-2 text-base">{name}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">{desc}</p>
               </div>
             ))}
           </div>
@@ -128,7 +118,7 @@ export default async function HomePage() {
 
         {/* Integrations strip */}
         <section className="max-w-6xl mx-auto px-6 pb-28">
-          <h2 className="text-center text-sm font-medium uppercase tracking-widest mb-8" style={{ color: "#7a7a96" }}>
+          <h2 className="text-center text-sm font-medium uppercase tracking-widest mb-8 text-muted-foreground">
             Works with what you already use
           </h2>
           <div className="flex flex-wrap justify-center gap-x-8 gap-y-4">
@@ -144,8 +134,7 @@ export default async function HomePage() {
             ].map(({ emoji, label }) => (
               <span
                 key={label}
-                className="text-sm flex items-center gap-1.5"
-                style={{ color: "#7a7a96" }}
+                className="text-sm text-muted-foreground flex items-center gap-1.5"
               >
                 <span>{emoji}</span>
                 <span>{label}</span>
@@ -184,14 +173,17 @@ export default async function HomePage() {
           ]
           return (
             <section className="max-w-3xl mx-auto px-6 pb-28">
-              <h2 className="text-center text-2xl font-semibold mb-12" style={{ color: "#f2f2fa" }}>
+              <h2 className="text-center text-2xl font-semibold mb-12">
                 Frequently asked questions
               </h2>
-              <div className="space-y-0 divide-y" style={{ borderColor: "rgba(99,102,241,0.15)" }}>
+              <div
+                className="space-y-0 divide-y"
+                style={{ borderColor: "color-mix(in srgb, var(--primary) 15%, transparent)" }}
+              >
                 {faqs.map((faq) => (
                   <div key={faq.q} className="py-5">
-                    <p className="font-medium text-sm mb-1.5" style={{ color: "#f2f2fa" }}>{faq.q}</p>
-                    <p className="text-sm" style={{ color: "#7a7a96" }}>{faq.a}</p>
+                    <p className="font-medium text-sm mb-1.5">{faq.q}</p>
+                    <p className="text-sm text-muted-foreground">{faq.a}</p>
                   </div>
                 ))}
               </div>
@@ -204,32 +196,34 @@ export default async function HomePage() {
           <div
             className="rounded-3xl px-8 py-16 mx-auto max-w-2xl"
             style={{
-              border: "1px solid rgba(99,102,241,0.15)",
-              background: "rgba(99,102,241,0.04)",
+              border: "1px solid color-mix(in srgb, var(--primary) 15%, transparent)",
+              background: "color-mix(in srgb, var(--primary) 4%, transparent)",
             }}
           >
-            <h2 className="text-3xl font-bold mb-4 tracking-tight" style={{ color: "#f2f2fa" }}>
+            <h2 className="text-3xl font-bold mb-4 tracking-tight">
               Ready to understand yourself better?
             </h2>
-            <p className="text-base mb-8" style={{ color: "#7a7a96" }}>
+            <p className="text-base text-muted-foreground mb-8">
               Sign in with Google to get started. Free, private, your data stays yours.
             </p>
             <Link
               href="/signin"
-              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-sm font-medium transition-opacity hover:opacity-90"
-              style={{ background: "#6366f1", color: "#ffffff" }}
+              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-xl text-sm font-medium bg-primary text-primary-foreground transition-opacity hover:opacity-90"
             >
               Get started →
             </Link>
 
-            <div className="mt-10 pt-8" style={{ borderTop: "1px solid rgba(99,102,241,0.1)" }}>
-              <p className="text-xs mb-4" style={{ color: "rgba(122,122,150,0.7)" }}>
+            <div
+              className="mt-10 pt-8"
+              style={{ borderTop: "1px solid color-mix(in srgb, var(--primary) 10%, transparent)" }}
+            >
+              <p className="text-xs text-muted-foreground/70 mb-4">
                 Not ready yet? Get notified when new integrations launch.
               </p>
               <NewsletterForm />
             </div>
 
-            <p className="mt-6 text-xs" style={{ color: "rgba(122,122,150,0.6)" }}>
+            <p className="mt-6 text-xs text-muted-foreground/60">
               <Link href="/privacy" className="hover:opacity-80 transition-opacity">Privacy policy</Link>
               {" · "}
               <Link href="/terms" className="hover:opacity-80 transition-opacity">Terms of service</Link>
@@ -239,7 +233,7 @@ export default async function HomePage() {
 
         {/* Footer */}
         <footer className="max-w-6xl mx-auto px-6 pb-8 text-center">
-          <p className="text-xs" style={{ color: "rgba(122,122,150,0.4)" }}>
+          <p className="text-xs text-muted-foreground/40">
             © 2026 Emergenthealth{" · "}
             <Link href="/privacy" className="hover:opacity-80 transition-opacity">Privacy</Link>
             {" · "}

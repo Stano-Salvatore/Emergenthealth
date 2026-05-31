@@ -54,7 +54,7 @@ export function DailyQuests() {
             className="h-full rounded-full transition-all duration-700"
             style={{
               width: `${donePct}%`,
-              background: donePct >= 100 ? "linear-gradient(90deg,#22c55e,#4ade80)" : "linear-gradient(90deg,#6366f1,#8b5cf6)",
+              background: donePct >= 100 ? "linear-gradient(90deg,#22c55e,#4ade80)" : "linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 70%, #fff))",
             }}
           />
         </div>
