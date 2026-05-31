@@ -141,9 +141,9 @@ function AIPanel() {
   if (state === "error") return null
 
   return (
-    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4">
+    <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-bold uppercase tracking-widest text-violet-400">AI weekly snapshot</p>
+        <p className="text-xs font-bold uppercase tracking-widest text-primary/70">AI weekly snapshot</p>
         {state === "done" && (
           <button onClick={regen} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
             {cached ? "regenerate" : "↻"}
@@ -152,7 +152,7 @@ function AIPanel() {
       </div>
       {state === "loading" && (
         <div className="space-y-2">
-          {[...Array(3)].map((_, i) => <div key={i} className="h-3.5 bg-violet-500/10 rounded animate-pulse" style={{ width: `${70 + i * 10}%` }} />)}
+          {[...Array(3)].map((_, i) => <div key={i} className="h-3.5 bg-primary/10 rounded animate-pulse" style={{ width: `${70 + i * 10}%` }} />)}
         </div>
       )}
       {state === "done" && (

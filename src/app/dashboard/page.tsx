@@ -294,10 +294,10 @@ export default async function DashboardPage() {
   const header = (
     <>
       {/* ── header ── */}
-      <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-500/20 via-violet-500/8 to-background border border-indigo-500/20 p-5">
-        <div className="absolute -top-12 -right-12 w-56 h-56 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-10 left-1/3 w-40 h-40 bg-violet-500/15 rounded-full blur-2xl pointer-events-none" />
-        <div className="absolute top-2 right-1/3 w-24 h-24 bg-blue-400/10 rounded-full blur-2xl pointer-events-none" />
+      <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-primary/15 via-primary/5 to-background border border-primary/20 p-5">
+        <div className="absolute -top-12 -right-12 w-56 h-56 bg-primary/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-10 left-1/3 w-40 h-40 bg-primary/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute top-2 right-1/3 w-24 h-24 bg-primary/8 rounded-full blur-2xl pointer-events-none" />
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 relative">
           <div>
             <h1 className="text-2xl font-bold">
@@ -334,7 +334,7 @@ export default async function DashboardPage() {
 
       {!hasCheckedInToday && (
         <Link href="/dashboard/checkin" className="block">
-          <Card className="border-violet-500/30 bg-violet-500/5 hover:bg-violet-500/10 transition-colors cursor-pointer">
+          <Card className="border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer">
             <CardContent className="pt-4 pb-3 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">🌅 Morning check-in</p>
