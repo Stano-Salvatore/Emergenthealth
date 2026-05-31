@@ -69,30 +69,29 @@ export async function GET(req: NextRequest) {
 
     const localTime = getCurrentHHMM(timezone)
     const localDate = getLocalDateStr(timezone)
-    const localHour = localTime.slice(0, 2) // "HH"
 
-    // Find incomplete habits with reminderTime matching this hour
+    // Find incomplete habits with reminderTime matching this exact HH:MM
     const habitReminders = await prisma.$queryRaw<{ id: string; name: string; reminderTime: string }[]>`
       SELECT h.id, h.name, h."reminderTime"
       FROM "Habit" h
       WHERE h."userId" = ${userId}
         AND h."isArchived" = false
         AND h."reminderTime" IS NOT NULL
-        AND LEFT(h."reminderTime", 2) = ${localHour}
+        AND h."reminderTime" = ${localTime}
         AND NOT EXISTS (
           SELECT 1 FROM "HabitCompletion" hc
           WHERE hc."habitId" = h.id AND hc."date"::date = ${localDate}::date
         )
     `.catch(() => [] as { id: string; name: string; reminderTime: string }[])
 
-    // Find reminders due today/overdue with reminderTime matching this hour, not completed
+    // Find reminders due today/overdue with reminderTime matching this exact HH:MM, not completed
     const reminderAlerts = await prisma.$queryRaw<{ id: string; title: string; reminderTime: string }[]>`
       SELECT id, title, "reminderTime"
       FROM "Reminder"
       WHERE "userId" = ${userId}
         AND "isCompleted" = false
         AND "reminderTime" IS NOT NULL
-        AND LEFT("reminderTime", 2) = ${localHour}
+        AND "reminderTime" = ${localTime}
         AND "dueDate"::date <= ${localDate}::date
     `.catch(() => [] as { id: string; title: string; reminderTime: string }[])
 
