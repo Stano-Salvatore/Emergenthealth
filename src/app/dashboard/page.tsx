@@ -713,8 +713,7 @@ function StatTile({ label, value, sub, icon, ok, progress }: {
   label: string; value: string; sub?: string; icon: React.ReactNode; ok?: boolean; progress?: number
 }) {
   return (
-    <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 transition-all cursor-pointer hover:border-primary/30 hover:shadow-sm ${ok === true ? "border-green-500/30" : ""}`}
-      style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.06) 0%, var(--card) 60%)" }}>
+    <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 transition-all cursor-pointer hover:border-primary/30 hover:shadow-sm bg-gradient-to-br from-primary/5 to-card ${ok === true ? "border-green-500/30" : ""}`}>
       {icon}
       <div className="flex-1 min-w-0">
         <p className="text-[10px] text-muted-foreground tracking-wide">{label}</p>
@@ -726,7 +725,7 @@ function StatTile({ label, value, sub, icon, ok, progress }: {
               className="h-full rounded-full transition-all"
               style={{
                 width: `${progress}%`,
-                background: ok ? "linear-gradient(90deg, #22c55e, #4ade80)" : "linear-gradient(90deg, #6366f1, #8b5cf6)",
+                background: ok ? "linear-gradient(90deg, #22c55e, #4ade80)" : "linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 70%, #fff))",
               }}
             />
           </div>
