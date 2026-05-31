@@ -40,13 +40,12 @@ export function TogglTile() {
 
   return (
     <Link href="#" onClick={e => e.preventDefault()}>
-      <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 transition-all cursor-pointer hover:border-primary/30 hover:shadow-sm ${isRunning ? "border-red-500/30 bg-red-500/5" : ""}`}
-        style={!isRunning ? { background: "linear-gradient(135deg, rgba(99,102,241,0.06) 0%, var(--card) 60%)" } : {}}>
+      <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 transition-all cursor-pointer hover:border-primary/30 hover:shadow-sm bg-gradient-to-br from-primary/5 to-card ${isRunning ? "border-red-500/30 bg-red-500/5" : ""}`}>
         <div className="relative">
           {isRunning && (
             <span className="absolute inset-0 rounded-full bg-red-400 opacity-40 animate-ping" />
           )}
-          <Timer className={`h-4 w-4 relative ${isRunning ? "text-red-400" : "text-indigo-400"}`} />
+          <Timer className={`h-4 w-4 relative ${isRunning ? "text-red-400" : "text-primary"}`} />
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-[10px] text-muted-foreground tracking-wide">

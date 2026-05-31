@@ -359,7 +359,17 @@ export default function MedicationsPage() {
       )}
 
       {loading && (
-        <div className="flex items-center justify-center py-12 text-muted-foreground text-sm">Loading…</div>
+        <div className="space-y-3 animate-pulse">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
+              <div className="h-8 w-8 rounded-full bg-secondary shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-4 bg-secondary rounded w-1/3" />
+                <div className="h-3 bg-secondary rounded w-1/2" />
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* ── By Type view ── */}

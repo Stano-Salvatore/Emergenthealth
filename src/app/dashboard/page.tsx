@@ -380,7 +380,7 @@ export default async function DashboardPage() {
 
     health: (
       <Link href="/dashboard/health" className="block h-full">
-        <Card className="card-health hover:border-indigo-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-indigo-500/5">
+        <Card className="card-health hover:border-primary/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-primary/5">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
               <span className="flex items-center gap-1.5">❤️ Health</span>
@@ -399,8 +399,8 @@ export default async function DashboardPage() {
                   )}
                 </div>
                 {latestHealth.sleepScore != null && (
-                  <div className="flex items-center gap-2 rounded-lg bg-indigo-500/8 border border-indigo-500/15 px-3 py-1.5">
-                    <Moon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                  <div className="flex items-center gap-2 rounded-lg bg-primary/8 border border-primary/15 px-3 py-1.5">
+                    <Moon className="h-3.5 w-3.5 text-primary shrink-0" />
                     <span className="text-xs text-muted-foreground">Sleep Score</span>
                     <span className={`ml-auto text-sm font-bold tabular-nums ${latestHealth.sleepScore >= 85 ? "text-green-400" : latestHealth.sleepScore >= 70 ? "text-amber-400" : "text-red-400"}`}>
                       {latestHealth.sleepScore}
