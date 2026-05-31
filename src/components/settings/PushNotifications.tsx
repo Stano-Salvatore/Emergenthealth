@@ -18,7 +18,6 @@ export function PushNotifications() {
     setSupported(ok)
     if (ok) {
       setPermission(Notification.permission)
-      // Check if already subscribed
       navigator.serviceWorker.ready.then((reg) =>
         reg.pushManager.getSubscription().then((sub) => setSubscribed(!!sub))
       ).catch(() => {})
