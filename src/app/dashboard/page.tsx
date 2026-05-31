@@ -444,7 +444,7 @@ export default async function DashboardPage() {
                         const hrs = l.sleepDuration!=null ? l.sleepDuration/60 : 0
                         return (
                           <div key={l.id}
-                            className={`flex-1 rounded-sm ${hrs>=7?"bg-indigo-500":"bg-indigo-500/35"}`}
+                            className={`flex-1 rounded-sm ${hrs>=7?"bg-primary":"bg-primary/35"}`}
                             style={{height:`${Math.max(10,Math.min(100,(hrs/10)*100))}%`}}
                             title={`${format(l.date,"MMM d")}: ${hrs.toFixed(1)}h`}
                           />

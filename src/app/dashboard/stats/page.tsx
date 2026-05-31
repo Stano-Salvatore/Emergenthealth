@@ -424,10 +424,10 @@ export default function StatsPage() {
       {/* ── Day-of-week patterns ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {[
-          { label: "Sleep by day", data: dowStats.map(d => ({ day: d.day, val: d.avgSleep })), max: maxSleep, color: "bg-indigo-500/50", activeColor: "bg-indigo-400" },
+          { label: "Sleep by day", data: dowStats.map(d => ({ day: d.day, val: d.avgSleep })), max: maxSleep, color: "bg-primary/30", activeColor: "bg-primary" },
           { label: "Steps by day", data: dowStats.map(d => ({ day: d.day, val: d.avgSteps })), max: maxSteps, color: "bg-green-500/50", activeColor: "bg-green-400" },
           { label: "Readiness by day", data: dowStats.map(d => ({ day: d.day, val: d.avgReadiness })), max: 100, color: "bg-emerald-500/50", activeColor: "bg-emerald-400" },
-          { label: "Focus by day", data: focusDowStats.map(d => ({ day: d.day, val: d.avgFocusMin })), max: maxFocus, color: "bg-indigo-500/50", activeColor: "bg-violet-400" },
+          { label: "Focus by day", data: focusDowStats.map(d => ({ day: d.day, val: d.avgFocusMin })), max: maxFocus, color: "bg-primary/30", activeColor: "bg-primary" },
         ].map(({ label, data, max, color, activeColor }) => (
           <Card key={label}>
             <CardHeader className="pb-2">
