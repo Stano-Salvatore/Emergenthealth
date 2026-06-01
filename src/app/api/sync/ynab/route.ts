@@ -117,7 +117,37 @@ export async function POST() {
 
   if (!rows[0]) return NextResponse.json({ error: "YNAB not connected" }, { status: 400 })
   const accessToken = await getFreshToken(userId, rows[0])
-  const { budgetId } = rows[0]
+  let { budgetId } = rows[0]
+
+  // Budget ID missing (e.g. budget fetch failed during OAuth callback) — resolve it now
+  if (!budgetId) {
+    try {
+      const budgetRes = await fetch(
+        "https://api.youneedabudget.com/v1/budgets?include_accounts=false",
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      )
+      if (budgetRes.ok) {
+        const { data } = await budgetRes.json()
+        const budgets: { id: string; name: string; last_modified_on: string }[] = data?.budgets ?? []
+        const chosen = budgets.sort((a, b) =>
+          (b.last_modified_on ?? "").localeCompare(a.last_modified_on ?? "")
+        )[0]
+        if (chosen) {
+          budgetId = chosen.id
+          await prisma.$executeRaw`
+            UPDATE "YnabToken"
+            SET "budgetId" = ${chosen.id}, "budgetName" = ${chosen.name}, "updatedAt" = NOW()
+            WHERE "userId" = ${userId}
+          `
+        }
+      }
+    } catch (e) {
+      console.error("[sync/ynab] budget resolve failed:", e)
+    }
+    if (!budgetId) {
+      return NextResponse.json({ error: "No YNAB budget found — please reconnect in Settings" }, { status: 400 })
+    }
+  }
 
   // Sync last 60 days
   const since = new Date()

@@ -62,7 +62,7 @@ export function YnabManager({ hasOauthConfig }: { hasOauthConfig: boolean }) {
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {state === "connected"
-                ? `Connected · ${budgetName}`
+                ? budgetName ? `Connected · ${budgetName}` : "Connected · sync to load budget"
                 : "Sync your YNAB budget (Revolut, etc.) into Finances."}
             </p>
           </div>

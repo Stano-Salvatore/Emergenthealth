@@ -36,6 +36,14 @@ async function ensureTable() {
   await prisma.$executeRaw`CREATE UNIQUE INDEX IF NOT EXISTS "YnabToken_userId_key" ON "YnabToken"("userId")`
 }
 
+function appOrigin(req: NextRequest): string {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ??
+    process.env.AUTH_URL ??
+    new URL(req.url).origin
+  )
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const code = searchParams.get("code")
@@ -43,13 +51,19 @@ export async function GET(req: NextRequest) {
   const error = searchParams.get("error")
   const userId = verifyState(state)
 
-  if (error || !code || !userId) {
+  if (error) {
     return NextResponse.redirect(
-      new URL(`/dashboard/settings?ynab_error=${error ?? "missing_code"}`, req.url)
+      new URL(`/dashboard/settings?ynab_error=${error}`, req.url)
+    )
+  }
+  if (!code || !userId) {
+    const reason = !code ? "missing_code" : "state_invalid"
+    return NextResponse.redirect(
+      new URL(`/dashboard/settings?ynab_error=${reason}`, req.url)
     )
   }
 
-  const callbackUrl = new URL("/api/ynab/callback", req.url).toString()
+  const callbackUrl = new URL("/api/ynab/callback", appOrigin(req)).toString()
 
   try {
     const tokenRes = await fetch("https://api.youneedabudget.com/oauth/token", {
