@@ -264,7 +264,11 @@ export default function JournalPage() {
           )}
 
           {checkIns.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No check-ins recorded for this day.</p>
+            <div className="flex flex-col items-center gap-2 py-6 text-center">
+              <MapPin className="h-7 w-7 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">No check-ins for this day</p>
+              <p className="text-xs text-muted-foreground/60">GPS tracks and saved places auto-log visits</p>
+            </div>
           ) : (
             <div className="space-y-0">
               {checkIns.map((c, i) => (

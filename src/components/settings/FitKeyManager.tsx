@@ -108,6 +108,7 @@ export function FitKeyManager({ initialKeys }: { initialKeys: KeyRow[] }) {
                   <Button
                     size="sm"
                     variant="ghost"
+                    aria-label="Revoke key"
                     className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
                     onClick={() => revokeKey(k.id)}
                   >
