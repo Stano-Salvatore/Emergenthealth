@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
@@ -32,6 +32,18 @@ async function ensureTable() {
     END $$;
   `)
   await prisma.$executeRaw`CREATE UNIQUE INDEX IF NOT EXISTS "YnabToken_userId_key" ON "YnabToken"("userId")`
+}
+
+export async function PATCH(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const { budgetId, budgetName } = await req.json()
+  await prisma.$executeRaw`
+    UPDATE "YnabToken"
+    SET "budgetId" = ${budgetId}, "budgetName" = ${budgetName}, "updatedAt" = NOW()
+    WHERE "userId" = ${session.user.id}
+  `
+  return NextResponse.json({ ok: true })
 }
 
 export async function DELETE() {
