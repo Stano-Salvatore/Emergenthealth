@@ -47,13 +47,15 @@ export default function RescueTimePage() {
   const [saving, setSaving] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [msg, setMsg] = useState("")
+  const [error, setError] = useState(false)
 
   function load() {
     setLoading(true)
+    setError(false)
     fetch("/api/rescuetime")
       .then(r => r.json())
       .then(setData)
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false))
   }
 
@@ -98,6 +100,15 @@ export default function RescueTimePage() {
   if (loading) return (
     <div className="p-6 max-w-3xl mx-auto space-y-4">
       {[1, 2, 3].map(i => <div key={i} className="h-32 rounded-2xl bg-muted animate-pulse" />)}
+    </div>
+  )
+
+  if (error) return (
+    <div className="p-6 max-w-3xl mx-auto">
+      <div className="rounded-2xl border border-border bg-card p-10 text-center space-y-3">
+        <p className="text-muted-foreground text-sm">Couldn&apos;t load RescueTime data</p>
+        <button onClick={load} className="text-sm text-primary underline">Retry</button>
+      </div>
     </div>
   )
 

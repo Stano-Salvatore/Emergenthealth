@@ -339,6 +339,7 @@ function PlaceHealthImpact() {
 function PlacesSection({ autoTagged }: { autoTagged: { name: string; emoji: string }[] }) {
   const [checkins, setCheckins]   = useState<CheckIn[]>([])
   const [loading, setLoading]     = useState(true)
+  const [error, setError]         = useState(false)
   const [newPlace, setNewPlace]   = useState("")
   const [adding, setAdding]       = useState(false)
   const [showAdd, setShowAdd]     = useState(false)
@@ -346,10 +347,11 @@ function PlacesSection({ autoTagged }: { autoTagged: { name: string; emoji: stri
 
   const reload = useCallback(() => {
     setLoading(true)
+    setError(false)
     fetch("/api/checkins?limit=30")
       .then(r => r.json())
       .then(data => setCheckins(Array.isArray(data) ? data : []))
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false))
   }, [])
 
@@ -436,6 +438,11 @@ function PlacesSection({ autoTagged }: { autoTagged: { name: string; emoji: stri
               <div className="h-3 rounded bg-border w-16" />
             </div>
           ))}
+        </div>
+      ) : error ? (
+        <div className="rounded-xl border border-dashed bg-card/30 p-5 text-center">
+          <p className="text-sm text-muted-foreground">Couldn&apos;t load check-ins</p>
+          <button onClick={reload} className="text-xs text-primary underline mt-1.5">Retry</button>
         </div>
       ) : checkins.length === 0 ? (
         <div className="rounded-xl border border-dashed bg-card/30 p-6 text-center">

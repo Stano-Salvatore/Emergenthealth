@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback } from "react"
-import { Send, Bell } from "lucide-react"
+import { X, Send, Bell } from "lucide-react"
 import { EmergySVG, EmergyState } from "./EmergySVG"
 
 interface EmergyData {
@@ -37,10 +37,7 @@ function getBriefType(): "morning" | "midday" | "evening" | null {
   return null
 }
 
-const STORAGE_KEY = "emergy-panel-open"
-
 export function EmergyPanel() {
-  const [mounted, setMounted] = useState(false)
   const [open, setOpen] = useState(false)
   const [emergy, setEmergy] = useState<EmergyData | null>(null)
   const [brief, setBrief] = useState<string | null>(null)
@@ -56,23 +53,6 @@ export function EmergyPanel() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Restore persisted state before first render
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved === "true") setOpen(true)
-    setMounted(true)
-    if (typeof Notification !== "undefined") setNotifPerm(Notification.permission)
-  }, [])
-
-  const toggle = useCallback(() => {
-    setOpen(v => {
-      const next = !v
-      localStorage.setItem(STORAGE_KEY, String(next))
-      if (next) setShowBubble(false)
-      return next
-    })
-  }, [])
-
   const fetchEmergy = useCallback(async () => {
     try {
       const res = await fetch("/api/emergy")
@@ -86,7 +66,13 @@ export function EmergyPanel() {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [fetchEmergy])
 
-  // Speech bubble when a new message arrives and panel is closed
+  useEffect(() => {
+    if (typeof Notification !== "undefined") {
+      setNotifPerm(Notification.permission)
+    }
+  }, [])
+
+  // Show speech bubble when a new message arrives and panel is closed
   useEffect(() => {
     if (!emergy?.message || open || emergy.message === lastShownMessage) return
     setShowBubble(true)
@@ -96,13 +82,21 @@ export function EmergyPanel() {
     return () => { if (bubbleTimerRef.current) clearTimeout(bubbleTimerRef.current) }
   }, [emergy?.message, open, lastShownMessage])
 
-  // Load chat + brief when panel opens
+  // Hide bubble when panel opens
+  useEffect(() => {
+    if (open) setShowBubble(false)
+  }, [open])
+
   useEffect(() => {
     if (!open) return
+
     fetch("/api/chat")
       .then(r => r.json())
-      .then((data: ChatMessage[]) => { if (Array.isArray(data)) setMessages(data.slice(-50)) })
+      .then((data: ChatMessage[]) => {
+        if (Array.isArray(data)) setMessages(data.slice(-50))
+      })
       .catch(() => {})
+
     const briefType = getBriefType()
     if (briefType && !brief) {
       setBriefLoading(true)
@@ -144,10 +138,13 @@ export function EmergyPanel() {
     if (!text || sending) return
     setInput("")
     setSending(true)
+
     const userMsg: ChatMessage = { id: Date.now().toString(), role: "user", content: text }
     setMessages(prev => [...prev, userMsg])
+
     const assistantMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: "assistant", content: "" }
     setMessages(prev => [...prev, assistantMsg])
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -155,9 +152,11 @@ export function EmergyPanel() {
         body: JSON.stringify({ message: text }),
       })
       if (!res.body) return
+
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let fullText = ""
+
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -170,124 +169,111 @@ export function EmergyPanel() {
             const parsed = JSON.parse(data)
             if (parsed.text) {
               fullText += parsed.text
-              setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: fullText } : m))
+              setMessages(prev => prev.map(m =>
+                m.id === assistantMsg.id ? { ...m, content: fullText } : m
+              ))
             }
           } catch {}
         }
       }
     } catch {}
+
     setSending(false)
     inputRef.current?.focus()
   }
 
-  if (!mounted) return null
-
   const state = emergy?.state ?? "okay"
   const isScreaming = emergy?.isScreening ?? false
-  // Panel is 320px, tab is 40px. Translate 320px when closed so only tab shows.
-  const PANEL_W = 320
-  const TAB_W = 40
 
   return (
     <>
-      {/* Mobile backdrop */}
-      {open && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30 lg:hidden" onClick={toggle} />
-      )}
-
-      {/* Speech bubble — floats to the left of the tab when panel is closed */}
-      {showBubble && !open && emergy?.message && (
-        <div
-          className="fixed top-1/2 -translate-y-1/2 z-50 pointer-events-auto"
-          style={{ right: TAB_W + 12, animation: "emg-bubble-in 0.25s ease-out" }}
-        >
-          <style>{`
-            @keyframes emg-bubble-in {
-              from { opacity: 0; transform: translateY(-50%) translateX(8px) scale(0.96); }
-              to   { opacity: 1; transform: translateY(-50%) translateX(0)   scale(1); }
-            }
-          `}</style>
-          <div className="relative bg-card border border-border rounded-2xl px-3 py-2.5 shadow-xl text-xs leading-relaxed max-w-[220px] pr-7">
-            {emergy.message}
-            <button
-              onClick={() => setShowBubble(false)}
-              aria-label="Dismiss"
-              className="absolute top-1.5 right-1.5 w-4 h-4 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors text-[10px]"
-            >
-              ✕
-            </button>
-          </div>
-          {/* Arrow pointing right toward tab */}
+      {/* Speech bubble + button row */}
+      <div className="fixed bottom-6 right-6 z-50 flex items-end gap-3">
+        {/* Speech bubble — appears to the left when Emergy has something to say */}
+        {showBubble && emergy?.message && (
           <div
-            className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-[5px] rotate-45 w-2.5 h-2.5 bg-card border-r border-b border-border"
-            aria-hidden="true"
-          />
-        </div>
-      )}
-
-      {/* Wrapper: [tab 40px][panel 320px], translates so only tab shows when closed */}
-      <div
-        className="fixed right-0 top-0 h-screen z-40 flex"
-        style={{
-          width: TAB_W + PANEL_W,
-          transform: open ? "translateX(0)" : `translateX(${PANEL_W}px)`,
-          transition: mounted ? "transform 0.3s cubic-bezier(0.4,0,0.2,1)" : "none",
-        }}
-      >
-        {/* ── Tab / handle ── */}
-        <button
-          onClick={toggle}
-          aria-label={open ? "Close Emergy panel" : "Open Emergy panel"}
-          className="relative shrink-0 flex flex-col items-center justify-center gap-2 bg-card border border-r-0 border-border rounded-l-2xl shadow-lg hover:bg-secondary/50 transition-colors cursor-pointer"
-          style={{ width: TAB_W }}
-        >
-          {/* Unread dot */}
-          {!open && showBubble && (
-            <span className="absolute top-3 right-2.5 w-2 h-2 rounded-full bg-primary animate-pulse" />
-          )}
-          {isScreaming && (
-            <span className="absolute top-3 right-2.5 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-          )}
-          <EmergySVG state={state} size={30} />
-          <span
-            className="text-[9px] font-medium text-muted-foreground select-none"
-            style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", letterSpacing: "0.06em" }}
+            className="relative max-w-[240px] pointer-events-auto"
+            style={{ animation: "emg-bubble-in 0.25s ease-out" }}
           >
-            Emergy
-          </span>
-        </button>
+            <style>{`
+              @keyframes emg-bubble-in {
+                from { opacity: 0; transform: translateX(8px) scale(0.96); }
+                to   { opacity: 1; transform: translateX(0)   scale(1); }
+              }
+            `}</style>
+            <div className="relative bg-card border border-border rounded-2xl px-3 py-2.5 shadow-xl text-xs leading-relaxed pr-7">
+              {emergy.message}
+              <button
+                onClick={() => setShowBubble(false)}
+                aria-label="Dismiss"
+                className="absolute top-1.5 right-1.5 w-4 h-4 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+            {/* Arrow pointing right toward Emergy */}
+            <div
+              className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-[5px] rotate-45 w-2.5 h-2.5 bg-card border-r border-b border-border"
+              aria-hidden="true"
+            />
+          </div>
+        )}
 
-        {/* ── Chat panel ── */}
-        <div className="flex flex-col bg-card border-l border-border shadow-2xl" style={{ width: PANEL_W }}>
+        {/* Emergy button */}
+        <button
+          onClick={() => setOpen(v => !v)}
+          className="relative rounded-full bg-card border border-border shadow-xl hover:scale-105 transition-transform flex items-center justify-center shrink-0"
+          aria-label="Open Emergy"
+          style={{ width: 80, height: 80 }}
+        >
+          <EmergySVG state={state} size={60} />
+          {isScreaming && (
+            <span className="absolute top-1.5 right-1.5 w-3 h-3 rounded-full bg-red-500 animate-pulse" />
+          )}
+        </button>
+      </div>
+
+      {/* Chat panel */}
+      {open && (
+        <div className="fixed bottom-[112px] right-6 z-50 w-80 h-[480px] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
           {/* Header */}
-          <div className="flex items-center gap-2 px-3 py-3 border-b border-border shrink-0">
-            <EmergySVG state={state} size={36} />
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card shrink-0">
+            <EmergySVG state={state} size={40} />
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-sm leading-tight">Emergy</p>
-              <div className="flex items-center gap-1.5 mt-0.5">
+              <p className="font-semibold text-sm">Emergy</p>
+              <div className="flex items-center gap-1.5">
                 <div className="h-1.5 flex-1 rounded-full bg-secondary overflow-hidden">
                   <div
                     className="h-full rounded-full bg-green-500 transition-all"
                     style={{ width: `${Math.round((emergy?.xpProgress ?? 0) * 100)}%` }}
                   />
                 </div>
-                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
                   {emergy?.levelName ?? "Seed"} Lv.{emergy?.level ?? 0}
                 </span>
               </div>
             </div>
-            {notifPerm === "default" && (
+            <div className="flex items-center gap-1">
+              {notifPerm === "default" && (
+                <button
+                  onClick={enablePush}
+                  title="Enable push notifications"
+                  className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                >
+                  <Bell className="h-4 w-4" />
+                </button>
+              )}
               <button
-                onClick={enablePush}
-                title="Enable push notifications"
-                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                onClick={() => setOpen(false)}
+                aria-label="Close"
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground"
               >
-                <Bell className="h-4 w-4" />
+                <X className="h-4 w-4" />
               </button>
-            )}
+            </div>
           </div>
 
-          {/* Brief / current message */}
+          {/* Brief / message */}
           <div className="px-3 py-2 border-b border-border/50 bg-secondary/20 shrink-0">
             {briefLoading ? (
               <p className="text-xs text-muted-foreground italic">Thinking…</p>
@@ -296,7 +282,7 @@ export function EmergyPanel() {
             ) : emergy ? (
               <p className="text-xs leading-relaxed">{emergy.message}</p>
             ) : (
-              <p className="text-xs text-muted-foreground animate-pulse">Loading…</p>
+              <p className="text-xs text-muted-foreground">Loading…</p>
             )}
           </div>
 
@@ -352,7 +338,7 @@ export function EmergyPanel() {
             </button>
           </div>
         </div>
-      </div>
+      )}
     </>
   )
 }
