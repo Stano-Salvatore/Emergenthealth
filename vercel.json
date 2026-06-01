@@ -5,6 +5,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/truelayer",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/weekly-digest",
       "schedule": "0 8 * * 0"
     },

@@ -10,6 +10,7 @@ import { MigrateButton } from "@/components/settings/MigrateButton"
 import { GoalsEditor } from "@/components/settings/GoalsEditor"
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
 import { YnabManager } from "@/components/settings/YnabManager"
+import { TruelayerManager } from "@/components/settings/TruelayerManager"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
 import { DigestPreferences } from "@/components/settings/DigestPreferences"
@@ -36,6 +37,9 @@ export default async function SettingsPage({
     ynab_reason?: string
     strava_connected?: string
     strava_error?: string
+    tl_connected?: string
+    tl_error?: string
+    tl_reason?: string
   }>
 }) {
   const session = await auth()
@@ -49,6 +53,9 @@ export default async function SettingsPage({
   const ynabReason = params.ynab_reason
   const stravaConnected = params.strava_connected === "1"
   const stravaError = params.strava_error
+  const tlConnected = params.tl_connected === "1"
+  const tlError = params.tl_error
+  const tlReason = params.tl_reason
 
   // Tables may not exist yet if migration hasn't run — fail gracefully
   let ouraToken = null
@@ -205,6 +212,38 @@ export default async function SettingsPage({
 
       {/* YNAB */}
       <YnabManager hasOauthConfig={!!(process.env.YNAB_CLIENT_ID && process.env.YNAB_CLIENT_SECRET)} />
+
+      {tlConnected && (
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-green-400">Bank connected successfully!</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Choose your account below, then hit "Sync now" to pull transactions.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {tlError && (
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-red-400">Bank connection failed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {tlError === "token_error"
+                ? "TrueLayer rejected the authorisation code — check the redirect URI in your TrueLayer console."
+                : tlError === "state_invalid"
+                  ? "The sign-in state expired. Please try connecting again."
+                  : tlError === "missing_code"
+                    ? "TrueLayer did not return an authorisation code. Please try again."
+                    : `Error: ${tlError}. Please try again.`}
+            </p>
+            {tlReason && (
+              <p className="text-[11px] text-muted-foreground/60 mt-1 font-mono break-all">{tlReason}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* TrueLayer / Revolut */}
+      <TruelayerManager hasConfig={!!(process.env.TRUELAYER_CLIENT_ID && process.env.TRUELAYER_CLIENT_SECRET)} />
 
       {stravaConnected && (
         <Card className="border-green-500/30 bg-green-500/5">
