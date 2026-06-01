@@ -2,11 +2,11 @@
   "crons": [
     {
       "path": "/api/cron/ynab",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 8 * * *"
     },
     {
       "path": "/api/cron/truelayer",
-      "schedule": "*/5 * * * *"
+      "schedule": "5 8 * * *"
     },
     {
       "path": "/api/cron/weekly-digest",
