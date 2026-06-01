@@ -24,7 +24,7 @@ export default function SignInPage({ searchParams }: { searchParams: { error?: s
 
       <div className="relative w-full max-w-sm mx-4">
         <div
-          className="rounded-2xl border border-white/8 p-8 space-y-8"
+          className="rounded-2xl border border-border/50 p-8 space-y-8"
           style={{
             background: "linear-gradient(135deg, color-mix(in srgb, var(--primary) 8%, transparent) 0%, rgba(16,15,26,0.95) 50%)",
             backdropFilter: "blur(20px)",

@@ -309,7 +309,7 @@ export default async function DashboardPage() {
           <WeatherWidget />
         </div>
         <div className="mt-4 flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-3 bg-background/50 backdrop-blur rounded-xl px-4 py-2.5 border border-white/8">
+          <div className="flex items-center gap-3 bg-background/50 backdrop-blur rounded-xl px-4 py-2.5 border border-border/50">
             <div className="text-center">
               <p className="text-2xl leading-none mb-0.5">{scoreEmoji}</p>
               <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>
@@ -325,7 +325,7 @@ export default async function DashboardPage() {
               ))}
             </div>
           </div>
-          <div className="flex-1 min-w-[200px] bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-white/8">
+          <div className="flex-1 min-w-[200px] bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">How do you feel?</p>
             <MoodWidget todayMood={todayMood} />
           </div>

@@ -376,7 +376,7 @@ export default function BodyPage() {
                     {measurements.slice(0, 20).map(m => {
                       const bmiInfo = m.bmi ? bmiLabel(m.bmi) : null
                       return (
-                        <tr key={m.id} className="border-b border-border/20 last:border-0 hover:bg-white/3 transition-colors">
+                        <tr key={m.id} className="border-b border-border/20 last:border-0 hover:bg-secondary/30 transition-colors">
                           <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap">{m.date}</td>
                           <td className="text-right py-2 px-2 tabular-nums">{m.weightKg != null ? `${m.weightKg.toFixed(1)} kg` : "—"}</td>
                           <td className="text-right py-2 px-2 tabular-nums">{m.waistCm != null ? `${m.waistCm}` : "—"}</td>
