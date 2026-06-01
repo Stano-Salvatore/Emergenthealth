@@ -116,12 +116,13 @@ export default function FinancesPage() {
   const [emailSubs, setEmailSubs] = useState<EmailSub[]>([])
   const [subsLoading, setSubsLoading] = useState(false)
   const [subsOpen, setSubsOpen] = useState(true)
+  const [trendError, setTrendError] = useState(false)
 
   useEffect(() => {
     fetch("/api/transactions/monthly")
       .then(r => r.json())
       .then(d => Array.isArray(d) ? setMonthlyTrend(d) : null)
-      .catch(() => null)
+      .catch(() => setTrendError(true))
   }, [])
 
   async function loadSubscriptions() {
@@ -385,31 +386,40 @@ export default function FinancesPage() {
         </Card>
       </div>
 
-      {monthlyTrend.length >= 2 && (
+      {(monthlyTrend.length >= 2 || trendError) && (
         <Card>
           <CardHeader className="pb-2 pt-4">
             <CardTitle className="text-sm">6-month spending trend</CardTitle>
           </CardHeader>
           <CardContent className="min-w-0">
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={monthlyTrend.map(m => ({
-                ...m,
-                month: new Date(m.month + "-01").toLocaleDateString("en-US", { month: "short" }),
-              }))} margin={{ top: 4, right: 4, left: -10, bottom: 0 }} barGap={2}>
-                <CartesianGrid stroke="#1e1e2e" />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false}
-                  tickFormatter={v => `€${v}`} />
-                <Tooltip
-                  formatter={(v) => [`€${Number(v).toFixed(2)}`]}
-                  contentStyle={{ background: "#13122b", border: "1px solid #312e81", borderRadius: 8, fontSize: 12 }}
-                  labelStyle={{ color: "#e0e0f0", fontWeight: 600 }}
-                />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="income" name="Income" fill="#10b981" radius={[3, 3, 0, 0]} opacity={0.8} />
-                <Bar dataKey="spent" name="Spent" fill="#f43f5e" radius={[3, 3, 0, 0]} opacity={0.8} />
-              </BarChart>
-            </ResponsiveContainer>
+            {trendError ? (
+              <div className="h-[180px] flex items-center justify-center">
+                <div className="text-center space-y-1.5">
+                  <p className="text-sm text-muted-foreground">Couldn&apos;t load trend data</p>
+                  <button onClick={() => { setTrendError(false); fetch("/api/transactions/monthly").then(r => r.json()).then(d => Array.isArray(d) && setMonthlyTrend(d)).catch(() => setTrendError(true)) }} className="text-xs text-primary underline">Retry</button>
+                </div>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={monthlyTrend.map(m => ({
+                  ...m,
+                  month: new Date(m.month + "-01").toLocaleDateString("en-US", { month: "short" }),
+                }))} margin={{ top: 4, right: 4, left: -10, bottom: 0 }} barGap={2}>
+                  <CartesianGrid stroke="rgba(128,128,128,0.12)" />
+                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 10, fill: "#9ca3af" }} axisLine={false} tickLine={false}
+                    tickFormatter={v => `€${v}`} />
+                  <Tooltip
+                    formatter={(v) => [`€${Number(v).toFixed(2)}`]}
+                    contentStyle={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: "var(--foreground)", fontWeight: 600 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="income" name="Income" fill="#10b981" radius={[3, 3, 0, 0]} opacity={0.8} />
+                  <Bar dataKey="spent" name="Spent" fill="#f43f5e" radius={[3, 3, 0, 0]} opacity={0.8} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
       )}

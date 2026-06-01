@@ -284,7 +284,7 @@ export default function IntakePage() {
               const meta = TYPE_META[entry.type] ?? TYPE_META.other
               return (
                 <div key={entry.id}
-                  className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-white/10 bg-white/[0.03]">
+                  className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-border/40 bg-secondary/30">
                   <span className="text-base leading-none shrink-0">{entry.emoji}</span>
                   <div className="flex-1 min-w-0">
                     <span className="text-sm font-medium">{entry.name}</span>

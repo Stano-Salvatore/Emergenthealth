@@ -185,10 +185,10 @@ export default async function HealthPage() {
         <>
           {/* ── 7-day summary ── */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-10 gap-3">
-            <SummaryCard icon={<Moon className="h-4 w-4 text-indigo-400" />} label="Sleep score"
+            <SummaryCard icon={<Moon className="h-4 w-4 text-primary" />} label="Sleep score"
               value={avgSleepScore != null ? `${Math.round(avgSleepScore)}` : "—"}
               good={avgSleepScore != null && avgSleepScore >= 85} target="goal 85+" />
-            <SummaryCard icon={<Moon className="h-4 w-4 text-indigo-400" />} label="Avg sleep"
+            <SummaryCard icon={<Moon className="h-4 w-4 text-primary" />} label="Avg sleep"
               value={avgSleepMin != null ? `${(avgSleepMin / 60).toFixed(1)}h` : "—"}
               good={avgSleepMin != null && avgSleepMin / 60 >= SLEEP_GOAL_H} target={`goal ${SLEEP_GOAL_H}h`} />
             <SummaryCard icon={<Footprints className="h-4 w-4 text-green-400" />} label="Avg steps"
@@ -203,7 +203,7 @@ export default async function HealthPage() {
             <SummaryCard icon={<Shield className="h-4 w-4 text-emerald-400" />} label="Avg readiness"
               value={avgReadiness != null ? `${Math.round(avgReadiness)}` : "—"}
               good={avgReadiness != null && avgReadiness >= 70} target="goal 70+" />
-            <SummaryCard icon={<Activity className="h-4 w-4 text-violet-400" />} label="Avg HRV"
+            <SummaryCard icon={<Activity className="h-4 w-4 text-primary" />} label="Avg HRV"
               value={avgHRV != null ? `${Math.round(avgHRV)} ms` : "—"} />
             <SummaryCard icon={<Wind className="h-4 w-4 text-cyan-400" />} label="Avg SpO₂"
               value={avgSpo2 != null ? `${avgSpo2.toFixed(1)}%` : "—"}
@@ -245,7 +245,7 @@ export default async function HealthPage() {
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Sleep</p>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <StatBox icon={<Moon className="h-4 w-4 text-indigo-400" />} label="Sleep"
+                    <StatBox icon={<Moon className="h-4 w-4 text-primary" />} label="Sleep"
                       value={latestLog.sleepDuration != null ? `${(latestLog.sleepDuration / 60).toFixed(1)}h` : "—"} />
                     <StatBox icon={<span className="text-sm">💤</span>} label="Deep / REM"
                       value={latestLog.deepSleep != null || latestLog.remSleep != null
@@ -317,7 +317,7 @@ export default async function HealthPage() {
                     <StatBox icon={<Heart className="h-4 w-4 text-red-400" />} label="Resting HR"
                       value={latestLog.restingHR != null ? `${latestLog.restingHR} bpm` : "—"} />
                     {latestLog.hrv != null && (
-                      <StatBox icon={<Activity className="h-4 w-4 text-violet-400" />} label="HRV"
+                      <StatBox icon={<Activity className="h-4 w-4 text-primary" />} label="HRV"
                         value={`${Math.round(latestLog.hrv)} ms`} />
                     )}
                     {latestLog.spo2 != null && (
@@ -397,7 +397,7 @@ export default async function HealthPage() {
               <Card className="lg:col-span-2">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium flex items-center gap-1.5">
-                    <Moon className="h-4 w-4 text-indigo-400" /> Sleep — last {Math.min(logs.length, 30)} days
+                    <Moon className="h-4 w-4 text-primary" /> Sleep — last {Math.min(logs.length, 30)} days
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="min-w-0 overflow-x-auto"><SleepChart data={chartData} /></CardContent>
@@ -463,7 +463,7 @@ export default async function HealthPage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium flex items-center gap-1.5">
-                    <Activity className="h-4 w-4 text-violet-400" /> HRV
+                    <Activity className="h-4 w-4 text-primary" /> HRV
                   </CardTitle>
                 </CardHeader>
                 <CardContent><HRVChart data={chartData} /></CardContent>
@@ -549,7 +549,7 @@ export default async function HealthPage() {
                         </span>
                       )}
                       {log.sleepDuration != null && (
-                        <span className="flex items-center gap-1 text-indigo-400">
+                        <span className="flex items-center gap-1 text-primary">
                           <Moon className="h-3 w-3" />{(log.sleepDuration / 60).toFixed(1)}h
                         </span>
                       )}
@@ -564,7 +564,7 @@ export default async function HealthPage() {
                         </span>
                       )}
                       {log.hrv != null && (
-                        <span className="flex items-center gap-1 text-violet-400 text-xs">
+                        <span className="flex items-center gap-1 text-primary text-xs">
                           <Activity className="h-3 w-3" />{Math.round(log.hrv)}ms
                         </span>
                       )}

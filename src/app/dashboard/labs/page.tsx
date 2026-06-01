@@ -275,7 +275,7 @@ export default function LabsPage() {
                 {suggestions.slice(0, 6).map(s => (
                   <li key={s}>
                     <button
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 transition-colors text-foreground"
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-secondary/60 transition-colors text-foreground"
                       onClick={() => pickSuggestion(s)}
                     >
                       {s}

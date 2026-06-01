@@ -187,10 +187,14 @@ export default async function SettingsPage({
             <p className="text-sm font-medium text-red-400">YNAB connection failed</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {ynabError === "token_error"
-                ? "Could not exchange the authorisation code. Please try connecting again."
+                ? "YNAB rejected the authorisation code — the redirect URI in your YNAB app settings may not match. Expected: " + (process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL ?? "") + "/api/ynab/callback"
                 : ynabError === "db_error"
                   ? "Tokens were received but could not be saved. Please try again."
-                  : `Error: ${ynabError}. Please try again.`}
+                  : ynabError === "state_invalid"
+                    ? "The sign-in state expired or was tampered with. Please try connecting again."
+                    : ynabError === "missing_code"
+                      ? "YNAB did not return an authorisation code. Please try again."
+                      : `Error: ${ynabError}. Please try again.`}
             </p>
             {ynabReason && (
               <p className="text-[11px] text-muted-foreground/60 mt-1 font-mono break-all">{ynabReason}</p>

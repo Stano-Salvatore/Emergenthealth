@@ -5,6 +5,48 @@ import { prisma } from "@/lib/prisma"
 export const runtime = "nodejs"
 export const maxDuration = 60
 
+const CATEGORY_MAP: Record<string, string> = {
+  // Food
+  "food & dining": "Food & Drink", "dining out": "Food & Drink", "restaurants": "Food & Drink",
+  "groceries": "Food & Drink", "food & drink": "Food & Drink", "coffee shops": "Food & Drink",
+  "fast food": "Food & Drink", "alcohol & bars": "Food & Drink",
+  // Transport
+  "transportation": "Transport", "auto & transport": "Transport", "gas & fuel": "Transport",
+  "parking": "Transport", "public transportation": "Transport", "taxi": "Transport",
+  "uber": "Transport", "lyft": "Transport", "petrol": "Transport", "transport": "Transport",
+  // Shopping
+  "shopping": "Shopping", "clothing": "Shopping", "electronics & software": "Shopping",
+  "amazon": "Shopping", "home": "Shopping",
+  // Entertainment
+  "entertainment": "Entertainment", "movies & dvds": "Entertainment", "music": "Entertainment",
+  "games": "Entertainment", "netflix": "Entertainment", "spotify": "Entertainment",
+  "streaming": "Entertainment", "hobbies": "Entertainment",
+  // Health
+  "health & fitness": "Health", "health": "Health", "pharmacy": "Health",
+  "doctor": "Health", "medical": "Health", "gym": "Health", "sports": "Health",
+  // Bills & Utilities
+  "bills & utilities": "Bills & Utilities", "utilities": "Bills & Utilities",
+  "internet": "Bills & Utilities", "mobile phone": "Bills & Utilities",
+  "phone": "Bills & Utilities", "insurance": "Bills & Utilities",
+  "subscriptions": "Bills & Utilities", "electricity": "Bills & Utilities",
+  "gas & electric": "Bills & Utilities",
+  // Housing
+  "housing": "Housing", "rent & mortgage": "Housing", "mortgage & rent": "Housing",
+  "home improvement": "Housing", "rent": "Housing",
+  // Income
+  "income": "Income", "salary": "Income", "wages": "Income",
+  "freelance": "Income", "paycheck": "Income", "inflow": "Income",
+}
+
+function mapCategory(categoryName: string | null, categoryGroupName: string | null): string {
+  const candidates = [categoryName, categoryGroupName].filter(Boolean) as string[]
+  for (const c of candidates) {
+    const match = CATEGORY_MAP[c.toLowerCase()]
+    if (match) return match
+  }
+  return "Other"
+}
+
 interface YnabTransaction {
   id: string
   date: string
@@ -75,7 +117,37 @@ export async function POST() {
 
   if (!rows[0]) return NextResponse.json({ error: "YNAB not connected" }, { status: 400 })
   const accessToken = await getFreshToken(userId, rows[0])
-  const { budgetId } = rows[0]
+  let { budgetId } = rows[0]
+
+  // Budget ID missing (e.g. budget fetch failed during OAuth callback) — resolve it now
+  if (!budgetId) {
+    try {
+      const budgetRes = await fetch(
+        "https://api.youneedabudget.com/v1/budgets?include_accounts=false",
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      )
+      if (budgetRes.ok) {
+        const { data } = await budgetRes.json()
+        const budgets: { id: string; name: string; last_modified_on: string }[] = data?.budgets ?? []
+        const chosen = budgets.sort((a, b) =>
+          (b.last_modified_on ?? "").localeCompare(a.last_modified_on ?? "")
+        )[0]
+        if (chosen) {
+          budgetId = chosen.id
+          await prisma.$executeRaw`
+            UPDATE "YnabToken"
+            SET "budgetId" = ${chosen.id}, "budgetName" = ${chosen.name}, "updatedAt" = NOW()
+            WHERE "userId" = ${userId}
+          `
+        }
+      }
+    } catch (e) {
+      console.error("[sync/ynab] budget resolve failed:", e)
+    }
+    if (!budgetId) {
+      return NextResponse.json({ error: "No YNAB budget found — please reconnect in Settings" }, { status: 400 })
+    }
+  }
 
   // Sync last 60 days
   const since = new Date()
@@ -113,6 +185,10 @@ export async function POST() {
       const amountCents = Math.round(t.amount / 10)
       const dateObj = new Date(t.date + "T12:00:00Z")
 
+      const mappedCategory = t.amount > 0
+        ? "Income"
+        : mapCategory(t.category_name, t.category_group_name)
+
       await prisma.transaction.upsert({
         where: { actualId: `ynab_${t.id}` },
         create: {
@@ -121,7 +197,7 @@ export async function POST() {
           date: dateObj,
           amount: amountCents,
           payee: t.payee_name ?? null,
-          category: t.category_name ?? null,
+          category: mappedCategory,
           categoryGroup: t.category_group_name ?? null,
           accountName: t.account_name ?? null,
           notes: t.memo ?? null,
@@ -132,7 +208,7 @@ export async function POST() {
           date: dateObj,
           amount: amountCents,
           payee: t.payee_name ?? null,
-          category: t.category_name ?? null,
+          category: mappedCategory,
           categoryGroup: t.category_group_name ?? null,
           notes: t.memo ?? null,
           cleared: t.cleared === "cleared" || t.cleared === "reconciled",

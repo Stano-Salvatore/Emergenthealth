@@ -33,7 +33,7 @@ export function NewsletterForm() {
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         placeholder="your@email.com"
-        className="flex-1 px-4 py-2.5 rounded-xl text-sm outline-none text-foreground bg-white/6"
+        className="flex-1 px-4 py-2.5 rounded-xl text-sm outline-none text-foreground bg-secondary/50"
         style={{ border: "1px solid color-mix(in srgb, var(--primary) 25%, transparent)" }}
       />
       <button

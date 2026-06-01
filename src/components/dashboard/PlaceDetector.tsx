@@ -119,7 +119,7 @@ export function PlaceDetector() {
         >
           Log
         </button>
-        <button onClick={dismiss} className="text-muted-foreground/40 hover:text-muted-foreground transition-colors p-1 shrink-0">
+        <button onClick={dismiss} aria-label="Dismiss" className="text-muted-foreground/40 hover:text-muted-foreground transition-colors p-1 shrink-0">
           <X className="h-3.5 w-3.5" />
         </button>
       </div>

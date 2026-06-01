@@ -289,7 +289,7 @@ export default function MedicationsPage() {
                 {count > 0 && (
                   <span className={cn(
                     "text-[10px] rounded-full px-1.5 py-0.5 leading-none",
-                    activeCategory === cat.id ? "bg-white/20" : "bg-secondary text-muted-foreground"
+                    activeCategory === cat.id ? "bg-primary-foreground/20 text-primary-foreground" : "bg-secondary text-muted-foreground"
                   )}>
                     {count}
                   </span>
