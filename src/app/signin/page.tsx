@@ -18,24 +18,24 @@ export default function SignInPage({ searchParams }: { searchParams: { error?: s
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background overflow-hidden relative">
-      <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-indigo-500/12 rounded-full blur-[120px] pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-violet-500/10 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-primary/12 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-blue-500/6 rounded-full blur-[80px] pointer-events-none" />
 
       <div className="relative w-full max-w-sm mx-4">
         <div
           className="rounded-2xl border border-white/8 p-8 space-y-8"
           style={{
-            background: "linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(16,15,26,0.95) 50%)",
+            background: "linear-gradient(135deg, color-mix(in srgb, var(--primary) 8%, transparent) 0%, rgba(16,15,26,0.95) 50%)",
             backdropFilter: "blur(20px)",
-            boxShadow: "0 25px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(99,102,241,0.1)",
+            boxShadow: "0 25px 60px rgba(0,0,0,0.5), 0 0 0 1px color-mix(in srgb, var(--primary) 10%, transparent)",
           }}
         >
           <div className="text-center space-y-3">
             <div className="flex items-center justify-center gap-3 mb-2">
               <div className="relative">
-                <div className="absolute inset-0 bg-indigo-500/60 rounded-xl blur-lg" />
-                <div className="relative bg-gradient-to-br from-indigo-500 to-violet-600 rounded-xl p-2.5">
+                <div className="absolute inset-0 bg-primary/60 rounded-xl blur-lg" />
+                <div className="relative bg-gradient-to-br from-primary to-primary/70 rounded-xl p-2.5">
                   <Activity className="h-6 w-6 text-white" />
                 </div>
               </div>

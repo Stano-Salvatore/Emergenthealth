@@ -337,7 +337,7 @@ function Dashboard({
             </Card>
             <Card>
               <CardContent className="pt-4 pb-3 text-center">
-                <p className="text-2xl font-black text-violet-400">{fmtHours(totalMins)}</p>
+                <p className="text-2xl font-black text-primary">{fmtHours(totalMins)}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">Listening time</p>
               </CardContent>
             </Card>

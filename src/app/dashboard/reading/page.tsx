@@ -279,7 +279,7 @@ export default function ReadingPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <BookOpen className="h-6 w-6 text-indigo-400" /> Reading
+            <BookOpen className="h-6 w-6 text-primary" /> Reading
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">Track your library</p>
         </div>

@@ -210,7 +210,17 @@ function SavedPlacesManager({ onClose }: { onClose: () => void }) {
       )}
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <div className="space-y-2 animate-pulse">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-3 py-2.5 rounded-xl">
+              <div className="h-6 w-6 rounded bg-border shrink-0" />
+              <div className="flex-1 space-y-1">
+                <div className="h-3.5 rounded bg-border w-32" />
+                <div className="h-3 rounded bg-border w-20" />
+              </div>
+            </div>
+          ))}
+        </div>
       ) : places.length === 0 ? (
         <div className="rounded-xl border border-dashed p-5 text-center">
           <MapPin className="h-5 w-5 text-muted-foreground/30 mx-auto mb-2"/>
@@ -418,7 +428,15 @@ function PlacesSection({ autoTagged }: { autoTagged: { name: string; emoji: stri
       )}
 
       {loading ? (
-        <div className="text-sm text-muted-foreground">Loading…</div>
+        <div className="space-y-1.5 animate-pulse">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg">
+              <div className="h-5 w-5 rounded bg-border shrink-0" />
+              <div className="h-3.5 rounded bg-border flex-1 max-w-xs" />
+              <div className="h-3 rounded bg-border w-16" />
+            </div>
+          ))}
+        </div>
       ) : checkins.length === 0 ? (
         <div className="rounded-xl border border-dashed bg-card/30 p-6 text-center">
           <MapPin className="h-6 w-6 text-muted-foreground/30 mx-auto mb-2"/>
@@ -475,18 +493,18 @@ function TrackSvg({ points, width = 800, height = 400 }: { points: { lat: number
   }
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full rounded-2xl"
-      style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.06) 0%, rgba(16,15,26,0.8) 100%)" }}>
+      style={{ background: "linear-gradient(135deg, color-mix(in srgb, var(--primary) 6%, transparent) 0%, color-mix(in srgb, var(--card) 80%, transparent) 100%)" }}>
       <defs>
         <linearGradient id="trackGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#818cf8"/>
-          <stop offset="100%" stopColor="#a78bfa"/>
+          <stop offset="0%" style={{ stopColor: "var(--primary)" }}/>
+          <stop offset="100%" style={{ stopColor: "var(--primary)", stopOpacity: 0.6 }}/>
         </linearGradient>
         <filter id="glow">
           <feGaussianBlur stdDeviation="2" result="blur"/>
           <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
         </filter>
       </defs>
-      <path d={data.pathD} fill="none" stroke="#818cf8" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.2"/>
+      <path d={data.pathD} fill="none" stroke="var(--primary)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.2"/>
       <path d={data.pathD} fill="none" stroke="url(#trackGrad)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
       <circle cx={data.startX} cy={data.startY} r="6" fill="#22c55e" opacity="0.9"/>
       <circle cx={data.startX} cy={data.startY} r="10" fill="#22c55e" opacity="0.2"/>

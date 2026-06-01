@@ -12,7 +12,7 @@ type Mode = "focus" | "short_break" | "long_break"
 type Phase = "idle" | "running" | "paused" | "done"
 
 const PRESETS: { mode: Mode; label: string; min: number; icon: React.ReactNode; color: string }[] = [
-  { mode: "focus",       label: "Focus",       min: 25, icon: <Brain className="h-4 w-4" />,  color: "text-indigo-400" },
+  { mode: "focus",       label: "Focus",       min: 25, icon: <Brain className="h-4 w-4" />,  color: "text-primary" },
   { mode: "short_break", label: "Short Break", min: 5,  icon: <Coffee className="h-4 w-4" />, color: "text-green-400" },
   { mode: "long_break",  label: "Long Break",  min: 15, icon: <Zap className="h-4 w-4" />,   color: "text-amber-400" },
 ]
@@ -147,7 +147,7 @@ export default function FocusPage() {
     <div className="space-y-6 max-w-xl mx-auto">
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Timer className="h-6 w-6 text-indigo-400" /> Focus Timer
+          <Timer className="h-6 w-6 text-primary" /> Focus Timer
         </h1>
         <p className="text-muted-foreground text-sm mt-0.5">Pomodoro technique · track deep work</p>
       </div>
@@ -180,7 +180,7 @@ export default function FocusPage() {
               <svg width="200" height="200" className="-rotate-90">
                 <circle cx="100" cy="100" r="90" fill="none" stroke="hsl(var(--secondary))" strokeWidth="8" />
                 <circle cx="100" cy="100" r="90" fill="none"
-                  stroke={phase === "done" ? "hsl(var(--primary))" : phase === "running" ? "#6366f1" : "hsl(var(--border))"}
+                  stroke={phase === "running" || phase === "done" ? "hsl(var(--primary))" : "hsl(var(--border))"}
                   strokeWidth="8" strokeLinecap="round"
                   strokeDasharray={circumference}
                   strokeDashoffset={circumference - (circumference * pct) / 100}
@@ -194,7 +194,7 @@ export default function FocusPage() {
                 {pomodoroCount > 0 && (
                   <div className="flex gap-0.5 mt-2">
                     {[...Array(Math.min(pomodoroCount, 8))].map((_, i) => (
-                      <div key={i} className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+                      <div key={i} className="h-1.5 w-1.5 rounded-full bg-primary" />
                     ))}
                   </div>
                 )}

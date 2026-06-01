@@ -165,7 +165,13 @@ export default function WeightPage() {
         </CardHeader>
         <CardContent>
           {loading ? (
-            <div className="h-48 flex items-center justify-center text-muted-foreground text-sm">Loading…</div>
+            <div className="h-48 flex flex-col justify-end gap-1 px-2 pb-2 animate-pulse">
+              {[55, 70, 45, 80, 60, 90, 65, 75, 50, 85].map((h, i) => (
+                <div key={i} className="flex-1 flex items-end">
+                  <div className="w-full rounded-sm bg-primary/20" style={{ height: `${h}%` }} />
+                </div>
+              ))}
+            </div>
           ) : entries.length === 0 ? (
             <div className="h-48 flex flex-col items-center justify-center gap-2 text-muted-foreground text-sm">
               <Scale className="h-8 w-8 opacity-30" />

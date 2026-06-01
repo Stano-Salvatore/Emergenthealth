@@ -294,10 +294,10 @@ export default async function DashboardPage() {
   const header = (
     <>
       {/* ── header ── */}
-      <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-indigo-500/20 via-violet-500/8 to-background border border-indigo-500/20 p-5">
-        <div className="absolute -top-12 -right-12 w-56 h-56 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-10 left-1/3 w-40 h-40 bg-violet-500/15 rounded-full blur-2xl pointer-events-none" />
-        <div className="absolute top-2 right-1/3 w-24 h-24 bg-blue-400/10 rounded-full blur-2xl pointer-events-none" />
+      <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-primary/15 via-primary/5 to-background border border-primary/20 p-5">
+        <div className="absolute -top-12 -right-12 w-56 h-56 bg-primary/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-10 left-1/3 w-40 h-40 bg-primary/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="absolute top-2 right-1/3 w-24 h-24 bg-primary/8 rounded-full blur-2xl pointer-events-none" />
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 relative">
           <div>
             <h1 className="text-2xl font-bold">
@@ -334,7 +334,7 @@ export default async function DashboardPage() {
 
       {!hasCheckedInToday && (
         <Link href="/dashboard/checkin" className="block">
-          <Card className="border-violet-500/30 bg-violet-500/5 hover:bg-violet-500/10 transition-colors cursor-pointer">
+          <Card className="border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer">
             <CardContent className="pt-4 pb-3 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">🌅 Morning check-in</p>
@@ -380,7 +380,7 @@ export default async function DashboardPage() {
 
     health: (
       <Link href="/dashboard/health" className="block h-full">
-        <Card className="card-health hover:border-indigo-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-indigo-500/5">
+        <Card className="card-health hover:border-primary/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-primary/5">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
               <span className="flex items-center gap-1.5">❤️ Health</span>
@@ -399,8 +399,8 @@ export default async function DashboardPage() {
                   )}
                 </div>
                 {latestHealth.sleepScore != null && (
-                  <div className="flex items-center gap-2 rounded-lg bg-indigo-500/8 border border-indigo-500/15 px-3 py-1.5">
-                    <Moon className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                  <div className="flex items-center gap-2 rounded-lg bg-primary/8 border border-primary/15 px-3 py-1.5">
+                    <Moon className="h-3.5 w-3.5 text-primary shrink-0" />
                     <span className="text-xs text-muted-foreground">Sleep Score</span>
                     <span className={`ml-auto text-sm font-bold tabular-nums ${latestHealth.sleepScore >= 85 ? "text-green-400" : latestHealth.sleepScore >= 70 ? "text-amber-400" : "text-red-400"}`}>
                       {latestHealth.sleepScore}
@@ -444,7 +444,7 @@ export default async function DashboardPage() {
                         const hrs = l.sleepDuration!=null ? l.sleepDuration/60 : 0
                         return (
                           <div key={l.id}
-                            className={`flex-1 rounded-sm ${hrs>=7?"bg-indigo-500":"bg-indigo-500/35"}`}
+                            className={`flex-1 rounded-sm ${hrs>=7?"bg-primary":"bg-primary/35"}`}
                             style={{height:`${Math.max(10,Math.min(100,(hrs/10)*100))}%`}}
                             title={`${format(l.date,"MMM d")}: ${hrs.toFixed(1)}h`}
                           />
@@ -573,7 +573,7 @@ export default async function DashboardPage() {
 
     reminders: (
       <Link href="/dashboard/reminders" className="block h-full">
-        <Card className={`card-reminders hover:border-violet-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-violet-500/5 ${overdueReminders.length>0?"border-red-500/30":""}`}>
+        <Card className={`card-reminders hover:border-primary/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-primary/5 ${overdueReminders.length>0?"border-red-500/30":""}`}>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
               <span className="flex items-center gap-1.5">🔔 Reminders</span>
@@ -672,7 +672,7 @@ export default async function DashboardPage() {
         </Link>
         <Link href="/dashboard/focus">
           <StatTile label="Focus today" value={focusMinToday >= 60 ? `${(focusMinToday/60).toFixed(1)}h` : `${focusMinToday}m`}
-            sub="deep work" icon={<Timer className="h-4 w-4 text-indigo-400"/>} />
+            sub="deep work" icon={<Timer className="h-4 w-4 text-primary"/>} />
         </Link>
         <Link href="/dashboard/habits">
           <StatTile label="Habits today" value={`${doneToday}/${habits.length}`} icon={<CheckSquare className="h-4 w-4 text-amber-400"/>}
@@ -713,8 +713,7 @@ function StatTile({ label, value, sub, icon, ok, progress }: {
   label: string; value: string; sub?: string; icon: React.ReactNode; ok?: boolean; progress?: number
 }) {
   return (
-    <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 transition-all cursor-pointer hover:border-primary/30 hover:shadow-sm ${ok === true ? "border-green-500/30" : ""}`}
-      style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.06) 0%, var(--card) 60%)" }}>
+    <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 transition-all cursor-pointer hover:border-primary/30 hover:shadow-sm bg-gradient-to-br from-primary/5 to-card ${ok === true ? "border-green-500/30" : ""}`}>
       {icon}
       <div className="flex-1 min-w-0">
         <p className="text-[10px] text-muted-foreground tracking-wide">{label}</p>
@@ -726,7 +725,7 @@ function StatTile({ label, value, sub, icon, ok, progress }: {
               className="h-full rounded-full transition-all"
               style={{
                 width: `${progress}%`,
-                background: ok ? "linear-gradient(90deg, #22c55e, #4ade80)" : "linear-gradient(90deg, #6366f1, #8b5cf6)",
+                background: ok ? "linear-gradient(90deg, #22c55e, #4ade80)" : "linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 70%, #fff))",
               }}
             />
           </div>

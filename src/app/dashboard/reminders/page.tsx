@@ -347,14 +347,31 @@ export default function RemindersPage() {
       )}
 
       {loading ? (
-        <Card><CardContent className="py-4">
-          <div className="space-y-3">{[...Array(3)].map((_,i) => <div key={i} className="h-4 bg-secondary rounded animate-pulse" />)}</div>
+        <Card><CardContent className="py-4 px-5 animate-pulse">
+          <div className="space-y-4">
+            {[...Array(3)].map((_,i) => (
+              <div key={i} className="flex items-start gap-3 py-1">
+                <div className="mt-0.5 h-5 w-5 rounded-full bg-secondary shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-4 bg-secondary rounded w-3/4" />
+                  <div className="h-3 bg-secondary rounded w-1/3" />
+                </div>
+              </div>
+            ))}
+          </div>
         </CardContent></Card>
       ) : reminders.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="py-16 text-center">
-            <Bell className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
-            <p className="text-muted-foreground">No reminders</p>
+            <Bell className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+            <p className="font-medium text-muted-foreground mb-1">No reminders yet</p>
+            <p className="text-xs text-muted-foreground/60 mb-4">Add things you need to remember — with due dates and priority</p>
+            <button
+              onClick={() => setFormOpen(true)}
+              className="text-xs text-primary hover:underline"
+            >
+              + Add your first reminder
+            </button>
           </CardContent>
         </Card>
       ) : (

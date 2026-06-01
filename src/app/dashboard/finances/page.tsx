@@ -452,7 +452,18 @@ export default function FinancesPage() {
           <CardHeader><CardTitle className="text-base">Transactions</CardTitle></CardHeader>
           <CardContent>
             {loading ? (
-              <p className="text-muted-foreground text-sm">Loading...</p>
+              <div className="space-y-2 animate-pulse">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-2 py-2 border-b border-border last:border-0">
+                    <div className="h-6 w-6 rounded bg-border shrink-0" />
+                    <div className="flex-1 space-y-1">
+                      <div className="h-3.5 rounded bg-border w-2/3" />
+                      <div className="h-3 rounded bg-border w-1/3" />
+                    </div>
+                    <div className="h-3.5 rounded bg-border w-16" />
+                  </div>
+                ))}
+              </div>
             ) : transactions.length === 0 ? (
               <p className="text-muted-foreground text-sm">
                 No transactions. Add one manually or sync from Actual Budget.

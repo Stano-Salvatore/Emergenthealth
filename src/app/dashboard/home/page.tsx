@@ -749,7 +749,17 @@ export default function HomePage() {
       ))}
 
       {!notConfigured && loading && !hasAny && (
-        <p className="text-muted-foreground text-sm py-8 text-center">Loading devices…</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 animate-pulse">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="rounded-xl border bg-card p-4 flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-border shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-3.5 rounded bg-border w-24" />
+                <div className="h-3 rounded bg-border/60 w-16" />
+              </div>
+            </div>
+          ))}
+        </div>
       )}
 
       {lights.length > 0 && (

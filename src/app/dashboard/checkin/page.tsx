@@ -31,6 +31,8 @@ const MOOD_OPTIONS = [
 
 const WATER_OPTIONS = [1500, 2000, 2500, 3000]
 
+const STEP_LABELS = ["Energy", "Mood", "Focus", "Water"]
+
 export default function CheckInPage() {
   const [step, setStep] = useState<0 | 1 | 2 | 3 | "done">(0)
   const [energy, setEnergy] = useState<number | null>(null)
@@ -39,6 +41,8 @@ export default function CheckInPage() {
   const [waterGoalMl, setWaterGoalMl] = useState<number>(2000)
   const [existing, setExisting] = useState<CheckIn | null>(null)
   const [loading, setLoading] = useState(true)
+  const [selectedEnergy, setSelectedEnergy] = useState<number | null>(null)
+  const [selectedMood, setSelectedMood] = useState<number | null>(null)
 
   useEffect(() => {
     fetch("/api/morning-checkin")
@@ -66,33 +70,59 @@ export default function CheckInPage() {
     })
   }
 
-  function progressDots() {
+  function handleEnergySelect(value: number) {
+    setSelectedEnergy(value)
+    setEnergy(value)
+    setTimeout(() => { setStep(1); setSelectedEnergy(null) }, 150)
+  }
+
+  function handleMoodSelect(value: number) {
+    setSelectedMood(value)
+    setMood(value)
+    setTimeout(() => { setStep(2); setSelectedMood(null) }, 150)
+  }
+
+  function ProgressBar() {
     const current = step === "done" ? 4 : (step as number)
+    const pct = (current / 4) * 100
     return (
-      <div className="flex items-center justify-center gap-2 mb-8">
-        {[0, 1, 2, 3].map(i => (
+      <div className="mb-8">
+        <div className="flex justify-between mb-2">
+          {STEP_LABELS.map((label, i) => (
+            <span
+              key={label}
+              className={`text-[10px] font-medium transition-colors ${
+                i < current ? "text-primary" : i === current ? "text-foreground" : "text-muted-foreground/50"
+              }`}
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+        <div className="h-1 rounded-full bg-border overflow-hidden">
           <div
-            key={i}
-            className={`rounded-full transition-all ${
-              i < current
-                ? "h-2 w-2 bg-violet-500"
-                : i === current
-                ? "h-2.5 w-2.5 bg-violet-400 ring-2 ring-violet-400/30"
-                : "h-2 w-2 bg-muted"
-            }`}
+            className="h-full rounded-full transition-all duration-500 ease-out"
+            style={{ width: `${pct}%`, background: "var(--primary)" }}
           />
-        ))}
-        <span className="text-xs text-muted-foreground ml-2">
-          {step === "done" ? "Done" : `Step ${(step as number) + 1} of 4`}
-        </span>
+        </div>
       </div>
     )
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading...</p>
+      <div className="min-h-screen flex flex-col items-center justify-center p-4">
+        <div className="w-full max-w-sm space-y-6 animate-pulse">
+          <div className="h-1 rounded-full bg-border w-full" />
+          <div className="rounded-xl border bg-card p-6 space-y-4">
+            <div className="h-5 rounded bg-border w-48 mx-auto" />
+            <div className="grid grid-cols-5 gap-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-12 rounded-xl bg-border" />
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
@@ -100,7 +130,7 @@ export default function CheckInPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-sm">
-        {step !== "done" && progressDots()}
+        {step !== "done" && <ProgressBar />}
 
         {step === 0 && (
           <Card>
@@ -110,8 +140,12 @@ export default function CheckInPage() {
                 {ENERGY_OPTIONS.map(opt => (
                   <button
                     key={opt.value}
-                    onClick={() => { setEnergy(opt.value); setStep(1) }}
-                    className="flex flex-col items-center gap-1.5 rounded-xl border border-border p-3 min-h-[72px] hover:border-violet-500/50 hover:bg-violet-500/5 transition-all active:scale-95"
+                    onClick={() => handleEnergySelect(opt.value)}
+                    className={`flex flex-col items-center gap-1.5 rounded-xl border p-3 min-h-[72px] transition-all duration-150 active:scale-95 ${
+                      selectedEnergy === opt.value
+                        ? "border-primary bg-primary/10 scale-105"
+                        : "border-border hover:border-primary/40 hover:bg-primary/5"
+                    }`}
                   >
                     <span className="text-2xl leading-none">{opt.emoji}</span>
                     <span className="text-[10px] text-muted-foreground text-center leading-tight">{opt.label}</span>
@@ -130,8 +164,12 @@ export default function CheckInPage() {
                 {MOOD_OPTIONS.map(opt => (
                   <button
                     key={opt.value}
-                    onClick={() => { setMood(opt.value); setStep(2) }}
-                    className="flex flex-col items-center gap-1.5 rounded-xl border border-border p-3 min-h-[72px] hover:border-violet-500/50 hover:bg-violet-500/5 transition-all active:scale-95"
+                    onClick={() => handleMoodSelect(opt.value)}
+                    className={`flex flex-col items-center gap-1.5 rounded-xl border p-3 min-h-[72px] transition-all duration-150 active:scale-95 ${
+                      selectedMood === opt.value
+                        ? "border-primary bg-primary/10 scale-105"
+                        : "border-border hover:border-primary/40 hover:bg-primary/5"
+                    }`}
                   >
                     <span className="text-2xl leading-none">{opt.emoji}</span>
                     <span className="text-[10px] text-muted-foreground text-center leading-tight">{opt.label}</span>
@@ -184,7 +222,7 @@ export default function CheckInPage() {
                       await save(ml)
                       setStep("done")
                     }}
-                    className="flex flex-col items-center justify-center rounded-xl border border-border py-4 min-h-[72px] text-lg font-bold hover:border-violet-500/50 hover:bg-violet-500/5 transition-all active:scale-95"
+                    className="flex flex-col items-center justify-center rounded-xl border border-border py-4 min-h-[72px] text-lg font-bold hover:border-primary/40 hover:bg-primary/5 transition-all active:scale-95"
                   >
                     {ml >= 1000 ? `${ml / 1000}L` : `${ml}ml`}
                     <span className="text-xs font-normal text-muted-foreground mt-0.5">{ml}ml</span>
@@ -196,7 +234,7 @@ export default function CheckInPage() {
         )}
 
         {step === "done" && (
-          <Card className="border-violet-500/30 bg-violet-500/5">
+          <Card className="border-primary/30 bg-primary/5">
             <CardContent className="pt-8 pb-6 px-6 text-center">
               <p className="text-4xl mb-3">✅</p>
               <p className="text-xl font-semibold mb-1">All set for today!</p>

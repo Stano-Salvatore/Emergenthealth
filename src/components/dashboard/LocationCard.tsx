@@ -10,11 +10,11 @@ function TrackSvg({ points }: { points: { lat: number; lon: number }[] }) {
   if (!data) return null
   return (
     <svg viewBox="0 0 280 90" className="w-full rounded-lg overflow-hidden"
-      style={{ background: "rgba(99,102,241,0.05)" }}>
+      style={{ background: "color-mix(in srgb, var(--primary) 5%, transparent)" }}>
       <defs>
         <linearGradient id="tg" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#818cf8" />
-          <stop offset="100%" stopColor="#a78bfa" />
+          <stop offset="0%" style={{ stopColor: "var(--primary)" }} />
+          <stop offset="100%" style={{ stopColor: "var(--primary)", stopOpacity: 0.6 }} />
         </linearGradient>
       </defs>
       <path d={data.pathD} fill="none" stroke="url(#tg)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -35,10 +35,10 @@ export async function LocationCard() {
 
   return (
     <Link href="/dashboard/location">
-      <div className="card-health rounded-xl border px-4 py-3 hover:border-indigo-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-indigo-500/5">
+      <div className="card-health rounded-xl border px-4 py-3 hover:border-primary/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-primary/5">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
-            <MapPin className="h-4 w-4 text-indigo-400" /> Location
+            <MapPin className="h-4 w-4 text-primary" /> Location
           </span>
           <div className="flex items-center gap-1">
             <span className="text-xs text-muted-foreground">{format(new Date(), "MMM d")}</span>

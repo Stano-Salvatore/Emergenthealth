@@ -19,7 +19,7 @@ export function NewsletterForm() {
 
   if (state === "done") {
     return (
-      <p className="text-sm font-medium" style={{ color: "#6ee7b7" }}>
+      <p className="text-sm font-medium text-green-400">
         ✓ You&apos;re on the list! We&apos;ll keep you posted.
       </p>
     )
@@ -33,18 +33,13 @@ export function NewsletterForm() {
         value={email}
         onChange={(e) => setEmail(e.target.value)}
         placeholder="your@email.com"
-        className="flex-1 px-4 py-2.5 rounded-xl text-sm outline-none"
-        style={{
-          background: "rgba(255,255,255,0.06)",
-          border: "1px solid rgba(99,102,241,0.25)",
-          color: "#f2f2fa",
-        }}
+        className="flex-1 px-4 py-2.5 rounded-xl text-sm outline-none text-foreground bg-white/6"
+        style={{ border: "1px solid color-mix(in srgb, var(--primary) 25%, transparent)" }}
       />
       <button
         type="submit"
         disabled={state === "loading"}
-        className="px-5 py-2.5 rounded-xl text-sm font-medium transition-opacity hover:opacity-80 disabled:opacity-50 shrink-0"
-        style={{ background: "rgba(99,102,241,0.7)", color: "#ffffff" }}
+        className="px-5 py-2.5 rounded-xl text-sm font-medium bg-primary/70 text-primary-foreground transition-opacity hover:opacity-80 disabled:opacity-50 shrink-0"
       >
         {state === "loading" ? "…" : "Get updates"}
       </button>

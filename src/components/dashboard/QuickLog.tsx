@@ -112,7 +112,7 @@ export function QuickLog({ todayWaterMl, todayFocusMin, todayMood, latestWeight 
         {/* weight */}
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5">
-            <Scale className="h-3.5 w-3.5 text-violet-400" />
+            <Scale className="h-3.5 w-3.5 text-primary" />
             <span className="text-xs text-muted-foreground">Weight (kg)</span>
           </div>
           <form onSubmit={logWeight} className="flex gap-1.5 mt-1">
@@ -124,7 +124,7 @@ export function QuickLog({ todayWaterMl, todayFocusMin, todayMood, latestWeight 
               className="flex-1 bg-secondary rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50 min-w-0"
             />
             <button type="submit"
-              className="px-3 py-1.5 rounded bg-violet-500/20 text-violet-400 text-xs hover:bg-violet-500/30 transition-colors shrink-0">
+              className="px-3 py-1.5 rounded bg-primary/15 text-primary text-xs hover:bg-primary/25 transition-colors shrink-0">
               {weightSaved ? "✓" : "Log"}
             </button>
           </form>

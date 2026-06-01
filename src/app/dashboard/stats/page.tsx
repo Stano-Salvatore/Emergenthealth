@@ -141,9 +141,9 @@ function AIPanel() {
   if (state === "error") return null
 
   return (
-    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-4">
+    <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-bold uppercase tracking-widest text-violet-400">AI weekly snapshot</p>
+        <p className="text-xs font-bold uppercase tracking-widest text-primary/70">AI weekly snapshot</p>
         {state === "done" && (
           <button onClick={regen} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
             {cached ? "regenerate" : "↻"}
@@ -152,7 +152,7 @@ function AIPanel() {
       </div>
       {state === "loading" && (
         <div className="space-y-2">
-          {[...Array(3)].map((_, i) => <div key={i} className="h-3.5 bg-violet-500/10 rounded animate-pulse" style={{ width: `${70 + i * 10}%` }} />)}
+          {[...Array(3)].map((_, i) => <div key={i} className="h-3.5 bg-primary/10 rounded animate-pulse" style={{ width: `${70 + i * 10}%` }} />)}
         </div>
       )}
       {state === "done" && (
@@ -389,7 +389,7 @@ export default function StatsPage() {
             <p className="text-[10px] text-muted-foreground/70">8,000 steps/day</p>
           </CardContent>
         </Card>
-        <Card className={sleepStreak >= 3 ? "border-indigo-500/20" : ""}>
+        <Card className={sleepStreak >= 3 ? "border-primary/20" : ""}>
           <CardContent className="pt-3 pb-3 text-center">
             <p className="text-2xl mb-0.5">🌙</p>
             <p className="text-[10px] text-muted-foreground">Sleep goal streak</p>
@@ -424,10 +424,10 @@ export default function StatsPage() {
       {/* ── Day-of-week patterns ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {[
-          { label: "Sleep by day", data: dowStats.map(d => ({ day: d.day, val: d.avgSleep })), max: maxSleep, color: "bg-indigo-500/50", activeColor: "bg-indigo-400" },
+          { label: "Sleep by day", data: dowStats.map(d => ({ day: d.day, val: d.avgSleep })), max: maxSleep, color: "bg-primary/30", activeColor: "bg-primary" },
           { label: "Steps by day", data: dowStats.map(d => ({ day: d.day, val: d.avgSteps })), max: maxSteps, color: "bg-green-500/50", activeColor: "bg-green-400" },
           { label: "Readiness by day", data: dowStats.map(d => ({ day: d.day, val: d.avgReadiness })), max: 100, color: "bg-emerald-500/50", activeColor: "bg-emerald-400" },
-          { label: "Focus by day", data: focusDowStats.map(d => ({ day: d.day, val: d.avgFocusMin })), max: maxFocus, color: "bg-indigo-500/50", activeColor: "bg-violet-400" },
+          { label: "Focus by day", data: focusDowStats.map(d => ({ day: d.day, val: d.avgFocusMin })), max: maxFocus, color: "bg-primary/30", activeColor: "bg-primary" },
         ].map(({ label, data, max, color, activeColor }) => (
           <Card key={label}>
             <CardHeader className="pb-2">

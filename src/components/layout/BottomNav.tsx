@@ -13,7 +13,7 @@ type Tab = {
 }
 
 const tabs: Tab[] = [
-  { href: "/dashboard",          label: "Overview",  Icon: Home,        exact: true },
+  { href: "/dashboard",          label: "Home",      Icon: Home,        exact: true },
   { href: "/dashboard/checkin",  label: "Check-in",  Icon: Sun },
   { href: "/dashboard/habits",   label: "Habits",    Icon: CheckSquare },
   { href: "/dashboard/finances", label: "Finances",  Icon: DollarSign },
@@ -28,20 +28,30 @@ export function BottomNav() {
       className="fixed bottom-0 inset-x-0 z-40 lg:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <div className="bg-background/95 backdrop-blur-md border-t border-border flex items-center justify-around px-2 py-1">
+      <div className="bg-background/95 backdrop-blur-md border-t border-border flex items-center px-1 py-1.5">
         {tabs.map(({ href, label, Icon, exact }) => {
           const active = exact ? pathname === href : pathname.startsWith(href)
           return (
             <Link
               key={href}
               href={href}
-              className={cn(
-                "flex flex-col items-center gap-1 px-3 py-2 rounded-xl transition-colors min-w-0 flex-1",
-                active ? "text-primary" : "text-muted-foreground"
-              )}
+              className="flex flex-col items-center gap-0.5 flex-1 min-w-0 relative"
             >
-              <Icon className="h-5 w-5 shrink-0" />
-              <span className="text-[10px] font-medium truncate">{label}</span>
+              <div className={cn(
+                "flex items-center justify-center w-12 h-8 rounded-full transition-all duration-200",
+                active ? "bg-primary/15" : "bg-transparent"
+              )}>
+                <Icon className={cn(
+                  "transition-all duration-200",
+                  active ? "h-5 w-5 text-primary" : "h-5 w-5 text-muted-foreground"
+                )} />
+              </div>
+              <span className={cn(
+                "text-[10px] font-medium truncate transition-colors duration-200",
+                active ? "text-primary" : "text-muted-foreground"
+              )}>
+                {label}
+              </span>
             </Link>
           )
         })}

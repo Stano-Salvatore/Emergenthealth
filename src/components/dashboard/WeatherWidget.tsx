@@ -92,28 +92,52 @@ export function WeatherWidget() {
     )
   }, [])
 
-  if (loading || !weather) return null
+  if (loading) {
+    return (
+      <div className="flex items-center gap-5 flex-wrap animate-pulse">
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 rounded-xl bg-secondary" />
+          <div className="space-y-1.5">
+            <div className="h-6 w-16 bg-secondary rounded" />
+            <div className="h-3 w-20 bg-secondary rounded" />
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="w-16 h-16 rounded-xl bg-secondary" />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (!weather) return null
 
   const current = getCondition(weather.code)
 
   return (
     <div className="flex items-center gap-5 flex-wrap">
-      <div className="flex items-center gap-2">
+      {/* Current */}
+      <div className="flex items-center gap-2.5">
         <span className="text-4xl leading-none">{current.emoji}</span>
         <div>
           <p className="text-2xl font-bold leading-tight">{weather.temp}°C</p>
           <p className="text-xs text-muted-foreground">{current.label}</p>
         </div>
       </div>
-      <div className="flex gap-4">
+      {/* Forecast */}
+      <div className="flex gap-2">
         {weather.forecast.map((day, i) => {
           const cond = getCondition(day.code)
           return (
-            <div key={i} className="text-center">
-              <p className="text-xs text-muted-foreground mb-0.5">{DAY_LABELS[i]}</p>
+            <div
+              key={i}
+              className="flex flex-col items-center gap-0.5 rounded-xl bg-secondary/50 border border-border/50 px-3 py-2 min-w-[56px]"
+            >
+              <p className="text-[10px] text-muted-foreground font-medium">{DAY_LABELS[i]}</p>
               <p className="text-lg leading-none">{cond.emoji}</p>
-              <p className="text-xs font-semibold mt-0.5">{day.max}°</p>
-              <p className="text-xs text-muted-foreground">{day.min}°</p>
+              <p className="text-xs font-semibold">{day.max}°</p>
+              <p className="text-[10px] text-muted-foreground">{day.min}°</p>
             </div>
           )
         })}

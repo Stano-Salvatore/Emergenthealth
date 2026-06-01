@@ -342,7 +342,15 @@ export default function LabsPage() {
       </Card>
 
       {loading ? (
-        <p className="text-muted-foreground text-sm">Loading…</p>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 animate-pulse">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-xl border bg-card p-4 space-y-3">
+              <div className="h-4 rounded bg-border w-32" />
+              <div className="h-10 rounded bg-border/60 w-full" />
+              <div className="h-3 rounded bg-border w-24" />
+            </div>
+          ))}
+        </div>
       ) : markerList.length === 0 ? (
         <p className="text-muted-foreground text-sm">No lab results yet. Add your first result above.</p>
       ) : (

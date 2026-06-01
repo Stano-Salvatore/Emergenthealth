@@ -77,7 +77,7 @@ function hourToPct(h: number, startH: number, totalH: number): number {
 function SummaryStrip({ log, mood }: { log: HealthLog | null; mood: { mood: number; note: string | null } | null }) {
   const chips = [
     log?.readinessScore != null && { icon: <Shield className="h-3 w-3" />, label: `${log.readinessScore}`, sub: "readiness", color: "text-blue-400" },
-    log?.sleepDuration   != null && { icon: <Moon className="h-3 w-3" />,  label: fmtSec(log.sleepDuration), sub: "sleep", color: "text-indigo-400" },
+    log?.sleepDuration   != null && { icon: <Moon className="h-3 w-3" />,  label: fmtSec(log.sleepDuration), sub: "sleep", color: "text-primary" },
     log?.steps           != null && { icon: <Footprints className="h-3 w-3" />, label: log.steps.toLocaleString(), sub: "steps", color: "text-amber-400" },
     log?.hrv             != null && { icon: <Heart className="h-3 w-3" />,  label: `${Math.round(log.hrv)}ms`, sub: "HRV", color: "text-rose-400" },
     log?.activityScore   != null && { icon: <Zap className="h-3 w-3" />,   label: `${log.activityScore}`, sub: "activity", color: "text-green-400" },
@@ -118,7 +118,7 @@ function SleepBlock({ log }: { log: HealthLog }) {
           {timeLabel(log.sleepStart)} → {timeLabel(log.sleepEnd)}
         </span>
         {log.sleepScore != null && (
-          <span className="text-indigo-400 font-medium">Score {log.sleepScore}</span>
+          <span className="text-primary font-medium">Score {log.sleepScore}</span>
         )}
       </div>
       {/* Stage bar */}
@@ -188,7 +188,7 @@ function Timeline({ data }: { data: DayData }) {
     if (s.type !== "focus") continue
     events.push({
       hour: isoToHour(s.startedAt),
-      color: "#6366f1",
+      color: "var(--primary)",
       emoji: "🎯",
       label: s.label ?? "Focus session",
       pill: fmtMin(s.durationMin),
@@ -236,14 +236,14 @@ function Timeline({ data }: { data: DayData }) {
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 shrink-0" />
             <div className="flex flex-col items-center shrink-0">
-              <div className="w-2 h-2 rounded-full bg-indigo-500" />
+              <div className="w-2 h-2 rounded-full bg-primary" />
               <div className="w-px h-2 bg-border/30 mt-0.5" />
             </div>
-            <p className="text-xs font-semibold text-indigo-400 flex items-center gap-1">
+            <p className="text-xs font-semibold text-primary flex items-center gap-1">
               <Moon className="h-3 w-3" /> Sleep · {fmtSec(data.healthLog.sleepDuration)}
             </p>
           </div>
-          <div className="ml-[52px] bg-indigo-500/5 border border-indigo-500/15 rounded-xl p-3">
+          <div className="ml-[52px] bg-primary/5 border border-primary/15 rounded-xl p-3">
             <SleepBlock log={data.healthLog} />
           </div>
           <div className="ml-[58px] w-px h-3 bg-border/30" />
@@ -396,7 +396,22 @@ export default function TimelinePage() {
       </p>
 
       {loading && (
-        <div className="py-16 text-center text-muted-foreground text-sm">Loading…</div>
+        <div className="space-y-3 animate-pulse">
+          <div className="flex gap-3 flex-wrap">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-14 w-24 rounded-xl bg-secondary/50 border border-border/40" />
+            ))}
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="h-3 w-10 rounded bg-border shrink-0" />
+                <div className="w-2 h-2 rounded-full bg-border shrink-0" />
+                <div className="h-3 rounded bg-border flex-1" style={{ width: `${60 + i * 8}%`, maxWidth: "100%" }} />
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {!loading && data && (

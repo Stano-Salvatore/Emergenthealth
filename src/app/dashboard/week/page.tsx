@@ -323,12 +323,12 @@ export default async function WeekPage() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-1.5">
-              <Timer className="h-4 w-4 text-indigo-400" /> Focus
+              <Timer className="h-4 w-4 text-primary" /> Focus
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="text-center">
-              <p className="text-2xl font-black text-indigo-400">
+              <p className="text-2xl font-black text-primary">
                 {totalFocusMin >= 60 ? `${(totalFocusMin/60).toFixed(1)}h` : `${totalFocusMin}m`}
               </p>
               <p className="text-xs text-muted-foreground">deep work this week</p>
