@@ -4,8 +4,8 @@ import { signState } from "@/lib/state-token"
 
 function appOrigin(req: NextRequest): string {
   return (
-    process.env.NEXT_PUBLIC_APP_URL ??
-    process.env.AUTH_URL ??
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.AUTH_URL ||
     new URL(req.url).origin
   )
 }
