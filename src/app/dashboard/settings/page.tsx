@@ -243,7 +243,7 @@ export default async function SettingsPage({
       )}
 
       {/* TrueLayer / Revolut */}
-      <TruelayerManager hasConfig={!!(process.env.TRUELAYER_CLIENT_ID && process.env.TRUELAYER_CLIENT_SECRET)} />
+      <TruelayerManager />
 
       {stravaConnected && (
         <Card className="border-green-500/30 bg-green-500/5">

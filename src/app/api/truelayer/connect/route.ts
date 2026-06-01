@@ -10,9 +10,11 @@ export async function GET() {
   const rows = await prisma.$queryRaw<{ accountId: string | null; accountName: string | null; currency: string | null }[]>`
     SELECT "accountId","accountName","currency" FROM "TruelayerToken" WHERE "userId" = ${session.user.id}
   `.catch(() => [])
-  if (!rows[0]) return NextResponse.json({ connected: false })
+  const hasConfig = !!(process.env.TRUELAYER_CLIENT_ID && process.env.TRUELAYER_CLIENT_SECRET)
+  if (!rows[0]) return NextResponse.json({ connected: false, hasConfig })
   return NextResponse.json({
     connected: true,
+    hasConfig,
     accountId: rows[0].accountId,
     accountName: rows[0].accountName,
     currency: rows[0].currency,

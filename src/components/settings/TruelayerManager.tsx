@@ -8,8 +8,9 @@ import { Loader2, CheckCircle, Unlink, RefreshCw, LogIn } from "lucide-react"
 type State = "loading" | "disconnected" | "connected" | "picking" | "syncing"
 interface Account { id: string; name: string; currency: string }
 
-export function TruelayerManager({ hasConfig }: { hasConfig: boolean }) {
+export function TruelayerManager() {
   const [state, setState]           = useState<State>("loading")
+  const [hasConfig, setHasConfig]   = useState(false)
   const [accountName, setAccountName] = useState<string | null>(null)
   const [currency, setCurrency]     = useState<string | null>(null)
   const [accounts, setAccounts]     = useState<Account[]>([])
@@ -20,6 +21,7 @@ export function TruelayerManager({ hasConfig }: { hasConfig: boolean }) {
     ;(async () => {
       try {
         const d = await fetch("/api/truelayer/connect").then(r => r.json())
+        setHasConfig(!!d.hasConfig)
         if (!d.connected) { setState("disconnected"); return }
         setAccountName(d.accountName)
         setCurrency(d.currency)
