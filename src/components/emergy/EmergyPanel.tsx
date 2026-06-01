@@ -188,7 +188,7 @@ export function EmergyPanel() {
   return (
     <>
       {/* Speech bubble + button row */}
-      <div className="fixed bottom-6 right-6 z-50 flex items-end gap-3">
+      <div className="fixed bottom-10 right-6 z-50 flex items-center gap-3">
         {/* Speech bubble — appears to the left when Emergy has something to say */}
         {showBubble && emergy?.message && (
           <div
@@ -235,7 +235,7 @@ export function EmergyPanel() {
 
       {/* Chat panel */}
       {open && (
-        <div className="fixed bottom-[112px] right-6 z-50 w-80 h-[480px] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
+        <div className="fixed bottom-[128px] right-6 z-50 w-80 h-[480px] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card shrink-0">
             <EmergySVG state={state} size={40} />

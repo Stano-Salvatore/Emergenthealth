@@ -108,7 +108,17 @@ export function YnabManager({ hasOauthConfig }: { hasOauthConfig: boolean }) {
           )
         )}
 
-        {error && <p className="text-xs text-red-400 bg-red-500/10 rounded-md px-3 py-2">{error}</p>}
+        {error && (
+          <div className="text-xs text-red-400 bg-red-500/10 rounded-md px-3 py-2 flex items-center justify-between gap-3">
+            <span>{error}</span>
+            {error.toLowerCase().includes("budget") && hasOauthConfig && (
+              <Button size="sm" variant="outline" onClick={async () => { await disconnect(); connect() }} className="shrink-0 gap-1.5 text-xs h-7 px-2">
+                <LogIn className="h-3 w-3" />
+                Reconnect
+              </Button>
+            )}
+          </div>
+        )}
         {syncMsg && <p className="text-xs text-green-400 bg-green-500/10 rounded-md px-3 py-2">{syncMsg}</p>}
       </CardContent>
     </Card>
