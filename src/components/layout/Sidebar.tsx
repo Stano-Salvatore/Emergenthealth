@@ -146,7 +146,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           <button
             onClick={onClose}
             aria-label="Close sidebar"
-            className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+            className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -185,7 +185,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                           "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150",
                           active
                             ? "bg-gradient-to-r from-primary/20 to-primary/5 text-primary font-semibold border border-primary/25 shadow-sm"
-                            : "text-muted-foreground hover:text-foreground hover:bg-white/5",
+                            : "text-muted-foreground hover:text-foreground hover:bg-secondary/60",
                           editing && isHidden && "opacity-40",
                         )}
                       >
@@ -239,7 +239,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
           <div className={cn("transition-opacity duration-150", bottomHovered ? "opacity-100" : "opacity-0")}>
             <button
               onClick={() => setEditing(true)}
-              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-all duration-150"
             >
               <Settings2 className="h-4 w-4 shrink-0" />
               Customize
@@ -248,7 +248,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         )}
         <button
           onClick={() => signOut({ callbackUrl: "/signin" })}
-          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all duration-150"
+          className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-all duration-150"
         >
           <span className="text-base leading-none w-5 text-center shrink-0">👋</span>
           Sign out
