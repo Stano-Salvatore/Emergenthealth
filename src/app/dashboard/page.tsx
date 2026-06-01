@@ -409,7 +409,7 @@ export default async function DashboardPage() {
                 )}
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
                   {latestHealth.sleepDuration != null && (
-                    <MetricBox icon={<Moon className="h-3.5 w-3.5 text-indigo-400"/>} label="Sleep"
+                    <MetricBox icon={<Moon className="h-3.5 w-3.5 text-primary"/>} label="Sleep"
                       value={`${(latestHealth.sleepDuration/60).toFixed(1)}h`}
                       sub={latestHealth.deepSleep!=null?`Deep ${latestHealth.deepSleep}m · REM ${latestHealth.remSleep??'?'}m`:undefined}
                       ok={(latestHealth.sleepDuration/60)>=SLEEP_GOAL_H} />
@@ -428,7 +428,7 @@ export default async function DashboardPage() {
                       value={String(latestHealth.readinessScore)} ok={latestHealth.readinessScore>=70} />
                   )}
                   {latestHealth.hrv != null && (
-                    <MetricBox icon={<Activity className="h-3.5 w-3.5 text-violet-400"/>} label="HRV"
+                    <MetricBox icon={<Activity className="h-3.5 w-3.5 text-primary"/>} label="HRV"
                       value={`${Math.round(latestHealth.hrv)} ms`} />
                   )}
                   {latestHealth.spo2 != null && (

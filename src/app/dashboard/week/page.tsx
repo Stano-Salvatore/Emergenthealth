@@ -159,7 +159,7 @@ export default async function WeekPage() {
       {/* top KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiCard
-          icon={<Moon className="h-4 w-4 text-indigo-400" />} label="Avg sleep"
+          icon={<Moon className="h-4 w-4 text-primary" />} label="Avg sleep"
           value={thisWeekAvg.sleep != null ? `${thisWeekAvg.sleep.toFixed(1)}h` : "—"}
           ok={thisWeekAvg.sleep != null && thisWeekAvg.sleep >= SLEEP_GOAL_H}
           target={`goal ${SLEEP_GOAL_H}h`}
@@ -179,7 +179,7 @@ export default async function WeekPage() {
           trend={<TrendArrow current={thisWeekAvg.readiness} prev={prevWeekAvg.readiness} />}
         />
         <KpiCard
-          icon={<Activity className="h-4 w-4 text-violet-400" />} label="Avg HRV"
+          icon={<Activity className="h-4 w-4 text-primary" />} label="Avg HRV"
           value={thisWeekAvg.hrv != null ? `${Math.round(thisWeekAvg.hrv)}ms` : "—"}
           trend={<TrendArrow current={thisWeekAvg.hrv} prev={prevWeekAvg.hrv} />}
         />

@@ -359,10 +359,10 @@ export default function StatsPage() {
       {/* ── Week-over-week trends ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Sleep", icon: <Moon className="h-3.5 w-3.5 text-indigo-400" />, ...trendData.sleep, fmt: (v: number) => `${v.toFixed(1)}h` },
+          { label: "Sleep", icon: <Moon className="h-3.5 w-3.5 text-primary" />, ...trendData.sleep, fmt: (v: number) => `${v.toFixed(1)}h` },
           { label: "Steps", icon: <Footprints className="h-3.5 w-3.5 text-green-400" />, ...trendData.steps, fmt: (v: number) => Math.round(v).toLocaleString() },
           { label: "Readiness", icon: <Zap className="h-3.5 w-3.5 text-emerald-400" />, ...trendData.readiness, fmt: (v: number) => Math.round(v).toString() },
-          { label: "HRV", icon: <Activity className="h-3.5 w-3.5 text-violet-400" />, ...trendData.hrv, fmt: (v: number) => `${Math.round(v)}ms` },
+          { label: "HRV", icon: <Activity className="h-3.5 w-3.5 text-primary" />, ...trendData.hrv, fmt: (v: number) => `${Math.round(v)}ms` },
         ].map(({ label, icon, current, prev, fmt }) => (
           <Card key={label}>
             <CardContent className="pt-4 pb-3">
