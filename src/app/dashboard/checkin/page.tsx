@@ -45,7 +45,13 @@ export default function CheckInPage() {
   const [selectedMood, setSelectedMood] = useState<number | null>(null)
 
   useEffect(() => {
-    fetch("/api/morning-checkin")
+    const today = new Date()
+    const localDate = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-")
+    fetch(`/api/morning-checkin?date=${localDate}`)
       .then(r => r.json())
       .then(data => {
         if (data.checkin) {
@@ -58,6 +64,12 @@ export default function CheckInPage() {
   }, [])
 
   async function save(waterMl: number) {
+    const today = new Date()
+    const localDate = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-")
     await fetch("/api/morning-checkin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -66,6 +78,7 @@ export default function CheckInPage() {
         mood,
         intention: intention.trim() || null,
         waterGoalMl: waterMl,
+        date: localDate,
       }),
     })
   }
