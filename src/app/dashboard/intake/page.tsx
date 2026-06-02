@@ -85,28 +85,17 @@ export default function IntakePage() {
 
   useEffect(() => { load() }, [load])
 
-  // Load 7-day water trend (only once on mount)
+  // Load 7-day water trend (batch single request)
   useEffect(() => {
     async function loadWeek() {
+      const today = new Date().toISOString().split("T")[0]
+      const res = await fetch(`/api/intake?date=${today}&days=7`)
+      const byDay: Record<string, number> = res.ok ? await res.json() : {}
       const days: WeekDay[] = []
-      const now = new Date()
       for (let i = 6; i >= 0; i--) {
-        const d = subDays(now, i)
+        const d = subDays(new Date(), i)
         const str = d.toISOString().split("T")[0]
-        const [res, ouraRes] = await Promise.all([
-          fetch(`/api/intake?date=${str}`),
-          fetch(`/api/intake/oura?date=${str}`),
-        ])
-        let ml = 0
-        if (res.ok) {
-          const dayLogs: IntakeLog[] = await res.json()
-          ml += dayLogs.filter(l => l.type === "water").reduce((a, l) => a + l.amountMl, 0)
-        }
-        if (ouraRes.ok) {
-          const od = await ouraRes.json()
-          ml += od.totalMl ?? 0
-        }
-        days.push({ date: str, waterMl: ml, label: i === 0 ? "Today" : format(d, "EEE") })
+        days.push({ date: str, waterMl: byDay[str] ?? 0, label: i === 0 ? "Today" : format(d, "EEE") })
       }
       setWeekData(days)
     }
