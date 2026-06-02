@@ -49,8 +49,16 @@ interface DailyNote {
   content: string
 }
 
+function localDateStr(d: Date = new Date()): string {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-")
+}
+
 export default function JournalPage() {
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
+  const [date, setDate] = useState(() => localDateStr())
   const [mood, setMood] = useState<MoodEntry | null>(null)
   const [note, setNote] = useState<DailyNote>({ content: "" })
   const [noteSaveState, setNoteSaveState] = useState<"idle" | "saving" | "saved">("idle")
@@ -63,7 +71,7 @@ export default function JournalPage() {
   const [addingCheckIn, setAddingCheckIn] = useState(false)
   const [journalStreak, setJournalStreak] = useState<number | null>(null)
 
-  const isToday = date === new Date().toISOString().split("T")[0]
+  const isToday = date === localDateStr()
 
   useEffect(() => {
     fetch("/api/streaks")
@@ -101,10 +109,10 @@ export default function JournalPage() {
   useEffect(() => { loadDay(date) }, [date])
 
   function changeDay(delta: number) {
-    const d = new Date(date)
+    const d = new Date(date + "T12:00:00")
     d.setDate(d.getDate() + delta)
-    const str = d.toISOString().split("T")[0]
-    if (str <= new Date().toISOString().split("T")[0]) setDate(str)
+    const str = localDateStr(d)
+    if (str <= localDateStr()) setDate(str)
   }
 
   async function saveMood(value: number) {

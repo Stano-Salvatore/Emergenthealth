@@ -30,6 +30,7 @@ import { TimezoneDetector } from "@/components/settings/TimezoneDetector"
 import { WeatherLocation } from "@/components/settings/WeatherLocation"
 import { PasskeyManager } from "@/components/settings/PasskeyManager"
 import { ManageBillingButton } from "@/components/settings/ManageBillingButton"
+import { HelpCard } from "@/components/settings/HelpCard"
 import { getUserPlan } from "@/lib/plan"
 import { isStripeConfigured } from "@/lib/stripe"
 import Link from "next/link"
@@ -454,6 +455,9 @@ export default async function SettingsPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* Help & Support */}
+      <HelpCard />
 
       {/* Danger zone */}
       <DeleteAccount />

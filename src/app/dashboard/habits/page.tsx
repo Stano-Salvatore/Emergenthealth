@@ -41,6 +41,14 @@ interface Routine {
   allDone: boolean
 }
 
+function localDateStr(d: Date = new Date()): string {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-")
+}
+
 const COLORS = [
   "#6366f1","#22c55e","#f59e0b","#ef4444",
   "#8b5cf6","#06b6d4","#ec4899","#14b8a6",
@@ -55,12 +63,13 @@ const TEMPLATES = [
 
 function HeatmapRow({ habit, days }: { habit: Habit; days: Date[] }) {
   const doneSet = new Set(habit.completions.map(c => c.date?.split("T")[0]))
+  const todayStr = localDateStr()
   return (
     <div className="flex gap-0.5">
       {days.map((d, i) => {
-        const str = d.toISOString().split("T")[0]
+        const str = localDateStr(d)
         const done = doneSet.has(str)
-        const isToday = str === new Date().toISOString().split("T")[0]
+        const isToday = str === todayStr
         return (
           <div key={i}
             className="h-3 flex-1 rounded-[2px] transition-all"
@@ -285,9 +294,9 @@ export default function HabitsPage() {
   const [saving, setSaving] = useState(false)
   const [vacation, setVacation] = useState<{ active: boolean; from: string; until: string } | null>(null)
   const [showVacation, setShowVacation] = useState(false)
-  const [vacFrom, setVacFrom] = useState(new Date().toISOString().split("T")[0])
+  const [vacFrom, setVacFrom] = useState(() => localDateStr())
   const [vacUntil, setVacUntil] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split("T")[0]
+    const d = new Date(); d.setDate(d.getDate() + 7); return localDateStr(d)
   })
 
   const days28 = Array.from({ length: 28 }, (_, i) => subDays(new Date(), 27 - i))
@@ -318,7 +327,7 @@ export default function HabitsPage() {
 
   async function toggleComplete(habit: Habit) {
     const url = `/api/habits/${habit.id}/complete`
-    const dateStr = new Date().toISOString().split("T")[0]
+    const dateStr = localDateStr()
     if (habit.completedToday) {
       await fetch(url, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dateStr }) })
     } else {

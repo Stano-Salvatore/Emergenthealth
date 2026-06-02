@@ -60,14 +60,22 @@ interface OuraEntry {
   timestamp: string
 }
 
+function localDateStr(d: Date = new Date()): string {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-")
+}
+
 export default function IntakePage() {
   const [logs, setLogs] = useState<IntakeLog[]>([])
   const [ouraEntries, setOuraEntries] = useState<OuraEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState<string | null>(null)
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
+  const [date, setDate] = useState(() => localDateStr())
   const [weekData, setWeekData] = useState<WeekDay[]>([])
-  const isToday = date === new Date().toISOString().split("T")[0]
+  const isToday = date === localDateStr()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -88,13 +96,13 @@ export default function IntakePage() {
   // Load 7-day water trend (batch single request)
   useEffect(() => {
     async function loadWeek() {
-      const today = new Date().toISOString().split("T")[0]
+      const today = localDateStr()
       const res = await fetch(`/api/intake?date=${today}&days=7`)
       const byDay: Record<string, number> = res.ok ? await res.json() : {}
       const days: WeekDay[] = []
       for (let i = 6; i >= 0; i--) {
         const d = subDays(new Date(), i)
-        const str = d.toISOString().split("T")[0]
+        const str = localDateStr(d)
         days.push({ date: str, waterMl: byDay[str] ?? 0, label: i === 0 ? "Today" : format(d, "EEE") })
       }
       setWeekData(days)
@@ -123,10 +131,10 @@ export default function IntakePage() {
   }
 
   function navDate(delta: number) {
-    const d = new Date(date)
+    const d = new Date(date + "T12:00:00")
     d.setDate(d.getDate() + delta)
-    const next = d.toISOString().split("T")[0]
-    if (next <= new Date().toISOString().split("T")[0]) setDate(next)
+    const next = localDateStr(d)
+    if (next <= localDateStr()) setDate(next)
   }
 
   // aggregate by type
