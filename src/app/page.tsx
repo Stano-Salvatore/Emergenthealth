@@ -69,6 +69,9 @@ export default async function HomePage() {
               See what it tracks ↓
             </a>
           </div>
+          <p className="text-xs text-muted-foreground/50 mt-4">
+            No credit card · No ads · Your data stays private
+          </p>
         </section>
 
         {/* Features */}
@@ -116,6 +119,23 @@ export default async function HomePage() {
                 <div className="text-3xl mb-3">{emoji}</div>
                 <h3 className="font-semibold mb-2 text-base">{name}</h3>
                 <p className="text-sm leading-relaxed text-muted-foreground">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Stats row */}
+        <section className="max-w-4xl mx-auto px-6 pb-20">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { stat: "100+", label: "Metrics tracked" },
+              { stat: "8+", label: "App integrations" },
+              { stat: "Free", label: "To start, always" },
+              { stat: "0", label: "Ads or data selling" },
+            ].map(({ stat, label }) => (
+              <div key={label} className="rounded-2xl border border-border/60 bg-card/20 p-5 text-center">
+                <p className="text-3xl font-black text-primary mb-1">{stat}</p>
+                <p className="text-xs text-muted-foreground">{label}</p>
               </div>
             ))}
           </div>
@@ -191,7 +211,7 @@ export default async function HomePage() {
             },
             {
               q: "Is there a mobile app?",
-              a: "The web app works great on mobile as a PWA — install it on your home screen. A native Android app (via Median.co) is available for download now.",
+              a: "Yes! Emergenthealth is a Progressive Web App (PWA) — install it from your browser for a native-like experience on iOS and Android. An Android APK is available for direct download, and a Play Store listing is coming soon.",
             },
           ]
           return (
