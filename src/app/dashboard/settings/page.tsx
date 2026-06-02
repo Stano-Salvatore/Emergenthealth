@@ -11,6 +11,9 @@ import { GoalsEditor } from "@/components/settings/GoalsEditor"
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
 import { YnabManager } from "@/components/settings/YnabManager"
 import { TruelayerManager } from "@/components/settings/TruelayerManager"
+import { SaltedgeManager } from "@/components/settings/SaltedgeManager"
+import { GocardlessManager } from "@/components/settings/GocardlessManager"
+import { CsvImport } from "@/components/settings/CsvImport"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
 import { DigestPreferences } from "@/components/settings/DigestPreferences"
@@ -40,6 +43,12 @@ export default async function SettingsPage({
     tl_connected?: string
     tl_error?: string
     tl_reason?: string
+    se_connected?: string
+    se_error?: string
+    se_reason?: string
+    gc_connected?: string
+    gc_error?: string
+    gc_reason?: string
   }>
 }) {
   const session = await auth()
@@ -56,6 +65,12 @@ export default async function SettingsPage({
   const tlConnected = params.tl_connected === "1"
   const tlError = params.tl_error
   const tlReason = params.tl_reason
+  const seConnected = params.se_connected === "1"
+  const seError = params.se_error
+  const seReason = params.se_reason
+  const gcConnected = params.gc_connected === "1"
+  const gcError = params.gc_error
+  const gcReason = params.gc_reason
 
   // Tables may not exist yet if migration hasn't run — fail gracefully
   let ouraToken = null
@@ -244,6 +259,73 @@ export default async function SettingsPage({
 
       {/* TrueLayer / Revolut */}
       <TruelayerManager />
+
+      {seConnected && (
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-green-400">Bank connected via Salt Edge!</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Choose your account below, then hit "Sync now" to pull transactions.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {seError && (
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-red-400">Salt Edge connection failed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {seError === "state_invalid"
+                ? "The sign-in state expired. Please try connecting again."
+                : seError === "missing_connection"
+                  ? "Salt Edge did not return a connection ID. Please try again."
+                  : seError === "session_error"
+                    ? "Could not create a Salt Edge session — check your SALTEDGE_APP_ID and SALTEDGE_SECRET."
+                    : `Error: ${seError}. Please try again.`}
+            </p>
+            {seReason && (
+              <p className="text-[11px] text-muted-foreground/60 mt-1 font-mono break-all">{seReason}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Salt Edge bank connection */}
+      <SaltedgeManager />
+
+      {gcConnected && (
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-green-400">Bank connected via GoCardless!</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Choose your account below, then hit "Sync now" to pull transactions.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {gcError && (
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-red-400">GoCardless connection failed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {gcError === "state_invalid"
+                ? "The sign-in state expired. Please try connecting again."
+                : gcError === "missing_ref"
+                  ? "GoCardless did not return a requisition ID. Please try again."
+                  : gcError === "requisition_error"
+                    ? "Could not create a GoCardless requisition — check your GOCARDLESS_SECRET_ID and GOCARDLESS_SECRET_KEY."
+                    : `Error: ${gcError}. Please try again.`}
+            </p>
+            {gcReason && (
+              <p className="text-[11px] text-muted-foreground/60 mt-1 font-mono break-all">{gcReason}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* GoCardless bank connection */}
+      <GocardlessManager />
+
+      {/* CSV import */}
+      <CsvImport />
 
       {stravaConnected && (
         <Card className="border-green-500/30 bg-green-500/5">
