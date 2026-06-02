@@ -124,6 +124,15 @@ export default async function SettingsPage({
   const plan = await getUserPlan(userId)
   const stripeReady = isStripeConfigured()
 
+  const sub = await prisma.subscription.findUnique({
+    where: { userId },
+    select: { status: true, currentPeriodEnd: true, cancelAtPeriodEnd: true },
+  }).catch(() => null)
+  const isTrialing = sub?.status === "trialing"
+  const trialDaysLeft = isTrialing && sub.currentPeriodEnd
+    ? Math.max(0, Math.ceil((sub.currentPeriodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : null
+
   const keyRows = keys.map((k) => ({
     id: k.id,
     name: k.name,
@@ -198,8 +207,14 @@ export default async function SettingsPage({
                 )}
               </div>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {plan === "pro"
-                  ? "You have access to all Pro features."
+                {isTrialing && trialDaysLeft !== null
+                  ? trialDaysLeft > 0
+                    ? `Free trial — ${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"} remaining. Add payment to keep Pro.`
+                    : "Trial ended. Add payment to keep Pro features."
+                  : plan === "pro"
+                  ? sub?.cancelAtPeriodEnd
+                    ? `Cancels ${sub.currentPeriodEnd ? sub.currentPeriodEnd.toLocaleDateString() : "soon"}.`
+                    : "You have access to all Pro features."
                   : "Upgrade to unlock unlimited history, daily AI insights, and more."}
               </p>
             </div>
