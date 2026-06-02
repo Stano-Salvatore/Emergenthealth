@@ -25,9 +25,10 @@ export async function GET(req: NextRequest) {
     callbackUrl,
   )
 
-  let tokens: Awaited<ReturnType<typeof oauth2.getToken>>["tokens"]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let tokens: any
   try {
-    const result = await oauth2.getToken(code)
+    const result = await oauth2.getToken(code) as any
     tokens = result.tokens
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)

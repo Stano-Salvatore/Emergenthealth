@@ -49,18 +49,21 @@ export default function ChatPage() {
   const [listening, setListening] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null)
 
   const startListening = useCallback(() => {
-    const SR = (window as unknown as { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition
-      ?? (window as unknown as { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any
+    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition
     if (!SR) return
 
     const rec = new SR()
     rec.continuous = false
     rec.interimResults = false
     rec.lang = "en-US"
-    rec.onresult = (e) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (e: any) => {
       const transcript = e.results[0][0].transcript
       setInput((prev) => prev ? prev + " " + transcript : transcript)
       setListening(false)

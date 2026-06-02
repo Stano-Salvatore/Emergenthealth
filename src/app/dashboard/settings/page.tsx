@@ -461,6 +461,10 @@ export default async function SettingsPage({
 
       {/* Danger zone */}
       <DeleteAccount />
+
+      <p className="text-center text-[11px] text-muted-foreground/40 pb-2">
+        Emergenthealth v1.0.0 · Built with ♥
+      </p>
     </div>
   )
 }
