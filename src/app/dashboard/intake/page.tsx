@@ -23,8 +23,10 @@ const QUICK_ADD = [
   { type: "coffee", label: "Americano", amount: 200, icon: "☕" },
   { type: "coffee", label: "Latte", amount: 300, icon: "☕" },
   { type: "tea", label: "Tea", amount: 250, icon: "🍵" },
-  { type: "alcohol", label: "Beer 330ml", amount: 330, icon: "🍺" },
-  { type: "alcohol", label: "Wine 150ml", amount: 150, icon: "🍷" },
+  { type: "beer",    label: "Beer 330ml", amount: 330, icon: "🍺" },
+  { type: "beer",    label: "Beer 500ml", amount: 500, icon: "🍺" },
+  { type: "wine",    label: "Wine 150ml", amount: 150, icon: "🍷" },
+  { type: "wine",    label: "Wine 250ml", amount: 250, icon: "🍷" },
 ]
 
 const TYPE_META: Record<string, { label: string; color: string; goal?: number; icon: React.ReactNode }> = {
@@ -32,6 +34,8 @@ const TYPE_META: Record<string, { label: string; color: string; goal?: number; i
   coffee:  { label: "Coffee",  color: "bg-amber-700",  goal: 400,  icon: <Coffee className="h-4 w-4 text-amber-600" /> },
   tea:     { label: "Tea",     color: "bg-green-600",              icon: <span className="text-sm">🍵</span> },
   alcohol: { label: "Alcohol", color: "bg-yellow-600",             icon: <Wine className="h-4 w-4 text-yellow-500" /> },
+  beer:    { label: "Beer",    color: "bg-yellow-500",             icon: <span className="text-sm">🍺</span> },
+  wine:    { label: "Wine",    color: "bg-rose-700",               icon: <span className="text-sm">🍷</span> },
   other:   { label: "Other",   color: "bg-slate-500",              icon: <Plus className="h-4 w-4 text-slate-400" /> },
 }
 
@@ -151,6 +155,8 @@ export default function IntakePage() {
   const coffeeTotal = (totals.coffee ?? 0) + (ouraTotals.coffee ?? 0)
   const teaTotal = (totals.tea ?? 0) + (ouraTotals.tea ?? 0)
   const alcoholTotal = (totals.alcohol ?? 0) + (ouraTotals.alcohol ?? 0)
+  const beerTotal = totals.beer ?? 0
+  const wineTotal = totals.wine ?? 0
 
   const dateLabel = isToday ? "Today" : format(new Date(date + "T12:00:00"), "EEE, MMM d")
 
@@ -177,13 +183,13 @@ export default function IntakePage() {
       </div>
 
       {/* summary cards */}
-      <div className={`grid gap-3 ${alcoholTotal > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
+      <div className={`grid gap-3 grid-cols-2 sm:grid-cols-${2 + (teaTotal > 0 ? 1 : 0) + (beerTotal > 0 ? 1 : 0) + (wineTotal > 0 ? 1 : 0) + (alcoholTotal > 0 ? 1 : 0)}`}>
         <SummaryCard label="Water" value={waterTotal} goal={2000} unit="ml" color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
         <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕" />
-        <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />
-        {alcoholTotal > 0 && (
-          <SummaryCard label="Alcohol" value={alcoholTotal} unit="ml" color="text-yellow-500" barColor="bg-yellow-600" emoji="🍺" />
-        )}
+        {teaTotal > 0 && <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />}
+        {beerTotal > 0 && <SummaryCard label="Beer" value={beerTotal} unit="ml" color="text-yellow-400" barColor="bg-yellow-500" emoji="🍺" />}
+        {wineTotal > 0 && <SummaryCard label="Wine" value={wineTotal} unit="ml" color="text-rose-400" barColor="bg-rose-700" emoji="🍷" />}
+        {alcoholTotal > 0 && <SummaryCard label="Alcohol" value={alcoholTotal} unit="ml" color="text-yellow-500" barColor="bg-yellow-600" emoji="🍷" />}
       </div>
 
       {/* 7-day water trend */}
