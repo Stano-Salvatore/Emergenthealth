@@ -2,12 +2,12 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const { id } = params
+  const { id } = await params
   const body = await req.json()
   const { status, rating, notes, pages, author, title, coverColor } = body
 
@@ -31,12 +31,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   return NextResponse.json(book)
 }
 
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const { id } = params
+  const { id } = await params
   const existing = await prisma.book.findFirst({ where: { id, userId } })
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
