@@ -76,7 +76,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <Menu className="h-4 w-4 text-muted-foreground" />
         </button>
 
-        <div className={cn("p-6 transition-[padding] duration-300", !open && "lg:pl-6 pl-14")}>
+        <div className={cn("p-6 pb-24 lg:pb-6 transition-[padding] duration-300", !open && "lg:pl-6 pl-14")}>
           {children}
         </div>
       </main>

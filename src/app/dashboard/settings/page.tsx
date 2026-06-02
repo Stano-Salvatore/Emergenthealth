@@ -428,7 +428,7 @@ export default async function SettingsPage({
       <FitKeyManager initialKeys={keyRows} />
 
       {/* Home screen & lock screen widgets */}
-      <WidgetSetup appUrl={appUrl} />
+      <WidgetSetup appUrl={appUrl} apiKey={keys[0]?.token} />
 
       {/* Feedback inbox */}
       <FeedbackInbox />

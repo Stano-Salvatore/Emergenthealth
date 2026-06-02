@@ -1,7 +1,7 @@
-const CACHE = "emergenthealth-v1"
+const CACHE = "emergenthealth-v2"
 
 // Static shell assets worth caching offline
-const PRECACHE = ["/", "/dashboard", "/offline"]
+const PRECACHE = ["/", "/dashboard", "/offline", "/signin", "/pricing"]
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
