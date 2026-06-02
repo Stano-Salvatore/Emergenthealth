@@ -10,7 +10,7 @@ import {
   Activity, Euro, Calendar, CheckSquare, Bell, Moon,
   Footprints, ChevronRight, Heart, Clock,
   TrendingUp, TrendingDown, Mail, Shield,
-  Wind, Flame, Droplets, Timer,
+  Wind, Flame, Droplets, Timer, Check,
 } from "lucide-react"
 import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"
 import { LiveClock } from "@/components/dashboard/LiveClock"
@@ -282,6 +282,16 @@ export default async function DashboardPage() {
   // ── mood
   const todayMood = todayMoodLogs[0]?.mood ?? null
 
+  // ── getting-started checklist (show until user has completed at least 3/4 steps)
+  const setupSteps = [
+    { done: healthLogs.length > 0,      label: "Connect Oura or log health data",  href: "/dashboard/settings", emoji: "🌿" },
+    { done: habits.length > 0,          label: "Create your first habit",           href: "/dashboard/habits",   emoji: "✅" },
+    { done: transactions.length > 0,    label: "Connect bank or import finances",   href: "/dashboard/settings", emoji: "💰" },
+    { done: hasCheckedInToday,           label: "Complete your morning check-in",    href: "/dashboard/checkin",  emoji: "🌅" },
+  ]
+  const setupDone = setupSteps.filter(s => s.done).length
+  const showSetup = setupDone < 3
+
   // ── wellness score
   const { score: wellnessScore, components: scoreComponents } = computeWellnessScore({
     sleepMin: latestHealth?.sleepDuration ?? null,
@@ -344,6 +354,31 @@ export default async function DashboardPage() {
             </CardContent>
           </Card>
         </Link>
+      )}
+
+      {showSetup && (
+        <Card className="border-amber-500/20 bg-amber-500/5">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm font-semibold">🚀 Getting started</span>
+              <span className="text-xs text-muted-foreground">({setupDone}/4 done)</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {setupSteps.map(step => (
+                <Link key={step.href + step.label} href={step.done ? "#" : step.href}
+                  className={`flex items-center gap-2.5 rounded-xl border px-3 py-2 text-sm transition-all ${
+                    step.done
+                      ? "border-green-500/30 bg-green-500/5 pointer-events-none"
+                      : "border-border hover:border-amber-500/40 hover:bg-amber-500/5 cursor-pointer"
+                  }`}>
+                  <span className="text-base shrink-0">{step.emoji}</span>
+                  <span className={`flex-1 text-xs font-medium ${step.done ? "line-through text-muted-foreground" : ""}`}>{step.label}</span>
+                  {step.done ? <Check className="h-3.5 w-3.5 text-green-400 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <PlaceDetector />
