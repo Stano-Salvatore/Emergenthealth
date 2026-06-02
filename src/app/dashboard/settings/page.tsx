@@ -13,6 +13,7 @@ import { YnabManager } from "@/components/settings/YnabManager"
 import { TruelayerManager } from "@/components/settings/TruelayerManager"
 import { SaltedgeManager } from "@/components/settings/SaltedgeManager"
 import { GocardlessManager } from "@/components/settings/GocardlessManager"
+import { CsvImport } from "@/components/settings/CsvImport"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
 import { DigestPreferences } from "@/components/settings/DigestPreferences"
@@ -322,6 +323,9 @@ export default async function SettingsPage({
 
       {/* GoCardless bank connection */}
       <GocardlessManager />
+
+      {/* CSV import */}
+      <CsvImport />
 
       {stravaConnected && (
         <Card className="border-green-500/30 bg-green-500/5">
