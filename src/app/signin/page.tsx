@@ -13,8 +13,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   Default: "An error occurred during sign-in. Please try again.",
 }
 
-export default function SignInPage({ searchParams }: { searchParams: { error?: string } }) {
-  const errorKey = searchParams.error ?? ""
+export default async function SignInPage({ searchParams }: { searchParams: Promise<{ error?: string }> }) {
+  const sp = await searchParams
+  const errorKey = sp.error ?? ""
   const errorMsg = ERROR_MESSAGES[errorKey] ?? (errorKey ? ERROR_MESSAGES.Default : null)
 
   return (
@@ -96,6 +97,12 @@ export default function SignInPage({ searchParams }: { searchParams: { error?: s
             Connects to Google Calendar &amp; Gmail.
             <br />
             Health data synced via Oura.
+          </p>
+          <p className="text-[11px] text-center text-muted-foreground/50">
+            By signing in you agree to our{" "}
+            <a href="/terms" className="underline hover:text-muted-foreground transition-colors">Terms</a>
+            {" "}and{" "}
+            <a href="/privacy" className="underline hover:text-muted-foreground transition-colors">Privacy Policy</a>
           </p>
         </div>
       </div>
