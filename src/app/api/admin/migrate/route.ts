@@ -190,6 +190,44 @@ const migrations: { label: string; sql: string }[] = [
     END $$;`,
   },
   { label: "YnabToken userId unique", sql: `CREATE UNIQUE INDEX IF NOT EXISTS "YnabToken_userId_key" ON "YnabToken"("userId")` },
+
+  // Stripe subscriptions
+  {
+    label: "Subscription table",
+    sql: `CREATE TABLE IF NOT EXISTS "Subscription" (
+      "id"                   TEXT NOT NULL PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      "userId"               TEXT NOT NULL UNIQUE,
+      "stripeCustomerId"     TEXT UNIQUE,
+      "stripeSubscriptionId" TEXT UNIQUE,
+      "stripePriceId"        TEXT,
+      "status"               TEXT NOT NULL DEFAULT 'free',
+      "currentPeriodEnd"     TIMESTAMPTZ,
+      "cancelAtPeriodEnd"    BOOLEAN NOT NULL DEFAULT false,
+      "createdAt"            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "updatedAt"            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT "Subscription_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
+    )`,
+  },
+
+  // WebAuthn passkeys
+  {
+    label: "Passkey table",
+    sql: `CREATE TABLE IF NOT EXISTS "Passkey" (
+      "id"           TEXT NOT NULL PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      "userId"       TEXT NOT NULL,
+      "credentialId" TEXT NOT NULL UNIQUE,
+      "publicKey"    BYTEA NOT NULL,
+      "counter"      BIGINT NOT NULL DEFAULT 0,
+      "deviceType"   TEXT NOT NULL DEFAULT 'singleDevice',
+      "backedUp"     BOOLEAN NOT NULL DEFAULT false,
+      "transports"   TEXT[] NOT NULL DEFAULT '{}',
+      "name"         TEXT NOT NULL DEFAULT 'Passkey',
+      "createdAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      "lastUsedAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT "Passkey_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
+    )`,
+  },
+  { label: "Passkey userId index", sql: `CREATE INDEX IF NOT EXISTS "Passkey_userId_idx" ON "Passkey"("userId")` },
 ]
 
 async function runMigrations() {
