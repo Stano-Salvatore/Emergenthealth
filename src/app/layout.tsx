@@ -29,12 +29,14 @@ export const metadata: Metadata = {
     siteName: "Emergenthealth",
     title: "Emergenthealth — Your health, finally in one place",
     description: "Connect your wearables, apps, and habits. See patterns you'd never notice alone.",
-    url: "https://emergenthealth.vercel.app",
+    url: "https://emergenthealth.app",
+    images: [{ url: "/opengraph-image", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Emergenthealth — Your health, finally in one place",
     description: "Connect your wearables, apps, and habits. See patterns you'd never notice alone.",
+    images: ["/opengraph-image"],
   },
   appleWebApp: {
     capable: true,
