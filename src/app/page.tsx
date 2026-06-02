@@ -33,12 +33,17 @@ export default async function HomePage() {
           <span className="text-lg font-semibold tracking-tight text-primary">
             ◉ Emergenthealth
           </span>
-          <Link
-            href="/signin"
-            className="text-sm text-muted-foreground transition-colors hover:opacity-80"
-          >
-            Sign in
-          </Link>
+          <div className="flex items-center gap-5">
+            <Link href="/pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Pricing
+            </Link>
+            <Link
+              href="/signin"
+              className="text-sm text-muted-foreground transition-colors hover:opacity-80"
+            >
+              Sign in
+            </Link>
+          </div>
         </nav>
 
         {/* Hero */}
@@ -143,12 +148,30 @@ export default async function HomePage() {
           </div>
         </section>
 
+        {/* Pricing teaser */}
+        <section className="max-w-3xl mx-auto px-6 pb-20 text-center">
+          <div className="rounded-2xl border border-border/80 bg-card/30 p-8 flex flex-col sm:flex-row items-center gap-6">
+            <div className="flex-1 text-left">
+              <p className="font-semibold mb-1">Free to start, Pro when you need more</p>
+              <p className="text-sm text-muted-foreground">
+                Free plan covers the basics. Pro unlocks unlimited history, daily AI insights, bank sync, and data export.
+              </p>
+            </div>
+            <Link
+              href="/pricing"
+              className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 transition-colors"
+            >
+              See pricing →
+            </Link>
+          </div>
+        </section>
+
         {/* FAQ */}
         {(() => {
           const faqs = [
             {
               q: "Is it free?",
-              a: "Yes — Emergenthealth is free to use. You connect your own accounts (Oura, YNAB, Strava, etc.) — no paid tiers.",
+              a: "Yes — the core features are free. A Pro plan (€6.99/month) unlocks unlimited history, daily AI insights, finance tracking, and data export. Free plan includes all the basics.",
             },
             {
               q: "What data sources does it support?",
@@ -168,7 +191,7 @@ export default async function HomePage() {
             },
             {
               q: "Is there a mobile app?",
-              a: "The web app works great on mobile via PWA. A native iOS/Android app is in the roadmap.",
+              a: "The web app works great on mobile as a PWA — install it on your home screen. A native Android app (via Median.co) is available for download now.",
             },
           ]
           return (

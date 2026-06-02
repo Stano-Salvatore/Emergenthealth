@@ -54,6 +54,7 @@ export default async function SettingsPage({
     gc_connected?: string
     gc_error?: string
     gc_reason?: string
+    upgraded?: string
   }>
 }) {
   const session = await auth()
@@ -76,6 +77,7 @@ export default async function SettingsPage({
   const gcConnected = params.gc_connected === "1"
   const gcError = params.gc_error
   const gcReason = params.gc_reason
+  const upgraded = params.upgraded === "1"
 
   // Tables may not exist yet if migration hasn't run — fail gracefully
   let ouraToken = null
@@ -134,6 +136,15 @@ export default async function SettingsPage({
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-muted-foreground text-sm mt-0.5">Manage integrations and API access</p>
       </div>
+
+      {upgraded && (
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-green-400">Welcome to Pro! 🎉</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Your subscription is active. All Pro features are now unlocked.</p>
+          </CardContent>
+        </Card>
+      )}
 
       {dbMissing && (
         <Card className="border-yellow-500/30 bg-yellow-500/5">
