@@ -339,6 +339,8 @@ export default function HabitsPage() {
     if (habit.completedToday) {
       await fetch(url, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dateStr }) })
     } else {
+      // Haptic feedback on completion
+      if ("vibrate" in navigator) navigator.vibrate([30, 20, 60])
       await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dateStr }) })
     }
     loadHabits()

@@ -23,6 +23,7 @@ export function QuickHabits({ habits }: { habits: Habit[] }) {
   async function toggle(id: string) {
     if (pending.has(id)) return
     const isDone = completed.has(id)
+    if (!isDone && "vibrate" in navigator) navigator.vibrate([30, 20, 60])
     setCompleted(prev => {
       const next = new Set(prev)
       isDone ? next.delete(id) : next.add(id)

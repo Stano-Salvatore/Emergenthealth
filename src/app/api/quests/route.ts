@@ -50,6 +50,20 @@ export async function GET() {
 
   const quests: Quest[] = []
 
+  // New-user bootstrap quest: no habits yet
+  if (habits.length === 0) {
+    quests.push({
+      id: "create_habit",
+      emoji: "🌱",
+      title: "Create your first habit",
+      desc: "Start building healthy routines",
+      done: false,
+      xp: 20,
+      type: "habit",
+      link: "/dashboard/habits",
+    })
+  }
+
   // Habit quests — pick up to 2 incomplete habits
   const incompleteHabits = habits.filter(h => !completedHabitIds.has(h.id))
   for (const h of incompleteHabits.slice(0, 2)) {

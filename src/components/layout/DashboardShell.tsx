@@ -8,6 +8,7 @@ import { CommandPalette } from "./CommandPalette"
 import { WhatsNewBanner } from "./WhatsNewBanner"
 import { FeedbackButton } from "@/components/dashboard/FeedbackButton"
 import { InstallPrompt } from "./InstallPrompt"
+import { AppSharePrompt } from "./AppSharePrompt"
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "sidebar-open"
@@ -87,6 +88,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <BottomNav />
       <FeedbackButton />
       <InstallPrompt />
+      <AppSharePrompt />
       <CommandPalette />
       <WhatsNewBanner />
     </div>
