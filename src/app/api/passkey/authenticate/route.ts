@@ -4,13 +4,16 @@ import {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } from "@simplewebauthn/server"
-import { encode } from "next-auth/jwt"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 const RP_ID = process.env.NEXT_PUBLIC_APP_URL?.replace(/^https?:\/\//, "").split(":")[0] ?? "localhost"
 const ORIGIN = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
 
 // GET: generate challenge for a passkey login attempt
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "unknown"
+  const { allowed } = checkRateLimit(ip, "passkey-challenge", 20, 60_000)
+  if (!allowed) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
   const options = await generateAuthenticationOptions({
     rpID: RP_ID,
     userVerification: "preferred",
@@ -32,6 +35,10 @@ export async function GET() {
 
 // POST: verify and sign in
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "unknown"
+  const { allowed } = checkRateLimit(ip, "passkey-verify", 10, 60_000)
+  if (!allowed) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
+
   const { response, tempToken } = await req.json()
 
   const challengeRecord = await prisma.userPreference.findUnique({

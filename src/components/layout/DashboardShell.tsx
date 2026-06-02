@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Menu } from "lucide-react"
 import { Sidebar } from "./Sidebar"
+import { BottomNav } from "./BottomNav"
 import { CommandPalette } from "./CommandPalette"
 import { WhatsNewBanner } from "./WhatsNewBanner"
 import { cn } from "@/lib/utils"
@@ -81,6 +82,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         </div>
       </main>
 
+      <BottomNav />
       <CommandPalette />
       <WhatsNewBanner />
     </div>

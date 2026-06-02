@@ -29,21 +29,23 @@ export async function POST(req: NextRequest) {
       if (!userId) break
 
       const subscription = await stripe.subscriptions.retrieve(session.subscription as string)
+      const item = subscription.items.data[0]
+      const periodEnd = item?.current_period_end ?? null
       await prisma.subscription.upsert({
         where: { userId },
         create: {
           userId,
           stripeCustomerId: session.customer as string,
           stripeSubscriptionId: subscription.id,
-          stripePriceId: subscription.items.data[0]?.price.id,
+          stripePriceId: item?.price.id,
           status: subscription.status,
-          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+          currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
         },
         update: {
           stripeSubscriptionId: subscription.id,
-          stripePriceId: subscription.items.data[0]?.price.id,
+          stripePriceId: item?.price.id,
           status: subscription.status,
-          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+          currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
         },
       })
       break
@@ -52,14 +54,14 @@ export async function POST(req: NextRequest) {
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription
-      const userId = subscription.metadata?.userId
-      if (!userId) break
+      const item = subscription.items.data[0]
+      const periodEnd = item?.current_period_end ?? null
 
       await prisma.subscription.updateMany({
         where: { stripeSubscriptionId: subscription.id },
         data: {
           status: subscription.status,
-          currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+          currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : null,
           cancelAtPeriodEnd: subscription.cancel_at_period_end,
         },
       })
@@ -68,7 +70,10 @@ export async function POST(req: NextRequest) {
 
     case "invoice.payment_failed": {
       const invoice = event.data.object as Stripe.Invoice
-      const subId = typeof invoice.subscription === "string" ? invoice.subscription : invoice.subscription?.id
+      const parentSub = invoice.parent?.type === "subscription_details"
+        ? invoice.parent.subscription_details?.subscription
+        : null
+      const subId = typeof parentSub === "string" ? parentSub : (parentSub as Stripe.Subscription | null)?.id
       if (!subId) break
       await prisma.subscription.updateMany({
         where: { stripeSubscriptionId: subId },

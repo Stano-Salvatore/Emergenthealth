@@ -61,8 +61,19 @@ export default function JournalPage() {
   const [newEmoji, setNewEmoji] = useState("📍")
   const [newPlaceNote, setNewPlaceNote] = useState("")
   const [addingCheckIn, setAddingCheckIn] = useState(false)
+  const [journalStreak, setJournalStreak] = useState<number | null>(null)
 
   const isToday = date === new Date().toISOString().split("T")[0]
+
+  useEffect(() => {
+    fetch("/api/streaks")
+      .then(r => r.json())
+      .then(d => {
+        const journalXp = d?.xp?.byCategory?.journal ?? 0
+        if (journalXp > 0) setJournalStreak(Math.floor(journalXp / 5))
+      })
+      .catch(() => {})
+  }, [])
 
   async function loadDay(d: string) {
     const dayStart = d
@@ -156,7 +167,14 @@ export default function JournalPage() {
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <BookOpen className="h-6 w-6 text-primary" /> Journal
           </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Daily reflection & location log</p>
+          <div className="flex items-center gap-3 mt-0.5">
+            <p className="text-muted-foreground text-sm">Daily reflection & location log</p>
+            {journalStreak !== null && journalStreak > 0 && (
+              <span className="text-xs text-amber-400 font-medium flex items-center gap-1">
+                🔥 {journalStreak} entries
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => changeDay(-1)}>
@@ -223,7 +241,14 @@ export default function JournalPage() {
             value={note.content}
             onChange={e => handleNoteChange(e.target.value)}
           />
-          <p className="text-[10px] text-muted-foreground mt-1.5">Auto-saves as you type</p>
+          <div className="flex items-center justify-between mt-1.5">
+            <p className="text-[10px] text-muted-foreground">Auto-saves as you type</p>
+            {note.content.trim() && (
+              <p className="text-[10px] text-muted-foreground">
+                {note.content.trim().split(/\s+/).filter(Boolean).length} words
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 

@@ -234,65 +234,77 @@ export default function CheckInPage() {
         )}
 
         {step === "done" && (
-          <Card className="border-primary/30 bg-primary/5">
-            <CardContent className="pt-8 pb-6 px-6 text-center">
-              <p className="text-4xl mb-3">✅</p>
-              <p className="text-xl font-semibold mb-1">All set for today!</p>
-              {existing ? (
-                <div className="mt-4 space-y-1.5 text-sm text-muted-foreground text-left bg-background/60 rounded-xl px-4 py-3">
-                  <p>
-                    <span className="font-medium text-foreground">Energy:</span>{" "}
-                    {ENERGY_OPTIONS.find(o => o.value === existing.energy)?.emoji}{" "}
-                    {ENERGY_OPTIONS.find(o => o.value === existing.energy)?.label}
-                  </p>
-                  <p>
-                    <span className="font-medium text-foreground">Mood:</span>{" "}
-                    {MOOD_OPTIONS.find(o => o.value === existing.mood)?.emoji}{" "}
-                    {MOOD_OPTIONS.find(o => o.value === existing.mood)?.label}
-                  </p>
-                  {existing.intention && (
+          <div className="space-y-4">
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="pt-8 pb-6 px-6 text-center">
+                <p className="text-4xl mb-3">✅</p>
+                <p className="text-xl font-semibold mb-1">All set for today!</p>
+                {existing ? (
+                  <div className="mt-4 space-y-1.5 text-sm text-muted-foreground text-left bg-background/60 rounded-xl px-4 py-3">
                     <p>
-                      <span className="font-medium text-foreground">Focus:</span>{" "}
-                      {existing.intention}
+                      <span className="font-medium text-foreground">Energy:</span>{" "}
+                      {ENERGY_OPTIONS.find(o => o.value === existing.energy)?.emoji}{" "}
+                      {ENERGY_OPTIONS.find(o => o.value === existing.energy)?.label}
                     </p>
-                  )}
-                  <p>
-                    <span className="font-medium text-foreground">Water goal:</span>{" "}
-                    {existing.waterGoalMl >= 1000 ? `${existing.waterGoalMl / 1000}L` : `${existing.waterGoalMl}ml`}
-                  </p>
-                </div>
-              ) : (
-                <div className="mt-4 space-y-1.5 text-sm text-muted-foreground text-left bg-background/60 rounded-xl px-4 py-3">
-                  <p>
-                    <span className="font-medium text-foreground">Energy:</span>{" "}
-                    {ENERGY_OPTIONS.find(o => o.value === energy)?.emoji}{" "}
-                    {ENERGY_OPTIONS.find(o => o.value === energy)?.label}
-                  </p>
-                  <p>
-                    <span className="font-medium text-foreground">Mood:</span>{" "}
-                    {MOOD_OPTIONS.find(o => o.value === mood)?.emoji}{" "}
-                    {MOOD_OPTIONS.find(o => o.value === mood)?.label}
-                  </p>
-                  {intention.trim() && (
                     <p>
-                      <span className="font-medium text-foreground">Focus:</span>{" "}
-                      {intention.trim()}
+                      <span className="font-medium text-foreground">Mood:</span>{" "}
+                      {MOOD_OPTIONS.find(o => o.value === existing.mood)?.emoji}{" "}
+                      {MOOD_OPTIONS.find(o => o.value === existing.mood)?.label}
                     </p>
-                  )}
-                  <p>
-                    <span className="font-medium text-foreground">Water goal:</span>{" "}
-                    {waterGoalMl >= 1000 ? `${waterGoalMl / 1000}L` : `${waterGoalMl}ml`}
-                  </p>
-                </div>
-              )}
-              <Link
-                href="/dashboard"
-                className="mt-6 inline-block text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                ← Back to dashboard
+                    {existing.intention && (
+                      <p>
+                        <span className="font-medium text-foreground">Focus:</span>{" "}
+                        {existing.intention}
+                      </p>
+                    )}
+                    <p>
+                      <span className="font-medium text-foreground">Water goal:</span>{" "}
+                      {existing.waterGoalMl >= 1000 ? `${existing.waterGoalMl / 1000}L` : `${existing.waterGoalMl}ml`}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-4 space-y-1.5 text-sm text-muted-foreground text-left bg-background/60 rounded-xl px-4 py-3">
+                    <p>
+                      <span className="font-medium text-foreground">Energy:</span>{" "}
+                      {ENERGY_OPTIONS.find(o => o.value === energy)?.emoji}{" "}
+                      {ENERGY_OPTIONS.find(o => o.value === energy)?.label}
+                    </p>
+                    <p>
+                      <span className="font-medium text-foreground">Mood:</span>{" "}
+                      {MOOD_OPTIONS.find(o => o.value === mood)?.emoji}{" "}
+                      {MOOD_OPTIONS.find(o => o.value === mood)?.label}
+                    </p>
+                    {intention.trim() && (
+                      <p>
+                        <span className="font-medium text-foreground">Focus:</span>{" "}
+                        {intention.trim()}
+                      </p>
+                    )}
+                    <p>
+                      <span className="font-medium text-foreground">Water goal:</span>{" "}
+                      {waterGoalMl >= 1000 ? `${waterGoalMl / 1000}L` : `${waterGoalMl}ml`}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Quick actions */}
+            <div className="grid grid-cols-2 gap-2">
+              <Link href="/dashboard/habits" className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium hover:bg-secondary/60 transition-colors active:scale-[0.97]">
+                <span className="text-lg">✅</span> Habits
               </Link>
-            </CardContent>
-          </Card>
+              <Link href="/dashboard/intake" className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium hover:bg-secondary/60 transition-colors active:scale-[0.97]">
+                <span className="text-lg">💧</span> Intake
+              </Link>
+              <Link href="/dashboard/journal" className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium hover:bg-secondary/60 transition-colors active:scale-[0.97]">
+                <span className="text-lg">📝</span> Journal
+              </Link>
+              <Link href="/dashboard" className="flex items-center gap-2.5 rounded-xl border border-border bg-card px-4 py-3 text-sm font-medium hover:bg-secondary/60 transition-colors active:scale-[0.97]">
+                <span className="text-lg">🏠</span> Dashboard
+              </Link>
+            </div>
+          </div>
         )}
       </div>
     </div>

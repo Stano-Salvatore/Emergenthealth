@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import webpush from "web-push"
 
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET
   if (secret) {
@@ -20,9 +23,21 @@ export async function GET(req: NextRequest) {
 
   webpush.setVapidDetails(email, publicKey, privateKey)
 
-  const subs = await prisma.$queryRaw<{ endpoint: string; p256dh: string; auth: string }[]>`
-    SELECT "endpoint", "p256dh", "auth" FROM "PushSubscription" LIMIT 1000
-  `.catch(() => [] as { endpoint: string; p256dh: string; auth: string }[])
+  const today = new Date().toISOString().split("T")[0]
+
+  // Only notify users who haven't done their morning check-in today
+  const subs = await prisma.$queryRaw<{ endpoint: string; p256dh: string; auth: string; userId: string }[]>`
+    SELECT ps."endpoint", ps."p256dh", ps."auth", ps."userId"
+    FROM "PushSubscription" ps
+    WHERE NOT EXISTS (
+      SELECT 1 FROM "MorningCheckIn" mc
+      WHERE mc."userId" = ps."userId"
+        AND mc."date"::date = ${today}::date
+    )
+    LIMIT 1000
+  `.catch(() => [] as { endpoint: string; p256dh: string; auth: string; userId: string }[])
+
+  if (!subs.length) return NextResponse.json({ ok: true, sent: 0, skipped: "all checked in" })
 
   const payload = JSON.stringify({
     title: "Good morning! 🌅",
@@ -37,7 +52,6 @@ export async function GET(req: NextRequest) {
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
         payload
       ).catch(async (err) => {
-        // Clean up expired subscriptions
         if (err.statusCode === 410) {
           await prisma.$executeRaw`
             DELETE FROM "PushSubscription" WHERE "endpoint" = ${sub.endpoint}
