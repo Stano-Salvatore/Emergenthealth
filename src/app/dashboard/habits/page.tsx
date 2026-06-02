@@ -316,11 +316,19 @@ export default function HabitsPage() {
     e.preventDefault()
     if (!newName.trim()) return
     setSaving(true)
-    await fetch("/api/habits", {
+    const res = await fetch("/api/habits", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: newName, color: newColor, reminderTime: newReminderTime || undefined }),
     })
+    if (res.status === 403) {
+      const body = await res.json().catch(() => ({}))
+      if (body.upgrade) {
+        setSaving(false)
+        window.location.href = "/pricing"
+        return
+      }
+    }
     setNewName(""); setNewReminderTime(""); setFormOpen(false); setSaving(false)
     loadHabits()
   }

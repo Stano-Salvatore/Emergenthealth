@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getUserPlan } from "@/lib/plan"
+
+const FREE_HABIT_LIMIT = 10
 
 export async function GET() {
   const session = await auth()
@@ -8,14 +11,16 @@ export async function GET() {
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const thirtyDaysAgo = new Date(today)
-  thirtyDaysAgo.setDate(today.getDate() - 30)
+  const plan = await getUserPlan(session.user.id)
+  const historyDays = plan === "pro" ? 730 : 30
+  const historyFrom = new Date(today)
+  historyFrom.setDate(today.getDate() - historyDays)
 
   const habits = await prisma.habit.findMany({
     where: { userId: session.user.id, isArchived: false },
     include: {
       completions: {
-        where: { date: { gte: thirtyDaysAgo } },
+        where: { date: { gte: historyFrom } },
         orderBy: { date: "desc" },
       },
     },
@@ -71,6 +76,15 @@ export async function POST(req: NextRequest) {
 
   const { name, description, color, icon, reminderTime } = await req.json()
   if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 })
+
+  // Enforce free-tier habit limit
+  const plan = await getUserPlan(session.user.id)
+  if (plan === "free") {
+    const count = await prisma.habit.count({ where: { userId: session.user.id, isArchived: false } })
+    if (count >= FREE_HABIT_LIMIT) {
+      return NextResponse.json({ error: "Free plan is limited to 10 habits. Upgrade to Pro for unlimited habits.", upgrade: true }, { status: 403 })
+    }
+  }
 
   const habit = await prisma.habit.create({
     data: {

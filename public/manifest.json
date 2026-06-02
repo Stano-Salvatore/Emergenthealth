@@ -36,6 +36,13 @@
       "purpose": "maskable"
     }
   ],
+  "share_target": {
+    "action": "/dashboard/journal",
+    "method": "GET",
+    "params": {
+      "text": "share"
+    }
+  },
   "shortcuts": [
     {
       "name": "Morning Check-in",

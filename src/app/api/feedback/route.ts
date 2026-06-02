@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { Resend } from "resend"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 
@@ -44,6 +45,9 @@ async function ensureTable() {
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { allowed } = checkRateLimit(session.user.id, "feedback", 5, 60 * 60 * 1000) // 5/hr
+  if (!allowed) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
   const { message, type = "suggestion" } = await req.json()
   if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { status: 400 })
