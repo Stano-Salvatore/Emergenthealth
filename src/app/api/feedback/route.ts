@@ -69,6 +69,12 @@ export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  // Only the app owner (configured via env) can read all feedback
+  const ownerEmail = process.env.FEEDBACK_NOTIFY_EMAIL ?? process.env.OWNER_EMAIL
+  if (!ownerEmail || session.user.email !== ownerEmail) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
+
   await ensureTable()
 
   const rows = await prisma.$queryRaw<{ id: string; userId: string; message: string; type: string; createdAt: Date }[]>`
@@ -86,12 +92,18 @@ export async function DELETE(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  const ownerEmail = process.env.FEEDBACK_NOTIFY_EMAIL ?? process.env.OWNER_EMAIL
+  const isOwner = ownerEmail && session.user.email === ownerEmail
+
   const { id } = await req.json()
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
 
-  await prisma.$executeRaw`
-    DELETE FROM "UserFeedback" WHERE id = ${id} AND "userId" = ${session.user.id}
-  `
+  // Owner can delete any; regular users can only delete their own
+  if (isOwner) {
+    await prisma.$executeRaw`DELETE FROM "UserFeedback" WHERE id = ${id}`
+  } else {
+    await prisma.$executeRaw`DELETE FROM "UserFeedback" WHERE id = ${id} AND "userId" = ${session.user.id}`
+  }
 
   return NextResponse.json({ ok: true })
 }
