@@ -138,7 +138,8 @@ export default function FocusPage() {
   const circumference = 2 * Math.PI * 90
 
   // stats
-  const todayStr = new Date().toISOString().split("T")[0]
+  const _now = new Date()
+  const todayStr = [_now.getFullYear(), String(_now.getMonth()+1).padStart(2,"0"), String(_now.getDate()).padStart(2,"0")].join("-")
   const todaySessions = sessions.filter(s => s.endedAt.startsWith(todayStr))
   const todayFocusMin = todaySessions.filter(s => s.type === "focus").reduce((a, s) => a + s.durationMin, 0)
   const weekFocusMin = sessions.filter(s => s.type === "focus").reduce((a, s) => a + s.durationMin, 0)

@@ -46,7 +46,7 @@ function lastNDays(n: number): string[] {
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date()
     d.setDate(d.getDate() - i)
-    days.push(d.toISOString().slice(0, 10))
+    days.push([d.getFullYear(), String(d.getMonth()+1).padStart(2,"0"), String(d.getDate()).padStart(2,"0")].join("-"))
   }
   return days
 }
@@ -159,7 +159,7 @@ function ListeningChart({ logs }: { logs: LastfmLogRow[] }) {
         {days.map((d, i) => {
           const v = values[i]
           const pct = v / max
-          const isToday = d === new Date().toISOString().slice(0, 10)
+          const _nt = new Date(); const isToday = d === [_nt.getFullYear(), String(_nt.getMonth()+1).padStart(2,"0"), String(_nt.getDate()).padStart(2,"0")].join("-")
           return (
             <div key={d} className="flex-1 flex flex-col items-center gap-1 group relative">
               {/* tooltip */}

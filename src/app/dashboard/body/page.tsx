@@ -87,7 +87,8 @@ export default function BodyPage() {
   const [heightInput, setHeightInput] = useState("")
   const [savingHeight, setSavingHeight] = useState(false)
 
-  const today = new Date().toISOString().split("T")[0]
+  const _td = new Date()
+  const today = [_td.getFullYear(), String(_td.getMonth()+1).padStart(2,"0"), String(_td.getDate()).padStart(2,"0")].join("-")
   const [form, setForm] = useState({
     date: today,
     weightKg: "",

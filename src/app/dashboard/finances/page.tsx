@@ -102,7 +102,7 @@ export default function FinancesPage() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [form, setForm] = useState({
-    date: now.toISOString().split("T")[0],
+    date: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`,
     payee: "",
     amount: "",
     isExpense: true,
@@ -222,7 +222,8 @@ export default function FinancesPage() {
         notes: form.notes || null,
       }),
     })
-    setForm({ date: now.toISOString().split("T")[0], payee: "", amount: "", isExpense: true, category: "Other", notes: "" })
+    const d = new Date()
+    setForm({ date: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`, payee: "", amount: "", isExpense: true, category: "Other", notes: "" })
     setFormOpen(false)
     setSaving(false)
     loadTransactions()

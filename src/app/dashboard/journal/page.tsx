@@ -334,7 +334,7 @@ export default function JournalPage() {
         <div className="flex gap-2 flex-wrap">
           {[0,1,2,3,4,5,6].map(d => {
             const dd = subDays(new Date(), d)
-            const str = dd.toISOString().split("T")[0]
+            const str = [dd.getFullYear(), String(dd.getMonth()+1).padStart(2,"0"), String(dd.getDate()).padStart(2,"0")].join("-")
             return (
               <button key={str} onClick={() => setDate(str)}
                 className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${
