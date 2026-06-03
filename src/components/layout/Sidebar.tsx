@@ -183,6 +183,7 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
                     >
                       <Link
                         href={href}
+                        onClick={() => { if (onClose && window.innerWidth < 1024) onClose() }}
                         className={cn(
                           "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150",
                           active
