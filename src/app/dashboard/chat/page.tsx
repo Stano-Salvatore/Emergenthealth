@@ -212,6 +212,7 @@ export default function ChatPage() {
             </button>
             <div className="grid grid-cols-1 gap-2 w-full max-w-sm">
               {[
+                "🌅 Log my morning check-in (I feel good and ready)",
                 "How was my sleep this week?",
                 "What habits am I missing today?",
                 "What did I spend the most on this month?",
