@@ -10,6 +10,8 @@ import { FeedbackButton } from "@/components/dashboard/FeedbackButton"
 import { InstallPrompt } from "./InstallPrompt"
 import { AppSharePrompt } from "./AppSharePrompt"
 import { TrialBanner } from "./TrialBanner"
+import { OfflineToast } from "./OfflineToast"
+import { RateAppPrompt } from "./RateAppPrompt"
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "sidebar-open"
@@ -93,6 +95,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <CommandPalette />
       <WhatsNewBanner />
       <TrialBanner />
+      <OfflineToast />
+      <RateAppPrompt />
     </div>
   )
 }
