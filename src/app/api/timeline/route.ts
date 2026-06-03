@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const nextDay = new Date(dateStr + "T00:00:00.000Z")
   nextDay.setDate(nextDay.getDate() + 1)
 
-  const [healthLog, mood, habits, habitCompletions, intake, focusSessions, dailyNote, tags] = await Promise.all([
+  const [healthLog, mood, habits, habitCompletions, intake, focusSessions, dailyNote, tags, checkinRows] = await Promise.all([
     prisma.healthLog.findFirst({
       where: { userId, date: dateObj },
       select: {
@@ -52,8 +52,15 @@ export async function GET(req: Request) {
       WHERE "userId" = ${userId} AND "day" = ${dateStr}
       ORDER BY "timestamp" ASC
     `.catch(() => []),
+    prisma.$queryRaw<{ energy: number; mood: number; intention: string | null; waterGoalMl: number }[]>`
+      SELECT "energy", "mood", "intention", "waterGoalMl"
+      FROM "MorningCheckIn"
+      WHERE "userId" = ${userId} AND "date" = ${dateStr}
+      LIMIT 1
+    `.catch(() => []),
   ])
 
+  const checkin = (checkinRows as { energy: number; mood: number; intention: string | null; waterGoalMl: number }[])[0] ?? null
   const completedIds = new Set(habitCompletions.map((c: { habitId: string }) => c.habitId))
 
   return NextResponse.json({
@@ -80,6 +87,7 @@ export async function GET(req: Request) {
       type: s.type,
     })),
     dailyNote: dailyNote ?? null,
+    checkin,
     tags: (tags as { id: string; tagName: string | null; text: string | null; timestamp: Date }[]).map(t => ({
       tagName: t.tagName,
       text: t.text,

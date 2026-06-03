@@ -44,7 +44,10 @@ export default async function WeekPage() {
   const prevWeekStart = subDays(weekStart, 7)
   const prevWeekEnd = subDays(weekStart, 1)
 
-  const [thisWeekLogs, prevWeekLogs, thisWeekHabits, thisWeekIntake, thisWeekFocus, moodLogs] = await Promise.all([
+  const weekStartStr = format(weekStart, "yyyy-MM-dd")
+  const todayStr = format(today, "yyyy-MM-dd")
+
+  const [thisWeekLogs, prevWeekLogs, thisWeekHabits, thisWeekIntake, thisWeekFocus, moodLogs, checkinRows] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: weekStart, lte: today } },
       orderBy: { date: "asc" },
@@ -80,6 +83,11 @@ export default async function WeekPage() {
       where: { userId, date: { gte: weekStart, lte: today } },
       orderBy: { date: "asc" },
     }),
+    prisma.$queryRaw<{ date: string; energy: number; mood: number }[]>`
+      SELECT "date", "energy", "mood" FROM "MorningCheckIn"
+      WHERE "userId" = ${userId} AND "date" >= ${weekStartStr} AND "date" <= ${todayStr}
+      ORDER BY "date" ASC
+    `.catch(() => [] as { date: string; energy: number; mood: number }[]),
   ])
 
   // Aggregate
@@ -135,6 +143,12 @@ export default async function WeekPage() {
 
   // Focus
   const totalFocusMin = thisWeekFocus.reduce((a: number, s: any) => a + s.durationMin, 0)
+
+  // Check-ins
+  const weekCheckins = checkinRows as { date: string; energy: number; mood: number }[]
+  const checkinCount = weekCheckins.length
+  const avgCheckinEnergy = checkinCount > 0 ? weekCheckins.reduce((s, c) => s + c.energy, 0) / checkinCount : null
+  const avgCheckinMood = checkinCount > 0 ? weekCheckins.reduce((s, c) => s + c.mood, 0) / checkinCount : null
 
   // Mood
   const moodAvg = moodLogs.length ? moodLogs.reduce((s, m) => s + m.mood, 0) / moodLogs.length : null
@@ -368,6 +382,49 @@ export default async function WeekPage() {
                       <div className={`w-full rounded-sm ${MOOD_COLORS[m.mood]}`}
                         style={{ height: `${m.mood * 12}px` }} />
                       <span className="text-[9px] text-muted-foreground">{format(m.date, "EEE")}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* morning check-in summary */}
+      {checkinCount > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">🌅 Morning check-ins</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-6 flex-wrap">
+              <div className="text-center">
+                <p className="text-2xl font-bold text-primary">{checkinCount}<span className="text-xs font-normal text-muted-foreground">/7</span></p>
+                <p className="text-[10px] text-muted-foreground">check-ins</p>
+              </div>
+              {avgCheckinEnergy != null && (
+                <div className="text-center">
+                  <p className="text-2xl font-bold">{avgCheckinEnergy.toFixed(1)}<span className="text-xs font-normal text-muted-foreground">/5</span></p>
+                  <p className="text-[10px] text-muted-foreground">avg energy</p>
+                </div>
+              )}
+              {avgCheckinMood != null && (
+                <div className="text-center">
+                  <p className="text-2xl font-bold">{avgCheckinMood.toFixed(1)}<span className="text-xs font-normal text-muted-foreground">/5</span></p>
+                  <p className="text-[10px] text-muted-foreground">avg mood</p>
+                </div>
+              )}
+              <div className="flex-1 flex items-end gap-2">
+                {weekCheckins.map(c => {
+                  const ENERGY_COLORS = ["","bg-red-500","bg-orange-500","bg-yellow-500","bg-green-500","bg-emerald-500"]
+                  return (
+                    <div key={c.date} className="flex-1 flex flex-col items-center gap-1">
+                      <div className={`w-full rounded-sm ${ENERGY_COLORS[c.energy] ?? "bg-primary"}`}
+                        style={{ height: `${c.energy * 10}px` }} />
+                      <span className="text-[9px] text-muted-foreground">
+                        {format(new Date(c.date + "T12:00:00"), "EEE")}
+                      </span>
                     </div>
                   )
                 })}

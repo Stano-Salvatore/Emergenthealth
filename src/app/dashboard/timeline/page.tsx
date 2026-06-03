@@ -22,6 +22,7 @@ interface HabitItem { name: string; color: string; emoji: string | null; complet
 interface IntakeItem { type: string; amountMl: number; loggedAt: string; note: string | null }
 interface FocusItem { label: string | null; durationMin: number; startedAt: string; endedAt: string; type: string }
 interface TagItem { tagName: string | null; text: string | null; timestamp: string }
+interface CheckInData { energy: number; mood: number; intention: string | null; waterGoalMl: number }
 interface DayData {
   date: string
   healthLog: HealthLog | null
@@ -30,6 +31,7 @@ interface DayData {
   intake: IntakeItem[]
   focusSessions: FocusItem[]
   dailyNote: { content: string } | null
+  checkin: CheckInData | null
   tags: TagItem[]
 }
 
@@ -424,6 +426,28 @@ export default function TimelinePage() {
             <Card>
               <CardContent className="pt-4 pb-4">
                 <HabitsSection habits={data.habits} />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Morning check-in */}
+          {data.checkin && (
+            <Card className="border-primary/20 bg-primary/5">
+              <CardContent className="pt-4 pb-4">
+                <p className="text-xs font-semibold text-muted-foreground/50 uppercase tracking-widest mb-3">🌅 Morning Check-in</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[
+                    { label: "Energy", value: `${["","😴","😪","😐","😊","⚡"][data.checkin.energy]} ${data.checkin.energy}/5` },
+                    { label: "Mood", value: `${["","😞","😟","😐","🙂","😄"][data.checkin.mood]} ${data.checkin.mood}/5` },
+                    { label: "Water Goal", value: data.checkin.waterGoalMl >= 1000 ? `${data.checkin.waterGoalMl / 1000}L` : `${data.checkin.waterGoalMl}ml` },
+                    ...(data.checkin.intention ? [{ label: "Intention", value: data.checkin.intention }] : []),
+                  ].map(({ label, value }) => (
+                    <div key={label} className="rounded-xl bg-background/60 px-3 py-2">
+                      <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-0.5">{label}</p>
+                      <p className="text-sm font-medium truncate">{value}</p>
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           )}
