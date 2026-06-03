@@ -5,6 +5,14 @@
       "schedule": "0 * * * *"
     },
     {
+      "path": "/api/cron/noon-reminder",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/evening-reminder",
+      "schedule": "0 * * * *"
+    },
+    {
       "path": "/api/cron/ynab",
       "schedule": "0 8 * * *"
     },

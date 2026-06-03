@@ -22,6 +22,10 @@ export function PushNotifications() {
   const [reminderHour, setReminderHour] = useState(7)
   const [savingHour, setSavingHour] = useState(false)
   const [hourSaved, setHourSaved] = useState(false)
+  const [noonReminderEnabled, setNoonReminderEnabled] = useState(true)
+  const [savingNoon, setSavingNoon] = useState(false)
+  const [eveningReminderEnabled, setEveningReminderEnabled] = useState(true)
+  const [savingEvening, setSavingEvening] = useState(false)
 
   useEffect(() => {
     const ok = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
@@ -32,10 +36,15 @@ export function PushNotifications() {
         reg.pushManager.getSubscription().then((sub) => setSubscribed(!!sub))
       ).catch(() => {})
     }
-    fetch("/api/preferences/reminder-time")
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.hour != null) setReminderHour(d.hour) })
-      .catch(() => {})
+    Promise.all([
+      fetch("/api/preferences/reminder-time").then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch("/api/preferences/noon-reminder").then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch("/api/preferences/evening-reminder").then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([timeData, noonData, eveningData]) => {
+      if (timeData?.hour != null) setReminderHour(timeData.hour)
+      if (noonData?.enabled != null) setNoonReminderEnabled(noonData.enabled)
+      if (eveningData?.enabled != null) setEveningReminderEnabled(eveningData.enabled)
+    })
   }, [])
 
   async function subscribe() {
@@ -104,6 +113,30 @@ export function PushNotifications() {
       setTestError(data.error ?? `Error ${res.status}`)
       setTestStatus("error")
     }
+  }
+
+  async function toggleNoonReminder() {
+    setSavingNoon(true)
+    const next = !noonReminderEnabled
+    setNoonReminderEnabled(next)
+    await fetch("/api/preferences/noon-reminder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
+    }).catch(() => {})
+    setSavingNoon(false)
+  }
+
+  async function toggleEveningReminder() {
+    setSavingEvening(true)
+    const next = !eveningReminderEnabled
+    setEveningReminderEnabled(next)
+    await fetch("/api/preferences/evening-reminder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
+    }).catch(() => {})
+    setSavingEvening(false)
   }
 
   async function saveReminderHour(h: number) {
@@ -179,6 +212,48 @@ export function PushNotifications() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Noon intention reminder */}
+            <div className="flex items-center justify-between pt-1 border-t border-border/30">
+              <div>
+                <p className="text-xs font-medium">Noon intention reminder</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Reminds you of your morning intention at 12pm</p>
+              </div>
+              <button
+                onClick={toggleNoonReminder}
+                disabled={savingNoon}
+                className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ${
+                  noonReminderEnabled ? "bg-primary" : "bg-secondary"
+                }`}
+                role="switch"
+                aria-checked={noonReminderEnabled}
+              >
+                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  noonReminderEnabled ? "translate-x-4" : "translate-x-0.5"
+                }`} />
+              </button>
+            </div>
+
+            {/* Evening reflection reminder */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium">Evening reflection reminder</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Journal nudge at 9pm if you haven&apos;t written today</p>
+              </div>
+              <button
+                onClick={toggleEveningReminder}
+                disabled={savingEvening}
+                className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ${
+                  eveningReminderEnabled ? "bg-primary" : "bg-secondary"
+                }`}
+                role="switch"
+                aria-checked={eveningReminderEnabled}
+              >
+                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  eveningReminderEnabled ? "translate-x-4" : "translate-x-0.5"
+                }`} />
+              </button>
             </div>
 
             {/* Test notification */}
