@@ -775,12 +775,19 @@ export default function HabitsPage() {
           ))}
         </div>
       ) : habits.length === 0 ? (
-        <EmptyState
-          icon={<CheckSquare className="h-10 w-10" />}
-          title="No habits yet"
-          description="Add your first habit to start tracking streaks."
-          action={{ label: "New Habit", onClick: () => setFormOpen(true) }}
-        />
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/50 px-8 py-16 text-center">
+          <div className="mb-3 text-5xl leading-none select-none">🌱</div>
+          <h3 className="text-base font-semibold text-foreground">No habits yet</h3>
+          <p className="mt-2 max-w-xs text-sm text-muted-foreground leading-relaxed">
+            Start small — add one habit you want to build. Your garden grows as you stay consistent.
+          </p>
+          <button
+            onClick={() => setFormOpen(true)}
+            className="mt-5 inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+          >
+            <Plus className="h-4 w-4" /> Add your first habit
+          </button>
+        </div>
       ) : (
         <div className="space-y-6">
           {regularHabits.length > 0 && (

@@ -206,7 +206,15 @@ export default function StatsPage() {
     </div>
   )
 
-  if (!data) return <p className="text-muted-foreground">Failed to load stats.</p>
+  if (!data) return (
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/50 px-8 py-20 text-center max-w-3xl">
+      <div className="mb-3 text-5xl leading-none select-none">📊</div>
+      <h3 className="text-base font-semibold text-foreground">Could not load insights</h3>
+      <p className="mt-2 max-w-xs text-sm text-muted-foreground">
+        Something went wrong fetching your stats. Try refreshing the page.
+      </p>
+    </div>
+  )
 
   const { dowStats, focusDowStats, trendData, bestSleepDay, bestStepsDay, bestReadinessDay, bestHrvDay,
     waterStreak, totalFocusMin30, stepStreak, sleepStreak, hrvTrend, hrvAvg7,
@@ -248,6 +256,36 @@ export default function StatsPage() {
           </div>
         )}
       </div>
+
+      {dataPoints === 0 && (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/50 px-8 py-20 text-center">
+          <div className="mb-3 text-5xl leading-none select-none">📈</div>
+          <h3 className="text-base font-semibold text-foreground">No insights yet</h3>
+          <p className="mt-2 max-w-xs text-sm text-muted-foreground leading-relaxed">
+            Insights appear once you have at least 7 days of health data. Log your sleep, steps, and readiness to unlock correlations.
+          </p>
+          <div className="mt-4 flex flex-col gap-2 text-sm text-muted-foreground text-left">
+            <span className="flex items-start gap-2">
+              <span className="text-primary shrink-0">•</span>
+              <span>
+                Connect Oura Ring in{" "}
+                <a href="/dashboard/settings" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">
+                  Settings → Integrations
+                </a>
+              </span>
+            </span>
+            <span className="flex items-start gap-2">
+              <span className="text-primary shrink-0">•</span>
+              <span>
+                Or log manually on the{" "}
+                <a href="/dashboard/health" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">
+                  Health page
+                </a>
+              </span>
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ── Key findings strip (strong/moderate only) ── */}
       {strongCorrelations.length > 0 && (

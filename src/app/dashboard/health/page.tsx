@@ -182,9 +182,24 @@ export default async function HealthPage() {
       {logs.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <Moon className="h-10 w-10 text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">No health data yet</p>
-            <p className="text-sm text-muted-foreground mt-1">Connect your Oura Ring in Settings and sync, or click &quot;Log Day&quot;</p>
+            <div className="mb-3 text-5xl leading-none select-none">🌙</div>
+            <h3 className="text-base font-semibold text-foreground">No health data yet</h3>
+            <p className="mt-2 text-sm text-muted-foreground">Get started with one of these options:</p>
+            <ul className="mt-3 space-y-2 text-sm text-muted-foreground text-left">
+              <li className="flex items-start gap-2">
+                <span className="text-primary mt-0.5 shrink-0">•</span>
+                <span>
+                  Connect Oura Ring in{" "}
+                  <a href="/dashboard/settings" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">
+                    Settings → Integrations
+                  </a>
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-primary mt-0.5 shrink-0">•</span>
+                <span>Or click <span className="font-medium text-foreground">&quot;Log Day&quot;</span> to add data manually</span>
+              </li>
+            </ul>
           </CardContent>
         </Card>
       ) : (
