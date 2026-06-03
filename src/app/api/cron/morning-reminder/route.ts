@@ -49,13 +49,6 @@ export async function GET(req: NextRequest) {
 
   if (!subs.length) return NextResponse.json({ ok: true, sent: 0 })
 
-  const payload = JSON.stringify({
-    title: "Good morning! 🌅",
-    body: "Time for your morning check-in. How are you feeling today?",
-    url: "/dashboard/checkin",
-    tag: "morning-checkin",
-  })
-
   let sent = 0
 
   for (const sub of subs) {
@@ -78,10 +71,36 @@ export async function GET(req: NextRequest) {
     `.catch(() => [] as { id: string }[])
     if (checkedIn.length > 0) continue
 
+    // Get streak for personalised message
+    const recentCheckins = await prisma.$queryRaw<{ date: string }[]>`
+      SELECT "date" FROM "MorningCheckIn"
+      WHERE "userId" = ${sub.userId} AND "date" < ${localDate}
+      ORDER BY "date" DESC LIMIT 30
+    `.catch(() => [] as { date: string }[])
+    const dateSet = new Set(recentCheckins.map(r => r.date))
+    let streak = 0
+    const cur = new Date(localDate)
+    cur.setDate(cur.getDate() - 1)
+    while (dateSet.has(cur.toISOString().slice(0, 10))) {
+      streak++
+      cur.setDate(cur.getDate() - 1)
+    }
+
+    const personalPayload = JSON.stringify({
+      title: streak >= 3 ? `🔥 ${streak}-day streak!` : "Good morning! 🌅",
+      body: streak >= 3
+        ? `Don't break your ${streak}-day check-in streak! Log your energy & mood now.`
+        : streak === 1
+        ? "Day 2! Keep the momentum — log your morning check-in."
+        : "Time for your morning check-in. How are you feeling today?",
+      url: "/dashboard/checkin",
+      tag: "morning-checkin",
+    })
+
     try {
       await webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        payload
+        personalPayload
       )
       sent++
     } catch (err: unknown) {

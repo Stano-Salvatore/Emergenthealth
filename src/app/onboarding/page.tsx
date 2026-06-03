@@ -142,7 +142,7 @@ export default function OnboardingPage() {
     } catch {
       // non-fatal — still redirect
     }
-    router.push("/dashboard")
+    router.push("/dashboard/checkin")
   }
 
   return (
