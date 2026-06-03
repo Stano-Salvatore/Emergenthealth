@@ -249,10 +249,22 @@ export default function StatsPage() {
         )}
       </div>
 
-      {/* ── AI snapshot ── */}
-      <AIPanel />
+      {/* ── Key findings strip (strong/moderate only) ── */}
+      {strongCorrelations.length > 0 && (
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+          <p className="text-xs font-bold uppercase tracking-widest text-primary mb-3">Key findings</p>
+          <div className="space-y-2">
+            {strongCorrelations.slice(0, 3).map(c => (
+              <div key={c.key} className="flex items-start gap-2">
+                <span className="text-sm shrink-0">{c.emoji}</span>
+                <p className="text-sm leading-snug break-words min-w-0">{c.insight}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
-      {/* ── Correlations ── */}
+      {/* ── All Correlations ── */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium">Correlations</CardTitle>
@@ -263,18 +275,15 @@ export default function StatsPage() {
             <CorrRow key={c.key} c={c} />
           ))}
 
-          {/* Custom metric correlations */}
           {customCorrelations.length > 0 && (
-            <>
-              <div className="pt-2 border-t border-border/40">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
-                  📐 Your trackers
-                </p>
-                <div className="space-y-4">
-                  {customCorrelations.map(c => <CorrRow key={c.key} c={c} />)}
-                </div>
+            <div className="pt-2 border-t border-border/40">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
+                📐 Your trackers
+              </p>
+              <div className="space-y-4">
+                {customCorrelations.map(c => <CorrRow key={c.key} c={c} />)}
               </div>
-            </>
+            </div>
           )}
 
           {customCorrelations.length === 0 && (
@@ -341,20 +350,8 @@ export default function StatsPage() {
         </CardContent>
       </Card>
 
-      {/* ── Top insights strip (strong/moderate only) ── */}
-      {strongCorrelations.length > 0 && (
-        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-          <p className="text-xs font-bold uppercase tracking-widest text-primary mb-3">Key findings</p>
-          <div className="space-y-2">
-            {strongCorrelations.slice(0, 3).map(c => (
-              <div key={c.key} className="flex items-start gap-2">
-                <span className="text-sm shrink-0">{c.emoji}</span>
-                <p className="text-sm leading-snug break-words min-w-0">{c.insight}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* ── AI snapshot ── */}
+      <AIPanel />
 
       {/* ── Week-over-week trends ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
