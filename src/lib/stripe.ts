@@ -5,6 +5,7 @@ export const stripe = process.env.STRIPE_SECRET_KEY
   : null
 
 export const STRIPE_PRO_PRICE_ID = process.env.STRIPE_PRO_PRICE_ID ?? ""
+export const STRIPE_PRO_ANNUAL_PRICE_ID = process.env.STRIPE_PRO_ANNUAL_PRICE_ID ?? ""
 
 export function isStripeConfigured() {
   return !!process.env.STRIPE_SECRET_KEY && !!process.env.STRIPE_PRO_PRICE_ID

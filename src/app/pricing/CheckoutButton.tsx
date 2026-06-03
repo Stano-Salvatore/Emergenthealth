@@ -3,7 +3,13 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 
-export function CheckoutButton({ stripeReady, isSignedIn }: { stripeReady: boolean; isSignedIn: boolean }) {
+interface CheckoutButtonProps {
+  stripeReady: boolean
+  isSignedIn: boolean
+  period?: "monthly" | "annual"
+}
+
+export function CheckoutButton({ stripeReady, isSignedIn, period = "monthly" }: CheckoutButtonProps) {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
 
@@ -16,7 +22,11 @@ export function CheckoutButton({ stripeReady, isSignedIn }: { stripeReady: boole
 
     setLoading(true)
     try {
-      const res = await fetch("/api/stripe/checkout", { method: "POST" })
+      const res = await fetch("/api/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ period }),
+      })
       const { url } = await res.json()
       if (url) window.location.href = url
     } finally {

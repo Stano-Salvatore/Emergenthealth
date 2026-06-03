@@ -111,6 +111,7 @@ export default function IntakePage() {
   }, [])
 
   async function addEntry(type: string, amountMl: number) {
+    if ("vibrate" in navigator) navigator.vibrate(20)
     setAdding(`${type}-${amountMl}`)
     await fetch("/api/intake", {
       method: "POST",

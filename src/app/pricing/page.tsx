@@ -3,7 +3,7 @@ import type { Metadata } from "next"
 import { auth } from "@/auth"
 import { getUserPlan } from "@/lib/plan"
 import { isStripeConfigured } from "@/lib/stripe"
-import { CheckoutButton } from "./CheckoutButton"
+import { PricingToggle } from "./PricingToggle"
 
 export const metadata: Metadata = {
   title: "Pricing — Emergenthealth",
@@ -61,86 +61,13 @@ export default async function PricingPage() {
           )}
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* Free */}
-          <div className="rounded-2xl border border-border bg-card p-8">
-            <div className="mb-6">
-              <h2 className="text-xl font-bold mb-1">Free</h2>
-              <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-bold">€0</span>
-                <span className="text-muted-foreground">/month</span>
-              </div>
-              <p className="text-sm text-muted-foreground mt-2">
-                Everything you need to get started.
-              </p>
-            </div>
-
-            <ul className="space-y-3 mb-8">
-              {FREE_FEATURES.map(f => (
-                <li key={f} className="flex items-start gap-2.5 text-sm">
-                  <span className="text-green-500 mt-0.5 shrink-0">✓</span>
-                  <span>{f}</span>
-                </li>
-              ))}
-            </ul>
-
-            {plan === "free" ? (
-              <div className="w-full rounded-xl border border-border/60 bg-secondary/30 py-3 text-center text-sm text-muted-foreground">
-                Current plan
-              </div>
-            ) : (
-              <Link
-                href="/dashboard"
-                className="block w-full rounded-xl border border-border/60 bg-secondary/30 py-3 text-center text-sm text-muted-foreground hover:bg-secondary/60 transition-colors"
-              >
-                Go to dashboard →
-              </Link>
-            )}
-          </div>
-
-          {/* Pro */}
-          <div className="rounded-2xl border border-primary/40 bg-card p-8 relative overflow-hidden">
-            <div
-              className="absolute inset-0 pointer-events-none opacity-30"
-              style={{ background: "radial-gradient(ellipse at top right, color-mix(in srgb, var(--primary) 20%, transparent), transparent 70%)" }}
-            />
-
-            <div className="relative mb-6">
-              <div className="flex items-center gap-2 mb-2">
-                <h2 className="text-xl font-bold">Pro</h2>
-                <span className="rounded-full bg-primary/20 text-primary text-xs font-semibold px-2.5 py-0.5">
-                  14-day free trial
-                </span>
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-4xl font-bold">€6.99</span>
-                <span className="text-muted-foreground">/month</span>
-              </div>
-              <p className="text-sm text-muted-foreground mt-2">
-                Or €59/year — save 30%.
-              </p>
-            </div>
-
-            <ul className="relative space-y-3 mb-8">
-              {PRO_FEATURES.map(f => (
-                <li key={f} className="flex items-start gap-2.5 text-sm">
-                  <span className="text-primary mt-0.5 shrink-0">✓</span>
-                  <span>{f}</span>
-                </li>
-              ))}
-            </ul>
-
-            <div className="relative">
-              {plan === "pro" ? (
-                <div className="w-full rounded-xl bg-primary/10 border border-primary/30 py-3 text-center text-sm text-primary font-medium">
-                  ✓ Active — manage in settings
-                </div>
-              ) : (
-                <CheckoutButton stripeReady={stripeReady} isSignedIn={!!session?.user} />
-              )}
-            </div>
-          </div>
-        </div>
+        <PricingToggle
+          plan={plan}
+          stripeReady={stripeReady}
+          isSignedIn={!!session?.user}
+          freeFeatures={FREE_FEATURES}
+          proFeatures={PRO_FEATURES}
+        />
 
         <div className="mt-12 text-center space-y-2 text-sm text-muted-foreground">
           <p>Cancel anytime. No questions asked.</p>

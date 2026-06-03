@@ -9,7 +9,7 @@ import { Progress } from "@/components/ui/progress"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
-import { CheckSquare, Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X } from "lucide-react"
+import { CheckSquare, Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X, Zap } from "lucide-react"
 import { EmptyState } from "@/components/ui/EmptyState"
 import { cn } from "@/lib/utils"
 import { format, subDays } from "date-fns"
@@ -292,6 +292,7 @@ export default function HabitsPage() {
   const [newColor, setNewColor] = useState(COLORS[0])
   const [newReminderTime, setNewReminderTime] = useState("")
   const [saving, setSaving] = useState(false)
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [vacation, setVacation] = useState<{ active: boolean; from: string; until: string } | null>(null)
   const [showVacation, setShowVacation] = useState(false)
   const [vacFrom, setVacFrom] = useState(() => localDateStr())
@@ -325,7 +326,8 @@ export default function HabitsPage() {
       const body = await res.json().catch(() => ({}))
       if (body.upgrade) {
         setSaving(false)
-        window.location.href = "/pricing"
+        setFormOpen(false)
+        setShowUpgradeModal(true)
         return
       }
     }
@@ -366,6 +368,46 @@ export default function HabitsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Upgrade modal */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowUpgradeModal(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-card border border-primary/30 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div className="h-10 w-10 rounded-xl bg-primary/15 flex items-center justify-center">
+                <Zap className="h-5 w-5 text-primary" />
+              </div>
+              <button onClick={() => setShowUpgradeModal(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <h3 className="text-lg font-bold mb-1">You&apos;ve hit the free limit</h3>
+            <p className="text-sm text-muted-foreground mb-5">
+              Free plan supports up to 10 habits. Upgrade to Pro for unlimited habits, full history, and daily AI insights.
+            </p>
+            <div className="space-y-2.5 mb-5 text-sm">
+              {["Unlimited habits & routines", "Full data history", "Daily AI insights", "Finance tracking"].map(f => (
+                <div key={f} className="flex items-center gap-2">
+                  <span className="text-primary">✓</span>
+                  <span>{f}</span>
+                </div>
+              ))}
+            </div>
+            <a
+              href="/pricing"
+              className="block w-full rounded-xl bg-primary py-3 text-center text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+            >
+              Start 14-day free trial →
+            </a>
+            <button
+              onClick={() => setShowUpgradeModal(false)}
+              className="mt-2.5 block w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Maybe later
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold">Habits</h1>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { stripe, STRIPE_PRO_PRICE_ID, isStripeConfigured } from "@/lib/stripe"
+import { stripe, STRIPE_PRO_PRICE_ID, STRIPE_PRO_ANNUAL_PRICE_ID, isStripeConfigured } from "@/lib/stripe"
 import { prisma } from "@/lib/prisma"
 
 export async function POST(req: NextRequest) {
@@ -32,11 +32,15 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  const body = await req.json().catch(() => ({}))
+  const period = body.period === "annual" ? "annual" : "monthly"
+  const priceId = period === "annual" && STRIPE_PRO_ANNUAL_PRICE_ID ? STRIPE_PRO_ANNUAL_PRICE_ID : STRIPE_PRO_PRICE_ID
+
   const checkoutSession = await stripe.checkout.sessions.create({
     customer: customerId,
     mode: "subscription",
     payment_method_types: ["card"],
-    line_items: [{ price: STRIPE_PRO_PRICE_ID, quantity: 1 }],
+    line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${appUrl}/dashboard/settings?upgraded=1`,
     cancel_url: `${appUrl}/pricing`,
     allow_promotion_codes: true,
