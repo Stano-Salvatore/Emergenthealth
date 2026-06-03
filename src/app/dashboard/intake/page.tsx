@@ -75,7 +75,19 @@ export default function IntakePage() {
   const [adding, setAdding] = useState<string | null>(null)
   const [date, setDate] = useState(() => localDateStr())
   const [weekData, setWeekData] = useState<WeekDay[]>([])
+  const [waterGoal, setWaterGoal] = useState(2000)
   const isToday = date === localDateStr()
+
+  // Load check-in water goal for today
+  useEffect(() => {
+    const today = localDateStr()
+    fetch(`/api/morning-checkin?date=${today}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.checkin?.waterGoalMl) setWaterGoal(data.checkin.waterGoalMl)
+      })
+      .catch(() => {})
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -182,7 +194,7 @@ export default function IntakePage() {
 
       {/* summary cards */}
       <div className={`grid gap-3 grid-cols-2 sm:grid-cols-${2 + (teaTotal > 0 ? 1 : 0) + (beerTotal > 0 ? 1 : 0) + (wineTotal > 0 ? 1 : 0) + (alcoholTotal > 0 ? 1 : 0)}`}>
-        <SummaryCard label="Water" value={waterTotal} goal={2000} unit="ml" color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
+        <SummaryCard label="Water" value={waterTotal} goal={waterGoal} unit="ml" color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
         <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕" />
         {teaTotal > 0 && <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />}
         {beerTotal > 0 && <SummaryCard label="Beer" value={beerTotal} unit="ml" color="text-yellow-400" barColor="bg-yellow-500" emoji="🍺" />}
@@ -196,9 +208,9 @@ export default function IntakePage() {
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">7-day water trend</p>
           <div className="flex items-end gap-1.5 h-16">
             {weekData.map(d => {
-              const pct = Math.min(100, (d.waterMl / 2000) * 100)
+              const pct = Math.min(100, (d.waterMl / waterGoal) * 100)
               const isSelected = d.date === date
-              const goalMet = d.waterMl >= 2000
+              const goalMet = d.waterMl >= waterGoal
               return (
                 <button key={d.date} onClick={() => setDate(d.date)}
                   className="flex-1 flex flex-col items-center gap-0.5 group">
@@ -216,8 +228,8 @@ export default function IntakePage() {
             })}
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-            <span>Goal: 2L/day</span>
-            <span>{weekData.filter(d => d.waterMl >= 2000).length}/7 days ✓</span>
+            <span>Goal: {waterGoal >= 1000 ? `${waterGoal / 1000}L` : `${waterGoal}ml`}/day</span>
+            <span>{weekData.filter(d => d.waterMl >= waterGoal).length}/7 days ✓</span>
           </div>
         </div>
       )}
