@@ -26,6 +26,7 @@ import { QuickHabits } from "@/components/dashboard/QuickHabits"
 import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
 import { InsightCard } from "@/components/dashboard/InsightCard"
 import { TodayCard } from "@/components/dashboard/TodayCard"
+import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
 
 const STEP_GOAL = 8_000
@@ -750,6 +751,7 @@ export default async function DashboardPage() {
     location: <LocationCard />,
     ac: <AcCard />,
     quests: <DailyQuests />,
+    quickstart: <QuickStart hasCheckin={hasCheckedInToday} hasHabits={habits.length > 0} />,
   }
 
   return <DashboardGrid header={header} blocks={blocks} />
