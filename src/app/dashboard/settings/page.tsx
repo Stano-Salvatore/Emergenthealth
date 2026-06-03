@@ -26,6 +26,7 @@ import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
 import { WidgetSetup } from "@/components/settings/WidgetSetup"
 import { DeleteAccount } from "@/components/settings/DeleteAccount"
 import { PushNotifications } from "@/components/settings/PushNotifications"
+import { WidgetSetupCapacitor } from "@/components/settings/WidgetSetupCapacitor"
 import { TimezoneDetector } from "@/components/settings/TimezoneDetector"
 import { WeatherLocation } from "@/components/settings/WeatherLocation"
 import { PasskeyManager } from "@/components/settings/PasskeyManager"
@@ -250,6 +251,10 @@ export default async function SettingsPage({
 
       {/* Push notifications */}
       <PushNotifications />
+
+      {/* Android home screen widget */}
+      <WidgetSetupCapacitor />
+
       <TimezoneDetector />
       <WeatherLocation />
 
