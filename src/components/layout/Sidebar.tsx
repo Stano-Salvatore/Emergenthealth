@@ -35,6 +35,7 @@ const navGroups: NavGroup[] = [
       { href: "/dashboard/intake",       label: "Intake",      emoji: "🥤" },
       { href: "/dashboard/journal",      label: "Journal",     emoji: "📝" },
       { href: "/dashboard/focus",        label: "Focus",       emoji: "🎯" },
+      { href: "/dashboard/fasting",      label: "Fasting",     emoji: "⏱️" },
     ],
   },
   {
