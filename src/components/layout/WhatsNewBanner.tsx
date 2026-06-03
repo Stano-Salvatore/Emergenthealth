@@ -3,14 +3,14 @@
 import { useEffect, useState } from "react"
 import { X, Sparkles } from "lucide-react"
 
-const RELEASE_KEY = "whats_new_dismissed_v10"
+const RELEASE_KEY = "whats_new_dismissed_v11"
 
 const HIGHLIGHTS = [
-  "🔔 Custom reminder time — set your morning check-in hour",
-  "🌤️ Noon intention reminder — midday nudge from your morning goal",
-  "🤖 AI weekly review — one-click personalized week summary",
-  "💧 Smart water goal — intake page uses your check-in water target",
-  "🔥 Streak engine improvements — faster, more accurate streaks",
+  "🤖 Daily AI Briefing — personalized morning note on your dashboard",
+  "🍅 Pomodoro Timer — focus sessions with auto-logging",
+  "📊 Mood Patterns — 7-day mood chart on This Week",
+  "💊 Medication tracking — add meds as habits with dose",
+  "🗂️ Collapsible sidebar — cleaner navigation",
 ]
 
 export function WhatsNewBanner() {
@@ -32,7 +32,7 @@ export function WhatsNewBanner() {
     <div className="fixed bottom-20 left-4 lg:left-auto lg:bottom-4 lg:right-4 z-40 w-72 rounded-2xl border border-primary/25 bg-background/95 backdrop-blur-md shadow-xl shadow-black/30 overflow-hidden">
       <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border/50">
         <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-        <span className="text-xs font-semibold text-primary flex-1">What&apos;s new in V10</span>
+        <span className="text-xs font-semibold text-primary flex-1">What&apos;s new in V11</span>
         <button
           onClick={dismiss}
           className="text-muted-foreground hover:text-foreground transition-colors"

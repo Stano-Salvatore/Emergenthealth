@@ -8,6 +8,265 @@ import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import { Trash2, ChevronDown, ChevronUp } from "lucide-react"
 
+// ─── Blood Pressure ────────────────────────────────────────────────────────────
+
+interface BpReading {
+  id: string
+  systolic: number
+  diastolic: number
+  pulse: number | null
+  loggedAt: string
+  notes: string | null
+}
+
+function bpCategory(sys: number, dia: number): { label: string; color: string } {
+  if (sys < 120 && dia < 80) return { label: "Normal", color: "text-green-400" }
+  if ((sys >= 120 && sys <= 139) || (dia >= 80 && dia <= 89))
+    return { label: "Elevated", color: "text-yellow-400" }
+  return { label: "High", color: "text-red-400" }
+}
+
+function BloodPressureSection() {
+  const [readings, setReadings] = useState<BpReading[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  const [form, setForm] = useState({ systolic: "", diastolic: "", pulse: "", notes: "" })
+
+  const inputCls = "h-9 bg-secondary/50 border-border text-sm focus:ring-primary/50"
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch("/api/blood-pressure")
+      const json = await res.json()
+      setReadings(json.readings ?? [])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const sys = parseInt(form.systolic)
+    const dia = parseInt(form.diastolic)
+    if (!sys || !dia) { setSaveMsg("Systolic and diastolic are required"); return }
+    setSaving(true)
+    setSaveMsg(null)
+    try {
+      const res = await fetch("/api/blood-pressure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systolic: sys,
+          diastolic: dia,
+          pulse: form.pulse ? parseInt(form.pulse) : undefined,
+          notes: form.notes.trim() || undefined,
+        }),
+      })
+      if (res.ok) {
+        setSaveMsg("Saved!")
+        setForm({ systolic: "", diastolic: "", pulse: "", notes: "" })
+        await load()
+      } else {
+        setSaveMsg("Error saving")
+      }
+    } finally {
+      setSaving(false)
+      setTimeout(() => setSaveMsg(null), 2500)
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setDeleting(id)
+    try {
+      await fetch("/api/blood-pressure", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      })
+      await load()
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  function formatDate(iso: string) {
+    try {
+      return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+    } catch {
+      return iso
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold flex items-center gap-2">❤️ Blood Pressure</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">Log and track your blood pressure readings</p>
+      </div>
+
+      {/* Log form */}
+      <Card>
+        <CardHeader className="pb-2 pt-4">
+          <CardTitle className="text-sm">Log reading</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Systolic (mmHg)</Label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 120"
+                  value={form.systolic}
+                  onChange={e => setForm(f => ({ ...f, systolic: e.target.value }))}
+                  className={inputCls}
+                  min={50} max={300}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Diastolic (mmHg)</Label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 80"
+                  value={form.diastolic}
+                  onChange={e => setForm(f => ({ ...f, diastolic: e.target.value }))}
+                  className={inputCls}
+                  min={30} max={200}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Pulse (bpm)</Label>
+                <Input
+                  type="number"
+                  placeholder="e.g. 72"
+                  value={form.pulse}
+                  onChange={e => setForm(f => ({ ...f, pulse: e.target.value }))}
+                  className={inputCls}
+                  min={30} max={250}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Notes</Label>
+                <Input
+                  type="text"
+                  placeholder="Optional"
+                  value={form.notes}
+                  onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+
+            {/* Color-coding legend */}
+            <div className="flex flex-wrap gap-3 text-xs">
+              <span className="flex items-center gap-1.5 text-green-400">
+                <span className="inline-block w-2 h-2 rounded-full bg-green-400" />
+                Normal (&lt;120/80)
+              </span>
+              <span className="flex items-center gap-1.5 text-yellow-400">
+                <span className="inline-block w-2 h-2 rounded-full bg-yellow-400" />
+                Elevated (120–139 / 80–89)
+              </span>
+              <span className="flex items-center gap-1.5 text-red-400">
+                <span className="inline-block w-2 h-2 rounded-full bg-red-400" />
+                High (≥140/90)
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <Button type="submit" disabled={saving} size="sm">
+                {saving ? "Saving…" : "Log reading"}
+              </Button>
+              {saveMsg && (
+                <span className={cn("text-xs", saveMsg.includes("Error") ? "text-red-400" : "text-green-400")}>
+                  {saveMsg}
+                </span>
+              )}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {/* Readings table */}
+      {!loading && readings.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-sm">Last {readings.length} reading{readings.length !== 1 ? "s" : ""}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-muted-foreground border-b border-border/40">
+                    <th className="text-left py-2 pr-3 font-medium">Date</th>
+                    <th className="text-right py-2 px-2 font-medium">BP (mmHg)</th>
+                    <th className="text-right py-2 px-2 font-medium">Pulse</th>
+                    <th className="text-left py-2 px-2 font-medium">Status</th>
+                    <th className="text-left py-2 px-2 font-medium">Notes</th>
+                    <th className="py-2 pl-2" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {readings.map(r => {
+                    const cat = bpCategory(r.systolic, r.diastolic)
+                    return (
+                      <tr key={r.id} className="border-b border-border/20 last:border-0 hover:bg-secondary/30 transition-colors">
+                        <td className="py-2 pr-3 text-muted-foreground whitespace-nowrap">{formatDate(r.loggedAt)}</td>
+                        <td className="text-right py-2 px-2 tabular-nums font-semibold">
+                          <span className={cat.color}>{r.systolic}/{r.diastolic}</span>
+                        </td>
+                        <td className="text-right py-2 px-2 tabular-nums">{r.pulse ?? "—"}</td>
+                        <td className={cn("py-2 px-2 font-medium", cat.color)}>{cat.label}</td>
+                        <td className="py-2 px-2 text-muted-foreground max-w-[120px] truncate">{r.notes ?? "—"}</td>
+                        <td className="py-2 pl-2">
+                          <button
+                            onClick={() => handleDelete(r.id)}
+                            disabled={deleting === r.id}
+                            className="p-1 rounded text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors disabled:opacity-40"
+                            aria-label="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {loading && (
+        <Card>
+          <CardContent className="py-6 animate-pulse">
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-4 rounded bg-border/60" />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!loading && readings.length === 0 && (
+        <Card>
+          <CardContent className="py-8 flex flex-col items-center gap-2 text-muted-foreground">
+            <span className="text-3xl">❤️</span>
+            <p className="text-sm">No readings yet. Log your first reading above.</p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  )
+}
+
 interface Measurement {
   id: string
   date: string
@@ -418,6 +677,11 @@ export default function BodyPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Blood Pressure section */}
+      <div className="pt-2 border-t border-border/40">
+        <BloodPressureSection />
+      </div>
     </div>
   )
 }
