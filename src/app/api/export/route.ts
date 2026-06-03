@@ -29,6 +29,16 @@ export async function GET(req: NextRequest) {
   const format = new URL(req.url).searchParams.get("format") ?? "csv"
   const type = new URL(req.url).searchParams.get("type") ?? "health"
 
+  // JSON export and transactions are Pro-only
+  const { getUserPlan } = await import("@/lib/plan")
+  const plan = await getUserPlan(userId)
+  if (plan !== "pro" && (format === "json" || type === "transactions")) {
+    return new Response(JSON.stringify({ error: "Data export is a Pro feature. Upgrade at /pricing." }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    })
+  }
+
   if (type === "all" || format === "json") {
     // Full data export as JSON
     const [health, mood, habits, completions, intake, notes, transactions, books, focus] = await Promise.all([

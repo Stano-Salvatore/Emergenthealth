@@ -124,6 +124,36 @@ export default async function HomePage() {
           </div>
         </section>
 
+        {/* How it works */}
+        <section className="max-w-4xl mx-auto px-6 pb-28">
+          <h2 className="text-center text-2xl font-semibold mb-12">Three steps to understand yourself</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            {[
+              {
+                step: "01",
+                title: "Connect your apps",
+                desc: "Link Oura Ring, Strava, YNAB, and more in one click. Data syncs automatically every day.",
+              },
+              {
+                step: "02",
+                title: "Track your daily life",
+                desc: "Log your mood, water, habits, and focus. Build streaks. Earn XP. Grow your garden.",
+              },
+              {
+                step: "03",
+                title: "Discover patterns",
+                desc: "Get AI-powered weekly insights. See how sleep affects your steps, your mood, your spending.",
+              },
+            ].map(({ step, title, desc }) => (
+              <div key={step} className="relative rounded-2xl border border-border/60 bg-card/20 p-6">
+                <p className="text-5xl font-black text-primary/10 leading-none mb-4">{step}</p>
+                <h3 className="font-semibold mb-2 text-base">{title}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* Stats row */}
         <section className="max-w-4xl mx-auto px-6 pb-20">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">

@@ -470,7 +470,7 @@ export default async function SettingsPage({
                 Last 90 days of health data as a CSV file.
               </p>
             </div>
-            <ExportButton />
+            <ExportButton isPro={plan === "pro"} />
           </div>
         </CardContent>
       </Card>
