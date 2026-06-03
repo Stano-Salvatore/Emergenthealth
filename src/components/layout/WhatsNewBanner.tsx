@@ -3,14 +3,14 @@
 import { useEffect, useState } from "react"
 import { X, Sparkles } from "lucide-react"
 
-const RELEASE_KEY = "whats_new_dismissed_v8"
+const RELEASE_KEY = "whats_new_dismissed_v9"
 
 const HIGHLIGHTS = [
-  "💳 Annual billing — save 30% with yearly Pro",
-  "⬆️ Upgrade prompt — smart modal when habit limit hit",
-  "⏰ Morning reminders — now timezone-aware",
-  "🔔 Streak protection — alert at 9pm if habits at risk",
-  "📱 App badge — icon shows incomplete habit count",
+  "🌅 Check-in streak — see your morning streak on the dashboard",
+  "⚔️ Check-in quests — earn XP for daily check-ins",
+  "🏆 New achievements — Early Bird & Sun Seeker badges",
+  "🎉 XP confetti — celebration screen after check-in",
+  "📊 Streak leaderboard — check-in streak in Streaks page",
 ]
 
 export function WhatsNewBanner() {
@@ -32,7 +32,7 @@ export function WhatsNewBanner() {
     <div className="fixed bottom-20 left-4 lg:left-auto lg:bottom-4 lg:right-4 z-40 w-72 rounded-2xl border border-primary/25 bg-background/95 backdrop-blur-md shadow-xl shadow-black/30 overflow-hidden">
       <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border/50">
         <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-        <span className="text-xs font-semibold text-primary flex-1">What&apos;s new in V8</span>
+        <span className="text-xs font-semibold text-primary flex-1">What&apos;s new in V9</span>
         <button
           onClick={dismiss}
           className="text-muted-foreground hover:text-foreground transition-colors"

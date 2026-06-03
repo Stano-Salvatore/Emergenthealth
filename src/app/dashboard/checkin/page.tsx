@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import Link from "next/link"
+import { Flame, Zap } from "lucide-react"
 
 type CheckIn = {
   energy: number
@@ -43,6 +44,8 @@ export default function CheckInPage() {
   const [loading, setLoading] = useState(true)
   const [selectedEnergy, setSelectedEnergy] = useState<number | null>(null)
   const [selectedMood, setSelectedMood] = useState<number | null>(null)
+  const [streak, setStreak] = useState(0)
+  const [isNewCheckin, setIsNewCheckin] = useState(false)
 
   useEffect(() => {
     const today = new Date()
@@ -58,6 +61,7 @@ export default function CheckInPage() {
           setExisting(data.checkin)
           setStep("done")
         }
+        if (data.streak) setStreak(data.streak)
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -70,7 +74,7 @@ export default function CheckInPage() {
       String(today.getMonth() + 1).padStart(2, "0"),
       String(today.getDate()).padStart(2, "0"),
     ].join("-")
-    await fetch("/api/morning-checkin", {
+    const res = await fetch("/api/morning-checkin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -81,6 +85,13 @@ export default function CheckInPage() {
         date: localDate,
       }),
     })
+    const data = await res.json().catch(() => ({}))
+    if (data.streak) setStreak(data.streak)
+    setIsNewCheckin(true)
+    // Haptic feedback: short buzz on completion
+    if (typeof navigator !== "undefined" && navigator.vibrate) {
+      navigator.vibrate([30, 20, 60, 20, 100])
+    }
   }
 
   function handleEnergySelect(value: number) {
@@ -248,57 +259,62 @@ export default function CheckInPage() {
 
         {step === "done" && (
           <div className="space-y-4">
-            <Card className="border-primary/30 bg-primary/5">
+            <Card className="border-primary/30 bg-primary/5 overflow-hidden">
               <CardContent className="pt-8 pb-6 px-6 text-center">
-                <p className="text-4xl mb-3">✅</p>
-                <p className="text-xl font-semibold mb-1">All set for today!</p>
-                {existing ? (
-                  <div className="mt-4 space-y-1.5 text-sm text-muted-foreground text-left bg-background/60 rounded-xl px-4 py-3">
-                    <p>
-                      <span className="font-medium text-foreground">Energy:</span>{" "}
-                      {ENERGY_OPTIONS.find(o => o.value === existing.energy)?.emoji}{" "}
-                      {ENERGY_OPTIONS.find(o => o.value === existing.energy)?.label}
-                    </p>
-                    <p>
-                      <span className="font-medium text-foreground">Mood:</span>{" "}
-                      {MOOD_OPTIONS.find(o => o.value === existing.mood)?.emoji}{" "}
-                      {MOOD_OPTIONS.find(o => o.value === existing.mood)?.label}
-                    </p>
-                    {existing.intention && (
-                      <p>
-                        <span className="font-medium text-foreground">Focus:</span>{" "}
-                        {existing.intention}
-                      </p>
-                    )}
-                    <p>
-                      <span className="font-medium text-foreground">Water goal:</span>{" "}
-                      {existing.waterGoalMl >= 1000 ? `${existing.waterGoalMl / 1000}L` : `${existing.waterGoalMl}ml`}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mt-4 space-y-1.5 text-sm text-muted-foreground text-left bg-background/60 rounded-xl px-4 py-3">
-                    <p>
-                      <span className="font-medium text-foreground">Energy:</span>{" "}
-                      {ENERGY_OPTIONS.find(o => o.value === energy)?.emoji}{" "}
-                      {ENERGY_OPTIONS.find(o => o.value === energy)?.label}
-                    </p>
-                    <p>
-                      <span className="font-medium text-foreground">Mood:</span>{" "}
-                      {MOOD_OPTIONS.find(o => o.value === mood)?.emoji}{" "}
-                      {MOOD_OPTIONS.find(o => o.value === mood)?.label}
-                    </p>
-                    {intention.trim() && (
-                      <p>
-                        <span className="font-medium text-foreground">Focus:</span>{" "}
-                        {intention.trim()}
-                      </p>
-                    )}
-                    <p>
-                      <span className="font-medium text-foreground">Water goal:</span>{" "}
-                      {waterGoalMl >= 1000 ? `${waterGoalMl / 1000}L` : `${waterGoalMl}ml`}
-                    </p>
-                  </div>
+                <p className={`text-5xl mb-3 ${isNewCheckin ? "animate-bounce" : ""}`}>
+                  {isNewCheckin ? "🎉" : "✅"}
+                </p>
+                <p className="text-xl font-semibold mb-0.5">
+                  {isNewCheckin ? "Check-in complete!" : "All set for today!"}
+                </p>
+                {isNewCheckin && (
+                  <p className="text-sm text-muted-foreground mb-3">Nice work starting the day intentionally.</p>
                 )}
+
+                {/* XP + Streak row */}
+                <div className="flex items-center justify-center gap-3 mt-3 mb-4">
+                  {isNewCheckin && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 text-primary px-3 py-1 text-xs font-semibold">
+                      <Zap className="h-3 w-3" />
+                      +10 XP
+                    </span>
+                  )}
+                  {streak > 0 && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/15 text-orange-500 px-3 py-1 text-xs font-semibold">
+                      <Flame className="h-3 w-3" />
+                      {streak} day streak
+                    </span>
+                  )}
+                </div>
+
+                {/* Summary */}
+                {(() => {
+                  const src = existing ?? { energy, mood, intention: intention.trim() || null, waterGoalMl }
+                  return (
+                    <div className="mt-1 space-y-1.5 text-sm text-muted-foreground text-left bg-background/60 rounded-xl px-4 py-3">
+                      <p>
+                        <span className="font-medium text-foreground">Energy:</span>{" "}
+                        {ENERGY_OPTIONS.find(o => o.value === src.energy)?.emoji}{" "}
+                        {ENERGY_OPTIONS.find(o => o.value === src.energy)?.label}
+                      </p>
+                      <p>
+                        <span className="font-medium text-foreground">Mood:</span>{" "}
+                        {MOOD_OPTIONS.find(o => o.value === src.mood)?.emoji}{" "}
+                        {MOOD_OPTIONS.find(o => o.value === src.mood)?.label}
+                      </p>
+                      {src.intention && (
+                        <p>
+                          <span className="font-medium text-foreground">Focus:</span>{" "}
+                          {src.intention}
+                        </p>
+                      )}
+                      <p>
+                        <span className="font-medium text-foreground">Water goal:</span>{" "}
+                        {src.waterGoalMl >= 1000 ? `${src.waterGoalMl / 1000}L` : `${src.waterGoalMl}ml`}
+                      </p>
+                    </div>
+                  )
+                })()}
               </CardContent>
             </Card>
 

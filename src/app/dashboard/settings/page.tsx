@@ -482,7 +482,7 @@ export default async function SettingsPage({
       <DeleteAccount />
 
       <p className="text-center text-[11px] text-muted-foreground/40 pb-2">
-        Emergenthealth v1.8.0 · Built with ♥
+        Emergenthealth v1.9.0 · Built with ♥
       </p>
     </div>
   )

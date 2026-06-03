@@ -134,11 +134,30 @@ export default async function DashboardPage() {
   const todayStart = new Date(todayStr + "T00:00:00.000Z")
   const todayEnd = new Date(todayStr + "T23:59:59.999Z")
 
-  const todayCheckin = await prisma.$queryRaw<{id: string}[]>`
-    SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId}
-    AND "date" = ${todayStr} LIMIT 1
-  `.catch(() => [] as {id: string}[])
+  const [todayCheckin, checkinStreakRows] = await Promise.all([
+    prisma.$queryRaw<{id: string}[]>`
+      SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId}
+      AND "date" = ${todayStr} LIMIT 1
+    `.catch(() => [] as {id: string}[]),
+    prisma.$queryRaw<{date: string}[]>`
+      SELECT "date" FROM "MorningCheckIn" WHERE "userId" = ${userId}
+      AND "date" <= ${todayStr}
+      ORDER BY "date" DESC LIMIT 60
+    `.catch(() => [] as {date: string}[]),
+  ])
   const hasCheckedInToday = todayCheckin.length > 0
+  // Compute consecutive check-in streak
+  const checkinDates = new Set((checkinStreakRows as {date: string}[]).map(r => r.date))
+  let checkinStreak = 0
+  {
+    const cursor = new Date(todayStr)
+    while (true) {
+      const d = cursor.toISOString().slice(0, 10)
+      if (!checkinDates.has(d)) break
+      checkinStreak++
+      cursor.setDate(cursor.getDate() - 1)
+    }
+  }
 
   const [healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData, todayIntake, todayFocus, todayOuraTags] = await Promise.all([
     prisma.healthLog.findMany({
@@ -348,7 +367,11 @@ export default async function DashboardPage() {
             <CardContent className="pt-4 pb-3 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">🌅 Morning check-in</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Log your energy, mood, and focus for today — takes 10 seconds</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {checkinStreak > 0
+                    ? `🔥 ${checkinStreak}-day streak — keep it going!`
+                    : "Log your energy, mood, and focus — takes 10 seconds"}
+                </p>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
             </CardContent>
