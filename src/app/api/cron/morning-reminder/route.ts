@@ -52,14 +52,17 @@ export async function GET(req: NextRequest) {
   let sent = 0
 
   for (const sub of subs) {
-    // Get user timezone
-    const tzRows = await prisma.$queryRaw<{ value: string }[]>`
-      SELECT value FROM "UserPreference" WHERE "userId" = ${sub.userId} AND key = 'timezone' LIMIT 1
-    `.catch(() => [] as { value: string }[])
-    const timezone = tzRows[0]?.value ?? "UTC"
+    // Get user timezone and preferred reminder hour
+    const prefRows = await prisma.$queryRaw<{ key: string; value: string }[]>`
+      SELECT "key", "value" FROM "UserPreference"
+      WHERE "userId" = ${sub.userId} AND "key" IN ('timezone', 'reminder_hour')
+    `.catch(() => [] as { key: string; value: string }[])
+    const prefMap = Object.fromEntries(prefRows.map(r => [r.key, r.value]))
+    const timezone = prefMap["timezone"] ?? "UTC"
+    const reminderHour = prefMap["reminder_hour"] ? parseInt(prefMap["reminder_hour"], 10) : 7
 
     const localHour = getLocalHour(timezone)
-    if (localHour !== 7) continue // Only send at 7am local time
+    if (localHour !== reminderHour) continue
 
     const localDate = getLocalDateStr(timezone)
 

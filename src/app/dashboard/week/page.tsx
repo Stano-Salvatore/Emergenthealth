@@ -4,6 +4,7 @@ export const metadata: Metadata = { title: "This Week" }
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { format, subDays, startOfWeek, endOfWeek } from "date-fns"
+import { WeekReviewAI } from "@/components/dashboard/WeekReviewAI"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
@@ -252,6 +253,9 @@ export default async function WeekPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* AI weekly review */}
+      <WeekReviewAI />
 
       {/* sleep debt */}
       {sleepDebtMin > 0 && (

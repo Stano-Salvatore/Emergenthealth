@@ -1,9 +1,16 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Bell, BellOff, Send } from "lucide-react"
+import { Bell, BellOff, Send, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+
+function formatHour(h: number) {
+  if (h === 0) return "12:00 AM"
+  if (h < 12) return `${h}:00 AM`
+  if (h === 12) return "12:00 PM"
+  return `${h - 12}:00 PM`
+}
 
 export function PushNotifications() {
   const [supported, setSupported] = useState(false)
@@ -12,6 +19,9 @@ export function PushNotifications() {
   const [loading, setLoading] = useState(false)
   const [testStatus, setTestStatus] = useState<"idle" | "sent" | "error">("idle")
   const [testError, setTestError] = useState<string | null>(null)
+  const [reminderHour, setReminderHour] = useState(7)
+  const [savingHour, setSavingHour] = useState(false)
+  const [hourSaved, setHourSaved] = useState(false)
 
   useEffect(() => {
     const ok = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
@@ -22,6 +32,10 @@ export function PushNotifications() {
         reg.pushManager.getSubscription().then((sub) => setSubscribed(!!sub))
       ).catch(() => {})
     }
+    fetch("/api/preferences/reminder-time")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.hour != null) setReminderHour(d.hour) })
+      .catch(() => {})
   }, [])
 
   async function subscribe() {
@@ -92,6 +106,19 @@ export function PushNotifications() {
     }
   }
 
+  async function saveReminderHour(h: number) {
+    setSavingHour(true)
+    setReminderHour(h)
+    await fetch("/api/preferences/reminder-time", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hour: h }),
+    }).catch(() => {})
+    setSavingHour(false)
+    setHourSaved(true)
+    setTimeout(() => setHourSaved(false), 2000)
+  }
+
   if (!supported) return null
 
   return (
@@ -125,12 +152,41 @@ export function PushNotifications() {
         </div>
 
         {subscribed && (
-          <div className="border-t border-border/50 pt-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">Send a test notification to this device</p>
+          <div className="border-t border-border/50 pt-3 space-y-3">
+            {/* Reminder time picker */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-xs font-medium">Reminder time</p>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {savingHour ? "Saving…" : hourSaved ? "✓ Saved" : formatHour(reminderHour)}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {[5, 6, 7, 8, 9, 10].map(h => (
+                  <button
+                    key={h}
+                    onClick={() => saveReminderHour(h)}
+                    className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${
+                      reminderHour === h
+                        ? "bg-primary/15 border-primary text-primary font-medium"
+                        : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                    }`}
+                  >
+                    {formatHour(h)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Test notification */}
+            <div className="flex items-center justify-between pt-1 border-t border-border/30">
+              <p className="text-xs text-muted-foreground">Test on this device</p>
               <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5" onClick={sendTest}>
                 <Send className="h-3 w-3" />
-                {testStatus === "sent" ? "Sent!" : testStatus === "error" ? "Retry" : "Test"}
+                {testStatus === "sent" ? "Sent!" : testStatus === "error" ? "Retry" : "Send test"}
               </Button>
             </div>
             {testStatus === "error" && testError && (
