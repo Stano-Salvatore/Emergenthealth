@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -61,6 +61,112 @@ const TEMPLATES = [
   { emoji: "💪", name: "Workout Prep" },
   { emoji: "🧘", name: "Mindfulness" },
 ]
+
+const MILESTONES: Record<number, string> = {
+  7:   "One Week! 🔥",
+  14:  "Two Weeks! ⚡",
+  30:  "One Month! 🌟",
+  60:  "Two Months! 💎",
+  100: "100 Days! 🏆",
+  365: "One Year! 👑",
+}
+const MILESTONE_VALUES = Object.keys(MILESTONES).map(Number)
+
+interface MilestoneState {
+  habitName: string
+  streak: number
+}
+
+function MilestoneBanner({ milestone, onDismiss }: { milestone: MilestoneState; onDismiss: () => void }) {
+  const label = MILESTONES[milestone.streak] ?? `${milestone.streak} Day Streak!`
+  // Confetti dots — deterministic positions via seeded index
+  const dots = Array.from({ length: 18 }, (_, i) => ({
+    left: `${(i * 5.5 + 3) % 100}%`,
+    top: `${(i * 7 + 10) % 80}%`,
+    color: ["#fbbf24","#f472b6","#34d399","#60a5fa","#a78bfa","#fb923c"][i % 6],
+    delay: `${(i * 0.11).toFixed(2)}s`,
+    size: i % 3 === 0 ? 8 : i % 3 === 1 ? 5 : 6,
+  }))
+
+  return (
+    <>
+      <style>{`
+        @keyframes milestone-drop {
+          0%   { opacity: 0; transform: translateY(-32px) scale(0.92); }
+          60%  { opacity: 1; transform: translateY(4px) scale(1.02); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes confetti-fall {
+          0%   { transform: translateY(-10px) rotate(0deg); opacity: 1; }
+          80%  { opacity: 1; }
+          100% { transform: translateY(60px) rotate(360deg); opacity: 0; }
+        }
+        @keyframes milestone-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); }
+          50%       { box-shadow: 0 0 28px 6px rgba(251,191,36,0.28); }
+        }
+        .milestone-banner {
+          animation: milestone-drop 0.45s cubic-bezier(0.34,1.56,0.64,1) both,
+                     milestone-pulse 2s ease-in-out 0.5s infinite;
+        }
+        .confetti-dot {
+          animation: confetti-fall 1.8s ease-in forwards;
+        }
+      `}</style>
+      <div
+        className="milestone-banner fixed top-4 left-1/2 z-[100] w-[min(480px,calc(100vw-2rem))] -translate-x-1/2 cursor-pointer select-none overflow-hidden rounded-2xl border border-amber-400/60 bg-[#0f0a00] px-6 py-4 shadow-2xl"
+        onClick={onDismiss}
+        role="status"
+        aria-live="polite"
+      >
+        {/* confetti dots */}
+        <div className="pointer-events-none absolute inset-0" aria-hidden>
+          {dots.map((d, i) => (
+            <span
+              key={i}
+              className="confetti-dot absolute rounded-full"
+              style={{
+                left: d.left,
+                top: d.top,
+                width: d.size,
+                height: d.size,
+                background: d.color,
+                animationDelay: d.delay,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* content */}
+        <div className="relative flex items-center gap-4">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-amber-400/15 text-3xl leading-none ring-1 ring-amber-400/40">
+            🔥
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-amber-400/80">
+              Streak Milestone
+            </p>
+            <p className="mt-0.5 truncate text-lg font-black text-white leading-tight">
+              {milestone.habitName}
+            </p>
+            <p className="mt-0.5 text-sm font-bold text-amber-300">
+              {label}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <span className="block text-4xl font-black text-amber-400 leading-none tabular-nums">
+              {milestone.streak}
+            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-400/60">days</span>
+          </div>
+        </div>
+
+        {/* dismiss hint */}
+        <p className="relative mt-2 text-center text-[10px] text-white/30">tap to dismiss</p>
+      </div>
+    </>
+  )
+}
 
 function HeatmapRow({ habit, days }: { habit: Habit; days: Date[] }) {
   const doneSet = new Set(habit.completions.map(c => c.date?.split("T")[0]))
@@ -364,6 +470,19 @@ export default function HabitsPage() {
   const [vacUntil, setVacUntil] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() + 7); return localDateStr(d)
   })
+  const [milestone, setMilestone] = useState<MilestoneState | null>(null)
+  const milestoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function showMilestone(state: MilestoneState) {
+    if (milestoneTimerRef.current) clearTimeout(milestoneTimerRef.current)
+    setMilestone(state)
+    milestoneTimerRef.current = setTimeout(() => setMilestone(null), 4000)
+  }
+
+  function dismissMilestone() {
+    if (milestoneTimerRef.current) clearTimeout(milestoneTimerRef.current)
+    setMilestone(null)
+  }
 
   const days28 = Array.from({ length: 28 }, (_, i) => subDays(new Date(), 27 - i))
 
@@ -410,14 +529,33 @@ export default function HabitsPage() {
   async function toggleComplete(habit: Habit) {
     const url = `/api/habits/${habit.id}/complete`
     const dateStr = localDateStr()
+    const wasCompletion = !habit.completedToday
+    const oldStreak = habit.streak
     if (habit.completedToday) {
       await fetch(url, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dateStr }) })
+      loadHabits()
     } else {
       // Haptic feedback on completion
       if ("vibrate" in navigator) navigator.vibrate([30, 20, 60])
       await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dateStr }) })
+      // Re-fetch to get the updated streak, then check for milestones
+      const res = await fetch("/api/habits")
+      if (res.ok) {
+        const updated: Habit[] = await res.json()
+        setHabits(updated)
+        setLoading(false)
+        if (wasCompletion) {
+          const updatedHabit = updated.find(h => h.id === habit.id)
+          if (updatedHabit) {
+            const newStreak = updatedHabit.streak
+            const hit = MILESTONE_VALUES.find(m => m <= newStreak && m > oldStreak)
+            if (hit !== undefined) {
+              showMilestone({ habitName: habit.name, streak: hit })
+            }
+          }
+        }
+      }
     }
-    loadHabits()
   }
 
   async function deleteHabit(id: string) {
@@ -442,6 +580,9 @@ export default function HabitsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Streak milestone celebration banner */}
+      {milestone && <MilestoneBanner milestone={milestone} onDismiss={dismissMilestone} />}
+
       {/* Upgrade modal */}
       {showUpgradeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowUpgradeModal(false)}>
