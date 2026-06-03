@@ -31,6 +31,7 @@ import { WeatherLocation } from "@/components/settings/WeatherLocation"
 import { PasskeyManager } from "@/components/settings/PasskeyManager"
 import { ManageBillingButton } from "@/components/settings/ManageBillingButton"
 import { HelpCard } from "@/components/settings/HelpCard"
+import { InviteCard } from "@/components/settings/InviteCard"
 import { getUserPlan } from "@/lib/plan"
 import { isStripeConfigured } from "@/lib/stripe"
 import Link from "next/link"
@@ -233,6 +234,9 @@ export default async function SettingsPage({
           </div>
         </CardContent>
       </Card>
+
+      {/* Invite friends */}
+      <InviteCard />
 
       {/* Theme */}
       <Card>

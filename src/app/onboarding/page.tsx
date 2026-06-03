@@ -130,11 +130,13 @@ export default function OnboardingPage() {
     if (finishing) return
     setFinishing(true)
     try {
+      const ref = typeof window !== "undefined" ? localStorage.getItem("eh_referral_code") : null
       await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed: true }),
+        body: JSON.stringify({ completed: true, ref: ref ?? undefined }),
       })
+      if (ref) localStorage.removeItem("eh_referral_code")
     } catch {
       // non-fatal — still redirect
     }

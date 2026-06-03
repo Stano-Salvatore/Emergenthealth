@@ -34,7 +34,12 @@ export function AppSharePrompt() {
   }
 
   async function share() {
-    const url = "https://emergenthealth.app"
+    // Try to use personal invite URL, fall back to homepage
+    let url = "https://emergenthealth.app"
+    try {
+      const r = await fetch("/api/invite")
+      if (r.ok) { const d = await r.json(); if (d.inviteUrl) url = d.inviteUrl }
+    } catch { /* */ }
     const text = "I've been using Emergenthealth to track my health, habits & finances — check it out!"
 
     if (navigator.share) {

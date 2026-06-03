@@ -45,6 +45,16 @@ export async function POST(req: Request) {
       VALUES (${userId}, 'onboarding_completed', 'true')
       ON CONFLICT ("userId", "key") DO UPDATE SET "value" = 'true'
     `
+
+    const ref = typeof body.ref === "string" ? body.ref : null
+    if (ref && /^[a-z0-9]{6,12}$/.test(ref)) {
+      await prisma.$executeRaw`
+        INSERT INTO "UserPreference" ("userId", "key", "value")
+        VALUES (${userId}, 'referred_by', ${ref})
+        ON CONFLICT ("userId", "key") DO NOTHING
+      `.catch(() => {})
+    }
+
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ error: "Failed to save" }, { status: 500 })

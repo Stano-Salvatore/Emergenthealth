@@ -2,6 +2,8 @@ import { signIn } from "@/auth"
 import { Button } from "@/components/ui/button"
 import { Activity } from "lucide-react"
 import { PasskeySignIn } from "./PasskeySignIn"
+import { Suspense } from "react"
+import { RefCapture } from "./RefCapture"
 
 const ERROR_MESSAGES: Record<string, string> = {
   OAuthAccountNotLinked: "This email is already linked to a different sign-in method.",
@@ -20,6 +22,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background overflow-hidden relative">
+      <Suspense><RefCapture /></Suspense>
       <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-primary/12 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-1/4 right-1/4 w-[400px] h-[400px] bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-blue-500/6 rounded-full blur-[80px] pointer-events-none" />
