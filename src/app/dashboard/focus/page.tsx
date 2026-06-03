@@ -11,6 +11,10 @@ import { Timer, Play, Pause, RotateCcw, Check, Brain, Coffee, Zap } from "lucide
 type Mode = "focus" | "short_break" | "long_break"
 type Phase = "idle" | "running" | "paused" | "done"
 
+const WORK_DURATIONS = [25, 50]
+const BREAK_DURATIONS = [5, 10, 15]
+const POMODOROS_BEFORE_LONG_BREAK = 4
+
 const PRESETS: { mode: Mode; label: string; min: number; icon: React.ReactNode; color: string }[] = [
   { mode: "focus",       label: "Focus",       min: 25, icon: <Brain className="h-4 w-4" />,  color: "text-primary" },
   { mode: "short_break", label: "Short Break", min: 5,  icon: <Coffee className="h-4 w-4" />, color: "text-green-400" },
@@ -32,9 +36,35 @@ function formatTime(seconds: number) {
   return `${m}:${s}`
 }
 
+/** Play a gentle two-tone bell using the Web Audio API. */
+function playDoneSound() {
+  try {
+    const ctx = new AudioContext()
+    const tones = [880, 1108]
+    tones.forEach((freq, i) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = "sine"
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0, ctx.currentTime + i * 0.35)
+      gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + i * 0.35 + 0.05)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.35 + 0.7)
+      osc.start(ctx.currentTime + i * 0.35)
+      osc.stop(ctx.currentTime + i * 0.35 + 0.7)
+    })
+    // Close context after sounds finish
+    setTimeout(() => ctx.close(), 2000)
+  } catch {
+    // Audio API not supported — silently skip
+  }
+}
+
 export default function FocusPage() {
   const [mode, setMode] = useState<Mode>("focus")
-  const [customMin, setCustomMin] = useState<string>("")
+  const [workMin, setWorkMin] = useState(25)
+  const [breakMin, setBreakMin] = useState(5)
   const [phase, setPhase] = useState<Phase>("idle")
   const [remaining, setRemaining] = useState(25 * 60)
   const [total, setTotal] = useState(25 * 60)
@@ -43,11 +73,14 @@ export default function FocusPage() {
   const [pomodoroCount, setPomodoroCount] = useState(0)
   const startedAtRef = useRef<Date | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Track whether we auto-transitioned so we can show the banner
+  const [justCompletedMode, setJustCompletedMode] = useState<Mode | null>(null)
 
   const preset = PRESETS.find(p => p.mode === mode)!
 
-  function getMins() {
-    if (customMin && parseInt(customMin) > 0) return parseInt(customMin)
+  function getSessionMin() {
+    if (mode === "focus") return workMin
+    if (mode === "short_break" || mode === "long_break") return breakMin
     return preset.min
   }
 
@@ -58,7 +91,7 @@ export default function FocusPage() {
 
   useEffect(() => { loadSessions() }, [loadSessions])
 
-  // update document title
+  // Update document title while running
   useEffect(() => {
     if (phase === "running") {
       document.title = `${formatTime(remaining)} · Focus`
@@ -68,11 +101,56 @@ export default function FocusPage() {
     return () => { document.title = "Emergenthealth" }
   }, [remaining, phase])
 
+  // Auto-handle session completion: log focus, switch to break
+  const handleSessionComplete = useCallback(async (completedMode: Mode, durationMin: number, startedAt: Date, sessionLabel: string) => {
+    playDoneSound()
+
+    if (completedMode === "focus") {
+      // Log the completed focus session
+      await fetch("/api/focus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          durationMin,
+          type: "focus",
+          label: sessionLabel || null,
+          startedAt: startedAt.toISOString(),
+        }),
+      })
+      const newCount = pomodoroCount + 1
+      setPomodoroCount(newCount)
+      await loadSessions()
+
+      // Decide which break to take
+      const nextBreak: Mode = newCount % POMODOROS_BEFORE_LONG_BREAK === 0 ? "long_break" : "short_break"
+      setJustCompletedMode("focus")
+      setMode(nextBreak)
+      const bMin = nextBreak === "long_break" ? Math.max(breakMin, 15) : breakMin
+      setRemaining(bMin * 60)
+      setTotal(bMin * 60)
+      setPhase("idle")
+      startedAtRef.current = null
+    } else {
+      // Break finished — switch back to focus
+      setJustCompletedMode(completedMode)
+      setMode("focus")
+      setRemaining(workMin * 60)
+      setTotal(workMin * 60)
+      setPhase("idle")
+      startedAtRef.current = null
+    }
+  }, [pomodoroCount, breakMin, workMin, loadSessions])
+
+  // Tick handler using ref to avoid stale closure
+  const handleSessionCompleteRef = useRef(handleSessionComplete)
+  useEffect(() => { handleSessionCompleteRef.current = handleSessionComplete }, [handleSessionComplete])
+
   function start() {
-    const secs = getMins() * 60
+    const secs = getSessionMin() * 60
     setTotal(secs)
     setRemaining(secs)
     setPhase("running")
+    setJustCompletedMode(null)
     startedAtRef.current = new Date()
     intervalRef.current = setInterval(() => {
       setRemaining(r => {
@@ -85,6 +163,19 @@ export default function FocusPage() {
       })
     }, 1000)
   }
+
+  // When phase becomes "done", trigger auto-completion
+  useEffect(() => {
+    if (phase !== "done") return
+    if (!startedAtRef.current) return
+    const capturedMode = mode
+    const capturedLabel = label
+    const capturedStart = startedAtRef.current
+    const elapsed = Math.round((Date.now() - capturedStart.getTime()) / 60000)
+    const durationMin = Math.max(1, elapsed)
+    handleSessionCompleteRef.current(capturedMode, durationMin, capturedStart, capturedLabel)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase])
 
   function pause() {
     if (intervalRef.current) clearInterval(intervalRef.current)
@@ -108,41 +199,78 @@ export default function FocusPage() {
   function reset() {
     if (intervalRef.current) clearInterval(intervalRef.current)
     setPhase("idle")
-    setRemaining(getMins() * 60)
+    setJustCompletedMode(null)
+    setRemaining(getSessionMin() * 60)
+    setTotal(getSessionMin() * 60)
     startedAtRef.current = null
   }
 
-  async function complete() {
-    if (!startedAtRef.current) return
+  async function logAndReset() {
+    if (!startedAtRef.current) { reset(); return }
     const elapsed = Math.round((Date.now() - startedAtRef.current.getTime()) / 60000)
     const durationMin = Math.max(1, elapsed)
-    await fetch("/api/focus", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ durationMin, type: mode, label: label || null, startedAt: startedAtRef.current.toISOString() }),
-    })
-    if (mode === "focus") setPomodoroCount(c => c + 1)
+    if (mode === "focus") {
+      await fetch("/api/focus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ durationMin, type: mode, label: label || null, startedAt: startedAtRef.current.toISOString() }),
+      })
+      setPomodoroCount(c => c + 1)
+      await loadSessions()
+    }
     reset()
-    loadSessions()
   }
 
   function selectMode(m: Mode) {
     if (phase !== "idle") return
     setMode(m)
-    const p = PRESETS.find(x => x.mode === m)!
-    setRemaining(p.min * 60)
-    setCustomMin("")
+    setJustCompletedMode(null)
+    if (m === "focus") {
+      setRemaining(workMin * 60)
+      setTotal(workMin * 60)
+    } else {
+      setRemaining(breakMin * 60)
+      setTotal(breakMin * 60)
+    }
+  }
+
+  function setWorkDuration(min: number) {
+    if (phase !== "idle") return
+    setWorkMin(min)
+    if (mode === "focus") {
+      setRemaining(min * 60)
+      setTotal(min * 60)
+    }
+  }
+
+  function setBreakDuration(min: number) {
+    if (phase !== "idle") return
+    setBreakMin(min)
+    if (mode !== "focus") {
+      setRemaining(min * 60)
+      setTotal(min * 60)
+    }
   }
 
   const pct = total > 0 ? ((total - remaining) / total) * 100 : 0
   const circumference = 2 * Math.PI * 90
 
-  // stats
+  const isBreakMode = mode === "short_break" || mode === "long_break"
+  const ringColor = phase === "running" || phase === "done"
+    ? isBreakMode ? "hsl(var(--chart-2, 142 71% 45%))" : "hsl(var(--primary))"
+    : "hsl(var(--border))"
+
+  // Stats
   const _now = new Date()
   const todayStr = [_now.getFullYear(), String(_now.getMonth()+1).padStart(2,"0"), String(_now.getDate()).padStart(2,"0")].join("-")
   const todaySessions = sessions.filter(s => s.endedAt.startsWith(todayStr))
-  const todayFocusMin = todaySessions.filter(s => s.type === "focus").reduce((a, s) => a + s.durationMin, 0)
+  const todayFocusSessions = todaySessions.filter(s => s.type === "focus")
+  const todayFocusMin = todayFocusSessions.reduce((a, s) => a + s.durationMin, 0)
   const weekFocusMin = sessions.filter(s => s.type === "focus").reduce((a, s) => a + s.durationMin, 0)
+
+  // Pomodoro dots: how many until long break
+  const dotsUntilLong = POMODOROS_BEFORE_LONG_BREAK - (pomodoroCount % POMODOROS_BEFORE_LONG_BREAK)
+  const isLongBreakNext = dotsUntilLong === POMODOROS_BEFORE_LONG_BREAK && pomodoroCount > 0
 
   return (
     <div className="space-y-6 max-w-xl mx-auto">
@@ -153,17 +281,33 @@ export default function FocusPage() {
         <p className="text-muted-foreground text-sm mt-0.5">Pomodoro technique · track deep work</p>
       </div>
 
-      {/* stats strip */}
+      {/* Stats strip */}
       <div className="grid grid-cols-3 gap-3 text-center">
         <StatCard label="Today's focus" value={`${todayFocusMin}m`} icon="🧠" />
-        <StatCard label="Sessions today" value={String(todaySessions.filter(s => s.type === "focus").length)} icon="✅" />
+        <StatCard label="Sessions today" value={String(todayFocusSessions.length)} icon="🍅" />
         <StatCard label="Week total" value={weekFocusMin >= 60 ? `${(weekFocusMin/60).toFixed(1)}h` : `${weekFocusMin}m`} icon="📈" />
       </div>
 
-      {/* timer card */}
+      {/* Auto-switch banner */}
+      {justCompletedMode && phase === "idle" && (
+        <div className={`flex items-center gap-2 text-sm px-4 py-2.5 rounded-xl border ${
+          justCompletedMode === "focus"
+            ? "bg-green-500/10 border-green-500/30 text-green-400"
+            : "bg-primary/10 border-primary/30 text-primary"
+        }`}>
+          <span>{justCompletedMode === "focus" ? "🎉" : "✅"}</span>
+          <span>
+            {justCompletedMode === "focus"
+              ? `Great work! Time for a ${isLongBreakNext ? "long break" : "short break"}.`
+              : "Break over — ready for another focus session?"}
+          </span>
+        </div>
+      )}
+
+      {/* Timer card */}
       <Card>
         <CardContent className="pt-6 pb-6 space-y-5">
-          {/* mode selector */}
+          {/* Mode selector */}
           <div className="flex gap-2 justify-center">
             {PRESETS.map(p => (
               <button key={p.mode} onClick={() => selectMode(p.mode)} disabled={phase !== "idle"}
@@ -175,35 +319,76 @@ export default function FocusPage() {
             ))}
           </div>
 
-          {/* circular timer */}
+          {/* Duration configurator — only visible when idle */}
+          {phase === "idle" && (
+            <div className="space-y-2 px-2">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground w-20 shrink-0">Work</span>
+                <div className="flex gap-1.5">
+                  {WORK_DURATIONS.map(min => (
+                    <button key={min} onClick={() => setWorkDuration(min)}
+                      className={`text-xs px-2.5 py-1 rounded-md border transition-all ${
+                        workMin === min ? "border-primary/50 bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:bg-secondary"
+                      }`}>
+                      {min}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground w-20 shrink-0">Break</span>
+                <div className="flex gap-1.5">
+                  {BREAK_DURATIONS.map(min => (
+                    <button key={min} onClick={() => setBreakDuration(min)}
+                      className={`text-xs px-2.5 py-1 rounded-md border transition-all ${
+                        breakMin === min ? "border-green-500/50 bg-green-500/10 text-green-400 font-medium" : "border-border text-muted-foreground hover:bg-secondary"
+                      }`}>
+                      {min}m
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Circular timer */}
           <div className="flex justify-center">
             <div className="relative">
               <svg width="200" height="200" className="-rotate-90">
                 <circle cx="100" cy="100" r="90" fill="none" stroke="hsl(var(--secondary))" strokeWidth="8" />
                 <circle cx="100" cy="100" r="90" fill="none"
-                  stroke={phase === "running" || phase === "done" ? "hsl(var(--primary))" : "hsl(var(--border))"}
+                  stroke={ringColor}
                   strokeWidth="8" strokeLinecap="round"
                   strokeDasharray={circumference}
                   strokeDashoffset={circumference - (circumference * pct) / 100}
                   className="transition-all duration-1000" />
               </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
                 <span className="text-4xl font-black tabular-nums tracking-tight">
                   {formatTime(remaining)}
                 </span>
-                <span className="text-xs text-muted-foreground mt-1">{preset.label}</span>
+                <span className={`text-xs font-medium ${preset.color}`}>{preset.label}</span>
+                {/* Pomodoro tomato count */}
+                <div className="flex items-center gap-1 mt-2">
+                  {[...Array(POMODOROS_BEFORE_LONG_BREAK)].map((_, i) => {
+                    const filled = i < (pomodoroCount % POMODOROS_BEFORE_LONG_BREAK) || (isLongBreakNext && i < POMODOROS_BEFORE_LONG_BREAK)
+                    return (
+                      <span key={i} className={`text-sm leading-none transition-all ${filled ? "opacity-100" : "opacity-25"}`}>
+                        🍅
+                      </span>
+                    )
+                  })}
+                </div>
                 {pomodoroCount > 0 && (
-                  <div className="flex gap-0.5 mt-2">
-                    {[...Array(Math.min(pomodoroCount, 8))].map((_, i) => (
-                      <div key={i} className="h-1.5 w-1.5 rounded-full bg-primary" />
-                    ))}
-                  </div>
+                  <span className="text-[10px] text-muted-foreground mt-0.5">
+                    {isLongBreakNext ? "Long break earned!" : `${dotsUntilLong} until long break`}
+                  </span>
                 )}
               </div>
             </div>
           </div>
 
-          {/* label input */}
+          {/* Label input — only when idle */}
           {phase === "idle" && (
             <div className="px-4">
               <Input placeholder="What are you working on? (optional)"
@@ -215,18 +400,7 @@ export default function FocusPage() {
             <p className="text-center text-sm text-muted-foreground">📌 {label}</p>
           )}
 
-          {/* custom duration */}
-          {phase === "idle" && (
-            <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-              <span>Custom:</span>
-              <Input type="number" min="1" max="120" placeholder="min"
-                value={customMin} onChange={e => setCustomMin(e.target.value)}
-                className="w-20 h-7 text-center text-sm" />
-              <span>min</span>
-            </div>
-          )}
-
-          {/* controls */}
+          {/* Controls */}
           <div className="flex justify-center gap-3">
             {phase === "idle" && (
               <Button onClick={start} className="gap-2 px-8">
@@ -248,7 +422,7 @@ export default function FocusPage() {
                 <Button onClick={resume} className="gap-2">
                   <Play className="h-4 w-4" /> Resume
                 </Button>
-                <Button variant="outline" onClick={complete} className="gap-2">
+                <Button variant="outline" onClick={logAndReset} className="gap-2">
                   <Check className="h-4 w-4" /> Log it
                 </Button>
                 <Button variant="ghost" onClick={reset} size="icon">
@@ -256,24 +430,11 @@ export default function FocusPage() {
                 </Button>
               </>
             )}
-            {phase === "done" && (
-              <div className="text-center space-y-3">
-                <p className="text-green-400 font-semibold">Session complete! 🎉</p>
-                <div className="flex gap-2 justify-center">
-                  <Button onClick={complete} className="gap-2">
-                    <Check className="h-4 w-4" /> Log & reset
-                  </Button>
-                  <Button variant="outline" onClick={reset}>
-                    <RotateCcw className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
           </div>
         </CardContent>
       </Card>
 
-      {/* session history */}
+      {/* Session history */}
       {sessions.length > 0 && (
         <div>
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Recent sessions</p>

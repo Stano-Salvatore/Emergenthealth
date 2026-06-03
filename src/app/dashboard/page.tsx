@@ -28,6 +28,7 @@ import { InsightCard } from "@/components/dashboard/InsightCard"
 import { TodayCard } from "@/components/dashboard/TodayCard"
 import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
+import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
 
 const STEP_GOAL = 8_000
 const SLEEP_GOAL_H = 7
@@ -435,6 +436,7 @@ export default async function DashboardPage() {
   )
 
   const blocks = {
+    briefing: <DailyBriefing />,
     today: <TodayCard />,
 
     health: (

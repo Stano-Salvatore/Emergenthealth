@@ -5,6 +5,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { format, subDays, startOfWeek, endOfWeek } from "date-fns"
 import { WeekReviewAI } from "@/components/dashboard/WeekReviewAI"
+import { MoodPatterns } from "@/components/dashboard/MoodPatterns"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
@@ -170,6 +171,9 @@ export default async function WeekPage() {
         <h1 className="text-2xl font-bold">Weekly Review</h1>
         <p className="text-muted-foreground text-sm mt-0.5">{weekLabel} · {daysInWeek} days of data</p>
       </div>
+
+      {/* mood patterns */}
+      <MoodPatterns />
 
       {/* top KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
