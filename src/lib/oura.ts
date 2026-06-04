@@ -251,17 +251,17 @@ export async function getOuraTags(userId: string, startDate: string, endDate: st
 
 export async function getSteps(userId: string, startDate: string, endDate: string) {
   const rows = await getDailyActivity(userId, startDate, endDate)
-  return rows.map(r => ({ date: r.date, steps: r.steps ?? 0 }))
+  return rows.map((r: Awaited<ReturnType<typeof getDailyActivity>>[number]) => ({ date: r.date, steps: r.steps ?? 0 }))
 }
 
 export async function getCalories(userId: string, startDate: string, endDate: string) {
   const rows = await getDailyActivity(userId, startDate, endDate)
-  return rows.map(r => ({ date: r.date, calories: r.activeCalories ?? 0 }))
+  return rows.map((r: Awaited<ReturnType<typeof getDailyActivity>>[number]) => ({ date: r.date, calories: r.activeCalories ?? 0 }))
 }
 
 export async function getHeartRate(userId: string, startDate: string, endDate: string) {
   const rows = await getDailySleep(userId, startDate, endDate)
-  return rows.map(r => ({ date: r.date, avgBpm: r.avgRestingHR, minBpm: null, maxBpm: null }))
+  return rows.map((r: Awaited<ReturnType<typeof getDailySleep>>[number]) => ({ date: r.date, avgBpm: r.avgRestingHR, minBpm: null, maxBpm: null }))
 }
 
 export async function getSleep(userId: string, startDate: string, endDate: string) {
@@ -274,7 +274,7 @@ export async function getWeight(_userId: string, _startDate: string, _endDate: s
 
 export async function getDistance(userId: string, startDate: string, endDate: string) {
   const rows = await getDailyActivity(userId, startDate, endDate)
-  return rows.map(r => ({ date: r.date, distanceMeters: r.distanceKm != null ? Math.round(r.distanceKm * 1000) : 0 }))
+  return rows.map((r: Awaited<ReturnType<typeof getDailyActivity>>[number]) => ({ date: r.date, distanceMeters: r.distanceKm != null ? Math.round(r.distanceKm * 1000) : 0 }))
 }
 
 export async function getDailySummary(userId: string, date: string) {

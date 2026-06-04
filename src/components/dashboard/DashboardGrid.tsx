@@ -10,41 +10,45 @@ import "react-resizable/css/styles.css"
 export type BlockId =
   | "health" | "finances" | "calendar" | "habits"
   | "reminders" | "gmail" | "quicklog" | "stats"
-  | "location" | "ac" | "today" | "quests"
+  | "location" | "ac" | "today" | "quests" | "quickstart" | "briefing"
 
 interface Block { id: BlockId; label: string }
 
 const ALL_BLOCKS: Block[] = [
-  { id: "today",     label: "🌅 Today" },
-  { id: "health",    label: "❤️ Health" },
-  { id: "finances",  label: "💰 Finances" },
-  { id: "calendar",  label: "🗓️ Calendar" },
-  { id: "habits",    label: "✅ Habits" },
-  { id: "reminders", label: "🔔 Reminders" },
-  { id: "gmail",     label: "📬 Gmail" },
-  { id: "quicklog",  label: "⚡ Quick Log" },
-  { id: "stats",     label: "📊 Stats" },
-  { id: "location",  label: "📍 Location" },
-  { id: "ac",        label: "❄️ AC" },
-  { id: "quests",    label: "⚔️ Quests" },
+  { id: "briefing",   label: "🌟 Daily Briefing" },
+  { id: "today",      label: "🌅 Today" },
+  { id: "health",     label: "❤️ Health" },
+  { id: "finances",   label: "💰 Finances" },
+  { id: "calendar",   label: "🗓️ Calendar" },
+  { id: "habits",     label: "✅ Habits" },
+  { id: "reminders",  label: "🔔 Reminders" },
+  { id: "gmail",      label: "📬 Gmail" },
+  { id: "quicklog",   label: "⚡ Quick Log" },
+  { id: "stats",      label: "📊 Stats" },
+  { id: "location",   label: "📍 Location" },
+  { id: "ac",         label: "❄️ AC" },
+  { id: "quests",     label: "⚔️ Quests" },
+  { id: "quickstart", label: "🚀 Quick Start" },
 ]
 
 const DEFAULT_ITEMS: LayoutItem[] = [
-  { i: "today",     x: 0, y: 0,  w: 12, h: 8 },
-  { i: "health",    x: 0, y: 8,  w: 4, h: 9 },
-  { i: "finances",  x: 4, y: 8,  w: 4, h: 9 },
-  { i: "calendar",  x: 8, y: 8,  w: 4, h: 9 },
-  { i: "habits",    x: 0, y: 17, w: 4, h: 7 },
-  { i: "reminders", x: 4, y: 17, w: 4, h: 7 },
-  { i: "gmail",     x: 8, y: 17, w: 4, h: 7 },
-  { i: "quicklog",  x: 0, y: 24, w: 12, h: 5 },
-  { i: "stats",     x: 0, y: 29, w: 12, h: 4 },
-  { i: "location",  x: 0, y: 33, w: 6,  h: 6 },
-  { i: "ac",        x: 6, y: 33, w: 6,  h: 6 },
-  { i: "quests",    x: 0, y: 39, w: 6,  h: 8 },
+  { i: "briefing",   x: 0, y: 0,  w: 12, h: 4 },
+  { i: "today",      x: 0, y: 4,  w: 12, h: 8 },
+  { i: "quickstart", x: 0, y: 12, w: 6,  h: 10 },
+  { i: "quests",     x: 6, y: 12, w: 6,  h: 10 },
+  { i: "health",     x: 0, y: 22, w: 4, h: 9 },
+  { i: "finances",   x: 4, y: 22, w: 4, h: 9 },
+  { i: "calendar",   x: 8, y: 22, w: 4, h: 9 },
+  { i: "habits",     x: 0, y: 31, w: 4, h: 7 },
+  { i: "reminders",  x: 4, y: 31, w: 4, h: 7 },
+  { i: "gmail",      x: 8, y: 31, w: 4, h: 7 },
+  { i: "quicklog",   x: 0, y: 38, w: 12, h: 5 },
+  { i: "stats",      x: 0, y: 43, w: 12, h: 4 },
+  { i: "location",   x: 0, y: 47, w: 6,  h: 6 },
+  { i: "ac",         x: 6, y: 47, w: 6,  h: 6 },
 ]
 
-const STORAGE_KEY = "dashboard-layout-v5"
+const STORAGE_KEY = "dashboard-layout-v7"
 const HIDDEN_KEY  = "dashboard-hidden-v1"
 
 function loadItems(): LayoutItem[] {

@@ -22,6 +22,7 @@ export function MoodWidget({ todayMood: initialMood }: MoodWidgetProps) {
     if (saving) return
     setSaving(true)
     setSelected(mood)
+    if ("vibrate" in navigator) navigator.vibrate(20)
     try {
       await fetch("/api/mood", {
         method: "POST",

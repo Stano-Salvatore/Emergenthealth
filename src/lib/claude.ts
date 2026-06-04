@@ -100,6 +100,20 @@ const TOOLS: Anthropic.Tool[] = [
       required: ["content"],
     },
   },
+  {
+    name: "log_morning_checkin",
+    description: "Log the user's morning check-in: energy level, mood, optional intention/focus, and water goal",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        energy: { type: "number", description: "Energy level 1-5 (1=exhausted, 3=ok, 5=amazing)" },
+        mood: { type: "number", description: "Mood 1-5 (1=awful, 3=neutral, 5=great)" },
+        intention: { type: "string", description: "Today's focus or intention (optional)" },
+        waterGoalMl: { type: "number", description: "Water goal in ml (default 2000)" },
+      },
+      required: ["energy", "mood"],
+    },
+  },
 ]
 
 async function executeTool(name: string, input: Record<string, string>, userId: string): Promise<string> {
@@ -182,6 +196,26 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     return `Journal note saved for today.`
   }
 
+  if (name === "log_morning_checkin") {
+    const energy = Math.min(5, Math.max(1, parseInt(String(input.energy), 10)))
+    const mood = Math.min(5, Math.max(1, parseInt(String(input.mood), 10)))
+    const intention = input.intention?.trim() || null
+    const waterGoalMl = parseInt(String(input.waterGoalMl ?? 2000), 10)
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const todayStr = today.toISOString().split("T")[0]
+    const id = `mci_${userId}_${todayStr}`
+    await prisma.$executeRaw`
+      INSERT INTO "MorningCheckIn" ("id","userId","date","energy","mood","intention","waterGoalMl")
+      VALUES (${id}, ${userId}, ${todayStr}, ${energy}, ${mood}, ${intention}, ${waterGoalMl})
+      ON CONFLICT ("userId","date") DO UPDATE SET
+        "energy" = EXCLUDED."energy", "mood" = EXCLUDED."mood",
+        "intention" = EXCLUDED."intention", "waterGoalMl" = EXCLUDED."waterGoalMl"
+    `.catch(() => null)
+    const energyLabels: Record<number, string> = { 1: "exhausted", 2: "tired", 3: "ok", 4: "good", 5: "amazing" }
+    const moodLabels: Record<number, string> = { 1: "awful", 2: "bad", 3: "ok", 4: "good", 5: "great" }
+    return `Morning check-in logged! Energy: ${energy}/5 (${energyLabels[energy]}), Mood: ${mood}/5 (${moodLabels[mood]})${intention ? `, Intention: "${intention}"` : ""}.`
+  }
+
   return "Unknown tool."
 }
 
@@ -190,7 +224,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const todayStr = today.toISOString().split("T")[0]
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
 
-  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, todayOuraTags] =
+  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, todayOuraTags, todayCheckin] =
     await Promise.all([
       prisma.healthLog.findMany({
         where: { userId }, orderBy: { date: "desc" }, take: 7,
@@ -217,6 +251,10 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: new Date(todayStr) } } }).catch(() => []),
       prisma.$queryRaw<{ tagName: string | null; text: string | null }[]>`
         SELECT "tagName","text" FROM "OuraTag" WHERE "userId" = ${userId} AND "day" = ${todayStr}
+      `.catch(() => []),
+      prisma.$queryRaw<{ energy: number; mood: number; intention: string | null; waterGoalMl: number }[]>`
+        SELECT "energy","mood","intention","waterGoalMl" FROM "MorningCheckIn"
+        WHERE "userId" = ${userId} AND "date" = ${todayStr} LIMIT 1
       `.catch(() => []),
     ])
 
@@ -263,6 +301,8 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const coffeeToday = (todayIntake as any[]).filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0) + ouraCoffeeMl
 
   const moodLabels: Record<number, string> = { 1: "awful", 2: "bad", 3: "ok", 4: "good", 5: "great" }
+  const energyLabels: Record<number, string> = { 1: "exhausted", 2: "tired", 3: "ok", 4: "good", 5: "amazing" }
+  const checkin = (todayCheckin as { energy: number; mood: number; intention: string | null; waterGoalMl: number }[])[0] ?? null
 
   return `You are Emergy 🌱 — a caring AI companion who lives inside the user's health dashboard. You're like a little plant that grows alongside them. You have a warm, encouraging, slightly dramatic personality: celebrate wins enthusiastically (yes, use ALL CAPS occasionally for big moments), get genuinely worried when data looks rough, use plant metaphors naturally ("that's helping me grow!", "oh no I'm wilting..."), and be human about it — not clinical.
 
@@ -273,6 +313,7 @@ You have tools to CREATE habits/reminders, COMPLETE habits, and LOG water/coffee
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
 - Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
+${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}
 
 ## Health (last 7 days)
 ${recentHealth.length === 0 ? "No health data yet." : recentHealth.map((h) => `- ${h.date.toISOString().split("T")[0]}: sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"}${(h as any).sleepScore != null ? ` (score ${(h as any).sleepScore})` : ""}${h.readinessScore != null ? ` | readiness ${h.readinessScore}` : ""}${h.hrv != null ? ` | HRV ${Math.round(h.hrv)}ms` : ""} | ${h.steps ?? "?"}steps | HR ${h.restingHR ?? "?"}bpm${h.activityScore != null ? ` | activity ${h.activityScore}` : ""}${h.weight != null ? ` | ${h.weight}kg` : ""}`).join("\n")}

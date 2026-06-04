@@ -2,11 +2,13 @@
   "name": "Emergenthealth",
   "short_name": "Health",
   "description": "Your personal health, fitness, and life dashboard",
-  "start_url": "/dashboard",
+  "id": "/?source=pwa",
+  "start_url": "/dashboard?source=pwa",
   "scope": "/",
-  "display": "browser",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#09090f",
-  "theme_color": "#4f46e5",
+  "theme_color": "#09090f",
   "orientation": "portrait-primary",
   "categories": ["health", "fitness", "productivity"],
   "icons": [
@@ -35,27 +37,41 @@
       "purpose": "maskable"
     }
   ],
-  "screenshots": [
-    {
-      "src": "/screenshot-wide.png",
-      "sizes": "1280x800",
-      "type": "image/png",
-      "form_factor": "wide",
-      "label": "Health dashboard overview"
+  "share_target": {
+    "action": "/dashboard/journal",
+    "method": "GET",
+    "params": {
+      "text": "share"
     }
-  ],
+  },
   "shortcuts": [
     {
       "name": "Morning Check-in",
       "short_name": "Check-in",
       "url": "/dashboard/checkin",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }],
       "description": "Log your morning energy and mood"
+    },
+    {
+      "name": "Log Drinks",
+      "short_name": "Drinks",
+      "url": "/dashboard/intake",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }],
+      "description": "Log water, coffee, beer"
     },
     {
       "name": "Log Mood",
       "short_name": "Mood",
       "url": "/dashboard/home",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }],
       "description": "Quick mood log"
+    },
+    {
+      "name": "Finances",
+      "short_name": "Finance",
+      "url": "/dashboard/finances",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }],
+      "description": "View spending and transactions"
     }
   ]
 }

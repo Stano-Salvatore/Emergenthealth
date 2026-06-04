@@ -45,6 +45,8 @@ model User {
   labResults       LabResult[]
   bodyMeasurements BodyMeasurement[]
   habitRoutines    HabitRoutine[]
+  subscription     Subscription?
+  passkeys         Passkey[]
 }
 
 model Account {
@@ -538,6 +540,43 @@ model HabitRoutine {
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─── Subscriptions (Stripe) ───────────────────────────────────────────────────
+
+model Subscription {
+  id                   String    @id @default(cuid())
+  userId               String    @unique
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  stripePriceId        String?
+  status               String    @default("free") // "free" | "active" | "canceled" | "past_due" | "trialing"
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── WebAuthn Passkeys ────────────────────────────────────────────────────────
+
+model Passkey {
+  id           String   @id @default(cuid())
+  userId       String
+  credentialId String   @unique
+  publicKey    Bytes
+  counter      BigInt   @default(0)
+  deviceType   String   @default("singleDevice")
+  backedUp     Boolean  @default(false)
+  transports   String[]
+  name         String   @default("Passkey")
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

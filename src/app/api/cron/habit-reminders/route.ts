@@ -95,9 +95,48 @@ export async function GET(req: NextRequest) {
         AND "dueDate"::date <= ${localDate}::date
     `.catch(() => [] as { id: string; title: string; reminderTime: string }[])
 
-    if (habitReminders.length === 0 && reminderAlerts.length === 0) continue
+    // Streak protection: at 21:00 local time, warn about habits with streaks at risk
+    let streakProtectionNotif: { title: string; body: string; url: string; tag: string; requireInteraction: boolean } | null = null
+    if (localTime === "21:00") {
+      const atRiskHabits = await prisma.$queryRaw<{ id: string; name: string; streak: number }[]>`
+        SELECT h.id, h.name,
+          (SELECT COUNT(*) FROM "HabitCompletion" hc2
+           WHERE hc2."habitId" = h.id
+             AND hc2."date"::date >= (CURRENT_DATE - INTERVAL '30 days')
+             AND hc2."date"::date < CURRENT_DATE) AS streak
+        FROM "Habit" h
+        WHERE h."userId" = ${userId}
+          AND h."isArchived" = false
+          AND NOT EXISTS (
+            SELECT 1 FROM "HabitCompletion" hc
+            WHERE hc."habitId" = h.id AND hc."date"::date = ${localDate}::date
+          )
+        HAVING (SELECT COUNT(*) FROM "HabitCompletion" hc2
+                WHERE hc2."habitId" = h.id
+                  AND hc2."date"::date >= (CURRENT_DATE - INTERVAL '30 days')
+                  AND hc2."date"::date < CURRENT_DATE) > 2
+        LIMIT 3
+      `.catch(() => [] as { id: string; name: string; streak: number }[])
 
-    const notifications: { title: string; body: string; url: string; tag: string }[] = []
+      if (atRiskHabits.length > 0) {
+        const names = atRiskHabits.map(h => h.name).join(", ")
+        streakProtectionNotif = {
+          title: "🔥 Streak at risk!",
+          body: atRiskHabits.length === 1
+            ? `Complete "${atRiskHabits[0].name}" before midnight!`
+            : `${atRiskHabits.length} habits still need completing tonight`,
+          url: "/dashboard/habits",
+          tag: "streak-protection",
+          requireInteraction: true,
+        }
+      }
+    }
+
+    if (habitReminders.length === 0 && reminderAlerts.length === 0 && !streakProtectionNotif) continue
+
+    const notifications: { title: string; body: string; url: string; tag: string; requireInteraction?: boolean }[] = []
+
+    if (streakProtectionNotif) notifications.push(streakProtectionNotif)
 
     for (const h of habitReminders) {
       notifications.push({

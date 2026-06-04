@@ -25,7 +25,8 @@ async function buildDriveClient(userId: string) {
     expiry_date: account.expires_at ? account.expires_at * 1000 : undefined,
   })
 
-  oauth2Client.on("tokens", async (tokens: { access_token?: string | null; refresh_token?: string; expiry_date?: number | null }) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  oauth2Client.on("tokens", async (tokens: any) => {
     await prisma.account.update({
       where: {
         provider_providerAccountId: {

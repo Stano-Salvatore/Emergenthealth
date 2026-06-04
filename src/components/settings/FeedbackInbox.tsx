@@ -24,14 +24,21 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
 export function FeedbackInbox() {
   const [items, setItems] = useState<Feedback[]>([])
   const [loading, setLoading] = useState(true)
+  const [forbidden, setForbidden] = useState(false)
 
   useEffect(() => {
     fetch("/api/feedback")
-      .then(r => r.json())
-      .then(d => setItems(Array.isArray(d) ? d : []))
+      .then(async r => {
+        if (r.status === 403) { setForbidden(true); return [] }
+        const d = await r.json()
+        return Array.isArray(d) ? d : []
+      })
+      .then(d => setItems(d))
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
+
+  if (forbidden) return null
 
   async function remove(id: string) {
     setItems(prev => prev.filter(f => f.id !== id))

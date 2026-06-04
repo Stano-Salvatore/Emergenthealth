@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Bell, BellOff } from "lucide-react"
 
-const TOTAL_STEPS = 5
+const TOTAL_STEPS = 6
 
 // ── Step indicator ────────────────────────────────────────────────────────────
 function StepDots({ current, total }: { current: number; total: number }) {
@@ -116,6 +117,7 @@ export default function OnboardingPage() {
   const [selectedGoal, setSelectedGoal] = useState<string | null>(null)
   const [customGoal, setCustomGoal] = useState("")
   const [finishing, setFinishing] = useState(false)
+  const [notifStatus, setNotifStatus] = useState<"idle" | "enabling" | "granted" | "denied">("idle")
 
   function toggleCategory(id: string) {
     setSelectedCategories((prev) => {
@@ -130,15 +132,17 @@ export default function OnboardingPage() {
     if (finishing) return
     setFinishing(true)
     try {
+      const ref = typeof window !== "undefined" ? localStorage.getItem("eh_referral_code") : null
       await fetch("/api/onboarding", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed: true }),
+        body: JSON.stringify({ completed: true, ref: ref ?? undefined }),
       })
+      if (ref) localStorage.removeItem("eh_referral_code")
     } catch {
       // non-fatal — still redirect
     }
-    router.push("/dashboard")
+    router.push("/dashboard/checkin")
   }
 
   return (
@@ -255,7 +259,7 @@ export default function OnboardingPage() {
             />
             <div className="flex flex-col gap-3">
               <Button className="w-full" size="lg" onClick={() => setStep(4)}>
-                Finish setup →
+                Continue →
               </Button>
               <Button
                 variant="ghost"
@@ -269,8 +273,70 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* ── Step 4: Done ─────────────────────────────────── */}
+        {/* ── Step 4: Notifications ─────────────────────────── */}
         {step === 4 && (
+          <div>
+            <div className="text-4xl mb-4">🔔</div>
+            <h2 className="text-xl font-bold text-foreground mb-1">Stay on track</h2>
+            <p className="text-muted-foreground text-sm mb-6">
+              Get a gentle nudge at 7am to start your day, and a reminder at 9pm if your streaks are at risk.
+            </p>
+            <div className="rounded-xl border border-border bg-card/50 p-4 mb-6 space-y-3">
+              {[
+                { emoji: "🌅", label: "Morning check-in reminder at 7am" },
+                { emoji: "🔥", label: "Streak protection alert at 9pm" },
+                { emoji: "💧", label: "Hydration nudges during the day" },
+              ].map(({ emoji, label }) => (
+                <div key={label} className="flex items-center gap-2.5 text-sm">
+                  <span className="shrink-0">{emoji}</span>
+                  <span className="text-muted-foreground">{label}</span>
+                </div>
+              ))}
+            </div>
+            {notifStatus === "granted" ? (
+              <div className="flex items-center gap-2 rounded-xl bg-green-500/10 border border-green-500/30 px-4 py-3 mb-4">
+                <Bell className="h-4 w-4 text-green-400 shrink-0" />
+                <p className="text-sm text-green-300 font-medium">Notifications enabled!</p>
+              </div>
+            ) : notifStatus === "denied" ? (
+              <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/30 px-4 py-3 mb-4">
+                <BellOff className="h-4 w-4 text-amber-400 shrink-0" />
+                <p className="text-sm text-amber-300">You can enable notifications later in Settings.</p>
+              </div>
+            ) : null}
+            <div className="flex flex-col gap-3">
+              {notifStatus !== "granted" && notifStatus !== "denied" && (
+                <Button
+                  className="w-full"
+                  size="lg"
+                  disabled={notifStatus === "enabling"}
+                  onClick={async () => {
+                    setNotifStatus("enabling")
+                    try {
+                      const perm = await Notification.requestPermission()
+                      setNotifStatus(perm === "granted" ? "granted" : "denied")
+                    } catch {
+                      setNotifStatus("denied")
+                    }
+                  }}
+                >
+                  {notifStatus === "enabling" ? "Requesting…" : "Enable notifications →"}
+                </Button>
+              )}
+              <Button
+                className="w-full"
+                size="lg"
+                variant={notifStatus === "granted" ? "default" : "outline"}
+                onClick={() => setStep(5)}
+              >
+                {notifStatus === "granted" ? "Finish setup →" : "Skip for now"}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 5: Done ─────────────────────────────────── */}
+        {step === 5 && (
           <div>
             <div className="text-center mb-6">
               <div className="text-5xl mb-4">🎉</div>

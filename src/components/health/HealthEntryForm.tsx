@@ -23,7 +23,7 @@ export function HealthEntryForm({ onSaved }: HealthEntryFormProps) {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState({
-    date: new Date().toISOString().split("T")[0],
+    date: (() => { const _d = new Date(); return [_d.getFullYear(), String(_d.getMonth()+1).padStart(2,"0"), String(_d.getDate()).padStart(2,"0")].join("-") })(),
     sleepHours: "",
     deepSleepMin: "",
     remMin: "",

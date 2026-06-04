@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ADD THIS TO android/app/src/main/AndroidManifest.xml inside <application>
+-->
+<receiver android:name=".QuickLogWidget" android:exported="true">
+    <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        <action android:name="app.emergenthealth.LOG_WATER_250" />
+        <action android:name="app.emergenthealth.LOG_WATER_500" />
+        <action android:name="app.emergenthealth.LOG_COFFEE" />
+        <action android:name="app.emergenthealth.LOG_BEER" />
+        <action android:name="app.emergenthealth.LOG_WINE" />
+    </intent-filter>
+    <meta-data
+        android:name="android.appwidget.provider"
+        android:resource="@xml/quick_log_widget_info" />
+</receiver>

@@ -26,8 +26,16 @@ import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
 import { WidgetSetup } from "@/components/settings/WidgetSetup"
 import { DeleteAccount } from "@/components/settings/DeleteAccount"
 import { PushNotifications } from "@/components/settings/PushNotifications"
+import { WidgetSetupCapacitor } from "@/components/settings/WidgetSetupCapacitor"
 import { TimezoneDetector } from "@/components/settings/TimezoneDetector"
 import { WeatherLocation } from "@/components/settings/WeatherLocation"
+import { PasskeyManager } from "@/components/settings/PasskeyManager"
+import { ManageBillingButton } from "@/components/settings/ManageBillingButton"
+import { HelpCard } from "@/components/settings/HelpCard"
+import { InviteCard } from "@/components/settings/InviteCard"
+import { getUserPlan } from "@/lib/plan"
+import { isStripeConfigured } from "@/lib/stripe"
+import Link from "next/link"
 
 export default async function SettingsPage({
   searchParams,
@@ -49,6 +57,7 @@ export default async function SettingsPage({
     gc_connected?: string
     gc_error?: string
     gc_reason?: string
+    upgraded?: string
   }>
 }) {
   const session = await auth()
@@ -71,6 +80,7 @@ export default async function SettingsPage({
   const gcConnected = params.gc_connected === "1"
   const gcError = params.gc_error
   const gcReason = params.gc_reason
+  const upgraded = params.upgraded === "1"
 
   // Tables may not exist yet if migration hasn't run — fail gracefully
   let ouraToken = null
@@ -113,6 +123,17 @@ export default async function SettingsPage({
 
   const isOuraConnected = !!ouraToken
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL ?? ""
+  const plan = await getUserPlan(userId)
+  const stripeReady = isStripeConfigured()
+
+  const sub = await prisma.subscription.findUnique({
+    where: { userId },
+    select: { status: true, currentPeriodEnd: true, cancelAtPeriodEnd: true },
+  }).catch(() => null)
+  const isTrialing = sub?.status === "trialing"
+  const trialDaysLeft = isTrialing && sub.currentPeriodEnd
+    ? Math.max(0, Math.ceil((sub.currentPeriodEnd.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : null
 
   const keyRows = keys.map((k) => ({
     id: k.id,
@@ -127,6 +148,15 @@ export default async function SettingsPage({
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-muted-foreground text-sm mt-0.5">Manage integrations and API access</p>
       </div>
+
+      {upgraded && (
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-green-400">Welcome to Pro! 🎉</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Your subscription is active. All Pro features are now unlocked.</p>
+          </CardContent>
+        </Card>
+      )}
 
       {dbMissing && (
         <Card className="border-yellow-500/30 bg-yellow-500/5">
@@ -163,6 +193,52 @@ export default async function SettingsPage({
         </Card>
       )}
 
+      {/* Plan & subscription */}
+      <Card className={plan === "pro" ? "border-primary/30 bg-primary/5" : ""}>
+        <CardContent className="pt-4 pb-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold">
+                  {plan === "pro" ? "Pro plan" : "Free plan"}
+                </p>
+                {plan === "pro" && (
+                  <span className="rounded-full bg-primary/20 text-primary text-[10px] font-bold px-2 py-0.5 uppercase tracking-wide">
+                    Pro
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {isTrialing && trialDaysLeft !== null
+                  ? trialDaysLeft > 0
+                    ? `Free trial — ${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"} remaining. Add payment to keep Pro.`
+                    : "Trial ended. Add payment to keep Pro features."
+                  : plan === "pro"
+                  ? sub?.cancelAtPeriodEnd
+                    ? `Cancels ${sub.currentPeriodEnd ? sub.currentPeriodEnd.toLocaleDateString() : "soon"}.`
+                    : "You have access to all Pro features."
+                  : "Upgrade to unlock unlimited history, daily AI insights, and more."}
+              </p>
+            </div>
+            {plan === "pro" ? (
+              stripeReady ? (
+                <ManageBillingButton />
+              ) : null
+            ) : (
+              <Link
+                href="/pricing"
+                className="shrink-0 rounded-lg bg-primary/15 text-primary text-xs font-semibold px-3 py-1.5 hover:bg-primary/25 transition-colors"
+              >
+                {stripeReady ? "Upgrade →" : "View plans →"}
+              </Link>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Invite friends */}
+      <InviteCard />
+
       {/* Theme */}
       <Card>
         <CardContent className="pt-4 pb-4">
@@ -170,8 +246,15 @@ export default async function SettingsPage({
         </CardContent>
       </Card>
 
+      {/* Passkeys / biometric login */}
+      <PasskeyManager />
+
       {/* Push notifications */}
       <PushNotifications />
+
+      {/* Android home screen widget */}
+      <WidgetSetupCapacitor />
+
       <TimezoneDetector />
       <WeatherLocation />
 
@@ -370,7 +453,7 @@ export default async function SettingsPage({
       <FitKeyManager initialKeys={keyRows} />
 
       {/* Home screen & lock screen widgets */}
-      <WidgetSetup appUrl={appUrl} />
+      <WidgetSetup appUrl={appUrl} apiKey={keys[0]?.token} />
 
       {/* Feedback inbox */}
       <FeedbackInbox />
@@ -392,13 +475,20 @@ export default async function SettingsPage({
                 Last 90 days of health data as a CSV file.
               </p>
             </div>
-            <ExportButton />
+            <ExportButton isPro={plan === "pro"} />
           </div>
         </CardContent>
       </Card>
 
+      {/* Help & Support */}
+      <HelpCard />
+
       {/* Danger zone */}
       <DeleteAccount />
+
+      <p className="text-center text-[11px] text-muted-foreground/40 pb-2">
+        Emergenthealth v1.10.0 · Built with ♥
+      </p>
     </div>
   )
 }

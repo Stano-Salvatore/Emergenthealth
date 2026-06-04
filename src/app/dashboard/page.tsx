@@ -10,7 +10,7 @@ import {
   Activity, Euro, Calendar, CheckSquare, Bell, Moon,
   Footprints, ChevronRight, Heart, Clock,
   TrendingUp, TrendingDown, Mail, Shield,
-  Wind, Flame, Droplets, Timer,
+  Wind, Flame, Droplets, Timer, Check,
 } from "lucide-react"
 import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"
 import { LiveClock } from "@/components/dashboard/LiveClock"
@@ -26,7 +26,9 @@ import { QuickHabits } from "@/components/dashboard/QuickHabits"
 import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
 import { InsightCard } from "@/components/dashboard/InsightCard"
 import { TodayCard } from "@/components/dashboard/TodayCard"
+import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
+import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
 
 const STEP_GOAL = 8_000
 const SLEEP_GOAL_H = 7
@@ -134,11 +136,30 @@ export default async function DashboardPage() {
   const todayStart = new Date(todayStr + "T00:00:00.000Z")
   const todayEnd = new Date(todayStr + "T23:59:59.999Z")
 
-  const todayCheckin = await prisma.$queryRaw<{id: string}[]>`
-    SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId}
-    AND "date" = ${todayStr} LIMIT 1
-  `.catch(() => [] as {id: string}[])
+  const [todayCheckin, checkinStreakRows] = await Promise.all([
+    prisma.$queryRaw<{id: string}[]>`
+      SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId}
+      AND "date" = ${todayStr} LIMIT 1
+    `.catch(() => [] as {id: string}[]),
+    prisma.$queryRaw<{date: string}[]>`
+      SELECT "date" FROM "MorningCheckIn" WHERE "userId" = ${userId}
+      AND "date" <= ${todayStr}
+      ORDER BY "date" DESC LIMIT 60
+    `.catch(() => [] as {date: string}[]),
+  ])
   const hasCheckedInToday = todayCheckin.length > 0
+  // Compute consecutive check-in streak
+  const checkinDates = new Set((checkinStreakRows as {date: string}[]).map(r => r.date))
+  let checkinStreak = 0
+  {
+    const cursor = new Date(todayStr)
+    while (true) {
+      const d = cursor.toISOString().slice(0, 10)
+      if (!checkinDates.has(d)) break
+      checkinStreak++
+      cursor.setDate(cursor.getDate() - 1)
+    }
+  }
 
   const [healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData, todayIntake, todayFocus, todayOuraTags] = await Promise.all([
     prisma.healthLog.findMany({
@@ -282,6 +303,16 @@ export default async function DashboardPage() {
   // ── mood
   const todayMood = todayMoodLogs[0]?.mood ?? null
 
+  // ── getting-started checklist (show until user has completed at least 3/4 steps)
+  const setupSteps = [
+    { done: healthLogs.length > 0,      label: "Connect Oura or log health data",  href: "/dashboard/settings", emoji: "🌿" },
+    { done: habits.length > 0,          label: "Create your first habit",           href: "/dashboard/habits",   emoji: "✅" },
+    { done: transactions.length > 0,    label: "Connect bank or import finances",   href: "/dashboard/settings", emoji: "💰" },
+    { done: hasCheckedInToday,           label: "Complete your morning check-in",    href: "/dashboard/checkin",  emoji: "🌅" },
+  ]
+  const setupDone = setupSteps.filter(s => s.done).length
+  const showSetup = setupDone < 3
+
   // ── wellness score
   const { score: wellnessScore, components: scoreComponents } = computeWellnessScore({
     sleepMin: latestHealth?.sleepDuration ?? null,
@@ -338,12 +369,41 @@ export default async function DashboardPage() {
             <CardContent className="pt-4 pb-3 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">🌅 Morning check-in</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Log your energy, mood, and focus for today — takes 10 seconds</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {checkinStreak > 0
+                    ? `🔥 ${checkinStreak}-day streak — keep it going!`
+                    : "Log your energy, mood, and focus — takes 10 seconds"}
+                </p>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
             </CardContent>
           </Card>
         </Link>
+      )}
+
+      {showSetup && (
+        <Card className="border-amber-500/20 bg-amber-500/5">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm font-semibold">🚀 Getting started</span>
+              <span className="text-xs text-muted-foreground">({setupDone}/4 done)</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {setupSteps.map(step => (
+                <Link key={step.href + step.label} href={step.done ? "#" : step.href}
+                  className={`flex items-center gap-2.5 rounded-xl border px-3 py-2 text-sm transition-all ${
+                    step.done
+                      ? "border-green-500/30 bg-green-500/5 pointer-events-none"
+                      : "border-border hover:border-amber-500/40 hover:bg-amber-500/5 cursor-pointer"
+                  }`}>
+                  <span className="text-base shrink-0">{step.emoji}</span>
+                  <span className={`flex-1 text-xs font-medium ${step.done ? "line-through text-muted-foreground" : ""}`}>{step.label}</span>
+                  {step.done ? <Check className="h-3.5 w-3.5 text-green-400 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <PlaceDetector />
@@ -376,6 +436,7 @@ export default async function DashboardPage() {
   )
 
   const blocks = {
+    briefing: <DailyBriefing />,
     today: <TodayCard />,
 
     health: (
@@ -692,6 +753,7 @@ export default async function DashboardPage() {
     location: <LocationCard />,
     ac: <AcCard />,
     quests: <DailyQuests />,
+    quickstart: <QuickStart hasCheckin={hasCheckedInToday} hasHabits={habits.length > 0} />,
   }
 
   return <DashboardGrid header={header} blocks={blocks} />

@@ -535,7 +535,7 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
 }
 
 export default function LocationPage() {
-  const [date, setDate]           = useState(() => new Date().toISOString().split("T")[0])
+  const [date, setDate]           = useState(() => { const _d = new Date(); return [_d.getFullYear(), String(_d.getMonth()+1).padStart(2,"0"), String(_d.getDate()).padStart(2,"0")].join("-") })
   const [track, setTrack]         = useState<TrackData | null>(null)
   const [loading, setLoading]     = useState(true)
   const [availDates, setAvailDates] = useState<string[]>([])
@@ -558,7 +558,8 @@ export default function LocationPage() {
 
   function prevDay() { setDate(d => format(subDays(parseISO(d), 1), "yyyy-MM-dd")) }
   function nextDay() { setDate(d => format(addDays(parseISO(d), 1), "yyyy-MM-dd")) }
-  const isToday = date === new Date().toISOString().split("T")[0]
+  const _now2 = new Date(); const _todayStr = [_now2.getFullYear(), String(_now2.getMonth()+1).padStart(2,"0"), String(_now2.getDate()).padStart(2,"0")].join("-")
+  const isToday = date === _todayStr
 
   const formatDuration = (min: number) => {
     if (min < 60) return `${Math.round(min)}m`
@@ -583,7 +584,7 @@ export default function LocationPage() {
             <ChevronRight className="h-4 w-4"/>
           </Button>
           {!isToday && (
-            <Button size="sm" variant="outline" onClick={() => setDate(new Date().toISOString().split("T")[0])}>Today</Button>
+            <Button size="sm" variant="outline" onClick={() => { const _t = new Date(); setDate([_t.getFullYear(), String(_t.getMonth()+1).padStart(2,"0"), String(_t.getDate()).padStart(2,"0")].join("-")) }}>Today</Button>
           )}
           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => load(date)} disabled={loading}>
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")}/>

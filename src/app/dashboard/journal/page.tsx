@@ -49,8 +49,16 @@ interface DailyNote {
   content: string
 }
 
+function localDateStr(d: Date = new Date()): string {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-")
+}
+
 export default function JournalPage() {
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
+  const [date, setDate] = useState(() => localDateStr())
   const [mood, setMood] = useState<MoodEntry | null>(null)
   const [note, setNote] = useState<DailyNote>({ content: "" })
   const [noteSaveState, setNoteSaveState] = useState<"idle" | "saving" | "saved">("idle")
@@ -61,8 +69,19 @@ export default function JournalPage() {
   const [newEmoji, setNewEmoji] = useState("📍")
   const [newPlaceNote, setNewPlaceNote] = useState("")
   const [addingCheckIn, setAddingCheckIn] = useState(false)
+  const [journalStreak, setJournalStreak] = useState<number | null>(null)
 
-  const isToday = date === new Date().toISOString().split("T")[0]
+  const isToday = date === localDateStr()
+
+  useEffect(() => {
+    fetch("/api/streaks")
+      .then(r => r.json())
+      .then(d => {
+        const journalXp = d?.xp?.byCategory?.journal ?? 0
+        if (journalXp > 0) setJournalStreak(Math.floor(journalXp / 5))
+      })
+      .catch(() => {})
+  }, [])
 
   async function loadDay(d: string) {
     const dayStart = d
@@ -90,10 +109,10 @@ export default function JournalPage() {
   useEffect(() => { loadDay(date) }, [date])
 
   function changeDay(delta: number) {
-    const d = new Date(date)
+    const d = new Date(date + "T12:00:00")
     d.setDate(d.getDate() + delta)
-    const str = d.toISOString().split("T")[0]
-    if (str <= new Date().toISOString().split("T")[0]) setDate(str)
+    const str = localDateStr(d)
+    if (str <= localDateStr()) setDate(str)
   }
 
   async function saveMood(value: number) {
@@ -156,7 +175,14 @@ export default function JournalPage() {
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <BookOpen className="h-6 w-6 text-primary" /> Journal
           </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Daily reflection & location log</p>
+          <div className="flex items-center gap-3 mt-0.5">
+            <p className="text-muted-foreground text-sm">Daily reflection & location log</p>
+            {journalStreak !== null && journalStreak > 0 && (
+              <span className="text-xs text-amber-400 font-medium flex items-center gap-1">
+                🔥 {journalStreak} entries
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => changeDay(-1)}>
@@ -223,7 +249,14 @@ export default function JournalPage() {
             value={note.content}
             onChange={e => handleNoteChange(e.target.value)}
           />
-          <p className="text-[10px] text-muted-foreground mt-1.5">Auto-saves as you type</p>
+          <div className="flex items-center justify-between mt-1.5">
+            <p className="text-[10px] text-muted-foreground">Auto-saves as you type</p>
+            {note.content.trim() && (
+              <p className="text-[10px] text-muted-foreground">
+                {note.content.trim().split(/\s+/).filter(Boolean).length} words
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -301,7 +334,7 @@ export default function JournalPage() {
         <div className="flex gap-2 flex-wrap">
           {[0,1,2,3,4,5,6].map(d => {
             const dd = subDays(new Date(), d)
-            const str = dd.toISOString().split("T")[0]
+            const str = [dd.getFullYear(), String(dd.getMonth()+1).padStart(2,"0"), String(dd.getDate()).padStart(2,"0")].join("-")
             return (
               <button key={str} onClick={() => setDate(str)}
                 className={`px-3 py-1.5 rounded-lg text-xs border transition-colors ${

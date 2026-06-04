@@ -53,7 +53,7 @@ export async function GET() {
 
   const since = new Date(Date.now() - 365 * 86400000)
 
-  const [habits, completions, healthLogs, moodLogs, dailyNotes, intakeDays, focusSessions, finishedBooks, ouraTagDays, githubProfile] = await Promise.all([
+  const [habits, completions, healthLogs, moodLogs, dailyNotes, intakeDays, focusSessions, finishedBooks, ouraTagDays, githubProfile, checkinRows] = await Promise.all([
     prisma.habit.findMany({
       where: { userId, isArchived: false },
       select: { id: true, name: true, color: true, icon: true },
@@ -91,6 +91,9 @@ export async function GET() {
     prisma.$queryRaw<GitHubProfileRow[]>`
       SELECT "username", "accessToken" FROM "GitHubProfile" WHERE "userId" = ${userId} LIMIT 1
     `.catch(() => [] as GitHubProfileRow[]),
+    prisma.$queryRaw<{ date: string }[]>`
+      SELECT "date" FROM "MorningCheckIn" WHERE "userId" = ${userId} ORDER BY "date" ASC
+    `.catch(() => [] as { date: string }[]),
   ])
 
   // GitHub commit data
@@ -161,7 +164,11 @@ export async function GET() {
   const supplementDays = (ouraTagDays as { day: string }[]).length
   const supplementXp = supplementDays * 5
   const githubXp = githubCommitDays * 8
-  const totalXp = habitXp + sleepXp + weightXp + moodXp + journalXp + intakeXp + focusXp + readingXp + supplementXp + githubXp
+  const checkinCount = (checkinRows as { date: string }[]).length
+  const checkinXp = checkinCount * 10
+  const checkinDates = (checkinRows as { date: string }[]).map(r => r.date).sort()
+  const checkinStreak = currentStreak(checkinDates)
+  const totalXp = habitXp + sleepXp + weightXp + moodXp + journalXp + intakeXp + focusXp + readingXp + supplementXp + githubXp + checkinXp
   const levelInfo = getLevel(totalXp)
 
   // achievements
@@ -203,16 +210,19 @@ export async function GET() {
     { id: "github_30",      emoji: "🤖", title: "Code Machine",     desc: "Code for 30 days",                     unlocked: githubCommitDays >= 30,       progress: Math.min(30, githubCommitDays),    target: 30 },
     { id: "level_5",        emoji: "🚀", title: "Level 5",          desc: "Reach level 5",                        unlocked: levelInfo.level >= 5,         progress: Math.min(5, levelInfo.level),      target: 5 },
     { id: "level_10",       emoji: "👑", title: "Level 10",         desc: "Reach level 10",                       unlocked: levelInfo.level >= 10,        progress: Math.min(10, levelInfo.level),     target: 10 },
+    { id: "checkin_7",      emoji: "🌅", title: "Early Bird",       desc: "Morning check-in 7 days in a row",     unlocked: checkinStreak >= 7,           progress: Math.min(7, checkinStreak),        target: 7 },
+    { id: "checkin_30",     emoji: "☀️", title: "Sun Seeker",       desc: "30-day morning check-in streak",       unlocked: checkinStreak >= 30,          progress: Math.min(30, checkinStreak),       target: 30 },
   ]
 
   return NextResponse.json({
     xp: {
       total: totalXp,
-      byCategory: { habits: habitXp, sleep: sleepXp, weight: weightXp, mood: moodXp, journal: journalXp, intake: intakeXp, focus: focusXp, reading: readingXp, supplements: supplementXp, github: githubXp },
+      byCategory: { habits: habitXp, sleep: sleepXp, weight: weightXp, mood: moodXp, journal: journalXp, intake: intakeXp, focus: focusXp, reading: readingXp, supplements: supplementXp, github: githubXp, checkin: checkinXp },
     },
     ...levelInfo,
     habitStreaks,
     achievements,
     githubStreak,
+    checkinStreak,
   })
 }
