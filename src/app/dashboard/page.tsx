@@ -25,6 +25,7 @@ import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
 import { QuickHabits } from "@/components/dashboard/QuickHabits"
 import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
 import { InsightCard } from "@/components/dashboard/InsightCard"
+import { DashboardCorrelations } from "@/components/dashboard/DashboardCorrelations"
 import { TodayCard } from "@/components/dashboard/TodayCard"
 import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
@@ -362,6 +363,9 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      <InsightCard />
+      <DashboardCorrelations />
+
       {!hasCheckedInToday && (
         <Link href="/dashboard/checkin" className="block">
           <Card className="border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer">
@@ -406,8 +410,6 @@ export default async function DashboardPage() {
       )}
 
       <PlaceDetector />
-
-      <InsightCard />
 
       {/* ── today's schedule strip ── */}
       {todayEvents.length > 0 && (
