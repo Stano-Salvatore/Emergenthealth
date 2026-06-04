@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og"
 import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 
-export const runtime = "edge"
+export const runtime = "nodejs"
 
 async function getWidgetData(key: string) {
   const apiKey = await prisma.mcpApiKey.findUnique({ where: { token: key } }).catch(() => null)
