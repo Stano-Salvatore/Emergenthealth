@@ -25,6 +25,7 @@ import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
 import { QuickHabits } from "@/components/dashboard/QuickHabits"
 import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
 import { InsightCard } from "@/components/dashboard/InsightCard"
+import { DashboardCorrelations } from "@/components/dashboard/DashboardCorrelations"
 import { TodayCard } from "@/components/dashboard/TodayCard"
 import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
@@ -113,7 +114,7 @@ function scoreGrade(s: number) {
   if (s >= 85) return { label: "Excellent", color: "text-emerald-400", emoji: "🌟" }
   if (s >= 70) return { label: "Good", color: "text-green-400", emoji: "✨" }
   if (s >= 50) return { label: "Fair", color: "text-amber-400", emoji: "🌤️" }
-  return { label: "Low", color: "text-red-400", emoji: "💤" }
+  return { label: "Low", color: "text-red-400", emoji: "⚠️" }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -341,10 +342,9 @@ export default async function DashboardPage() {
         </div>
         <div className="mt-4 flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-3 bg-background/50 backdrop-blur rounded-xl px-4 py-2.5 border border-border/50">
-            <div className="text-center">
-              <p className="text-2xl leading-none mb-0.5">{scoreEmoji}</p>
+            <div className="text-center min-w-[48px]">
               <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>
-              <p className={`text-[10px] font-semibold uppercase tracking-wider mt-0.5 ${scoreColor}`}>{scoreLabel}</p>
+              <p className={`text-[10px] font-semibold uppercase tracking-wider mt-0.5 ${scoreColor}`}>{scoreEmoji} {scoreLabel}</p>
             </div>
             <div className="h-10 w-px bg-border" />
             <div className="grid grid-cols-4 gap-3">
@@ -362,6 +362,9 @@ export default async function DashboardPage() {
           </div>
         </div>
       </div>
+
+      <InsightCard />
+      <DashboardCorrelations />
 
       {!hasCheckedInToday && (
         <Link href="/dashboard/checkin" className="block">
@@ -407,8 +410,6 @@ export default async function DashboardPage() {
       )}
 
       <PlaceDetector />
-
-      <InsightCard />
 
       {/* ── today's schedule strip ── */}
       {todayEvents.length > 0 && (
