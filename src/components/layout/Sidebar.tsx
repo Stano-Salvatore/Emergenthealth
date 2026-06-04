@@ -45,7 +45,7 @@ const navGroups: NavGroup[] = [
     color: "text-rose-400",
     items: [
       { href: "/dashboard/health",    label: "Oura / Metrics", emoji: "❤️" },
-      { href: "/dashboard/insights",  label: "Insights",       emoji: "✨" },
+      { href: "/dashboard/insights",  label: "Correlations",   emoji: "✨" },
       { href: "/dashboard/weight",    label: "Weight",         emoji: "⚖️" },
       { href: "/dashboard/body",      label: "Body",           emoji: "📏" },
       { href: "/dashboard/custom",    label: "Trackers",       emoji: "📐" },
