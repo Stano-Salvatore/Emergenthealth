@@ -179,7 +179,7 @@ function DrinksWidget({ apiKey }: { apiKey: string }) {
   )
 }
 
-export default function DrinksWidgetPage() {
+function DrinksWidgetPageInner() {
   const searchParams = useSearchParams()
   const apiKey = searchParams.get("key") ?? ""
 
@@ -191,9 +191,13 @@ export default function DrinksWidgetPage() {
     )
   }
 
+  return <DrinksWidget apiKey={apiKey} />
+}
+
+export default function DrinksWidgetPage() {
   return (
     <Suspense>
-      <DrinksWidget apiKey={apiKey} />
+      <DrinksWidgetPageInner />
     </Suspense>
   )
 }
