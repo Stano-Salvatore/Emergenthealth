@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import Link from "next/link"
 import { Flame, Zap } from "lucide-react"
+import { DailyTags } from "@/components/dashboard/DailyTags"
 
 type CheckIn = {
   energy: number
@@ -315,6 +316,14 @@ export default function CheckInPage() {
                     </div>
                   )
                 })()}
+              </CardContent>
+            </Card>
+
+            {/* Daily tags */}
+            <Card>
+              <CardContent className="pt-4 pb-4 px-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">🏷️ Tag today</p>
+                <DailyTags />
               </CardContent>
             </Card>
 

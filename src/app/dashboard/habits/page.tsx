@@ -9,7 +9,7 @@ import { Progress } from "@/components/ui/progress"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
-import { CheckSquare, Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X, Zap } from "lucide-react"
+import { CheckSquare, Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X, Zap, Bell, BellOff } from "lucide-react"
 import { EmptyState } from "@/components/ui/EmptyState"
 import { cn } from "@/lib/utils"
 import { format, subDays } from "date-fns"
@@ -23,7 +23,7 @@ interface Habit {
   streak: number
   completedToday: boolean
   completions: { date: string }[]
-  reminderTime?: string | null
+  reminderTime: string | null
 }
 
 interface RoutineHabit {
@@ -391,13 +391,48 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
   )
 }
 
-function HabitCard({ habit, days28, onToggle, onDelete }: {
+function HabitCard({ habit, days28, onToggle, onDelete, onUpdateReminder }: {
   habit: Habit
   days28: Date[]
   onToggle: (h: Habit) => void
   onDelete: (id: string) => void
+  onUpdateReminder: (id: string, reminderTime: string | null) => void
 }) {
+  const [showTimePicker, setShowTimePicker] = useState(false)
+  const [pendingTime, setPendingTime] = useState(habit.reminderTime ?? "")
+  const [savingReminder, setSavingReminder] = useState(false)
+
   const isMed = habit.icon === "💊" || habit.icon === "🌿"
+
+  async function applyReminder(value: string | null) {
+    setSavingReminder(true)
+    try {
+      await fetch(`/api/habits/${habit.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reminderTime: value }),
+      })
+      onUpdateReminder(habit.id, value)
+    } finally {
+      setSavingReminder(false)
+      setShowTimePicker(false)
+    }
+  }
+
+  function handleTimeChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value
+    setPendingTime(v)
+    if (v) {
+      applyReminder(v)
+    }
+  }
+
+  function handleClear(e: React.MouseEvent) {
+    e.stopPropagation()
+    setPendingTime("")
+    applyReminder(null)
+  }
+
   return (
     <Card className={`transition-all ${habit.completedToday ? "border-green-500/30 bg-green-500/[0.03]" : ""}`}>
       <CardContent className="py-4 px-5">
@@ -423,9 +458,6 @@ function HabitCard({ habit, days28, onToggle, onDelete }: {
                 {habit.description && habit.streak > 0 && (
                   <span className="text-xs text-muted-foreground">🔥 {habit.streak}d</span>
                 )}
-                {habit.reminderTime && (
-                  <span className="text-xs text-muted-foreground">🔔 {habit.reminderTime}</span>
-                )}
               </div>
             </div>
           </div>
@@ -447,6 +479,59 @@ function HabitCard({ habit, days28, onToggle, onDelete }: {
             <span>4 weeks ago</span><span>Today</span>
           </div>
           <HeatmapRow habit={habit} days={days28} />
+        </div>
+        {/* Reminder section */}
+        <div className="mt-3 pt-2 border-t border-border/40">
+          {habit.reminderTime && !showTimePicker ? (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-400 border border-amber-500/30">
+                🔔 {habit.reminderTime}
+              </span>
+              <button
+                onClick={() => { setPendingTime(habit.reminderTime ?? ""); setShowTimePicker(true) }}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                disabled={savingReminder}
+              >
+                edit
+              </button>
+              <button
+                onClick={handleClear}
+                className="ml-auto text-muted-foreground hover:text-destructive transition-colors p-0.5"
+                disabled={savingReminder}
+                aria-label="Clear reminder"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ) : !showTimePicker ? (
+            <button
+              onClick={() => setShowTimePicker(true)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Bell className="h-3 w-3" />
+              <span>Add reminder</span>
+            </button>
+          ) : null}
+          {showTimePicker && (
+            <div className="flex items-center gap-2">
+              <Bell className="h-3 w-3 text-muted-foreground shrink-0" />
+              <input
+                type="time"
+                value={pendingTime}
+                onChange={handleTimeChange}
+                autoFocus
+                className="bg-secondary/50 border border-border rounded-lg px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                disabled={savingReminder}
+              />
+              <button
+                onClick={() => setShowTimePicker(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                aria-label="Cancel"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -561,6 +646,10 @@ export default function HabitsPage() {
   async function deleteHabit(id: string) {
     await fetch(`/api/habits/${id}`, { method: "DELETE" })
     loadHabits()
+  }
+
+  function updateHabitReminder(id: string, reminderTime: string | null) {
+    setHabits(prev => prev.map(h => h.id === id ? { ...h, reminderTime } : h))
   }
 
   async function saveVacation(active: boolean) {
@@ -685,9 +774,9 @@ export default function HabitsPage() {
                   </div>
                 )}
                 <div>
-                  <Label>Reminder time <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                  <Label>Daily reminder <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
                   <input type="time" value={newReminderTime} onChange={e => setNewReminderTime(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
+                    className="mt-1 bg-secondary/50 border border-border rounded-lg px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 w-full" />
                   <p className="text-[11px] text-muted-foreground mt-1">Get a push notification at this time if not done yet</p>
                 </div>
                 <Button type="submit" className="w-full" disabled={saving || !newName.trim()}>
@@ -793,7 +882,7 @@ export default function HabitsPage() {
           {regularHabits.length > 0 && (
             <div className="space-y-3">
               {regularHabits.map(habit => (
-                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={deleteHabit} />
+                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={deleteHabit} onUpdateReminder={updateHabitReminder} />
               ))}
             </div>
           )}
@@ -801,7 +890,7 @@ export default function HabitsPage() {
             <div className="space-y-3">
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">💊 Medications & Vitamins</h2>
               {medHabits.map(habit => (
-                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={deleteHabit} />
+                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={deleteHabit} onUpdateReminder={updateHabitReminder} />
               ))}
             </div>
           )}
