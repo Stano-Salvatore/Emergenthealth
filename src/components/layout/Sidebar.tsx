@@ -84,6 +84,7 @@ const navGroups: NavGroup[] = [
     color: "text-primary",
     items: [
       { href: "/dashboard/chat",    label: "Emergy",   emoji: "🌱" },
+      { href: "/dashboard/server",  label: "Cluster",  emoji: "🖥️" },
       { href: "/dashboard/garden",  label: "Garden",   emoji: "🌻" },
       { href: "/dashboard/settings", label: "Settings", emoji: "⚙️" },
     ],

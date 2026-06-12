@@ -1,0 +1,15 @@
+services:
+  server-bridge:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "7070:7070"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      PORT: 7070
+      # Secret token — must match SERVER_BRIDGE_TOKEN in Vercel env vars
+      BRIDGE_TOKEN: ""
+      # JSON map of service URLs to ping, e.g.:
+      # '{"Emergenthealth":"https://your-app.vercel.app","Gitea":"http://localhost:3000"}'
+      PING_SERVICES: '{"Gitea":"http://localhost:3000","Home Assistant":"http://localhost:8123"}'
