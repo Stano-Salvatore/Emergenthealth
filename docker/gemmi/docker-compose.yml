@@ -1,0 +1,23 @@
+services:
+  gemmi:
+    build:
+      context: ../..          # root of the Emergenthealth repo
+      dockerfile: docker/gemmi/Dockerfile
+    image: gemmi:latest
+    container_name: gemmi
+    restart: unless-stopped
+    ports:
+      - "3000:3000"           # accessible at http://lenovo:3000 or via Tailscale
+    volumes:
+      # Docker socket — lets Gemmi manage containers directly (no bridge needed)
+      - /var/run/docker.sock:/var/run/docker.sock
+    env_file:
+      - .env                  # copy .env.example → .env and fill in your values
+    environment:
+      NODE_ENV: production
+      NEXT_OUTPUT: standalone
+      # Tailscale hostname for Server Actions (no port for 443, add :3000 for local)
+      ALLOWED_ORIGINS: "${TAILSCALE_HOST:-}"
+      # Service URLs to ping on the Cluster Matrix page
+      PING_SERVICES: >-
+        {"Gitea":"http://localhost:3000","Home Assistant":"http://localhost:8123","Vaultwarden":"http://localhost:8080"}

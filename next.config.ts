@@ -9,7 +9,14 @@ const securityHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
 ]
 
+// Extra origins for Server Actions — add your Tailscale hostname here:
+// ALLOWED_ORIGINS=lenovo.your-tailnet.ts.net:3000
+const extraOrigins = (process.env.ALLOWED_ORIGINS ?? "").split(",").filter(Boolean)
+
 const nextConfig: NextConfig = {
+  // Standalone output for self-hosted Docker deployment
+  output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
+
   async headers() {
     return [
       {
@@ -37,7 +44,7 @@ const nextConfig: NextConfig = {
   turbopack: {},
   experimental: {
     serverActions: {
-      allowedOrigins: ["localhost:3000", "emergenthealth.vercel.app"],
+      allowedOrigins: ["localhost:3000", "emergenthealth.vercel.app", ...extraOrigins],
     },
   },
   images: {
