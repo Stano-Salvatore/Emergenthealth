@@ -24,8 +24,7 @@ import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
 import { QuickHabits } from "@/components/dashboard/QuickHabits"
 import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
-import { InsightCard } from "@/components/dashboard/InsightCard"
-import { DashboardCorrelations } from "@/components/dashboard/DashboardCorrelations"
+import { InsightsPanel } from "@/components/dashboard/InsightsPanel"
 import { TodayCard } from "@/components/dashboard/TodayCard"
 import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
@@ -363,8 +362,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <InsightCard />
-      <DashboardCorrelations />
+      <InsightsPanel />
 
       {!hasCheckedInToday && (
         <Link href="/dashboard/checkin" className="block">
