@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { FitKeyManager } from "@/components/settings/FitKeyManager"
 import { OuraManager } from "@/components/settings/OuraManager"
 import { HealthConnectManager } from "@/components/settings/HealthConnectManager"
+import { SamsungHealthImporter } from "@/components/settings/SamsungHealthImporter"
 import { MigrateButton } from "@/components/settings/MigrateButton"
 import { GoalsEditor } from "@/components/settings/GoalsEditor"
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
@@ -287,6 +288,9 @@ export default async function SettingsPage({
 
       {/* Health Connect — Android only, syncs from Garmin/Fitbit/Samsung/etc */}
       <HealthConnectManager lastSync={hcLastSync} />
+
+      {/* Samsung Health — one-time CSV import for historical data */}
+      <SamsungHealthImporter />
 
       {ynabConnected && (
         <Card className="border-green-500/30 bg-green-500/5">
