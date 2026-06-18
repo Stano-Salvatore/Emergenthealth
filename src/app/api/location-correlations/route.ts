@@ -79,13 +79,26 @@ export async function GET(req: NextRequest) {
     ? new Date(startDateParam + "T00:00:00Z")
     : new Date(Date.now() - 365 * 24 * 60 * 60 * 1000)
 
-  // ── Load visit data ────────────────────────────────────────────────────────
+  // ── Load visit data (from DB, falling back to static file) ───────────────
   let visitsData: TimelineVisitsData
-  try {
-    const filePath = path.join(process.cwd(), "data", "timeline-visits.json")
-    visitsData = JSON.parse(readFileSync(filePath, "utf-8")) as TimelineVisitsData
-  } catch {
-    return NextResponse.json({ error: "Could not load timeline-visits.json" }, { status: 500 })
+  const pref = await prisma.userPreference.findUnique({
+    where: { userId_key: { userId, key: "timeline_visits" } },
+    select: { value: true },
+  }).catch(() => null)
+
+  if (pref?.value) {
+    try {
+      visitsData = JSON.parse(pref.value) as TimelineVisitsData
+    } catch {
+      return NextResponse.json({ error: "Corrupted timeline data in DB" }, { status: 500 })
+    }
+  } else {
+    try {
+      const filePath = path.join(process.cwd(), "data", "timeline-visits.json")
+      visitsData = JSON.parse(readFileSync(filePath, "utf-8")) as TimelineVisitsData
+    } catch {
+      return NextResponse.json([], { status: 200 })
+    }
   }
 
   // ── Fetch health & mood data ───────────────────────────────────────────────

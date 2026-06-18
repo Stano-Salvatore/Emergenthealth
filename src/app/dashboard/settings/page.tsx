@@ -8,6 +8,7 @@ import { FitKeyManager } from "@/components/settings/FitKeyManager"
 import { OuraManager } from "@/components/settings/OuraManager"
 import { HealthConnectManager } from "@/components/settings/HealthConnectManager"
 import { SamsungHealthImporter } from "@/components/settings/SamsungHealthImporter"
+import { TimelineImporter } from "@/components/settings/TimelineImporter"
 import { MigrateButton } from "@/components/settings/MigrateButton"
 import { GoalsEditor } from "@/components/settings/GoalsEditor"
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
@@ -291,6 +292,9 @@ export default async function SettingsPage({
 
       {/* Samsung Health — one-time CSV import for historical data */}
       <SamsungHealthImporter />
+
+      {/* Google Timeline — location visit history for health correlations */}
+      <TimelineImporter />
 
       {ynabConnected && (
         <Card className="border-green-500/30 bg-green-500/5">
