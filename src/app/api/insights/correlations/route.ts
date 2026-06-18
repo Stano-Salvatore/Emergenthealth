@@ -18,6 +18,7 @@ type DayData = {
   mood?: number
   habitCount?: number
   caffeineMg?: number
+  alcoholMl?: number
   tags?: string[]
 }
 
@@ -132,7 +133,7 @@ export async function GET(req: Request) {
   const since60str = format(since60, "yyyy-MM-dd")
 
   // ── Fetch all data sources in parallel ──────────────────────────────────────
-  const [healthLogs, checkIns, habitCompletions, caffeineRows, tagPrefs] = await Promise.all([
+  const [healthLogs, checkIns, habitCompletions, caffeineRows, alcoholRows, tagPrefs] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since60 } },
       orderBy: { date: "asc" },
@@ -169,6 +170,17 @@ export async function GET(req: Request) {
         AND "loggedAt" >= ${since60}
       GROUP BY DATE("loggedAt" AT TIME ZONE 'UTC')
     `.catch(() => [] as { date: string; totalMg: number }[]),
+
+    prisma.$queryRaw<{ date: string; totalMl: number }[]>`
+      SELECT
+        DATE("loggedAt" AT TIME ZONE 'UTC')::text AS date,
+        SUM("amountMl") AS "totalMl"
+      FROM "IntakeLog"
+      WHERE "userId" = ${userId}
+        AND "type" = 'alcohol'
+        AND "loggedAt" >= ${since60}
+      GROUP BY DATE("loggedAt" AT TIME ZONE 'UTC')
+    `.catch(() => [] as { date: string; totalMl: number }[]),
 
     prisma.$queryRaw<{ key: string; value: string }[]>`
       SELECT "key", "value"
@@ -217,6 +229,11 @@ export async function GET(req: Request) {
   for (const row of caffeineRows) {
     const d = getOrCreate(row.date)
     d.caffeineMg = Number(row.totalMg)
+  }
+
+  for (const row of alcoholRows) {
+    const d = getOrCreate(row.date)
+    d.alcoholMl = Number(row.totalMl)
   }
 
   // Parse tag preferences: key = "daily_tags:YYYY-MM-DD"
@@ -463,7 +480,63 @@ export async function GET(req: Request) {
   })
   if (ins_caffeine_sleep) insights.push(ins_caffeine_sleep)
 
-  // 6. Tag insights — top 5 most common tags
+  // 6. Alcohol → next-day HRV and sleep efficiency
+  const alcoholHighHrv: number[] = []
+  const alcoholLowHrv: number[] = []
+  const alcoholHighSleepEff: number[] = []
+  const alcoholLowSleepEff: number[] = []
+
+  for (const d of days) {
+    // Only compare days we know alcohol status for (logged 0 or more)
+    // Treat any day without an alcohol log as no-drink day (conservative)
+    const drank = (d.alcoholMl ?? 0) > 50 // >50ml = at least a small drink
+    const next = byDate[nextDateStr(d.date)]
+    if (!next) continue
+    if (next.hrv != null) {
+      if (drank) alcoholHighHrv.push(next.hrv)
+      else alcoholLowHrv.push(next.hrv)
+    }
+    if (next.sleepScore != null) {
+      if (drank) alcoholHighSleepEff.push(next.sleepScore)
+      else alcoholLowSleepEff.push(next.sleepScore)
+    }
+  }
+
+  const ins_alcohol_hrv = compareGroups({
+    id: "alcohol_hrv",
+    category: "caffeine", // reuse category for UI styling
+    emoji: "🍷",
+    title: "Alcohol & Next-Day HRV",
+    highGroupLabel: "drinking days (50ml+)",
+    lowGroupLabel: "non-drinking days",
+    highValues: alcoholHighHrv,
+    lowValues: alcoholLowHrv,
+    higherIsBetter: false, // drinking is the "high" group but we want to flag it as bad
+    findingTemplate: (h, l) =>
+      h < l
+        ? `After drinking, your HRV drops to ${h}ms vs ${l}ms on sober nights`
+        : `Drinking days don't show an HRV penalty — ${h}ms vs ${l}ms baseline`,
+  })
+  if (ins_alcohol_hrv) insights.push(ins_alcohol_hrv)
+
+  const ins_alcohol_sleep = compareGroups({
+    id: "alcohol_sleep",
+    category: "caffeine",
+    emoji: "🍺",
+    title: "Alcohol & Sleep Quality",
+    highGroupLabel: "drinking days (50ml+)",
+    lowGroupLabel: "non-drinking days",
+    highValues: alcoholHighSleepEff,
+    lowValues: alcoholLowSleepEff,
+    higherIsBetter: false,
+    findingTemplate: (h, l) =>
+      h < l
+        ? `After drinking, sleep score averages ${h} vs ${l} on sober nights`
+        : `Drinking days don't show a sleep penalty — score ${h} vs ${l}`,
+  })
+  if (ins_alcohol_sleep) insights.push(ins_alcohol_sleep)
+
+  // 7. Tag insights — top 5 most common tags
   const tagCounts: Record<string, number> = {}
   for (const d of days) {
     for (const tag of d.tags ?? []) {
