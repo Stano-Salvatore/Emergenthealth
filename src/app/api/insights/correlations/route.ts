@@ -115,14 +115,20 @@ function compareGroups(opts: {
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
-export async function GET() {
+const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall: 90 }
+
+export async function GET(req: Request) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
   const userId = session.user.id
 
-  const since60 = subDays(new Date(), 59)
+  const url = new URL(req.url)
+  const period = url.searchParams.get("period") ?? "overall"
+  const windowDays = PERIOD_DAYS[period] ?? 90
+
+  const since60 = subDays(new Date(), windowDays - 1)
   const since60str = format(since60, "yyyy-MM-dd")
 
   // ── Fetch all data sources in parallel ──────────────────────────────────────

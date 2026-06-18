@@ -5,12 +5,27 @@ import Anthropic from "@anthropic-ai/sdk"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { format, subDays } from "date-fns"
 
-const INSIGHT_KEY = new Date("0002-01-01")
+type Period = "week" | "month" | "overall"
 
-async function generateInsight(userId: string): Promise<{ bullets: string[]; generatedAt: string }> {
+const INSIGHT_KEYS: Record<Period, Date> = {
+  week:    new Date("0002-01-01"),
+  month:   new Date("0002-01-02"),
+  overall: new Date("0002-01-03"),
+}
+
+const PERIOD_DAYS: Record<Period, number> = { week: 7, month: 30, overall: 90 }
+
+const PERIOD_LABELS: Record<Period, string> = {
+  week:    "last 7 days",
+  month:   "last 30 days",
+  overall: "last 90 days",
+}
+
+async function generateInsight(userId: string, period: Period): Promise<{ bullets: string[]; generatedAt: string }> {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+  const days = PERIOD_DAYS[period]
+  const weekAgo = new Date(today.getTime() - days * 24 * 60 * 60 * 1000)
   const todayStr = today.toISOString().split("T")[0]
   const weekAgoStr = format(weekAgo, "yyyy-MM-dd")
 
@@ -125,7 +140,7 @@ async function generateInsight(userId: string): Promise<{ bullets: string[]; gen
   const totalDistanceKm = stravaActivities.reduce((s, a) => s + a.distance / 1000, 0)
 
   // ── Build context ───────────────────────────────────────────────────────
-  const lines: string[] = ["Last 7 days — full health & lifestyle snapshot:"]
+  const lines: string[] = [`${PERIOD_LABELS[period]} — full health & lifestyle snapshot:`]
 
   if (avgSleepH !== null) {
     const scores = sleepScores.length ? `, scores [${sleepScores.join(", ")}]` : ""
@@ -159,7 +174,7 @@ async function generateInsight(userId: string): Promise<{ bullets: string[]; gen
     messages: [
       {
         role: "user",
-        content: `You are a personal health and lifestyle coach. Based on this week's data, give exactly 3 short bullet point insights. Each bullet is 1 sentence under 15 words. Focus on the single most surprising or actionable cross-metric pattern — connect dots across sleep, focus, mood, spending, alcohol, workouts. No generic advice. Format: 3 bullets only, each starting with an emoji.\n\n${summary}`,
+        content: `You are a personal health and lifestyle coach. Based on the data below (${PERIOD_LABELS[period]}), give exactly 3 short bullet point insights. Each bullet is 1 sentence under 15 words. Focus on the single most surprising or actionable cross-metric pattern — connect dots across sleep, focus, mood, spending, alcohol, workouts. No generic advice. Format: 3 bullets only, each starting with an emoji.\n\n${summary}`,
       },
     ],
   })
@@ -172,10 +187,15 @@ async function generateInsight(userId: string): Promise<{ bullets: string[]; gen
   return { bullets, generatedAt: new Date().toISOString() }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
+
+  const url = new URL(req.url)
+  const period: Period = (url.searchParams.get("period") as Period) || "week"
+  if (!INSIGHT_KEYS[period]) return NextResponse.json({ error: "invalid period" }, { status: 400 })
+  const cacheKey = INSIGHT_KEYS[period]
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ bullets: [], error: "no_key" })
@@ -183,7 +203,7 @@ export async function GET() {
 
   try {
     const cached = await prisma.dailyNote.findUnique({
-      where: { userId_date: { userId, date: INSIGHT_KEY } },
+      where: { userId_date: { userId, date: cacheKey } },
     })
 
     if (cached) {
@@ -195,12 +215,12 @@ export async function GET() {
       }
     }
 
-    const { bullets, generatedAt } = await generateInsight(userId)
+    const { bullets, generatedAt } = await generateInsight(userId, period)
     const content = JSON.stringify({ generatedAt, bullets })
 
     await prisma.dailyNote.upsert({
-      where: { userId_date: { userId, date: INSIGHT_KEY } },
-      create: { userId, date: INSIGHT_KEY, content },
+      where: { userId_date: { userId, date: cacheKey } },
+      create: { userId, date: cacheKey, content },
       update: { content },
     })
 
@@ -210,12 +230,17 @@ export async function GET() {
   }
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const rl = checkRateLimit(userId, "insight", 5, 24 * 60 * 60 * 1000) // 5/day
+  const url = new URL(req.url)
+  const period: Period = (url.searchParams.get("period") as Period) || "week"
+  if (!INSIGHT_KEYS[period]) return NextResponse.json({ error: "invalid period" }, { status: 400 })
+  const cacheKey = INSIGHT_KEYS[period]
+
+  const rl = checkRateLimit(userId, `insight_${period}`, 5, 24 * 60 * 60 * 1000)
   if (!rl.allowed) {
     return NextResponse.json(
       { error: "Rate limit exceeded for insight regeneration.", resetAt: rl.resetAt },
@@ -229,15 +254,15 @@ export async function POST() {
 
   try {
     await prisma.dailyNote.deleteMany({
-      where: { userId, date: INSIGHT_KEY },
+      where: { userId, date: cacheKey },
     })
 
-    const { bullets, generatedAt } = await generateInsight(userId)
+    const { bullets, generatedAt } = await generateInsight(userId, period)
     const content = JSON.stringify({ generatedAt, bullets })
 
     await prisma.dailyNote.upsert({
-      where: { userId_date: { userId, date: INSIGHT_KEY } },
-      create: { userId, date: INSIGHT_KEY, content },
+      where: { userId_date: { userId, date: cacheKey } },
+      create: { userId, date: cacheKey, content },
       update: { content },
     })
 
