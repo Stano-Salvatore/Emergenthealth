@@ -112,9 +112,19 @@ type CorrelationItem = {
   delta: number
 }
 
+type LocationPattern = {
+  locationKey: string
+  label: string
+  emoji: string
+  n: number
+  delta: number | null
+  confidence: string
+}
+
 type PeriodData = {
   insight: InsightData
   correlations: CorrelationItem[]
+  locationPatterns: LocationPattern[]
   loaded: boolean
 }
 
@@ -127,6 +137,13 @@ function SkeletonRows({ count }: { count: number }) {
       ))}
     </div>
   )
+}
+
+const CONFIDENCE_COLORS: Record<string, string> = {
+  insufficient: "text-muted-foreground/30",
+  low: "text-yellow-500/70",
+  moderate: "text-blue-400/80",
+  good: "text-green-400",
 }
 
 function PeriodTab({
@@ -146,6 +163,8 @@ function PeriodTab({
   const corr = data.correlations.slice(0, 3)
   const hasInsight = bullets.length > 0
   const hasCorr = corr.length > 0
+  const showLocation = period === "month" || period === "overall"
+  const locWithData = data.locationPatterns.filter(l => l.n >= 6 && l.delta != null)
 
   if (!hasInsight && !hasCorr) {
     return (
@@ -200,13 +219,38 @@ function PeriodTab({
         </div>
       )}
 
-      {period === "month" || period === "overall" ? (
-        <div className="pt-1 border-t border-border/30">
-          <Link href="/dashboard/location-insights" className="text-[10px] text-primary/60 hover:text-primary flex items-center gap-0.5 transition-colors">
-            🗺️ View location patterns <ChevronRight className="h-3 w-3" />
-          </Link>
+      {showLocation && (
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">🗺️ by location (HRV)</p>
+            <Link href="/dashboard/location-insights" className="text-[10px] text-primary/70 hover:text-primary flex items-center gap-0.5 transition-colors">
+              Full view <ChevronRight className="h-3 w-3" />
+            </Link>
+          </div>
+          {locWithData.length === 0 ? (
+            <p className="text-[10px] text-muted-foreground/50">
+              Import your Google Timeline in Settings to see location patterns.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {locWithData.slice(0, 3).map(loc => (
+                <div key={loc.locationKey} className="flex items-center gap-2">
+                  <span className="text-sm shrink-0">{loc.emoji}</span>
+                  <p className="text-xs text-muted-foreground flex-1 min-w-0 truncate">{loc.label}</p>
+                  <span className={`text-[10px] shrink-0 tabular-nums ${CONFIDENCE_COLORS[loc.confidence]}`}>
+                    n={loc.n}
+                  </span>
+                  {loc.delta != null && (
+                    <span className={`text-[10px] font-bold shrink-0 tabular-nums ${loc.delta > 0 ? "text-green-400" : "text-red-400"}`}>
+                      {loc.delta > 0 ? "+" : ""}{loc.delta.toFixed(1)}ms
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      ) : null}
+      )}
     </div>
   )
 }
@@ -222,17 +266,22 @@ export function InsightsPanel() {
 
   const loadPeriod = useCallback(async (period: Exclude<Period, "today">) => {
     if (periodData.current[period]) return
-    periodData.current[period] = { insight: null, correlations: [], loaded: false }
+    periodData.current[period] = { insight: null, correlations: [], locationPatterns: [], loaded: false }
     forceUpdate(n => n + 1)
 
-    const [insightRes, corrRes] = await Promise.allSettled([
+    const fetchLoc = period === "month" || period === "overall"
+    const [insightRes, corrRes, locRes] = await Promise.allSettled([
       fetch(`/api/insight?period=${period}`).then(r => r.json()),
       fetch(`/api/insights/correlations?period=${period}`).then(r => r.json()),
+      fetchLoc
+        ? fetch("/api/location-correlations?metric=hrv").then(r => r.json())
+        : Promise.resolve([]),
     ])
 
     periodData.current[period] = {
       insight: insightRes.status === "fulfilled" ? insightRes.value : null,
       correlations: corrRes.status === "fulfilled" ? (corrRes.value.insights ?? []) : [],
+      locationPatterns: locRes.status === "fulfilled" && Array.isArray(locRes.value) ? locRes.value : [],
       loaded: true,
     }
     forceUpdate(n => n + 1)
@@ -285,7 +334,7 @@ export function InsightsPanel() {
         ) : (
           <PeriodTab
             period={activeTab}
-            data={periodData.current[activeTab] ?? { insight: null, correlations: [], loaded: false }}
+            data={periodData.current[activeTab] ?? { insight: null, correlations: [], locationPatterns: [], loaded: false }}
             onRegenerate={() => regenerate(activeTab)}
             regenerating={regenerating === activeTab}
           />
