@@ -289,12 +289,9 @@ export default async function SettingsPage({
       {/* Health Connect — Android only, syncs from Garmin/Fitbit/Samsung/etc */}
       <HealthConnectManager lastSync={hcLastSync} />
 
-<<<<<<< HEAD
       {/* Samsung Health — one-time CSV import for historical data */}
       <SamsungHealthImporter />
 
-=======
->>>>>>> 1edf8ea (feat: Health Connect integration (Android))
       {ynabConnected && (
         <Card className="border-green-500/30 bg-green-500/5">
           <CardContent className="pt-4 pb-3">
