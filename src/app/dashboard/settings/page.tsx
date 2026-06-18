@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma"
 import { Card, CardContent } from "@/components/ui/card"
 import { FitKeyManager } from "@/components/settings/FitKeyManager"
 import { OuraManager } from "@/components/settings/OuraManager"
+import { HealthConnectManager } from "@/components/settings/HealthConnectManager"
+import { SamsungHealthImporter } from "@/components/settings/SamsungHealthImporter"
 import { MigrateButton } from "@/components/settings/MigrateButton"
 import { GoalsEditor } from "@/components/settings/GoalsEditor"
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
@@ -122,6 +124,13 @@ export default async function SettingsPage({
   const lastfmUsername = lastfmRows[0]?.username ?? null
 
   const isOuraConnected = !!ouraToken
+
+  // Health Connect last sync
+  const hcSyncRows = await prisma.userPreference.findUnique({
+    where: { userId_key: { userId, key: "health_connect_last_sync" } },
+    select: { value: true },
+  }).catch(() => null)
+  const hcLastSync = hcSyncRows?.value ?? null
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL ?? ""
   const plan = await getUserPlan(userId)
   const stripeReady = isStripeConfigured()
@@ -276,6 +285,12 @@ export default async function SettingsPage({
 
       {/* Oura Ring connection (client component) */}
       <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
+
+      {/* Health Connect — Android only, syncs from Garmin/Fitbit/Samsung/etc */}
+      <HealthConnectManager lastSync={hcLastSync} />
+
+      {/* Samsung Health — one-time CSV import for historical data */}
+      <SamsungHealthImporter />
 
       {ynabConnected && (
         <Card className="border-green-500/30 bg-green-500/5">

@@ -539,6 +539,103 @@ function buildMcpServer(userId: string): McpServer {
     },
   )
 
+  // ── LOCATION CORRELATIONS ─────────────────────────────────────────────────
+
+  server.tool(
+    "get_location_correlations",
+    "Get health metric correlations for saved places — shows how health metrics (readiness, sleep, HRV, mood, steps, resting HR) differ on days you visited each place vs days you didn't. Results include a confidence label based on visit count.",
+    {},
+    async () => {
+      type SavedPlaceRow = { id: string; name: string; emoji: string }
+      type CheckInRow = { checkedAt: Date }
+
+      const savedPlaces = await prisma.$queryRaw<SavedPlaceRow[]>`
+        SELECT id, name, emoji FROM "SavedPlace" WHERE "userId" = ${userId}
+      `.catch(() => [] as SavedPlaceRow[])
+
+      if (!savedPlaces.length) return msg("No saved places found. Add places in the Location page to track health correlations.")
+
+      const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+
+      const [healthLogs, moodLogs] = await Promise.all([
+        prisma.healthLog.findMany({
+          where: { userId, date: { gte: since } },
+          select: { date: true, readinessScore: true, sleepDuration: true, hrv: true, steps: true, restingHR: true },
+        }),
+        prisma.moodLog.findMany({
+          where: { userId, date: { gte: since } },
+          select: { date: true, mood: true },
+        }),
+      ])
+
+      function avgNums(nums: (number | null)[]): number | null {
+        const valid = nums.filter((n): n is number => n != null)
+        return valid.length ? Math.round((valid.reduce((a, b) => a + b, 0) / valid.length) * 10) / 10 : null
+      }
+
+      function confLabel(n: number) {
+        if (n < 6)  return "insufficient (< 6 visits)"
+        if (n < 15) return "low (6–14 visits)"
+        if (n < 30) return "moderate (15–29 visits)"
+        return "good (30+ visits)"
+      }
+
+      const results = await Promise.all(savedPlaces.map(async place => {
+        const checkIns = await prisma.$queryRaw<CheckInRow[]>`
+          SELECT "checkedAt" FROM "CheckIn"
+          WHERE "userId" = ${userId} AND "savedPlaceId" = ${place.id}
+            AND "isAuto" = true AND "checkedAt" >= ${since}
+        `.catch(() => [] as CheckInRow[])
+
+        const visitDates = new Set(checkIns.map(c => new Date(c.checkedAt).toISOString().split("T")[0]))
+        const visitH    = healthLogs.filter(h =>  visitDates.has(h.date.toISOString().split("T")[0]))
+        const nonVisitH = healthLogs.filter(h => !visitDates.has(h.date.toISOString().split("T")[0]))
+        const visitM    = moodLogs.filter(m =>  visitDates.has(m.date.toISOString().split("T")[0]))
+        const nonVisitM = moodLogs.filter(m => !visitDates.has(m.date.toISOString().split("T")[0]))
+
+        const v = {
+          readiness: avgNums(visitH.map(h => h.readinessScore)),
+          sleep_h: avgNums(visitH.map(h => h.sleepDuration != null ? h.sleepDuration / 60 : null)),
+          hrv: avgNums(visitH.map(h => h.hrv)),
+          steps: avgNums(visitH.map(h => h.steps)),
+          resting_hr: avgNums(visitH.map(h => h.restingHR)),
+          mood: avgNums(visitM.map(m => m.mood)),
+        }
+        const nv = {
+          readiness: avgNums(nonVisitH.map(h => h.readinessScore)),
+          sleep_h: avgNums(nonVisitH.map(h => h.sleepDuration != null ? h.sleepDuration / 60 : null)),
+          hrv: avgNums(nonVisitH.map(h => h.hrv)),
+          steps: avgNums(nonVisitH.map(h => h.steps)),
+          resting_hr: avgNums(nonVisitH.map(h => h.restingHR)),
+          mood: avgNums(nonVisitM.map(m => m.mood)),
+        }
+
+        const delta = (key: keyof typeof v) =>
+          v[key] != null && nv[key] != null
+            ? Math.round(((v[key] as number) - (nv[key] as number)) * 10) / 10
+            : null
+
+        return {
+          place: `${place.emoji} ${place.name}`,
+          visits_last_90d: checkIns.length,
+          confidence: confLabel(checkIns.length),
+          deltas: {
+            readiness_pts: delta("readiness"),
+            sleep_hours: delta("sleep_h"),
+            hrv_ms: delta("hrv"),
+            steps: delta("steps"),
+            resting_hr_bpm: delta("resting_hr"),
+            mood_out_of_5: delta("mood"),
+          },
+          note: checkIns.length < 6 ? "Too few visits — data not reliable yet" : undefined,
+        }
+      }))
+
+      results.sort((a, b) => b.visits_last_90d - a.visits_last_90d)
+      return ok({ places: results, disclaimer: "Correlation ≠ causation. Deltas compare visit days vs non-visit days over the last 90 days." })
+    },
+  )
+
   // ── DAILY BRIEFING ────────────────────────────────────────────────────────
 
   server.tool(

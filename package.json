@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@actual-app/api": "^26.4.0",
+    "@capacitor/core": "^6.0.0",
+    "@kiwi-health/capacitor-health-connect": "^0.0.42",
     "@anthropic-ai/sdk": "^0.86.1",
     "@auth/prisma-adapter": "^2.11.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
