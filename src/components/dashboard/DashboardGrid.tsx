@@ -8,13 +8,14 @@ import "react-grid-layout/css/styles.css"
 import "react-resizable/css/styles.css"
 
 export type BlockId =
-  | "health" | "finances" | "calendar" | "habits"
+  | "insights" | "health" | "finances" | "calendar" | "habits"
   | "reminders" | "gmail" | "quicklog" | "stats"
   | "location" | "ac" | "today" | "quests" | "quickstart" | "briefing"
 
 interface Block { id: BlockId; label: string }
 
 const ALL_BLOCKS: Block[] = [
+  { id: "insights",   label: "✨ Insights" },
   { id: "briefing",   label: "🌟 Daily Briefing" },
   { id: "today",      label: "🌅 Today" },
   { id: "health",     label: "❤️ Health" },
@@ -32,23 +33,24 @@ const ALL_BLOCKS: Block[] = [
 ]
 
 const DEFAULT_ITEMS: LayoutItem[] = [
-  { i: "briefing",   x: 0, y: 0,  w: 12, h: 4 },
-  { i: "today",      x: 0, y: 4,  w: 12, h: 8 },
-  { i: "quickstart", x: 0, y: 12, w: 6,  h: 10 },
-  { i: "quests",     x: 6, y: 12, w: 6,  h: 10 },
-  { i: "health",     x: 0, y: 22, w: 4, h: 9 },
-  { i: "finances",   x: 4, y: 22, w: 4, h: 9 },
-  { i: "calendar",   x: 8, y: 22, w: 4, h: 9 },
-  { i: "habits",     x: 0, y: 31, w: 4, h: 7 },
-  { i: "reminders",  x: 4, y: 31, w: 4, h: 7 },
-  { i: "gmail",      x: 8, y: 31, w: 4, h: 7 },
-  { i: "quicklog",   x: 0, y: 38, w: 12, h: 5 },
-  { i: "stats",      x: 0, y: 43, w: 12, h: 4 },
-  { i: "location",   x: 0, y: 47, w: 6,  h: 6 },
-  { i: "ac",         x: 6, y: 47, w: 6,  h: 6 },
+  { i: "insights",    x: 0, y: 0,  w: 12, h: 9 },
+  { i: "briefing",    x: 0, y: 9,  w: 12, h: 4 },
+  { i: "today",       x: 0, y: 13, w: 12, h: 8 },
+  { i: "quickstart",  x: 0, y: 21, w: 6,  h: 10 },
+  { i: "quests",      x: 6, y: 21, w: 6,  h: 10 },
+  { i: "health",      x: 0, y: 31, w: 4,  h: 9 },
+  { i: "finances",    x: 4, y: 31, w: 4,  h: 9 },
+  { i: "calendar",    x: 8, y: 31, w: 4,  h: 9 },
+  { i: "habits",      x: 0, y: 40, w: 4,  h: 7 },
+  { i: "reminders",   x: 4, y: 40, w: 4,  h: 7 },
+  { i: "gmail",       x: 8, y: 40, w: 4,  h: 7 },
+  { i: "quicklog",    x: 0, y: 47, w: 12, h: 5 },
+  { i: "stats",       x: 0, y: 52, w: 12, h: 4 },
+  { i: "location",    x: 0, y: 56, w: 6,  h: 6 },
+  { i: "ac",          x: 6, y: 56, w: 6,  h: 6 },
 ]
 
-const STORAGE_KEY = "dashboard-layout-v7"
+const STORAGE_KEY = "dashboard-layout-v8"
 const HIDDEN_KEY  = "dashboard-hidden-v1"
 
 function loadItems(): LayoutItem[] {
