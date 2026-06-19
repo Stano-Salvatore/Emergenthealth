@@ -314,7 +314,7 @@ export default async function DashboardPage() {
   const showSetup = setupDone < 3
 
   // ── wellness score
-  const { score: wellnessScore, components: scoreComponents } = computeWellnessScore({
+  const { score: wellnessScore } = computeWellnessScore({
     sleepMin: latestHealth?.sleepDuration ?? null,
     steps: latestHealth?.steps ?? null,
     readiness: latestHealth?.readinessScore ?? null,
@@ -339,30 +339,17 @@ export default async function DashboardPage() {
           </div>
           <WeatherWidget />
         </div>
-        <div className="mt-4 flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-3 bg-background/50 backdrop-blur rounded-xl px-4 py-2.5 border border-border/50">
-            <div className="text-center min-w-[48px]">
-              <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>
-              <p className={`text-[10px] font-semibold uppercase tracking-wider mt-0.5 ${scoreColor}`}>{scoreEmoji} {scoreLabel}</p>
-            </div>
-            <div className="h-10 w-px bg-border" />
-            <div className="grid grid-cols-4 gap-3">
-              {scoreComponents.map(c => (
-                <div key={c.label} className="text-center">
-                  <p className="text-sm font-bold">{c.pts}<span className="text-[10px] text-muted-foreground">/{c.max}</span></p>
-                  <p className="text-[9px] text-muted-foreground">{c.label}</p>
-                </div>
-              ))}
-            </div>
+        <div className="mt-4 flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2.5 bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50">
+            <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>
+            <p className={`text-[11px] font-semibold uppercase tracking-wider ${scoreColor}`}>{scoreEmoji} {scoreLabel}</p>
           </div>
-          <div className="flex-1 min-w-[200px] bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50">
+          <div className="flex-1 min-w-[180px] bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">How do you feel?</p>
             <MoodWidget todayMood={todayMood} />
           </div>
         </div>
       </div>
-
-      <InsightsPanel />
 
       {!hasCheckedInToday && (
         <Link href="/dashboard/checkin" className="block">
@@ -749,6 +736,7 @@ export default async function DashboardPage() {
       </div>
     ),
 
+    insights: <InsightsPanel />,
     location: <LocationCard />,
     ac: <AcCard />,
     quests: <DailyQuests />,
