@@ -474,6 +474,24 @@ export default async function SettingsPage({
       {/* Home screen & lock screen widgets */}
       <WidgetSetup appUrl={appUrl} apiKey={keys[0]?.token} />
 
+      {/* OwnTracks live location */}
+      {keys[0]?.token && (
+        <Card>
+          <CardContent className="pt-4 pb-4 space-y-3">
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">OwnTracks · Live Location</p>
+            <p className="text-xs text-muted-foreground">
+              Open OwnTracks → Preferences → Connection → Mode: <strong>HTTP</strong>. Paste the URL below.
+            </p>
+            <div className="rounded-lg bg-secondary/50 px-3 py-2 font-mono text-[11px] break-all select-all">
+              {appUrl}/api/location/track?token={keys[0].token}
+            </div>
+            <p className="text-[10px] text-muted-foreground/60">
+              Set update interval to 60–300 s. Your path appears on the dashboard Location card automatically.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Feedback inbox */}
       <FeedbackInbox />
 
