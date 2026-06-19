@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { getGpxTrackForDate } from "@/lib/google-drive"
 import { downsamplePoints, trackToSvgPath } from "@/lib/gpx"
+import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 import { MapPin, ChevronRight } from "lucide-react"
 import { format } from "date-fns"
@@ -29,9 +30,26 @@ export async function LocationCard() {
   if (!session?.user?.id) return null
 
   const today = new Date().toISOString().split("T")[0]
-  const track = await getGpxTrackForDate(session.user.id, today).catch(() => null)
-  const pts = track ? downsamplePoints(track.points, 300).map(p => ({ lat: p.lat, lon: p.lon })) : []
+  const dayStart = new Date(`${today}T00:00:00Z`)
+  const dayEnd   = new Date(`${today}T23:59:59Z`)
+
+  const [track, ownTracksRows] = await Promise.all([
+    getGpxTrackForDate(session.user.id, today).catch(() => null),
+    prisma.locationPoint.findMany({
+      where: { userId: session.user.id, trackedAt: { gte: dayStart, lte: dayEnd } },
+      orderBy: { trackedAt: "asc" },
+      select: { lat: true, lng: true },
+    }),
+  ])
+
+  const gpxPts = track ? downsamplePoints(track.points, 300).map(p => ({ lat: p.lat, lon: p.lon })) : []
+  const otPts  = ownTracksRows.map(r => ({ lat: r.lat, lon: r.lng }))
+  const pts    = gpxPts.length >= 2 ? gpxPts : otPts
   const hasData = pts.length >= 2
+
+  const distanceKm = track?.distanceKm ?? calcKm(otPts)
+  const movingMin  = track?.movingMin  ?? 0
+  const avgSpeed   = track?.avgSpeedKmh ?? 0
 
   return (
     <Link href="/dashboard/location">
@@ -56,15 +74,15 @@ export async function LocationCard() {
             <div className="grid grid-cols-3 gap-2 mt-2.5">
               <div>
                 <p className="text-[10px] text-muted-foreground">Distance</p>
-                <p className="text-sm font-bold tabular-nums">{track!.distanceKm.toFixed(1)} km</p>
+                <p className="text-sm font-bold tabular-nums">{distanceKm.toFixed(1)} km</p>
               </div>
               <div>
                 <p className="text-[10px] text-muted-foreground">Moving</p>
-                <p className="text-sm font-bold tabular-nums">{Math.round(track!.movingMin)} min</p>
+                <p className="text-sm font-bold tabular-nums">{Math.round(movingMin)} min</p>
               </div>
               <div>
                 <p className="text-[10px] text-muted-foreground">Avg speed</p>
-                <p className="text-sm font-bold tabular-nums">{track!.avgSpeedKmh.toFixed(1)} km/h</p>
+                <p className="text-sm font-bold tabular-nums">{avgSpeed.toFixed(1)} km/h</p>
               </div>
             </div>
           </>
@@ -72,4 +90,16 @@ export async function LocationCard() {
       </div>
     </Link>
   )
+}
+
+function calcKm(pts: { lat: number; lon: number }[]): number {
+  let km = 0
+  for (let i = 1; i < pts.length; i++) {
+    const R = 6371, p = pts[i - 1], c = pts[i]
+    const dLat = (c.lat - p.lat) * Math.PI / 180
+    const dLon = (c.lon - p.lon) * Math.PI / 180
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(p.lat * Math.PI / 180) * Math.cos(c.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+    km += R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  }
+  return km
 }

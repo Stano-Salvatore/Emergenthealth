@@ -47,6 +47,7 @@ model User {
   habitRoutines    HabitRoutine[]
   subscription     Subscription?
   passkeys         Passkey[]
+  locationPoints   LocationPoint[]
 }
 
 model Account {
@@ -561,6 +562,25 @@ model Subscription {
   updatedAt            DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── OwnTracks Location Points ───────────────────────────────────────────────
+
+model LocationPoint {
+  id        String   @id @default(cuid())
+  userId    String
+  lat       Float
+  lng       Float
+  accuracyM Int?
+  altitudeM Float?
+  speedKmh  Float?
+  battPct   Int?
+  trackedAt DateTime
+  source    String   @default("owntracks")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, trackedAt])
 }
 
 // ─── WebAuthn Passkeys ────────────────────────────────────────────────────────

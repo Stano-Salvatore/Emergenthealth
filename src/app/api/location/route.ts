@@ -71,22 +71,63 @@ export async function GET(req: Request) {
   }
 
   const date = searchParams.get("date") ?? new Date().toISOString().split("T")[0]
+
+  // Fetch OwnTracks points for the day
+  const dayStart = new Date(`${date}T00:00:00Z`)
+  const dayEnd   = new Date(`${date}T23:59:59Z`)
+  const ownTracksRows = await prisma.locationPoint.findMany({
+    where: { userId: session.user.id, trackedAt: { gte: dayStart, lte: dayEnd } },
+    orderBy: { trackedAt: "asc" },
+  })
+  const ownTracksPoints = ownTracksRows.map(r => ({ lat: r.lat, lon: r.lng, time: r.trackedAt }))
+
   const track = await getGpxTrackForDate(session.user.id, date)
-  if (!track) return NextResponse.json(null)
 
-  const points = downsamplePoints(track.points, 400).map(p => ({ lat: p.lat, lon: p.lon }))
+  if (!track && ownTracksPoints.length < 2) return NextResponse.json(null)
 
-  const autoTagged = await autoTagPlaces(session.user.id, date, track.points).catch(() => [])
+  // Merge GPX + OwnTracks, deduplicate by proximity
+  const gpxPoints = track ? downsamplePoints(track.points, 400).map(p => ({ lat: p.lat, lon: p.lon })) : []
+  const otDownsampled = downsamplePoints(
+    ownTracksPoints.map(p => ({ lat: p.lat, lon: p.lon, time: p.time, ele: null })),
+    400,
+  ).map(p => ({ lat: p.lat, lon: p.lon }))
+
+  // Prefer GPX if available, supplement with OwnTracks outside GPX time range
+  const points = gpxPoints.length >= 2 ? gpxPoints : otDownsampled
+
+  const allForTagging = [
+    ...(track?.points ?? []).map(p => ({ lat: p.lat, lon: p.lon })),
+    ...ownTracksPoints.map(p => ({ lat: p.lat, lon: p.lon })),
+  ]
+  const autoTagged = await autoTagPlaces(session.user.id, date, allForTagging).catch(() => [])
 
   return NextResponse.json({
-    distanceKm:  track.distanceKm,
-    durationMin: track.durationMin,
-    movingMin:   track.movingMin,
-    maxSpeedKmh: track.maxSpeedKmh,
-    avgSpeedKmh: track.avgSpeedKmh,
-    startTime:   track.startTime?.toISOString() ?? null,
-    endTime:     track.endTime?.toISOString()   ?? null,
+    distanceKm:  track?.distanceKm  ?? calcDistanceKm(ownTracksPoints),
+    durationMin: track?.durationMin ?? calcDurationMin(ownTracksPoints),
+    movingMin:   track?.movingMin   ?? calcDurationMin(ownTracksPoints),
+    maxSpeedKmh: track?.maxSpeedKmh ?? 0,
+    avgSpeedKmh: track?.avgSpeedKmh ?? 0,
+    startTime:   track?.startTime?.toISOString() ?? ownTracksPoints[0]?.time?.toISOString() ?? null,
+    endTime:     track?.endTime?.toISOString()   ?? ownTracksPoints.at(-1)?.time?.toISOString() ?? null,
     points,
     autoTagged,
+    source: gpxPoints.length >= 2 ? "gpx" : "owntracks",
   })
+}
+
+function calcDistanceKm(pts: { lat: number; lon: number }[]): number {
+  let km = 0
+  for (let i = 1; i < pts.length; i++) {
+    const R = 6371, p = pts[i - 1], c = pts[i]
+    const dLat = (c.lat - p.lat) * Math.PI / 180
+    const dLon = (c.lon - p.lon) * Math.PI / 180
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(p.lat * Math.PI / 180) * Math.cos(c.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2
+    km += R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  }
+  return km
+}
+
+function calcDurationMin(pts: { time: Date }[]): number {
+  if (pts.length < 2) return 0
+  return (pts.at(-1)!.time.getTime() - pts[0].time.getTime()) / 60_000
 }
