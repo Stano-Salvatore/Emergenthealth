@@ -733,8 +733,8 @@ export default function BodyPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">📏 Body Measurements</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Track weight, measurements, and body composition over time</p>
+        <h1 className="text-2xl font-bold flex items-center gap-2">📏 Body & Trackers</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Weight, measurements, blood pressure and custom metrics</p>
       </div>
 
       {/* Height setup prompt */}
@@ -967,6 +967,21 @@ export default function BodyPage() {
       {/* Blood Pressure section */}
       <div className="pt-2 border-t border-border/40">
         <BloodPressureSection />
+      </div>
+
+      <hr className="border-border/40 my-6" />
+
+      {/* Custom Trackers */}
+      <div className="pt-2 border-t border-border/40">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold flex items-center gap-2">📐 Custom Trackers</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Log and chart any metric you define</p>
+          </div>
+          <a href="/dashboard/custom" className="text-xs text-primary/70 hover:text-primary transition-colors flex items-center gap-1">
+            Open full view →
+          </a>
+        </div>
       </div>
     </div>
   )
