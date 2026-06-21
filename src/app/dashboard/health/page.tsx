@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { HealthEntryForm } from "@/components/health/HealthEntryForm"
 import { OuraSyncButton } from "@/components/health/OuraSyncButton"
+import { HealthTabBar } from "@/components/health/HealthTabBar"
 import {
   SleepChart, StepsChart, HRChart, WeightChart, ActivityChart,
   ReadinessChart, HRVChart, SpO2Chart, ActivityScoreChart,
@@ -16,6 +17,9 @@ import {
 } from "@/components/health/HealthCharts"
 import { Moon, Footprints, Heart, Scale, Zap, Activity, Thermometer, Wind, Shield, TrendingDown, TrendingUp, Minus } from "lucide-react"
 import { format, subDays } from "date-fns"
+import WeightPage from "@/app/dashboard/weight/page"
+import InsightsPage from "@/app/dashboard/insights/page"
+import LabsPage from "@/app/dashboard/labs/page"
 
 interface StravaActivityRow {
   id: string
@@ -30,10 +34,38 @@ interface StravaActivityRow {
 const STEP_GOAL = 8_000
 const SLEEP_GOAL_H = 7
 
-export default async function HealthPage() {
+export default async function HealthPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab } = await searchParams
+  const activeTab = tab ?? "metrics"
+
   const session = await auth()
   if (!session?.user?.id) return null
   const userId = session.user.id
+
+  if (activeTab === "weight") {
+    return (
+      <div className="space-y-6">
+        <HealthTabBar activeTab={activeTab} />
+        <WeightPage />
+      </div>
+    )
+  }
+  if (activeTab === "correlations") {
+    return (
+      <div className="space-y-6">
+        <HealthTabBar activeTab={activeTab} />
+        <InsightsPage />
+      </div>
+    )
+  }
+  if (activeTab === "labs") {
+    return (
+      <div className="space-y-6">
+        <HealthTabBar activeTab={activeTab} />
+        <LabsPage />
+      </div>
+    )
+  }
 
   const ouraToken = await prisma.ouraToken.findUnique({ where: { userId }, select: { id: true } })
   const isOuraConnected = !!ouraToken
@@ -178,6 +210,8 @@ export default async function HealthPage() {
           <HealthEntryForm />
         </div>
       </div>
+
+      <HealthTabBar activeTab="metrics" />
 
       {logs.length === 0 ? (
         <Card className="border-dashed">

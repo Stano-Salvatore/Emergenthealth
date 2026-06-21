@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { trackToSvgPath } from "@/lib/gpx"
 import { cn } from "@/lib/utils"
+import LocationInsightsClient from "../location-insights/LocationInsightsClient"
 
 interface CheckIn {
   id: string
@@ -595,6 +596,7 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
 }
 
 export default function LocationPage() {
+  const [activeTab, setActiveTab] = useState<"map" | "insights">("map")
   const [date, setDate]           = useState(() => { const _d = new Date(); return [_d.getFullYear(), String(_d.getMonth()+1).padStart(2,"0"), String(_d.getDate()).padStart(2,"0")].join("-") })
   const [track, setTrack]         = useState<TrackData | null>(null)
   const [loading, setLoading]     = useState(true)
@@ -631,8 +633,9 @@ export default function LocationPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold">Location</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">GPS track from GPSLogger · places auto-detected</p>
+          <p className="text-muted-foreground text-sm mt-0.5">GPS track · places · health correlations</p>
         </div>
+        {activeTab === "map" && (
         <div className="flex items-center gap-2">
           <Button size="icon" variant="outline" className="h-8 w-8" onClick={prevDay}>
             <ChevronLeft className="h-4 w-4"/>
@@ -650,7 +653,31 @@ export default function LocationPage() {
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")}/>
           </Button>
         </div>
+        )}
       </div>
+
+      {/* Tab bar */}
+      <div className="flex border-b border-border">
+        {([
+          { key: "map", label: "Map", emoji: "📍" },
+          { key: "insights", label: "Insights", emoji: "🗺️" },
+        ] as const).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={cn(
+              "px-4 py-2 text-sm transition-colors",
+              activeTab === t.key
+                ? "text-foreground border-b-2 border-primary font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <span className="mr-1">{t.emoji}</span>{t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "insights" ? <LocationInsightsClient /> : (<>
 
       {loading ? (
         <div className="w-full rounded-2xl bg-secondary/30 flex items-center justify-center" style={{ height: 320 }}>
@@ -711,6 +738,7 @@ export default function LocationPage() {
 
       <PlacesSection autoTagged={track?.autoTagged ?? []}/>
       <PlaceHealthImpact />
+      </>)}
     </div>
   )
 }

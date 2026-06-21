@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { format, subDays } from "date-fns"
 import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight } from "lucide-react"
+import { cn } from "@/lib/utils"
+import CaffeinePage from "@/app/dashboard/caffeine/page"
 
 interface IntakeLog {
   id: string
@@ -69,6 +71,7 @@ function localDateStr(d: Date = new Date()): string {
 }
 
 export default function IntakePage() {
+  const [activeTab, setActiveTab] = useState<"intake" | "caffeine">("intake")
   const [logs, setLogs] = useState<IntakeLog[]>([])
   const [ouraEntries, setOuraEntries] = useState<OuraEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -180,17 +183,41 @@ export default function IntakePage() {
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">Water, coffee & more</p>
         </div>
-        {/* date nav */}
-        <div className="flex items-center gap-1">
-          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navDate(-1)}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="text-sm font-medium w-20 text-center">{dateLabel}</span>
-          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navDate(1)} disabled={isToday}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
+        {activeTab === "intake" && (
+          <div className="flex items-center gap-1">
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navDate(-1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm font-medium w-20 text-center">{dateLabel}</span>
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navDate(1)} disabled={isToday}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
+
+      {/* Tab bar */}
+      <div className="flex border-b border-border">
+        {([
+          { key: "intake", label: "Intake", emoji: "🥤" },
+          { key: "caffeine", label: "Caffeine", emoji: "☕" },
+        ] as const).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={cn(
+              "px-4 py-2 text-sm transition-colors",
+              activeTab === t.key
+                ? "text-foreground border-b-2 border-primary font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <span className="mr-1">{t.emoji}</span>{t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "caffeine" ? <CaffeinePage /> : (<>
 
       {/* summary cards */}
       <div className={`grid gap-3 grid-cols-2 sm:grid-cols-${2 + (teaTotal > 0 ? 1 : 0) + (beerTotal > 0 ? 1 : 0) + (wineTotal > 0 ? 1 : 0) + (alcoholTotal > 0 ? 1 : 0)}`}>
@@ -318,6 +345,7 @@ export default function IntakePage() {
           </div>
         )}
       </div>
+      </>)}
     </div>
   )
 }
