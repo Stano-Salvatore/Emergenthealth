@@ -30,35 +30,48 @@ const ALL_ITEMS: NavItem[] = [
   { href: "/dashboard/habits",            label: "Habits",            emoji: "✅" },
   { href: "/dashboard/medications",       label: "Medications",       emoji: "💊" },
   { href: "/dashboard/intake",            label: "Intake",            emoji: "🥤" },
-  { href: "/dashboard/journal",           label: "Journal",           emoji: "📝" },
-  { href: "/dashboard/focus",             label: "Focus",             emoji: "🎯" },
-  { href: "/dashboard/fasting",           label: "Fasting",           emoji: "⏱️" },
   { href: "/dashboard/caffeine",          label: "Caffeine",          emoji: "☕" },
-  { href: "/dashboard/health",            label: "Oura / Metrics",    emoji: "❤️" },
+  { href: "/dashboard/health",            label: "Health",            emoji: "❤️" },
   { href: "/dashboard/insights",          label: "Correlations",      emoji: "✨" },
   { href: "/dashboard/weight",            label: "Weight",            emoji: "⚖️" },
-  { href: "/dashboard/body",              label: "Body",              emoji: "📏" },
-  { href: "/dashboard/custom",            label: "Trackers",          emoji: "📐" },
-  { href: "/dashboard/reading",           label: "Reading",           emoji: "📚" },
+  { href: "/dashboard/body",              label: "Body & Trackers",   emoji: "📏" },
   { href: "/dashboard/labs",              label: "Lab Results",       emoji: "🩸" },
-  { href: "/dashboard/finances",          label: "Finances",          emoji: "💰" },
-  { href: "/dashboard/subscriptions",     label: "Subscriptions",     emoji: "🔄" },
-  { href: "/dashboard/bills",             label: "Bills",             emoji: "🧾" },
   { href: "/dashboard/calendar",          label: "Calendar",          emoji: "🗓️" },
   { href: "/dashboard/reminders",         label: "Reminders",         emoji: "🔔" },
   { href: "/dashboard/gmail",             label: "Gmail",             emoji: "📬" },
   { href: "/dashboard/location",          label: "Location",          emoji: "📍" },
-  { href: "/dashboard/location-insights", label: "Location insights", emoji: "🗺️" },
+  { href: "/dashboard/location-insights", label: "Location Insights", emoji: "🗺️" },
+  { href: "/dashboard/reading",           label: "Reading",           emoji: "📚" },
   { href: "/dashboard/strava",            label: "Strava",            emoji: "🏃" },
   { href: "/dashboard/lastfm",            label: "Last.fm",           emoji: "🎵" },
   { href: "/dashboard/rescuetime",        label: "RescueTime",        emoji: "⏱️" },
   { href: "/dashboard/chat",              label: "Emergy",            emoji: "🌱" },
-  { href: "/dashboard/garden",            label: "Garden",            emoji: "🌻" },
   { href: "/dashboard/settings",          label: "Settings",          emoji: "⚙️" },
+  // Hidden by default but still accessible via Customize
+  { href: "/dashboard/journal",           label: "Journal",           emoji: "📝" },
+  { href: "/dashboard/focus",             label: "Focus",             emoji: "🎯" },
+  { href: "/dashboard/fasting",           label: "Fasting",           emoji: "⏱️" },
+  { href: "/dashboard/finances",          label: "Finances",          emoji: "💰" },
+  { href: "/dashboard/subscriptions",     label: "Subscriptions",     emoji: "🔄" },
+  { href: "/dashboard/bills",             label: "Bills",             emoji: "🧾" },
+  { href: "/dashboard/home",              label: "Home",              emoji: "🏡" },
+  { href: "/dashboard/garden",            label: "Garden",            emoji: "🌻" },
+  { href: "/dashboard/custom",            label: "Trackers",          emoji: "📐" },
 ]
 
 const DEFAULT_ORDER = ALL_ITEMS.map(i => i.href)
-const NON_HIDEABLE  = new Set(["/dashboard", "/dashboard/settings", "/dashboard/chat"])
+const DEFAULT_HIDDEN = new Set([
+  "/dashboard/journal",
+  "/dashboard/focus",
+  "/dashboard/fasting",
+  "/dashboard/finances",
+  "/dashboard/subscriptions",
+  "/dashboard/bills",
+  "/dashboard/home",
+  "/dashboard/garden",
+  "/dashboard/custom",
+])
+const NON_HIDEABLE = new Set(["/dashboard", "/dashboard/settings", "/dashboard/chat"])
 const LS_HIDDEN     = "sidebar-hidden-v2"
 const LS_ORDER      = "sidebar-order-v1"
 
@@ -136,14 +149,19 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     const lsH = localStorage.getItem(LS_HIDDEN)
     const lsO = localStorage.getItem(LS_ORDER)
     if (lsH) try { setHidden(new Set(JSON.parse(lsH))) } catch {}
+    else setHidden(new Set(DEFAULT_HIDDEN))
     if (lsO) try { setOrder(JSON.parse(lsO)) } catch {}
 
     fetch("/api/preferences/sidebar")
       .then(r => r.json())
       .then(d => {
-        if (Array.isArray(d.hidden)) {
+        // Only override defaults if user has an explicit saved preference
+        if (Array.isArray(d.hidden) && d.hidden.length > 0) {
           setHidden(new Set(d.hidden))
           localStorage.setItem(LS_HIDDEN, JSON.stringify(d.hidden))
+        } else if (!lsH) {
+          // No saved pref anywhere — persist the defaults so reset works correctly
+          localStorage.setItem(LS_HIDDEN, JSON.stringify([...DEFAULT_HIDDEN]))
         }
         if (Array.isArray(d.order) && d.order.length > 0) {
           setOrder(d.order)
