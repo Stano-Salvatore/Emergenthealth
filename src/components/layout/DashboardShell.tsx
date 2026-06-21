@@ -57,16 +57,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           "fixed top-0 left-0 z-30 h-full",
           "lg:relative lg:z-auto lg:shrink-0",
           "transition-[width,transform] duration-300 ease-in-out",
+          "w-[75vw] max-w-[224px] lg:w-56",
           open
-            ? "translate-x-0 w-56"
-            : "-translate-x-full w-56 lg:translate-x-0 lg:w-0 lg:overflow-hidden"
+            ? "translate-x-0"
+            : "-translate-x-full lg:translate-x-0 lg:w-0 lg:overflow-hidden"
         )}
       >
         <Sidebar onClose={toggle} />
       </div>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto min-w-0 relative">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 relative">
         {/* Hamburger — visible when sidebar is closed */}
         <button
           onClick={toggle}
@@ -82,7 +83,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <Menu className="h-4 w-4 text-muted-foreground" />
         </button>
 
-        <div className={cn("p-6 transition-[padding] duration-300", !open && "lg:pl-6 pl-14")}>
+        <div className={cn("p-3 lg:p-6 transition-[padding] duration-300", !open && "lg:pl-6 pl-12")}>
           {children}
         </div>
       </main>
