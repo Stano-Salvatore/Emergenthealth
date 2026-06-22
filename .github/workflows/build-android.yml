@@ -25,10 +25,10 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: "21"
           distribution: "temurin"
 
       - name: Set up Android SDK
@@ -49,6 +49,9 @@ jobs:
         run: |
           mkdir -p out
           NEXT_PUBLIC_APP_URL=https://emergenthealth.vercel.app npx cap sync android
+
+      - name: Patch kiwi-health Kotlin JVM target
+        run: python3 .ci/patch-kiwi-health.py
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew

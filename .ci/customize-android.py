@@ -46,16 +46,6 @@ with open(manifest_path, "w") as f:
     f.write(content)
 print("✓ AndroidManifest.xml updated with Health Connect permissions")
 
-# 3. Override javaVersion to 17.
-#    Capacitor 8 sets JavaVersion.VERSION_21 in variables.gradle, which causes
-#    Gradle to auto-configure Kotlin JVM target to 21. The kiwi-health Kotlin
-#    plugin doesn't support target 21. Overriding to 17 fixes both issues
-#    and JDK 17 can compile all the code (capacitor-android doesn't use Java 21 APIs).
-with open("android/variables.gradle") as f:
-    vars_content = f.read()
-vars_content = vars_content.replace("JavaVersion.VERSION_21", "JavaVersion.VERSION_17")
-with open("android/variables.gradle", "w") as f:
-    f.write(vars_content)
-print("✓ variables.gradle: javaVersion set to VERSION_17")
+print("All customizations applied (kiwi-health Kotlin patch runs post-sync).")
 
 print("All Android customizations applied successfully.")
