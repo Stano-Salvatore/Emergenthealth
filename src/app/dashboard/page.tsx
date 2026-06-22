@@ -123,9 +123,6 @@ export default async function DashboardPage() {
   if (!session?.user?.id) return null
   const userId = session.user.id
 
-  // Provision columns added after initial deploy (safe no-op if already exist)
-  await prisma.$executeRaw`ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepScore" INTEGER`
-
   const now = new Date()
   const today = new Date()
   today.setHours(0, 0, 0, 0)

@@ -73,14 +73,12 @@ async function generateInsight(userId: string, period: Period): Promise<{ bullet
       where: { userId, date: { gte: weekAgo }, isTransfer: false, amount: { lt: 0 } },
       select: { amount: true, category: true },
     }).catch(() => [] as { amount: number; category: string | null }[]),
-    prisma.$queryRaw<{ name: string; distance: number; movingTime: number; type: string }[]>`
-      SELECT "name", "distance", "movingTime", "type"
-      FROM "StravaActivity"
-      WHERE "userId" = ${userId}
-        AND "startDate" >= ${weekAgoStr}::timestamptz
-      ORDER BY "startDate" DESC
-      LIMIT 5
-    `.catch(() => [] as { name: string; distance: number; movingTime: number; type: string }[]),
+    prisma.stravaActivity.findMany({
+      where: { userId, startDate: { gte: new Date(weekAgoStr) } },
+      select: { name: true, distanceM: true, movingTimeSec: true, type: true },
+      orderBy: { startDate: "desc" },
+      take: 5,
+    }).catch(() => [] as { name: string | null; distanceM: number | null; movingTimeSec: number; type: string }[]),
     prisma.$queryRaw<{ name: string; emoji: string; avg_val: number; n: number }[]>`
       SELECT cm."name", cm."emoji",
              AVG(cl."value")::numeric(6,1) as avg_val,
@@ -137,7 +135,7 @@ async function generateInsight(userId: string, period: Period): Promise<{ bullet
 
   // ── Strava ──────────────────────────────────────────────────────────────
   const totalWorkouts = stravaActivities.length
-  const totalDistanceKm = stravaActivities.reduce((s, a) => s + a.distance / 1000, 0)
+  const totalDistanceKm = stravaActivities.reduce((s, a) => s + (a.distanceM ?? 0) / 1000, 0)
 
   // ── Build context ───────────────────────────────────────────────────────
   const lines: string[] = [`${PERIOD_LABELS[period]} — full health & lifestyle snapshot:`]

@@ -49,6 +49,10 @@ model User {
   passkeys         Passkey[]
   locationPoints   LocationPoint[]
   caffeineLog      CaffeineLog[]
+  stravaToken      StravaToken?
+  stravaActivities StravaActivity[]
+  ynabToken        YnabToken?
+  feedbacks        UserFeedback[]
 }
 
 model Account {
@@ -609,6 +613,68 @@ model Passkey {
   name         String   @default("Passkey")
   createdAt    DateTime @default(now())
   lastUsedAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─── Strava ───────────────────────────────────────────────────────────────────
+
+model StravaToken {
+  userId       String   @id
+  accessToken  String
+  refreshToken String
+  expiresAt    BigInt
+  athleteId    String?
+  updatedAt    DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model StravaActivity {
+  id             String   @id @default(cuid())
+  userId         String
+  stravaId       String
+  type           String
+  name           String?
+  distanceM      Float?
+  movingTimeSec  Int
+  elapsedTimeSec Int
+  elevationM     Float?
+  avgHR          Int?
+  maxHR          Int?
+  startDate      DateTime @db.Timestamptz
+  day            String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, stravaId])
+  @@index([userId, day(sort: Desc)])
+}
+
+// ─── YNAB ────────────────────────────────────────────────────────────────────
+
+model YnabToken {
+  userId       String    @id
+  accessToken  String?
+  refreshToken String?
+  expiresAt    DateTime? @db.Timestamptz
+  budgetId     String?
+  budgetName   String?
+  updatedAt    DateTime  @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── User feedback ────────────────────────────────────────────────────────────
+
+model UserFeedback {
+  id        String   @id @default(cuid())
+  userId    String
+  message   String
+  type      String   @default("suggestion")
+  createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
