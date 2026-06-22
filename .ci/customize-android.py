@@ -15,12 +15,12 @@ if result.returncode != 0:
 else:
     print("✓ minSdkVersion set to 26")
 
-# 2. Add Health Connect + location + notification permissions to AndroidManifest
+# 2. Add Health Connect + location + notification permissions + App Links intent filter
 manifest_path = "android/app/src/main/AndroidManifest.xml"
 with open(manifest_path) as f:
     content = f.read()
 
-extra = """
+extra_permissions = """
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -41,11 +41,57 @@ extra = """
     </queries>
 """
 
-content = content.replace("</manifest>", extra + "\n</manifest>")
+# App Links intent filter — routes OAuth callbacks from external browser back into the app.
+# android:autoVerify="true" triggers Android's domain verification against
+# https://emergenthealth.vercel.app/.well-known/assetlinks.json
+app_links_filter = """
+        <intent-filter android:autoVerify="true">
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" android:host="emergenthealth.vercel.app" />
+        </intent-filter>"""
+
+content = content.replace("</manifest>", extra_permissions + "\n</manifest>")
+# Insert App Links filter inside the main activity, before its closing tag
+content = content.replace("</activity>", app_links_filter + "\n    </activity>", 1)
+
 with open(manifest_path, "w") as f:
     f.write(content)
-print("✓ AndroidManifest.xml updated with Health Connect permissions")
+print("✓ AndroidManifest.xml updated with permissions + App Links intent filter")
+
+# 3. Patch android/app/build.gradle for release signing via env vars
+app_build_gradle = "android/app/build.gradle"
+with open(app_build_gradle) as f:
+    build_content = f.read()
+
+if "signingConfigs" not in build_content:
+    signing_block = """    signingConfigs {
+        release {
+            def ks = System.getenv("ANDROID_KEYSTORE_PATH")
+            storeFile ks ? file(ks) : null
+            storePassword System.getenv("ANDROID_STORE_PASSWORD")
+            keyAlias System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+        }
+    }
+"""
+    if "    buildTypes {" in build_content:
+        build_content = build_content.replace("    buildTypes {", signing_block + "    buildTypes {", 1)
+
+    # Add signingConfig reference inside the release buildType
+    build_content = re.sub(
+        r'(        release \{)',
+        r'\1\n            signingConfig signingConfigs.release',
+        build_content,
+        count=1
+    )
+
+    with open(app_build_gradle, "w") as f:
+        f.write(build_content)
+    print("✓ android/app/build.gradle patched with release signing config")
+else:
+    print("ℹ️  android/app/build.gradle already has signingConfigs")
 
 print("All customizations applied (kiwi-health Kotlin patch runs post-sync).")
-
 print("All Android customizations applied successfully.")

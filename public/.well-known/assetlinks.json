@@ -1,12 +1,10 @@
-[
-  {
-    "relation": ["delegate_permission/common.handle_all_urls"],
-    "target": {
-      "namespace": "android_app",
-      "package_name": "app.emergenthealth",
-      "sha256_cert_fingerprints": [
-        "REPLACE_WITH_SHA256_FINGERPRINT_FROM_PLAY_CONSOLE"
-      ]
-    }
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "app.emergenthealth",
+    "sha256_cert_fingerprints": [
+      "77:BA:A4:34:36:54:5E:53:14:26:BE:58:1C:20:55:B3:40:9B:11:FD:5D:0E:F6:A2:2A:1B:AC:28:61:C4:E7:8D"
+    ]
   }
-]
+}]
