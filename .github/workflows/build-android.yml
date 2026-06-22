@@ -84,7 +84,11 @@ jobs:
           PYEOF
 
       - name: Sync Capacitor
-        run: npx cap sync android --no-build
+        run: |
+          # server.url mode — Capacitor loads from Vercel, no web build needed.
+          # Create an empty webDir so cap sync doesn't complain about missing dir.
+          mkdir -p out
+          NEXT_PUBLIC_APP_URL=https://emergenthealth.vercel.app npx cap sync android
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
