@@ -62,6 +62,14 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
+      - name: Sync Capacitor
+        run: |
+          mkdir -p out
+          NEXT_PUBLIC_APP_URL=https://emergenthealth.vercel.app npx cap sync android
+
+      - name: Patch kiwi-health Kotlin JVM target
+        run: python3 .ci/patch-kiwi-health.py
+
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
