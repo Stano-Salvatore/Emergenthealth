@@ -48,6 +48,7 @@ model User {
   subscription     Subscription?
   passkeys         Passkey[]
   locationPoints   LocationPoint[]
+  caffeineLog      CaffeineLog[]
 }
 
 model Account {
@@ -477,6 +478,17 @@ model UserPreference {
   value  String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@id([userId, key])
+}
+
+model CaffeineLog {
+  id         String   @id @default(cuid())
+  userId     String
+  compound   String
+  caffeineMg Int
+  servings   Float    @default(1)
+  loggedAt   DateTime @default(now()) @db.Timestamptz
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, loggedAt(sort: Desc)])
 }
 
 model TagAlias {

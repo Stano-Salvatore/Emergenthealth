@@ -20,6 +20,9 @@ type DayData = {
   caffeineMg?: number
   alcoholMl?: number
   tags?: string[]
+  precipMm?: number
+  tempMaxC?: number
+  weatherCode?: number
 }
 
 export type InsightResult = {
@@ -133,7 +136,7 @@ export async function GET(req: Request) {
   const since60str = format(since60, "yyyy-MM-dd")
 
   // ── Fetch all data sources in parallel ──────────────────────────────────────
-  const [healthLogs, checkIns, habitCompletions, caffeineRows, alcoholRows, tagPrefs] = await Promise.all([
+  const [healthLogs, checkIns, habitCompletions, caffeineRows, alcoholRows, tagPrefs, weatherLogs] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since60 } },
       orderBy: { date: "asc" },
@@ -188,6 +191,11 @@ export async function GET(req: Request) {
       WHERE "userId" = ${userId}
         AND "key" LIKE 'daily_tags:%'
     `.catch(() => [] as { key: string; value: string }[]),
+
+    prisma.weatherLog.findMany({
+      where: { userId, date: { gte: since60str } },
+      select: { date: true, precipMm: true, tempMaxC: true, weatherCode: true },
+    }).catch(() => [] as { date: string; precipMm: number | null; tempMaxC: number | null; weatherCode: number | null }[]),
   ])
 
   // ── Build day map ────────────────────────────────────────────────────────────
@@ -234,6 +242,14 @@ export async function GET(req: Request) {
   for (const row of alcoholRows) {
     const d = getOrCreate(row.date)
     d.alcoholMl = Number(row.totalMl)
+  }
+
+  // Weather
+  for (const w of weatherLogs) {
+    const d = getOrCreate(w.date)
+    if (w.precipMm != null) d.precipMm = w.precipMm
+    if (w.tempMaxC != null) d.tempMaxC = w.tempMaxC
+    if (w.weatherCode != null) d.weatherCode = w.weatherCode
   }
 
   // Parse tag preferences: key = "daily_tags:YYYY-MM-DD"
@@ -593,6 +609,92 @@ export async function GET(req: Request) {
       findingTemplate: (h, l) => `On "${tag}" days, morning energy averages ${h} vs ${l} on other days`,
     })
     if (ins_tag_energy) insights.push(ins_tag_energy)
+  }
+
+  // 8. Weather: rain → sleep, sunny → steps, temperature → mood
+  const daysWithWeather = days.filter(d => d.precipMm != null || d.tempMaxC != null)
+
+  if (daysWithWeather.length >= 10) {
+    // Rain vs no-rain → next-day sleep score and mood
+    const rainSleep: number[] = []
+    const noRainSleep: number[] = []
+    const rainMood: number[] = []
+    const noRainMood: number[] = []
+
+    for (const d of daysWithWeather) {
+      if (d.precipMm == null) continue
+      const isRainy = d.precipMm > 1
+      const next = byDate[nextDateStr(d.date)]
+      if (d.sleepScore != null) {
+        if (isRainy) rainSleep.push(d.sleepScore)
+        else noRainSleep.push(d.sleepScore)
+      }
+      if (next?.mood != null) {
+        if (isRainy) rainMood.push(next.mood)
+        else noRainMood.push(next.mood)
+      }
+    }
+
+    const ins_rain_sleep = compareGroups({
+      id: "rain_sleep",
+      category: "tags",
+      emoji: "🌧️",
+      title: "Rainy Days & Sleep Quality",
+      highGroupLabel: "rainy days",
+      lowGroupLabel: "dry days",
+      highValues: rainSleep,
+      lowValues: noRainSleep,
+      higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `You sleep better on rainy nights — sleep score ${h} vs ${l} on dry nights`
+          : `Rainy nights don't improve sleep — score ${h} vs ${l} on dry nights`,
+    })
+    if (ins_rain_sleep) insights.push(ins_rain_sleep)
+
+    const ins_rain_mood = compareGroups({
+      id: "rain_mood",
+      category: "tags",
+      emoji: "⛅",
+      title: "Weather & Morning Mood",
+      highGroupLabel: "rainy days",
+      lowGroupLabel: "dry days",
+      highValues: rainMood,
+      lowValues: noRainMood,
+      higherIsBetter: false,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `After rainy days, morning mood averages ${h} vs ${l} after dry days`
+          : `Rain doesn't dampen your mood — ${h} vs ${l} on dry days`,
+    })
+    if (ins_rain_mood) insights.push(ins_rain_mood)
+
+    // Hot days (>25°C) → steps and activity
+    const hotSteps: number[] = []
+    const coolSteps: number[] = []
+
+    for (const d of daysWithWeather) {
+      if (d.tempMaxC == null || d.steps == null) continue
+      if (d.tempMaxC > 25) hotSteps.push(d.steps)
+      else coolSteps.push(d.steps)
+    }
+
+    const ins_heat_steps = compareGroups({
+      id: "heat_steps",
+      category: "tags",
+      emoji: "🌡️",
+      title: "Hot Days & Step Count",
+      highGroupLabel: "hot days (25°C+)",
+      lowGroupLabel: "cooler days",
+      highValues: hotSteps,
+      lowValues: coolSteps,
+      higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `You walk more on hot days — ${Math.round(h).toLocaleString()} steps vs ${Math.round(l).toLocaleString()} on cooler days`
+          : `You walk more on cooler days — ${Math.round(l).toLocaleString()} steps vs ${Math.round(h).toLocaleString()} when it's hot`,
+    })
+    if (ins_heat_steps) insights.push(ins_heat_steps)
   }
 
   // ── Sort by |delta| desc ─────────────────────────────────────────────────────

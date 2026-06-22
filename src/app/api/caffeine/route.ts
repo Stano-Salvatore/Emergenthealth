@@ -15,49 +15,18 @@ export const COMPOUNDS: Record<string, { label: string; mg: number; emoji: strin
   cola:          { label: "Cola (330ml)",  mg: 35,  emoji: "🥤" },
 }
 
-interface CaffeineRow {
-  id: string
-  userId: string
-  compound: string
-  caffeineMg: number
-  servings: number
-  loggedAt: Date
-}
-
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "CaffeineLog" (
-      "id"         TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-      "userId"     TEXT NOT NULL,
-      "compound"   TEXT NOT NULL,
-      "caffeineMg" INTEGER NOT NULL,
-      "servings"   REAL NOT NULL DEFAULT 1,
-      "loggedAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS "CaffeineLog_userId_loggedAt_idx"
-    ON "CaffeineLog" ("userId", "loggedAt" DESC)
-  `
-}
-
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  await ensureTable()
-
   const startOfDay = new Date()
   startOfDay.setHours(0, 0, 0, 0)
 
-  const logs = await prisma.$queryRaw<CaffeineRow[]>`
-    SELECT "id", "userId", "compound", "caffeineMg", "servings", "loggedAt"
-    FROM "CaffeineLog"
-    WHERE "userId" = ${userId}
-      AND "loggedAt" >= ${startOfDay}
-    ORDER BY "loggedAt" DESC
-  `
+  const logs = await prisma.caffeineLog.findMany({
+    where: { userId, loggedAt: { gte: startOfDay } },
+    orderBy: { loggedAt: "desc" },
+  })
 
   const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
   return NextResponse.json({ logs, totalMg, limitMg: LIMIT_MG })
@@ -76,26 +45,17 @@ export async function POST(req: NextRequest) {
   const servings = typeof body.servings === "number" && body.servings > 0 ? body.servings : 1
   const caffeineMg = Math.round(COMPOUNDS[compound].mg * servings)
 
-  await ensureTable()
+  await prisma.caffeineLog.create({
+    data: { userId, compound, caffeineMg, servings },
+  })
 
-  const id = `caf_${userId}_${Date.now()}`
-
-  await prisma.$executeRaw`
-    INSERT INTO "CaffeineLog" ("id", "userId", "compound", "caffeineMg", "servings")
-    VALUES (${id}, ${userId}, ${compound}, ${caffeineMg}, ${servings})
-  `
-
-  // Return updated total
   const startOfDay = new Date()
   startOfDay.setHours(0, 0, 0, 0)
 
-  const logs = await prisma.$queryRaw<CaffeineRow[]>`
-    SELECT "id", "userId", "compound", "caffeineMg", "servings", "loggedAt"
-    FROM "CaffeineLog"
-    WHERE "userId" = ${userId}
-      AND "loggedAt" >= ${startOfDay}
-    ORDER BY "loggedAt" DESC
-  `
+  const logs = await prisma.caffeineLog.findMany({
+    where: { userId, loggedAt: { gte: startOfDay } },
+    orderBy: { loggedAt: "desc" },
+  })
 
   const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
   return NextResponse.json({ ok: true, logs, totalMg, limitMg: LIMIT_MG })
@@ -110,12 +70,6 @@ export async function DELETE(req: NextRequest) {
   const id = searchParams.get("id")
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
 
-  await ensureTable()
-
-  await prisma.$executeRaw`
-    DELETE FROM "CaffeineLog"
-    WHERE "id" = ${id} AND "userId" = ${userId}
-  `
-
+  await prisma.caffeineLog.deleteMany({ where: { id, userId } })
   return NextResponse.json({ ok: true })
 }
