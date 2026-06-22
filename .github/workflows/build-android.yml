@@ -43,24 +43,24 @@ jobs:
           npx cap add android
           mkdir -p android/app/src/main/assets
 
+      - name: Decode release keystore
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > /tmp/emergenthealth-release.jks
+            echo "ANDROID_KEYSTORE_PATH=/tmp/emergenthealth-release.jks" >> $GITHUB_ENV
+            echo "✓ Keystore decoded"
+          else
+            echo "ℹ️  No ANDROID_KEYSTORE_BASE64 secret — release APK will be unsigned"
+          fi
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
       - name: Apply Android customizations
         run: python3 .ci/customize-android.py
         env:
-          ANDROID_KEYSTORE_PATH: /tmp/emergenthealth-release.jks
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-
-      - name: Sync Capacitor
-        run: |
-          mkdir -p out
-          NEXT_PUBLIC_APP_URL=https://emergenthealth.vercel.app npx cap sync android
-
-      - name: Patch kiwi-health Kotlin JVM target
-        run: python3 .ci/patch-kiwi-health.py
-
-      - name: Decode release keystore
-        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > /tmp/emergenthealth-release.jks
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew
@@ -68,7 +68,6 @@ jobs:
       - name: Build release APK
         shell: bash
         env:
-          ANDROID_KEYSTORE_PATH: /tmp/emergenthealth-release.jks
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}

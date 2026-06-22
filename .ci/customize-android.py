@@ -69,10 +69,12 @@ if "signingConfigs" not in build_content:
     signing_block = """    signingConfigs {
         release {
             def ksPath = System.getenv("ANDROID_KEYSTORE_PATH")
-            storeFile = ksPath ? file(ksPath) : null
-            storePassword = System.getenv("ANDROID_STORE_PASSWORD")
-            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-            keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            def ksFile = ksPath ? new File(ksPath) : null
+            def validKs = ksFile?.exists() && ksFile?.length() > 100
+            storeFile = validKs ? ksFile : null
+            storePassword = validKs ? System.getenv("ANDROID_STORE_PASSWORD") : null
+            keyAlias = validKs ? System.getenv("ANDROID_KEY_ALIAS") : null
+            keyPassword = validKs ? System.getenv("ANDROID_KEY_PASSWORD") : null
         }
     }
 """
@@ -81,7 +83,7 @@ if "signingConfigs" not in build_content:
 
     # Add conditional signingConfig inside buildTypes.release.
     # Target "minifyEnabled false" — unique to buildTypes, not in signingConfigs block.
-    signing_line = '            if (System.getenv("ANDROID_KEYSTORE_PATH")) { signingConfig signingConfigs.release }\n'
+    signing_line = '            def _ksFile = System.getenv("ANDROID_KEYSTORE_PATH") ? new File(System.getenv("ANDROID_KEYSTORE_PATH")) : null\n            if (_ksFile?.exists() && _ksFile?.length() > 100) { signingConfig signingConfigs.release }\n'
     if "            minifyEnabled false" in build_content:
         build_content = build_content.replace(
             "            minifyEnabled false",
