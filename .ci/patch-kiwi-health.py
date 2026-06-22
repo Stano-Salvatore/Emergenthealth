@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# v2
 """
 Patch the kiwi-health-capacitor-health-connect module's build.gradle so it
 compiles with JVM target 17.
