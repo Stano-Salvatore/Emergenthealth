@@ -31,8 +31,8 @@ interface StravaActivityRow {
   day: string
 }
 
-const STEP_GOAL = 8_000
-const SLEEP_GOAL_H = 7
+const DEFAULT_STEP_GOAL = 8_000
+const DEFAULT_SLEEP_GOAL_H = 7.5
 
 export default async function HealthPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab } = await searchParams
@@ -41,6 +41,13 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   const session = await auth()
   if (!session?.user?.id) return null
   const userId = session.user.id
+
+  const goalsRow = await prisma.dailyNote.findUnique({
+    where: { userId_date: { userId, date: new Date("0001-01-01") } },
+  }).catch(() => null)
+  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number } : {}
+  const STEP_GOAL = userGoals.steps ?? DEFAULT_STEP_GOAL
+  const SLEEP_GOAL_H = userGoals.sleepH ?? DEFAULT_SLEEP_GOAL_H
 
   if (activeTab === "weight") {
     return (
@@ -522,7 +529,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                     <Moon className="h-4 w-4 text-primary" /> Sleep — last {Math.min(logs.length, 30)} days
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="min-w-0 overflow-x-auto"><SleepChart data={chartData} /></CardContent>
+                <CardContent className="min-w-0 overflow-x-auto"><SleepChart data={chartData} goal={SLEEP_GOAL_H} /></CardContent>
               </Card>
             )}
 

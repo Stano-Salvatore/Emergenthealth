@@ -92,7 +92,7 @@ export interface ChartDay {
 
 // ── Charts ─────────────────────────────────────────────────────────────────────
 
-export function SleepChart({ data }: { data: ChartDay[] }) {
+export function SleepChart({ data, goal = 7.5 }: { data: ChartDay[]; goal?: number }) {
   const primary = usePrimaryColor()
   const primaryDim = primary + "55"
   const primaryMid = primary + "99"
@@ -103,17 +103,17 @@ export function SleepChart({ data }: { data: ChartDay[] }) {
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-xs text-muted-foreground font-medium mb-2">Duration (hours) — dashed = 7h goal</p>
+        <p className="text-xs text-muted-foreground font-medium mb-2">Duration (hours) — dashed = {goal}h goal</p>
         <ResponsiveContainer width="100%" height={130}>
           <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={getGrid()} />
             <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
             <YAxis tick={axis} axisLine={false} tickLine={false} unit="h" domain={[0, 10]} width={28} />
             <Tooltip content={<Tip />} />
-            <ReferenceLine y={7} stroke={primary} strokeDasharray="4 2" strokeOpacity={0.6} />
+            <ReferenceLine y={goal} stroke={primary} strokeDasharray="4 2" strokeOpacity={0.6} />
             <Bar dataKey="sleepH" name="Sleep" radius={[3, 3, 0, 0]}>
               {d.map((row, i) => (
-                <Cell key={i} fill={row.sleepH != null && row.sleepH >= 7 ? primary : primaryDim} />
+                <Cell key={i} fill={row.sleepH != null && row.sleepH >= goal ? primary : primaryDim} />
               ))}
             </Bar>
           </BarChart>
