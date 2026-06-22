@@ -7,6 +7,7 @@ on:
       - "src/**"
       - "capacitor.config.ts"
       - "package.json"
+      - ".ci/**"
       - ".github/workflows/build-android.yml"
   workflow_dispatch:
 
@@ -24,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: npm install --ignore-scripts
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           java-version: "21"
@@ -42,64 +43,10 @@ jobs:
           mkdir -p android/app/src/main/assets
 
       - name: Apply Android customizations
-        run: |
-          # Health Connect requires minSdkVersion >= 26
-          sed -i 's/minSdkVersion = 24/minSdkVersion = 26/' android/variables.gradle
-
-          # Add Health Connect + location + notification permissions to manifest
-          python3 - <<'PYEOF'
-          import re
-
-          manifest_path = "android/app/src/main/AndroidManifest.xml"
-          with open(manifest_path) as f:
-              content = f.read()
-
-          extra_permissions = """
-              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-              <uses-permission android:name="android.permission.health.READ_STEPS" />
-              <uses-permission android:name="android.permission.health.READ_SLEEP" />
-              <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
-              <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
-              <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
-              <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
-              <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
-              <uses-permission android:name="android.permission.health.READ_WEIGHT" />
-
-              <queries>
-                  <package android:name="com.google.android.apps.healthdata" />
-                  <intent>
-                      <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
-                  </intent>
-              </queries>
-          """
-
-          # Insert before </manifest>
-          content = content.replace("</manifest>", extra_permissions + "\n</manifest>")
-          with open(manifest_path, "w") as f:
-              f.write(content)
-
-          print("Manifest updated successfully")
-          PYEOF
-
-          # Force Kotlin JVM target to 17 for all subprojects.
-          # kiwi-health plugin bundles an old Kotlin version that doesn't know JVM 21.
-          cat >> android/build.gradle <<'GROOVY'
-
-subprojects {
-    afterEvaluate {
-        tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-            kotlinOptions { jvmTarget = "17" }
-        }
-    }
-}
-GROOVY
+        run: python3 .ci/customize-android.py
 
       - name: Sync Capacitor
         run: |
-          # server.url mode — Capacitor loads from Vercel, no web build needed.
-          # Create an empty webDir so cap sync doesn't complain about missing dir.
           mkdir -p out
           NEXT_PUBLIC_APP_URL=https://emergenthealth.vercel.app npx cap sync android
 
