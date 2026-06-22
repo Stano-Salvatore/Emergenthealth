@@ -49,11 +49,12 @@ print("✓ AndroidManifest.xml updated with Health Connect permissions")
 # 3. Force Kotlin JVM target 17 for all subprojects.
 #    kiwi-health bundles a Kotlin plugin that doesn't support JVM 21,
 #    while capacitor-android Java compilation requires JDK 21.
+#    Use task name matching to avoid class-resolution issues in the root build.gradle.
 kotlin_patch = """
 subprojects {
     afterEvaluate {
-        tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-            kotlinOptions { jvmTarget = "17" }
+        tasks.matching { it.class.name.contains("KotlinCompile") }.each {
+            it.kotlinOptions.jvmTarget = "17"
         }
     }
 }
