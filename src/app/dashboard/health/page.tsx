@@ -77,16 +77,13 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   const ouraToken = await prisma.ouraToken.findUnique({ where: { userId }, select: { id: true } })
   const isOuraConnected = !!ouraToken
 
-  // Recent Strava activities — table may not exist yet
   const since14str = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-  const stravaActivities = await prisma.$queryRaw<StravaActivityRow[]>`
-    SELECT "id", "type", "name", "distanceM", "movingTimeSec", "startDate", "day"
-    FROM "StravaActivity"
-    WHERE "userId" = ${userId}
-      AND "day" >= ${since14str}
-    ORDER BY "startDate" DESC
-    LIMIT 30
-  `.catch(() => [] as StravaActivityRow[])
+  const stravaActivities = await prisma.stravaActivity.findMany({
+    where: { userId, day: { gte: since14str } },
+    orderBy: { startDate: "desc" },
+    take: 30,
+    select: { id: true, type: true, name: true, distanceM: true, movingTimeSec: true, startDate: true, day: true },
+  }).catch(() => [] as StravaActivityRow[])
 
   const since30 = new Date()
   since30.setDate(since30.getDate() - 29)

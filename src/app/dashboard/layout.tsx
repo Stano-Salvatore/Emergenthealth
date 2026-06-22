@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { DashboardShell } from "@/components/layout/DashboardShell"
 import { EmergyPanel } from "@/components/emergy/EmergyPanel"
 import { AutoSync } from "@/components/layout/AutoSync"
+import { HealthConnectAutoSync } from "@/components/HealthConnectAutoSync"
 import { prisma } from "@/lib/prisma"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -36,6 +37,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <DashboardShell>{children}</DashboardShell>
       <EmergyPanel />
       <AutoSync />
+      <HealthConnectAutoSync />
     </>
   )
 }
