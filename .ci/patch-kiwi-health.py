@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-Patch the kiwi-health-capacitor-health-connect module's build.gradle to set
-kotlinOptions.jvmTarget = "17".
+Patch the kiwi-health-capacitor-health-connect module's build.gradle so it
+compiles with JVM target 17.
 
-This module bundles an old Kotlin plugin that doesn't support JVM target 21,
-but capacitor-android's Java code requires JDK 21. We fix this by forcing
-only the kiwi-health module's Kotlin compilation to target JVM 17.
+Problem: capacitor-android requires JDK 21 (hardcodes VERSION_21), but the
+Kotlin plugin bundled with kiwi-health is too old to support jvmTarget = 21.
+AGP 8.x also auto-propagates compileOptions sourceCompatibility → Kotlin
+jvmTarget, so we must patch BOTH compileOptions AND kotlinOptions/compilerOptions.
 
 Must run AFTER `cap sync android` (which creates the module directory).
 """
 
 import glob
 import os
+import re
 import sys
 
 patterns = [
@@ -44,28 +46,34 @@ for path in found:
     with open(path) as f:
         content = f.read()
 
-    if "kotlinOptions" in content:
-        print(f"ℹ️  {path} already has kotlinOptions — skipping")
-        continue
+    original = content
 
-    # Insert kotlinOptions block before the first compileOptions block
-    if "compileOptions {" in content:
-        content = content.replace(
-            "compileOptions {",
-            'kotlinOptions { jvmTarget = "17" }\n    compileOptions {',
-            1,
-        )
-    elif "android {" in content:
-        # Append inside the android { } block
-        content = content.replace(
-            "android {",
-            'android {\n    kotlinOptions { jvmTarget = "17" }',
-            1,
-        )
+    # 1. Replace any jvmTarget = "21" or jvmTarget = '21' → "17"
+    content = re.sub(r'(jvmTarget\s*=\s*)["\']?21["\']?', r'\g<1>"17"', content)
+
+    # 2. Replace Java 21 compat in compileOptions (AGP propagates this to Kotlin jvmTarget)
+    content = content.replace("VERSION_21", "VERSION_17")
+
+    # 3. If no kotlinOptions block exists at all, inject one before compileOptions
+    if "kotlinOptions" not in content:
+        if "compileOptions {" in content:
+            content = content.replace(
+                "compileOptions {",
+                'kotlinOptions { jvmTarget = "17" }\n    compileOptions {',
+                1,
+            )
+        elif "android {" in content:
+            content = content.replace(
+                "android {",
+                'android {\n    kotlinOptions { jvmTarget = "17" }',
+                1,
+            )
+        else:
+            content += '\n// CI patch\nandroid { kotlinOptions { jvmTarget = "17" } }\n'
+
+    if content == original:
+        print(f"ℹ️  {path}: no changes needed (already targeting ≤17?)")
     else:
-        print(f"⚠️  {path}: couldn't find insertion point, appending at end")
-        content += '\n// CI patch\nconfiguration { kotlinOptions { jvmTarget = "17" } }\n'
-
-    with open(path, "w") as f:
-        f.write(content)
-    print(f"✓ Patched {path}: Kotlin jvmTarget = 17")
+        with open(path, "w") as f:
+            f.write(content)
+        print(f"✓ Patched {path}: forced Kotlin jvmTarget=17, compileOptions VERSION_17")
