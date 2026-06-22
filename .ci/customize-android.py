@@ -68,24 +68,32 @@ with open(app_build_gradle) as f:
 if "signingConfigs" not in build_content:
     signing_block = """    signingConfigs {
         release {
-            def ks = System.getenv("ANDROID_KEYSTORE_PATH")
-            storeFile ks ? file(ks) : null
-            storePassword System.getenv("ANDROID_STORE_PASSWORD")
-            keyAlias System.getenv("ANDROID_KEY_ALIAS")
-            keyPassword System.getenv("ANDROID_KEY_PASSWORD")
+            def ksPath = System.getenv("ANDROID_KEYSTORE_PATH")
+            storeFile = ksPath ? file(ksPath) : null
+            storePassword = System.getenv("ANDROID_STORE_PASSWORD")
+            keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
         }
     }
 """
     if "    buildTypes {" in build_content:
         build_content = build_content.replace("    buildTypes {", signing_block + "    buildTypes {", 1)
 
-    # Add signingConfig reference inside the release buildType
-    build_content = re.sub(
-        r'(        release \{)',
-        r'\1\n            signingConfig signingConfigs.release',
-        build_content,
-        count=1
-    )
+    # Add conditional signingConfig inside buildTypes.release.
+    # Target "minifyEnabled false" — unique to buildTypes, not in signingConfigs block.
+    signing_line = '            if (System.getenv("ANDROID_KEYSTORE_PATH")) { signingConfig signingConfigs.release }\n'
+    if "            minifyEnabled false" in build_content:
+        build_content = build_content.replace(
+            "            minifyEnabled false",
+            signing_line + "            minifyEnabled false",
+            1
+        )
+    elif "            minifyEnabled true" in build_content:
+        build_content = build_content.replace(
+            "            minifyEnabled true",
+            signing_line + "            minifyEnabled true",
+            1
+        )
 
     with open(app_build_gradle, "w") as f:
         f.write(build_content)

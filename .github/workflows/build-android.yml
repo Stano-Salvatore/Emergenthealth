@@ -45,6 +45,11 @@ jobs:
 
       - name: Apply Android customizations
         run: python3 .ci/customize-android.py
+        env:
+          ANDROID_KEYSTORE_PATH: /tmp/emergenthealth-release.jks
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
       - name: Sync Capacitor
         run: |
@@ -77,4 +82,5 @@ jobs:
         with:
           name: emergenthealth-release
           path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
           retention-days: 90
