@@ -90,6 +90,13 @@ export interface ChartDay {
   mood: number | null
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function todayLabel() {
+  const d = new Date()
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
 // ── Charts ─────────────────────────────────────────────────────────────────────
 
 export function SleepChart({ data, goal = 7.5 }: { data: ChartDay[]; goal?: number }) {
@@ -100,6 +107,7 @@ export function SleepChart({ data, goal = 7.5 }: { data: ChartDay[]; goal?: numb
   const d = [...data].reverse()
   const hasStages = d.some(r => r.deepMin != null || r.remMin != null)
   const axis = { fill: getAxisFill(), fontSize: 10 }
+  const today = todayLabel()
   return (
     <div className="space-y-4">
       <div>
@@ -111,6 +119,7 @@ export function SleepChart({ data, goal = 7.5 }: { data: ChartDay[]; goal?: numb
             <YAxis tick={axis} axisLine={false} tickLine={false} unit="h" domain={[0, 10]} width={28} />
             <Tooltip content={<Tip />} />
             <ReferenceLine y={goal} stroke={primary} strokeDasharray="4 2" strokeOpacity={0.6} />
+            <ReferenceLine x={today} stroke={primary} strokeOpacity={0.35} strokeWidth={1} />
             <Bar dataKey="sleepH" name="Sleep" radius={[3, 3, 0, 0]}>
               {d.map((row, i) => (
                 <Cell key={i} fill={row.sleepH != null && row.sleepH >= goal ? primary : primaryDim} />
@@ -141,9 +150,11 @@ export function SleepChart({ data, goal = 7.5 }: { data: ChartDay[]; goal?: numb
 }
 
 export function StepsChart({ data, goal = 8000 }: { data: ChartDay[]; goal?: number }) {
+  const primary = usePrimaryColor()
   const d = [...data].reverse().filter(r => r.steps != null)
   if (!d.length) return null
   const axis = { fill: getAxisFill(), fontSize: 10 }
+  const today = todayLabel()
   return (
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Steps — dashed = {goal.toLocaleString()} goal</p>
@@ -154,6 +165,7 @@ export function StepsChart({ data, goal = 8000 }: { data: ChartDay[]; goal?: num
           <YAxis tick={axis} axisLine={false} tickLine={false} width={32} tickFormatter={v => v >= 1000 ? `${v / 1000}k` : String(v)} />
           <Tooltip content={<Tip />} />
           <ReferenceLine y={goal} stroke="#22c55e" strokeDasharray="4 2" strokeOpacity={0.6} />
+          <ReferenceLine x={today} stroke={primary} strokeOpacity={0.35} strokeWidth={1} />
           <Bar dataKey="steps" name="Steps" radius={[3, 3, 0, 0]}>
             {d.map((row, i) => (
               <Cell key={i} fill={row.steps != null && row.steps >= goal ? "#22c55e" : "#22c55e55"} />
@@ -188,12 +200,14 @@ export function ActivityChart({ data }: { data: ChartDay[] }) {
 }
 
 export function HRChart({ data }: { data: ChartDay[] }) {
+  const primary = usePrimaryColor()
   const d = [...data].reverse().filter(r => r.restingHR != null)
   if (!d.length) return null
   const vals = d.map(r => r.restingHR!).filter(Boolean)
   const min = Math.min(...vals) - 5
   const max = Math.max(...vals) + 5
   const axis = { fill: getAxisFill(), fontSize: 10 }
+  const today = todayLabel()
   return (
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Resting heart rate (bpm)</p>
@@ -203,6 +217,7 @@ export function HRChart({ data }: { data: ChartDay[] }) {
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
           <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} width={32} />
           <Tooltip content={<Tip />} />
+          <ReferenceLine x={today} stroke={primary} strokeOpacity={0.35} strokeWidth={1} />
           <Line type="monotone" dataKey="restingHR" name="HR" stroke="#ef4444" strokeWidth={2} dot={{ r: 2, fill: "#ef4444" }} />
         </LineChart>
       </ResponsiveContainer>
@@ -240,9 +255,11 @@ export function WeightChart({ data }: { data: ChartDay[] }) {
 }
 
 export function ReadinessChart({ data }: { data: ChartDay[] }) {
+  const primary = usePrimaryColor()
   const d = [...data].reverse().filter(r => r.readiness != null)
   if (!d.length) return null
   const axis = { fill: getAxisFill(), fontSize: 10 }
+  const today = todayLabel()
   return (
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Readiness score (0–100)</p>
@@ -253,6 +270,7 @@ export function ReadinessChart({ data }: { data: ChartDay[] }) {
           <YAxis tick={axis} axisLine={false} tickLine={false} domain={[0, 100]} width={28} />
           <Tooltip content={<Tip />} />
           <ReferenceLine y={70} stroke="#10b981" strokeDasharray="4 2" strokeOpacity={0.5} />
+          <ReferenceLine x={today} stroke={primary} strokeOpacity={0.35} strokeWidth={1} />
           <Bar dataKey="readiness" name="Readiness" radius={[3, 3, 0, 0]}>
             {d.map((row, i) => (
               <Cell key={i} fill={
@@ -276,6 +294,7 @@ export function HRVChart({ data }: { data: ChartDay[] }) {
   const min = Math.max(0, Math.min(...vals) - 5)
   const max = Math.max(...vals) + 5
   const axis = { fill: getAxisFill(), fontSize: 10 }
+  const today = todayLabel()
   return (
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">HRV — heart rate variability (ms)</p>
@@ -285,6 +304,7 @@ export function HRVChart({ data }: { data: ChartDay[] }) {
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
           <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} width={32} />
           <Tooltip content={<Tip />} />
+          <ReferenceLine x={today} stroke={primary} strokeOpacity={0.35} strokeWidth={1} />
           <Line type="monotone" dataKey="hrv" name="HRV (ms)" stroke={primary} strokeWidth={2} dot={{ r: 2, fill: primary }} />
         </LineChart>
       </ResponsiveContainer>

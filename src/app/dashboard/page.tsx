@@ -30,8 +30,8 @@ import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
 import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
 
-const STEP_GOAL = 8_000
-const SLEEP_GOAL_H = 7
+const DEFAULT_STEP_GOAL = 8_000
+const DEFAULT_SLEEP_GOAL_H = 7.5
 
 function getTimeGreeting() {
   const h = new Date().getHours()
@@ -87,15 +87,17 @@ function MiniMonthCalendar({
 
 // ── Wellness Score ─────────────────────────────────────────────────────────────
 function computeWellnessScore({
-  sleepMin, steps, readiness, habitsRatio,
+  sleepMin, steps, readiness, habitsRatio, sleepGoalH = DEFAULT_SLEEP_GOAL_H, stepGoal = DEFAULT_STEP_GOAL,
 }: {
   sleepMin: number | null
   steps: number | null
   readiness: number | null
   habitsRatio: number
+  sleepGoalH?: number
+  stepGoal?: number
 }): { score: number; components: { label: string; pts: number; max: number }[] } {
-  const sleepPts = sleepMin != null ? Math.min(25, Math.round((sleepMin / (SLEEP_GOAL_H * 60)) * 25)) : 0
-  const stepsPts = steps != null ? Math.min(25, Math.round((steps / STEP_GOAL) * 25)) : 0
+  const sleepPts = sleepMin != null ? Math.min(25, Math.round((sleepMin / (sleepGoalH * 60)) * 25)) : 0
+  const stepsPts = steps != null ? Math.min(25, Math.round((steps / stepGoal) * 25)) : 0
   const readinessPts = readiness != null ? Math.min(25, Math.round((readiness / 100) * 25)) : 0
   const habitsPts = Math.round(habitsRatio * 25)
   return {
@@ -122,6 +124,13 @@ export default async function DashboardPage() {
   const session = await auth()
   if (!session?.user?.id) return null
   const userId = session.user.id
+
+  const goalsRow = await prisma.dailyNote.findUnique({
+    where: { userId_date: { userId, date: new Date("0001-01-01") } },
+  }).catch(() => null)
+  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number } : {}
+  const STEP_GOAL = userGoals.steps ?? DEFAULT_STEP_GOAL
+  const SLEEP_GOAL_H = userGoals.sleepH ?? DEFAULT_SLEEP_GOAL_H
 
   const now = new Date()
   const today = new Date()
@@ -316,6 +325,8 @@ export default async function DashboardPage() {
     steps: latestHealth?.steps ?? null,
     readiness: latestHealth?.readinessScore ?? null,
     habitsRatio: habits.length > 0 ? doneToday / habits.length : 0,
+    sleepGoalH: SLEEP_GOAL_H,
+    stepGoal: STEP_GOAL,
   })
   const { label: scoreLabel, color: scoreColor, emoji: scoreEmoji } = scoreGrade(wellnessScore)
 
