@@ -94,7 +94,11 @@ jobs:
         run: chmod +x android/gradlew
 
       - name: Build debug APK
-        run: cd android && ./gradlew assembleDebug --no-daemon 2>&1 | tail -50
+        shell: bash
+        run: |
+          set -o pipefail
+          cd android && ./gradlew assembleDebug --no-daemon 2>&1 | tee /tmp/gradle.log
+          grep -E "FAILED|error:|BUILD" /tmp/gradle.log | tail -20 || true
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
