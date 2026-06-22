@@ -83,6 +83,19 @@ jobs:
           print("Manifest updated successfully")
           PYEOF
 
+          # Force Kotlin JVM target to 17 for all subprojects.
+          # kiwi-health plugin bundles an old Kotlin version that doesn't know JVM 21.
+          cat >> android/build.gradle <<'GROOVY'
+
+subprojects {
+    afterEvaluate {
+        tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            kotlinOptions { jvmTarget = "17" }
+        }
+    }
+}
+GROOVY
+
       - name: Sync Capacitor
         run: |
           # server.url mode — Capacitor loads from Vercel, no web build needed.
