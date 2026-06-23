@@ -100,7 +100,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
               // Chrome Custom Tab. No server action, so the button never gets
               // stuck in a pending/disabled state after returning from Chrome.
               <Button asChild className={GOOGLE_BTN_CLASS} size="lg">
-                <a href="/api/mobile-signin">
+                <a href="/mobile-signin">
                   <GoogleIcon />
                   {buttonLabel}
                 </a>
