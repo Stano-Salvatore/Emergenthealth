@@ -1,4 +1,5 @@
 import { cookies } from "next/headers"
+import { createHmac } from "crypto"
 
 export async function GET(request: Request) {
   const cookieStore = await cookies()
@@ -15,17 +16,19 @@ export async function GET(request: Request) {
     ? "__Secure-authjs.session-token"
     : "authjs.session-token"
 
-  const params = new URLSearchParams({
-    token: sessionCookie.value,
-    name: cookieName,
-  })
+  // Sign the session token so the exchange endpoint can verify it without a
+  // database round-trip. The native app loads /api/mobile-exchange?code=...
+  // in the WebView; the server sets the cookie via Set-Cookie response header
+  // (standard HTTP — no CookieManager.setCookie() needed).
+  const secret = process.env.AUTH_SECRET!
+  const payload = Buffer.from(
+    JSON.stringify({ t: sessionCookie.value, n: cookieName, x: Date.now() + 120_000 })
+  ).toString("base64url")
+  const sig = createHmac("sha256", secret).update(payload).digest("base64url")
+  const code = `${payload}~${sig}`
 
-  const target = `emergenthealth://auth?${params.toString()}`
+  const target = `emergenthealth://auth?code=${encodeURIComponent(code)}`
 
-  // 1. window.location.replace fires the Android intent automatically (fast path).
-  // 2. The visible "Open Emergenthealth" link is the 100%-reliable fallback:
-  //    a physical tap on <a href="emergenthealth://..."> always triggers the
-  //    Android intent system even if the programmatic JS redirect was blocked.
   return new Response(
     `<!DOCTYPE html>
 <html>
@@ -37,8 +40,6 @@ export async function GET(request: Request) {
     body{min-height:100vh;display:flex;flex-direction:column;align-items:center;
       justify-content:center;gap:28px;background:#0f0e1a;
       font-family:-apple-system,sans-serif;padding:24px}
-    .logo{width:64px;height:64px;background:linear-gradient(135deg,#6c63ff,#4f46e5);
-      border-radius:16px;display:flex;align-items:center;justify-content:center}
     h1{color:#fff;font-size:20px;font-weight:700}
     p{color:#888;font-size:14px;text-align:center;max-width:260px;line-height:1.5}
     a.btn{display:flex;align-items:center;justify-content:center;
@@ -49,12 +50,6 @@ export async function GET(request: Request) {
   </style>
 </head>
 <body>
-  <div class="logo">
-    <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
-      stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-    </svg>
-  </div>
   <h1>Signed in!</h1>
   <p>Opening Emergenthealth…<br/>If the app doesn't open automatically, tap below.</p>
   <a class="btn" href="${target}">Open Emergenthealth →</a>
