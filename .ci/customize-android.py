@@ -41,20 +41,26 @@ extra_permissions = """
     </queries>
 """
 
-# App Links intent filter — routes OAuth callbacks from external browser back into the app.
-# android:autoVerify="true" triggers Android's domain verification against
-# https://emergenthealth.vercel.app/.well-known/assetlinks.json
-app_links_filter = """
+# App Links intent filter (optional deep-link bonus if verified) +
+# Custom scheme intent filter (always works, no verification needed).
+# The OAuth flow uses emergenthealth:// to return the session token to the app.
+deep_link_filters = """
         <intent-filter android:autoVerify="true">
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
             <category android:name="android.intent.category.BROWSABLE" />
             <data android:scheme="https" android:host="emergenthealth.vercel.app" />
+        </intent-filter>
+        <intent-filter>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.DEFAULT" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="emergenthealth" />
         </intent-filter>"""
 
 content = content.replace("</manifest>", extra_permissions + "\n</manifest>")
-# Insert App Links filter inside the main activity, before its closing tag
-content = content.replace("</activity>", app_links_filter + "\n    </activity>", 1)
+# Insert deep-link filters inside the main activity, before its closing tag
+content = content.replace("</activity>", deep_link_filters + "\n    </activity>", 1)
 
 with open(manifest_path, "w") as f:
     f.write(content)
