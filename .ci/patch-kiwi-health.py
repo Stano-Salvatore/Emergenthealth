@@ -168,7 +168,6 @@ else:
             "import android.content.Intent\n"
             "import android.net.Uri\n"
             "import android.os.Bundle\n"
-            "import android.webkit.CookieManager\n"
             "import android.webkit.WebResourceRequest\n"
             "import android.webkit.WebView\n"
             "import androidx.browser.customtabs.CustomTabsIntent\n"
@@ -206,22 +205,18 @@ else:
             "    private fun handleIntent(intent: Intent) {\n"
             "        val data: Uri = intent.data ?: return\n"
             "\n"
-            "        // emergenthealth://auth?token=TOKEN&name=COOKIE_NAME\n"
+            "        // emergenthealth://auth?code=SIGNED_CODE\n"
             "        // Sent by /api/mobile-auth-bridge after OAuth succeeds in Chrome.\n"
-            "        // Chrome cannot load custom schemes, so Android always routes this\n"
-            "        // to the app regardless of App Links verification status.\n"
+            "        // We load /api/mobile-exchange in the WebView so the server sets\n"
+            "        // the session cookie via a standard Set-Cookie response header.\n"
+            "        // This is more reliable than CookieManager.setCookie().\n"
             '        if (data.scheme == "emergenthealth" && data.host == "auth") {\n'
-            '            val token = data.getQueryParameter("token") ?: return\n'
-            '            val cookieName = data.getQueryParameter("name")\n'
-            '                ?: "__Secure-authjs.session-token"\n'
-            "            val cookieManager = CookieManager.getInstance()\n"
-            "            cookieManager.setCookie(\n"
-            '                "https://emergenthealth.vercel.app",\n'
-            '                "$cookieName=$token; Path=/; Secure; HttpOnly; SameSite=Lax"\n'
-            "            )\n"
-            "            cookieManager.flush()\n"
+            '            val code = data.getQueryParameter("code") ?: return\n'
             "            bridge.webView.post {\n"
-            '                bridge.webView.loadUrl("https://emergenthealth.vercel.app/dashboard")\n'
+            "                bridge.webView.loadUrl(\n"
+            '                    "https://emergenthealth.vercel.app/api/mobile-exchange?code=" +\n'
+            "                    Uri.encode(code)\n"
+            "                )\n"
             "            }\n"
             "            return\n"
             "        }\n"
