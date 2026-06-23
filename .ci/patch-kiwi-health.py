@@ -182,7 +182,14 @@ else:
             "                view: WebView, request: WebResourceRequest\n"
             "            ): Boolean {\n"
             '                val host = request.url.host ?: ""\n'
-            "                if (host == \"accounts.google.com\" || host.endsWith(\".google.com\")) {\n"
+            '                val path = request.url.path ?: ""\n'
+            "                // Open the OAuth initiator (/api/mobile-signin) in a Chrome\n"
+            "                // Custom Tab so the ENTIRE flow — including NextAuth's\n"
+            "                // state/PKCE/callback-url cookies — lives in Chrome's cookie\n"
+            "                // jar, not the WebView's. Google pages are also routed to the\n"
+            "                // Custom Tab as a fallback.\n"
+            '                if (path == "/api/mobile-signin" ||\n'
+            "                    host == \"accounts.google.com\" || host.endsWith(\".google.com\")) {\n"
             "                    CustomTabsIntent.Builder().build()\n"
             "                        .launchUrl(this@MainActivity, request.url)\n"
             "                    return true\n"
