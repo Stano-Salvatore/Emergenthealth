@@ -6,10 +6,10 @@ compiles with JVM target 17.
 
 Problem: capacitor-android requires JDK 21 (hardcodes VERSION_21), but the
 Kotlin plugin bundled with kiwi-health is too old to support jvmTarget = 21.
-AGP 8.x also auto-propagates compileOptions sourceCompatibility -> Kotlin
+AGP 8.x also auto-propagates compileOptions sourceCompatibility → Kotlin
 jvmTarget, so we must patch BOTH compileOptions AND kotlinOptions.
 
-In Capacitor 8, plugins are NOT copied to android/ -- they are included via
+In Capacitor 8, plugins are NOT copied to android/ — they are included via
 Gradle includeBuild() pointing to node_modules/<pkg>/android/.
 Must run AFTER `cap sync android`.
 """
@@ -54,7 +54,7 @@ if not found:
                     found.append(os.path.join(root, f))
 
 if not found:
-    print("WARNING: kiwi-health build.gradle not found -- listing search locations:")
+    print("⚠️  kiwi-health build.gradle not found — listing search locations:")
     print("  node_modules/@kiwi-health/ contents:")
     kiwi_dir = "node_modules/@kiwi-health"
     if os.path.exists(kiwi_dir):
@@ -75,7 +75,7 @@ for path in found:
 
     original = content
 
-    # 1. Replace any jvmTarget = "21" or jvmTarget = '21' -> "17"
+    # 1. Replace any jvmTarget = "21" or jvmTarget = '21' → "17"
     content = re.sub(r'(jvmTarget\s*=\s*)["\']?21["\']?', r'\g<1>"17"', content)
 
     # 2. Replace Java 21 compat in compileOptions (AGP propagates this to Kotlin jvmTarget)
@@ -99,28 +99,49 @@ for path in found:
             content += '\n// CI patch\nandroid { kotlinOptions { jvmTarget = "17" } }\n'
 
     if content == original:
-        print(f"INFO: {path}: no changes needed (already targeting <=17?)")
+        print(f"ℹ️  {path}: no changes needed (already targeting ≤17?)")
     else:
         with open(path, "w") as f:
             f.write(content)
-        print(f"OK: Patched {path}: forced Kotlin jvmTarget=17, compileOptions VERSION_17")
+        print(f"✓ Patched {path}: forced Kotlin jvmTarget=17, compileOptions VERSION_17")
 
-# ---- Patch MainActivity.kt: keep Google OAuth inside the WebView ------------
+# ── Add androidx.browser for Chrome Custom Tabs ───────────────────────────────
+app_build_gradle_path = "android/app/build.gradle"
+with open(app_build_gradle_path) as f:
+    bg_content = f.read()
+
+if "androidx.browser" not in bg_content:
+    bg_content = bg_content.replace(
+        "dependencies {",
+        "dependencies {\n    implementation 'androidx.browser:browser:1.8.0'",
+        1,
+    )
+    with open(app_build_gradle_path, "w") as f:
+        f.write(bg_content)
+    print("✓ Added androidx.browser:browser:1.8.0 for Chrome Custom Tabs")
+else:
+    print("ℹ️  androidx.browser already in build.gradle")
+
+# ── Patch MainActivity.kt ─────────────────────────────────────────────────────
 #
-# Problem: Capacitor opens accounts.google.com in Chrome (external browser).
-# OAuth state cookie lives in the WebView; Chrome does not have it, so the
-# sign-in fails with OAuthCallbackError. App Links interception is unreliable.
+# OAuth strategy: Chrome Custom Tabs + App Links
 #
-# Fix:
-#   1. Override the WebView UA to look like real Chrome (removes the "wv"
-#      marker that causes Google to reject OAuth in embedded browsers).
-#   2. Subclass BridgeWebViewClient to return false for *.google.com -- this
-#      tells Capacitor "let the WebView handle this URL" instead of handing
-#      it off to Chrome. The OAuth callback (emergenthealth.vercel.app) is
-#      already handled inside the WebView because it is the app server origin.
+# Why not WebView OAuth?
+#   Google detects Android WebView (via window.chrome absence and other APIs)
+#   and blocks the sign-in flow even when the User-Agent "wv" marker is removed.
 #
-# Result: the entire OAuth flow (start -> Google sign-in -> callback) runs
-# inside one cookie jar, so the NextAuth state cookie is always present.
+# Why not plain Chrome?
+#   Chrome does NOT fire Android App Links for server-side 3xx redirects that
+#   happen within an existing browser session (the OAuth callback redirect is
+#   a 302 that Chrome follows internally, so the app never receives the URL).
+#
+# Why Custom Tabs works:
+#   Chrome Custom Tabs DO fire App Links when the navigation target matches a
+#   verified App Link, including while following server-side redirects.
+#   When Google redirects to emergenthealth.vercel.app/api/auth/callback/google,
+#   Android intercepts the URL before Chrome loads it, opens the app via
+#   onNewIntent(), and we load it in the WebView to complete the NextAuth flow.
+#   Google accepts Custom Tabs for OAuth (it's an embedded Chrome, not a WebView).
 
 main_activity_path = None
 for root, dirs, files in os.walk("android/app/src/main/java"):
@@ -130,13 +151,13 @@ for root, dirs, files in os.walk("android/app/src/main/java"):
             break
 
 if not main_activity_path:
-    print("WARNING: MainActivity.kt not found -- skipping Google OAuth WebView patch")
+    print("WARNING: MainActivity.kt not found -- skipping Google OAuth patch")
 else:
     with open(main_activity_path) as f:
         ma_content = f.read()
 
-    if "userAgentString" in ma_content:
-        print("INFO: MainActivity.kt already patched for Google OAuth WebView")
+    if "CustomTabsIntent" in ma_content:
+        print("INFO: MainActivity.kt already patched for Chrome Custom Tabs OAuth")
     else:
         java_root = "android/app/src/main/java/"
         relative = main_activity_path.replace(java_root, "").replace("/MainActivity.kt", "")
@@ -144,27 +165,66 @@ else:
 
         patched_main = (
             "package " + pkg + "\n\n"
+            "import android.content.Intent\n"
+            "import android.net.Uri\n"
             "import android.os.Bundle\n"
+            "import android.webkit.CookieManager\n"
             "import android.webkit.WebResourceRequest\n"
             "import android.webkit.WebView\n"
+            "import androidx.browser.customtabs.CustomTabsIntent\n"
             "import com.getcapacitor.BridgeActivity\n"
             "import com.getcapacitor.BridgeWebViewClient\n\n"
             "class MainActivity : BridgeActivity() {\n"
             "    override fun onCreate(savedInstanceState: Bundle?) {\n"
             "        super.onCreate(savedInstanceState)\n"
-            "        val wv = bridge.webView\n"
-            '        // Remove Android WebView "wv" UA marker so Google allows OAuth here\n'
-            "        wv.settings.userAgentString =\n"
-            '            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 " +\n'
-            '            "(KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"\n'
-            "        // Keep Google OAuth URLs inside the WebView instead of opening Chrome\n"
-            "        wv.webViewClient = object : BridgeWebViewClient(bridge) {\n"
+            "        bridge.webView.webViewClient = object : BridgeWebViewClient(bridge) {\n"
             "            override fun shouldOverrideUrlLoading(\n"
             "                view: WebView, request: WebResourceRequest\n"
             "            ): Boolean {\n"
             '                val host = request.url.host ?: ""\n'
-            '                if (host == "accounts.google.com" || host.endsWith(".google.com")) return false\n'
+            "                if (host == \"accounts.google.com\" || host.endsWith(\".google.com\")) {\n"
+            "                    CustomTabsIntent.Builder().build()\n"
+            "                        .launchUrl(this@MainActivity, request.url)\n"
+            "                    return true\n"
+            "                }\n"
             "                return super.shouldOverrideUrlLoading(view, request)\n"
+            "            }\n"
+            "        }\n"
+            "        handleIntent(intent)\n"
+            "    }\n\n"
+            "    override fun onNewIntent(intent: Intent) {\n"
+            "        super.onNewIntent(intent)\n"
+            "        handleIntent(intent)\n"
+            "    }\n\n"
+            "    private fun handleIntent(intent: Intent) {\n"
+            "        val data: Uri = intent.data ?: return\n"
+            "\n"
+            "        // emergenthealth://auth?token=TOKEN&name=COOKIE_NAME\n"
+            "        // Sent by /api/mobile-auth-bridge after OAuth succeeds in Chrome.\n"
+            "        // Chrome cannot load custom schemes, so Android always routes this\n"
+            "        // to the app regardless of App Links verification status.\n"
+            '        if (data.scheme == "emergenthealth" && data.host == "auth") {\n'
+            '            val token = data.getQueryParameter("token") ?: return\n'
+            '            val cookieName = data.getQueryParameter("name")\n'
+            '                ?: "__Secure-authjs.session-token"\n'
+            "            val cookieManager = CookieManager.getInstance()\n"
+            "            cookieManager.setCookie(\n"
+            '                "https://emergenthealth.vercel.app",\n'
+            '                "$cookieName=$token; Path=/; Secure; HttpOnly; SameSite=Lax"\n'
+            "            )\n"
+            "            cookieManager.flush()\n"
+            "            bridge.webView.post {\n"
+            '                bridge.webView.loadUrl("https://emergenthealth.vercel.app/dashboard")\n'
+            "            }\n"
+            "            return\n"
+            "        }\n"
+            "\n"
+            "        // App Links fallback: if Android verified the domain and intercepts\n"
+            "        // the OAuth callback before Chrome loads it, process it in the WebView.\n"
+            '        if (data.host == "emergenthealth.vercel.app") {\n'
+            '            val path = data.path ?: ""\n'
+            '            if (path.startsWith("/api/auth/callback")) {\n'
+            "                bridge.webView.post { bridge.webView.loadUrl(data.toString()) }\n"
             "            }\n"
             "        }\n"
             "    }\n"
@@ -173,4 +233,4 @@ else:
 
         with open(main_activity_path, "w") as f:
             f.write(patched_main)
-        print("OK " + main_activity_path + ": patched for Google OAuth WebView compatibility")
+        print("OK " + main_activity_path + ": patched for Chrome Custom Tabs OAuth")
