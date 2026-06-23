@@ -104,3 +104,73 @@ for path in found:
         with open(path, "w") as f:
             f.write(content)
         print(f"✓ Patched {path}: forced Kotlin jvmTarget=17, compileOptions VERSION_17")
+
+# ── Patch MainActivity.kt: keep Google OAuth inside the WebView ──────────────
+#
+# Problem: Capacitor opens accounts.google.com in Chrome (external browser).
+# OAuth state cookie lives in the WebView; Chrome does not have it, so the
+# sign-in fails with OAuthCallbackError. App Links interception is unreliable.
+#
+# Fix:
+#   1. Override the WebView UA to look like real Chrome (removes the "wv"
+#      marker that causes Google to reject OAuth in embedded browsers).
+#   2. Subclass BridgeWebViewClient to return false for *.google.com — this
+#      tells Capacitor "let the WebView handle this URL" instead of handing
+#      it off to Chrome. The OAuth callback (emergenthealth.vercel.app) is
+#      already handled inside the WebView because it is the app server origin.
+#
+# Result: the entire OAuth flow (start -> Google sign-in -> callback) runs
+# inside one cookie jar, so the NextAuth state cookie is always present.
+
+main_activity_path = None
+for root, dirs, files in os.walk("android/app/src/main/java"):
+    for fname in files:
+        if fname == "MainActivity.kt":
+            main_activity_path = os.path.join(root, fname)
+            break
+
+if not main_activity_path:
+    print("WARNING: MainActivity.kt not found -- skipping Google OAuth WebView patch")
+else:
+    with open(main_activity_path) as f:
+        ma_content = f.read()
+
+    if "userAgentString" in ma_content:
+        print("INFO: MainActivity.kt already patched for Google OAuth WebView")
+    else:
+        java_root = "android/app/src/main/java/"
+        relative = main_activity_path.replace(java_root, "").replace("/MainActivity.kt", "")
+        pkg = relative.replace("/", ".")
+
+        patched_main = (
+            "package " + pkg + "\n\n"
+            "import android.os.Bundle\n"
+            "import android.webkit.WebResourceRequest\n"
+            "import android.webkit.WebView\n"
+            "import com.getcapacitor.BridgeActivity\n"
+            "import com.getcapacitor.BridgeWebViewClient\n\n"
+            "class MainActivity : BridgeActivity() {\n"
+            "    override fun onCreate(savedInstanceState: Bundle?) {\n"
+            "        super.onCreate(savedInstanceState)\n"
+            "        val wv = bridge.webView\n"
+            '        // Remove Android WebView "wv" UA marker so Google allows OAuth here\n'
+            "        wv.settings.userAgentString =\n"
+            '            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 " +\n'
+            '            "(KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"\n'
+            "        // Keep Google OAuth URLs inside the WebView instead of opening Chrome\n"
+            "        wv.webViewClient = object : BridgeWebViewClient(bridge) {\n"
+            "            override fun shouldOverrideUrlLoading(\n"
+            "                view: WebView, request: WebResourceRequest\n"
+            "            ): Boolean {\n"
+            '                val host = request.url.host ?: ""\n'
+            '                if (host == "accounts.google.com" || host.endsWith(".google.com")) return false\n'
+            "                return super.shouldOverrideUrlLoading(view, request)\n"
+            "            }\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+        )
+
+        with open(main_activity_path, "w") as f:
+            f.write(patched_main)
+        print("OK " + main_activity_path + ": patched for Google OAuth WebView compatibility")
