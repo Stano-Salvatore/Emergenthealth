@@ -168,6 +168,7 @@ else:
             "import android.content.Intent\n"
             "import android.net.Uri\n"
             "import android.os.Bundle\n"
+            "import android.webkit.CookieManager\n"
             "import android.webkit.WebResourceRequest\n"
             "import android.webkit.WebView\n"
             "import androidx.browser.customtabs.CustomTabsIntent\n"
@@ -182,9 +183,6 @@ else:
             "            ): Boolean {\n"
             '                val host = request.url.host ?: ""\n'
             "                if (host == \"accounts.google.com\" || host.endsWith(\".google.com\")) {\n"
-            "                    // Open Google OAuth in Chrome Custom Tab so that when\n"
-            "                    // Google redirects to our callback URL, Chrome fires\n"
-            "                    // App Links and returns the URL to onNewIntent()\n"
             "                    CustomTabsIntent.Builder().build()\n"
             "                        .launchUrl(this@MainActivity, request.url)\n"
             "                    return true\n"
@@ -200,6 +198,29 @@ else:
             "    }\n\n"
             "    private fun handleIntent(intent: Intent) {\n"
             "        val data: Uri = intent.data ?: return\n"
+            "\n"
+            "        // emergenthealth://auth?token=TOKEN&name=COOKIE_NAME\n"
+            "        // Sent by /api/mobile-auth-bridge after OAuth succeeds in Chrome.\n"
+            "        // Chrome cannot load custom schemes, so Android always routes this\n"
+            "        // to the app regardless of App Links verification status.\n"
+            '        if (data.scheme == "emergenthealth" && data.host == "auth") {\n'
+            '            val token = data.getQueryParameter("token") ?: return\n'
+            '            val cookieName = data.getQueryParameter("name")\n'
+            '                ?: "__Secure-authjs.session-token"\n'
+            "            val cookieManager = CookieManager.getInstance()\n"
+            "            cookieManager.setCookie(\n"
+            '                "https://emergenthealth.vercel.app",\n'
+            '                "$cookieName=$token; Path=/; Secure; HttpOnly; SameSite=Lax"\n'
+            "            )\n"
+            "            cookieManager.flush()\n"
+            "            bridge.webView.post {\n"
+            '                bridge.webView.loadUrl("https://emergenthealth.vercel.app/dashboard")\n'
+            "            }\n"
+            "            return\n"
+            "        }\n"
+            "\n"
+            "        // App Links fallback: if Android verified the domain and intercepts\n"
+            "        // the OAuth callback before Chrome loads it, process it in the WebView.\n"
             '        if (data.host == "emergenthealth.vercel.app") {\n'
             '            val path = data.path ?: ""\n'
             '            if (path.startsWith("/api/auth/callback")) {\n'

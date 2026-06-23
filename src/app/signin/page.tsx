@@ -4,6 +4,7 @@ import { Activity } from "lucide-react"
 import { PasskeySignIn } from "./PasskeySignIn"
 import { Suspense } from "react"
 import { RefCapture } from "./RefCapture"
+import { headers } from "next/headers"
 
 const ERROR_MESSAGES: Record<string, string> = {
   OAuthAccountNotLinked: "This email is already linked to a different sign-in method.",
@@ -65,7 +66,11 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
             <form
               action={async () => {
                 "use server"
-                await signIn("google", { redirectTo: "/dashboard" })
+                const ua = (await headers()).get("user-agent") ?? ""
+                const redirectTo = ua.includes("Emergenthealth-Capacitor")
+                  ? "/api/mobile-auth-bridge"
+                  : "/dashboard"
+                await signIn("google", { redirectTo })
               }}
             >
               <Button
