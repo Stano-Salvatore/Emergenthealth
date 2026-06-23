@@ -188,7 +188,7 @@ else:
             "                // state/PKCE/callback-url cookies — lives in Chrome's cookie\n"
             "                // jar, not the WebView's. Google pages are also routed to the\n"
             "                // Custom Tab as a fallback.\n"
-            '                if (path == "/api/mobile-signin" ||\n'
+            '                if (path == "/mobile-signin" ||\n'
             "                    host == \"accounts.google.com\" || host.endsWith(\".google.com\")) {\n"
             "                    CustomTabsIntent.Builder().build()\n"
             "                        .launchUrl(this@MainActivity, request.url)\n"
