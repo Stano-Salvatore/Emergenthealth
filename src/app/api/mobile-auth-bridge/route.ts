@@ -2,12 +2,13 @@ import { cookies } from "next/headers"
 
 // Called by Chrome Custom Tab after successful Google OAuth.
 // Reads the NextAuth session token from the request cookies (Chrome has it),
-// then redirects to the emergenthealth:// custom scheme so Android hands the
-// URL to our app. The app extracts the token, sets it as a cookie in the
-// WebView's CookieManager, and navigates to /dashboard.
+// then uses a JS redirect to the emergenthealth:// custom scheme so Android
+// hands the URL to our app. The app extracts the token, sets it as a cookie
+// in the WebView's CookieManager, and navigates to /dashboard.
 //
-// Custom schemes (unlike App Links) are always delegated by Chrome to the
-// registered app — no domain verification needed.
+// JS redirect (not HTTP 302) is used because Chrome blocks server-side 302
+// redirects to custom URI schemes as a security measure, but allows
+// JS-initiated navigations which are delegated to the Android intent system.
 export async function GET(request: Request) {
   const cookieStore = await cookies()
 
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
   const sessionCookie = secureCookie ?? insecureCookie
 
   if (!sessionCookie) {
-    return Response.redirect(new URL("/signin", request.url))
+    return Response.redirect(new URL("/signin?error=OAuthCallback", request.url))
   }
 
   const cookieName = secureCookie
@@ -29,5 +30,11 @@ export async function GET(request: Request) {
     name: cookieName,
   })
 
-  return Response.redirect(`emergenthealth://auth?${params.toString()}`)
+  const target = `emergenthealth://auth?${params.toString()}`
+  return new Response(
+    `<!DOCTYPE html><html><head><title>Opening app…</title></head><body>
+<script>window.location.replace(${JSON.stringify(target)})</script>
+<p>Returning to app…</p></body></html>`,
+    { headers: { "Content-Type": "text/html; charset=utf-8" } }
+  )
 }
