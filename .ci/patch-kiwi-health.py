@@ -105,22 +105,23 @@ for path in found:
             f.write(content)
         print(f"✓ Patched {path}: forced Kotlin jvmTarget=17, compileOptions VERSION_17")
 
-# ── Patch MainActivity.kt: keep Google OAuth inside the WebView ──────────────
+# ── Patch MainActivity.kt ─────────────────────────────────────────────────────
 #
-# Problem: Capacitor opens accounts.google.com in Chrome (external browser).
-# OAuth state cookie lives in the WebView; Chrome does not have it, so the
-# sign-in fails with OAuthCallbackError. App Links interception is unreliable.
+# Two problems solved here:
 #
-# Fix:
-#   1. Override the WebView UA to look like real Chrome (removes the "wv"
-#      marker that causes Google to reject OAuth in embedded browsers).
-#   2. Subclass BridgeWebViewClient to return false for *.google.com — this
-#      tells Capacitor "let the WebView handle this URL" instead of handing
-#      it off to Chrome. The OAuth callback (emergenthealth.vercel.app) is
-#      already handled inside the WebView because it is the app server origin.
+# Problem 1: Capacitor opens accounts.google.com in Chrome (external browser).
+#   OAuth state cookie lives in the WebView cookie jar; Chrome's jar is separate.
+#   Fix: Override UA (removes "wv" marker) + keep *.google.com in WebView.
 #
-# Result: the entire OAuth flow (start -> Google sign-in -> callback) runs
-# inside one cookie jar, so the NextAuth state cookie is always present.
+# Problem 2: When Chrome handles OAuth (because Google detects WebView despite
+#   UA spoof, or the user's first install), Android App Links intercepts the
+#   callback URL and opens the app — but Capacitor's BridgeActivity never
+#   navigates the WebView to the callback URL.  The WebView just stays on the
+#   sign-in page and the OAuth code is never exchanged.
+#   Fix: Override onNewIntent() to detect /api/auth/callback/* URLs and load
+#   them in the WebView.  The state cookie was set in the WebView cookie jar
+#   by the original server-action POST response, so NextAuth state validation
+#   still passes when the callback request is made by the WebView.
 
 main_activity_path = None
 for root, dirs, files in os.walk("android/app/src/main/java"):
@@ -135,7 +136,7 @@ else:
     with open(main_activity_path) as f:
         ma_content = f.read()
 
-    if "userAgentString" in ma_content:
+    if "handleIntent" in ma_content:
         print("INFO: MainActivity.kt already patched for Google OAuth WebView")
     else:
         java_root = "android/app/src/main/java/"
@@ -144,6 +145,8 @@ else:
 
         patched_main = (
             "package " + pkg + "\n\n"
+            "import android.content.Intent\n"
+            "import android.net.Uri\n"
             "import android.os.Bundle\n"
             "import android.webkit.WebResourceRequest\n"
             "import android.webkit.WebView\n"
@@ -153,18 +156,30 @@ else:
             "    override fun onCreate(savedInstanceState: Bundle?) {\n"
             "        super.onCreate(savedInstanceState)\n"
             "        val wv = bridge.webView\n"
-            '        // Remove Android WebView "wv" UA marker so Google allows OAuth here\n'
             "        wv.settings.userAgentString =\n"
             '            "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 " +\n'
             '            "(KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"\n'
-            "        // Keep Google OAuth URLs inside the WebView instead of opening Chrome\n"
             "        wv.webViewClient = object : BridgeWebViewClient(bridge) {\n"
             "            override fun shouldOverrideUrlLoading(\n"
             "                view: WebView, request: WebResourceRequest\n"
             "            ): Boolean {\n"
             '                val host = request.url.host ?: ""\n'
-            '                if (host == "accounts.google.com" || host.endsWith(".google.com")) return false\n'
+            "                if (host == \"accounts.google.com\" || host.endsWith(\".google.com\")) return false\n"
             "                return super.shouldOverrideUrlLoading(view, request)\n"
+            "            }\n"
+            "        }\n"
+            "        handleIntent(intent)\n"
+            "    }\n\n"
+            "    override fun onNewIntent(intent: Intent) {\n"
+            "        super.onNewIntent(intent)\n"
+            "        handleIntent(intent)\n"
+            "    }\n\n"
+            "    private fun handleIntent(intent: Intent) {\n"
+            "        val data: Uri = intent.data ?: return\n"
+            '        if (data.host == "emergenthealth.vercel.app") {\n'
+            '            val path = data.path ?: ""\n'
+            '            if (path.startsWith("/api/auth/callback")) {\n'
+            "                bridge.webView.post { bridge.webView.loadUrl(data.toString()) }\n"
             "            }\n"
             "        }\n"
             "    }\n"
