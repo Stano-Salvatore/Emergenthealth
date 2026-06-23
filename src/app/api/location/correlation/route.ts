@@ -10,6 +10,7 @@ export type PlaceCorrelation = {
   placeEmoji: string
   visitCount: number
   confidence: CorrelationConfidence
+  // Same-day metrics (activity, steps, mood)
   visitAvg: {
     readiness: number | null
     sleepHours: number | null
@@ -26,6 +27,19 @@ export type PlaceCorrelation = {
     steps: number | null
     restingHR: number | null
   }
+  // Next-day metrics: sleep/readiness/HRV on the morning after a visit
+  nextDayAvg: {
+    readiness: number | null
+    sleepHours: number | null
+    hrv: number | null
+    restingHR: number | null
+  } | null
+  nonVisitNextDayAvg: {
+    readiness: number | null
+    sleepHours: number | null
+    hrv: number | null
+    restingHR: number | null
+  } | null
 }
 
 function confidence(n: number): CorrelationConfidence {
@@ -38,6 +52,12 @@ function confidence(n: number): CorrelationConfidence {
 function avg(nums: (number | null)[]): number | null {
   const valid = nums.filter((n): n is number => n != null)
   return valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : null
+}
+
+function nextDay(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00Z")
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().split("T")[0]
 }
 
 export async function GET(req: NextRequest) {
@@ -86,12 +106,31 @@ export async function GET(req: NextRequest) {
     }),
   ])
 
-  const visitDates = new Set(checkIns.map(c => new Date(c.checkedAt).toISOString().split("T")[0]))
+  const typedCheckIns = checkIns as CheckInRow[]
+  const visitDates = new Set(typedCheckIns.map((c: CheckInRow) => new Date(c.checkedAt).toISOString().split("T")[0]))
+  // Next-day dates after any visit (deduplicated)
+  const postVisitDates = new Set(Array.from(visitDates).map((d: string) => nextDay(d)))
 
-  const visitHealth    = healthLogs.filter(h =>  visitDates.has(h.date.toISOString().split("T")[0]))
-  const nonVisitHealth = healthLogs.filter(h => !visitDates.has(h.date.toISOString().split("T")[0]))
-  const visitMoods     = moodLogs.filter(m =>  visitDates.has(m.date.toISOString().split("T")[0]))
-  const nonVisitMoods  = moodLogs.filter(m => !visitDates.has(m.date.toISOString().split("T")[0]))
+  type HealthRow = { date: Date; readinessScore: number | null; sleepDuration: number | null; hrv: number | null; steps: number | null; restingHR: number | null }
+  type MoodRow = { date: Date; mood: number }
+  const typedHealth = healthLogs as HealthRow[]
+  const typedMoods  = moodLogs as MoodRow[]
+
+  const healthByDate = new Map(typedHealth.map((h: HealthRow) => [h.date.toISOString().split("T")[0], h]))
+
+  const visitHealth    = typedHealth.filter((h: HealthRow) =>  visitDates.has(h.date.toISOString().split("T")[0]))
+  const nonVisitHealth = typedHealth.filter((h: HealthRow) => !visitDates.has(h.date.toISOString().split("T")[0]) && !postVisitDates.has(h.date.toISOString().split("T")[0]))
+  const visitMoods     = typedMoods.filter((m: MoodRow) =>  visitDates.has(m.date.toISOString().split("T")[0]))
+  const nonVisitMoods  = typedMoods.filter((m: MoodRow) => !visitDates.has(m.date.toISOString().split("T")[0]))
+
+  // Next-day health: morning after a visit
+  const nextDayHealth = Array.from(postVisitDates).map((d: string) => healthByDate.get(d)).filter((h): h is HealthRow => h != null)
+  // Baseline next-day: mornings after non-visit days
+  const allDates = new Set(typedHealth.map((h: HealthRow) => h.date.toISOString().split("T")[0]))
+  const nonVisitDates = Array.from(allDates).filter((d: string) => !visitDates.has(d))
+  const nonVisitNextDayHealth = nonVisitDates.map((d: string) => healthByDate.get(nextDay(d))).filter((h): h is HealthRow => h != null)
+
+  const hasNextDay = nextDayHealth.length >= 3
 
   const result: PlaceCorrelation = {
     placeId: place.id,
@@ -115,6 +154,18 @@ export async function GET(req: NextRequest) {
       steps: avg(nonVisitHealth.map(h => h.steps)),
       restingHR: avg(nonVisitHealth.map(h => h.restingHR)),
     },
+    nextDayAvg: hasNextDay ? {
+      readiness: avg(nextDayHealth.map(h => h.readinessScore)),
+      sleepHours: avg(nextDayHealth.map(h => h.sleepDuration != null ? h.sleepDuration / 60 : null)),
+      hrv: avg(nextDayHealth.map(h => h.hrv)),
+      restingHR: avg(nextDayHealth.map(h => h.restingHR)),
+    } : null,
+    nonVisitNextDayAvg: hasNextDay ? {
+      readiness: avg(nonVisitNextDayHealth.map(h => h.readinessScore)),
+      sleepHours: avg(nonVisitNextDayHealth.map(h => h.sleepDuration != null ? h.sleepDuration / 60 : null)),
+      hrv: avg(nonVisitNextDayHealth.map(h => h.hrv)),
+      restingHR: avg(nonVisitNextDayHealth.map(h => h.restingHR)),
+    } : null,
   }
 
   return NextResponse.json(result)

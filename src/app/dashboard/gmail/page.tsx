@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Mail, RefreshCw, AlertCircle } from "lucide-react"
 import { format, parseISO, isToday, isYesterday } from "date-fns"
+import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
 
 interface GmailMessage {
   id: string
@@ -20,6 +21,7 @@ interface GmailMessage {
 interface GmailData {
   unreadCount: number
   messages: GmailMessage[]
+  error?: string
 }
 
 function formatEmailDate(dateStr: string) {
@@ -70,7 +72,8 @@ export default function GmailPage() {
 
   useEffect(() => { load() }, [])
 
-  const noGmailAccess = data?.unreadCount === 0 && data?.messages.length === 0
+  const authError = !!data?.error
+  const noGmailAccess = !authError && data?.unreadCount === 0 && data?.messages.length === 0
 
   return (
     <div className="space-y-4 max-w-3xl">
@@ -99,6 +102,21 @@ export default function GmailPage() {
             <p className="text-xs text-muted-foreground mt-0.5">{error}</p>
           </div>
         </div>
+      )}
+
+      {authError && !loading && (
+        <Card className="border-amber-500/20 bg-amber-500/5">
+          <CardContent className="py-10 text-center space-y-3">
+            <AlertCircle className="h-8 w-8 text-amber-400 mx-auto" />
+            <div>
+              <p className="font-medium">Gmail access expired</p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
+                Your Google session needs to be refreshed to read your inbox.
+              </p>
+            </div>
+            <ReconnectGoogleButton label="Reconnect Google" />
+          </CardContent>
+        </Card>
       )}
 
       {noGmailAccess && !error && !loading && (

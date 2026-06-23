@@ -90,28 +90,39 @@ export interface ChartDay {
   mood: number | null
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function todayLabel() {
+  const d = new Date()
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+}
+
 // ── Charts ─────────────────────────────────────────────────────────────────────
 
-export function SleepChart({ data }: { data: ChartDay[] }) {
+export function SleepChart({ data, goal = 7.5 }: { data: ChartDay[]; goal?: number }) {
   const primary = usePrimaryColor()
   const primaryDim = primary + "55"
+  const primaryMid = primary + "99"
+  const primaryFaint = primary + "44"
   const d = [...data].reverse()
   const hasStages = d.some(r => r.deepMin != null || r.remMin != null)
   const axis = { fill: getAxisFill(), fontSize: 10 }
+  const today = todayLabel()
   return (
     <div className="space-y-4">
       <div>
-        <p className="text-xs text-muted-foreground font-medium mb-2">Duration (hours) — dashed = 7h goal</p>
+        <p className="text-xs text-muted-foreground font-medium mb-2">Duration (hours) — dashed = {goal}h goal</p>
         <ResponsiveContainer width="100%" height={130}>
-          <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+          <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke={getGrid()} />
             <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-            <YAxis tick={axis} axisLine={false} tickLine={false} unit="h" domain={[0, 10]} />
+            <YAxis tick={axis} axisLine={false} tickLine={false} unit="h" domain={[0, 10]} width={28} />
             <Tooltip content={<Tip />} />
-            <ReferenceLine y={7} stroke={primary} strokeDasharray="4 2" strokeOpacity={0.6} />
+            <ReferenceLine y={goal} stroke={primary} strokeDasharray="4 2" strokeOpacity={0.6} />
+            <ReferenceLine x={today} stroke={primary} strokeOpacity={0.35} strokeWidth={1} />
             <Bar dataKey="sleepH" name="Sleep" radius={[3, 3, 0, 0]}>
               {d.map((row, i) => (
-                <Cell key={i} fill={row.sleepH != null && row.sleepH >= 7 ? primary : primaryDim} />
+                <Cell key={i} fill={row.sleepH != null && row.sleepH >= goal ? primary : primaryDim} />
               ))}
             </Bar>
           </BarChart>
@@ -121,14 +132,14 @@ export function SleepChart({ data }: { data: ChartDay[] }) {
         <div>
           <p className="text-xs text-muted-foreground font-medium mb-2">Sleep stages (minutes)</p>
           <ResponsiveContainer width="100%" height={110}>
-            <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+            <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke={getGrid()} />
               <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-              <YAxis tick={axis} axisLine={false} tickLine={false} />
+              <YAxis tick={axis} axisLine={false} tickLine={false} width={28} />
               <Tooltip content={<Tip />} />
-              <Bar dataKey="deepMin" name="Deep" stackId="s" fill="#4338ca" radius={0} />
-              <Bar dataKey="remMin" name="REM" stackId="s" fill="#818cf8" radius={0} />
-              <Bar dataKey="lightMin" name="Light" stackId="s" fill="#c7d2fe" radius={0} />
+              <Bar dataKey="deepMin" name="Deep" stackId="s" fill={primary} radius={0} />
+              <Bar dataKey="remMin" name="REM" stackId="s" fill={primaryMid} radius={0} />
+              <Bar dataKey="lightMin" name="Light" stackId="s" fill={primaryFaint} radius={0} />
               <Bar dataKey="awakeMin" name="Awake" stackId="s" fill="#f87171" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -139,19 +150,22 @@ export function SleepChart({ data }: { data: ChartDay[] }) {
 }
 
 export function StepsChart({ data, goal = 8000 }: { data: ChartDay[]; goal?: number }) {
+  const primary = usePrimaryColor()
   const d = [...data].reverse().filter(r => r.steps != null)
   if (!d.length) return null
   const axis = { fill: getAxisFill(), fontSize: 10 }
+  const today = todayLabel()
   return (
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Steps — dashed = {goal.toLocaleString()} goal</p>
       <ResponsiveContainer width="100%" height={130}>
-        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -4, bottom: 0 }}>
+        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={axis} axisLine={false} tickLine={false} tickFormatter={v => v >= 1000 ? `${v / 1000}k` : String(v)} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} width={32} tickFormatter={v => v >= 1000 ? `${v / 1000}k` : String(v)} />
           <Tooltip content={<Tip />} />
           <ReferenceLine y={goal} stroke="#22c55e" strokeDasharray="4 2" strokeOpacity={0.6} />
+          <ReferenceLine x={today} stroke={primary} strokeOpacity={0.35} strokeWidth={1} />
           <Bar dataKey="steps" name="Steps" radius={[3, 3, 0, 0]}>
             {d.map((row, i) => (
               <Cell key={i} fill={row.steps != null && row.steps >= goal ? "#22c55e" : "#22c55e55"} />
@@ -171,7 +185,7 @@ export function ActivityChart({ data }: { data: ChartDay[] }) {
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Active minutes & calories burned</p>
       <ResponsiveContainer width="100%" height={130}>
-        <ComposedChart data={d} margin={{ top: 4, right: 4, left: -4, bottom: 0 }}>
+        <ComposedChart data={d} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
           <CartesianGrid stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
           <YAxis yAxisId="min" tick={axis} axisLine={false} tickLine={false} />
@@ -186,21 +200,24 @@ export function ActivityChart({ data }: { data: ChartDay[] }) {
 }
 
 export function HRChart({ data }: { data: ChartDay[] }) {
+  const primary = usePrimaryColor()
   const d = [...data].reverse().filter(r => r.restingHR != null)
   if (!d.length) return null
   const vals = d.map(r => r.restingHR!).filter(Boolean)
   const min = Math.min(...vals) - 5
   const max = Math.max(...vals) + 5
   const axis = { fill: getAxisFill(), fontSize: 10 }
+  const today = todayLabel()
   return (
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Resting heart rate (bpm)</p>
       <ResponsiveContainer width="100%" height={130}>
-        <LineChart data={d} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+        <LineChart data={d} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} width={32} />
           <Tooltip content={<Tip />} />
+          <ReferenceLine x={today} stroke={primary} strokeOpacity={0.35} strokeWidth={1} />
           <Line type="monotone" dataKey="restingHR" name="HR" stroke="#ef4444" strokeWidth={2} dot={{ r: 2, fill: "#ef4444" }} />
         </LineChart>
       </ResponsiveContainer>
@@ -219,7 +236,7 @@ export function WeightChart({ data }: { data: ChartDay[] }) {
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Weight (kg)</p>
       <ResponsiveContainer width="100%" height={130}>
-        <ComposedChart data={d} margin={{ top: 4, right: 4, left: -4, bottom: 0 }}>
+        <ComposedChart data={d} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
           <defs>
             <linearGradient id="wGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.25} />
@@ -228,7 +245,7 @@ export function WeightChart({ data }: { data: ChartDay[] }) {
           </defs>
           <CartesianGrid stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} width={32} />
           <Tooltip content={<Tip />} />
           <Area type="monotone" dataKey="weight" name="Weight" fill="url(#wGrad)" stroke="#3b82f6" strokeWidth={2} dot={{ r: 2, fill: "#3b82f6" }} />
         </ComposedChart>
@@ -238,19 +255,22 @@ export function WeightChart({ data }: { data: ChartDay[] }) {
 }
 
 export function ReadinessChart({ data }: { data: ChartDay[] }) {
+  const primary = usePrimaryColor()
   const d = [...data].reverse().filter(r => r.readiness != null)
   if (!d.length) return null
   const axis = { fill: getAxisFill(), fontSize: 10 }
+  const today = todayLabel()
   return (
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Readiness score (0–100)</p>
       <ResponsiveContainer width="100%" height={130}>
-        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[0, 100]} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[0, 100]} width={28} />
           <Tooltip content={<Tip />} />
           <ReferenceLine y={70} stroke="#10b981" strokeDasharray="4 2" strokeOpacity={0.5} />
+          <ReferenceLine x={today} stroke={primary} strokeOpacity={0.35} strokeWidth={1} />
           <Bar dataKey="readiness" name="Readiness" radius={[3, 3, 0, 0]}>
             {d.map((row, i) => (
               <Cell key={i} fill={
@@ -267,22 +287,25 @@ export function ReadinessChart({ data }: { data: ChartDay[] }) {
 }
 
 export function HRVChart({ data }: { data: ChartDay[] }) {
+  const primary = usePrimaryColor()
   const d = [...data].reverse().filter(r => r.hrv != null)
   if (!d.length) return null
   const vals = d.map(r => r.hrv!).filter(Boolean)
   const min = Math.max(0, Math.min(...vals) - 5)
   const max = Math.max(...vals) + 5
   const axis = { fill: getAxisFill(), fontSize: 10 }
+  const today = todayLabel()
   return (
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">HRV — heart rate variability (ms)</p>
       <ResponsiveContainer width="100%" height={130}>
-        <LineChart data={d} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+        <LineChart data={d} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} width={32} />
           <Tooltip content={<Tip />} />
-          <Line type="monotone" dataKey="hrv" name="HRV (ms)" stroke="#8b5cf6" strokeWidth={2} dot={{ r: 2, fill: "#8b5cf6" }} />
+          <ReferenceLine x={today} stroke={primary} strokeOpacity={0.35} strokeWidth={1} />
+          <Line type="monotone" dataKey="hrv" name="HRV (ms)" stroke={primary} strokeWidth={2} dot={{ r: 2, fill: primary }} />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -300,10 +323,10 @@ export function SpO2Chart({ data }: { data: ChartDay[] }) {
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Blood oxygen SpO₂ (%)</p>
       <ResponsiveContainer width="100%" height={130}>
-        <LineChart data={d} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+        <LineChart data={d} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} tickFormatter={v => `${v}%`} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} width={36} tickFormatter={v => `${v}%`} />
           <Tooltip content={<Tip />} />
           <ReferenceLine y={95} stroke="#06b6d4" strokeDasharray="4 2" strokeOpacity={0.5} />
           <Line type="monotone" dataKey="spo2" name="SpO₂" stroke="#06b6d4" strokeWidth={2} dot={{ r: 2, fill: "#06b6d4" }} />
@@ -321,10 +344,10 @@ export function ActivityScoreChart({ data }: { data: ChartDay[] }) {
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Activity score (0–100)</p>
       <ResponsiveContainer width="100%" height={130}>
-        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[0, 100]} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[0, 100]} width={28} />
           <Tooltip content={<Tip />} />
           <ReferenceLine y={70} stroke="#f59e0b" strokeDasharray="4 2" strokeOpacity={0.5} />
           <Bar dataKey="activityScore" name="Activity score" radius={[3, 3, 0, 0]}>
@@ -350,10 +373,10 @@ export function StressRecoveryChart({ data }: { data: ChartDay[] }) {
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Stress vs recovery (minutes)</p>
       <ResponsiveContainer width="100%" height={130}>
-        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -4, bottom: 0 }}>
+        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={axis} axisLine={false} tickLine={false} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} width={28} />
           <Tooltip content={<Tip />} />
           <Bar dataKey="stressHigh" name="High stress" fill="#ef4444" fillOpacity={0.75} radius={[3, 3, 0, 0]} />
           <Bar dataKey="recoveryHigh" name="Recovery" fill="#10b981" fillOpacity={0.75} radius={[3, 3, 0, 0]} />
@@ -373,10 +396,10 @@ export function MoodChart({ data }: { data: ChartDay[] }) {
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Mood (1–5)</p>
       <ResponsiveContainer width="100%" height={130}>
-        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+        <BarChart data={d} barSize={10} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[0, 5]} tickFormatter={v => MOOD_LABELS[v as number] ?? ""} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[0, 5]} width={36} tickFormatter={v => MOOD_LABELS[v as number] ?? ""} />
           <Tooltip content={<Tip />} formatter={(v: any) => [MOOD_LABELS[v as number] ?? v, "Mood"]} />
           <Bar dataKey="mood" name="Mood" radius={[3, 3, 0, 0]}>
             {d.map((row, i) => (
@@ -400,10 +423,10 @@ export function BreathingRateChart({ data }: { data: ChartDay[] }) {
     <div>
       <p className="text-xs text-muted-foreground font-medium mb-2">Breathing rate during sleep (breaths/min)</p>
       <ResponsiveContainer width="100%" height={130}>
-        <LineChart data={d} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+        <LineChart data={d} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} />
+          <YAxis tick={axis} axisLine={false} tickLine={false} domain={[min, max]} width={32} />
           <Tooltip content={<Tip />} />
           <Line type="monotone" dataKey="breathingRate" name="Breaths/min" stroke="#14b8a6" strokeWidth={2} dot={{ r: 2, fill: "#14b8a6" }} />
         </LineChart>

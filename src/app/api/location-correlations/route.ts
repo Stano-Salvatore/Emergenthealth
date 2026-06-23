@@ -165,11 +165,19 @@ export async function GET(req: NextRequest) {
   for (const [locationKey, target] of Object.entries(visitsData.targets)) {
     const visits: Visit[] = visitsData.visits[locationKey] ?? []
 
-    // Collect visit "end nights" (ISO date of when the visit ended)
+    // Collect ALL nights within each visit (start → end), not just the last night
     const visitDays = new Set<string>()
     for (const visit of visits) {
-      const endNight = new Date(visit.end).toISOString().slice(0, 10)
-      visitDays.add(endNight)
+      const startMs = new Date(visit.start).getTime()
+      const endMs   = new Date(visit.end).getTime()
+      // Walk day by day from visit start to visit end
+      let cursor = startMs
+      while (cursor <= endMs) {
+        visitDays.add(new Date(cursor).toISOString().slice(0, 10))
+        cursor += 24 * 60 * 60 * 1000
+      }
+      // Always include the end date even if less than a full extra day
+      visitDays.add(new Date(endMs).toISOString().slice(0, 10))
     }
 
     // Collect metric values on visit days

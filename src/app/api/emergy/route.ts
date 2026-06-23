@@ -37,7 +37,7 @@ const OKAY_MSG = [
 ]
 
 function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Date.now() / 30_000) % arr.length]
+  return arr[Math.floor(Math.random() * arr.length)]
 }
 
 export async function GET() {

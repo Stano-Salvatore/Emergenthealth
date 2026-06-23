@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { HealthEntryForm } from "@/components/health/HealthEntryForm"
 import { OuraSyncButton } from "@/components/health/OuraSyncButton"
+import { HealthTabBar } from "@/components/health/HealthTabBar"
 import {
   SleepChart, StepsChart, HRChart, WeightChart, ActivityChart,
   ReadinessChart, HRVChart, SpO2Chart, ActivityScoreChart,
@@ -16,6 +17,9 @@ import {
 } from "@/components/health/HealthCharts"
 import { Moon, Footprints, Heart, Scale, Zap, Activity, Thermometer, Wind, Shield, TrendingDown, TrendingUp, Minus } from "lucide-react"
 import { format, subDays } from "date-fns"
+import WeightPage from "@/app/dashboard/weight/page"
+import InsightsPage from "@/app/dashboard/insights/page"
+import LabsPage from "@/app/dashboard/labs/page"
 
 interface StravaActivityRow {
   id: string
@@ -27,27 +31,59 @@ interface StravaActivityRow {
   day: string
 }
 
-const STEP_GOAL = 8_000
-const SLEEP_GOAL_H = 7
+const DEFAULT_STEP_GOAL = 8_000
+const DEFAULT_SLEEP_GOAL_H = 7.5
 
-export default async function HealthPage() {
+export default async function HealthPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab } = await searchParams
+  const activeTab = tab ?? "metrics"
+
   const session = await auth()
   if (!session?.user?.id) return null
   const userId = session.user.id
 
+  const goalsRow = await prisma.dailyNote.findUnique({
+    where: { userId_date: { userId, date: new Date("0001-01-01") } },
+  }).catch(() => null)
+  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number } : {}
+  const STEP_GOAL = userGoals.steps ?? DEFAULT_STEP_GOAL
+  const SLEEP_GOAL_H = userGoals.sleepH ?? DEFAULT_SLEEP_GOAL_H
+
+  if (activeTab === "weight") {
+    return (
+      <div className="space-y-6">
+        <HealthTabBar activeTab={activeTab} />
+        <WeightPage />
+      </div>
+    )
+  }
+  if (activeTab === "correlations") {
+    return (
+      <div className="space-y-6">
+        <HealthTabBar activeTab={activeTab} />
+        <InsightsPage />
+      </div>
+    )
+  }
+  if (activeTab === "labs") {
+    return (
+      <div className="space-y-6">
+        <HealthTabBar activeTab={activeTab} />
+        <LabsPage />
+      </div>
+    )
+  }
+
   const ouraToken = await prisma.ouraToken.findUnique({ where: { userId }, select: { id: true } })
   const isOuraConnected = !!ouraToken
 
-  // Recent Strava activities — table may not exist yet
   const since14str = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-  const stravaActivities = await prisma.$queryRaw<StravaActivityRow[]>`
-    SELECT "id", "type", "name", "distanceM", "movingTimeSec", "startDate", "day"
-    FROM "StravaActivity"
-    WHERE "userId" = ${userId}
-      AND "day" >= ${since14str}
-    ORDER BY "startDate" DESC
-    LIMIT 30
-  `.catch(() => [] as StravaActivityRow[])
+  const stravaActivities = await prisma.stravaActivity.findMany({
+    where: { userId, day: { gte: since14str } },
+    orderBy: { startDate: "desc" },
+    take: 30,
+    select: { id: true, type: true, name: true, distanceM: true, movingTimeSec: true, startDate: true, day: true },
+  }).catch(() => [] as StravaActivityRow[])
 
   const since30 = new Date()
   since30.setDate(since30.getDate() - 29)
@@ -178,6 +214,8 @@ export default async function HealthPage() {
           <HealthEntryForm />
         </div>
       </div>
+
+      <HealthTabBar activeTab="metrics" />
 
       {logs.length === 0 ? (
         <Card className="border-dashed">
@@ -488,7 +526,7 @@ export default async function HealthPage() {
                     <Moon className="h-4 w-4 text-primary" /> Sleep — last {Math.min(logs.length, 30)} days
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="min-w-0 overflow-x-auto"><SleepChart data={chartData} /></CardContent>
+                <CardContent className="min-w-0 overflow-x-auto"><SleepChart data={chartData} goal={SLEEP_GOAL_H} /></CardContent>
               </Card>
             )}
 

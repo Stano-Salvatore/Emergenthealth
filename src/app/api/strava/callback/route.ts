@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { verifyState } from "@/lib/state-token"
-import { ensureStravaTable } from "@/lib/strava"
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
@@ -39,25 +38,27 @@ export async function GET(req: NextRequest) {
     }
 
     const tokens = await tokenResponse.json()
-
-    await ensureStravaTable()
-
     const athleteId = tokens.athlete?.id != null ? String(tokens.athlete.id) : null
-    const expiresAt = BigInt(tokens.expires_at)
 
-    await prisma.$executeRaw`
-      INSERT INTO "StravaToken" ("userId", "accessToken", "refreshToken", "expiresAt", "athleteId", "updatedAt")
-      VALUES (${userId}, ${tokens.access_token}, ${tokens.refresh_token}, ${expiresAt}, ${athleteId}, NOW())
-      ON CONFLICT ("userId") DO UPDATE
-        SET "accessToken"  = EXCLUDED."accessToken",
-            "refreshToken" = EXCLUDED."refreshToken",
-            "expiresAt"    = EXCLUDED."expiresAt",
-            "athleteId"    = EXCLUDED."athleteId",
-            "updatedAt"    = NOW()
-    `
+    await prisma.stravaToken.upsert({
+      where: { userId },
+      create: {
+        userId,
+        accessToken: tokens.access_token as string,
+        refreshToken: tokens.refresh_token as string,
+        expiresAt: BigInt(tokens.expires_at as number),
+        athleteId,
+      },
+      update: {
+        accessToken: tokens.access_token as string,
+        refreshToken: tokens.refresh_token as string,
+        expiresAt: BigInt(tokens.expires_at as number),
+        athleteId,
+        updatedAt: new Date(),
+      },
+    })
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error("[strava/callback] error:", msg)
+    console.error("[strava/callback] error:", err instanceof Error ? err.message : String(err))
     return NextResponse.redirect(new URL("/dashboard/settings?strava_error=db_error", req.url))
   }
 
