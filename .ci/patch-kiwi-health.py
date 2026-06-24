@@ -105,31 +105,18 @@ for path in found:
             f.write(content)
         print(f"✓ Patched {path}: forced Kotlin jvmTarget=17, compileOptions VERSION_17")
 
-# (androidx.browser / Chrome Custom Tabs not needed — OAuth runs in WebView)
+# ── Patch MainActivity ────────────────────────────────────────────────────────
+#
+# The Capacitor template generates MainActivity.java (empty BridgeActivity subclass).
+# We convert it to Kotlin and keep it minimal — no overrides, no lifecycle hooks.
+#
+# On Chromebook ARC the WebView IS Chrome, so Google OAuth runs directly inside the
+# WebView without any Custom Tab or deep-link dance. The bridge page at
+# /api/mobile-auth-bridge detects the Capacitor User-Agent and redirects straight
+# to /dashboard; MainActivity needs zero custom logic for this flow.
+#
+# (androidx.browser / Chrome Custom Tabs not needed — removed to avoid ARC crash)
 
-# ── Patch MainActivity.kt ─────────────────────────────────────────────────────
-#
-# OAuth strategy: Chrome Custom Tabs + App Links
-#
-# Why not WebView OAuth?
-#   Google detects Android WebView (via window.chrome absence and other APIs)
-#   and blocks the sign-in flow even when the User-Agent "wv" marker is removed.
-#
-# Why not plain Chrome?
-#   Chrome does NOT fire Android App Links for server-side 3xx redirects that
-#   happen within an existing browser session (the OAuth callback redirect is
-#   a 302 that Chrome follows internally, so the app never receives the URL).
-#
-# Why Custom Tabs works:
-#   Chrome Custom Tabs DO fire App Links when the navigation target matches a
-#   verified App Link, including while following server-side redirects.
-#   When Google redirects to emergenthealth.vercel.app/api/auth/callback/google,
-#   Android intercepts the URL before Chrome loads it, opens the app via
-#   onNewIntent(), and we load it in the WebView to complete the NextAuth flow.
-#   Google accepts Custom Tabs for OAuth (it's an embedded Chrome, not a WebView).
-
-# Look for MainActivity.kt first; fall back to the directory containing MainActivity.java
-# (customize-android.py writes .java; we must replace it with .kt before compiling)
 main_activity_path = None
 main_activity_dir = None
 for root, dirs, files in os.walk("android/app/src/main/java"):
@@ -141,64 +128,24 @@ for root, dirs, files in os.walk("android/app/src/main/java"):
         main_activity_dir = root
 
 if main_activity_dir and not main_activity_path:
-    # Found package dir via .java — set path where we'll write the .kt
     main_activity_path = os.path.join(main_activity_dir, "MainActivity.kt")
 
 if not main_activity_path:
-    print("WARNING: MainActivity not found -- skipping Google OAuth patch")
+    print("WARNING: MainActivity not found -- skipping patch")
 else:
-    # Always rewrite MainActivity.kt so we get the latest OAuth architecture.
-    # Remove any MainActivity.java written by customize-android.py first —
-    # having both .java and .kt for the same class is a compile error.
     java_root = "android/app/src/main/java/"
     relative = os.path.dirname(main_activity_path).replace(java_root, "")
     pkg = relative.replace(os.sep, ".")
+
     java_counterpart = main_activity_path.replace("MainActivity.kt", "MainActivity.java")
     if os.path.exists(java_counterpart):
         os.remove(java_counterpart)
-        print(f"✓ Removed {java_counterpart} (superseded by Kotlin version)")
+        print(f"✓ Removed {java_counterpart}")
 
-    # Minimal, crash-proof MainActivity:
-    # - No BridgeWebViewClient override (was crashing on Chromebook ARC + some Android)
-    # - No CustomTabsIntent (not needed: WebView on Chromebook IS Chrome; Google OAuth works)
-    # - On Chromebook ARC and modern Android, OAuth runs inside the WebView. NextAuth
-    #   plants the session cookie during /api/auth/callback/google, and the bridge
-    #   detects the Capacitor UA and redirects straight to /dashboard.
-    # - Deep-link (emergenthealth://auth?key=…) fallback kept for physical Android phones
-    #   where Chrome may open externally.
-    patched_main = (
-        "package " + pkg + "\n\n"
-        "import android.content.Intent\n"
-        "import android.net.Uri\n"
-        "import android.os.Bundle\n"
-        "import com.getcapacitor.BridgeActivity\n\n"
-        "class MainActivity : BridgeActivity() {\n\n"
-        "    override fun onCreate(savedInstanceState: Bundle?) {\n"
-        "        super.onCreate(savedInstanceState)\n"
-        "        handleAuthIntent(intent)\n"
-        "    }\n\n"
-        "    override fun onNewIntent(intent: Intent) {\n"
-        "        super.onNewIntent(intent)\n"
-        "        setIntent(intent)\n"
-        "        handleAuthIntent(intent)\n"
-        "    }\n\n"
-        "    // Handles emergenthealth://auth?key=<uuid> deep links fired by the OAuth\n"
-        "    // bridge page when OAuth runs in external Chrome (physical Android phones).\n"
-        "    // On Chromebook/ARC the bridge redirects straight to /dashboard via UA check,\n"
-        "    // so this is only a fallback.\n"
-        "    private fun handleAuthIntent(intent: Intent?) {\n"
-        "        val data = intent?.data ?: return\n"
-        '        if (data.scheme != "emergenthealth" || data.host != "auth") return\n'
-        '        val key = data.getQueryParameter("key") ?: return\n'
-        "        runOnUiThread {\n"
-        "            bridge?.webView?.loadUrl(\n"
-        '                "https://emergenthealth.vercel.app/api/mobile-set-cookie?key=" + Uri.encode(key)\n'
-        "            )\n"
-        "        }\n"
-        "    }\n"
-        "}\n"
-    )
+    # Minimal Kotlin equivalent of the template's empty Java class.
+    # No extra overrides — every added lifecycle method was a potential crash site.
+    patched_main = "package " + pkg + "\n\nimport com.getcapacitor.BridgeActivity\n\nclass MainActivity : BridgeActivity()\n"
 
     with open(main_activity_path, "w") as f:
         f.write(patched_main)
-    print("OK " + main_activity_path + ": patched for polling-based OAuth (no deep link required)")
+    print(f"✓ {main_activity_path}: minimal BridgeActivity subclass (crash-safe)")
