@@ -156,83 +156,114 @@ else:
     with open(main_activity_path) as f:
         ma_content = f.read()
 
-    if "CustomTabsIntent" in ma_content:
-        print("INFO: MainActivity.kt already patched for Chrome Custom Tabs OAuth")
-    else:
-        java_root = "android/app/src/main/java/"
-        relative = main_activity_path.replace(java_root, "").replace("/MainActivity.kt", "")
-        pkg = relative.replace("/", ".")
+    # Always rewrite MainActivity.kt so we get the latest OAuth architecture
+    java_root = "android/app/src/main/java/"
+    relative = main_activity_path.replace(java_root, "").replace("/MainActivity.kt", "")
+    pkg = relative.replace("/", ".")
 
-        patched_main = (
-            "package " + pkg + "\n\n"
-            "import android.content.Intent\n"
-            "import android.net.Uri\n"
-            "import android.os.Bundle\n"
-            "import android.webkit.WebResourceRequest\n"
-            "import android.webkit.WebView\n"
-            "import androidx.browser.customtabs.CustomTabsIntent\n"
-            "import com.getcapacitor.BridgeActivity\n"
-            "import com.getcapacitor.BridgeWebViewClient\n\n"
-            "class MainActivity : BridgeActivity() {\n"
-            "    override fun onCreate(savedInstanceState: Bundle?) {\n"
-            "        super.onCreate(savedInstanceState)\n"
-            "        bridge.webView.webViewClient = object : BridgeWebViewClient(bridge) {\n"
-            "            override fun shouldOverrideUrlLoading(\n"
-            "                view: WebView, request: WebResourceRequest\n"
-            "            ): Boolean {\n"
-            '                val host = request.url.host ?: ""\n'
-            '                val path = request.url.path ?: ""\n'
-            "                // Open the OAuth initiator (/api/mobile-signin) in a Chrome\n"
-            "                // Custom Tab so the ENTIRE flow — including NextAuth's\n"
-            "                // state/PKCE/callback-url cookies — lives in Chrome's cookie\n"
-            "                // jar, not the WebView's. Google pages are also routed to the\n"
-            "                // Custom Tab as a fallback.\n"
-            '                if (path == "/mobile-signin" ||\n'
-            "                    host == \"accounts.google.com\" || host.endsWith(\".google.com\")) {\n"
-            "                    CustomTabsIntent.Builder().build()\n"
-            "                        .launchUrl(this@MainActivity, request.url)\n"
-            "                    return true\n"
-            "                }\n"
-            "                return super.shouldOverrideUrlLoading(view, request)\n"
-            "            }\n"
-            "        }\n"
-            "        handleIntent(intent)\n"
-            "    }\n\n"
-            "    override fun onNewIntent(intent: Intent) {\n"
-            "        super.onNewIntent(intent)\n"
-            "        handleIntent(intent)\n"
-            "    }\n\n"
-            "    private fun handleIntent(intent: Intent) {\n"
-            "        val data: Uri = intent.data ?: return\n"
-            "\n"
-            "        // emergenthealth://auth?code=SIGNED_CODE\n"
-            "        // Sent by /api/mobile-auth-bridge after OAuth succeeds in Chrome.\n"
-            "        // We load /api/mobile-exchange in the WebView so the server sets\n"
-            "        // the session cookie via a standard Set-Cookie response header.\n"
-            "        // This is more reliable than CookieManager.setCookie().\n"
-            '        if (data.scheme == "emergenthealth" && data.host == "auth") {\n'
-            '            val code = data.getQueryParameter("code") ?: return\n'
-            "            bridge.webView.post {\n"
-            "                bridge.webView.loadUrl(\n"
-            '                    "https://emergenthealth.vercel.app/api/mobile-exchange?code=" +\n'
-            "                    Uri.encode(code)\n"
-            "                )\n"
-            "            }\n"
-            "            return\n"
-            "        }\n"
-            "\n"
-            "        // App Links fallback: if Android verified the domain and intercepts\n"
-            "        // the OAuth callback before Chrome loads it, process it in the WebView.\n"
-            '        if (data.host == "emergenthealth.vercel.app") {\n'
-            '            val path = data.path ?: ""\n'
-            '            if (path.startsWith("/api/auth/callback")) {\n'
-            "                bridge.webView.post { bridge.webView.loadUrl(data.toString()) }\n"
-            "            }\n"
-            "        }\n"
-            "    }\n"
-            "}\n"
-        )
+    patched_main = (
+        "package " + pkg + "\n\n"
+        "import android.content.Intent\n"
+        "import android.net.Uri\n"
+        "import android.os.Bundle\n"
+        "import android.webkit.WebResourceRequest\n"
+        "import android.webkit.WebView\n"
+        "import androidx.browser.customtabs.CustomTabsIntent\n"
+        "import com.getcapacitor.BridgeActivity\n"
+        "import com.getcapacitor.BridgeWebViewClient\n"
+        "import java.util.UUID\n\n"
+        "class MainActivity : BridgeActivity() {\n"
+        "    // UUID generated before opening Chrome Custom Tab.\n"
+        "    // The server stores the signed session code under this key;\n"
+        "    // onResume() redeems it without needing a deep-link callback.\n"
+        "    private var pendingAuthKey: String? = null\n\n"
+        "    override fun onCreate(savedInstanceState: Bundle?) {\n"
+        "        super.onCreate(savedInstanceState)\n"
+        "        bridge.webView.webViewClient = object : BridgeWebViewClient(bridge) {\n"
+        "            override fun shouldOverrideUrlLoading(\n"
+        "                view: WebView, request: WebResourceRequest\n"
+        "            ): Boolean {\n"
+        '                val host = request.url.host ?: ""\n'
+        '                val path = request.url.path ?: ""\n'
+        '                if (path == "/mobile-signin") {\n'
+        "                    // Generate a UUID key, attach it to the URL so the bridge\n"
+        "                    // can store the code under that key in the database.\n"
+        '                    val key = UUID.randomUUID().toString()\n'
+        '                    pendingAuthKey = key\n'
+        '                    val urlWithKey = request.url.buildUpon()\n'
+        '                        .appendQueryParameter("auth_key", key).build()\n'
+        "                    CustomTabsIntent.Builder().build()\n"
+        "                        .launchUrl(this@MainActivity, urlWithKey)\n"
+        "                    return true\n"
+        "                }\n"
+        "                if (host == \"accounts.google.com\" || host.endsWith(\".google.com\")) {\n"
+        "                    CustomTabsIntent.Builder().build()\n"
+        "                        .launchUrl(this@MainActivity, request.url)\n"
+        "                    return true\n"
+        "                }\n"
+        "                return super.shouldOverrideUrlLoading(view, request)\n"
+        "            }\n"
+        "        }\n"
+        "        handleIntent(intent)\n"
+        "    }\n\n"
+        "    // Called when Chrome Custom Tab fires an intent URI back to the app.\n"
+        "    // If Chrome blocks the intent URI, onResume() handles it instead.\n"
+        "    override fun onNewIntent(intent: Intent) {\n"
+        "        super.onNewIntent(intent)\n"
+        "        handleIntent(intent)\n"
+        "    }\n\n"
+        "    // Fallback: fired whenever the app comes to the foreground.\n"
+        "    // If Chrome blocked the intent URI, pendingAuthKey is still set here\n"
+        "    // and we load the redeem endpoint directly — no deep link needed.\n"
+        "    override fun onResume() {\n"
+        "        super.onResume()\n"
+        "        val key = pendingAuthKey ?: return\n"
+        "        pendingAuthKey = null\n"
+        "        bridge?.webView?.post {\n"
+        "            bridge?.webView?.loadUrl(\n"
+        '                "https://emergenthealth.vercel.app/api/mobile-redeem?key=" +\n'
+        "                Uri.encode(key)\n"
+        "            )\n"
+        "        }\n"
+        "    }\n\n"
+        "    private fun handleIntent(intent: Intent) {\n"
+        "        val data: Uri = intent.data ?: return\n"
+        "\n"
+        '        if (data.scheme == "emergenthealth" && data.host == "auth") {\n'
+        "            // New: key-based redemption (code stored server-side by bridge)\n"
+        '            val key = data.getQueryParameter("key")\n'
+        "            if (key != null) {\n"
+        "                pendingAuthKey = null\n"
+        "                bridge?.webView?.post {\n"
+        "                    bridge?.webView?.loadUrl(\n"
+        '                        "https://emergenthealth.vercel.app/api/mobile-redeem?key=" +\n'
+        "                        Uri.encode(key)\n"
+        "                    )\n"
+        "                }\n"
+        "                return\n"
+        "            }\n"
+        "            // Legacy: code-in-URL (kept for backward compat with old APK builds)\n"
+        '            val code = data.getQueryParameter("code") ?: return\n'
+        "            pendingAuthKey = null\n"
+        "            bridge?.webView?.post {\n"
+        "                bridge?.webView?.loadUrl(\n"
+        '                    "https://emergenthealth.vercel.app/api/mobile-exchange?code=" +\n'
+        "                    Uri.encode(code)\n"
+        "                )\n"
+        "            }\n"
+        "            return\n"
+        "        }\n"
+        "\n"
+        '        if (data.host == "emergenthealth.vercel.app") {\n'
+        '            val path = data.path ?: ""\n'
+        '            if (path.startsWith("/api/auth/callback")) {\n'
+        "                bridge?.webView?.post { bridge?.webView?.loadUrl(data.toString()) }\n"
+        "            }\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
 
-        with open(main_activity_path, "w") as f:
-            f.write(patched_main)
-        print("OK " + main_activity_path + ": patched for Chrome Custom Tabs OAuth")
+    with open(main_activity_path, "w") as f:
+        f.write(patched_main)
+    print("OK " + main_activity_path + ": patched for polling-based OAuth (no deep link required)")

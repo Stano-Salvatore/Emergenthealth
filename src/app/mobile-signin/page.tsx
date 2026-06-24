@@ -1,9 +1,19 @@
 import { signIn } from "@/auth"
 
-export default function MobileSignIn() {
+export default async function MobileSignIn({
+  searchParams,
+}: {
+  searchParams: Promise<{ auth_key?: string }>
+}) {
+  const sp = await searchParams
+  const authKey = sp.auth_key ?? ""
+
   async function doSignIn() {
     "use server"
-    await signIn("google", { redirectTo: "/api/mobile-auth-bridge" })
+    const redirectTo = authKey
+      ? `/api/mobile-auth-bridge?auth_key=${encodeURIComponent(authKey)}`
+      : "/api/mobile-auth-bridge"
+    await signIn("google", { redirectTo })
   }
 
   return (
