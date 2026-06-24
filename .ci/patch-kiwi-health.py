@@ -156,10 +156,16 @@ else:
     with open(main_activity_path) as f:
         ma_content = f.read()
 
-    # Always rewrite MainActivity.kt so we get the latest OAuth architecture
+    # Always rewrite MainActivity.kt so we get the latest OAuth architecture.
+    # Remove any MainActivity.java written by customize-android.py first —
+    # having both .java and .kt for the same class is a compile error.
     java_root = "android/app/src/main/java/"
     relative = main_activity_path.replace(java_root, "").replace("/MainActivity.kt", "")
     pkg = relative.replace("/", ".")
+    java_counterpart = main_activity_path.replace("MainActivity.kt", "MainActivity.java")
+    if os.path.exists(java_counterpart):
+        os.remove(java_counterpart)
+        print(f"✓ Removed {java_counterpart} (superseded by Kotlin version)")
 
     patched_main = (
         "package " + pkg + "\n\n"
@@ -187,12 +193,14 @@ else:
         '                val host = request.url.host ?: ""\n'
         '                val path = request.url.path ?: ""\n'
         '                if (path == "/mobile-signin") {\n'
-        "                    // Generate a UUID key, attach it to the URL so the bridge\n"
-        "                    // can store the code under that key in the database.\n"
-        '                    val key = UUID.randomUUID().toString()\n'
+        "                    // Re-use an auth_key already embedded by the JS button;\n"
+        "                    // only generate a fresh UUID when the URL has none.\n"
+        '                    val existing = request.url.getQueryParameter("auth_key")\n'
+        '                    val key = existing ?: UUID.randomUUID().toString()\n'
         '                    pendingAuthKey = key\n'
-        '                    val urlWithKey = request.url.buildUpon()\n'
-        '                        .appendQueryParameter("auth_key", key).build()\n'
+        '                    android.util.Log.d("EH_AUTH", "intercept /mobile-signin key=$key (reused=${existing != null})")\n'
+        '                    val urlWithKey = if (existing != null) request.url\n'
+        '                        else request.url.buildUpon().appendQueryParameter("auth_key", key).build()\n'
         "                    CustomTabsIntent.Builder().build()\n"
         "                        .launchUrl(this@MainActivity, urlWithKey)\n"
         "                    return true\n"
