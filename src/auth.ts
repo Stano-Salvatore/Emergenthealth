@@ -10,6 +10,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Google({
       clientId: process.env.AUTH_GOOGLE_ID!,
       clientSecret: process.env.AUTH_GOOGLE_SECRET!,
+      // State/PKCE cookies are set in WebView's cookie jar but the OAuth
+      // callback is processed by Chrome Custom Tab (separate cookie jar).
+      // Disable both so the callback isn't rejected for missing cookies.
+      checks: [],
       authorization: {
         params: {
           scope: [
