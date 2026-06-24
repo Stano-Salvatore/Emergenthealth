@@ -5,6 +5,7 @@ import { PasskeySignIn } from "./PasskeySignIn"
 import { Suspense } from "react"
 import { RefCapture } from "./RefCapture"
 import { headers } from "next/headers"
+import { CapacitorSignInButton } from "./CapacitorSignInButton"
 
 const ERROR_MESSAGES: Record<string, string> = {
   OAuthAccountNotLinked: "This email is already linked to a different sign-in method.",
@@ -96,15 +97,12 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
 
             {/* Google sign-in */}
             {isCapacitor ? (
-              // In the app: a plain link the native side intercepts to open a
-              // Chrome Custom Tab. No server action, so the button never gets
-              // stuck in a pending/disabled state after returning from Chrome.
-              <Button asChild className={GOOGLE_BTN_CLASS} size="lg">
-                <a href="/mobile-signin">
-                  <GoogleIcon />
-                  {buttonLabel}
-                </a>
-              </Button>
+              // In the app: use window.location.href (full page navigation) so
+              // Android's shouldOverrideUrlLoading sees /mobile-signin and opens
+              // a Chrome Custom Tab. Next.js <a> tags use history.pushState which
+              // is invisible to shouldOverrideUrlLoading, so Chrome Custom Tab
+              // would never open and the OAuth flow would run inside the WebView.
+              <CapacitorSignInButton label={buttonLabel} className={GOOGLE_BTN_CLASS} />
             ) : (
               <form
                 action={async () => {
