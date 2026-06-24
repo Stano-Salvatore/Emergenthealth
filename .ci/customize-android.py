@@ -117,7 +117,12 @@ else:
 splash_dir = "android/app/src/main/res/drawable"
 os.makedirs(splash_dir, exist_ok=True)
 splash_xml = os.path.join(splash_dir, "splash.xml")
-if not os.path.exists(splash_xml):
+splash_png = os.path.join(splash_dir, "splash.png")
+if os.path.exists(splash_png):
+    # splash.png already present (e.g. placed by cap sync) — creating splash.xml
+    # would produce a "Duplicate resources" build error, so skip it.
+    print("ℹ️  drawable/splash.png exists — skipping splash.xml placeholder")
+elif not os.path.exists(splash_xml):
     with open(splash_xml, "w") as f:
         f.write('<?xml version="1.0" encoding="utf-8"?>\n'
                 '<shape xmlns:android="http://schemas.android.com/apk/res/android">\n'
