@@ -105,22 +105,7 @@ for path in found:
             f.write(content)
         print(f"✓ Patched {path}: forced Kotlin jvmTarget=17, compileOptions VERSION_17")
 
-# ── Add androidx.browser for Chrome Custom Tabs ───────────────────────────────
-app_build_gradle_path = "android/app/build.gradle"
-with open(app_build_gradle_path) as f:
-    bg_content = f.read()
-
-if "androidx.browser" not in bg_content:
-    bg_content = bg_content.replace(
-        "dependencies {",
-        "dependencies {\n    implementation 'androidx.browser:browser:1.8.0'",
-        1,
-    )
-    with open(app_build_gradle_path, "w") as f:
-        f.write(bg_content)
-    print("✓ Added androidx.browser:browser:1.8.0 for Chrome Custom Tabs")
-else:
-    print("ℹ️  androidx.browser already in build.gradle")
+# (androidx.browser / Chrome Custom Tabs not needed — OAuth runs in WebView)
 
 # ── Patch MainActivity.kt ─────────────────────────────────────────────────────
 #
@@ -173,135 +158,42 @@ else:
         os.remove(java_counterpart)
         print(f"✓ Removed {java_counterpart} (superseded by Kotlin version)")
 
+    # Minimal, crash-proof MainActivity:
+    # - No BridgeWebViewClient override (was crashing on Chromebook ARC + some Android)
+    # - No CustomTabsIntent (not needed: WebView on Chromebook IS Chrome; Google OAuth works)
+    # - On Chromebook ARC and modern Android, OAuth runs inside the WebView. NextAuth
+    #   plants the session cookie during /api/auth/callback/google, and the bridge
+    #   detects the Capacitor UA and redirects straight to /dashboard.
+    # - Deep-link (emergenthealth://auth?key=…) fallback kept for physical Android phones
+    #   where Chrome may open externally.
     patched_main = (
         "package " + pkg + "\n\n"
         "import android.content.Intent\n"
-        "import android.graphics.Bitmap\n"
         "import android.net.Uri\n"
         "import android.os.Bundle\n"
-        "import android.webkit.WebResourceRequest\n"
-        "import android.webkit.WebView\n"
-        "import androidx.browser.customtabs.CustomTabsIntent\n"
-        "import com.getcapacitor.BridgeActivity\n"
-        "import com.getcapacitor.BridgeWebViewClient\n"
-        "import java.util.UUID\n\n"
-        "class MainActivity : BridgeActivity() {\n"
-        "    // UUID generated before opening Chrome Custom Tab.\n"
-        "    // The server stores the signed session code under this key;\n"
-        "    // onResume() redeems it without needing a deep-link callback.\n"
-        "    private var pendingAuthKey: String? = null\n\n"
+        "import com.getcapacitor.BridgeActivity\n\n"
+        "class MainActivity : BridgeActivity() {\n\n"
         "    override fun onCreate(savedInstanceState: Bundle?) {\n"
         "        super.onCreate(savedInstanceState)\n"
-        "        // Null-safe: bridge and webView may not be ready until after super.onCreate.\n"
-        "        val _b = bridge\n"
-        "        val _wv = _b?.webView\n"
-        "        if (_b != null && _wv != null) {\n"
-        "        _wv.webViewClient = object : BridgeWebViewClient(_b) {\n"
-        "            override fun shouldOverrideUrlLoading(\n"
-        "                view: WebView, request: WebResourceRequest\n"
-        "            ): Boolean {\n"
-        '                val host = request.url.host ?: ""\n'
-        '                val path = request.url.path ?: ""\n'
-        '                if (path == "/mobile-signin") {\n'
-        "                    // Re-use an auth_key already embedded by the JS button;\n"
-        "                    // only generate a fresh UUID when the URL has none.\n"
-        '                    val existing = request.url.getQueryParameter("auth_key")\n'
-        '                    val key = existing ?: UUID.randomUUID().toString()\n'
-        '                    pendingAuthKey = key\n'
-        '                    android.util.Log.d("EH_AUTH", "intercept /mobile-signin key=$key (reused=${existing != null})")\n'
-        '                    val urlWithKey = if (existing != null) request.url\n'
-        '                        else request.url.buildUpon().appendQueryParameter("auth_key", key).build()\n'
-        "                    CustomTabsIntent.Builder().build()\n"
-        "                        .launchUrl(this@MainActivity, urlWithKey)\n"
-        "                    return true\n"
-        "                }\n"
-        "                if (host == \"accounts.google.com\" || host.endsWith(\".google.com\")) {\n"
-        "                    if (pendingAuthKey == null) {\n"
-        '                        val key = UUID.randomUUID().toString()\n'
-        '                        pendingAuthKey = key\n'
-        '                        android.util.Log.d("EH_AUTH", "google intercept no-key, rerouting key=$key")\n'
-        '                        val mobileSigninUrl = Uri.parse("https://emergenthealth.vercel.app/mobile-signin")\n'
-        '                            .buildUpon().appendQueryParameter("auth_key", key).build()\n'
-        "                        CustomTabsIntent.Builder().build()\n"
-        "                            .launchUrl(this@MainActivity, mobileSigninUrl)\n"
-        "                    } else {\n"
-        '                        android.util.Log.d("EH_AUTH", "google intercept key=$pendingAuthKey")\n'
-        "                        CustomTabsIntent.Builder().build()\n"
-        "                            .launchUrl(this@MainActivity, request.url)\n"
-        "                    }\n"
-        "                    return true\n"
-        "                }\n"
-        "                return super.shouldOverrideUrlLoading(view, request)\n"
-        "            }\n"
-        "\n"
-        "            // Clear pendingAuthKey once /dashboard is successfully loading so\n"
-        "            // a later onResume() does not attempt a redundant redeem.\n"
-        "            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {\n"
-        "                super.onPageStarted(view, url, favicon)\n"
-        '                if (url != null && Uri.parse(url).path?.startsWith("/dashboard") == true) {\n'
-        '                    android.util.Log.d("EH_AUTH", "dashboard loaded, clearing pendingAuthKey")\n'
-        "                    pendingAuthKey = null\n"
-        "                }\n"
-        "            }\n"
-        "        } // close webViewClient object\n"
-        "        } // close null check\n"
-        "        handleIntent(intent)\n"
+        "        handleAuthIntent(intent)\n"
         "    }\n\n"
-        "    // Called when Chrome Custom Tab fires an intent URI back to the app.\n"
-        "    // If Chrome blocks the intent URI, onResume() handles it instead.\n"
         "    override fun onNewIntent(intent: Intent) {\n"
         "        super.onNewIntent(intent)\n"
-        "        handleIntent(intent)\n"
+        "        setIntent(intent)\n"
+        "        handleAuthIntent(intent)\n"
         "    }\n\n"
-        "    // Fired when the Chrome Custom Tab closes and the app returns to foreground.\n"
-        "    // Does NOT clear pendingAuthKey before calling redeemKey so that if this\n"
-        "    // fires prematurely (before OAuth completes) the next onResume() can retry.\n"
-        "    // pendingAuthKey is cleared by onPageStarted when /dashboard loads.\n"
-        "    override fun onResume() {\n"
-        "        super.onResume()\n"
-        "        val key = pendingAuthKey ?: return\n"
-        '        android.util.Log.d("EH_AUTH", "onResume: redeeming key=$key")\n'
-        "        redeemKey(key)\n"
-        "    }\n\n"
-        "    // Load /api/mobile-set-cookie in the WebView. The server validates the key,\n"
-        "    // then responds 200 + Set-Cookie so the WebView stores the session cookie\n"
-        "    // natively (Android WebView drops Set-Cookie from 302 redirects but honours\n"
-        "    // it in 200 responses). The page body meta-refreshes to /dashboard.\n"
-        "    private fun redeemKey(key: String) {\n"
-        '        android.util.Log.d("EH_AUTH", "redeemKey -> /api/mobile-set-cookie key=$key")\n'
+        "    // Handles emergenthealth://auth?key=<uuid> deep links fired by the OAuth\n"
+        "    // bridge page when OAuth runs in external Chrome (physical Android phones).\n"
+        "    // On Chromebook/ARC the bridge redirects straight to /dashboard via UA check,\n"
+        "    // so this is only a fallback.\n"
+        "    private fun handleAuthIntent(intent: Intent?) {\n"
+        "        val data = intent?.data ?: return\n"
+        '        if (data.scheme != "emergenthealth" || data.host != "auth") return\n'
+        '        val key = data.getQueryParameter("key") ?: return\n'
         "        runOnUiThread {\n"
         "            bridge?.webView?.loadUrl(\n"
         '                "https://emergenthealth.vercel.app/api/mobile-set-cookie?key=" + Uri.encode(key)\n'
         "            )\n"
-        "        }\n"
-        "    }\n\n"
-        "    private fun handleIntent(intent: Intent) {\n"
-        "        val data: Uri = intent.data ?: return\n"
-        "\n"
-        '        if (data.scheme == "emergenthealth" && data.host == "auth") {\n'
-        '            val key = data.getQueryParameter("key")\n'
-        "            if (key != null) {\n"
-        "                pendingAuthKey = null\n"
-        '                android.util.Log.d("EH_AUTH", "handleIntent key=$key")\n'
-        "                redeemKey(key)\n"
-        "                return\n"
-        "            }\n"
-        '            val code = data.getQueryParameter("code") ?: return\n'
-        "            pendingAuthKey = null\n"
-        "            bridge?.webView?.post {\n"
-        "                bridge?.webView?.loadUrl(\n"
-        '                    "https://emergenthealth.vercel.app/api/mobile-exchange?code=" +\n'
-        "                    Uri.encode(code)\n"
-        "                )\n"
-        "            }\n"
-        "            return\n"
-        "        }\n"
-        "\n"
-        '        if (data.host == "emergenthealth.vercel.app") {\n'
-        '            val path = data.path ?: ""\n'
-        '            if (path.startsWith("/api/auth/callback")) {\n'
-        "                bridge?.webView?.post { bridge?.webView?.loadUrl(data.toString()) }\n"
-        "            }\n"
         "        }\n"
         "    }\n"
         "}\n"

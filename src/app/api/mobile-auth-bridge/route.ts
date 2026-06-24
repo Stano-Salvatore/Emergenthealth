@@ -1,4 +1,4 @@
-import { cookies } from "next/headers"
+import { cookies, headers as nextHeaders } from "next/headers"
 import { createHmac } from "crypto"
 import { prisma } from "@/lib/prisma"
 
@@ -13,6 +13,14 @@ export async function GET(request: Request) {
 
   if (!sessionCookie) {
     return Response.redirect(new URL("/signin?error=OAuthCallback", request.url))
+  }
+
+  // When OAuth runs inside the Capacitor WebView (UA contains our marker),
+  // NextAuth already planted the session cookie in the WebView's cookie jar
+  // during the /api/auth/callback/google step. Just go straight to the dashboard.
+  const ua = (await nextHeaders()).get("user-agent") ?? ""
+  if (ua.includes("Emergenthealth-Capacitor")) {
+    return Response.redirect(new URL("/dashboard", request.url))
   }
 
   const cookieName = secureCookie
