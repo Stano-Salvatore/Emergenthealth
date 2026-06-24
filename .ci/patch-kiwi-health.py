@@ -143,25 +143,31 @@ else:
 #   onNewIntent(), and we load it in the WebView to complete the NextAuth flow.
 #   Google accepts Custom Tabs for OAuth (it's an embedded Chrome, not a WebView).
 
+# Look for MainActivity.kt first; fall back to the directory containing MainActivity.java
+# (customize-android.py writes .java; we must replace it with .kt before compiling)
 main_activity_path = None
+main_activity_dir = None
 for root, dirs, files in os.walk("android/app/src/main/java"):
-    for fname in files:
-        if fname == "MainActivity.kt":
-            main_activity_path = os.path.join(root, fname)
-            break
+    if "MainActivity.kt" in files:
+        main_activity_path = os.path.join(root, "MainActivity.kt")
+        main_activity_dir = root
+        break
+    if "MainActivity.java" in files and main_activity_dir is None:
+        main_activity_dir = root
+
+if main_activity_dir and not main_activity_path:
+    # Found package dir via .java — set path where we'll write the .kt
+    main_activity_path = os.path.join(main_activity_dir, "MainActivity.kt")
 
 if not main_activity_path:
-    print("WARNING: MainActivity.kt not found -- skipping Google OAuth patch")
+    print("WARNING: MainActivity not found -- skipping Google OAuth patch")
 else:
-    with open(main_activity_path) as f:
-        ma_content = f.read()
-
     # Always rewrite MainActivity.kt so we get the latest OAuth architecture.
     # Remove any MainActivity.java written by customize-android.py first —
     # having both .java and .kt for the same class is a compile error.
     java_root = "android/app/src/main/java/"
-    relative = main_activity_path.replace(java_root, "").replace("/MainActivity.kt", "")
-    pkg = relative.replace("/", ".")
+    relative = os.path.dirname(main_activity_path).replace(java_root, "")
+    pkg = relative.replace(os.sep, ".")
     java_counterpart = main_activity_path.replace("MainActivity.kt", "MainActivity.java")
     if os.path.exists(java_counterpart):
         os.remove(java_counterpart)
