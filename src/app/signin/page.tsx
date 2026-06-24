@@ -5,6 +5,7 @@ import { PasskeySignIn } from "./PasskeySignIn"
 import { Suspense } from "react"
 import { RefCapture } from "./RefCapture"
 import { headers } from "next/headers"
+import { MobileSignInButton } from "./MobileSignInButton"
 
 const ERROR_MESSAGES: Record<string, string> = {
   OAuthAccountNotLinked: "This email is already linked to a different sign-in method.",
@@ -96,15 +97,11 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
 
             {/* Google sign-in */}
             {isCapacitor ? (
-              // In the app: a plain link the native side intercepts to open a
-              // Chrome Custom Tab. No server action, so the button never gets
-              // stuck in a pending/disabled state after returning from Chrome.
-              <Button asChild className={GOOGLE_BTN_CLASS} size="lg">
-                <a href="/mobile-signin">
-                  <GoogleIcon />
-                  {buttonLabel}
-                </a>
-              </Button>
+              // Generates a UUID auth_key so the OAuth bridge can store the
+              // session in the DB keyed by it. MainActivity.onResume then
+              // calls /api/mobile-set-cookie?key=<uuid> to plant the cookie
+              // in the WebView jar and redirect to /dashboard.
+              <MobileSignInButton label={buttonLabel} />
             ) : (
               <form
                 action={async () => {

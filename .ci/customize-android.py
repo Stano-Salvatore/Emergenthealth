@@ -110,4 +110,68 @@ else:
     print("ℹ️  android/app/build.gradle already has signingConfigs")
 
 print("All customizations applied (kiwi-health Kotlin patch runs post-sync).")
+
+# 4. Replace MainActivity with one that handles emergenthealth:// OAuth deep links.
+# When Google OAuth completes in Chrome, the bridge redirects back via an intent URI:
+#   intent://auth?key=<uuid>#Intent;scheme=emergenthealth;package=app.emergenthealth;end
+# Android brings the app to the foreground and fires onNewIntent. We extract the key,
+# then load /api/mobile-set-cookie?key=<uuid> in the WebView. That endpoint returns
+# 200 + Set-Cookie (session token) + meta-refresh to /dashboard, which plants the
+# session cookie in the WebView's jar without any CookieManager calls.
+import os
+
+main_activity_path = "android/app/src/main/java/app/emergenthealth/MainActivity.java"
+os.makedirs(os.path.dirname(main_activity_path), exist_ok=True)
+
+main_activity_content = """\
+package app.emergenthealth;
+
+import android.content.Intent;
+import android.net.Uri;
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        handleAuthIntent(getIntent());
+    }
+
+    private void handleAuthIntent(Intent intent) {
+        if (intent == null) return;
+        Uri uri = intent.getData();
+        if (uri == null || !"emergenthealth".equals(uri.getScheme())) return;
+
+        // Clear so subsequent onResume calls don't re-process the same intent.
+        intent.setData(null);
+
+        String key = uri.getQueryParameter("key");
+        String code = uri.getQueryParameter("code");
+        final String url;
+        if (key != null && !key.isEmpty()) {
+            url = "https://emergenthealth.vercel.app/api/mobile-set-cookie?key=" + Uri.encode(key);
+        } else if (code != null && !code.isEmpty()) {
+            url = "https://emergenthealth.vercel.app/api/mobile-exchange?code=" + Uri.encode(code);
+        } else {
+            return;
+        }
+
+        if (bridge != null) {
+            bridge.getWebView().post(() -> bridge.getWebView().loadUrl(url));
+        }
+    }
+}
+"""
+
+with open(main_activity_path, "w") as f:
+    f.write(main_activity_content)
+print("✓ MainActivity patched with OAuth deep-link handler (onNewIntent → mobile-set-cookie)")
+
 print("All Android customizations applied successfully.")
