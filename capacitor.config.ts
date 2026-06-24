@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Emergenthealth',
   webDir: 'out',
   server: {
-    url: process.env.NEXT_PUBLIC_APP_URL ?? 'https://your-app.vercel.app',
+    url: process.env.NEXT_PUBLIC_APP_URL ?? 'https://emergenthealth.vercel.app',
     cleartext: false,
     androidScheme: 'https',
   },
