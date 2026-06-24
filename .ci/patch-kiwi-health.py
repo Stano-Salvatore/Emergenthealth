@@ -166,16 +166,16 @@ else:
         "import android.content.Intent\n"
         "import android.net.Uri\n"
         "import android.os.Bundle\n"
+        "import android.webkit.CookieManager\n"
         "import android.webkit.WebResourceRequest\n"
         "import android.webkit.WebView\n"
         "import androidx.browser.customtabs.CustomTabsIntent\n"
         "import com.getcapacitor.BridgeActivity\n"
         "import com.getcapacitor.BridgeWebViewClient\n"
+        "import java.net.HttpURLConnection\n"
+        "import java.net.URL\n"
         "import java.util.UUID\n\n"
         "class MainActivity : BridgeActivity() {\n"
-        "    // UUID generated before opening Chrome Custom Tab.\n"
-        "    // The server stores the signed session code under this key;\n"
-        "    // onResume() redeems it without needing a deep-link callback.\n"
         "    private var pendingAuthKey: String? = null\n\n"
         "    override fun onCreate(savedInstanceState: Bundle?) {\n"
         "        super.onCreate(savedInstanceState)\n"
@@ -186,10 +186,9 @@ else:
         '                val host = request.url.host ?: ""\n'
         '                val path = request.url.path ?: ""\n'
         '                if (path == "/mobile-signin") {\n'
-        "                    // Generate a UUID key, attach it to the URL so the bridge\n"
-        "                    // can store the code under that key in the database.\n"
         '                    val key = UUID.randomUUID().toString()\n'
         '                    pendingAuthKey = key\n'
+        '                    android.util.Log.d("EH_AUTH", "intercept /mobile-signin key=$key")\n'
         '                    val urlWithKey = request.url.buildUpon()\n'
         '                        .appendQueryParameter("auth_key", key).build()\n'
         "                    CustomTabsIntent.Builder().build()\n"
@@ -197,8 +196,22 @@ else:
         "                    return true\n"
         "                }\n"
         "                if (host == \"accounts.google.com\" || host.endsWith(\".google.com\")) {\n"
-        "                    CustomTabsIntent.Builder().build()\n"
-        "                        .launchUrl(this@MainActivity, request.url)\n"
+        "                    // If pendingAuthKey is not set the OAuth was triggered from outside\n"
+        "                    // /mobile-signin (e.g. a direct /api/auth/signin link). Restart it\n"
+        "                    // via /mobile-signin so the polling mechanism is wired up.\n"
+        "                    if (pendingAuthKey == null) {\n"
+        '                        val key = UUID.randomUUID().toString()\n'
+        '                        pendingAuthKey = key\n'
+        '                        android.util.Log.d("EH_AUTH", "google intercept no-key, rerouting key=$key")\n'
+        '                        val mobileSigninUrl = Uri.parse("https://emergenthealth.vercel.app/mobile-signin")\n'
+        '                            .buildUpon().appendQueryParameter("auth_key", key).build()\n'
+        "                        CustomTabsIntent.Builder().build()\n"
+        "                            .launchUrl(this@MainActivity, mobileSigninUrl)\n"
+        "                    } else {\n"
+        '                        android.util.Log.d("EH_AUTH", "google intercept key=$pendingAuthKey")\n'
+        "                        CustomTabsIntent.Builder().build()\n"
+        "                            .launchUrl(this@MainActivity, request.url)\n"
+        "                    }\n"
         "                    return true\n"
         "                }\n"
         "                return super.shouldOverrideUrlLoading(view, request)\n"
@@ -206,43 +219,84 @@ else:
         "        }\n"
         "        handleIntent(intent)\n"
         "    }\n\n"
-        "    // Called when Chrome Custom Tab fires an intent URI back to the app.\n"
-        "    // If Chrome blocks the intent URI, onResume() handles it instead.\n"
         "    override fun onNewIntent(intent: Intent) {\n"
         "        super.onNewIntent(intent)\n"
         "        handleIntent(intent)\n"
         "    }\n\n"
-        "    // Fallback: fired whenever the app comes to the foreground.\n"
-        "    // If Chrome blocked the intent URI, pendingAuthKey is still set here\n"
-        "    // and we load the redeem endpoint directly — no deep link needed.\n"
+        "    // Fired when the app comes to the foreground (Chrome Custom Tab closed or\n"
+        "    // user switched back). Uses a native HTTP request + CookieManager.setCookie()\n"
+        "    // to inject the session cookie directly — Android WebView does not reliably\n"
+        "    // pick up Set-Cookie headers from 302 redirect responses, so we bypass that\n"
+        "    // path entirely.\n"
         "    override fun onResume() {\n"
         "        super.onResume()\n"
         "        val key = pendingAuthKey ?: return\n"
         "        pendingAuthKey = null\n"
-        "        bridge?.webView?.post {\n"
-        "            bridge?.webView?.loadUrl(\n"
-        '                "https://emergenthealth.vercel.app/api/mobile-redeem?key=" +\n'
-        "                Uri.encode(key)\n"
-        "            )\n"
-        "        }\n"
+        '        android.util.Log.d("EH_AUTH", "onResume: redeeming key=$key")\n'
+        "        redeemKey(key)\n"
+        "    }\n\n"
+        "    private fun redeemKey(key: String) {\n"
+        "        Thread {\n"
+        "            var cookiesSet = false\n"
+        "            try {\n"
+        "                val conn = URL(\n"
+        '                    "https://emergenthealth.vercel.app/api/mobile-redeem?key=" + Uri.encode(key)\n'
+        "                ).openConnection() as HttpURLConnection\n"
+        "                conn.instanceFollowRedirects = false\n"
+        "                conn.connectTimeout = 15_000\n"
+        "                conn.readTimeout = 15_000\n"
+        "                conn.connect()\n"
+        "                val status = conn.responseCode\n"
+        '                android.util.Log.d("EH_AUTH", "redeem status=$status")\n'
+        "                if (status == 302) {\n"
+        "                    val cm = CookieManager.getInstance()\n"
+        "                    cm.setAcceptCookie(true)\n"
+        "                    // Iterate headers to find all Set-Cookie entries (case-insensitive)\n"
+        "                    var i = 1\n"
+        "                    while (true) {\n"
+        "                        val hKey = conn.getHeaderFieldKey(i) ?: break\n"
+        '                        if (hKey.lowercase() == "set-cookie") {\n'
+        "                            val c = conn.getHeaderField(i)\n"
+        '                            cm.setCookie("https://emergenthealth.vercel.app", c)\n'
+        '                            android.util.Log.d("EH_AUTH", "setCookie: $c")\n'
+        "                            cookiesSet = true\n"
+        "                        }\n"
+        "                        i++\n"
+        "                    }\n"
+        "                    // flush() blocks until all pending setCookie writes are committed\n"
+        "                    cm.flush()\n"
+        "                }\n"
+        "            } catch (e: Exception) {\n"
+        '                android.util.Log.e("EH_AUTH", "redeemKey error: ${e.message}")\n'
+        "            }\n"
+        "            runOnUiThread {\n"
+        "                if (cookiesSet) {\n"
+        '                    android.util.Log.d("EH_AUTH", "cookie injected -> /dashboard")\n'
+        '                    bridge?.webView?.loadUrl("https://emergenthealth.vercel.app/dashboard")\n'
+        "                } else {\n"
+        "                    // Fallback: let the WebView follow the redirect chain itself\n"
+        '                    android.util.Log.d("EH_AUTH", "no cookie set, WebView fallback")\n'
+        "                    bridge?.webView?.post {\n"
+        "                        bridge?.webView?.loadUrl(\n"
+        '                            "https://emergenthealth.vercel.app/api/mobile-redeem?key=" + Uri.encode(key)\n'
+        "                        )\n"
+        "                    }\n"
+        "                }\n"
+        "            }\n"
+        "        }.start()\n"
         "    }\n\n"
         "    private fun handleIntent(intent: Intent) {\n"
         "        val data: Uri = intent.data ?: return\n"
         "\n"
         '        if (data.scheme == "emergenthealth" && data.host == "auth") {\n'
-        "            // New: key-based redemption (code stored server-side by bridge)\n"
         '            val key = data.getQueryParameter("key")\n'
         "            if (key != null) {\n"
         "                pendingAuthKey = null\n"
-        "                bridge?.webView?.post {\n"
-        "                    bridge?.webView?.loadUrl(\n"
-        '                        "https://emergenthealth.vercel.app/api/mobile-redeem?key=" +\n'
-        "                        Uri.encode(key)\n"
-        "                    )\n"
-        "                }\n"
+        '                android.util.Log.d("EH_AUTH", "handleIntent key=$key")\n'
+        "                redeemKey(key)\n"
         "                return\n"
         "            }\n"
-        "            // Legacy: code-in-URL (kept for backward compat with old APK builds)\n"
+        "            // Legacy: code embedded in deep-link URL\n"
         '            val code = data.getQueryParameter("code") ?: return\n'
         "            pendingAuthKey = null\n"
         "            bridge?.webView?.post {\n"
