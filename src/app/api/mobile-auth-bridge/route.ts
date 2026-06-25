@@ -1,4 +1,4 @@
-import { cookies, headers as nextHeaders } from "next/headers"
+import { cookies } from "next/headers"
 import { createHmac } from "crypto"
 import { prisma } from "@/lib/prisma"
 
@@ -15,14 +15,6 @@ export async function GET(request: Request) {
     return Response.redirect(new URL("/signin?error=OAuthCallback", request.url))
   }
 
-  // When OAuth runs inside the Capacitor WebView (UA contains our marker),
-  // NextAuth already planted the session cookie in the WebView's cookie jar
-  // during the /api/auth/callback/google step. Just go straight to the dashboard.
-  const ua = (await nextHeaders()).get("user-agent") ?? ""
-  if (ua.includes("Emergenthealth-Capacitor")) {
-    return Response.redirect(new URL("/dashboard", request.url))
-  }
-
   const cookieName = secureCookie
     ? "__Secure-authjs.session-token"
     : "authjs.session-token"
@@ -35,31 +27,28 @@ export async function GET(request: Request) {
   const sig = createHmac("sha256", secret).update(payload).digest("base64url")
   const code = `${payload}~${sig}`
 
-  // Store the signed code in the database keyed by auth_key.
-  // The native app retrieves it via /api/mobile-redeem when it resumes —
-  // no deep-link callback needed from Chrome to the app.
+  // Store the signed session code in the DB keyed by auth_key.
+  // The WebView polls /api/mobile-auth-poll and redeems via /api/mobile-set-cookie.
+  // Use delete+create to avoid upsert composite-key issues on repeated sign-in attempts.
   if (authKey) {
-    await prisma.verificationToken.upsert({
-      where: { identifier_token: { identifier: `mobile-auth:${authKey}`, token: code } },
-      create: {
+    await prisma.verificationToken.deleteMany({
+      where: { identifier: `mobile-auth:${authKey}` },
+    })
+    await prisma.verificationToken.create({
+      data: {
         identifier: `mobile-auth:${authKey}`,
         token: code,
         expires: new Date(expiresAt),
       },
-      update: { token: code, expires: new Date(expiresAt) },
     })
   }
 
-  // Also try the intent URI in case it works (belt-and-suspenders).
-  // The app handles it in onNewIntent(); if Chrome blocks it, onResume() picks
-  // up the code from the database instead.
-  const encodedCode = encodeURIComponent(code)
   const intentTarget = authKey
     ? `intent://auth?key=${encodeURIComponent(authKey)}#Intent;scheme=emergenthealth;package=app.emergenthealth;end`
-    : `intent://auth?code=${encodedCode}#Intent;scheme=emergenthealth;package=app.emergenthealth;end`
+    : `intent://auth?code=${encodeURIComponent(code)}#Intent;scheme=emergenthealth;package=app.emergenthealth;end`
   const fallbackTarget = authKey
     ? `emergenthealth://auth?key=${encodeURIComponent(authKey)}`
-    : `emergenthealth://auth?code=${encodedCode}`
+    : `emergenthealth://auth?code=${encodeURIComponent(code)}`
 
   return new Response(
     `<!DOCTYPE html>

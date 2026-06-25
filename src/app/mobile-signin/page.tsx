@@ -64,28 +64,11 @@ export default async function MobileSignIn({
         Complete sign-in in the browser — the app will open automatically.
       </p>
 
-      {/* Auto-submit on load, then poll until bridge stores the session code. */}
+      {/* Auto-submit on load. This page is opened only by Chrome Custom Tab so the
+          full OAuth flow (state cookies, callback) stays in Chrome's cookie jar. */}
       <script
         dangerouslySetInnerHTML={{
-          __html: `(function(){
-  var k=${JSON.stringify(authKey)},n=0,iv;
-  function redeem(){window.location.replace('/api/mobile-set-cookie?key='+encodeURIComponent(k));}
-  function tick(){
-    if(++n>150){clearInterval(iv);return;}
-    fetch('/api/mobile-auth-poll?key='+encodeURIComponent(k))
-      .then(function(r){return r.json();})
-      .then(function(d){if(d&&d.done){clearInterval(iv);redeem();}})
-      .catch(function(){});
-  }
-  window.addEventListener('load',function(){
-    document.getElementById('f').submit();
-    if(k){
-      var w=document.getElementById('eh-wait');
-      if(w) setTimeout(function(){w.style.display='block';},800);
-      iv=setInterval(tick,2000);
-    }
-  });
-})();`,
+          __html: `window.addEventListener('load',function(){document.getElementById('f').submit();});`,
         }}
       />
     </div>

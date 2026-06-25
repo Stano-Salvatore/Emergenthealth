@@ -17,12 +17,14 @@ const GOOGLE_BTN_CLASS =
 export function MobileSignInButton({ label }: { label: string }) {
   function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     e.preventDefault()
-    let url = '/mobile-signin'
     try {
       const key = crypto.randomUUID()
-      url = `/mobile-signin?auth_key=${key}`
-    } catch {}
-    window.location.href = url
+      // Use a custom scheme so shouldOverrideUrlLoading fires unconditionally in native code.
+      // Same-origin https navigations are unreliable triggers in some Capacitor versions.
+      window.location.href = `ehauth://open?auth_key=${encodeURIComponent(key)}`
+    } catch {
+      window.location.href = '/mobile-signin'
+    }
   }
 
   return (

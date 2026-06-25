@@ -105,6 +105,23 @@ for path in found:
             f.write(content)
         print(f"✓ Patched {path}: forced Kotlin jvmTarget=17, compileOptions VERSION_17")
 
+# ── Add androidx.browser for Chrome Custom Tabs ───────────────────────────────
+app_build_gradle_path = "android/app/build.gradle"
+with open(app_build_gradle_path) as f:
+    bg_content = f.read()
+
+if "androidx.browser" not in bg_content:
+    bg_content = bg_content.replace(
+        "dependencies {",
+        "dependencies {\n    implementation 'androidx.browser:browser:1.8.0'",
+        1,
+    )
+    with open(app_build_gradle_path, "w") as f:
+        f.write(bg_content)
+    print("✓ Added androidx.browser:browser:1.8.0 for Chrome Custom Tabs")
+else:
+    print("ℹ️  androidx.browser already in build.gradle")
+
 # ── Patch MainActivity ────────────────────────────────────────────────────────
 #
 # The Capacitor template generates a Java MainActivity (empty BridgeActivity subclass).
@@ -113,11 +130,16 @@ for path in found:
 # Java compiler, leaving the APK without a MainActivity class and causing an instant
 # ActivityNotFoundException crash on launch.
 #
-# On Chromebook ARC the WebView IS Chrome, so Google OAuth runs directly inside the
-# WebView without any Custom Tab or deep-link dance. The bridge page at
-# /api/mobile-auth-bridge detects the Capacitor User-Agent and redirects straight
-# to /dashboard. The onNewIntent handler below is a belt-and-suspenders fallback for
-# physical Android phones where Chrome opens OAuth externally and fires the deep link.
+# OAuth flow (physical Android phone):
+#   1. WebView loads /mobile-signin?auth_key=UUID — page auto-submits, NextAuth
+#      redirects to accounts.google.com.
+#   2. shouldOverrideUrlLoading intercepts accounts.google.com and opens a Chrome
+#      Custom Tab (Google accepts Custom Tabs; it blocks plain WebView OAuth).
+#   3. User completes OAuth in Chrome. Chrome loads /api/mobile-auth-bridge which
+#      stores the signed session code under mobile-auth:UUID in the DB.
+#   4. The polling loop running in the WebView detects {done:true} and loads
+#      /api/mobile-set-cookie?key=UUID which sets the session cookie (200 + Set-Cookie)
+#      and meta-refreshes to /dashboard.
 
 main_activity_dir = None
 for root, dirs, files in os.walk("android/app/src/main/java"):
@@ -142,8 +164,55 @@ else:
         "package " + pkg + ";\n\n"
         "import android.content.Intent;\n"
         "import android.net.Uri;\n"
-        "import com.getcapacitor.BridgeActivity;\n\n"
+        "import android.os.Bundle;\n"
+        "import android.webkit.WebResourceRequest;\n"
+        "import android.webkit.WebView;\n"
+        "import androidx.browser.customtabs.CustomTabsIntent;\n"
+        "import com.getcapacitor.BridgeActivity;\n"
+        "import com.getcapacitor.BridgeWebViewClient;\n\n"
         "public class MainActivity extends BridgeActivity {\n\n"
+        "    @Override\n"
+        "    public void onCreate(Bundle savedInstanceState) {\n"
+        "        super.onCreate(savedInstanceState);\n"
+        "        if (bridge != null && bridge.getWebView() != null) {\n"
+        "            bridge.getWebView().setWebViewClient(new BridgeWebViewClient(bridge) {\n"
+        "                @Override\n"
+        "                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {\n"
+        "                    Uri uri = request.getUrl();\n"
+        "                    String scheme = uri.getScheme();\n"
+        "                    String host = uri.getHost();\n\n"
+        "                    // ehauth://open?auth_key=UUID — custom scheme fired by MobileSignInButton.\n"
+        "                    // Using a non-https scheme guarantees shouldOverrideUrlLoading fires;\n"
+        "                    // same-origin https navigations are skipped on some Capacitor builds.\n"
+        "                    // Open Chrome Custom Tab for the FULL OAuth flow (state cookies stay in\n"
+        "                    // Chrome's jar), and show /mobile-wait in the WebView for polling.\n"
+        "                    if (\"ehauth\".equals(scheme) && \"open\".equals(host)) {\n"
+        "                        String key = uri.getQueryParameter(\"auth_key\");\n"
+        "                        if (key != null && !key.isEmpty()) {\n"
+        "                            Uri signInUri = Uri.parse(\n"
+        "                                \"https://emergenthealth.vercel.app/mobile-signin?auth_key=\"\n"
+        "                                + Uri.encode(key));\n"
+        "                            new CustomTabsIntent.Builder().build()\n"
+        "                                .launchUrl(MainActivity.this, signInUri);\n"
+        "                            final String k = key;\n"
+        "                            view.post(() -> view.loadUrl(\n"
+        "                                \"https://emergenthealth.vercel.app/mobile-wait?auth_key=\"\n"
+        "                                + Uri.encode(k)));\n"
+        "                        }\n"
+        "                        return true;\n"
+        "                    }\n\n"
+        "                    // Safety net: if Google OAuth somehow reaches the WebView, open Chrome.\n"
+        "                    if (\"accounts.google.com\".equals(host)\n"
+        "                            || (host != null && host.endsWith(\".google.com\"))) {\n"
+        "                        new CustomTabsIntent.Builder().build()\n"
+        "                            .launchUrl(MainActivity.this, request.getUrl());\n"
+        "                        return true;\n"
+        "                    }\n\n"
+        "                    return super.shouldOverrideUrlLoading(view, request);\n"
+        "                }\n"
+        "            });\n"
+        "        }\n"
+        "    }\n\n"
         "    @Override\n"
         "    public void onNewIntent(Intent intent) {\n"
         "        super.onNewIntent(intent);\n"
@@ -167,4 +236,4 @@ else:
     )
     with open(main_activity_java, "w") as f:
         f.write(content)
-    print(f"✓ {main_activity_java}: Java BridgeActivity with deep-link handler")
+    print(f"✓ {main_activity_java}: Java BridgeActivity with Custom Tab OAuth intercept")
