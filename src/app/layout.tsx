@@ -5,6 +5,7 @@ import { SessionProvider } from "next-auth/react"
 import { ThemeProvider } from "next-themes"
 import Link from "next/link"
 import { ServiceWorkerRegistration } from "@/components/layout/ServiceWorkerRegistration"
+import { Analytics } from "@vercel/analytics/next"
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -28,12 +29,14 @@ export const metadata: Metadata = {
     siteName: "Emergenthealth",
     title: "Emergenthealth — Your health, finally in one place",
     description: "Connect your wearables, apps, and habits. See patterns you'd never notice alone.",
-    url: "https://emergenthealth.vercel.app",
+    url: "https://emergenthealth.app",
+    images: [{ url: "/opengraph-image", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
     title: "Emergenthealth — Your health, finally in one place",
     description: "Connect your wearables, apps, and habits. See patterns you'd never notice alone.",
+    images: ["/opengraph-image"],
   },
   appleWebApp: {
     capable: true,
@@ -49,7 +52,7 @@ export const metadata: Metadata = {
 export const viewport = {
   themeColor: "#4f46e5",
   width: "device-width",
-  initialScale: 1,
+  initialScale: 0.9,
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -68,6 +71,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <SessionProvider>{children}</SessionProvider>
         </ThemeProvider>
         <ServiceWorkerRegistration />
+        <Analytics />
         <footer className="fixed bottom-0 right-0 z-50 p-3 flex gap-3 pointer-events-none">
           <Link href="/privacy" className="pointer-events-auto text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors">Privacy</Link>
           <Link href="/terms" className="pointer-events-auto text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors">Terms</Link>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { Resend } from "resend"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 
@@ -27,34 +28,20 @@ async function notifyOwner(userName: string | null, userEmail: string | null, me
   }).catch(() => {})
 }
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "UserFeedback" (
-      "id" TEXT NOT NULL DEFAULT gen_random_uuid()::text,
-      "userId" TEXT NOT NULL,
-      "message" TEXT NOT NULL,
-      "type" TEXT NOT NULL DEFAULT 'suggestion',
-      "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY ("id"),
-      CONSTRAINT "UserFeedback_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
-    )
-  `
-}
-
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { allowed } = checkRateLimit(session.user.id, "feedback", 5, 60 * 60 * 1000)
+  if (!allowed) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
   const { message, type = "suggestion" } = await req.json()
   if (!message?.trim()) return NextResponse.json({ error: "Message required" }, { status: 400 })
   if (message.length > 2000) return NextResponse.json({ error: "Too long" }, { status: 400 })
 
-  await ensureTable()
-
-  await prisma.$executeRaw`
-    INSERT INTO "UserFeedback" ("userId", "message", "type")
-    VALUES (${session.user.id}, ${message.trim()}, ${type})
-  `
+  await prisma.userFeedback.create({
+    data: { userId: session.user.id, message: message.trim() as string, type: type as string },
+  })
 
   await notifyOwner(session.user.name ?? null, session.user.email ?? null, message.trim(), type)
 
@@ -65,15 +52,16 @@ export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  await ensureTable()
+  const ownerEmail = process.env.FEEDBACK_NOTIFY_EMAIL ?? process.env.OWNER_EMAIL
+  if (!ownerEmail || session.user.email !== ownerEmail) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+  }
 
-  const rows = await prisma.$queryRaw<{ id: string; userId: string; message: string; type: string; createdAt: Date }[]>`
-    SELECT f.id, f."userId", f.message, f.type, f."createdAt", u.email, u.name
-    FROM "UserFeedback" f
-    JOIN "User" u ON u.id = f."userId"
-    ORDER BY f."createdAt" DESC
-    LIMIT 100
-  `
+  const rows = await prisma.userFeedback.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 100,
+    include: { user: { select: { email: true, name: true } } },
+  })
 
   return NextResponse.json(rows)
 }
@@ -82,12 +70,17 @@ export async function DELETE(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  const ownerEmail = process.env.FEEDBACK_NOTIFY_EMAIL ?? process.env.OWNER_EMAIL
+  const isOwner = ownerEmail && session.user.email === ownerEmail
+
   const { id } = await req.json()
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
 
-  await prisma.$executeRaw`
-    DELETE FROM "UserFeedback" WHERE id = ${id} AND "userId" = ${session.user.id}
-  `
+  if (isOwner) {
+    await prisma.userFeedback.deleteMany({ where: { id: id as string } })
+  } else {
+    await prisma.userFeedback.deleteMany({ where: { id: id as string, userId: session.user.id } })
+  }
 
   return NextResponse.json({ ok: true })
 }

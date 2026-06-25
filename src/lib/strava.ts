@@ -1,54 +1,9 @@
 import { prisma } from "@/lib/prisma"
 
-export async function ensureStravaTable(): Promise<void> {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "StravaToken" (
-      "userId"       TEXT PRIMARY KEY REFERENCES "User"("id") ON DELETE CASCADE,
-      "accessToken"  TEXT NOT NULL,
-      "refreshToken" TEXT NOT NULL,
-      "expiresAt"    BIGINT NOT NULL,
-      "athleteId"    TEXT,
-      "updatedAt"    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "StravaActivity" (
-      "id"             TEXT PRIMARY KEY,
-      "userId"         TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-      "stravaId"       TEXT NOT NULL,
-      "type"           TEXT NOT NULL,
-      "name"           TEXT,
-      "distanceM"      FLOAT,
-      "movingTimeSec"  INTEGER NOT NULL,
-      "elapsedTimeSec" INTEGER NOT NULL,
-      "elevationM"     FLOAT,
-      "avgHR"          INTEGER,
-      "maxHR"          INTEGER,
-      "startDate"      TIMESTAMPTZ NOT NULL,
-      "day"            TEXT NOT NULL,
-      UNIQUE("userId", "stravaId")
-    )
-  `
-}
-
-interface StravaTokenRow {
-  userId: string
-  accessToken: string
-  refreshToken: string
-  expiresAt: bigint
-  athleteId: string | null
-}
-
 export async function getStravaToken(userId: string): Promise<string> {
-  const rows = await prisma.$queryRaw<StravaTokenRow[]>`
-    SELECT "userId", "accessToken", "refreshToken", "expiresAt", "athleteId"
-    FROM "StravaToken"
-    WHERE "userId" = ${userId}
-  `
-  const row = rows[0]
+  const row = await prisma.stravaToken.findUnique({ where: { userId } })
   if (!row) throw new Error("Strava not connected")
 
-  // expiresAt is a Unix timestamp (seconds). Refresh if within 5 minutes.
   const expiresAtMs = Number(row.expiresAt) * 1000
   if (Date.now() >= expiresAtMs - 5 * 60 * 1000) {
     return refreshStravaToken(userId, row.refreshToken)
@@ -69,13 +24,14 @@ async function refreshStravaToken(userId: string, refreshToken: string): Promise
   })
   if (!res.ok) throw new Error(`Strava token refresh failed: ${res.statusText}`)
   const data = await res.json()
-  await prisma.$executeRaw`
-    UPDATE "StravaToken"
-    SET "accessToken" = ${data.access_token},
-        "refreshToken" = ${data.refresh_token ?? refreshToken},
-        "expiresAt" = ${BigInt(data.expires_at)},
-        "updatedAt" = NOW()
-    WHERE "userId" = ${userId}
-  `
+  await prisma.stravaToken.update({
+    where: { userId },
+    data: {
+      accessToken: data.access_token as string,
+      refreshToken: (data.refresh_token ?? refreshToken) as string,
+      expiresAt: BigInt(data.expires_at as number),
+      updatedAt: new Date(),
+    },
+  })
   return data.access_token as string
 }

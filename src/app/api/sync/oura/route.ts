@@ -28,9 +28,10 @@ export async function POST() {
       getDailyStress(userId, startDate, endDate),
     ])
 
-    const byDate = <T extends { date: string }>(result: PromiseSettledResult<T[]>): Record<string, T> =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const byDate = (result: PromiseSettledResult<any[]>): Record<string, any> =>
       result.status === "fulfilled"
-        ? Object.fromEntries(result.value.map(r => [r.date, r]))
+        ? Object.fromEntries(result.value.map((r: any) => [r.date, r]))
         : {}
 
     const sleep      = byDate(sleepData)

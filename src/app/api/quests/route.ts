@@ -9,7 +9,7 @@ export interface Quest {
   desc: string
   done: boolean
   xp: number
-  type: "habit" | "water" | "mood" | "sleep" | "journal" | "focus" | "weight"
+  type: "habit" | "water" | "mood" | "sleep" | "journal" | "focus" | "weight" | "checkin"
   link?: string
 }
 
@@ -31,6 +31,7 @@ export async function GET() {
     noteToday,
     focusToday,
     recentWeight,
+    checkinToday,
   ] = await Promise.all([
     prisma.habit.findMany({ where: { userId, isArchived: false }, select: { id: true, name: true, icon: true }, orderBy: { createdAt: "asc" }, take: 5 }),
     prisma.habitCompletion.findMany({ where: { userId, date: { gte: today } }, select: { habitId: true } }),
@@ -40,6 +41,7 @@ export async function GET() {
     prisma.dailyNote.findFirst({ where: { userId, date: todayStr }, select: { id: true } }),
     prisma.focusSession.findFirst({ where: { userId, type: "focus", startedAt: { gte: today } }, select: { id: true } }),
     prisma.healthLog.findFirst({ where: { userId, weight: { not: null } }, orderBy: { date: "desc" }, select: { date: true } }),
+    prisma.$queryRaw<{ id: string }[]>`SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId} AND "date" = ${todayStr} LIMIT 1`.catch(() => [] as { id: string }[]),
   ])
 
   const completedHabitIds = new Set(completionsToday.map(c => c.habitId))
@@ -47,8 +49,35 @@ export async function GET() {
   const daysSinceWeight = recentWeight
     ? Math.floor((Date.now() - new Date(recentWeight.date).getTime()) / 86400000)
     : 999
+  const hasCheckin = Array.isArray(checkinToday) && checkinToday.length > 0
 
   const quests: Quest[] = []
+
+  // Morning check-in quest
+  quests.push({
+    id: "checkin",
+    emoji: "🌅",
+    title: hasCheckin ? "Morning check-in done!" : "Do your morning check-in",
+    desc: hasCheckin ? "Energy & mood logged" : "Set your energy, mood & intention",
+    done: hasCheckin,
+    xp: 10,
+    type: "checkin",
+    link: "/dashboard/checkin",
+  })
+
+  // New-user bootstrap quest: no habits yet
+  if (habits.length === 0) {
+    quests.push({
+      id: "create_habit",
+      emoji: "🌱",
+      title: "Create your first habit",
+      desc: "Start building healthy routines",
+      done: false,
+      xp: 20,
+      type: "habit",
+      link: "/dashboard/habits",
+    })
+  }
 
   // Habit quests — pick up to 2 incomplete habits
   const incompleteHabits = habits.filter(h => !completedHabitIds.has(h.id))

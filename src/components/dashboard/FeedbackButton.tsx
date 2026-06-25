@@ -48,7 +48,7 @@ export function FeedbackButton() {
       {/* Floating button */}
       <button
         onClick={() => setOpen(v => !v)}
-        className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-white shadow-lg shadow-primary/25 hover:bg-primary/90 transition-all active:scale-95"
+        className="fixed bottom-24 left-4 lg:left-auto lg:bottom-6 lg:right-6 z-50 flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-white shadow-lg shadow-primary/25 hover:bg-primary/90 transition-all active:scale-95"
         aria-label="Send feedback"
       >
         <MessageSquarePlus className="h-4 w-4 shrink-0" />
@@ -65,7 +65,7 @@ export function FeedbackButton() {
 
       {/* Panel */}
       {open && (
-        <div className="fixed bottom-20 right-6 z-50 w-[calc(100vw-3rem)] max-w-sm rounded-2xl border border-border bg-card shadow-2xl shadow-black/40">
+        <div className="fixed bottom-36 left-4 lg:left-auto lg:bottom-20 lg:right-6 z-50 w-[calc(100vw-2rem)] max-w-sm rounded-2xl border border-border bg-card shadow-2xl shadow-black/40">
           <div className="flex items-center justify-between px-4 pt-4 pb-3 border-b border-border">
             <p className="text-sm font-semibold">Share your thoughts</p>
             <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground transition-colors">

@@ -5,14 +5,10 @@ import { prisma } from "@/lib/prisma"
 export async function POST(req: NextRequest) {
   void req
   const session = await auth()
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   try {
-    await prisma.$executeRaw`
-      DELETE FROM "StravaToken" WHERE "userId" = ${session.user.id}
-    `
+    await prisma.stravaToken.deleteMany({ where: { userId: session.user.id } })
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error("[strava/disconnect] error:", err)

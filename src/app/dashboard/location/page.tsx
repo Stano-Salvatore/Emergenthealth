@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { trackToSvgPath } from "@/lib/gpx"
 import { cn } from "@/lib/utils"
+import LocationInsightsClient from "../location-insights/LocationInsightsClient"
 
 interface CheckIn {
   id: string
@@ -250,27 +251,35 @@ function SavedPlacesManager({ onClose }: { onClose: () => void }) {
 }
 
 // ── Place-health correlation ──────────────────────────────────────────────────
+type CorrelationConfidence = "insufficient" | "low" | "moderate" | "good"
+
 interface CorrelationResult {
   placeId: string
   placeName: string
   placeEmoji: string
   visitCount: number
-  insufficient?: boolean
-  visitAvg: { readiness: number | null; sleepHours: number | null; mood: number | null }
-  nonVisitAvg: { readiness: number | null; sleepHours: number | null; mood: number | null }
+  confidence: CorrelationConfidence
+  visitAvg: { readiness: number | null; sleepHours: number | null; mood: number | null; hrv: number | null; steps: number | null; restingHR: number | null }
+  nonVisitAvg: { readiness: number | null; sleepHours: number | null; mood: number | null; hrv: number | null; steps: number | null; restingHR: number | null }
 }
 
-function DeltaBadge({ value, suffix }: { value: number; suffix: string }) {
-  const pos = value >= 0
+function DeltaBadge({ value, suffix, invert }: { value: number; suffix: string; invert?: boolean }) {
+  const positive = invert ? value <= 0 : value >= 0
   return (
-    <span className={`inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded ${pos ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
-      {pos ? "+" : ""}{value.toFixed(1)} {suffix}
+    <span className={`inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded ${positive ? "bg-green-500/15 text-green-400" : "bg-red-500/15 text-red-400"}`}>
+      {value >= 0 ? "+" : ""}{value.toFixed(1)}{suffix}
     </span>
   )
 }
 
+const CONFIDENCE_LABEL: Record<CorrelationConfidence, string> = {
+  insufficient: "Too few visits",
+  low: "Low confidence",
+  moderate: "Moderate confidence",
+  good: "Good confidence",
+}
+
 function PlaceHealthImpact() {
-  const [places, setPlaces] = useState<SavedPlace[]>([])
   const [results, setResults] = useState<CorrelationResult[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -281,7 +290,7 @@ function PlaceHealthImpact() {
         const placesRes = await fetch("/api/saved-places").catch(() => null)
         if (!placesRes?.ok) { setLoading(false); return }
         const savedPlaces: SavedPlace[] = await placesRes.json()
-        setPlaces(savedPlaces)
+        if (!savedPlaces.length) { setLoading(false); return }
         const correlations = await Promise.all(
           savedPlaces.map(p =>
             fetch(`/api/location/correlation?placeId=${p.id}`)
@@ -289,7 +298,9 @@ function PlaceHealthImpact() {
               .catch(() => null)
           )
         )
-        setResults(correlations.filter((c): c is CorrelationResult => c && !c.insufficient && c.visitCount >= 3))
+        const valid = correlations.filter((c): c is CorrelationResult => c != null && c.placeId)
+        valid.sort((a, b) => b.visitCount - a.visitCount)
+        setResults(valid)
       } catch {}
       setLoading(false)
     }
@@ -297,12 +308,11 @@ function PlaceHealthImpact() {
   }, [])
 
   if (loading) return null
-
-  if (places.length === 0 || results.length === 0) {
+  if (results.length === 0) {
     return (
       <div className="mb-6">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Place Health Impact</p>
-        <p className="text-xs text-muted-foreground">Visit a saved place 3+ times to see health impact</p>
+        <p className="text-xs text-muted-foreground">Add saved places above — after 6+ auto-detected visits, correlations with your health metrics will appear here.</p>
       </div>
     )
   }
@@ -313,24 +323,75 @@ function PlaceHealthImpact() {
       <div className="space-y-3">
         {results.map(r => {
           const readinessDelta = r.visitAvg.readiness != null && r.nonVisitAvg.readiness != null ? r.visitAvg.readiness - r.nonVisitAvg.readiness : null
-          const sleepDelta = r.visitAvg.sleepHours != null && r.nonVisitAvg.sleepHours != null ? r.visitAvg.sleepHours - r.nonVisitAvg.sleepHours : null
-          const moodDelta = r.visitAvg.mood != null && r.nonVisitAvg.mood != null ? r.visitAvg.mood - r.nonVisitAvg.mood : null
+          const sleepDelta     = r.visitAvg.sleepHours != null && r.nonVisitAvg.sleepHours != null ? r.visitAvg.sleepHours - r.nonVisitAvg.sleepHours : null
+          const moodDelta      = r.visitAvg.mood != null && r.nonVisitAvg.mood != null ? r.visitAvg.mood - r.nonVisitAvg.mood : null
+          const hrvDelta       = r.visitAvg.hrv != null && r.nonVisitAvg.hrv != null ? r.visitAvg.hrv - r.nonVisitAvg.hrv : null
+          const stepsDelta     = r.visitAvg.steps != null && r.nonVisitAvg.steps != null ? r.visitAvg.steps - r.nonVisitAvg.steps : null
+          const hrDelta        = r.visitAvg.restingHR != null && r.nonVisitAvg.restingHR != null ? r.visitAvg.restingHR - r.nonVisitAvg.restingHR : null
+          const hasData = readinessDelta != null || sleepDelta != null || moodDelta != null || hrvDelta != null
+          const isInsufficient = r.confidence === "insufficient"
+
           return (
-            <div key={r.placeId} className="rounded-xl border bg-card px-4 py-3">
+            <div key={r.placeId} className={`rounded-xl border bg-card px-4 py-3 ${isInsufficient ? "opacity-60" : ""}`}>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-lg">{r.placeEmoji}</span>
                 <p className="font-medium text-sm">{r.placeName}</p>
-                <span className="text-xs text-muted-foreground ml-auto">{r.visitCount} visits</span>
+                <div className="ml-auto flex items-center gap-2">
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${
+                    r.confidence === "good"     ? "border-green-500/30 text-green-400 bg-green-500/10" :
+                    r.confidence === "moderate" ? "border-blue-500/30 text-blue-400 bg-blue-500/10" :
+                    r.confidence === "low"      ? "border-amber-500/30 text-amber-400 bg-amber-500/10" :
+                                                   "border-border text-muted-foreground"
+                  }`}>{CONFIDENCE_LABEL[r.confidence]}</span>
+                  <span className="text-xs text-muted-foreground">{r.visitCount}×</span>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {readinessDelta != null && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><span>🎯 Readiness:</span><DeltaBadge value={readinessDelta} suffix="pts" /></div>}
-                {sleepDelta != null && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><span>😴 Sleep:</span><DeltaBadge value={sleepDelta} suffix="hrs" /></div>}
-                {moodDelta != null && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><span>😊 Mood:</span><DeltaBadge value={moodDelta} suffix="pts" /></div>}
-              </div>
+
+              {isInsufficient ? (
+                <p className="text-xs text-muted-foreground">Visit {6 - r.visitCount} more time{6 - r.visitCount !== 1 ? "s" : ""} to unlock correlations</p>
+              ) : !hasData ? (
+                <p className="text-xs text-muted-foreground">No health data overlapping these visits yet</p>
+              ) : (
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                  {readinessDelta != null && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>Readiness</span><DeltaBadge value={readinessDelta} suffix=" pts" />
+                    </div>
+                  )}
+                  {sleepDelta != null && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>Sleep</span><DeltaBadge value={sleepDelta} suffix="h" />
+                    </div>
+                  )}
+                  {hrvDelta != null && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>HRV</span><DeltaBadge value={hrvDelta} suffix=" ms" />
+                    </div>
+                  )}
+                  {moodDelta != null && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>Mood</span><DeltaBadge value={moodDelta} suffix="/5" />
+                    </div>
+                  )}
+                  {stepsDelta != null && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>Steps</span><DeltaBadge value={stepsDelta} suffix="" />
+                    </div>
+                  )}
+                  {hrDelta != null && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <span>Resting HR</span><DeltaBadge value={hrDelta} suffix=" bpm" invert />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )
         })}
       </div>
+      <p className="text-[10px] text-muted-foreground/50 mt-2">
+        Deltas compare health metrics on days you visited vs days you didn&apos;t, over the last 90 days. Correlation ≠ causation.
+      </p>
     </div>
   )
 }
@@ -535,7 +596,8 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
 }
 
 export default function LocationPage() {
-  const [date, setDate]           = useState(() => new Date().toISOString().split("T")[0])
+  const [activeTab, setActiveTab] = useState<"map" | "insights">("map")
+  const [date, setDate]           = useState(() => { const _d = new Date(); return [_d.getFullYear(), String(_d.getMonth()+1).padStart(2,"0"), String(_d.getDate()).padStart(2,"0")].join("-") })
   const [track, setTrack]         = useState<TrackData | null>(null)
   const [loading, setLoading]     = useState(true)
   const [availDates, setAvailDates] = useState<string[]>([])
@@ -558,7 +620,8 @@ export default function LocationPage() {
 
   function prevDay() { setDate(d => format(subDays(parseISO(d), 1), "yyyy-MM-dd")) }
   function nextDay() { setDate(d => format(addDays(parseISO(d), 1), "yyyy-MM-dd")) }
-  const isToday = date === new Date().toISOString().split("T")[0]
+  const _now2 = new Date(); const _todayStr = [_now2.getFullYear(), String(_now2.getMonth()+1).padStart(2,"0"), String(_now2.getDate()).padStart(2,"0")].join("-")
+  const isToday = date === _todayStr
 
   const formatDuration = (min: number) => {
     if (min < 60) return `${Math.round(min)}m`
@@ -570,8 +633,9 @@ export default function LocationPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold">Location</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">GPS track from GPSLogger · places auto-detected</p>
+          <p className="text-muted-foreground text-sm mt-0.5">GPS track · places · health correlations</p>
         </div>
+        {activeTab === "map" && (
         <div className="flex items-center gap-2">
           <Button size="icon" variant="outline" className="h-8 w-8" onClick={prevDay}>
             <ChevronLeft className="h-4 w-4"/>
@@ -583,13 +647,37 @@ export default function LocationPage() {
             <ChevronRight className="h-4 w-4"/>
           </Button>
           {!isToday && (
-            <Button size="sm" variant="outline" onClick={() => setDate(new Date().toISOString().split("T")[0])}>Today</Button>
+            <Button size="sm" variant="outline" onClick={() => { const _t = new Date(); setDate([_t.getFullYear(), String(_t.getMonth()+1).padStart(2,"0"), String(_t.getDate()).padStart(2,"0")].join("-")) }}>Today</Button>
           )}
           <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => load(date)} disabled={loading}>
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")}/>
           </Button>
         </div>
+        )}
       </div>
+
+      {/* Tab bar */}
+      <div className="flex border-b border-border">
+        {([
+          { key: "map", label: "Map", emoji: "📍" },
+          { key: "insights", label: "Insights", emoji: "🗺️" },
+        ] as const).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={cn(
+              "px-4 py-2 text-sm transition-colors",
+              activeTab === t.key
+                ? "text-foreground border-b-2 border-primary font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <span className="mr-1">{t.emoji}</span>{t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "insights" ? <LocationInsightsClient /> : (<>
 
       {loading ? (
         <div className="w-full rounded-2xl bg-secondary/30 flex items-center justify-center" style={{ height: 320 }}>
@@ -650,6 +738,7 @@ export default function LocationPage() {
 
       <PlacesSection autoTagged={track?.autoTagged ?? []}/>
       <PlaceHealthImpact />
+      </>)}
     </div>
   )
 }

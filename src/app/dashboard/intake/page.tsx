@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { format, subDays } from "date-fns"
 import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight } from "lucide-react"
+import { cn } from "@/lib/utils"
+import CaffeinePage from "@/app/dashboard/caffeine/page"
 
 interface IntakeLog {
   id: string
@@ -23,8 +25,10 @@ const QUICK_ADD = [
   { type: "coffee", label: "Americano", amount: 200, icon: "☕" },
   { type: "coffee", label: "Latte", amount: 300, icon: "☕" },
   { type: "tea", label: "Tea", amount: 250, icon: "🍵" },
-  { type: "alcohol", label: "Beer 330ml", amount: 330, icon: "🍺" },
-  { type: "alcohol", label: "Wine 150ml", amount: 150, icon: "🍷" },
+  { type: "beer",    label: "Beer 330ml", amount: 330, icon: "🍺" },
+  { type: "beer",    label: "Beer 500ml", amount: 500, icon: "🍺" },
+  { type: "wine",    label: "Wine 150ml", amount: 150, icon: "🍷" },
+  { type: "wine",    label: "Wine 250ml", amount: 250, icon: "🍷" },
 ]
 
 const TYPE_META: Record<string, { label: string; color: string; goal?: number; icon: React.ReactNode }> = {
@@ -32,6 +36,8 @@ const TYPE_META: Record<string, { label: string; color: string; goal?: number; i
   coffee:  { label: "Coffee",  color: "bg-amber-700",  goal: 400,  icon: <Coffee className="h-4 w-4 text-amber-600" /> },
   tea:     { label: "Tea",     color: "bg-green-600",              icon: <span className="text-sm">🍵</span> },
   alcohol: { label: "Alcohol", color: "bg-yellow-600",             icon: <Wine className="h-4 w-4 text-yellow-500" /> },
+  beer:    { label: "Beer",    color: "bg-yellow-500",             icon: <span className="text-sm">🍺</span> },
+  wine:    { label: "Wine",    color: "bg-rose-700",               icon: <span className="text-sm">🍷</span> },
   other:   { label: "Other",   color: "bg-slate-500",              icon: <Plus className="h-4 w-4 text-slate-400" /> },
 }
 
@@ -56,14 +62,35 @@ interface OuraEntry {
   timestamp: string
 }
 
+function localDateStr(d: Date = new Date()): string {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-")
+}
+
 export default function IntakePage() {
+  const [activeTab, setActiveTab] = useState<"intake" | "caffeine">("intake")
   const [logs, setLogs] = useState<IntakeLog[]>([])
   const [ouraEntries, setOuraEntries] = useState<OuraEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState<string | null>(null)
-  const [date, setDate] = useState(() => new Date().toISOString().split("T")[0])
+  const [date, setDate] = useState(() => localDateStr())
   const [weekData, setWeekData] = useState<WeekDay[]>([])
-  const isToday = date === new Date().toISOString().split("T")[0]
+  const [waterGoal, setWaterGoal] = useState(2000)
+  const isToday = date === localDateStr()
+
+  // Load check-in water goal for today
+  useEffect(() => {
+    const today = localDateStr()
+    fetch(`/api/morning-checkin?date=${today}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.checkin?.waterGoalMl) setWaterGoal(data.checkin.waterGoalMl)
+      })
+      .catch(() => {})
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -81,28 +108,17 @@ export default function IntakePage() {
 
   useEffect(() => { load() }, [load])
 
-  // Load 7-day water trend (only once on mount)
+  // Load 7-day water trend (batch single request)
   useEffect(() => {
     async function loadWeek() {
+      const today = localDateStr()
+      const res = await fetch(`/api/intake?date=${today}&days=7`)
+      const byDay: Record<string, number> = res.ok ? await res.json() : {}
       const days: WeekDay[] = []
-      const now = new Date()
       for (let i = 6; i >= 0; i--) {
-        const d = subDays(now, i)
-        const str = d.toISOString().split("T")[0]
-        const [res, ouraRes] = await Promise.all([
-          fetch(`/api/intake?date=${str}`),
-          fetch(`/api/intake/oura?date=${str}`),
-        ])
-        let ml = 0
-        if (res.ok) {
-          const dayLogs: IntakeLog[] = await res.json()
-          ml += dayLogs.filter(l => l.type === "water").reduce((a, l) => a + l.amountMl, 0)
-        }
-        if (ouraRes.ok) {
-          const od = await ouraRes.json()
-          ml += od.totalMl ?? 0
-        }
-        days.push({ date: str, waterMl: ml, label: i === 0 ? "Today" : format(d, "EEE") })
+        const d = subDays(new Date(), i)
+        const str = localDateStr(d)
+        days.push({ date: str, waterMl: byDay[str] ?? 0, label: i === 0 ? "Today" : format(d, "EEE") })
       }
       setWeekData(days)
     }
@@ -110,6 +126,7 @@ export default function IntakePage() {
   }, [])
 
   async function addEntry(type: string, amountMl: number) {
+    if ("vibrate" in navigator) navigator.vibrate(20)
     setAdding(`${type}-${amountMl}`)
     await fetch("/api/intake", {
       method: "POST",
@@ -130,10 +147,10 @@ export default function IntakePage() {
   }
 
   function navDate(delta: number) {
-    const d = new Date(date)
+    const d = new Date(date + "T12:00:00")
     d.setDate(d.getDate() + delta)
-    const next = d.toISOString().split("T")[0]
-    if (next <= new Date().toISOString().split("T")[0]) setDate(next)
+    const next = localDateStr(d)
+    if (next <= localDateStr()) setDate(next)
   }
 
   // aggregate by type
@@ -151,6 +168,8 @@ export default function IntakePage() {
   const coffeeTotal = (totals.coffee ?? 0) + (ouraTotals.coffee ?? 0)
   const teaTotal = (totals.tea ?? 0) + (ouraTotals.tea ?? 0)
   const alcoholTotal = (totals.alcohol ?? 0) + (ouraTotals.alcohol ?? 0)
+  const beerTotal = totals.beer ?? 0
+  const wineTotal = totals.wine ?? 0
 
   const dateLabel = isToday ? "Today" : format(new Date(date + "T12:00:00"), "EEE, MMM d")
 
@@ -164,26 +183,50 @@ export default function IntakePage() {
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">Water, coffee & more</p>
         </div>
-        {/* date nav */}
-        <div className="flex items-center gap-1">
-          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navDate(-1)}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <span className="text-sm font-medium w-20 text-center">{dateLabel}</span>
-          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navDate(1)} disabled={isToday}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
+        {activeTab === "intake" && (
+          <div className="flex items-center gap-1">
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navDate(-1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm font-medium w-20 text-center">{dateLabel}</span>
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navDate(1)} disabled={isToday}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
 
+      {/* Tab bar */}
+      <div className="flex border-b border-border">
+        {([
+          { key: "intake", label: "Intake", emoji: "🥤" },
+          { key: "caffeine", label: "Caffeine", emoji: "☕" },
+        ] as const).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={cn(
+              "px-4 py-2 text-sm transition-colors",
+              activeTab === t.key
+                ? "text-foreground border-b-2 border-primary font-medium"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <span className="mr-1">{t.emoji}</span>{t.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "caffeine" ? <CaffeinePage /> : (<>
+
       {/* summary cards */}
-      <div className={`grid gap-3 ${alcoholTotal > 0 ? "grid-cols-4" : "grid-cols-3"}`}>
-        <SummaryCard label="Water" value={waterTotal} goal={2000} unit="ml" color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
+      <div className={`grid gap-3 grid-cols-2 sm:grid-cols-${2 + (teaTotal > 0 ? 1 : 0) + (beerTotal > 0 ? 1 : 0) + (wineTotal > 0 ? 1 : 0) + (alcoholTotal > 0 ? 1 : 0)}`}>
+        <SummaryCard label="Water" value={waterTotal} goal={waterGoal} unit="ml" color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
         <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕" />
-        <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />
-        {alcoholTotal > 0 && (
-          <SummaryCard label="Alcohol" value={alcoholTotal} unit="ml" color="text-yellow-500" barColor="bg-yellow-600" emoji="🍺" />
-        )}
+        {teaTotal > 0 && <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />}
+        {beerTotal > 0 && <SummaryCard label="Beer" value={beerTotal} unit="ml" color="text-yellow-400" barColor="bg-yellow-500" emoji="🍺" />}
+        {wineTotal > 0 && <SummaryCard label="Wine" value={wineTotal} unit="ml" color="text-rose-400" barColor="bg-rose-700" emoji="🍷" />}
+        {alcoholTotal > 0 && <SummaryCard label="Alcohol" value={alcoholTotal} unit="ml" color="text-yellow-500" barColor="bg-yellow-600" emoji="🍷" />}
       </div>
 
       {/* 7-day water trend */}
@@ -192,9 +235,9 @@ export default function IntakePage() {
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">7-day water trend</p>
           <div className="flex items-end gap-1.5 h-16">
             {weekData.map(d => {
-              const pct = Math.min(100, (d.waterMl / 2000) * 100)
+              const pct = Math.min(100, (d.waterMl / waterGoal) * 100)
               const isSelected = d.date === date
-              const goalMet = d.waterMl >= 2000
+              const goalMet = d.waterMl >= waterGoal
               return (
                 <button key={d.date} onClick={() => setDate(d.date)}
                   className="flex-1 flex flex-col items-center gap-0.5 group">
@@ -212,8 +255,8 @@ export default function IntakePage() {
             })}
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-            <span>Goal: 2L/day</span>
-            <span>{weekData.filter(d => d.waterMl >= 2000).length}/7 days ✓</span>
+            <span>Goal: {waterGoal >= 1000 ? `${waterGoal / 1000}L` : `${waterGoal}ml`}/day</span>
+            <span>{weekData.filter(d => d.waterMl >= waterGoal).length}/7 days ✓</span>
           </div>
         </div>
       )}
@@ -302,6 +345,7 @@ export default function IntakePage() {
           </div>
         )}
       </div>
+      </>)}
     </div>
   )
 }

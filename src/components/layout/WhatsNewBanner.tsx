@@ -3,13 +3,14 @@
 import { useEffect, useState } from "react"
 import { X, Sparkles } from "lucide-react"
 
-const RELEASE_KEY = "whats_new_dismissed_v3"
+const RELEASE_KEY = "whats_new_dismissed_v13"
 
 const HIGHLIGHTS = [
-  "⌘K Command palette — navigate anywhere instantly",
-  "📱 Mobile bottom tab bar",
-  "🔔 Push notifications — morning check-in reminders",
-  "🔗 Newsletter — share the app with friends",
+  "✨ Correlations — discover what actually affects your energy",
+  "💊 Medication & vitamin habits with type selector",
+  "🩺 Blood pressure tracker with history",
+  "💤 Sleep debt tracker on Health page",
+  "🍅 Pomodoro focus timer in Garden",
 ]
 
 export function WhatsNewBanner() {
@@ -28,10 +29,10 @@ export function WhatsNewBanner() {
   if (!visible) return null
 
   return (
-    <div className="fixed bottom-20 lg:bottom-4 right-4 z-40 w-72 rounded-2xl border border-primary/25 bg-background/95 backdrop-blur-md shadow-xl shadow-black/30 overflow-hidden">
+    <div className="fixed bottom-20 left-4 lg:left-auto lg:bottom-4 lg:right-4 z-40 w-72 rounded-2xl border border-primary/25 bg-background/95 backdrop-blur-md shadow-xl shadow-black/30 overflow-hidden">
       <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border/50">
         <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-        <span className="text-xs font-semibold text-primary flex-1">What&apos;s new in V3</span>
+        <span className="text-xs font-semibold text-primary flex-1">V13 · Insights & health</span>
         <button
           onClick={dismiss}
           className="text-muted-foreground hover:text-foreground transition-colors"

@@ -10,7 +10,7 @@ import {
   Activity, Euro, Calendar, CheckSquare, Bell, Moon,
   Footprints, ChevronRight, Heart, Clock,
   TrendingUp, TrendingDown, Mail, Shield,
-  Wind, Flame, Droplets, Timer,
+  Wind, Flame, Droplets, Timer, Check,
 } from "lucide-react"
 import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"
 import { LiveClock } from "@/components/dashboard/LiveClock"
@@ -24,12 +24,14 @@ import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
 import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
 import { QuickHabits } from "@/components/dashboard/QuickHabits"
 import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
-import { InsightCard } from "@/components/dashboard/InsightCard"
+import { InsightsPanel } from "@/components/dashboard/InsightsPanel"
 import { TodayCard } from "@/components/dashboard/TodayCard"
+import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
+import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
 
-const STEP_GOAL = 8_000
-const SLEEP_GOAL_H = 7
+const DEFAULT_STEP_GOAL = 8_000
+const DEFAULT_SLEEP_GOAL_H = 7.5
 
 function getTimeGreeting() {
   const h = new Date().getHours()
@@ -85,15 +87,17 @@ function MiniMonthCalendar({
 
 // ── Wellness Score ─────────────────────────────────────────────────────────────
 function computeWellnessScore({
-  sleepMin, steps, readiness, habitsRatio,
+  sleepMin, steps, readiness, habitsRatio, sleepGoalH = DEFAULT_SLEEP_GOAL_H, stepGoal = DEFAULT_STEP_GOAL,
 }: {
   sleepMin: number | null
   steps: number | null
   readiness: number | null
   habitsRatio: number
+  sleepGoalH?: number
+  stepGoal?: number
 }): { score: number; components: { label: string; pts: number; max: number }[] } {
-  const sleepPts = sleepMin != null ? Math.min(25, Math.round((sleepMin / (SLEEP_GOAL_H * 60)) * 25)) : 0
-  const stepsPts = steps != null ? Math.min(25, Math.round((steps / STEP_GOAL) * 25)) : 0
+  const sleepPts = sleepMin != null ? Math.min(25, Math.round((sleepMin / (sleepGoalH * 60)) * 25)) : 0
+  const stepsPts = steps != null ? Math.min(25, Math.round((steps / stepGoal) * 25)) : 0
   const readinessPts = readiness != null ? Math.min(25, Math.round((readiness / 100) * 25)) : 0
   const habitsPts = Math.round(habitsRatio * 25)
   return {
@@ -111,7 +115,7 @@ function scoreGrade(s: number) {
   if (s >= 85) return { label: "Excellent", color: "text-emerald-400", emoji: "🌟" }
   if (s >= 70) return { label: "Good", color: "text-green-400", emoji: "✨" }
   if (s >= 50) return { label: "Fair", color: "text-amber-400", emoji: "🌤️" }
-  return { label: "Low", color: "text-red-400", emoji: "💤" }
+  return { label: "Low", color: "text-red-400", emoji: "⚠️" }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,8 +125,12 @@ export default async function DashboardPage() {
   if (!session?.user?.id) return null
   const userId = session.user.id
 
-  // Provision columns added after initial deploy (safe no-op if already exist)
-  await prisma.$executeRaw`ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepScore" INTEGER`
+  const goalsRow = await prisma.dailyNote.findUnique({
+    where: { userId_date: { userId, date: new Date("0001-01-01") } },
+  }).catch(() => null)
+  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number } : {}
+  const STEP_GOAL = userGoals.steps ?? DEFAULT_STEP_GOAL
+  const SLEEP_GOAL_H = userGoals.sleepH ?? DEFAULT_SLEEP_GOAL_H
 
   const now = new Date()
   const today = new Date()
@@ -134,11 +142,30 @@ export default async function DashboardPage() {
   const todayStart = new Date(todayStr + "T00:00:00.000Z")
   const todayEnd = new Date(todayStr + "T23:59:59.999Z")
 
-  const todayCheckin = await prisma.$queryRaw<{id: string}[]>`
-    SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId}
-    AND "date" = ${todayStr} LIMIT 1
-  `.catch(() => [] as {id: string}[])
+  const [todayCheckin, checkinStreakRows] = await Promise.all([
+    prisma.$queryRaw<{id: string}[]>`
+      SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId}
+      AND "date" = ${todayStr} LIMIT 1
+    `.catch(() => [] as {id: string}[]),
+    prisma.$queryRaw<{date: string}[]>`
+      SELECT "date" FROM "MorningCheckIn" WHERE "userId" = ${userId}
+      AND "date" <= ${todayStr}
+      ORDER BY "date" DESC LIMIT 60
+    `.catch(() => [] as {date: string}[]),
+  ])
   const hasCheckedInToday = todayCheckin.length > 0
+  // Compute consecutive check-in streak
+  const checkinDates = new Set((checkinStreakRows as {date: string}[]).map(r => r.date))
+  let checkinStreak = 0
+  {
+    const cursor = new Date(todayStr)
+    while (true) {
+      const d = cursor.toISOString().slice(0, 10)
+      if (!checkinDates.has(d)) break
+      checkinStreak++
+      cursor.setDate(cursor.getDate() - 1)
+    }
+  }
 
   const [healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData, todayIntake, todayFocus, todayOuraTags] = await Promise.all([
     prisma.healthLog.findMany({
@@ -282,12 +309,24 @@ export default async function DashboardPage() {
   // ── mood
   const todayMood = todayMoodLogs[0]?.mood ?? null
 
+  // ── getting-started checklist (show until user has completed at least 3/4 steps)
+  const setupSteps = [
+    { done: healthLogs.length > 0,      label: "Connect Oura or log health data",  href: "/dashboard/settings", emoji: "🌿" },
+    { done: habits.length > 0,          label: "Create your first habit",           href: "/dashboard/habits",   emoji: "✅" },
+    { done: transactions.length > 0,    label: "Connect bank or import finances",   href: "/dashboard/settings", emoji: "💰" },
+    { done: hasCheckedInToday,           label: "Complete your morning check-in",    href: "/dashboard/checkin",  emoji: "🌅" },
+  ]
+  const setupDone = setupSteps.filter(s => s.done).length
+  const showSetup = setupDone < 3
+
   // ── wellness score
-  const { score: wellnessScore, components: scoreComponents } = computeWellnessScore({
+  const { score: wellnessScore } = computeWellnessScore({
     sleepMin: latestHealth?.sleepDuration ?? null,
     steps: latestHealth?.steps ?? null,
     readiness: latestHealth?.readinessScore ?? null,
     habitsRatio: habits.length > 0 ? doneToday / habits.length : 0,
+    sleepGoalH: SLEEP_GOAL_H,
+    stepGoal: STEP_GOAL,
   })
   const { label: scoreLabel, color: scoreColor, emoji: scoreEmoji } = scoreGrade(wellnessScore)
 
@@ -308,24 +347,12 @@ export default async function DashboardPage() {
           </div>
           <WeatherWidget />
         </div>
-        <div className="mt-4 flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-3 bg-background/50 backdrop-blur rounded-xl px-4 py-2.5 border border-border/50">
-            <div className="text-center">
-              <p className="text-2xl leading-none mb-0.5">{scoreEmoji}</p>
-              <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>
-              <p className={`text-[10px] font-semibold uppercase tracking-wider mt-0.5 ${scoreColor}`}>{scoreLabel}</p>
-            </div>
-            <div className="h-10 w-px bg-border" />
-            <div className="grid grid-cols-4 gap-3">
-              {scoreComponents.map(c => (
-                <div key={c.label} className="text-center">
-                  <p className="text-sm font-bold">{c.pts}<span className="text-[10px] text-muted-foreground">/{c.max}</span></p>
-                  <p className="text-[9px] text-muted-foreground">{c.label}</p>
-                </div>
-              ))}
-            </div>
+        <div className="mt-4 flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2.5 bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50">
+            <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>
+            <p className={`text-[11px] font-semibold uppercase tracking-wider ${scoreColor}`}>{scoreEmoji} {scoreLabel}</p>
           </div>
-          <div className="flex-1 min-w-[200px] bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50">
+          <div className="flex-1 min-w-[180px] bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">How do you feel?</p>
             <MoodWidget todayMood={todayMood} />
           </div>
@@ -338,7 +365,11 @@ export default async function DashboardPage() {
             <CardContent className="pt-4 pb-3 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">🌅 Morning check-in</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Log your energy, mood, and focus for today — takes 10 seconds</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {checkinStreak > 0
+                    ? `🔥 ${checkinStreak}-day streak — keep it going!`
+                    : "Log your energy, mood, and focus — takes 10 seconds"}
+                </p>
               </div>
               <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
             </CardContent>
@@ -346,9 +377,32 @@ export default async function DashboardPage() {
         </Link>
       )}
 
-      <PlaceDetector />
+      {showSetup && (
+        <Card className="border-amber-500/20 bg-amber-500/5">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-sm font-semibold">🚀 Getting started</span>
+              <span className="text-xs text-muted-foreground">({setupDone}/4 done)</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {setupSteps.map(step => (
+                <Link key={step.href + step.label} href={step.done ? "#" : step.href}
+                  className={`flex items-center gap-2.5 rounded-xl border px-3 py-2 text-sm transition-all ${
+                    step.done
+                      ? "border-green-500/30 bg-green-500/5 pointer-events-none"
+                      : "border-border hover:border-amber-500/40 hover:bg-amber-500/5 cursor-pointer"
+                  }`}>
+                  <span className="text-base shrink-0">{step.emoji}</span>
+                  <span className={`flex-1 text-xs font-medium ${step.done ? "line-through text-muted-foreground" : ""}`}>{step.label}</span>
+                  {step.done ? <Check className="h-3.5 w-3.5 text-green-400 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      <InsightCard />
+      <PlaceDetector />
 
       {/* ── today's schedule strip ── */}
       {todayEvents.length > 0 && (
@@ -376,6 +430,7 @@ export default async function DashboardPage() {
   )
 
   const blocks = {
+    briefing: <DailyBriefing />,
     today: <TodayCard />,
 
     health: (
@@ -689,9 +744,11 @@ export default async function DashboardPage() {
       </div>
     ),
 
+    insights: <InsightsPanel />,
     location: <LocationCard />,
     ac: <AcCard />,
     quests: <DailyQuests />,
+    quickstart: <QuickStart hasCheckin={hasCheckedInToday} hasHabits={habits.length > 0} />,
   }
 
   return <DashboardGrid header={header} blocks={blocks} />

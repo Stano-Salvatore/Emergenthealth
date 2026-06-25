@@ -81,17 +81,27 @@ export async function GET(req: NextRequest) {
     const habitPct = totalHabits > 0 ? (doneHabits / totalHabits) * 100 : 100
 
     let message: string | null = null
+    let tag = "emergy"
+    let url = "/dashboard"
     if (water < 1500) {
       message = SCREAM_WATER[Math.floor(Date.now() / 86400000) % SCREAM_WATER.length]
+      tag = "water"; url = "/dashboard/intake"
     } else if (habitPct < 50) {
       message = SCREAM_HABITS[Math.floor(Date.now() / 86400000) % SCREAM_HABITS.length]
+      tag = "habit"; url = "/dashboard/habits"
     }
     if (!message) return
 
     try {
       await webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        JSON.stringify({ title: "Emergy 🌱", body: message, url: "/dashboard" })
+        JSON.stringify({
+          title: "Emergy 🌱",
+          body: message,
+          url,
+          tag,
+          requireInteraction: habitPct < 50,
+        })
       )
       sent++
     } catch (err: unknown) {

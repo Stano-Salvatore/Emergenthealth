@@ -97,27 +97,27 @@ export function PlaceDetector() {
     )
   }
 
-  if (state === "denied") {
+  if (state === "denied" || state === "saving") {
+    const isSaving = state === "saving"
     return (
       <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-card/30 px-3 py-2">
         <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        {state === "denied" && (
-          <input
-            ref={inputRef}
-            autoFocus
-            value={manualInput}
-            onChange={e => setManualInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && saveManual()}
-            placeholder="Where are you?"
-            className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/50 min-w-0"
-          />
-        )}
+        <input
+          ref={inputRef}
+          autoFocus={!isSaving}
+          value={manualInput}
+          onChange={e => setManualInput(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && saveManual()}
+          placeholder="Where are you?"
+          disabled={isSaving}
+          className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/50 min-w-0 disabled:opacity-50"
+        />
         <button
           onClick={saveManual}
-          disabled={!manualInput.trim() || state === "saving"}
+          disabled={!manualInput.trim() || isSaving}
           className="text-xs font-medium text-primary hover:text-primary/80 px-2 py-0.5 rounded hover:bg-primary/10 shrink-0 disabled:opacity-30 transition-colors"
         >
-          Log
+          {isSaving ? "…" : "Log"}
         </button>
         <button onClick={dismiss} aria-label="Dismiss" className="text-muted-foreground/40 hover:text-muted-foreground transition-colors p-1 shrink-0">
           <X className="h-3.5 w-3.5" />

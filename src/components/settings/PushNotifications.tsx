@@ -1,9 +1,16 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Bell, BellOff, Send } from "lucide-react"
+import { Bell, BellOff, Send, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+
+function formatHour(h: number) {
+  if (h === 0) return "12:00 AM"
+  if (h < 12) return `${h}:00 AM`
+  if (h === 12) return "12:00 PM"
+  return `${h - 12}:00 PM`
+}
 
 export function PushNotifications() {
   const [supported, setSupported] = useState(false)
@@ -12,6 +19,13 @@ export function PushNotifications() {
   const [loading, setLoading] = useState(false)
   const [testStatus, setTestStatus] = useState<"idle" | "sent" | "error">("idle")
   const [testError, setTestError] = useState<string | null>(null)
+  const [reminderHour, setReminderHour] = useState(7)
+  const [savingHour, setSavingHour] = useState(false)
+  const [hourSaved, setHourSaved] = useState(false)
+  const [noonReminderEnabled, setNoonReminderEnabled] = useState(true)
+  const [savingNoon, setSavingNoon] = useState(false)
+  const [eveningReminderEnabled, setEveningReminderEnabled] = useState(true)
+  const [savingEvening, setSavingEvening] = useState(false)
 
   useEffect(() => {
     const ok = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
@@ -22,6 +36,15 @@ export function PushNotifications() {
         reg.pushManager.getSubscription().then((sub) => setSubscribed(!!sub))
       ).catch(() => {})
     }
+    Promise.all([
+      fetch("/api/preferences/reminder-time").then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch("/api/preferences/noon-reminder").then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch("/api/preferences/evening-reminder").then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([timeData, noonData, eveningData]) => {
+      if (timeData?.hour != null) setReminderHour(timeData.hour)
+      if (noonData?.enabled != null) setNoonReminderEnabled(noonData.enabled)
+      if (eveningData?.enabled != null) setEveningReminderEnabled(eveningData.enabled)
+    })
   }, [])
 
   async function subscribe() {
@@ -92,6 +115,43 @@ export function PushNotifications() {
     }
   }
 
+  async function toggleNoonReminder() {
+    setSavingNoon(true)
+    const next = !noonReminderEnabled
+    setNoonReminderEnabled(next)
+    await fetch("/api/preferences/noon-reminder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
+    }).catch(() => {})
+    setSavingNoon(false)
+  }
+
+  async function toggleEveningReminder() {
+    setSavingEvening(true)
+    const next = !eveningReminderEnabled
+    setEveningReminderEnabled(next)
+    await fetch("/api/preferences/evening-reminder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next }),
+    }).catch(() => {})
+    setSavingEvening(false)
+  }
+
+  async function saveReminderHour(h: number) {
+    setSavingHour(true)
+    setReminderHour(h)
+    await fetch("/api/preferences/reminder-time", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hour: h }),
+    }).catch(() => {})
+    setSavingHour(false)
+    setHourSaved(true)
+    setTimeout(() => setHourSaved(false), 2000)
+  }
+
   if (!supported) return null
 
   return (
@@ -125,12 +185,83 @@ export function PushNotifications() {
         </div>
 
         {subscribed && (
-          <div className="border-t border-border/50 pt-3 space-y-2">
+          <div className="border-t border-border/50 pt-3 space-y-3">
+            {/* Reminder time picker */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                  <p className="text-xs font-medium">Reminder time</p>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {savingHour ? "Saving…" : hourSaved ? "✓ Saved" : formatHour(reminderHour)}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {[5, 6, 7, 8, 9, 10].map(h => (
+                  <button
+                    key={h}
+                    onClick={() => saveReminderHour(h)}
+                    className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${
+                      reminderHour === h
+                        ? "bg-primary/15 border-primary text-primary font-medium"
+                        : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                    }`}
+                  >
+                    {formatHour(h)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Noon intention reminder */}
+            <div className="flex items-center justify-between pt-1 border-t border-border/30">
+              <div>
+                <p className="text-xs font-medium">Noon intention reminder</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Reminds you of your morning intention at 12pm</p>
+              </div>
+              <button
+                onClick={toggleNoonReminder}
+                disabled={savingNoon}
+                className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ${
+                  noonReminderEnabled ? "bg-primary" : "bg-secondary"
+                }`}
+                role="switch"
+                aria-checked={noonReminderEnabled}
+              >
+                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  noonReminderEnabled ? "translate-x-4" : "translate-x-0.5"
+                }`} />
+              </button>
+            </div>
+
+            {/* Evening reflection reminder */}
             <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">Send a test notification to this device</p>
+              <div>
+                <p className="text-xs font-medium">Evening reflection reminder</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Journal nudge at 9pm if you haven&apos;t written today</p>
+              </div>
+              <button
+                onClick={toggleEveningReminder}
+                disabled={savingEvening}
+                className={`relative h-5 w-9 rounded-full transition-colors shrink-0 ${
+                  eveningReminderEnabled ? "bg-primary" : "bg-secondary"
+                }`}
+                role="switch"
+                aria-checked={eveningReminderEnabled}
+              >
+                <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  eveningReminderEnabled ? "translate-x-4" : "translate-x-0.5"
+                }`} />
+              </button>
+            </div>
+
+            {/* Test notification */}
+            <div className="flex items-center justify-between pt-1 border-t border-border/30">
+              <p className="text-xs text-muted-foreground">Test on this device</p>
               <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5" onClick={sendTest}>
                 <Send className="h-3 w-3" />
-                {testStatus === "sent" ? "Sent!" : testStatus === "error" ? "Retry" : "Test"}
+                {testStatus === "sent" ? "Sent!" : testStatus === "error" ? "Retry" : "Send test"}
               </Button>
             </div>
             {testStatus === "error" && testError && (

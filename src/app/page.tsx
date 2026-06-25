@@ -33,12 +33,17 @@ export default async function HomePage() {
           <span className="text-lg font-semibold tracking-tight text-primary">
             ◉ Emergenthealth
           </span>
-          <Link
-            href="/signin"
-            className="text-sm text-muted-foreground transition-colors hover:opacity-80"
-          >
-            Sign in
-          </Link>
+          <div className="flex items-center gap-5">
+            <Link href="/pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+              Pricing
+            </Link>
+            <Link
+              href="/signin"
+              className="text-sm text-muted-foreground transition-colors hover:opacity-80"
+            >
+              Sign in
+            </Link>
+          </div>
         </nav>
 
         {/* Hero */}
@@ -64,6 +69,9 @@ export default async function HomePage() {
               See what it tracks ↓
             </a>
           </div>
+          <p className="text-xs text-muted-foreground/50 mt-4">
+            No credit card · No ads · Your data stays private
+          </p>
         </section>
 
         {/* Features */}
@@ -116,6 +124,53 @@ export default async function HomePage() {
           </div>
         </section>
 
+        {/* How it works */}
+        <section className="max-w-4xl mx-auto px-6 pb-28">
+          <h2 className="text-center text-2xl font-semibold mb-12">Three steps to understand yourself</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            {[
+              {
+                step: "01",
+                title: "Connect your apps",
+                desc: "Link Oura Ring, Strava, YNAB, and more in one click. Data syncs automatically every day.",
+              },
+              {
+                step: "02",
+                title: "Track your daily life",
+                desc: "Log your mood, water, habits, and focus. Build streaks. Earn XP. Grow your garden.",
+              },
+              {
+                step: "03",
+                title: "Discover patterns",
+                desc: "Get AI-powered weekly insights. See how sleep affects your steps, your mood, your spending.",
+              },
+            ].map(({ step, title, desc }) => (
+              <div key={step} className="relative rounded-2xl border border-border/60 bg-card/20 p-6">
+                <p className="text-5xl font-black text-primary/10 leading-none mb-4">{step}</p>
+                <h3 className="font-semibold mb-2 text-base">{title}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Stats row */}
+        <section className="max-w-4xl mx-auto px-6 pb-20">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              { stat: "100+", label: "Metrics tracked" },
+              { stat: "8+", label: "App integrations" },
+              { stat: "Free", label: "To start, always" },
+              { stat: "0", label: "Ads or data selling" },
+            ].map(({ stat, label }) => (
+              <div key={label} className="rounded-2xl border border-border/60 bg-card/20 p-5 text-center">
+                <p className="text-3xl font-black text-primary mb-1">{stat}</p>
+                <p className="text-xs text-muted-foreground">{label}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* Integrations strip */}
         <section className="max-w-6xl mx-auto px-6 pb-28">
           <h2 className="text-center text-sm font-medium uppercase tracking-widest mb-8 text-muted-foreground">
@@ -143,12 +198,30 @@ export default async function HomePage() {
           </div>
         </section>
 
+        {/* Pricing teaser */}
+        <section className="max-w-3xl mx-auto px-6 pb-20 text-center">
+          <div className="rounded-2xl border border-border/80 bg-card/30 p-8 flex flex-col sm:flex-row items-center gap-6">
+            <div className="flex-1 text-left">
+              <p className="font-semibold mb-1">Free to start, Pro when you need more</p>
+              <p className="text-sm text-muted-foreground">
+                Free plan covers the basics. Pro unlocks unlimited history, daily AI insights, bank sync, and data export.
+              </p>
+            </div>
+            <Link
+              href="/pricing"
+              className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 transition-colors"
+            >
+              See pricing →
+            </Link>
+          </div>
+        </section>
+
         {/* FAQ */}
         {(() => {
           const faqs = [
             {
               q: "Is it free?",
-              a: "Yes — Emergenthealth is free to use. You connect your own accounts (Oura, YNAB, Strava, etc.) — no paid tiers.",
+              a: "Yes — the core features are free. A Pro plan (€6.99/month) unlocks unlimited history, daily AI insights, finance tracking, and data export. Free plan includes all the basics.",
             },
             {
               q: "What data sources does it support?",
@@ -168,7 +241,7 @@ export default async function HomePage() {
             },
             {
               q: "Is there a mobile app?",
-              a: "The web app works great on mobile via PWA. A native iOS/Android app is in the roadmap.",
+              a: "Yes! Emergenthealth is a Progressive Web App (PWA) — install it from your browser for a native-like experience on iOS and Android. An Android APK is available for direct download, and a Play Store listing is coming soon.",
             },
           ]
           return (

@@ -8,14 +8,18 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { HealthEntryForm } from "@/components/health/HealthEntryForm"
 import { OuraSyncButton } from "@/components/health/OuraSyncButton"
+import { HealthTabBar } from "@/components/health/HealthTabBar"
 import {
   SleepChart, StepsChart, HRChart, WeightChart, ActivityChart,
   ReadinessChart, HRVChart, SpO2Chart, ActivityScoreChart,
   StressRecoveryChart, BreathingRateChart, MoodChart,
   type ChartDay,
 } from "@/components/health/HealthCharts"
-import { Moon, Footprints, Heart, Scale, Zap, Activity, Thermometer, Wind, Shield } from "lucide-react"
+import { Moon, Footprints, Heart, Scale, Zap, Activity, Thermometer, Wind, Shield, TrendingDown, TrendingUp, Minus } from "lucide-react"
 import { format, subDays } from "date-fns"
+import WeightPage from "@/app/dashboard/weight/page"
+import InsightsPage from "@/app/dashboard/insights/page"
+import LabsPage from "@/app/dashboard/labs/page"
 
 interface StravaActivityRow {
   id: string
@@ -27,27 +31,59 @@ interface StravaActivityRow {
   day: string
 }
 
-const STEP_GOAL = 8_000
-const SLEEP_GOAL_H = 7
+const DEFAULT_STEP_GOAL = 8_000
+const DEFAULT_SLEEP_GOAL_H = 7.5
 
-export default async function HealthPage() {
+export default async function HealthPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab } = await searchParams
+  const activeTab = tab ?? "metrics"
+
   const session = await auth()
   if (!session?.user?.id) return null
   const userId = session.user.id
 
+  const goalsRow = await prisma.dailyNote.findUnique({
+    where: { userId_date: { userId, date: new Date("0001-01-01") } },
+  }).catch(() => null)
+  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number } : {}
+  const STEP_GOAL = userGoals.steps ?? DEFAULT_STEP_GOAL
+  const SLEEP_GOAL_H = userGoals.sleepH ?? DEFAULT_SLEEP_GOAL_H
+
+  if (activeTab === "weight") {
+    return (
+      <div className="space-y-6">
+        <HealthTabBar activeTab={activeTab} />
+        <WeightPage />
+      </div>
+    )
+  }
+  if (activeTab === "correlations") {
+    return (
+      <div className="space-y-6">
+        <HealthTabBar activeTab={activeTab} />
+        <InsightsPage />
+      </div>
+    )
+  }
+  if (activeTab === "labs") {
+    return (
+      <div className="space-y-6">
+        <HealthTabBar activeTab={activeTab} />
+        <LabsPage />
+      </div>
+    )
+  }
+
   const ouraToken = await prisma.ouraToken.findUnique({ where: { userId }, select: { id: true } })
   const isOuraConnected = !!ouraToken
 
-  // Recent Strava activities — table may not exist yet
   const since14str = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-  const stravaActivities = await prisma.$queryRaw<StravaActivityRow[]>`
-    SELECT "id", "type", "name", "distanceM", "movingTimeSec", "startDate", "day"
-    FROM "StravaActivity"
-    WHERE "userId" = ${userId}
-      AND "day" >= ${since14str}
-    ORDER BY "startDate" DESC
-    LIMIT 30
-  `.catch(() => [] as StravaActivityRow[])
+  const stravaActivities = await prisma.stravaActivity.findMany({
+    where: { userId, day: { gte: since14str } },
+    orderBy: { startDate: "desc" },
+    take: 30,
+    select: { id: true, type: true, name: true, distanceM: true, movingTimeSec: true, startDate: true, day: true },
+  }).catch(() => [] as StravaActivityRow[])
 
   const since30 = new Date()
   since30.setDate(since30.getDate() - 29)
@@ -119,6 +155,12 @@ export default async function HealthPage() {
   const avgActivityScore = avg(recent7.map(l => l.activityScore))
   const avgSleepScore   = avg(recent7.map(l => l.sleepScore))
 
+  // Sleep debt (7-day window)
+  const sleepDebtDays = recent7.filter(l => l.sleepDuration != null)
+  const debtGoalMin   = sleepDebtDays.length * SLEEP_GOAL_H * 60
+  const debtActualMin = sleepDebtDays.reduce((s, l) => s + (l.sleepDuration ?? 0), 0)
+  const debtMin       = debtGoalMin - debtActualMin  // positive = in debt
+
   const chartData: ChartDay[] = logs.map(l => ({
     date: format(l.date, "MMM d"),
     sleepH:        l.sleepDuration != null ? Math.round((l.sleepDuration / 60) * 10) / 10 : null,
@@ -173,12 +215,29 @@ export default async function HealthPage() {
         </div>
       </div>
 
+      <HealthTabBar activeTab="metrics" />
+
       {logs.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <Moon className="h-10 w-10 text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">No health data yet</p>
-            <p className="text-sm text-muted-foreground mt-1">Connect your Oura Ring in Settings and sync, or click &quot;Log Day&quot;</p>
+            <div className="mb-3 text-5xl leading-none select-none">🌙</div>
+            <h3 className="text-base font-semibold text-foreground">No health data yet</h3>
+            <p className="mt-2 text-sm text-muted-foreground">Get started with one of these options:</p>
+            <ul className="mt-3 space-y-2 text-sm text-muted-foreground text-left">
+              <li className="flex items-start gap-2">
+                <span className="text-primary mt-0.5 shrink-0">•</span>
+                <span>
+                  Connect Oura Ring in{" "}
+                  <a href="/dashboard/settings" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">
+                    Settings → Integrations
+                  </a>
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-primary mt-0.5 shrink-0">•</span>
+                <span>Or click <span className="font-medium text-foreground">&quot;Log Day&quot;</span> to add data manually</span>
+              </li>
+            </ul>
           </CardContent>
         </Card>
       ) : (
@@ -212,6 +271,73 @@ export default async function HealthPage() {
               value={avgActivityScore != null ? `${Math.round(avgActivityScore)}` : "—"}
               good={avgActivityScore != null && avgActivityScore >= 70} target="goal 70+" />
           </div>
+
+          {/* ── sleep debt ── */}
+          {sleepDebtDays.length >= 2 && (
+            <Card className={debtMin > 120 ? "border-red-500/30" : debtMin > 0 ? "border-amber-500/30" : "border-green-500/30"}>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+                    <Moon className="h-4 w-4 text-primary" />
+                    Sleep Debt — last {sleepDebtDays.length} nights
+                  </CardTitle>
+                  <Badge variant="secondary" className={`text-xs font-semibold flex items-center gap-1 ${debtMin > 120 ? "text-red-400" : debtMin > 0 ? "text-amber-400" : "text-green-400"}`}>
+                    {debtMin > 120 ? <TrendingDown className="h-3 w-3" /> : debtMin > 0 ? <Minus className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
+                    {debtMin > 0 ? `${(debtMin / 60).toFixed(1)}h in debt` : `${(Math.abs(debtMin) / 60).toFixed(1)}h surplus`}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Goal progress */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Actual sleep</span>
+                    <span>{(debtActualMin / 60).toFixed(1)}h of {(debtGoalMin / 60).toFixed(0)}h goal</span>
+                  </div>
+                  <Progress value={Math.min((debtActualMin / debtGoalMin) * 100, 100)}
+                    className={`h-2 ${debtMin > 120 ? "[&>div]:bg-red-500" : debtMin > 0 ? "[&>div]:bg-amber-500" : "[&>div]:bg-green-500"}`} />
+                </div>
+
+                {/* Per-night bars */}
+                <div className="flex items-end gap-1.5" style={{ height: 56 }}>
+                  {recent7.map((log, i) => {
+                    const h = log.sleepDuration != null ? log.sleepDuration / 60 : 0
+                    const pct = Math.min((h / (SLEEP_GOAL_H + 2)) * 100, 100)
+                    const goalPct = (SLEEP_GOAL_H / (SLEEP_GOAL_H + 2)) * 100
+                    const color = h === 0 ? "bg-secondary" : h >= SLEEP_GOAL_H ? "bg-green-500" : h >= 6 ? "bg-amber-500" : "bg-red-500"
+                    return (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1 relative" style={{ height: 56 }}>
+                        {/* Goal line */}
+                        <div className="absolute w-full border-t border-dashed border-muted-foreground/30"
+                          style={{ bottom: `${goalPct}%` }} />
+                        {/* Bar */}
+                        <div className="absolute bottom-5 w-full flex items-end" style={{ height: "80%" }}>
+                          <div className={`w-full rounded-sm transition-all ${color}`}
+                            style={{ height: `${pct}%`, minHeight: h > 0 ? 3 : 0 }} />
+                        </div>
+                        {/* Day label */}
+                        <span className="absolute bottom-0 text-[9px] text-muted-foreground">
+                          {format(log.date, "EEE")}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Tip */}
+                {debtMin > 120 && (
+                  <p className="text-xs text-muted-foreground bg-red-500/5 border border-red-500/15 rounded-lg px-3 py-2">
+                    💡 You&apos;re {(debtMin / 60).toFixed(1)}h short this week. Try adding 30–45 min earlier each night — large sleep debts can&apos;t be fully repaid in one go.
+                  </p>
+                )}
+                {debtMin <= 0 && (
+                  <p className="text-xs text-muted-foreground bg-green-500/5 border border-green-500/15 rounded-lg px-3 py-2">
+                    🌟 You&apos;re on track — {(Math.abs(debtMin) / 60).toFixed(1)}h ahead of your sleep goal this week. Keep it up!
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* ── latest day detail ── */}
           {latestLog && (
@@ -400,7 +526,7 @@ export default async function HealthPage() {
                     <Moon className="h-4 w-4 text-primary" /> Sleep — last {Math.min(logs.length, 30)} days
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="min-w-0 overflow-x-auto"><SleepChart data={chartData} /></CardContent>
+                <CardContent className="min-w-0 overflow-x-auto"><SleepChart data={chartData} goal={SLEEP_GOAL_H} /></CardContent>
               </Card>
             )}
 

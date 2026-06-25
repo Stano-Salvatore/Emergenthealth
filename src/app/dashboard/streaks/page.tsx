@@ -29,7 +29,7 @@ interface StreaksData {
     byCategory: {
       habits: number; sleep: number; weight: number; mood: number
       journal: number; intake: number; focus: number; reading: number; supplements: number
-      github: number
+      github: number; checkin: number
     }
   }
   level: number
@@ -41,6 +41,7 @@ interface StreaksData {
   habitStreaks: HabitStreak[]
   achievements: Achievement[]
   githubStreak: number
+  checkinStreak: number
 }
 
 interface Toast {
@@ -63,12 +64,13 @@ const XP_COLORS: Record<string, string> = {
   reading:     "bg-pink-500",
   supplements: "bg-green-500",
   github:      "bg-slate-500",
+  checkin:     "bg-amber-400",
 }
 
 const XP_LABELS: Record<string, string> = {
   habits: "Habits", sleep: "Sleep", weight: "Weight", mood: "Mood",
   journal: "Journal", intake: "Intake", focus: "Focus", reading: "Reading",
-  supplements: "Supplements", github: "GitHub",
+  supplements: "Supplements", github: "GitHub", checkin: "Check-in",
 }
 
 function LevelBadge({ level }: { level: number }) {
@@ -153,7 +155,7 @@ export default function StreaksPage() {
   )
   if (!data) return null
 
-  const { xp, level, levelName, levelEmoji, progress, xpToNext, habitStreaks, achievements, githubStreak } = data
+  const { xp, level, levelName, levelEmoji, progress, xpToNext, habitStreaks, achievements, githubStreak, checkinStreak } = data
   const total = xp.total
   const cats = Object.entries(xp.byCategory).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
 
@@ -235,7 +237,7 @@ export default function StreaksPage() {
       </div>
 
       {/* Habit streaks */}
-      {(habitStreaks.length > 0 || githubStreak > 0) && (
+      {(habitStreaks.length > 0 || githubStreak > 0 || checkinStreak > 0) && (
         <div>
           <h2 className="text-base font-semibold mb-3">Habit Streaks</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -259,6 +261,20 @@ export default function StreaksPage() {
                 </div>
               </div>
             ))}
+            {checkinStreak > 0 && (
+              <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 bg-amber-400/10 border-2 border-amber-400/20">
+                  🌅
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-sm truncate">Morning Check-in</p>
+                  <p className="text-xs text-muted-foreground">daily check-in streak</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <FireStreak n={checkinStreak} size="md" />
+                </div>
+              </div>
+            )}
             {githubStreak > 0 && (
               <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-4">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 bg-slate-500/10 border-2 border-slate-500/20">

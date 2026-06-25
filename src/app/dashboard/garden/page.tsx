@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
-import { RefreshCw, Leaf, X, Check } from "lucide-react"
+import { useEffect, useState, useCallback, useRef } from "react"
+import { RefreshCw, Leaf, X, Check, Send, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -98,6 +98,138 @@ interface GardenData {
   plantChoices: Record<string, string>
   decorations: string[]
   weather: { code: number; temp: number } | null
+}
+
+// ─── Emergy chat ─────────────────────────────────────────────────────────────
+
+interface ChatMsg { role: "user" | "assistant"; text: string }
+
+const QUICK_PROMPTS = [
+  "How's my garden today?",
+  "What should I focus on?",
+  "Why are some plants wilting?",
+  "Any tips for building better habits?",
+]
+
+function EmergyChatPanel({
+  habits, weather, onClose,
+}: {
+  habits: HabitData[]
+  weather: { code: number; temp: number } | null
+  onClose: () => void
+}) {
+  const [history, setHistory]   = useState<ChatMsg[]>([])
+  const [input, setInput]       = useState("")
+  const [loading, setLoading]   = useState(false)
+  const bottomRef               = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [history, loading])
+
+  async function send(msg: string) {
+    if (!msg.trim() || loading) return
+    const userMsg: ChatMsg = { role: "user", text: msg }
+    setHistory(h => [...h, userMsg])
+    setInput("")
+    setLoading(true)
+    try {
+      const res = await fetch("/api/garden/emergy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: msg,
+          habits,
+          weather,
+          history: history.map(m => ({ role: m.role, content: m.text })),
+        }),
+      })
+      const data = await res.json()
+      setHistory(h => [...h, { role: "assistant", text: data.response ?? "…" }])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-primary/20 bg-card overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-primary/5">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-primary" />
+          <span className="text-sm font-semibold">Emergy</span>
+          <span className="text-xs text-muted-foreground">· garden spirit</span>
+        </div>
+        <button onClick={onClose} className="p-1 rounded-lg hover:bg-secondary transition-colors text-muted-foreground">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* Chat messages */}
+      <div className="flex flex-col gap-2.5 px-4 py-3 max-h-64 overflow-y-auto">
+        {history.length === 0 && (
+          <p className="text-xs text-muted-foreground text-center py-3 italic">
+            🌿 Ask me anything about your garden or habits…
+          </p>
+        )}
+        {history.map((msg, i) => (
+          <div key={i} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
+            <div className={cn(
+              "text-sm rounded-2xl px-3.5 py-2 max-w-[85%] leading-relaxed",
+              msg.role === "user"
+                ? "bg-primary text-primary-foreground rounded-br-sm"
+                : "bg-secondary text-secondary-foreground rounded-bl-sm"
+            )}>
+              {msg.role === "assistant" && <span className="mr-1.5">🌿</span>}
+              {msg.text}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-secondary rounded-2xl rounded-bl-sm px-3.5 py-2 text-sm text-muted-foreground">
+              🌿 <span className="inline-flex gap-0.5">
+                <span className="animate-bounce" style={{ animationDelay: "0ms" }}>·</span>
+                <span className="animate-bounce" style={{ animationDelay: "150ms" }}>·</span>
+                <span className="animate-bounce" style={{ animationDelay: "300ms" }}>·</span>
+              </span>
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Quick prompts */}
+      {history.length === 0 && (
+        <div className="flex flex-wrap gap-1.5 px-4 pb-3">
+          {QUICK_PROMPTS.map(p => (
+            <button key={p} onClick={() => send(p)}
+              className="text-[11px] px-2.5 py-1 rounded-full border border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-muted-foreground hover:text-foreground">
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Input */}
+      <div className="flex items-center gap-2 px-3 py-2 border-t border-border/60">
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && !e.shiftKey && send(input)}
+          placeholder="Ask Emergy…"
+          className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground/60 min-w-0"
+        />
+        <button
+          onClick={() => send(input)}
+          disabled={!input.trim() || loading}
+          className="p-1.5 rounded-lg bg-primary text-primary-foreground disabled:opacity-40 transition-opacity hover:opacity-90"
+        >
+          <Send className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // ─── Weather particles ────────────────────────────────────────────────────────
@@ -427,6 +559,7 @@ export default function GardenPage() {
   const [loading, setLoading]             = useState(true)
   const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null)
   const [showDecos, setShowDecos]         = useState(false)
+  const [showEmergy, setShowEmergy]       = useState(false)
   const [plantChoices, setPlantChoices]   = useState<Record<string, string>>({})
   const [decorations, setDecorations]     = useState<string[]>([])
 
@@ -518,7 +651,13 @@ export default function GardenPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" onClick={() => { setShowDecos(v => !v); setSelectedHabitId(null) }}>
+            <Button size="sm" variant={showEmergy ? "default" : "outline"}
+              onClick={() => { setShowEmergy(v => !v); setShowDecos(false); setSelectedHabitId(null) }}
+              className="gap-1.5">
+              <Sparkles className="h-3.5 w-3.5" />
+              Emergy
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => { setShowDecos(v => !v); setSelectedHabitId(null); setShowEmergy(false) }}>
               🪨 Decorate
             </Button>
             <Button size="sm" variant="ghost" onClick={load} disabled={loading} className="gap-1">
@@ -559,8 +698,17 @@ export default function GardenPage() {
           />
         )}
 
+        {/* Emergy chat */}
+        {showEmergy && (
+          <EmergyChatPanel
+            habits={data?.habits ?? []}
+            weather={data?.weather ?? null}
+            onClose={() => setShowEmergy(false)}
+          />
+        )}
+
         {/* Plant picker */}
-        {selectedHabit && !showDecos && (
+        {selectedHabit && !showDecos && !showEmergy && (
           <PlantPicker
             habit={selectedHabit}
             currentPlant={(plantChoices[selectedHabit.id] ?? "sunflower") as PlantKey}

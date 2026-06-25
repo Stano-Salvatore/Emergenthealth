@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ADD THESE TO android/app/src/main/AndroidManifest.xml
+
+  ── 1. PERMISSIONS (inside <manifest>, before <application>) ─────────────────
+
+  <uses-permission android:name="android.permission.INTERNET" />
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+  <!-- Location (for place check-in / PlaceDetector) -->
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+  <!-- Push notifications (Android 13+) -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+  <!-- Health Connect (all data types we read) -->
+  <uses-permission android:name="android.permission.health.READ_STEPS" />
+  <uses-permission android:name="android.permission.health.READ_SLEEP" />
+  <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+  <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
+  <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+  <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
+  <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
+  <uses-permission android:name="android.permission.health.READ_WEIGHT" />
+
+  ── 2. QUERIES (inside <manifest>, before <application>) ─────────────────────
+  Required to open the Health Connect app for permission grants.
+
+  <queries>
+    <package android:name="com.google.android.apps.healthdata" />
+    <intent>
+      <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+    </intent>
+  </queries>
+
+  ── 3. INSIDE <application> ──────────────────────────────────────────────────
+
+  <!-- Widget receiver (Quick Log widget) -->
+-->
+<receiver android:name=".QuickLogWidget" android:exported="true">
+    <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        <action android:name="app.emergenthealth.LOG_WATER_250" />
+        <action android:name="app.emergenthealth.LOG_WATER_500" />
+        <action android:name="app.emergenthealth.LOG_COFFEE" />
+        <action android:name="app.emergenthealth.LOG_BEER" />
+        <action android:name="app.emergenthealth.LOG_WINE" />
+    </intent-filter>
+    <meta-data
+        android:name="android.appwidget.provider"
+        android:resource="@xml/quick_log_widget_info" />
+</receiver>
+
+<!--
+  <!-- Health Connect permission rationale activity -->
+  <activity
+      android:name="androidx.health.connect.client.impl.platform.impl.HealthConnectClientUpsideDownCakeImpl$HealthConnectPermissionActivity"
+      android:exported="false" />
+
+  NOTE: The @kiwi-health/capacitor-health-connect plugin also merges its own
+  manifest fragment automatically via the plugin manifest, so the rationale
+  activity may already be present after `npx cap sync`.
+
+  ── 4. DEEP LINKS for OAuth callbacks ────────────────────────────────────────
+  If you want OAuth redirects (Strava, YNAB, Truelayer) to open in-app rather
+  than in an external browser, add an intent-filter to the main activity:
+
+  <intent-filter android:autoVerify="true">
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="https"
+          android:host="YOUR_VERCEL_DOMAIN"
+          android:pathPrefix="/api/strava/callback" />
+    <data android:scheme="https"
+          android:host="YOUR_VERCEL_DOMAIN"
+          android:pathPrefix="/api/ynab/callback" />
+    <data android:scheme="https"
+          android:host="YOUR_VERCEL_DOMAIN"
+          android:pathPrefix="/api/truelayer/callback" />
+  </intent-filter>
+
+  Replace YOUR_VERCEL_DOMAIN with your actual domain (e.g. emergenthealth.app).
+  Then verify domain ownership via Digital Asset Links:
+  https://developer.android.com/training/app-links/verify-android-applinks
+-->
+</content>
+</invoke>

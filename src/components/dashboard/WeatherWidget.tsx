@@ -70,7 +70,7 @@ export function WeatherWidget() {
               min: Math.round(data.daily.temperature_2m_min[i]),
             })),
           })
-          const today = new Date().toISOString().slice(0, 10)
+          const _tw = new Date(); const today = [_tw.getFullYear(), String(_tw.getMonth()+1).padStart(2,"0"), String(_tw.getDate()).padStart(2,"0")].join("-")
           fetch("/api/weather", {
             method: "POST",
             headers: { "Content-Type": "application/json" },

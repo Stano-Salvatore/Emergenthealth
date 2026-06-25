@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,7 +9,7 @@ import { Progress } from "@/components/ui/progress"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
-import { CheckSquare, Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X } from "lucide-react"
+import { CheckSquare, Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X, Zap, Bell, BellOff } from "lucide-react"
 import { EmptyState } from "@/components/ui/EmptyState"
 import { cn } from "@/lib/utils"
 import { format, subDays } from "date-fns"
@@ -18,11 +18,12 @@ interface Habit {
   id: string
   name: string
   description: string | null
+  icon: string | null
   color: string
   streak: number
   completedToday: boolean
   completions: { date: string }[]
-  reminderTime?: string | null
+  reminderTime: string | null
 }
 
 interface RoutineHabit {
@@ -41,6 +42,14 @@ interface Routine {
   allDone: boolean
 }
 
+function localDateStr(d: Date = new Date()): string {
+  return [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-")
+}
+
 const COLORS = [
   "#6366f1","#22c55e","#f59e0b","#ef4444",
   "#8b5cf6","#06b6d4","#ec4899","#14b8a6",
@@ -53,14 +62,121 @@ const TEMPLATES = [
   { emoji: "🧘", name: "Mindfulness" },
 ]
 
+const MILESTONES: Record<number, string> = {
+  7:   "One Week! 🔥",
+  14:  "Two Weeks! ⚡",
+  30:  "One Month! 🌟",
+  60:  "Two Months! 💎",
+  100: "100 Days! 🏆",
+  365: "One Year! 👑",
+}
+const MILESTONE_VALUES = Object.keys(MILESTONES).map(Number)
+
+interface MilestoneState {
+  habitName: string
+  streak: number
+}
+
+function MilestoneBanner({ milestone, onDismiss }: { milestone: MilestoneState; onDismiss: () => void }) {
+  const label = MILESTONES[milestone.streak] ?? `${milestone.streak} Day Streak!`
+  // Confetti dots — deterministic positions via seeded index
+  const dots = Array.from({ length: 18 }, (_, i) => ({
+    left: `${(i * 5.5 + 3) % 100}%`,
+    top: `${(i * 7 + 10) % 80}%`,
+    color: ["#fbbf24","#f472b6","#34d399","#60a5fa","#a78bfa","#fb923c"][i % 6],
+    delay: `${(i * 0.11).toFixed(2)}s`,
+    size: i % 3 === 0 ? 8 : i % 3 === 1 ? 5 : 6,
+  }))
+
+  return (
+    <>
+      <style>{`
+        @keyframes milestone-drop {
+          0%   { opacity: 0; transform: translateY(-32px) scale(0.92); }
+          60%  { opacity: 1; transform: translateY(4px) scale(1.02); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes confetti-fall {
+          0%   { transform: translateY(-10px) rotate(0deg); opacity: 1; }
+          80%  { opacity: 1; }
+          100% { transform: translateY(60px) rotate(360deg); opacity: 0; }
+        }
+        @keyframes milestone-pulse {
+          0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); }
+          50%       { box-shadow: 0 0 28px 6px rgba(251,191,36,0.28); }
+        }
+        .milestone-banner {
+          animation: milestone-drop 0.45s cubic-bezier(0.34,1.56,0.64,1) both,
+                     milestone-pulse 2s ease-in-out 0.5s infinite;
+        }
+        .confetti-dot {
+          animation: confetti-fall 1.8s ease-in forwards;
+        }
+      `}</style>
+      <div
+        className="milestone-banner fixed top-4 left-1/2 z-[100] w-[min(480px,calc(100vw-2rem))] -translate-x-1/2 cursor-pointer select-none overflow-hidden rounded-2xl border border-amber-400/60 bg-[#0f0a00] px-6 py-4 shadow-2xl"
+        onClick={onDismiss}
+        role="status"
+        aria-live="polite"
+      >
+        {/* confetti dots */}
+        <div className="pointer-events-none absolute inset-0" aria-hidden>
+          {dots.map((d, i) => (
+            <span
+              key={i}
+              className="confetti-dot absolute rounded-full"
+              style={{
+                left: d.left,
+                top: d.top,
+                width: d.size,
+                height: d.size,
+                background: d.color,
+                animationDelay: d.delay,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* content */}
+        <div className="relative flex items-center gap-4">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-amber-400/15 text-3xl leading-none ring-1 ring-amber-400/40">
+            🔥
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-amber-400/80">
+              Streak Milestone
+            </p>
+            <p className="mt-0.5 truncate text-lg font-black text-white leading-tight">
+              {milestone.habitName}
+            </p>
+            <p className="mt-0.5 text-sm font-bold text-amber-300">
+              {label}
+            </p>
+          </div>
+          <div className="shrink-0 text-right">
+            <span className="block text-4xl font-black text-amber-400 leading-none tabular-nums">
+              {milestone.streak}
+            </span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-400/60">days</span>
+          </div>
+        </div>
+
+        {/* dismiss hint */}
+        <p className="relative mt-2 text-center text-[10px] text-white/30">tap to dismiss</p>
+      </div>
+    </>
+  )
+}
+
 function HeatmapRow({ habit, days }: { habit: Habit; days: Date[] }) {
   const doneSet = new Set(habit.completions.map(c => c.date?.split("T")[0]))
+  const todayStr = localDateStr()
   return (
     <div className="flex gap-0.5">
       {days.map((d, i) => {
-        const str = d.toISOString().split("T")[0]
+        const str = localDateStr(d)
         const done = doneSet.has(str)
-        const isToday = str === new Date().toISOString().split("T")[0]
+        const isToday = str === todayStr
         return (
           <div key={i}
             className="h-3 flex-1 rounded-[2px] transition-all"
@@ -275,6 +391,153 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
   )
 }
 
+function HabitCard({ habit, days28, onToggle, onDelete, onUpdateReminder }: {
+  habit: Habit
+  days28: Date[]
+  onToggle: (h: Habit) => void
+  onDelete: (id: string) => void
+  onUpdateReminder: (id: string, reminderTime: string | null) => void
+}) {
+  const [showTimePicker, setShowTimePicker] = useState(false)
+  const [pendingTime, setPendingTime] = useState(habit.reminderTime ?? "")
+  const [savingReminder, setSavingReminder] = useState(false)
+
+  const isMed = habit.icon === "💊" || habit.icon === "🌿"
+
+  async function applyReminder(value: string | null) {
+    setSavingReminder(true)
+    try {
+      await fetch(`/api/habits/${habit.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reminderTime: value }),
+      })
+      onUpdateReminder(habit.id, value)
+    } finally {
+      setSavingReminder(false)
+      setShowTimePicker(false)
+    }
+  }
+
+  function handleTimeChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value
+    setPendingTime(v)
+    if (v) {
+      applyReminder(v)
+    }
+  }
+
+  function handleClear(e: React.MouseEvent) {
+    e.stopPropagation()
+    setPendingTime("")
+    applyReminder(null)
+  }
+
+  return (
+    <Card className={`transition-all ${habit.completedToday ? "border-green-500/30 bg-green-500/[0.03]" : ""}`}>
+      <CardContent className="py-4 px-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3 min-w-0">
+            {isMed
+              ? <span className="text-base leading-none shrink-0">{habit.icon}</span>
+              : <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: habit.color }} />
+            }
+            <div className="min-w-0">
+              <p className="font-semibold text-sm">{habit.name}</p>
+              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                {habit.description && (
+                  <span className="text-xs text-muted-foreground">{habit.description}</span>
+                )}
+                {!habit.description && (
+                  <>
+                    <Flame className="h-3 w-3 text-orange-400" />
+                    <span className="text-xs text-muted-foreground">{habit.streak} day streak</span>
+                    {habit.streak >= 7 && <Trophy className="h-3 w-3 text-amber-400" />}
+                  </>
+                )}
+                {habit.description && habit.streak > 0 && (
+                  <span className="text-xs text-muted-foreground">🔥 {habit.streak}d</span>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={() => onDelete(habit.id)}
+              className="text-muted-foreground hover:text-destructive transition-colors p-1">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+            <button onClick={() => onToggle(habit)}
+              className={`h-9 w-9 rounded-full border-2 flex items-center justify-center transition-all ${
+                habit.completedToday ? "bg-green-500 border-green-500 text-white scale-110" : "border-border hover:border-green-500 hover:scale-105"
+              }`}>
+              {habit.completedToday && <Check className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+        <div>
+          <div className="flex justify-between text-[9px] text-muted-foreground mb-1">
+            <span>4 weeks ago</span><span>Today</span>
+          </div>
+          <HeatmapRow habit={habit} days={days28} />
+        </div>
+        {/* Reminder section */}
+        <div className="mt-3 pt-2 border-t border-border/40">
+          {habit.reminderTime && !showTimePicker ? (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-medium text-amber-400 border border-amber-500/30">
+                🔔 {habit.reminderTime}
+              </span>
+              <button
+                onClick={() => { setPendingTime(habit.reminderTime ?? ""); setShowTimePicker(true) }}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                disabled={savingReminder}
+              >
+                edit
+              </button>
+              <button
+                onClick={handleClear}
+                className="ml-auto text-muted-foreground hover:text-destructive transition-colors p-0.5"
+                disabled={savingReminder}
+                aria-label="Clear reminder"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ) : !showTimePicker ? (
+            <button
+              onClick={() => setShowTimePicker(true)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Bell className="h-3 w-3" />
+              <span>Add reminder</span>
+            </button>
+          ) : null}
+          {showTimePicker && (
+            <div className="flex items-center gap-2">
+              <Bell className="h-3 w-3 text-muted-foreground shrink-0" />
+              <input
+                type="time"
+                value={pendingTime}
+                onChange={handleTimeChange}
+                autoFocus
+                className="bg-secondary/50 border border-border rounded-lg px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                disabled={savingReminder}
+              />
+              <button
+                onClick={() => setShowTimePicker(false)}
+                className="text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                aria-label="Cancel"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function HabitsPage() {
   const [habits, setHabits] = useState<Habit[]>([])
   const [loading, setLoading] = useState(true)
@@ -282,13 +545,29 @@ export default function HabitsPage() {
   const [newName, setNewName] = useState("")
   const [newColor, setNewColor] = useState(COLORS[0])
   const [newReminderTime, setNewReminderTime] = useState("")
+  const [newType, setNewType] = useState<"habit" | "medication" | "vitamin">("habit")
+  const [newDose, setNewDose] = useState("")
   const [saving, setSaving] = useState(false)
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [vacation, setVacation] = useState<{ active: boolean; from: string; until: string } | null>(null)
   const [showVacation, setShowVacation] = useState(false)
-  const [vacFrom, setVacFrom] = useState(new Date().toISOString().split("T")[0])
+  const [vacFrom, setVacFrom] = useState(() => localDateStr())
   const [vacUntil, setVacUntil] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().split("T")[0]
+    const d = new Date(); d.setDate(d.getDate() + 7); return localDateStr(d)
   })
+  const [milestone, setMilestone] = useState<MilestoneState | null>(null)
+  const milestoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function showMilestone(state: MilestoneState) {
+    if (milestoneTimerRef.current) clearTimeout(milestoneTimerRef.current)
+    setMilestone(state)
+    milestoneTimerRef.current = setTimeout(() => setMilestone(null), 4000)
+  }
+
+  function dismissMilestone() {
+    if (milestoneTimerRef.current) clearTimeout(milestoneTimerRef.current)
+    setMilestone(null)
+  }
 
   const days28 = Array.from({ length: 28 }, (_, i) => subDays(new Date(), 27 - i))
 
@@ -307,29 +586,70 @@ export default function HabitsPage() {
     e.preventDefault()
     if (!newName.trim()) return
     setSaving(true)
-    await fetch("/api/habits", {
+    const icon = newType === "medication" ? "💊" : newType === "vitamin" ? "🌿" : undefined
+    const res = await fetch("/api/habits", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName, color: newColor, reminderTime: newReminderTime || undefined }),
+      body: JSON.stringify({
+        name: newName,
+        color: newType === "medication" ? "#ef4444" : newType === "vitamin" ? "#22c55e" : newColor,
+        icon,
+        description: newDose.trim() || undefined,
+        reminderTime: newReminderTime || undefined,
+      }),
     })
-    setNewName(""); setNewReminderTime(""); setFormOpen(false); setSaving(false)
+    if (res.status === 403) {
+      const body = await res.json().catch(() => ({}))
+      if (body.upgrade) {
+        setSaving(false)
+        setFormOpen(false)
+        setShowUpgradeModal(true)
+        return
+      }
+    }
+    setNewName(""); setNewReminderTime(""); setNewDose(""); setNewType("habit"); setFormOpen(false); setSaving(false)
     loadHabits()
   }
 
   async function toggleComplete(habit: Habit) {
     const url = `/api/habits/${habit.id}/complete`
-    const dateStr = new Date().toISOString().split("T")[0]
+    const dateStr = localDateStr()
+    const wasCompletion = !habit.completedToday
+    const oldStreak = habit.streak
     if (habit.completedToday) {
       await fetch(url, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dateStr }) })
+      loadHabits()
     } else {
+      // Haptic feedback on completion
+      if ("vibrate" in navigator) navigator.vibrate([30, 20, 60])
       await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dateStr }) })
+      // Re-fetch to get the updated streak, then check for milestones
+      const res = await fetch("/api/habits")
+      if (res.ok) {
+        const updated: Habit[] = await res.json()
+        setHabits(updated)
+        setLoading(false)
+        if (wasCompletion) {
+          const updatedHabit = updated.find(h => h.id === habit.id)
+          if (updatedHabit) {
+            const newStreak = updatedHabit.streak
+            const hit = MILESTONE_VALUES.find(m => m <= newStreak && m > oldStreak)
+            if (hit !== undefined) {
+              showMilestone({ habitName: habit.name, streak: hit })
+            }
+          }
+        }
+      }
     }
-    loadHabits()
   }
 
   async function deleteHabit(id: string) {
     await fetch(`/api/habits/${id}`, { method: "DELETE" })
     loadHabits()
+  }
+
+  function updateHabitReminder(id: string, reminderTime: string | null) {
+    setHabits(prev => prev.map(h => h.id === id ? { ...h, reminderTime } : h))
   }
 
   async function saveVacation(active: boolean) {
@@ -340,6 +660,8 @@ export default function HabitsPage() {
     loadHabits()
   }
 
+  const regularHabits = habits.filter(h => !h.icon || (h.icon !== "💊" && h.icon !== "🌿"))
+  const medHabits = habits.filter(h => h.icon === "💊" || h.icon === "🌿")
   const completed = habits.filter(h => h.completedToday).length
   const total = habits.length
   const completionRate = total > 0 ? completed / total : 0
@@ -347,6 +669,49 @@ export default function HabitsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Streak milestone celebration banner */}
+      {milestone && <MilestoneBanner milestone={milestone} onDismiss={dismissMilestone} />}
+
+      {/* Upgrade modal */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowUpgradeModal(false)}>
+          <div className="w-full max-w-sm rounded-2xl bg-card border border-primary/30 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div className="h-10 w-10 rounded-xl bg-primary/15 flex items-center justify-center">
+                <Zap className="h-5 w-5 text-primary" />
+              </div>
+              <button onClick={() => setShowUpgradeModal(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <h3 className="text-lg font-bold mb-1">You&apos;ve hit the free limit</h3>
+            <p className="text-sm text-muted-foreground mb-5">
+              Free plan supports up to 10 habits. Upgrade to Pro for unlimited habits, full history, and daily AI insights.
+            </p>
+            <div className="space-y-2.5 mb-5 text-sm">
+              {["Unlimited habits & routines", "Full data history", "Daily AI insights", "Finance tracking"].map(f => (
+                <div key={f} className="flex items-center gap-2">
+                  <span className="text-primary">✓</span>
+                  <span>{f}</span>
+                </div>
+              ))}
+            </div>
+            <a
+              href="/pricing"
+              className="block w-full rounded-xl bg-primary py-3 text-center text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+            >
+              Start 14-day free trial →
+            </a>
+            <button
+              onClick={() => setShowUpgradeModal(false)}
+              className="mt-2.5 block w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Maybe later
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold">Habits</h1>
@@ -372,28 +737,50 @@ export default function HabitsPage() {
               <DialogHeader><DialogTitle>New Habit</DialogTitle></DialogHeader>
               <form onSubmit={createHabit} className="space-y-4">
                 <div>
-                  <Label>Name</Label>
-                  <Input className="mt-1" placeholder="Morning run" value={newName}
-                    onChange={e => setNewName(e.target.value)} autoFocus />
-                </div>
-                <div>
-                  <Label>Color</Label>
-                  <div className="flex gap-2 mt-2 flex-wrap">
-                    {COLORS.map(c => (
-                      <button key={c} type="button" onClick={() => setNewColor(c)}
-                        className="h-7 w-7 rounded-full border-2 transition-transform"
-                        style={{ backgroundColor: c, borderColor: newColor===c?"white":"transparent", transform: newColor===c?"scale(1.15)":"scale(1)" }} />
+                  <Label className="text-xs mb-2 block">Type</Label>
+                  <div className="flex gap-2">
+                    {([["habit","✅","Habit"],["medication","💊","Medication"],["vitamin","🌿","Vitamin"]] as const).map(([val, emoji, label]) => (
+                      <button key={val} type="button" onClick={() => setNewType(val)}
+                        className={cn("flex-1 py-1.5 rounded-lg border text-xs font-medium transition-colors",
+                          newType === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-muted-foreground"
+                        )}>
+                        {emoji} {label}
+                      </button>
                     ))}
                   </div>
                 </div>
                 <div>
-                  <Label>Reminder time <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                  <Label>Name</Label>
+                  <Input className="mt-1" placeholder={newType === "medication" ? "Vitamin D, Metformin…" : newType === "vitamin" ? "Omega-3, Magnesium…" : "Morning run"} value={newName}
+                    onChange={e => setNewName(e.target.value)} autoFocus />
+                </div>
+                {(newType === "medication" || newType === "vitamin") && (
+                  <div>
+                    <Label>Dose <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                    <Input className="mt-1" placeholder="e.g. 500mg, 2 capsules" value={newDose}
+                      onChange={e => setNewDose(e.target.value)} />
+                  </div>
+                )}
+                {newType === "habit" && (
+                  <div>
+                    <Label>Color</Label>
+                    <div className="flex gap-2 mt-2 flex-wrap">
+                      {COLORS.map(c => (
+                        <button key={c} type="button" onClick={() => setNewColor(c)}
+                          className="h-7 w-7 rounded-full border-2 transition-transform"
+                          style={{ backgroundColor: c, borderColor: newColor===c?"white":"transparent", transform: newColor===c?"scale(1.15)":"scale(1)" }} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <Label>Daily reminder <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
                   <input type="time" value={newReminderTime} onChange={e => setNewReminderTime(e.target.value)}
-                    className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" />
-                  <p className="text-[11px] text-muted-foreground mt-1">Get a push notification at this time if the habit isn&apos;t done yet</p>
+                    className="mt-1 bg-secondary/50 border border-border rounded-lg px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 w-full" />
+                  <p className="text-[11px] text-muted-foreground mt-1">Get a push notification at this time if not done yet</p>
                 </div>
                 <Button type="submit" className="w-full" disabled={saving || !newName.trim()}>
-                  {saving ? "Creating…" : "Create"}
+                  {saving ? "Creating…" : `Create ${newType}`}
                 </Button>
               </form>
             </DialogContent>
@@ -477,55 +864,36 @@ export default function HabitsPage() {
           ))}
         </div>
       ) : habits.length === 0 ? (
-        <EmptyState
-          icon={<CheckSquare className="h-10 w-10" />}
-          title="No habits yet"
-          description="Add your first habit to start tracking streaks."
-          action={{ label: "New Habit", onClick: () => setFormOpen(true) }}
-        />
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/50 px-8 py-16 text-center">
+          <div className="mb-3 text-5xl leading-none select-none">🌱</div>
+          <h3 className="text-base font-semibold text-foreground">No habits yet</h3>
+          <p className="mt-2 max-w-xs text-sm text-muted-foreground leading-relaxed">
+            Start small — add one habit you want to build. Your garden grows as you stay consistent.
+          </p>
+          <button
+            onClick={() => setFormOpen(true)}
+            className="mt-5 inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+          >
+            <Plus className="h-4 w-4" /> Add your first habit
+          </button>
+        </div>
       ) : (
-        <div className="space-y-3">
-          {habits.map(habit => (
-            <Card key={habit.id}
-              className={`transition-all ${habit.completedToday ? "border-green-500/30 bg-green-500/[0.03]" : ""}`}>
-              <CardContent className="py-4 px-5">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: habit.color }} />
-                    <div className="min-w-0">
-                      <p className="font-semibold text-sm">{habit.name}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <Flame className="h-3 w-3 text-orange-400" />
-                        <span className="text-xs text-muted-foreground">{habit.streak} day streak</span>
-                        {habit.streak >= 7 && <Trophy className="h-3 w-3 text-amber-400" />}
-                        {habit.reminderTime && (
-                          <span className="text-xs text-muted-foreground">🔔 {habit.reminderTime}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => deleteHabit(habit.id)}
-                      className="text-muted-foreground hover:text-destructive transition-colors p-1">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                    <button onClick={() => toggleComplete(habit)}
-                      className={`h-9 w-9 rounded-full border-2 flex items-center justify-center transition-all ${
-                        habit.completedToday ? "bg-green-500 border-green-500 text-white scale-110" : "border-border hover:border-green-500 hover:scale-105"
-                      }`}>
-                      {habit.completedToday && <Check className="h-4 w-4" />}
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <div className="flex justify-between text-[9px] text-muted-foreground mb-1">
-                    <span>4 weeks ago</span><span>Today</span>
-                  </div>
-                  <HeatmapRow habit={habit} days={days28} />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+        <div className="space-y-6">
+          {regularHabits.length > 0 && (
+            <div className="space-y-3">
+              {regularHabits.map(habit => (
+                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={deleteHabit} onUpdateReminder={updateHabitReminder} />
+              ))}
+            </div>
+          )}
+          {medHabits.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">💊 Medications & Vitamins</h2>
+              {medHabits.map(habit => (
+                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={deleteHabit} onUpdateReminder={updateHabitReminder} />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

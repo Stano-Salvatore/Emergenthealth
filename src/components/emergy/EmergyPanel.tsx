@@ -10,9 +10,10 @@ interface EmergyData {
   xp: number
   level: number
   levelName: string
-  xpProgress: number
+  progress: number
   waterMl: number
-  isScreening: boolean
+  habitsDone: number
+  totalHabits: number
 }
 
 interface ChatMessage {
@@ -56,7 +57,19 @@ export function EmergyPanel() {
   const fetchEmergy = useCallback(async () => {
     try {
       const res = await fetch("/api/emergy")
-      if (res.ok) setEmergy(await res.json())
+      if (res.ok) {
+        const data = await res.json()
+        setEmergy(data)
+        // Update app icon badge with incomplete habit count
+        if ("setAppBadge" in navigator) {
+          const incomplete = (data.totalHabits ?? 0) - (data.habitsDone ?? 0)
+          if (incomplete > 0) {
+            navigator.setAppBadge(incomplete).catch(() => {})
+          } else {
+            navigator.clearAppBadge().catch(() => {})
+          }
+        }
+      }
     } catch {}
   }, [])
 
@@ -183,12 +196,12 @@ export function EmergyPanel() {
   }
 
   const state = emergy?.state ?? "okay"
-  const isScreaming = emergy?.isScreening ?? false
+  const isScreaming = emergy?.state === "screaming"
 
   return (
     <>
       {/* Speech bubble + button row */}
-      <div className="fixed bottom-10 right-6 z-50 flex items-center gap-3">
+      <div className="fixed bottom-20 lg:bottom-10 right-6 z-50 flex items-center gap-3">
         {/* Speech bubble — appears to the left when Emergy has something to say */}
         {showBubble && emergy?.message && (
           <div
@@ -235,7 +248,7 @@ export function EmergyPanel() {
 
       {/* Chat panel */}
       {open && (
-        <div className="fixed bottom-[128px] right-6 z-50 w-80 h-[480px] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
+        <div className="fixed bottom-[148px] lg:bottom-[128px] right-6 z-50 w-80 h-[480px] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card shrink-0">
             <EmergySVG state={state} size={40} />
@@ -245,7 +258,7 @@ export function EmergyPanel() {
                 <div className="h-1.5 flex-1 rounded-full bg-secondary overflow-hidden">
                   <div
                     className="h-full rounded-full bg-green-500 transition-all"
-                    style={{ width: `${Math.round((emergy?.xpProgress ?? 0) * 100)}%` }}
+                    style={{ width: `${Math.round((emergy?.progress ?? 0) * 100)}%` }}
                   />
                 </div>
                 <span className="text-xs text-muted-foreground whitespace-nowrap">

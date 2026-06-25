@@ -1,6 +1,23 @@
 import type { NextConfig } from "next"
 
+const securityHeaders = [
+  { key: "X-DNS-Prefetch-Control", value: "on" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "SAMEORIGIN" },
+  { key: "X-XSS-Protection", value: "1; mode=block" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
+]
+
 const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: securityHeaders,
+      },
+    ]
+  },
   async rewrites() {
     return [
       {
@@ -14,13 +31,13 @@ const nextConfig: NextConfig = {
     ]
   },
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: true, // TODO: resolve remaining type errors and set to false
   },
   serverExternalPackages: ["@actual-app/api", "@actual-app/core"],
   turbopack: {},
   experimental: {
     serverActions: {
-      allowedOrigins: ["localhost:3000"],
+      allowedOrigins: ["localhost:3000", "emergenthealth.vercel.app"],
     },
   },
   images: {
