@@ -26,7 +26,9 @@ export async function GET(request: Request) {
   })
 
   if (!record) {
-    return Response.redirect(new URL("/signin?error=AuthKeyNotFound", request.url))
+    // Key already redeemed (double-intent race) — cookie was set by the first call.
+    // Redirect to dashboard; if not authenticated, Next.js will redirect to /signin.
+    return Response.redirect(new URL("/dashboard", request.url))
   }
 
   await prisma.verificationToken.deleteMany({
