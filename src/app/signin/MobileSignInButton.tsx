@@ -1,6 +1,7 @@
 'use client'
 
 import { Button } from "@/components/ui/button"
+import { useEffect, useState } from "react"
 
 const GoogleIcon = () => (
   <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24">
@@ -15,27 +16,42 @@ const GOOGLE_BTN_CLASS =
   "w-full gap-2.5 h-11 text-sm font-semibold rounded-xl bg-white text-gray-900 hover:bg-gray-100 shadow-lg"
 
 export function MobileSignInButton({ label }: { label: string }) {
+  const [bridgeReady, setBridgeReady] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    setBridgeReady(!!(window as any).EhAuthBridge?.openSignIn)
+  }, [])
+
   function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     e.preventDefault()
     const key = crypto.randomUUID()
-    // Primary: JS interface registered by MainActivity via addJavascriptInterface.
-    // More reliable than shouldOverrideUrlLoading — doesn't depend on WebView
-    // navigation hooks which may not fire for same-origin navigations.
     const nativeBridge = (window as any).EhAuthBridge
     if (nativeBridge?.openSignIn) {
+      // Primary path: JSI registered by MainActivity.setupBridgeHooks().
+      // Opens Custom Tab at /mobile-signin and loads /mobile-wait in WebView.
       nativeBridge.openSignIn(key)
     } else {
-      // Fallback: custom scheme triggers shouldOverrideUrlLoading unconditionally.
-      window.location.href = `ehauth://open?auth_key=${encodeURIComponent(key)}`
+      // Fallback: navigate WebView directly to /mobile-signin. The
+      // shouldOverrideUrlLoading handler will intercept the subsequent
+      // *.google.com redirect and open a Chrome Custom Tab for OAuth.
+      // (ehauth:// was the old fallback but has no intent filter — it fails silently.)
+      window.location.href = `/mobile-signin?auth_key=${encodeURIComponent(key)}`
     }
   }
 
   return (
-    <Button asChild className={GOOGLE_BTN_CLASS} size="lg">
-      <a href="/mobile-signin" onClick={handleClick}>
-        <GoogleIcon />
-        {label}
-      </a>
-    </Button>
+    <div className="w-full space-y-1.5">
+      <Button asChild className={GOOGLE_BTN_CLASS} size="lg">
+        <a href="/mobile-signin" onClick={handleClick}>
+          <GoogleIcon />
+          {label}
+        </a>
+      </Button>
+      {bridgeReady !== null && (
+        <p className="text-center text-[11px]" style={{ color: bridgeReady ? '#22c55e' : '#f59e0b' }}>
+          {bridgeReady ? '● Native bridge active' : '● Fallback mode — tap to sign in'}
+        </p>
+      )}
+    </div>
   )
 }
