@@ -80,9 +80,6 @@ export async function GET(request: Request) {
   <p class="sub">Or just close this tab manually.</p>
   <script>
     window.location.replace(${JSON.stringify(intentTarget)});
-    setTimeout(function(){
-      try { window.location.replace(${JSON.stringify(fallbackTarget)}); } catch(e){}
-    }, 800);
   </script>
 </body>
 </html>`,
