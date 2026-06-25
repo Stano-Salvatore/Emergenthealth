@@ -2,8 +2,12 @@ import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import { prisma } from "@/lib/prisma"
+import type { NextAuthConfig } from "next-auth"
 
-export const { handlers, auth, signIn, signOut } = NextAuth({
+// Exported so /api/mobile-auth-start can call Auth() directly with the same
+// config. NextAuth mutates this object (setEnvDefaults adds secret + basePath)
+// so by the time any route handler runs the config is fully initialised.
+export const authConfig: NextAuthConfig = {
   trustHost: true,
   adapter: PrismaAdapter(prisma),
   providers: [
@@ -73,4 +77,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     maxAge: 30 * 24 * 60 * 60, // 30 days
     updateAge: 24 * 60 * 60,   // refresh once per day
   },
-})
+}
+
+export const { handlers, auth, signIn, signOut } = NextAuth(authConfig)
