@@ -61,10 +61,11 @@ export async function GET(request: Request) {
 
   const cookieStr = `${data.n}=${data.t}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=2592000`
 
-  // Return 200 with Set-Cookie. WebView stores the cookie, then the <meta>
-  // refresh navigates to /dashboard with the session cookie already in the jar.
+  // Return 200 with Set-Cookie. A meta http-equiv="refresh" with delay=0 can
+  // race against Android WebView's async cookie write; use a JS setTimeout so
+  // the cookie is committed before the navigation fires.
   return new Response(
-    `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=/dashboard"></head><body></body></html>`,
+    `<!DOCTYPE html><html><head></head><body><script>setTimeout(function(){window.location.replace('/dashboard')},300);</script></body></html>`,
     {
       status: 200,
       headers: {

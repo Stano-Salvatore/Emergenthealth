@@ -42,16 +42,17 @@ extra_permissions = """
     </queries>
 """
 
-# App Links intent filter (optional deep-link bonus if verified) +
-# Custom scheme intent filter (always works, no verification needed).
-# The OAuth flow uses emergenthealth:// to return the session token to the app.
+# Custom scheme intent filter only.
+#
+# DO NOT add an https://emergenthealth.vercel.app App Links filter here.
+# assetlinks.json is verified, so Android intercepts Chrome's navigation to
+# /api/mobile-auth-bridge BEFORE Chrome can load the page. That means the
+# bridge never stores the signed session code in the DB, polling always sees
+# {done:false}, and the app opens on the sign-in page with no session.
+#
+# Without the https filter, Chrome loads the bridge URL normally, stores the
+# code, shows the "Return to app" page, and the polling loop redeems it.
 deep_link_filters = """
-        <intent-filter android:autoVerify="true">
-            <action android:name="android.intent.action.VIEW" />
-            <category android:name="android.intent.category.DEFAULT" />
-            <category android:name="android.intent.category.BROWSABLE" />
-            <data android:scheme="https" android:host="emergenthealth.vercel.app" />
-        </intent-filter>
         <intent-filter>
             <action android:name="android.intent.action.VIEW" />
             <category android:name="android.intent.category.DEFAULT" />
