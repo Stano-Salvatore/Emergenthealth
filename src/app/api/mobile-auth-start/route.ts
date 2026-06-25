@@ -1,32 +1,53 @@
-import { Auth, skipCSRFCheck } from "@auth/core"
-import { authConfig } from "@/auth"
-
-// Called by Chrome Custom Tab (via /mobile-signin redirect) to initiate Google
-// OAuth. Unlike the Server Action approach in /mobile-signin, this is a plain
-// HTTP Route Handler — Auth() returns a real Response whose Set-Cookie headers
-// Chrome actually stores. The Server Action + redirect() path goes through
-// Next.js's RSC transport, which does not reliably deliver Set-Cookie to
-// Chrome, so authjs.callback-url was never reaching Chrome's cookie jar.
+// Called by Chrome Custom Tab (via /mobile-signin redirect) to kick off Google
+// OAuth. We construct the authorization URL manually and set the
+// __Secure-authjs.callback-url cookie ourselves so Auth.js's callback redirects
+// Chrome to the bridge after OAuth completes.
+//
+// The previous approach (calling Auth() internally and returning its response)
+// should have worked, but something in the Next.js / Vercel response pipeline
+// was stripping or not propagating the Set-Cookie header reliably.  By owning
+// the entire Response we guarantee Chrome receives exactly the cookie we want.
 export async function GET(request: Request) {
   const url = new URL(request.url)
   const authKey = url.searchParams.get("auth_key") ?? ""
+  const origin = url.origin
 
-  const callbackUrl = authKey
-    ? `/api/mobile-auth-bridge?auth_key=${encodeURIComponent(authKey)}`
-    : "/api/mobile-auth-bridge"
+  const callbackUrl = `${origin}/api/mobile-auth-bridge${
+    authKey ? `?auth_key=${encodeURIComponent(authKey)}` : ""
+  }`
 
-  // POST to /api/auth/signin/google with callbackUrl — same internal call that
-  // next-auth's signIn() helper makes, but from a Route Handler so the response
-  // is a real HTTP 302 + Set-Cookie that Chrome processes natively.
-  const signinUrl = new URL("/api/auth/signin/google", url.origin)
-  const signinReq = new Request(signinUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ callbackUrl }),
-  })
+  // Build the Google OAuth authorization URL with the same params that
+  // next-auth's Google provider uses (access_type + prompt ensure a refresh
+  // token is returned on every consent).
+  const googleAuthUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth")
+  googleAuthUrl.searchParams.set("client_id", process.env.AUTH_GOOGLE_ID!)
+  googleAuthUrl.searchParams.set("response_type", "code")
+  // redirect_uri must match an entry registered in Google Cloud Console
+  googleAuthUrl.searchParams.set("redirect_uri", `${origin}/api/auth/callback/google`)
+  googleAuthUrl.searchParams.set(
+    "scope",
+    [
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/sdm.service",
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/gmail.readonly",
+    ].join(" ")
+  )
+  googleAuthUrl.searchParams.set("access_type", "offline")
+  googleAuthUrl.searchParams.set("prompt", "consent")
 
-  // authConfig has already been mutated by NextAuth(authConfig) at module load
-  // time (secret, basePath, providers resolved). skipCSRFCheck bypasses the
-  // double-submit CSRF check so we don't need a csrfToken in the body.
-  return Auth(signinReq, { ...authConfig, skipCSRFCheck })
+  // Auth.js's vendored cookie serializer (cookie.ts) uses encodeURIComponent
+  // for cookie values; its parser uses decodeURIComponent.  We mirror that
+  // encoding here so the callback handler reads the value correctly.
+  const headers = new Headers()
+  headers.set("Location", googleAuthUrl.toString())
+  headers.append(
+    "Set-Cookie",
+    `__Secure-authjs.callback-url=${encodeURIComponent(callbackUrl)}; Path=/; HttpOnly; Secure; SameSite=Lax`
+  )
+
+  return new Response(null, { status: 302, headers })
 }
