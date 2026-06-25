@@ -64,7 +64,9 @@ export default async function MobileSignIn({
         Complete sign-in in the browser — the app will open automatically.
       </p>
 
-      {/* Auto-submit on load, then poll until bridge stores the session code. */}
+      {/* Auto-submit on load, then poll until bridge stores the session code.
+          sessionStorage prevents re-submitting when the native layer reloads
+          this page after intercepting accounts.google.com (to keep polling alive). */}
       <script
         dangerouslySetInnerHTML={{
           __html: `(function(){
@@ -78,11 +80,19 @@ export default async function MobileSignIn({
       .catch(function(){});
   }
   window.addEventListener('load',function(){
-    document.getElementById('f').submit();
     if(k){
+      var ssKey='mobile-auth:'+k;
+      var submitted=false;
+      try{submitted=!!sessionStorage.getItem(ssKey);}catch(e){}
+      if(!submitted){
+        try{sessionStorage.setItem(ssKey,'1');}catch(e){}
+        document.getElementById('f').submit();
+      }
       var w=document.getElementById('eh-wait');
       if(w) setTimeout(function(){w.style.display='block';},800);
       iv=setInterval(tick,2000);
+    } else {
+      document.getElementById('f').submit();
     }
   });
 })();`,
