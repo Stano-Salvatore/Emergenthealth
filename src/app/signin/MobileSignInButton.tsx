@@ -17,13 +17,16 @@ const GOOGLE_BTN_CLASS =
 export function MobileSignInButton({ label }: { label: string }) {
   function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     e.preventDefault()
-    try {
-      const key = crypto.randomUUID()
-      // Use a custom scheme so shouldOverrideUrlLoading fires unconditionally in native code.
-      // Same-origin https navigations are unreliable triggers in some Capacitor versions.
+    const key = crypto.randomUUID()
+    // Primary: JS interface registered by MainActivity via addJavascriptInterface.
+    // More reliable than shouldOverrideUrlLoading — doesn't depend on WebView
+    // navigation hooks which may not fire for same-origin navigations.
+    const nativeBridge = (window as any).EhAuthBridge
+    if (nativeBridge?.openSignIn) {
+      nativeBridge.openSignIn(key)
+    } else {
+      // Fallback: custom scheme triggers shouldOverrideUrlLoading unconditionally.
       window.location.href = `ehauth://open?auth_key=${encodeURIComponent(key)}`
-    } catch {
-      window.location.href = '/mobile-signin'
     }
   }
 
