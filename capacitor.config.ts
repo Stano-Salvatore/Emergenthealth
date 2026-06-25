@@ -8,6 +8,11 @@ const config: CapacitorConfig = {
     url: process.env.NEXT_PUBLIC_APP_URL ?? 'https://emergenthealth.vercel.app',
     cleartext: false,
     androidScheme: 'https',
+    allowNavigation: [
+      'accounts.google.com',
+      '*.google.com',
+      '*.googleapis.com',
+    ],
   },
   plugins: {
     PushNotifications: {
