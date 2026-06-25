@@ -107,45 +107,64 @@ for path in found:
 
 # ── Patch MainActivity ────────────────────────────────────────────────────────
 #
-# The Capacitor template generates MainActivity.java (empty BridgeActivity subclass).
-# We convert it to Kotlin and keep it minimal — no overrides, no lifecycle hooks.
+# The Capacitor template generates a Java MainActivity (empty BridgeActivity subclass).
+# We replace it with a Java file (NOT Kotlin) because the root build.gradle has no
+# Kotlin classpath entry — any .kt file in the app module is silently skipped by the
+# Java compiler, leaving the APK without a MainActivity class and causing an instant
+# ActivityNotFoundException crash on launch.
 #
 # On Chromebook ARC the WebView IS Chrome, so Google OAuth runs directly inside the
 # WebView without any Custom Tab or deep-link dance. The bridge page at
 # /api/mobile-auth-bridge detects the Capacitor User-Agent and redirects straight
-# to /dashboard; MainActivity needs zero custom logic for this flow.
-#
-# (androidx.browser / Chrome Custom Tabs not needed — removed to avoid ARC crash)
+# to /dashboard. The onNewIntent handler below is a belt-and-suspenders fallback for
+# physical Android phones where Chrome opens OAuth externally and fires the deep link.
 
-main_activity_path = None
 main_activity_dir = None
 for root, dirs, files in os.walk("android/app/src/main/java"):
-    if "MainActivity.kt" in files:
-        main_activity_path = os.path.join(root, "MainActivity.kt")
+    if "MainActivity.java" in files or "MainActivity.kt" in files:
         main_activity_dir = root
         break
-    if "MainActivity.java" in files and main_activity_dir is None:
-        main_activity_dir = root
 
-if main_activity_dir and not main_activity_path:
-    main_activity_path = os.path.join(main_activity_dir, "MainActivity.kt")
-
-if not main_activity_path:
-    print("WARNING: MainActivity not found -- skipping patch")
+if not main_activity_dir:
+    print("WARNING: MainActivity not found — skipping patch")
 else:
     java_root = "android/app/src/main/java/"
-    relative = os.path.dirname(main_activity_path).replace(java_root, "")
-    pkg = relative.replace(os.sep, ".")
+    pkg = main_activity_dir.replace(java_root, "").replace(os.sep, ".")
 
-    java_counterpart = main_activity_path.replace("MainActivity.kt", "MainActivity.java")
-    if os.path.exists(java_counterpart):
-        os.remove(java_counterpart)
-        print(f"✓ Removed {java_counterpart}")
+    # Remove any stale .kt that would be silently ignored and confuse the build.
+    stale_kt = os.path.join(main_activity_dir, "MainActivity.kt")
+    if os.path.exists(stale_kt):
+        os.remove(stale_kt)
+        print(f"✓ Removed stale {stale_kt}")
 
-    # Minimal Kotlin equivalent of the template's empty Java class.
-    # No extra overrides — every added lifecycle method was a potential crash site.
-    patched_main = "package " + pkg + "\n\nimport com.getcapacitor.BridgeActivity\n\nclass MainActivity : BridgeActivity()\n"
-
-    with open(main_activity_path, "w") as f:
-        f.write(patched_main)
-    print(f"✓ {main_activity_path}: minimal BridgeActivity subclass (crash-safe)")
+    main_activity_java = os.path.join(main_activity_dir, "MainActivity.java")
+    content = (
+        "package " + pkg + ";\n\n"
+        "import android.content.Intent;\n"
+        "import android.net.Uri;\n"
+        "import com.getcapacitor.BridgeActivity;\n\n"
+        "public class MainActivity extends BridgeActivity {\n\n"
+        "    @Override\n"
+        "    public void onNewIntent(Intent intent) {\n"
+        "        super.onNewIntent(intent);\n"
+        "        setIntent(intent);\n"
+        "        handleAuthIntent(intent);\n"
+        "    }\n\n"
+        "    private void handleAuthIntent(Intent intent) {\n"
+        "        if (intent == null) return;\n"
+        "        Uri data = intent.getData();\n"
+        "        if (data == null || !\"emergenthealth\".equals(data.getScheme())) return;\n"
+        "        String key = data.getQueryParameter(\"key\");\n"
+        "        if (key == null || key.isEmpty()) return;\n"
+        "        if (bridge != null) {\n"
+        "            bridge.getWebView().post(() ->\n"
+        "                bridge.getWebView().loadUrl(\n"
+        "                    \"https://emergenthealth.vercel.app/api/mobile-set-cookie?key=\"\n"
+        "                    + Uri.encode(key)));\n"
+        "        }\n"
+        "    }\n"
+        "}\n"
+    )
+    with open(main_activity_java, "w") as f:
+        f.write(content)
+    print(f"✓ {main_activity_java}: Java BridgeActivity with deep-link handler")
