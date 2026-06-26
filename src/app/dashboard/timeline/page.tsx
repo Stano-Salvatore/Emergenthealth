@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { format, parseISO, subDays, addDays } from "date-fns"
-import { ChevronLeft, ChevronRight, Moon, Footprints, Heart, Shield, Zap, RefreshCw } from "lucide-react"
+import { ChevronLeft, ChevronRight, Moon, Footprints, Heart, Shield, Zap, RefreshCw, X, Plus } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
@@ -22,6 +22,7 @@ interface HabitItem { name: string; color: string; emoji: string | null; complet
 interface IntakeItem { type: string; amountMl: number; loggedAt: string; note: string | null }
 interface FocusItem { label: string | null; durationMin: number; startedAt: string; endedAt: string; type: string }
 interface TagItem { tagName: string | null; text: string | null; timestamp: string }
+interface CustomEvent { id: string; emoji: string; label: string; note: string | null; occurredAt: string }
 interface CheckInData { energy: number; mood: number; intention: string | null; waterGoalMl: number }
 interface DayData {
   date: string
@@ -33,6 +34,7 @@ interface DayData {
   dailyNote: { content: string } | null
   checkin: CheckInData | null
   tags: TagItem[]
+  customEvents: CustomEvent[]
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -152,9 +154,10 @@ interface TLEvent {
   label: string
   sub?: string
   pill?: string
+  eventId?: string  // present only for user-created custom events (deletable)
 }
 
-function EventRow({ ev }: { ev: TLEvent }) {
+function EventRow({ ev, onDelete }: { ev: TLEvent; onDelete?: (id: string) => void }) {
   return (
     <div className="flex items-start gap-3 group">
       <div className="w-10 text-right text-[10px] text-muted-foreground/50 pt-0.5 shrink-0 tabular-nums">
@@ -164,7 +167,7 @@ function EventRow({ ev }: { ev: TLEvent }) {
         <div className="w-2 h-2 rounded-full mt-1" style={{ background: ev.color }} />
         <div className="w-px flex-1 bg-border/30 mt-0.5" />
       </div>
-      <div className="pb-3 min-w-0">
+      <div className="pb-3 min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="text-sm leading-none">{ev.emoji}</span>
           <span className="text-sm font-medium leading-snug">{ev.label}</span>
@@ -172,6 +175,15 @@ function EventRow({ ev }: { ev: TLEvent }) {
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary border border-border/40 text-muted-foreground">
               {ev.pill}
             </span>
+          )}
+          {ev.eventId && onDelete && (
+            <button
+              onClick={() => onDelete(ev.eventId!)}
+              className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground/40 hover:text-red-400 shrink-0"
+              aria-label="Delete event"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           )}
         </div>
         {ev.sub && <p className="text-xs text-muted-foreground/60 mt-0.5">{ev.sub}</p>}
@@ -182,7 +194,7 @@ function EventRow({ ev }: { ev: TLEvent }) {
 
 // ── Main timeline ──────────────────────────────────────────────────────────────
 
-function Timeline({ data }: { data: DayData }) {
+function Timeline({ data, onDelete }: { data: DayData; onDelete?: (id: string) => void }) {
   const events: TLEvent[] = []
 
   // Focus sessions
@@ -220,6 +232,18 @@ function Timeline({ data }: { data: DayData }) {
     })
   }
 
+  // Custom events (user-created, deletable)
+  for (const c of data.customEvents ?? []) {
+    events.push({
+      hour: isoToHour(c.occurredAt),
+      color: "#f59e0b",
+      emoji: c.emoji,
+      label: c.label,
+      sub: c.note ?? undefined,
+      eventId: c.id,
+    })
+  }
+
   events.sort((a, b) => a.hour - b.hour)
 
   if (!events.length && !data.healthLog?.sleepDuration) {
@@ -252,7 +276,7 @@ function Timeline({ data }: { data: DayData }) {
         </div>
       )}
 
-      {events.map((ev, i) => <EventRow key={i} ev={ev} />)}
+      {events.map((ev, i) => <EventRow key={ev.eventId ?? i} ev={ev} onDelete={onDelete} />)}
 
       {/* End cap */}
       <div className="flex items-start gap-3 opacity-30">
@@ -332,10 +356,19 @@ function StatGrid({ log }: { log: HealthLog }) {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+const QUICK_EMOJI = ["📌", "🍺", "🍷", "🍔", "💊", "🏋️", "🚗", "💼", "😴", "🤕", "❤️", "🎉"]
+
 export default function TimelinePage() {
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"))
   const [data, setData] = useState<DayData | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Quick-add custom event form
+  const [adding, setAdding] = useState(false)
+  const [evEmoji, setEvEmoji] = useState("📌")
+  const [evLabel, setEvLabel] = useState("")
+  const [evTime, setEvTime] = useState(format(new Date(), "HH:mm"))
+  const [saving, setSaving] = useState(false)
 
   const load = useCallback(async (d = date) => {
     setLoading(true)
@@ -354,6 +387,38 @@ export default function TimelinePage() {
     const next = format(delta > 0 ? addDays(parseISO(date), 1) : subDays(parseISO(date), 1), "yyyy-MM-dd")
     setDate(next)
     load(next)
+  }
+
+  function openAdd() {
+    setEvEmoji("📌")
+    setEvLabel("")
+    setEvTime(format(new Date(), "HH:mm"))
+    setAdding(true)
+  }
+
+  async function addEvent() {
+    const label = evLabel.trim()
+    if (!label || saving) return
+    setSaving(true)
+    try {
+      // Combine the viewed date with the chosen time (local) into an ISO timestamp
+      const occurredAt = new Date(`${date}T${evTime || "12:00"}:00`).toISOString()
+      await fetch("/api/timeline-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emoji: evEmoji, label, occurredAt }),
+      })
+      setAdding(false)
+      setEvLabel("")
+      await load(date)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function deleteEvent(id: string) {
+    await fetch(`/api/timeline-events?id=${id}`, { method: "DELETE" })
+    await load(date)
   }
 
   const isToday = date === format(new Date(), "yyyy-MM-dd")
@@ -455,8 +520,70 @@ export default function TimelinePage() {
           {/* Timeline */}
           <Card>
             <CardContent className="pt-4 pb-4">
-              <p className="text-xs font-semibold text-muted-foreground/50 uppercase tracking-widest mb-4">Timeline</p>
-              <Timeline data={data} />
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-xs font-semibold text-muted-foreground/50 uppercase tracking-widest">Timeline</p>
+                {!adding && (
+                  <button
+                    onClick={openAdd}
+                    className="flex items-center gap-1 text-xs text-primary/80 hover:text-primary transition-colors"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add event
+                  </button>
+                )}
+              </div>
+
+              {adding && (
+                <div className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 space-y-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    {QUICK_EMOJI.map(e => (
+                      <button
+                        key={e}
+                        onClick={() => setEvEmoji(e)}
+                        className={cn(
+                          "h-8 w-8 rounded-lg text-base flex items-center justify-center transition-all",
+                          evEmoji === e ? "bg-primary/20 ring-1 ring-primary/40 scale-105" : "bg-secondary/50 hover:bg-secondary"
+                        )}
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={evLabel}
+                      onChange={e => setEvLabel(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") addEvent() }}
+                      placeholder="What happened? e.g. Beers with mates"
+                      maxLength={120}
+                      className="flex-1 min-w-0 h-9 px-3 text-sm rounded-lg border border-border bg-background/60 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    />
+                    <input
+                      type="time"
+                      value={evTime}
+                      onChange={e => setEvTime(e.target.value)}
+                      className="h-9 px-2 text-sm rounded-lg border border-border bg-background/60 focus:outline-none focus:ring-1 focus:ring-primary/50 shrink-0"
+                    />
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => setAdding(false)}
+                      className="text-xs text-muted-foreground hover:text-foreground px-2 py-1.5 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={addEvent}
+                      disabled={!evLabel.trim() || saving}
+                      className="text-xs font-medium px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40"
+                    >
+                      {saving ? "Adding…" : "Add to timeline"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <Timeline data={data} onDelete={deleteEvent} />
             </CardContent>
           </Card>
 

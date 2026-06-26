@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const nextDay = new Date(dateStr + "T00:00:00.000Z")
   nextDay.setDate(nextDay.getDate() + 1)
 
-  const [healthLog, mood, habits, habitCompletions, intake, focusSessions, dailyNote, tags, checkinRows] = await Promise.all([
+  const [healthLog, mood, habits, habitCompletions, intake, focusSessions, dailyNote, tags, checkinRows, customEvents] = await Promise.all([
     prisma.healthLog.findFirst({
       where: { userId, date: dateObj },
       select: {
@@ -58,6 +58,11 @@ export async function GET(req: Request) {
       WHERE "userId" = ${userId} AND "date" = ${dateStr}
       LIMIT 1
     `.catch(() => []),
+    prisma.timelineEvent.findMany({
+      where: { userId, occurredAt: { gte: dateObj, lt: nextDay } },
+      select: { id: true, emoji: true, label: true, note: true, occurredAt: true },
+      orderBy: { occurredAt: "asc" },
+    }).catch(() => []),
   ])
 
   const checkin = (checkinRows as { energy: number; mood: number; intention: string | null; waterGoalMl: number }[])[0] ?? null
@@ -92,6 +97,13 @@ export async function GET(req: Request) {
       tagName: t.tagName,
       text: t.text,
       timestamp: t.timestamp.toISOString(),
+    })),
+    customEvents: (customEvents as { id: string; emoji: string; label: string; note: string | null; occurredAt: Date }[]).map(e => ({
+      id: e.id,
+      emoji: e.emoji,
+      label: e.label,
+      note: e.note,
+      occurredAt: e.occurredAt.toISOString(),
     })),
   })
 }
