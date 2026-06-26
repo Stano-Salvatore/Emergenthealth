@@ -25,9 +25,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     const isWeb = layoutMode === "web"
     setWebMode(isWeb)
 
+    // Ensure zoom is applied correctly for each mode on load
+    if (isWeb) {
+      const currentZoom = parseFloat(localStorage.getItem("display_zoom") || "1")
+      if (currentZoom > 0.6) {
+        localStorage.setItem("display_zoom", "0.5")
+        document.documentElement.style.zoom = "0.5"
+      }
+    }
+
     const saved = localStorage.getItem(STORAGE_KEY)
     const wide = window.innerWidth >= 1024
-    // In web mode sidebar always defaults open; otherwise respect saved/screen preference
     const defaultOpen = isWeb ? true : wide ? (saved !== "false") : (saved === "true")
     setOpen(defaultOpen)
     setMounted(true)
