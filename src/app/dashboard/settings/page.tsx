@@ -12,6 +12,7 @@ import { TimelineImporter } from "@/components/settings/TimelineImporter"
 import { MigrateButton } from "@/components/settings/MigrateButton"
 import { GoalsEditor } from "@/components/settings/GoalsEditor"
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
+import { ZoomControl } from "@/components/settings/ZoomControl"
 import { YnabManager } from "@/components/settings/YnabManager"
 import { TruelayerManager } from "@/components/settings/TruelayerManager"
 import { SaltedgeManager } from "@/components/settings/SaltedgeManager"
@@ -251,8 +252,10 @@ export default async function SettingsPage({
 
       {/* Theme */}
       <Card>
-        <CardContent className="pt-4 pb-4">
+        <CardContent className="pt-4 pb-4 space-y-5">
           <ThemeSwitcher />
+          <div className="border-t border-border/50" />
+          <ZoomControl />
         </CardContent>
       </Card>
 

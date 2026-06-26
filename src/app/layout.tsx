@@ -62,7 +62,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Apply saved accent + base theme before paint to avoid flash */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{const a=localStorage.getItem('accent');if(a&&a!=='indigo')document.documentElement.setAttribute('data-accent',a);const t=localStorage.getItem('base_theme');if(t&&t!=='midnight')document.documentElement.setAttribute('data-theme',t)}catch(e){}`,
+            __html: `try{const a=localStorage.getItem('accent');if(a&&a!=='indigo')document.documentElement.setAttribute('data-accent',a);const t=localStorage.getItem('base_theme');if(t&&t!=='midnight')document.documentElement.setAttribute('data-theme',t);const z=localStorage.getItem('display_zoom');if(z)document.documentElement.style.zoom=z}catch(e){}`,
           }}
         />
       </head>
