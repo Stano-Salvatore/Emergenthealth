@@ -136,7 +136,7 @@ function SortableItem({
   )
 }
 
-export function Sidebar({ onClose }: { onClose?: () => void }) {
+export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: boolean }) {
   const pathname = usePathname()
   const [order,   setOrder]   = useState<string[]>(DEFAULT_ORDER)
   const [hidden,  setHidden]  = useState<Set<string>>(new Set())
@@ -216,6 +216,58 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
     ...ALL_ITEMS.filter(i => !order.includes(i.href)),
   ]
   const displayItems = editing ? orderedItems : orderedItems.filter(i => !hidden.has(i.href))
+
+  if (compact) {
+    return (
+      <aside
+        className="w-14 shrink-0 h-screen flex flex-col border-r border-border"
+        style={{ background: "linear-gradient(180deg, var(--sidebar-from) 0%, var(--sidebar-to) 100%)" }}
+      >
+        {/* Logo icon */}
+        <div className="flex items-center justify-center h-14 border-b border-border/60">
+          <div className="relative shrink-0">
+            <div className="absolute inset-0 bg-primary/50 rounded-lg blur-md" />
+            <div className="relative bg-gradient-to-br from-primary to-primary/60 rounded-lg p-1.5 text-sm leading-none flex items-center justify-center w-7 h-7">
+              💚
+            </div>
+          </div>
+        </div>
+
+        {/* Nav — icons only */}
+        <nav className="flex-1 py-2 overflow-y-auto scrollbar-none flex flex-col items-center gap-0.5">
+          {displayItems.map(item => {
+            const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href))
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                title={item.label}
+                className={cn(
+                  "flex items-center justify-center w-9 h-9 rounded-lg text-base transition-all",
+                  active
+                    ? "bg-primary/20 border border-primary/25"
+                    : "text-muted-foreground hover:bg-secondary/60"
+                )}
+              >
+                {item.emoji}
+              </Link>
+            )
+          })}
+        </nav>
+
+        {/* Sign out */}
+        <div className="p-2 border-t border-border/60 flex justify-center">
+          <button
+            onClick={() => signOut({ callbackUrl: "/signin" })}
+            title="Sign out"
+            className="flex items-center justify-center w-9 h-9 rounded-lg text-base text-muted-foreground hover:bg-secondary/60 transition-all"
+          >
+            👋
+          </button>
+        </div>
+      </aside>
+    )
+  }
 
   return (
     <aside

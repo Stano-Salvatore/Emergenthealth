@@ -63,7 +63,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           webMode
             ? cn(
                 "relative shrink-0 h-full",
-                open ? "w-56" : "w-0 overflow-hidden"
+                open ? "w-14" : "w-0 overflow-hidden"
               )
             : cn(
                 "fixed top-0 left-0 z-30 h-full",
@@ -75,7 +75,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               )
         )}
       >
-        <Sidebar onClose={toggle} />
+        <Sidebar onClose={toggle} compact={webMode} />
       </div>
 
       {/* Main content */}
