@@ -4,8 +4,6 @@ import { Activity } from "lucide-react"
 import { PasskeySignIn } from "./PasskeySignIn"
 import { Suspense } from "react"
 import { RefCapture } from "./RefCapture"
-import { headers } from "next/headers"
-import { MobileSignInButton } from "./MobileSignInButton"
 import { CredentialsSignInForm } from "./CredentialsSignInForm"
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -47,13 +45,6 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const sp = await searchParams
   const errorKey = sp.error ?? ""
   const errorMsg = ERROR_MESSAGES[errorKey] ?? (errorKey ? ERROR_MESSAGES.Default : null)
-
-  // The Capacitor WebView appends this marker to its User-Agent (see
-  // capacitor.config.ts). In the app the OAuth flow must START in a Chrome
-  // Custom Tab (the native side intercepts /api/mobile-signin), so every
-  // NextAuth cookie is set and read in the same (Chrome) cookie jar.
-  const ua = (await headers()).get("user-agent") ?? ""
-  const isCapacitor = ua.includes("Emergenthealth-Capacitor")
   const buttonLabel = errorMsg ? "Try again with Google" : "Continue with Google"
 
   return (
@@ -94,34 +85,27 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           )}
 
           <div className="space-y-3">
-            {/* Passkey sign-in (shown if browser supports it) */}
-            {!isCapacitor && <PasskeySignIn />}
+            <CredentialsSignInForm />
 
-            {isCapacitor ? (
-              // Native app: credentials form logs in directly in the WebView —
-              // no Chrome Custom Tab, no cross-jar cookie handoff needed.
-              <>
-                <CredentialsSignInForm />
-                <div className="flex items-center gap-3 py-1">
-                  <div className="flex-1 h-px bg-border/40" />
-                  <span className="text-[11px] text-muted-foreground/50 uppercase tracking-widest">or</span>
-                  <div className="flex-1 h-px bg-border/40" />
-                </div>
-                <MobileSignInButton label={buttonLabel} />
-              </>
-            ) : (
-              <form
-                action={async () => {
-                  "use server"
-                  await signIn("google", { redirectTo: "/dashboard" })
-                }}
-              >
-                <Button type="submit" className={GOOGLE_BTN_CLASS} size="lg">
-                  <GoogleIcon />
-                  {buttonLabel}
-                </Button>
-              </form>
-            )}
+            <div className="flex items-center gap-3 py-1">
+              <div className="flex-1 h-px bg-border/40" />
+              <span className="text-[11px] text-muted-foreground/50 uppercase tracking-widest">or</span>
+              <div className="flex-1 h-px bg-border/40" />
+            </div>
+
+            <PasskeySignIn />
+
+            <form
+              action={async () => {
+                "use server"
+                await signIn("google", { redirectTo: "/dashboard" })
+              }}
+            >
+              <Button type="submit" className={GOOGLE_BTN_CLASS} size="lg">
+                <GoogleIcon />
+                {buttonLabel}
+              </Button>
+            </form>
           </div>
 
           <p className="text-xs text-center text-muted-foreground/70 leading-relaxed">
