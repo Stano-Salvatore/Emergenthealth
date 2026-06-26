@@ -110,6 +110,7 @@ type CorrelationItem = {
   emoji: string
   finding: string
   delta: number
+  confident?: boolean
 }
 
 type LocationPattern = {
@@ -160,7 +161,7 @@ function PeriodTab({
   if (!data.loaded) return <SkeletonRows count={4} />
 
   const bullets = data.insight?.bullets ?? []
-  const corr = data.correlations.slice(0, 3)
+  const corr = data.correlations
   const hasInsight = bullets.length > 0
   const hasCorr = corr.length > 0
   const showLocation = period === "month" || period === "overall"
@@ -200,17 +201,20 @@ function PeriodTab({
       {hasCorr && (
         <div>
           <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">📊 top patterns</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">📊 patterns ({corr.length})</p>
             <Link href="/dashboard/insights" className="text-[10px] text-primary/70 hover:text-primary flex items-center gap-0.5 transition-colors">
-              See all <ChevronRight className="h-3 w-3" />
+              Full view <ChevronRight className="h-3 w-3" />
             </Link>
           </div>
           <div className="space-y-1.5">
             {corr.map(item => (
-              <div key={item.id} className="flex items-center gap-2">
-                <span className="text-sm shrink-0">{item.emoji}</span>
-                <p className="text-xs text-muted-foreground flex-1 min-w-0 truncate">{item.finding}</p>
-                <span className={`text-[10px] font-bold shrink-0 tabular-nums ${item.delta > 0 ? "text-green-400" : "text-red-400"}`}>
+              <div key={item.id} className="flex items-start gap-2">
+                <span className="text-sm shrink-0 leading-relaxed">{item.emoji}</span>
+                <p className="text-xs text-muted-foreground flex-1 min-w-0 leading-relaxed">{item.finding}</p>
+                {item.confident === false && (
+                  <span className="text-[9px] font-semibold shrink-0 text-muted-foreground/40 uppercase tracking-wide mt-0.5">early</span>
+                )}
+                <span className={`text-[10px] font-bold shrink-0 tabular-nums mt-0.5 ${item.delta > 0 ? "text-green-400" : "text-red-400"}`}>
                   {item.delta > 0 ? "+" : ""}{item.delta.toFixed(0)}%
                 </span>
               </div>
@@ -233,7 +237,7 @@ function PeriodTab({
             </p>
           ) : (
             <div className="space-y-1.5">
-              {locWithData.slice(0, 3).map(loc => (
+              {locWithData.map(loc => (
                 <div key={loc.locationKey} className="flex items-center gap-2">
                   <span className="text-sm shrink-0">{loc.emoji}</span>
                   <p className="text-xs text-muted-foreground flex-1 min-w-0 truncate">{loc.label}</p>
