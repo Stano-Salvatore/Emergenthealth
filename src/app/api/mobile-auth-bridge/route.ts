@@ -11,6 +11,8 @@ export async function GET(request: Request) {
   const insecureCookie = cookieStore.get("authjs.session-token")
   const sessionCookie = secureCookie ?? insecureCookie
 
+  console.log("[mobile-auth-bridge] reached auth_key=%s hasCookie=%s", authKey || "(none)", !!sessionCookie)
+
   if (!sessionCookie) {
     return Response.redirect(new URL("/signin?error=OAuthCallback", request.url))
   }

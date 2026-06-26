@@ -131,15 +131,14 @@ else:
 # ActivityNotFoundException crash on launch.
 #
 # OAuth flow (physical Android phone):
-#   1. WebView loads /mobile-signin?auth_key=UUID — page auto-submits, NextAuth
-#      redirects to accounts.google.com.
-#   2. shouldOverrideUrlLoading intercepts accounts.google.com and opens a Chrome
-#      Custom Tab (Google accepts Custom Tabs; it blocks plain WebView OAuth).
-#   3. User completes OAuth in Chrome. Chrome loads /api/mobile-auth-bridge which
-#      stores the signed session code under mobile-auth:UUID in the DB.
-#   4. The polling loop running in the WebView detects {done:true} and loads
-#      /api/mobile-set-cookie?key=UUID which sets the session cookie (200 + Set-Cookie)
-#      and meta-refreshes to /dashboard.
+#   1. JS calls EhAuthBridge.openSignIn(key) — stores key in mPendingAuthKey,
+#      opens Chrome Custom Tab at /mobile-signin?auth_key=UUID.
+#   2. Chrome Custom Tab handles Google OAuth (Google blocks plain WebView OAuth).
+#   3. After OAuth, Auth.js redirects Chrome to /dashboard (not to the bridge route).
+#   4. onResume() fires when app returns to foreground (Chrome tab closes or user
+#      switches back). redeemPendingAuthKey() loads /api/mobile-set-cookie?key=UUID
+#      in the native WebView, which sets the session cookie (200 + Set-Cookie) and
+#      JS-redirects to /dashboard.
 
 main_activity_dir = None
 for root, dirs, files in os.walk("android/app/src/main/java"):
@@ -172,13 +171,14 @@ else:
         "import com.getcapacitor.BridgeActivity;\n"
         "import com.getcapacitor.BridgeWebViewClient;\n\n"
         "public class MainActivity extends BridgeActivity {\n\n"
-        "    private boolean bridgeSetUp = false;\n\n"
-        "    // Called from JavaScript via window.EhAuthBridge.openSignIn(key).\n"
-        "    // Runs on the JS thread — must post UI work to the main thread.\n"
+        "    private boolean bridgeSetUp = false;\n"
+        "    // Set by openSignIn(); redeemed in onResume() once app returns to foreground.\n"
+        "    private volatile String mPendingAuthKey = null;\n\n"
         "    private class EhAuthBridge {\n"
         "        @JavascriptInterface\n"
         "        public void openSignIn(final String key) {\n"
         "            if (key == null || key.isEmpty()) return;\n"
+        "            mPendingAuthKey = key;\n"
         "            runOnUiThread(new Runnable() {\n"
         "                @Override public void run() {\n"
         "                    Uri signInUri = Uri.parse(\n"
@@ -206,26 +206,6 @@ else:
         "                public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {\n"
         "                    Uri uri = request.getUrl();\n"
         "                    String host = uri.getHost();\n\n"
-        "                    // ehauth:// fallback — in case the JS interface isn't available yet.\n"
-        "                    if (\"ehauth\".equals(uri.getScheme()) && \"open\".equals(host)) {\n"
-        "                        String key = uri.getQueryParameter(\"auth_key\");\n"
-        "                        if (key != null && !key.isEmpty()) {\n"
-        "                            Uri signInUri = Uri.parse(\n"
-        "                                \"https://emergenthealth.vercel.app/mobile-signin?auth_key=\"\n"
-        "                                + Uri.encode(key));\n"
-        "                            new CustomTabsIntent.Builder().build()\n"
-        "                                .launchUrl(MainActivity.this, signInUri);\n"
-        "                            final String k = key;\n"
-        "                            view.post(new Runnable() {\n"
-        "                                @Override public void run() {\n"
-        "                                    view.loadUrl(\n"
-        "                                        \"https://emergenthealth.vercel.app/mobile-wait?auth_key=\"\n"
-        "                                        + Uri.encode(k));\n"
-        "                                }\n"
-        "                            });\n"
-        "                        }\n"
-        "                        return true;\n"
-        "                    }\n\n"
         "                    // Safety net: if Google OAuth somehow reaches the WebView, open Chrome.\n"
         "                    if (\"accounts.google.com\".equals(host)\n"
         "                            || (host != null && host.endsWith(\".google.com\"))) {\n"
@@ -239,6 +219,25 @@ else:
         "            bridgeSetUp = true;\n"
         "        } catch (Exception ignored) {}\n"
         "    }\n\n"
+        "    // Called from onResume(). Loads /api/mobile-set-cookie in the WebView so\n"
+        "    // the session cookie is planted the moment the app returns to the foreground\n"
+        "    // after Chrome Custom Tab OAuth completes — regardless of whether the\n"
+        "    // intent:// URI fired or the user simply closed the Chrome tab manually.\n"
+        "    private void redeemPendingAuthKey() {\n"
+        "        if (mPendingAuthKey == null) return;\n"
+        "        WebView wv;\n"
+        "        try { wv = bridge.getWebView(); } catch (Exception e) { return; }\n"
+        "        if (wv == null) return;\n"
+        "        final String key = mPendingAuthKey;\n"
+        "        mPendingAuthKey = null;\n"
+        "        wv.post(new Runnable() {\n"
+        "            @Override public void run() {\n"
+        "                wv.loadUrl(\n"
+        "                    \"https://emergenthealth.vercel.app/api/mobile-set-cookie?key=\"\n"
+        "                    + Uri.encode(key));\n"
+        "            }\n"
+        "        });\n"
+        "    }\n\n"
         "    @Override\n"
         "    public void onCreate(Bundle savedInstanceState) {\n"
         "        super.onCreate(savedInstanceState);\n"
@@ -248,6 +247,12 @@ else:
         "    public void onStart() {\n"
         "        super.onStart();\n"
         "        setupBridgeHooks();\n"
+        "    }\n\n"
+        "    @Override\n"
+        "    public void onResume() {\n"
+        "        super.onResume();\n"
+        "        setupBridgeHooks();\n"
+        "        redeemPendingAuthKey();\n"
         "    }\n\n"
         "    @Override\n"
         "    public void onNewIntent(Intent intent) {\n"
@@ -261,6 +266,7 @@ else:
         "        if (data == null || !\"emergenthealth\".equals(data.getScheme())) return;\n"
         "        String key = data.getQueryParameter(\"key\");\n"
         "        if (key == null || key.isEmpty()) return;\n"
+        "        mPendingAuthKey = null;\n"
         "        try {\n"
         "            bridge.getWebView().post(new Runnable() {\n"
         "                @Override public void run() {\n"
