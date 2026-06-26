@@ -18,12 +18,17 @@ const STORAGE_KEY = "sidebar-open"
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [open, setOpen] = useState(true)
   const [mounted, setMounted] = useState(false)
+  const [webMode, setWebMode] = useState(false)
 
   useEffect(() => {
+    const layoutMode = localStorage.getItem("layout_mode")
+    const isWeb = layoutMode === "web"
+    setWebMode(isWeb)
+
     const saved = localStorage.getItem(STORAGE_KEY)
-    // On wide screens always default open; on narrow respect saved preference
     const wide = window.innerWidth >= 1024
-    const defaultOpen = wide ? (saved !== "false") : (saved === "true")
+    // In web mode sidebar always defaults open; otherwise respect saved/screen preference
+    const defaultOpen = isWeb ? true : wide ? (saved !== "false") : (saved === "true")
     setOpen(defaultOpen)
     setMounted(true)
   }, [])
@@ -43,8 +48,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* Mobile backdrop — only on narrow screens */}
-      {open && (
+      {/* Mobile backdrop — only in mobile mode when sidebar is open */}
+      {open && !webMode && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-20 lg:hidden"
           onClick={toggle}
@@ -54,13 +59,20 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {/* Sidebar */}
       <div
         className={cn(
-          "fixed top-0 left-0 z-30 h-full",
-          "lg:relative lg:z-auto lg:shrink-0",
           "transition-[width,transform] duration-300 ease-in-out",
-          "w-[75vw] max-w-[224px] lg:w-56",
-          open
-            ? "translate-x-0"
-            : "-translate-x-full lg:translate-x-0 lg:w-0 lg:overflow-hidden"
+          webMode
+            ? cn(
+                "relative shrink-0 h-full",
+                open ? "w-56" : "w-0 overflow-hidden"
+              )
+            : cn(
+                "fixed top-0 left-0 z-30 h-full",
+                "lg:relative lg:z-auto lg:shrink-0",
+                "w-[75vw] max-w-[224px] lg:w-56",
+                open
+                  ? "translate-x-0"
+                  : "-translate-x-full lg:translate-x-0 lg:w-0 lg:overflow-hidden"
+              )
         )}
       >
         <Sidebar onClose={toggle} />
@@ -83,7 +95,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <Menu className="h-4 w-4 text-muted-foreground" />
         </button>
 
-        <div className={cn("p-3 lg:p-6 transition-[padding] duration-300", !open && "lg:pl-6 pl-12")}>
+        <div className={cn(
+          "transition-[padding] duration-300",
+          webMode ? "p-6" : cn("p-3 lg:p-6", !open && "lg:pl-6 pl-12")
+        )}>
           {children}
         </div>
       </main>
