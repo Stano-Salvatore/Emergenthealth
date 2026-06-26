@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Category = "sleep" | "stress" | "habits" | "caffeine" | "tags"
+type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "tags"
 
 interface InsightResult {
   id: string
@@ -37,10 +37,11 @@ const CATEGORY_META: Record<Category, { label: string; emoji: string; color: str
   stress:   { label: "Stress",   emoji: "😤", color: "text-orange-400" },
   habits:   { label: "Habits",   emoji: "✅", color: "text-green-400" },
   caffeine: { label: "Caffeine", emoji: "☕", color: "text-amber-400" },
+  recovery: { label: "Recovery", emoji: "❤️", color: "text-rose-400" },
   tags:     { label: "Tags",     emoji: "🏷️", color: "text-primary" },
 }
 
-const CATEGORY_ORDER: Category[] = ["sleep", "stress", "habits", "caffeine", "tags"]
+const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "stress", "habits", "caffeine", "tags"]
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 

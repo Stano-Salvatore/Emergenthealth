@@ -10,6 +10,7 @@ type DayData = {
   sleepScore?: number
   sleepDuration?: number // hours
   readiness?: number
+  restingHR?: number
   stressHighMin?: number
   hrv?: number
   steps?: number
@@ -27,7 +28,7 @@ type DayData = {
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "tags"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "tags"
   emoji: string
   title: string
   finding: string
@@ -145,6 +146,7 @@ export async function GET(req: Request) {
         sleepScore: true,
         sleepDuration: true,
         readinessScore: true,
+        restingHR: true,
         stressHigh: true,
         hrv: true,
         steps: true,
@@ -212,6 +214,7 @@ export async function GET(req: Request) {
     if (l.sleepScore != null) d.sleepScore = l.sleepScore
     if (l.sleepDuration != null) d.sleepDuration = l.sleepDuration / 60 // convert minutes → hours
     if (l.readinessScore != null) d.readiness = l.readinessScore
+    if (l.restingHR != null) d.restingHR = l.restingHR
     if (l.stressHigh != null) d.stressHighMin = l.stressHigh
     if (l.hrv != null) d.hrv = l.hrv
     if (l.steps != null) d.steps = l.steps
@@ -551,6 +554,173 @@ export async function GET(req: Request) {
         : `Drinking days don't show a sleep penalty — score ${h} vs ${l}`,
   })
   if (ins_alcohol_sleep) insights.push(ins_alcohol_sleep)
+
+  // ── Recovery: resting HR, readiness, HRV, activity load ──────────────────────
+
+  // 6a. Sleep duration → next-day resting HR (lower HR is better)
+  const sleepRhrHigh: number[] = []  // resting HR after 7h+ nights
+  const sleepRhrLow: number[] = []   // resting HR after <7h nights
+  // 6b. Alcohol → next-day resting HR
+  const alcoholRhrDrink: number[] = []
+  const alcoholRhrSober: number[] = []
+
+  for (const d of days) {
+    const next = byDate[nextDateStr(d.date)]
+    if (!next || next.restingHR == null) continue
+    if (d.sleepDuration != null) {
+      if (d.sleepDuration >= 7) sleepRhrHigh.push(next.restingHR)
+      else sleepRhrLow.push(next.restingHR)
+    }
+    if (d.alcoholMl != null || d.sleepDuration != null) {
+      // only attribute drink status on days we have any log for
+      const drank = (d.alcoholMl ?? 0) > 50
+      if (drank) alcoholRhrDrink.push(next.restingHR)
+      else alcoholRhrSober.push(next.restingHR)
+    }
+  }
+
+  const ins_sleep_rhr = compareGroups({
+    id: "sleep_resting_hr",
+    category: "recovery",
+    emoji: "❤️",
+    title: "Sleep Duration & Resting Heart Rate",
+    highGroupLabel: "after 7h+ sleep",
+    lowGroupLabel: "after under 7h",
+    highValues: sleepRhrHigh,
+    lowValues: sleepRhrLow,
+    higherIsBetter: false, // lower resting HR is better
+    findingTemplate: (h, l) =>
+      h < l
+        ? `After 7h+ sleep, your resting HR averages ${h} bpm vs ${l} bpm on shorter nights`
+        : `Sleep length doesn't move your resting HR much — ${h} bpm vs ${l} bpm`,
+  })
+  if (ins_sleep_rhr) insights.push(ins_sleep_rhr)
+
+  const ins_alcohol_rhr = compareGroups({
+    id: "alcohol_resting_hr",
+    category: "recovery",
+    emoji: "🍷",
+    title: "Alcohol & Resting Heart Rate",
+    highGroupLabel: "drinking days (50ml+)",
+    lowGroupLabel: "non-drinking days",
+    highValues: alcoholRhrDrink,
+    lowValues: alcoholRhrSober,
+    higherIsBetter: false, // drinking raising HR = bad
+    findingTemplate: (h, l) =>
+      h > l
+        ? `After drinking, your resting HR rises to ${h} bpm vs ${l} bpm on sober nights`
+        : `Drinking days don't elevate your resting HR — ${h} bpm vs ${l} bpm`,
+  })
+  if (ins_alcohol_rhr) insights.push(ins_alcohol_rhr)
+
+  // 6c. Activity (steps) → that-night sleep score & next-day readiness
+  const STEP_HIGH = 8000
+  const activeSleepHigh: number[] = []
+  const activeSleepLow: number[] = []
+  const activeReadinessHigh: number[] = []
+  const activeReadinessLow: number[] = []
+
+  for (const d of days) {
+    if (d.steps == null) continue
+    const isActive = d.steps >= STEP_HIGH
+    if (d.sleepScore != null) {
+      if (isActive) activeSleepHigh.push(d.sleepScore)
+      else activeSleepLow.push(d.sleepScore)
+    }
+    const next = byDate[nextDateStr(d.date)]
+    if (next?.readiness != null) {
+      if (isActive) activeReadinessHigh.push(next.readiness)
+      else activeReadinessLow.push(next.readiness)
+    }
+  }
+
+  const ins_active_sleep = compareGroups({
+    id: "activity_sleep",
+    category: "recovery",
+    emoji: "🚶",
+    title: "Activity Load & Sleep Quality",
+    highGroupLabel: "active days (8k+ steps)",
+    lowGroupLabel: "lower-activity days",
+    highValues: activeSleepHigh,
+    lowValues: activeSleepLow,
+    higherIsBetter: true,
+    findingTemplate: (h, l) =>
+      h > l
+        ? `On active days (8k+ steps), your sleep score averages ${h} vs ${l} on quieter days`
+        : `More steps don't improve your sleep score — ${h} vs ${l}`,
+  })
+  if (ins_active_sleep) insights.push(ins_active_sleep)
+
+  const ins_active_readiness = compareGroups({
+    id: "activity_readiness",
+    category: "recovery",
+    emoji: "🔋",
+    title: "Activity Load & Next-Day Readiness",
+    highGroupLabel: "active days (8k+ steps)",
+    lowGroupLabel: "lower-activity days",
+    highValues: activeReadinessHigh,
+    lowValues: activeReadinessLow,
+    higherIsBetter: true,
+    findingTemplate: (h, l) =>
+      h >= l
+        ? `After active days (8k+ steps), next-day readiness averages ${h} vs ${l}`
+        : `Hard activity days cost you next-day readiness — ${h} vs ${l} after quieter days`,
+  })
+  if (ins_active_readiness) insights.push(ins_active_readiness)
+
+  // 6d. High stress → same-day HRV (lower HRV flags strain)
+  const stressHrvHigh: number[] = []
+  const stressHrvLow: number[] = []
+  for (const d of days) {
+    if (d.stressHighMin == null || d.hrv == null) continue
+    if (d.stressHighMin >= 60) stressHrvHigh.push(d.hrv)
+    else stressHrvLow.push(d.hrv)
+  }
+
+  const ins_stress_hrv = compareGroups({
+    id: "stress_hrv",
+    category: "recovery",
+    emoji: "💓",
+    title: "High Stress & HRV",
+    highGroupLabel: "60+ min high stress",
+    lowGroupLabel: "calmer days",
+    highValues: stressHrvHigh,
+    lowValues: stressHrvLow,
+    higherIsBetter: true, // lower HRV on stress days = bad
+    findingTemplate: (h, l) =>
+      h < l
+        ? `On high-stress days, your HRV averages ${h}ms vs ${l}ms on calmer days`
+        : `High-stress days don't suppress your HRV — ${h}ms vs ${l}ms`,
+  })
+  if (ins_stress_hrv) insights.push(ins_stress_hrv)
+
+  // 6e. Caffeine → next-day readiness
+  const caffeineReadinessHigh: number[] = []
+  const caffeineReadinessLow: number[] = []
+  for (const d of days) {
+    if (d.caffeineMg == null) continue
+    const next = byDate[nextDateStr(d.date)]
+    if (next?.readiness == null) continue
+    if (d.caffeineMg >= 200) caffeineReadinessHigh.push(next.readiness)
+    else caffeineReadinessLow.push(next.readiness)
+  }
+
+  const ins_caffeine_readiness = compareGroups({
+    id: "caffeine_readiness",
+    category: "recovery",
+    emoji: "☕",
+    title: "Caffeine & Next-Day Readiness",
+    highGroupLabel: "200mg+ caffeine days",
+    lowGroupLabel: "under 200mg days",
+    highValues: caffeineReadinessHigh,
+    lowValues: caffeineReadinessLow,
+    higherIsBetter: true,
+    findingTemplate: (h, l) =>
+      h < l
+        ? `After 200mg+ caffeine, next-day readiness averages ${h} vs ${l} on lower-caffeine days`
+        : `Higher caffeine days don't dent your readiness — ${h} vs ${l}`,
+  })
+  if (ins_caffeine_readiness) insights.push(ins_caffeine_readiness)
 
   // 7. Tag insights — top 5 most common tags
   const tagCounts: Record<string, number> = {}
