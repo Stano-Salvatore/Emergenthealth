@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react"
 import { MapPin, X, Check, Loader2 } from "lucide-react"
+import { getCurrentPosition } from "@/lib/native/geolocation"
 
 const DISMISS_KEY = "place_detector_dismissed_until"
 
@@ -29,31 +30,28 @@ export function PlaceDetector() {
     const since = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
     fetch(`/api/checkins?since=${since}&limit=1`)
       .then(r => r.ok ? r.json() : [])
-      .then((recent: unknown[]) => {
+      .then(async (recent: unknown[]) => {
         if (Array.isArray(recent) && recent.length > 0) { dismiss(); return }
         setState("detecting")
-        navigator.geolocation.getCurrentPosition(
-          async (pos) => {
-            try {
-              const { latitude: lat, longitude: lon } = pos.coords
-              const res = await fetch(`/api/geocode?lat=${lat}&lon=${lon}`)
-              if (!res.ok) throw new Error()
-              const { place } = await res.json()
-              await fetch("/api/checkins", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ place, emoji: "📍" }),
-              })
-              setSavedPlace(place)
-              setState("saved")
-              setTimeout(() => dismiss(), 3000)
-            } catch {
-              setState("denied")
-            }
-          },
-          () => setState("denied"),
-          { timeout: 10000, maximumAge: 120000 }
-        )
+        // Uses the native Geolocation plugin inside the Android app (with a
+        // proper runtime permission prompt), or navigator.geolocation on web.
+        const coords = await getCurrentPosition()
+        if (!coords) { setState("denied"); return }
+        try {
+          const res = await fetch(`/api/geocode?lat=${coords.lat}&lon=${coords.lon}`)
+          if (!res.ok) throw new Error()
+          const { place } = await res.json()
+          await fetch("/api/checkins", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ place, emoji: "📍" }),
+          })
+          setSavedPlace(place)
+          setState("saved")
+          setTimeout(() => dismiss(), 3000)
+        } catch {
+          setState("denied")
+        }
       })
       .catch(() => setState("detecting"))
   // eslint-disable-next-line react-hooks/exhaustive-deps
