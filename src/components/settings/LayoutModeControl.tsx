@@ -16,8 +16,18 @@ export function LayoutModeControl() {
 
   function apply(v: LayoutMode) {
     setMode(v)
-    try { localStorage.setItem("layout_mode", v) } catch {}
-    // Reload to re-mount DashboardShell with new mode
+    try {
+      localStorage.setItem("layout_mode", v)
+      if (v === "web") {
+        // Auto zoom-out so full sidebar + content fits on a narrow screen
+        localStorage.setItem("display_zoom", "0.5")
+        document.documentElement.style.zoom = "0.5"
+      } else {
+        // Restore default zoom when switching back to mobile
+        localStorage.setItem("display_zoom", "1")
+        document.documentElement.style.zoom = "1"
+      }
+    } catch {}
     window.location.reload()
   }
 
@@ -41,8 +51,8 @@ export function LayoutModeControl() {
       </div>
       <p className="text-[11px] text-muted-foreground">
         {mode === "web"
-          ? "Sidebar always visible. Zoom out if content feels wide."
-          : "Sidebar slides in as a drawer. Better for small screens."}
+          ? "Sidebar always visible, zoom set to 50% to fit everything on screen."
+          : "Sidebar slides in as a drawer. Zoom at 100%."}
       </p>
     </div>
   )
