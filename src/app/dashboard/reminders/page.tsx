@@ -197,7 +197,7 @@ export default function RemindersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">Reminders</h1>
           <p className="text-muted-foreground text-sm mt-0.5">

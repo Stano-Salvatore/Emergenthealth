@@ -176,7 +176,7 @@ export default function IntakePage() {
   return (
     <div className="space-y-5 max-w-2xl">
       {/* header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Droplets className="h-6 w-6 text-blue-400" /> Intake

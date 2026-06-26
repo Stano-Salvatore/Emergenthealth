@@ -202,14 +202,14 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   return (
     <div className="space-y-6">
       {/* ── header ── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">Health</h1>
           <p className="text-muted-foreground text-sm mt-0.5">
             {logs.length} days of data · synced from Oura Ring
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {isOuraConnected && <OuraSyncButton />}
           <HealthEntryForm />
         </div>

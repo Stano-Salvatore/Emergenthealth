@@ -12,7 +12,7 @@ const TABS = [
 
 export function HealthTabBar({ activeTab }: { activeTab: string }) {
   return (
-    <div className="flex gap-0.5 border-b border-border">
+    <div className="flex gap-0.5 border-b border-border overflow-x-auto scrollbar-none">
       {TABS.map(t => (
         <Link
           key={t.key}
