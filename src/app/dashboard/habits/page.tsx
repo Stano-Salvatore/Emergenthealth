@@ -256,9 +256,9 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Routines</h2>
-        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs" onClick={() => setShowForm(v => !v)}>
+        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs shrink-0" onClick={() => setShowForm(v => !v)}>
           <Plus className="h-3.5 w-3.5" /> New routine
         </Button>
       </div>
