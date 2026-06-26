@@ -6,6 +6,7 @@ import { Suspense } from "react"
 import { RefCapture } from "./RefCapture"
 import { headers } from "next/headers"
 import { MobileSignInButton } from "./MobileSignInButton"
+import { CredentialsSignInForm } from "./CredentialsSignInForm"
 
 const ERROR_MESSAGES: Record<string, string> = {
   OAuthAccountNotLinked: "This email is already linked to a different sign-in method.",
@@ -14,6 +15,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   OAuthCreateAccount: "Could not create your account. Please try again.",
   Callback: "Sign-in callback failed. Please try again.",
   InvalidState: "Sign-in expired or was interrupted. Please try again.",
+  CredentialsSignin: "Invalid username or password.",
   Default: "An error occurred during sign-in. Please try again.",
 }
 
@@ -93,15 +95,20 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
 
           <div className="space-y-3">
             {/* Passkey sign-in (shown if browser supports it) */}
-            <PasskeySignIn />
+            {!isCapacitor && <PasskeySignIn />}
 
-            {/* Google sign-in */}
             {isCapacitor ? (
-              // Generates a UUID auth_key so the OAuth bridge can store the
-              // session in the DB keyed by it. MainActivity.onResume then
-              // calls /api/mobile-set-cookie?key=<uuid> to plant the cookie
-              // in the WebView jar and redirect to /dashboard.
-              <MobileSignInButton label={buttonLabel} />
+              // Native app: credentials form logs in directly in the WebView —
+              // no Chrome Custom Tab, no cross-jar cookie handoff needed.
+              <>
+                <CredentialsSignInForm />
+                <div className="flex items-center gap-3 py-1">
+                  <div className="flex-1 h-px bg-border/40" />
+                  <span className="text-[11px] text-muted-foreground/50 uppercase tracking-widest">or</span>
+                  <div className="flex-1 h-px bg-border/40" />
+                </div>
+                <MobileSignInButton label={buttonLabel} />
+              </>
             ) : (
               <form
                 action={async () => {
