@@ -4,6 +4,24 @@ import { PrismaAdapter } from "@auth/prisma-adapter"
 import { prisma } from "@/lib/prisma"
 import type { NextAuthConfig } from "next-auth"
 
+// Redirect callback helper: if a mobile OAuth flow is pending, force Chrome to
+// /api/mobile-auth-bridge so it can read its own session cookie and store it for
+// the WebView to redeem. This is the fallback when Auth.js v5 beta ignores the
+// callbackUrl set in mobile-auth-start (skipCSRFCheck suppresses the cookie).
+async function checkMobilePendingRedirect(baseUrl: string): Promise<string | null> {
+  const pending = await prisma.verificationToken.findFirst({
+    where: {
+      identifier: { startsWith: "mobile-auth-pending:" },
+      expires: { gt: new Date() },
+    },
+    orderBy: { expires: "desc" },
+  })
+  if (!pending) return null
+  const authKey = pending.identifier.replace("mobile-auth-pending:", "")
+  await prisma.verificationToken.deleteMany({ where: { identifier: pending.identifier } })
+  return `${baseUrl}/api/mobile-auth-bridge?auth_key=${encodeURIComponent(authKey)}`
+}
+
 // Exported so /api/mobile-auth-start can call Auth() directly with the same
 // config. NextAuth mutates this object (setEnvDefaults adds secret + basePath)
 // so by the time any route handler runs the config is fully initialised.
@@ -39,6 +57,19 @@ export const authConfig: NextAuthConfig = {
     async session({ session, user }) {
       session.user.id = user.id
       return session
+    },
+    async redirect({ url, baseUrl }) {
+      // After successful sign-in, redirect Chrome to the bridge if a mobile flow is pending.
+      // Skips sign-in-page redirects (the user isn't authenticated yet in that case).
+      const isSignInPage = url.includes("/signin")
+      const isLocalUrl = url.startsWith("/") || url.startsWith(baseUrl)
+      if (isLocalUrl && !isSignInPage) {
+        const mobileRedirect = await checkMobilePendingRedirect(baseUrl)
+        if (mobileRedirect) return mobileRedirect
+      }
+      if (url.startsWith("/")) return `${baseUrl}${url}`
+      if (url.startsWith(baseUrl)) return url
+      return baseUrl
     },
   },
   events: {
