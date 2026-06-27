@@ -8,6 +8,7 @@ import { FitKeyManager } from "@/components/settings/FitKeyManager"
 import { OuraManager } from "@/components/settings/OuraManager"
 import { HealthConnectManager } from "@/components/settings/HealthConnectManager"
 import { ScreenTimeManager } from "@/components/settings/ScreenTimeManager"
+import { NotificationNudges } from "@/components/settings/NotificationNudges"
 import { SamsungHealthImporter } from "@/components/settings/SamsungHealthImporter"
 import { TimelineImporter } from "@/components/settings/TimelineImporter"
 import { MigrateButton } from "@/components/settings/MigrateButton"
@@ -240,6 +241,9 @@ export default async function SettingsPage({
 
       {/* Push notifications */}
       <PushNotifications />
+
+      {/* Daily nudge notifications — Android only */}
+      <NotificationNudges />
 
       {/* Android home screen widget */}
       <WidgetSetupCapacitor />
