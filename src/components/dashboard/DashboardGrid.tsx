@@ -71,26 +71,72 @@ export function DashboardGrid({ blocks, header }: Props) {
 
   const { containerRef, width } = useContainerWidth({ initialWidth: 1280 })
 
+  // Refs so async/debounced saves always read the latest state.
+  const itemsRef = useRef(items); itemsRef.current = items
+  const hiddenRef = useRef(hidden); hiddenRef.current = hidden
+  const editingRef = useRef(editing); editingRef.current = editing
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Persist layout + hidden widgets to the server so the arrangement syncs
+  // across devices (web, phone, APK). Layout saves are debounced since
+  // drag/resize fire many onLayoutChange events.
+  const persist = useCallback((layout: LayoutItem[], hiddenArr: string[], debounce: boolean) => {
+    const send = () => {
+      fetch("/api/preferences/dashboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ layout, hidden: hiddenArr }),
+      }).catch(() => {})
+    }
+    if (debounce) {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      saveTimer.current = setTimeout(send, 600)
+    } else {
+      send()
+    }
+  }, [])
+
   useEffect(() => {
+    // Local cache first for an instant paint.
     setItems(loadItems())
     try {
       const r = localStorage.getItem(HIDDEN_KEY)
       if (r) setHidden(new Set(JSON.parse(r)))
     } catch { /* */ }
     setReady(true)
+
+    // Then the server copy (cross-device) — override local if a saved one exists.
+    fetch("/api/preferences/dashboard")
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { layout?: LayoutItem[] | null; hidden?: string[] | null } | null) => {
+        if (!d) return
+        if (Array.isArray(d.layout) && d.layout.length > 0) {
+          setItems(d.layout)
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d.layout)) } catch { /* */ }
+        }
+        if (Array.isArray(d.hidden)) {
+          setHidden(new Set(d.hidden as BlockId[]))
+          try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(d.hidden)) } catch { /* */ }
+        }
+      })
+      .catch(() => {})
   }, [])
 
   const onLayoutChange = useCallback((layout: readonly LayoutItem[]) => {
     const next = [...layout]
     setItems(next)
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { /* */ }
-  }, [])
+    // Only sync deliberate edits — ignore the grid's mount/compaction echoes,
+    // which fire when not editing and could clobber the server copy.
+    if (editingRef.current) persist(next, [...hiddenRef.current] as string[], true)
+  }, [persist])
 
   function toggleHide(id: BlockId) {
     setHidden(prev => {
       const next = new Set(prev)
       next.has(id) ? next.delete(id) : next.add(id)
       try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next])) } catch { /* */ }
+      persist([...itemsRef.current], [...next] as string[], false)
       return next
     })
   }
@@ -102,6 +148,7 @@ export function DashboardGrid({ blocks, header }: Props) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(DEFAULT_ITEMS))
       localStorage.removeItem(HIDDEN_KEY)
     } catch { /* */ }
+    persist(DEFAULT_ITEMS, [], false)
   }
 
   const visibleItems = items.filter(item => !hidden.has(item.i as BlockId))
