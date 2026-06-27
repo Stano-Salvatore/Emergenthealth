@@ -60,7 +60,7 @@ export async function GET(req: Request) {
     `.catch(() => []),
     prisma.timelineEvent.findMany({
       where: { userId, occurredAt: { gte: dateObj, lt: nextDay } },
-      select: { id: true, emoji: true, label: true, note: true, occurredAt: true },
+      select: { id: true, emoji: true, label: true, note: true, imageData: true, occurredAt: true },
       orderBy: { occurredAt: "asc" },
     }).catch(() => []),
   ])
@@ -98,11 +98,12 @@ export async function GET(req: Request) {
       text: t.text,
       timestamp: t.timestamp.toISOString(),
     })),
-    customEvents: (customEvents as { id: string; emoji: string; label: string; note: string | null; occurredAt: Date }[]).map(e => ({
+    customEvents: (customEvents as { id: string; emoji: string; label: string; note: string | null; imageData: string | null; occurredAt: Date }[]).map(e => ({
       id: e.id,
       emoji: e.emoji,
       label: e.label,
       note: e.note,
+      imageData: e.imageData,
       occurredAt: e.occurredAt.toISOString(),
     })),
   })

@@ -13,6 +13,7 @@
     "@actual-app/api": "^26.4.0",
     "@anthropic-ai/sdk": "^0.86.1",
     "@auth/prisma-adapter": "^2.11.1",
+    "@capacitor/camera": "^8.0.0",
     "@capacitor/core": "^8.0.0",
     "@capacitor/geolocation": "^8.0.0",
     "@capacitor/local-notifications": "^8.0.0",

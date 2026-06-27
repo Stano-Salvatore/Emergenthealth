@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react"
 import { format, parseISO, subDays, addDays } from "date-fns"
-import { ChevronLeft, ChevronRight, Moon, Footprints, Heart, Shield, Zap, RefreshCw, X, Plus } from "lucide-react"
+import { ChevronLeft, ChevronRight, Moon, Footprints, Heart, Shield, Zap, RefreshCw, X, Plus, Camera } from "lucide-react"
+import { capturePhoto } from "@/lib/native/camera"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
@@ -22,7 +23,7 @@ interface HabitItem { name: string; color: string; emoji: string | null; complet
 interface IntakeItem { type: string; amountMl: number; loggedAt: string; note: string | null }
 interface FocusItem { label: string | null; durationMin: number; startedAt: string; endedAt: string; type: string }
 interface TagItem { tagName: string | null; text: string | null; timestamp: string }
-interface CustomEvent { id: string; emoji: string; label: string; note: string | null; occurredAt: string }
+interface CustomEvent { id: string; emoji: string; label: string; note: string | null; imageData: string | null; occurredAt: string }
 interface CheckInData { energy: number; mood: number; intention: string | null; waterGoalMl: number }
 interface DayData {
   date: string
@@ -155,6 +156,7 @@ interface TLEvent {
   sub?: string
   pill?: string
   eventId?: string  // present only for user-created custom events (deletable)
+  imageUrl?: string // optional attached photo (custom events)
 }
 
 function EventRow({ ev, onDelete }: { ev: TLEvent; onDelete?: (id: string) => void }) {
@@ -187,6 +189,14 @@ function EventRow({ ev, onDelete }: { ev: TLEvent; onDelete?: (id: string) => vo
           )}
         </div>
         {ev.sub && <p className="text-xs text-muted-foreground/60 mt-0.5">{ev.sub}</p>}
+        {ev.imageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={ev.imageUrl}
+            alt={ev.label}
+            className="mt-1.5 rounded-lg border border-border/40 max-h-44 w-auto object-cover"
+          />
+        )}
       </div>
     </div>
   )
@@ -241,6 +251,7 @@ function Timeline({ data, onDelete }: { data: DayData; onDelete?: (id: string) =
       label: c.label,
       sub: c.note ?? undefined,
       eventId: c.id,
+      imageUrl: c.imageData ?? undefined,
     })
   }
 
@@ -368,6 +379,7 @@ export default function TimelinePage() {
   const [evEmoji, setEvEmoji] = useState("📌")
   const [evLabel, setEvLabel] = useState("")
   const [evTime, setEvTime] = useState(format(new Date(), "HH:mm"))
+  const [evPhoto, setEvPhoto] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async (d = date) => {
@@ -393,7 +405,13 @@ export default function TimelinePage() {
     setEvEmoji("📌")
     setEvLabel("")
     setEvTime(format(new Date(), "HH:mm"))
+    setEvPhoto(null)
     setAdding(true)
+  }
+
+  async function takePhoto() {
+    const photo = await capturePhoto()
+    if (photo) setEvPhoto(photo)
   }
 
   async function addEvent() {
@@ -406,10 +424,11 @@ export default function TimelinePage() {
       await fetch("/api/timeline-events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emoji: evEmoji, label, occurredAt }),
+        body: JSON.stringify({ emoji: evEmoji, label, occurredAt, imageData: evPhoto }),
       })
       setAdding(false)
       setEvLabel("")
+      setEvPhoto(null)
       await load(date)
     } finally {
       setSaving(false)
@@ -565,6 +584,26 @@ export default function TimelinePage() {
                       className="h-9 px-2 text-sm rounded-lg border border-border bg-background/60 focus:outline-none focus:ring-1 focus:ring-primary/50 shrink-0"
                     />
                   </div>
+                  {evPhoto ? (
+                    <div className="relative inline-block">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={evPhoto} alt="attached" className="rounded-lg border border-border/40 max-h-32 w-auto" />
+                      <button
+                        onClick={() => setEvPhoto(null)}
+                        className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-background border border-border flex items-center justify-center text-muted-foreground hover:text-red-400"
+                        aria-label="Remove photo"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={takePhoto}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border rounded-lg px-3 py-2 transition-colors"
+                    >
+                      <Camera className="h-3.5 w-3.5" /> Add photo
+                    </button>
+                  )}
                   <div className="flex items-center justify-end gap-2">
                     <button
                       onClick={() => setAdding(false)}
