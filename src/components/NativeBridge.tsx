@@ -11,6 +11,7 @@
 
 import { useEffect } from "react"
 import { syncReminderNotifications } from "@/lib/native/notifications"
+import { syncScreenTime } from "@/lib/native/screen-time"
 
 const THROTTLE_MS = 30 * 60 * 1000
 const LS_KEY = "native_reminder_sync_at"
@@ -25,13 +26,13 @@ export function NativeBridge() {
 
       try {
         const res = await fetch("/api/reminders")
-        if (!res.ok) return
-        const reminders = await res.json()
-        if (!Array.isArray(reminders)) return
-        const n = await syncReminderNotifications(reminders)
-        // Only stamp the throttle once we know the native plugin engaged,
-        // so the browser keeps retrying cheaply and the app schedules ASAP.
-        if (n >= 0) localStorage.setItem(LS_KEY, String(Date.now()))
+        if (res.ok) {
+          const reminders = await res.json()
+          if (Array.isArray(reminders)) await syncReminderNotifications(reminders)
+        }
+        // Pull today's screen time from the device and persist it (no-ops on web)
+        await syncScreenTime()
+        localStorage.setItem(LS_KEY, String(Date.now()))
       } catch {
         // Non-critical — ignore
       }

@@ -54,6 +54,7 @@ model User {
   ynabToken        YnabToken?
   feedbacks        UserFeedback[]
   timelineEvents   TimelineEvent[]
+  screenTimeLogs   ScreenTimeLog[]
 }
 
 model Account {
@@ -362,6 +363,23 @@ model Book {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status])
+}
+
+// ─── Native Screen-Time ──────────────────────────────────────────────────────
+
+model ScreenTimeLog {
+  id             String   @id @default(cuid())
+  userId         String
+  date           String   // local "YYYY-MM-DD"
+  totalMin       Int      // total foreground screen time that day
+  firstUnlockMin Int?     // minutes after local midnight of first phone unlock (wake proxy)
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
 }
 
 // ─── Custom Timeline Events ──────────────────────────────────────────────────
