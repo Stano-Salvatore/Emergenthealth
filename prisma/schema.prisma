@@ -390,6 +390,7 @@ model TimelineEvent {
   emoji      String   @default("📌")
   label      String
   note       String?
+  imageData  String?  @db.Text // optional compressed photo, base64 data URL
   occurredAt DateTime @default(now())
   createdAt  DateTime @default(now())
 

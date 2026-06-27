@@ -15,6 +15,12 @@ export async function POST(req: Request) {
   const emoji = typeof body.emoji === "string" && body.emoji.trim() ? body.emoji.trim().slice(0, 8) : "📌"
   const note = typeof body.note === "string" && body.note.trim() ? body.note.trim() : null
 
+  // Optional compressed photo (base64 data URL). Cap at ~1.5MB to avoid bloating rows.
+  let imageData: string | null = null
+  if (typeof body.imageData === "string" && body.imageData.startsWith("data:image/")) {
+    imageData = body.imageData.length <= 1_500_000 ? body.imageData : null
+  }
+
   // occurredAt comes as an ISO string; default to now if missing/invalid
   let occurredAt = new Date()
   if (typeof body.occurredAt === "string") {
@@ -23,8 +29,8 @@ export async function POST(req: Request) {
   }
 
   const event = await prisma.timelineEvent.create({
-    data: { userId, emoji, label: label.slice(0, 120), note: note?.slice(0, 500) ?? null, occurredAt },
-    select: { id: true, emoji: true, label: true, note: true, occurredAt: true },
+    data: { userId, emoji, label: label.slice(0, 120), note: note?.slice(0, 500) ?? null, imageData, occurredAt },
+    select: { id: true, emoji: true, label: true, note: true, imageData: true, occurredAt: true },
   })
 
   return NextResponse.json({
