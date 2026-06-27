@@ -10,7 +10,7 @@
  */
 
 import { useEffect } from "react"
-import { syncReminderNotifications } from "@/lib/native/notifications"
+import { resyncNotifications } from "@/lib/native/notifications"
 import { syncScreenTime } from "@/lib/native/screen-time"
 
 const THROTTLE_MS = 30 * 60 * 1000
@@ -25,11 +25,8 @@ export function NativeBridge() {
       if (last && Date.now() - parseInt(last) < THROTTLE_MS) return
 
       try {
-        const res = await fetch("/api/reminders")
-        if (res.ok) {
-          const reminders = await res.json()
-          if (Array.isArray(reminders)) await syncReminderNotifications(reminders)
-        }
+        // Reschedule reminders + daily nudges as native notifications (no-ops on web)
+        await resyncNotifications()
         // Pull today's screen time from the device and persist it (no-ops on web)
         await syncScreenTime()
         localStorage.setItem(LS_KEY, String(Date.now()))
