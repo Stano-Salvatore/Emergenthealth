@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { FitKeyManager } from "@/components/settings/FitKeyManager"
 import { OuraManager } from "@/components/settings/OuraManager"
 import { HealthConnectManager } from "@/components/settings/HealthConnectManager"
+import { ScreenTimeManager } from "@/components/settings/ScreenTimeManager"
 import { SamsungHealthImporter } from "@/components/settings/SamsungHealthImporter"
 import { TimelineImporter } from "@/components/settings/TimelineImporter"
 import { MigrateButton } from "@/components/settings/MigrateButton"
@@ -267,6 +268,9 @@ export default async function SettingsPage({
 
       {/* Health Connect — Android only, syncs from Garmin/Fitbit/Samsung/etc */}
       <HealthConnectManager lastSync={hcLastSync} />
+
+      {/* Screen Time — Android only, reads native UsageStats */}
+      <ScreenTimeManager />
 
       {/* Samsung Health — one-time CSV import for historical data */}
       <SamsungHealthImporter />

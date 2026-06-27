@@ -15,6 +15,7 @@ type DayData = {
   hrv?: number
   steps?: number
   activityScore?: number
+  screenTimeMin?: number
   energy?: number
   mood?: number
   habitCount?: number
@@ -28,7 +29,7 @@ type DayData = {
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "tags"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags"
   emoji: string
   title: string
   finding: string
@@ -137,7 +138,7 @@ export async function GET(req: Request) {
   const since60str = format(since60, "yyyy-MM-dd")
 
   // ── Fetch all data sources in parallel ──────────────────────────────────────
-  const [healthLogs, checkIns, habitCompletions, caffeineRows, alcoholRows, tagPrefs, weatherLogs] = await Promise.all([
+  const [healthLogs, checkIns, habitCompletions, caffeineRows, alcoholRows, tagPrefs, weatherLogs, screenRows] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since60 } },
       orderBy: { date: "asc" },
@@ -198,6 +199,11 @@ export async function GET(req: Request) {
       where: { userId, date: { gte: since60str } },
       select: { date: true, precipMm: true, tempMaxC: true, weatherCode: true },
     }).catch(() => [] as { date: string; precipMm: number | null; tempMaxC: number | null; weatherCode: number | null }[]),
+
+    prisma.screenTimeLog.findMany({
+      where: { userId, date: { gte: since60str } },
+      select: { date: true, totalMin: true },
+    }).catch(() => [] as { date: string; totalMin: number }[]),
   ])
 
   // ── Build day map ────────────────────────────────────────────────────────────
@@ -253,6 +259,11 @@ export async function GET(req: Request) {
     if (w.precipMm != null) d.precipMm = w.precipMm
     if (w.tempMaxC != null) d.tempMaxC = w.tempMaxC
     if (w.weatherCode != null) d.weatherCode = w.weatherCode
+  }
+
+  // Screen time (native, per local day)
+  for (const s of (screenRows as { date: string; totalMin: number }[])) {
+    if (s.totalMin != null) getOrCreate(s.date).screenTimeMin = s.totalMin
   }
 
   // Parse tag preferences: key = "daily_tags:YYYY-MM-DD"
@@ -865,6 +876,66 @@ export async function GET(req: Request) {
           : `You walk more on cooler days — ${Math.round(l).toLocaleString()} steps vs ${Math.round(h).toLocaleString()} when it's hot`,
     })
     if (ins_heat_steps) insights.push(ins_heat_steps)
+  }
+
+  // ── Screen time → sleep & next-day energy ────────────────────────────────────
+  const screenVals = days.filter(d => d.screenTimeMin != null).map(d => d.screenTimeMin!)
+  if (screenVals.length >= 10) {
+    const screenMedian = median(screenVals)
+    const fmtH = (min: number) => (min >= 60 ? `${(min / 60).toFixed(1)}h` : `${Math.round(min)}m`)
+
+    const screenSleepHigh: number[] = []
+    const screenSleepLow: number[] = []
+    const screenEnergyHigh: number[] = []
+    const screenEnergyLow: number[] = []
+
+    for (const d of days) {
+      if (d.screenTimeMin == null) continue
+      const isHigh = d.screenTimeMin >= screenMedian
+      if (d.sleepScore != null) {
+        if (isHigh) screenSleepHigh.push(d.sleepScore)
+        else screenSleepLow.push(d.sleepScore)
+      }
+      const next = byDate[nextDateStr(d.date)]
+      if (next?.energy != null) {
+        if (isHigh) screenEnergyHigh.push(next.energy)
+        else screenEnergyLow.push(next.energy)
+      }
+    }
+
+    const ins_screen_sleep = compareGroups({
+      id: "screen_sleep",
+      category: "screen",
+      emoji: "📱",
+      title: "Screen Time & Sleep Quality",
+      highGroupLabel: `high screen days (${fmtH(screenMedian)}+)`,
+      lowGroupLabel: "lower screen days",
+      highValues: screenSleepHigh,
+      lowValues: screenSleepLow,
+      higherIsBetter: true, // less sleep on high-screen days = bad
+      findingTemplate: (h, l) =>
+        h < l
+          ? `On high screen-time days (${fmtH(screenMedian)}+), your sleep score averages ${h} vs ${l} on lighter days`
+          : `More screen time doesn't hurt your sleep score — ${h} vs ${l}`,
+    })
+    if (ins_screen_sleep) insights.push(ins_screen_sleep)
+
+    const ins_screen_energy = compareGroups({
+      id: "screen_energy",
+      category: "screen",
+      emoji: "🔌",
+      title: "Screen Time & Next-Day Energy",
+      highGroupLabel: `high screen days (${fmtH(screenMedian)}+)`,
+      lowGroupLabel: "lower screen days",
+      highValues: screenEnergyHigh,
+      lowValues: screenEnergyLow,
+      higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `After high screen-time days, next-day energy averages ${h} vs ${l} after lighter days`
+          : `Screen time doesn't dent your next-day energy — ${h} vs ${l}`,
+    })
+    if (ins_screen_energy) insights.push(ins_screen_energy)
   }
 
   // ── Sort by |delta| desc ─────────────────────────────────────────────────────
