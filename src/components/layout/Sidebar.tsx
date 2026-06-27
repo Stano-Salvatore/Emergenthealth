@@ -31,27 +31,24 @@ const ALL_ITEMS: NavItem[] = [
   { href: "/dashboard/body",        label: "Body & Trackers", emoji: "📏" },
   { href: "/dashboard/calendar",    label: "Calendar",        emoji: "🗓️" },
   { href: "/dashboard/reminders",   label: "Reminders",       emoji: "🔔" },
+  { href: "/dashboard/finances",    label: "Finances",        emoji: "💰" },
+  { href: "/dashboard/focus",       label: "Focus",           emoji: "🎯" },
+  { href: "/dashboard/journal",     label: "Journal",         emoji: "📝" },
   { href: "/dashboard/location",    label: "Location",        emoji: "📍" },
   { href: "/dashboard/settings",    label: "Settings",        emoji: "⚙️" },
   // Hidden by default but still accessible via Customize
   { href: "/dashboard/week",        label: "This Week",       emoji: "📅" },
   { href: "/dashboard/timeline",    label: "Timeline",        emoji: "🕐" },
-  { href: "/dashboard/stats",       label: "Insights",        emoji: "💡" },
+  { href: "/dashboard/stats",       label: "Trends",          emoji: "💡" },
   { href: "/dashboard/streaks",     label: "Streaks",         emoji: "🔥" },
   { href: "/dashboard/gmail",       label: "Gmail",           emoji: "📬" },
   { href: "/dashboard/reading",     label: "Reading",         emoji: "📚" },
   { href: "/dashboard/strava",      label: "Strava",          emoji: "🏃" },
   { href: "/dashboard/lastfm",      label: "Last.fm",         emoji: "🎵" },
   { href: "/dashboard/rescuetime",  label: "RescueTime",      emoji: "⏱️" },
-  { href: "/dashboard/journal",     label: "Journal",         emoji: "📝" },
-  { href: "/dashboard/focus",       label: "Focus",           emoji: "🎯" },
-  { href: "/dashboard/fasting",     label: "Fasting",         emoji: "⏱️" },
-  { href: "/dashboard/finances",    label: "Finances",        emoji: "💰" },
   { href: "/dashboard/subscriptions", label: "Subscriptions", emoji: "🔄" },
-  { href: "/dashboard/bills",       label: "Bills",           emoji: "🧾" },
   { href: "/dashboard/home",        label: "Home",            emoji: "🏡" },
   { href: "/dashboard/garden",      label: "Garden",          emoji: "🌻" },
-  { href: "/dashboard/custom",      label: "Trackers",        emoji: "📐" },
 ]
 
 const DEFAULT_ORDER = ALL_ITEMS.map(i => i.href)
@@ -65,15 +62,9 @@ const DEFAULT_HIDDEN = new Set([
   "/dashboard/strava",
   "/dashboard/lastfm",
   "/dashboard/rescuetime",
-  "/dashboard/journal",
-  "/dashboard/focus",
-  "/dashboard/fasting",
-  "/dashboard/finances",
   "/dashboard/subscriptions",
-  "/dashboard/bills",
   "/dashboard/home",
   "/dashboard/garden",
-  "/dashboard/custom",
 ])
 const NON_HIDEABLE = new Set(["/dashboard", "/dashboard/settings", "/dashboard/chat"])
 const LS_HIDDEN     = "sidebar-hidden-v2"
