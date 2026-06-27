@@ -1,0 +1,29 @@
+name: Scheduled data sync
+
+# Drives the server-side sync endpoints on a schedule, for free, 24/7 —
+# independent of Vercel's Hobby once-per-day cron limit, an always-on
+# server, or the app being open. GitHub runs this on the default branch.
+#
+# Setup: add a repository secret CRON_SECRET (Settings → Secrets and
+# variables → Actions) matching the CRON_SECRET env var in Vercel.
+
+on:
+  schedule:
+    - cron: "*/30 * * * *" # every 30 minutes (GitHub may delay a few min)
+  workflow_dispatch: {}      # allow manual runs from the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync Oura health data
+        env:
+          APP_URL: https://emergenthealth.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${APP_URL}/api/cron/oura") || true
+          echo "HTTP $code"; cat /tmp/out.txt || true
+          # Don't fail the workflow on a transient sync hiccup
+          if [ "$code" != "200" ]; then echo "::warning::oura sync returned $code"; fi
