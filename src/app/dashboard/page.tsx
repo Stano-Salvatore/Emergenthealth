@@ -125,13 +125,6 @@ export default async function DashboardPage() {
   if (!session?.user?.id) return null
   const userId = session.user.id
 
-  const goalsRow = await prisma.dailyNote.findUnique({
-    where: { userId_date: { userId, date: new Date("0001-01-01") } },
-  }).catch(() => null)
-  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number } : {}
-  const STEP_GOAL = userGoals.steps ?? DEFAULT_STEP_GOAL
-  const SLEEP_GOAL_H = userGoals.sleepH ?? DEFAULT_SLEEP_GOAL_H
-
   const now = new Date()
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -142,7 +135,17 @@ export default async function DashboardPage() {
   const todayStart = new Date(todayStr + "T00:00:00.000Z")
   const todayEnd = new Date(todayStr + "T23:59:59.999Z")
 
-  const [todayCheckin, checkinStreakRows] = await Promise.all([
+  // Single parallel batch — goals, check-in, and all dashboard data in one
+  // round-trip group instead of three sequential awaits.
+  const [
+    goalsRow,
+    todayCheckin,
+    checkinStreakRows,
+    healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData, todayIntake, todayFocus, todayOuraTags,
+  ] = await Promise.all([
+    prisma.dailyNote.findUnique({
+      where: { userId_date: { userId, date: new Date("0001-01-01") } },
+    }).catch(() => null),
     prisma.$queryRaw<{id: string}[]>`
       SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId}
       AND "date" = ${todayStr} LIMIT 1
@@ -152,22 +155,6 @@ export default async function DashboardPage() {
       AND "date" <= ${todayStr}
       ORDER BY "date" DESC LIMIT 60
     `.catch(() => [] as {date: string}[]),
-  ])
-  const hasCheckedInToday = todayCheckin.length > 0
-  // Compute consecutive check-in streak
-  const checkinDates = new Set((checkinStreakRows as {date: string}[]).map(r => r.date))
-  let checkinStreak = 0
-  {
-    const cursor = new Date(todayStr)
-    while (true) {
-      const d = cursor.toISOString().slice(0, 10)
-      if (!checkinDates.has(d)) break
-      checkinStreak++
-      cursor.setDate(cursor.getDate() - 1)
-    }
-  }
-
-  const [healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData, todayIntake, todayFocus, todayOuraTags] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId },
       orderBy: { date: "desc" },
@@ -212,6 +199,24 @@ export default async function DashboardPage() {
       WHERE "userId" = ${userId} AND "day" = ${todayStr}
     `.catch(() => [] as any[]),
   ])
+
+  // ── goals + check-in (parsed from the batch above)
+  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number } : {}
+  const STEP_GOAL = userGoals.steps ?? DEFAULT_STEP_GOAL
+  const SLEEP_GOAL_H = userGoals.sleepH ?? DEFAULT_SLEEP_GOAL_H
+  const hasCheckedInToday = todayCheckin.length > 0
+  // Compute consecutive check-in streak
+  const checkinDates = new Set((checkinStreakRows as {date: string}[]).map(r => r.date))
+  let checkinStreak = 0
+  {
+    const cursor = new Date(todayStr)
+    while (true) {
+      const d = cursor.toISOString().slice(0, 10)
+      if (!checkinDates.has(d)) break
+      checkinStreak++
+      cursor.setDate(cursor.getDate() - 1)
+    }
+  }
 
   // ── intake (manual logs + Oura ring drink tags)
   const manualWaterMl = todayIntake.filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
