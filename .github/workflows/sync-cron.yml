@@ -16,14 +16,18 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync Oura health data
+      - name: Sync server-side data sources
         env:
           APP_URL: https://emergenthealth.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
-            -H "Authorization: Bearer ${CRON_SECRET}" \
-            "${APP_URL}/api/cron/oura") || true
-          echo "HTTP $code"; cat /tmp/out.txt || true
-          # Don't fail the workflow on a transient sync hiccup
-          if [ "$code" != "200" ]; then echo "::warning::oura sync returned $code"; fi
+          # Data syncs only — health + finances. The notification/digest crons
+          # stay on Vercel's daily schedule (running them this often would spam).
+          for path in oura ynab truelayer; do
+            code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${APP_URL}/api/cron/${path}") || true
+            echo "[${path}] HTTP $code"; cat /tmp/out.txt || true; echo
+            # Don't fail the workflow on a transient sync hiccup
+            if [ "$code" != "200" ]; then echo "::warning::${path} sync returned $code"; fi
+          done
