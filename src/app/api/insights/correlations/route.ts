@@ -16,6 +16,7 @@ type DayData = {
   steps?: number
   activityScore?: number
   screenTimeMin?: number
+  firstUnlockMin?: number
   energy?: number
   mood?: number
   habitCount?: number
@@ -202,8 +203,8 @@ export async function GET(req: Request) {
 
     prisma.screenTimeLog.findMany({
       where: { userId, date: { gte: since60str } },
-      select: { date: true, totalMin: true },
-    }).catch(() => [] as { date: string; totalMin: number }[]),
+      select: { date: true, totalMin: true, firstUnlockMin: true },
+    }).catch(() => [] as { date: string; totalMin: number; firstUnlockMin: number | null }[]),
   ])
 
   // ── Build day map ────────────────────────────────────────────────────────────
@@ -262,8 +263,9 @@ export async function GET(req: Request) {
   }
 
   // Screen time (native, per local day)
-  for (const s of (screenRows as { date: string; totalMin: number }[])) {
+  for (const s of (screenRows as { date: string; totalMin: number; firstUnlockMin: number | null }[])) {
     if (s.totalMin != null) getOrCreate(s.date).screenTimeMin = s.totalMin
+    if (s.firstUnlockMin != null) getOrCreate(s.date).firstUnlockMin = s.firstUnlockMin
   }
 
   // Parse tag preferences: key = "daily_tags:YYYY-MM-DD"
@@ -888,6 +890,10 @@ export async function GET(req: Request) {
     const screenSleepLow: number[] = []
     const screenEnergyHigh: number[] = []
     const screenEnergyLow: number[] = []
+    const screenMoodHigh: number[] = []
+    const screenMoodLow: number[] = []
+    const screenReadinessHigh: number[] = []
+    const screenReadinessLow: number[] = []
 
     for (const d of days) {
       if (d.screenTimeMin == null) continue
@@ -900,6 +906,14 @@ export async function GET(req: Request) {
       if (next?.energy != null) {
         if (isHigh) screenEnergyHigh.push(next.energy)
         else screenEnergyLow.push(next.energy)
+      }
+      if (next?.mood != null) {
+        if (isHigh) screenMoodHigh.push(next.mood)
+        else screenMoodLow.push(next.mood)
+      }
+      if (next?.readiness != null) {
+        if (isHigh) screenReadinessHigh.push(next.readiness)
+        else screenReadinessLow.push(next.readiness)
       }
     }
 
@@ -936,6 +950,99 @@ export async function GET(req: Request) {
           : `Screen time doesn't dent your next-day energy — ${h} vs ${l}`,
     })
     if (ins_screen_energy) insights.push(ins_screen_energy)
+
+    const ins_screen_mood = compareGroups({
+      id: "screen_mood",
+      category: "screen",
+      emoji: "🙂",
+      title: "Screen Time & Next-Day Mood",
+      highGroupLabel: `high screen days (${fmtH(screenMedian)}+)`,
+      lowGroupLabel: "lower screen days",
+      highValues: screenMoodHigh,
+      lowValues: screenMoodLow,
+      higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `After high screen-time days, next-day mood averages ${h} vs ${l} after lighter days`
+          : `Screen time doesn't dent your next-day mood — ${h} vs ${l}`,
+    })
+    if (ins_screen_mood) insights.push(ins_screen_mood)
+
+    const ins_screen_readiness = compareGroups({
+      id: "screen_readiness",
+      category: "screen",
+      emoji: "🔋",
+      title: "Screen Time & Next-Day Readiness",
+      highGroupLabel: `high screen days (${fmtH(screenMedian)}+)`,
+      lowGroupLabel: "lower screen days",
+      highValues: screenReadinessHigh,
+      lowValues: screenReadinessLow,
+      higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `After high screen-time days, next-day readiness averages ${h} vs ${l}`
+          : `Screen time doesn't dent your next-day readiness — ${h} vs ${l}`,
+    })
+    if (ins_screen_readiness) insights.push(ins_screen_readiness)
+  }
+
+  // ── Wake time (first phone unlock) → morning energy & mood ───────────────────
+  const wakeVals = days.filter(d => d.firstUnlockMin != null).map(d => d.firstUnlockMin!)
+  if (wakeVals.length >= 10) {
+    const wakeMedian = median(wakeVals)
+    const fmtClock = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(Math.round(min % 60)).padStart(2, "0")}`
+
+    const earlyEnergy: number[] = []
+    const lateEnergy: number[] = []
+    const earlyMood: number[] = []
+    const lateMood: number[] = []
+
+    for (const d of days) {
+      if (d.firstUnlockMin == null) continue
+      const isEarly = d.firstUnlockMin < wakeMedian // earlier than your typical wake
+      if (d.energy != null) {
+        if (isEarly) earlyEnergy.push(d.energy)
+        else lateEnergy.push(d.energy)
+      }
+      if (d.mood != null) {
+        if (isEarly) earlyMood.push(d.mood)
+        else lateMood.push(d.mood)
+      }
+    }
+
+    const ins_wake_energy = compareGroups({
+      id: "wake_energy",
+      category: "screen",
+      emoji: "🌅",
+      title: "Wake Time & Morning Energy",
+      highGroupLabel: `early starts (before ${fmtClock(wakeMedian)})`,
+      lowGroupLabel: "later starts",
+      highValues: earlyEnergy,
+      lowValues: lateEnergy,
+      higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On days you reach for your phone before ${fmtClock(wakeMedian)}, morning energy averages ${h} vs ${l} on later starts`
+          : `Earlier starts don't boost your energy — ${h} vs ${l} on later starts`,
+    })
+    if (ins_wake_energy) insights.push(ins_wake_energy)
+
+    const ins_wake_mood = compareGroups({
+      id: "wake_mood",
+      category: "screen",
+      emoji: "☀️",
+      title: "Wake Time & Morning Mood",
+      highGroupLabel: `early starts (before ${fmtClock(wakeMedian)})`,
+      lowGroupLabel: "later starts",
+      highValues: earlyMood,
+      lowValues: lateMood,
+      higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On earlier starts (before ${fmtClock(wakeMedian)}), morning mood averages ${h} vs ${l} on later starts`
+          : `Earlier starts don't lift your mood — ${h} vs ${l} on later starts`,
+    })
+    if (ins_wake_mood) insights.push(ins_wake_mood)
   }
 
   // ── Sort by |delta| desc ─────────────────────────────────────────────────────
