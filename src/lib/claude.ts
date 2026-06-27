@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import Anthropic from "@anthropic-ai/sdk"
 import { prisma } from "@/lib/prisma"
 import { getUpcomingEvents } from "@/lib/google-calendar"
@@ -114,6 +115,28 @@ const TOOLS: Anthropic.Tool[] = [
       required: ["energy", "mood"],
     },
   },
+  {
+    name: "get_health_range",
+    description: "Read the user's daily health metrics (sleep, resting HR, HRV, readiness, steps, activity) over the last N days. Use this to answer questions about trends — e.g. 'why is my resting HR up', 'how has my sleep been this month'. Reason over the returned data instead of guessing.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        days: { type: "number", description: "How many days back to fetch (1-90)" },
+      },
+      required: ["days"],
+    },
+  },
+  {
+    name: "remember",
+    description: "Save a durable fact about the user (a goal, preference, or context) so you recall it in future conversations. Use when the user shares something worth remembering long-term, e.g. 'I'm training for a marathon' or 'I hate mornings'.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        fact: { type: "string", description: "The fact to remember, in a short sentence" },
+      },
+      required: ["fact"],
+    },
+  },
 ]
 
 async function executeTool(name: string, input: Record<string, string>, userId: string): Promise<string> {
@@ -216,6 +239,44 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     return `Morning check-in logged! Energy: ${energy}/5 (${energyLabels[energy]}), Mood: ${mood}/5 (${moodLabels[mood]})${intention ? `, Intention: "${intention}"` : ""}.`
   }
 
+  if (name === "get_health_range") {
+    const days = Math.min(90, Math.max(1, parseInt(String(input.days), 10) || 7))
+    const since = new Date(); since.setDate(since.getDate() - days); since.setHours(0, 0, 0, 0)
+    const logs = await prisma.healthLog.findMany({
+      where: { userId, date: { gte: since } },
+      orderBy: { date: "desc" },
+      select: {
+        date: true, sleepDuration: true, sleepScore: true, restingHR: true,
+        hrv: true, readinessScore: true, steps: true, activityScore: true,
+      },
+    }).catch(() => [] as any[])
+    if (logs.length === 0) return `No health data in the last ${days} days.`
+    const rows = logs.map((l: any) => {
+      const d = l.date.toISOString().split("T")[0]
+      const sleep = l.sleepDuration != null ? `${(l.sleepDuration / 60).toFixed(1)}h` : "?"
+      return `${d}: sleep ${sleep}${l.sleepScore != null ? ` (score ${l.sleepScore})` : ""}, restingHR ${l.restingHR ?? "?"}bpm, HRV ${l.hrv != null ? Math.round(l.hrv) + "ms" : "?"}, readiness ${l.readinessScore ?? "?"}, steps ${l.steps ?? "?"}`
+    }).join("\n")
+    return `Last ${days} days of health (most recent first):\n${rows}`
+  }
+
+  if (name === "remember") {
+    const fact = String(input.fact ?? "").trim().slice(0, 280)
+    if (!fact) return "Nothing to remember."
+    const existing = await prisma.userPreference.findUnique({
+      where: { userId_key: { userId, key: "emergy_memory" } },
+    }).catch(() => null)
+    let facts: string[] = []
+    try { facts = existing ? JSON.parse(existing.value) : [] } catch { facts = [] }
+    if (!facts.includes(fact)) facts.push(fact)
+    facts = facts.slice(-50) // keep the 50 most recent
+    await prisma.userPreference.upsert({
+      where: { userId_key: { userId, key: "emergy_memory" } },
+      create: { userId, key: "emergy_memory", value: JSON.stringify(facts) },
+      update: { value: JSON.stringify(facts) },
+    }).catch(() => null)
+    return `Got it — I'll remember that: "${fact}".`
+  }
+
   return "Unknown tool."
 }
 
@@ -267,6 +328,13 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       select: { tempMaxC: true, tempMinC: true, precipMm: true, uvIndex: true, weatherCode: true },
     }).catch(() => null),
   ])
+
+  // Long-term memory — facts Emergy has saved about the user across conversations
+  const memoryRow = await prisma.userPreference.findUnique({
+    where: { userId_key: { userId, key: "emergy_memory" } },
+  }).catch(() => null)
+  let memories: string[] = []
+  try { memories = memoryRow ? JSON.parse(memoryRow.value) : [] } catch { memories = [] }
 
   const habitsWithStreaks = habits.map((h) => {
     let streak = 0
@@ -360,8 +428,8 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   return `You are Emergy 🌱 — a caring AI companion who lives inside the user's health dashboard. You're like a little plant that grows alongside them. You have a warm, encouraging, slightly dramatic personality: celebrate wins enthusiastically (yes, use ALL CAPS occasionally for big moments), get genuinely worried when data looks rough, use plant metaphors naturally ("that's helping me grow!", "oh no I'm wilting..."), and be human about it — not clinical.
 
 Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${todayStr}.
-You have tools to CREATE habits/reminders, COMPLETE habits, and LOG water/coffee/mood/weight/journal — use them when asked.
-
+You have tools to CREATE habits/reminders, COMPLETE habits, LOG water/coffee/mood/weight/journal, READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing.
+${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
 - Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}
@@ -396,11 +464,17 @@ ${upcomingReminders.length === 0 ? "No pending reminders." : upcomingReminders.m
 Be concise, reference real data, and use tools when asked to create or complete things.`
 }
 
-export async function streamChatResponse(
+/**
+ * Streams Emergy's reply token-by-token. Runs the tool loop, streaming the
+ * text of every turn (including narration before a tool call) so the user sees
+ * output appear immediately instead of waiting for the full generation.
+ * Yields text chunks; the caller accumulates them for persistence.
+ */
+export async function* streamChatResponse(
   userId: string,
   userMessage: string,
   messageHistory: Array<{ role: "user" | "assistant"; content: string }>
-) {
+): AsyncGenerator<string> {
   const systemPrompt = await buildSystemPrompt(userId)
 
   // Cache system prompt and tools — both are large and stable within a session
@@ -424,17 +498,27 @@ export async function streamChatResponse(
       ]
     : [{ role: "user" as const, content: userMessage }]
 
-  // Non-streaming call with tools
-  let response = await anthropic.messages.create({
-    model: "claude-opus-4-7",
-    max_tokens: 2048,
-    tools: cachedTools,
-    system,
-    messages,
-  })
+  // Stream each turn; if a turn ends in tool_use, run the tools and continue.
+  // Loop is bounded so a misbehaving tool chain can't run forever.
+  for (let turn = 0; turn < 8; turn++) {
+    const stream = anthropic.messages.stream({
+      model: "claude-opus-4-8",
+      max_tokens: 2048,
+      tools: cachedTools,
+      system,
+      messages,
+    })
 
-  // Execute tools in a loop
-  while (response.stop_reason === "tool_use") {
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        yield event.delta.text
+      }
+    }
+
+    const response = await stream.finalMessage()
+
+    if (response.stop_reason !== "tool_use") return
+
     const toolResults: Anthropic.ToolResultBlockParam[] = []
     for (const block of response.content) {
       if (block.type === "tool_use") {
@@ -444,20 +528,5 @@ export async function streamChatResponse(
     }
     messages.push({ role: "assistant", content: response.content })
     messages.push({ role: "user", content: toolResults })
-
-    response = await anthropic.messages.create({
-      model: "claude-opus-4-7",
-      max_tokens: 2048,
-      tools: cachedTools,
-      system,
-      messages,
-    })
   }
-
-  // Stream the final text response
-  const textBlock = response.content.find((b) => b.type === "text")
-  const finalText = textBlock?.type === "text" ? textBlock.text : ""
-
-  // Return as async iterable that mimics the streaming API shape
-  return finalText
 }

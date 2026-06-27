@@ -23,21 +23,25 @@ export async function POST(req: NextRequest) {
 
   await prisma.chatMessage.create({ data: { userId, role: "user", content: message } })
 
-  const fullResponse = await streamChatResponse(userId, message, history ?? [])
-
-  await prisma.chatMessage.create({ data: { userId, role: "assistant", content: fullResponse } })
-
-  // Stream word-by-word for a natural feel
-  const words = fullResponse.split(" ")
+  // Real token streaming — forward Claude's deltas straight to the client as
+  // they arrive, then persist the accumulated reply once the stream finishes.
+  const encoder = new TextEncoder()
   const readable = new ReadableStream({
     async start(controller) {
-      for (let i = 0; i < words.length; i++) {
-        const chunk = (i === 0 ? "" : " ") + words[i]
-        controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ text: chunk })}\n\n`))
-        await new Promise((r) => setTimeout(r, 15))
+      let full = ""
+      try {
+        for await (const chunk of streamChatResponse(userId, message, history ?? [])) {
+          full += chunk
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`))
+        }
+      } catch {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "\n\n_(Sorry, something went wrong.)_" })}\n\n`))
       }
-      controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"))
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"))
       controller.close()
+      if (full.trim()) {
+        await prisma.chatMessage.create({ data: { userId, role: "assistant", content: full } }).catch(() => {})
+      }
     },
   })
 
