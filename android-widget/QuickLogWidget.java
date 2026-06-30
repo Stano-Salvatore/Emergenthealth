@@ -19,8 +19,8 @@ import java.util.Locale;
  * Home-screen quick-log widget: tap to log water / coffee / beer / wine without
  * opening the app. Posts to /api/widget/log using the per-device key stored by
  * the app in Capacitor's SharedPreferences. Daily totals are cached locally and
- * reset at midnight. Emoji are written as \u escapes so the source compiles
- * regardless of the CI file encoding.
+ * reset at midnight. Emoji are written as Unicode escape sequences so the
+ * source compiles regardless of the CI file encoding.
  */
 public class QuickLogWidget extends AppWidgetProvider {
 
@@ -42,9 +42,9 @@ public class QuickLogWidget extends AppWidgetProvider {
     private static final String CAP_API_KEY = "widget_api_key";
     private static final String CAP_APP_URL = "widget_app_url";
 
-    private static final String EMOJI_WATER  = "💧"; // 💧
-    private static final String EMOJI_COFFEE = "☕";       // ☕
-    private static final String EMOJI_BEER   = "🍺"; // 🍺
+    private static final String EMOJI_WATER  = "💧"; // water drop
+    private static final String EMOJI_COFFEE = "☕";       // hot beverage
+    private static final String EMOJI_BEER   = "🍺"; // beer mug
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
