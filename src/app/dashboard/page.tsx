@@ -29,6 +29,7 @@ import { TodayCard } from "@/components/dashboard/TodayCard"
 import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
 import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
+import { NotesWidget } from "@/components/dashboard/NotesWidget"
 
 const DEFAULT_STEP_GOAL = 8_000
 const DEFAULT_SLEEP_GOAL_H = 7.5
@@ -715,6 +716,7 @@ export default async function DashboardPage() {
     ),
 
     insights: <InsightsPanel />,
+    notes: <NotesWidget />,
     location: <LocationCard />,
     ac: <AcCard />,
     quests: <DailyQuests />,
