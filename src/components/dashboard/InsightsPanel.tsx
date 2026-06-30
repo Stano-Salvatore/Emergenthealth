@@ -6,10 +6,10 @@ import { RefreshCw, ChevronRight } from "lucide-react"
 
 type Period = "today" | "week" | "month" | "overall"
 
-const TABS: { key: Period; label: string }[] = [
-  { key: "today",   label: "Today" },
-  { key: "week",    label: "This Week" },
-  { key: "month",   label: "Last 30d" },
+// Stacked periods, shown one after another (not tabs).
+const PERIODS: { key: Exclude<Period, "today">; label: string }[] = [
+  { key: "week",    label: "Last 7 days" },
+  { key: "month",   label: "Last 30 days" },
   { key: "overall", label: "Overall" },
 ]
 
@@ -262,7 +262,6 @@ function PeriodTab({
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function InsightsPanel() {
-  const [activeTab, setActiveTab] = useState<Period>("today")
   const [regenerating, setRegenerating] = useState<Exclude<Period, "today"> | null>(null)
 
   const periodData = useRef<Partial<Record<Exclude<Period, "today">, PeriodData>>>({})
@@ -307,43 +306,31 @@ export function InsightsPanel() {
     }
   }, [])
 
+  // Load every period up-front so all sections render stacked.
   useEffect(() => {
-    if (activeTab !== "today") loadPeriod(activeTab as Exclude<Period, "today">)
-  }, [activeTab, loadPeriod])
-
-  // Pre-load "week" tab in background
-  useEffect(() => { loadPeriod("week") }, [loadPeriod])
+    PERIODS.forEach(p => loadPeriod(p.key))
+  }, [loadPeriod])
 
   return (
-    <div className="rounded-xl border border-border/50 bg-background/50 backdrop-blur px-4 py-3 space-y-3">
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {TABS.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full transition-colors ${
-              activeTab === tab.key
-                ? "bg-primary/20 text-primary"
-                : "text-muted-foreground/50 hover:text-muted-foreground"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+    <div className="rounded-xl border border-border/50 bg-background/50 backdrop-blur px-4 py-3 space-y-4">
+      {/* Today snapshot */}
+      <div>
+        <p className="text-[11px] font-bold uppercase tracking-wider text-foreground/70 mb-2">Today</p>
+        <TodayTab />
       </div>
 
-      <div>
-        {activeTab === "today" ? (
-          <TodayTab />
-        ) : (
+      {/* Trends, one period after another */}
+      {PERIODS.map(p => (
+        <div key={p.key} className="pt-3 border-t border-border/40">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-foreground/70 mb-2">{p.label}</p>
           <PeriodTab
-            period={activeTab}
-            data={periodData.current[activeTab] ?? { insight: null, correlations: [], locationPatterns: [], loaded: false }}
-            onRegenerate={() => regenerate(activeTab)}
-            regenerating={regenerating === activeTab}
+            period={p.key}
+            data={periodData.current[p.key] ?? { insight: null, correlations: [], locationPatterns: [], loaded: false }}
+            onRegenerate={() => regenerate(p.key)}
+            regenerating={regenerating === p.key}
           />
-        )}
-      </div>
+        </div>
+      ))}
     </div>
   )
 }
