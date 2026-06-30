@@ -53,8 +53,27 @@ const DEFAULT_ITEMS: LayoutItem[] = [
 const STORAGE_KEY = "dashboard-layout-v8"
 const HIDDEN_KEY  = "dashboard-hidden-v1"
 
+// Always reconcile a saved layout against the full block set so no widget can
+// ever silently disappear: a saved/stale layout that's missing blocks (e.g. an
+// older cross-device copy) would otherwise drop them entirely, since the grid
+// only renders items present in the array. We keep saved coords where valid,
+// append any blocks the save didn't know about, and drop unknown ids.
+function reconcile(saved: unknown): LayoutItem[] {
+  if (!Array.isArray(saved) || saved.length === 0) return DEFAULT_ITEMS
+  const byId = new Map<string, LayoutItem>()
+  for (const it of saved) {
+    if (it && typeof it === "object" && typeof (it as LayoutItem).i === "string") {
+      byId.set((it as LayoutItem).i, it as LayoutItem)
+    }
+  }
+  return DEFAULT_ITEMS.map(def => {
+    const s = byId.get(def.i)
+    return s ? { ...def, ...s } : def
+  })
+}
+
 function loadItems(): LayoutItem[] {
-  try { const r = localStorage.getItem(STORAGE_KEY); if (r) return JSON.parse(r) } catch { /* */ }
+  try { const r = localStorage.getItem(STORAGE_KEY); if (r) return reconcile(JSON.parse(r)) } catch { /* */ }
   return DEFAULT_ITEMS
 }
 
@@ -111,8 +130,9 @@ export function DashboardGrid({ blocks, header }: Props) {
       .then((d: { layout?: LayoutItem[] | null; hidden?: string[] | null } | null) => {
         if (!d) return
         if (Array.isArray(d.layout) && d.layout.length > 0) {
-          setItems(d.layout)
-          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d.layout)) } catch { /* */ }
+          const merged = reconcile(d.layout)
+          setItems(merged)
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify(merged)) } catch { /* */ }
         }
         if (Array.isArray(d.hidden)) {
           setHidden(new Set(d.hidden as BlockId[]))
