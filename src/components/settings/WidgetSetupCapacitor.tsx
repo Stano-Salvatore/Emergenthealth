@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Copy, Check, RefreshCw, Trash2 } from "lucide-react"
+import { Copy, Check, RefreshCw, Trash2, Smartphone } from "lucide-react"
+import { activateWidget } from "@/lib/widget-activator"
 
 function maskKey(key: string): string {
   if (key.length <= 8) return key
@@ -17,6 +18,8 @@ export function WidgetSetupCapacitor() {
   const [revoking, setRevoking] = useState(false)
   const [copied, setCopied] = useState(false)
   const [showSetup, setShowSetup] = useState(false)
+  const [activated, setActivated] = useState(false)
+  const [activating, setActivating] = useState(false)
 
   useEffect(() => {
     fetch("/api/widget/key")
@@ -54,6 +57,19 @@ export function WidgetSetupCapacitor() {
       // silently ignore
     }
     setRevoking(false)
+  }
+
+  async function handleActivate() {
+    if (!apiKey) return
+    setActivating(true)
+    try {
+      await activateWidget(apiKey, window.location.origin)
+      setActivated(true)
+      setTimeout(() => setActivated(false), 3000)
+    } catch {
+      // silently ignore
+    }
+    setActivating(false)
   }
 
   async function copyKey() {
@@ -97,6 +113,17 @@ export function WidgetSetupCapacitor() {
                   </code>
                 </div>
                 <div className="flex gap-2 flex-wrap">
+                  <Button size="sm" className="h-7 text-xs gap-1.5" onClick={handleActivate} disabled={activating}>
+                    {activated ? (
+                      <>
+                        <Check className="h-3 w-3" /> Activated!
+                      </>
+                    ) : (
+                      <>
+                        <Smartphone className="h-3 w-3" /> {activating ? "Activating…" : "Activate Widget"}
+                      </>
+                    )}
+                  </Button>
                   <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={copyKey}>
                     {copied ? (
                       <>
