@@ -51,7 +51,10 @@ const DEFAULT_ITEMS: LayoutItem[] = [
 ]
 
 const STORAGE_KEY = "dashboard-layout-v8"
-const HIDDEN_KEY  = "dashboard-hidden-v1"
+// Bumped v1 → v2 to abandon any corrupt/over-aggressive hidden set that was
+// hiding most widgets and leaving the dashboard near-empty. Starts fresh with
+// nothing hidden so every widget shows again.
+const HIDDEN_KEY  = "dashboard-hidden-v2"
 
 // Always reconcile a saved layout against the full block set so no widget can
 // ever silently disappear: a saved/stale layout that's missing blocks (e.g. an
@@ -147,11 +150,21 @@ export function DashboardGrid({ blocks, header }: Props) {
   // render a plain vertical stack instead of the draggable 12-column grid,
   // which reuses desktop coordinates and breaks down in a single column
   // (widgets overlap or get flung down by their `y` values, leaving blank gaps).
+  // BUT respect web/desktop layout mode — if the user has explicitly chosen the
+  // desktop layout (persistent sidebar, zoomed out) we keep the full grid so it
+  // fills the screen instead of cramming everything into one narrow column.
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 640)
+    const check = () => {
+      const webMode = (() => { try { return localStorage.getItem("layout_mode") === "web" } catch { return false } })()
+      setIsMobile(!webMode && window.innerWidth < 640)
+    }
     check()
     window.addEventListener("resize", check)
-    return () => window.removeEventListener("resize", check)
+    window.addEventListener("storage", check)
+    return () => {
+      window.removeEventListener("resize", check)
+      window.removeEventListener("storage", check)
+    }
   }, [])
 
   const onLayoutChange = useCallback((layout: readonly LayoutItem[]) => {

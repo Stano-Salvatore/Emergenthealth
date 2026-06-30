@@ -25,7 +25,7 @@ export async function GET() {
   await ensureTable()
   const rows = await prisma.$queryRaw<{ key: string; value: string }[]>`
     SELECT "key", "value" FROM "UserPreference"
-    WHERE "userId" = ${userId} AND "key" IN ('dashboard_layout', 'dashboard_hidden')
+    WHERE "userId" = ${userId} AND "key" IN ('dashboard_layout', 'dashboard_hidden_v2')
   `
   const get = (k: string) => rows.find(r => r.key === k)?.value
   const parse = (v: string | undefined) => {
@@ -34,7 +34,7 @@ export async function GET() {
   }
   return NextResponse.json({
     layout: parse(get("dashboard_layout")),
-    hidden: parse(get("dashboard_hidden")),
+    hidden: parse(get("dashboard_hidden_v2")),
   })
 }
 
@@ -55,7 +55,7 @@ export async function POST(req: Request) {
   if (Array.isArray(body.hidden)) {
     const v = JSON.stringify(body.hidden)
     await prisma.$executeRaw`
-      INSERT INTO "UserPreference" ("userId","key","value") VALUES (${userId},'dashboard_hidden',${v})
+      INSERT INTO "UserPreference" ("userId","key","value") VALUES (${userId},'dashboard_hidden_v2',${v})
       ON CONFLICT ("userId","key") DO UPDATE SET "value"=${v}
     `
   }
