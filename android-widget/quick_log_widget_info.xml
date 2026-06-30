@@ -4,7 +4,6 @@
     android:minWidth="250dp"
     android:minHeight="110dp"
     android:updatePeriodMillis="1800000"
-    android:description="Quick log water, coffee and drinks"
     android:previewLayout="@layout/widget_quick_log"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen" />

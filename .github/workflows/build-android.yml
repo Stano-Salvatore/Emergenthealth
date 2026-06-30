@@ -8,6 +8,7 @@ on:
       - "capacitor.config.ts"
       - "package.json"
       - ".ci/**"
+      - "android-widget/**"
       - ".github/workflows/build-android.yml"
       - "public/.well-known/assetlinks.json"
   workflow_dispatch:

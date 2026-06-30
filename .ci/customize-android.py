@@ -3,6 +3,7 @@
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -135,5 +136,63 @@ elif not os.path.exists(splash_xml):
     print("✓ Created drawable/splash.xml placeholder (dark background)")
 else:
     print("ℹ️  drawable/splash.xml already exists")
+
+# 5. Install the Quick Log home-screen widget (Java provider + resources) and
+# register its AppWidgetProvider receiver in the manifest. The widget lets the
+# user log water/coffee/beer from the home screen without opening the app.
+widget_src   = "android-widget"
+pkg_java_dir = "android/app/src/main/java/app/emergenthealth"
+res_layout   = "android/app/src/main/res/layout"
+res_xml      = "android/app/src/main/res/xml"
+res_drawable = "android/app/src/main/res/drawable"
+
+widget_copies = [
+    (f"{widget_src}/QuickLogWidget.java",       f"{pkg_java_dir}/QuickLogWidget.java"),
+    (f"{widget_src}/widget_quick_log.xml",      f"{res_layout}/widget_quick_log.xml"),
+    (f"{widget_src}/quick_log_widget_info.xml", f"{res_xml}/quick_log_widget_info.xml"),
+    (f"{widget_src}/widget_background.xml",      f"{res_drawable}/widget_background.xml"),
+]
+
+widget_ok = True
+for src, dst in widget_copies:
+    if not os.path.exists(src):
+        print(f"WARNING: widget source missing, skipping widget: {src}")
+        widget_ok = False
+        break
+
+if widget_ok:
+    for d in (pkg_java_dir, res_layout, res_xml, res_drawable):
+        os.makedirs(d, exist_ok=True)
+    for src, dst in widget_copies:
+        shutil.copyfile(src, dst)
+    print("✓ Quick Log widget files installed")
+
+    # Register the widget receiver inside <application> (idempotent).
+    with open(manifest_path) as f:
+        m = f.read()
+    if "QuickLogWidget" not in m:
+        widget_receiver = """
+        <receiver android:name=".QuickLogWidget" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="app.emergenthealth.LOG_WATER_250" />
+                <action android:name="app.emergenthealth.LOG_WATER_500" />
+                <action android:name="app.emergenthealth.LOG_COFFEE" />
+                <action android:name="app.emergenthealth.LOG_BEER" />
+                <action android:name="app.emergenthealth.LOG_WINE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/quick_log_widget_info" />
+        </receiver>
+"""
+        m = m.replace("</application>", widget_receiver + "    </application>", 1)
+        with open(manifest_path, "w") as f:
+            f.write(m)
+        print("✓ AndroidManifest.xml updated with QuickLogWidget receiver")
+    else:
+        print("ℹ️  QuickLogWidget receiver already present")
+else:
+    print("ℹ️  Skipped widget install (source files not found)")
 
 print("All Android customizations applied successfully.")
