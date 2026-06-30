@@ -87,6 +87,7 @@ export function DashboardGrid({ blocks, header }: Props) {
   const [hidden, setHidden]   = useState<Set<BlockId>>(new Set())
   const [editing, setEditing] = useState(false)
   const [ready, setReady]     = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
 
   const { containerRef, width } = useContainerWidth({ initialWidth: 1280 })
 
@@ -142,6 +143,17 @@ export function DashboardGrid({ blocks, header }: Props) {
       .catch(() => {})
   }, [])
 
+  // Track viewport width independently of the grid container: on phones we
+  // render a plain vertical stack instead of the draggable 12-column grid,
+  // which reuses desktop coordinates and breaks down in a single column
+  // (widgets overlap or get flung down by their `y` values, leaving blank gaps).
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640)
+    check()
+    window.addEventListener("resize", check)
+    return () => window.removeEventListener("resize", check)
+  }, [])
+
   const onLayoutChange = useCallback((layout: readonly LayoutItem[]) => {
     const next = [...layout]
     setItems(next)
@@ -183,6 +195,64 @@ export function DashboardGrid({ blocks, header }: Props) {
           {ALL_BLOCKS.filter(b => blocks[b.id]).map(b => (
             <div key={b.id}>{blocks[b.id]}</div>
           ))}
+        </div>
+      </div>
+    )
+  }
+
+  if (isMobile) {
+    return (
+      <div className="space-y-4">
+        {header}
+
+        {/* toolbar — hide/show only (no drag on mobile) */}
+        <div className="flex items-center justify-end gap-2">
+          {editing && (
+            <button onClick={resetLayout} className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-secondary/70 transition-colors">
+              Reset
+            </button>
+          )}
+          <button
+            onClick={() => setEditing(e => !e)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all ${editing ? "bg-primary text-primary-foreground border-primary" : "text-muted-foreground border-border hover:text-foreground hover:border-primary/30"}`}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            {editing ? "Done" : "Edit"}
+          </button>
+        </div>
+
+        {editing && hidden.size > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {ALL_BLOCKS.filter(b => hidden.has(b.id) && blocks[b.id]).map(b => (
+              <button key={b.id} onClick={() => toggleHide(b.id)}
+                className="text-xs px-2.5 py-1 rounded-full border border-dashed border-primary/40 text-primary/70 hover:text-primary hover:border-primary transition-colors">
+                + {b.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {visibleItems.map(({ i }) => {
+            const id = i as BlockId
+            const node = blocks[id]
+            if (!node) return null
+            const meta = ALL_BLOCKS.find(b => b.id === id)
+            return (
+              <div key={i} className="relative">
+                {editing && (
+                  <button
+                    onClick={() => toggleHide(id)}
+                    className="absolute right-2 top-1 z-30 flex items-center justify-center h-7 w-7 rounded-md bg-background/60 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label={`Remove ${meta?.label}`}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+                {node}
+              </div>
+            )
+          })}
         </div>
       </div>
     )
