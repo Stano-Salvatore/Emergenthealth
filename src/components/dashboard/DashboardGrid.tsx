@@ -11,6 +11,7 @@ export type BlockId =
   | "insights" | "health" | "finances" | "calendar" | "habits"
   | "reminders" | "gmail" | "quicklog" | "stats"
   | "location" | "ac" | "today" | "quests" | "quickstart" | "briefing"
+  | "notes"
 
 interface Block { id: BlockId; label: string }
 
@@ -30,6 +31,7 @@ const ALL_BLOCKS: Block[] = [
   { id: "ac",         label: "❄️ AC" },
   { id: "quests",     label: "⚔️ Quests" },
   { id: "quickstart", label: "🚀 Quick Start" },
+  { id: "notes",      label: "📝 Notes" },
 ]
 
 const DEFAULT_ITEMS: LayoutItem[] = [
@@ -48,6 +50,7 @@ const DEFAULT_ITEMS: LayoutItem[] = [
   { i: "stats",       x: 0, y: 57, w: 12, h: 4 },
   { i: "location",    x: 0, y: 61, w: 6,  h: 6 },
   { i: "ac",          x: 6, y: 61, w: 6,  h: 6 },
+  { i: "notes",       x: 0, y: 67, w: 6,  h: 6 },
 ]
 
 const STORAGE_KEY = "dashboard-layout-v8"
@@ -83,6 +86,49 @@ function loadItems(): LayoutItem[] {
 interface Props {
   blocks: Partial<Record<BlockId, React.ReactNode>>
   header: React.ReactNode
+}
+
+// Edit-mode panel listing every available widget so the user can add or remove
+// any of them from one place (not just re-add the ones they previously hid).
+function WidgetGallery({
+  blocks, hidden, onToggle,
+}: {
+  blocks: Partial<Record<BlockId, React.ReactNode>>
+  hidden: Set<BlockId>
+  onToggle: (id: BlockId) => void
+}) {
+  const available = ALL_BLOCKS.filter(b => blocks[b.id])
+  const shownCount = available.filter(b => !hidden.has(b.id)).length
+  return (
+    <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-primary/80">Customize widgets — tap to show or hide</p>
+        <p className="text-[10px] text-muted-foreground tabular-nums">{shownCount}/{available.length} shown</p>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+        {available.map(b => {
+          const shown = !hidden.has(b.id)
+          return (
+            <button
+              key={b.id}
+              onClick={() => onToggle(b.id)}
+              aria-pressed={shown}
+              className={`flex items-center justify-between gap-2 text-left text-xs px-2.5 py-2 rounded-lg border transition-all ${
+                shown
+                  ? "border-primary/30 bg-background/60 text-foreground"
+                  : "border-dashed border-border text-muted-foreground/70 hover:border-primary/40 hover:text-foreground"
+              }`}
+            >
+              <span className="truncate">{b.label}</span>
+              <span className={`shrink-0 text-[11px] font-bold ${shown ? "text-primary" : "text-muted-foreground/50"}`}>
+                {shown ? "✓" : "+"}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 export function DashboardGrid({ blocks, header }: Props) {
@@ -234,16 +280,7 @@ export function DashboardGrid({ blocks, header }: Props) {
           </button>
         </div>
 
-        {editing && hidden.size > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {ALL_BLOCKS.filter(b => hidden.has(b.id) && blocks[b.id]).map(b => (
-              <button key={b.id} onClick={() => toggleHide(b.id)}
-                className="text-xs px-2.5 py-1 rounded-full border border-dashed border-primary/40 text-primary/70 hover:text-primary hover:border-primary transition-colors">
-                + {b.label}
-              </button>
-            ))}
-          </div>
-        )}
+        {editing && <WidgetGallery blocks={blocks} hidden={hidden} onToggle={toggleHide} />}
 
         <div className="space-y-4">
           {visibleItems.map(({ i }) => {
@@ -292,17 +329,8 @@ export function DashboardGrid({ blocks, header }: Props) {
         </button>
       </div>
 
-      {/* re-add hidden blocks while editing */}
-      {editing && hidden.size > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {ALL_BLOCKS.filter(b => hidden.has(b.id) && blocks[b.id]).map(b => (
-            <button key={b.id} onClick={() => toggleHide(b.id)}
-              className="text-xs px-2.5 py-1 rounded-full border border-dashed border-primary/40 text-primary/70 hover:text-primary hover:border-primary transition-colors">
-              + {b.label}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* widget gallery — add/remove any widget while editing */}
+      {editing && <WidgetGallery blocks={blocks} hidden={hidden} onToggle={toggleHide} />}
 
       {/* grid */}
       <div ref={containerRef}>
@@ -310,7 +338,13 @@ export function DashboardGrid({ blocks, header }: Props) {
           width={width}
           layouts={layouts}
           breakpoints={{ lg: 1024, md: 640, sm: 0 }}
-          cols={{ lg: 12, md: 12, sm: 1 }}
+          // Always 12 columns — never collapse to a single column. The 1-col
+          // breakpoint reused the 12-col coordinates and produced overlapping
+          // widgets and huge blank gaps whenever the measured container was
+          // narrow (notably web layout mode in the APK, where the 0.5 zoom makes
+          // the grid measure < 640px). Real phones use the separate vertical
+          // stack above (isMobile), so this grid path can safely stay 12-col.
+          cols={{ lg: 12, md: 12, sm: 12 }}
           rowHeight={36}
           margin={[16, 16]}
           dragConfig={{ enabled: editing, handle: ".drag-handle", bounded: false, threshold: 3 }}
