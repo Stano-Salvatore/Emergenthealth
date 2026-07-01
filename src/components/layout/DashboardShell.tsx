@@ -12,7 +12,6 @@ import { TrialBanner } from "./TrialBanner"
 import { OfflineToast } from "./OfflineToast"
 import { RateAppPrompt } from "./RateAppPrompt"
 import { cn } from "@/lib/utils"
-import { applyDisplayScale } from "@/lib/display-scale"
 
 const STORAGE_KEY = "sidebar-open"
 
@@ -22,20 +21,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [webMode, setWebMode] = useState(false)
 
   useEffect(() => {
+    // Display scale itself is rendered server-side (see generateViewport() in
+    // app/layout.tsx) from a cookie — nothing to apply client-side here. Doing
+    // so on every mount (including SPA navigations between dashboard pages)
+    // used to risk re-mutating the viewport meta with a stale value after the
+    // correct one was already set at first load.
     const layoutMode = localStorage.getItem("layout_mode")
     const isWeb = layoutMode === "web"
     setWebMode(isWeb)
-
-    // Ensure scale is applied correctly for each mode on load. Uses native
-    // viewport scaling (not CSS zoom) to avoid the WebView black-screen bug.
-    if (isWeb) {
-      let currentZoom = parseFloat(localStorage.getItem("display_zoom") || "1")
-      if (currentZoom > 0.6) {
-        currentZoom = 0.5
-        localStorage.setItem("display_zoom", "0.5")
-      }
-      applyDisplayScale(currentZoom)
-    }
 
     const saved = localStorage.getItem(STORAGE_KEY)
     const wide = window.innerWidth >= 1024
