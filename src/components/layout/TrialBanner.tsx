@@ -66,7 +66,12 @@ export function TrialBanner() {
   const isTrialExpiring = status.isTrialing && status.trialDaysLeft !== null && status.trialDaysLeft <= 4
 
   return (
-    <div className={`fixed top-0 inset-x-0 z-40 flex items-center justify-between gap-3 px-4 py-2.5 text-sm ${
+    // pointer-events-none on the bar itself: this banner spans the full
+    // viewport width at top-0, including over the sidebar in Web mode, which
+    // otherwise sits underneath it and can't be clicked while the banner is
+    // showing. Its own controls opt back in with pointer-events-auto so they
+    // stay clickable; everywhere else, clicks pass through to what's below.
+    <div className={`fixed top-0 inset-x-0 z-40 flex items-center justify-between gap-3 px-4 py-2.5 text-sm pointer-events-none ${
       isTrialExpiring
         ? "bg-amber-500/15 border-b border-amber-500/30 text-amber-200"
         : "bg-primary/10 border-b border-primary/20 text-foreground"
@@ -83,7 +88,7 @@ export function TrialBanner() {
             : "Enjoying Emergenthealth? Unlock unlimited habits, full history & daily AI insights with Pro."}
         </span>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-2 shrink-0 pointer-events-auto">
         <Link
           href="/pricing"
           onClick={dismiss}
