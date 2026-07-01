@@ -42,7 +42,7 @@ export type BlockId =
   | "insights" | "health" | "finances" | "calendar" | "habits"
   | "reminders" | "gmail" | "quicklog" | "stats"
   | "location" | "ac" | "today" | "quests" | "quickstart" | "briefing"
-  | "notes"
+  | "notes" | "insights_week" | "insights_month" | "insights_overall"
 
 interface Block { id: BlockId; label: string }
 
@@ -63,6 +63,9 @@ const ALL_BLOCKS: Block[] = [
   { id: "quests",     label: "⚔️ Quests" },
   { id: "quickstart", label: "🚀 Quick Start" },
   { id: "notes",      label: "📝 Notes" },
+  { id: "insights_week",    label: "📈 Insights: 7 Days" },
+  { id: "insights_month",   label: "📊 Insights: 30 Days" },
+  { id: "insights_overall", label: "🌐 Insights: Overall" },
 ]
 
 const DEFAULT_ITEMS: LayoutItem[] = [
@@ -82,6 +85,9 @@ const DEFAULT_ITEMS: LayoutItem[] = [
   { i: "location",    x: 0, y: 61, w: 6,  h: 6 },
   { i: "ac",          x: 6, y: 61, w: 6,  h: 6 },
   { i: "notes",       x: 0, y: 67, w: 6,  h: 6 },
+  { i: "insights_week",    x: 0, y: 73, w: 4, h: 11 },
+  { i: "insights_month",   x: 4, y: 73, w: 4, h: 11 },
+  { i: "insights_overall", x: 8, y: 73, w: 4, h: 11 },
 ]
 
 const STORAGE_KEY = "dashboard-layout-v8"
