@@ -20,9 +20,15 @@ export function LayoutModeControl() {
     try {
       localStorage.setItem("layout_mode", v)
     } catch {}
+    // Only shrink to fit on a small screen — that trick is for squeezing a
+    // desktop-style layout onto a phone. A tablet/desktop-sized screen
+    // already has room to spare, so Web mode there stays at native 100% zoom
+    // instead of unnecessarily zooming out (matches the auto-detected default
+    // in DashboardShell for a device's first-ever visit).
+    const isSmallScreen = window.innerWidth < 768
     // persistDisplayScale reloads — the server then renders the correct
     // viewport <meta> from the cookie it sets (see src/lib/display-scale.ts).
-    persistDisplayScale(v === "web" ? 0.5 : 1)
+    persistDisplayScale(v === "web" && isSmallScreen ? 0.5 : 1)
   }
 
   return (
@@ -45,7 +51,7 @@ export function LayoutModeControl() {
       </div>
       <p className="text-[11px] text-muted-foreground">
         {mode === "web"
-          ? "Sidebar always visible, zoom set to 50% to fit everything on screen."
+          ? "Sidebar always visible. Zoomed out to fit on a phone; stays at 100% on a tablet or larger."
           : "Sidebar slides in as a drawer. Zoom at 100%."}
       </p>
     </div>
