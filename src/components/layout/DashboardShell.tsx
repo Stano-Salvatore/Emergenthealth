@@ -26,7 +26,22 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     // so on every mount (including SPA navigations between dashboard pages)
     // used to risk re-mutating the viewport meta with a stale value after the
     // correct one was already set at first load.
-    const layoutMode = localStorage.getItem("layout_mode")
+    let layoutMode = localStorage.getItem("layout_mode")
+
+    // layout_mode (and display_zoom) live only in localStorage/cookies, which
+    // are per-device by nature — switching to Web mode on a phone never
+    // affects a tablet or any other device. But a device that's never set a
+    // preference of its own defaulted to "mobile" regardless of its actual
+    // screen size, which looks needlessly cramped on a tablet that already
+    // has plenty of room. On first-ever load for a device, auto-pick based on
+    // its real (un-zoomed, since no zoom cookie exists yet either) width:
+    // tablet-or-larger gets Web mode's always-visible sidebar at normal 100%
+    // zoom (no need to shrink anything — that trick is for small phones);
+    // phone-sized stays "mobile" as before.
+    if (layoutMode !== "web" && layoutMode !== "mobile") {
+      layoutMode = window.innerWidth >= 768 ? "web" : "mobile"
+      try { localStorage.setItem("layout_mode", layoutMode) } catch { /* */ }
+    }
     const isWeb = layoutMode === "web"
     setWebMode(isWeb)
 
