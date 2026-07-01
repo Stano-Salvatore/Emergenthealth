@@ -421,7 +421,7 @@ export function DashboardGrid({ blocks, header }: Props) {
                     </button>
                   </>
                 )}
-                <div className={`h-full overflow-auto ${editing ? "pt-9 rounded-xl ring-1 ring-primary/25" : ""}`}>
+                <div className={`h-full w-full overflow-auto [&>*]:w-full [&>*]:h-full ${editing ? "pt-9 rounded-xl ring-1 ring-primary/25" : ""}`}>
                   {node}
                 </div>
               </div>
