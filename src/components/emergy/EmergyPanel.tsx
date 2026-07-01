@@ -232,14 +232,14 @@ export function EmergyPanel() {
           </div>
         )}
 
-        {/* Emergy button */}
+        {/* Emergy button — icon only, no circular chrome behind it */}
         <button
           onClick={() => setOpen(v => !v)}
-          className="relative rounded-full bg-card border border-border shadow-xl hover:scale-105 transition-transform flex items-center justify-center shrink-0"
+          className="relative hover:scale-105 transition-transform flex items-center justify-center shrink-0 drop-shadow-xl"
           aria-label="Open Emergy"
           style={{ width: 80, height: 80 }}
         >
-          <EmergySVG state={state} size={60} />
+          <EmergySVG state={state} size={72} />
           {isScreaming && (
             <span className="absolute top-1.5 right-1.5 w-3 h-3 rounded-full bg-red-500 animate-pulse" />
           )}

@@ -1,10 +1,12 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Geist, Geist_Mono } from "next/font/google"
 import "./globals.css"
+import { cookies } from "next/headers"
 import { SessionProvider } from "next-auth/react"
 import { ThemeProvider } from "next-themes"
 import Link from "next/link"
 import { ServiceWorkerRegistration } from "@/components/layout/ServiceWorkerRegistration"
+import { DeviceWidthCapture } from "@/components/layout/DeviceWidthCapture"
 import { Analytics } from "@vercel/analytics/next"
 
 const geistSans = Geist({
@@ -49,10 +51,27 @@ export const metadata: Metadata = {
   },
 }
 
-export const viewport = {
-  themeColor: "#4f46e5",
-  width: "device-width",
-  initialScale: 1,
+// Rendered server-side from a cookie so the viewport <meta> is CORRECT in the
+// very first bytes of HTML. Android WebView computes its zoom-to-fit
+// ("initial-scale") once, from whatever viewport meta is present at first
+// paint — a client-side mutation afterward can widen the layout (CSS
+// breakpoints pick it up) but can't retroactively change the scale already
+// locked in. See src/lib/display-scale.ts for the full story.
+export async function generateViewport(): Promise<Viewport> {
+  const store = await cookies()
+  const rawZoom = store.get("display_zoom")?.value
+  const scale = rawZoom ? parseFloat(rawZoom) : 1
+  const zoom = !scale || Number.isNaN(scale) || scale <= 0 ? 1 : scale
+
+  if (zoom > 0.999 && zoom < 1.001) {
+    return { themeColor: "#4f46e5", width: "device-width", initialScale: 1, viewportFit: "cover" }
+  }
+
+  const rawWidth = store.get("device_width_css")?.value
+  const deviceWidth = rawWidth ? parseInt(rawWidth, 10) : 400
+  const width = Math.round((Number.isNaN(deviceWidth) || deviceWidth <= 0 ? 400 : deviceWidth) / zoom)
+
+  return { themeColor: "#4f46e5", width, initialScale: zoom, viewportFit: "cover" }
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -62,7 +81,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Apply saved accent + base theme before paint to avoid flash */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{const a=localStorage.getItem('accent');if(a&&a!=='indigo')document.documentElement.setAttribute('data-accent',a);const t=localStorage.getItem('base_theme');if(t&&t!=='midnight')document.documentElement.setAttribute('data-theme',t);const z=localStorage.getItem('display_zoom');if(z){var s=parseFloat(z)||1;var m=document.querySelector('meta[name=viewport]');if(!m){m=document.createElement('meta');m.setAttribute('name','viewport');document.head.appendChild(m);}if(s>0.999&&s<1.001){m.setAttribute('content','width=device-width, initial-scale=1, viewport-fit=cover');}else{var b=(window.screen&&window.screen.width)||window.innerWidth||390;m.setAttribute('content','width='+Math.round(b/s)+', viewport-fit=cover');}}}catch(e){}`,
+            __html: `try{const a=localStorage.getItem('accent');if(a&&a!=='indigo')document.documentElement.setAttribute('data-accent',a);const t=localStorage.getItem('base_theme');if(t&&t!=='midnight')document.documentElement.setAttribute('data-theme',t);}catch(e){}`,
           }}
         />
       </head>
@@ -71,6 +90,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <SessionProvider>{children}</SessionProvider>
         </ThemeProvider>
         <ServiceWorkerRegistration />
+        <DeviceWidthCapture />
         <Analytics />
         <footer className="fixed bottom-0 right-0 z-50 p-3 flex gap-3 pointer-events-none">
           <Link href="/privacy" className="pointer-events-auto text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors">Privacy</Link>

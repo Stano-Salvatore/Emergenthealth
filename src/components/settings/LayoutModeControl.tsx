@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { applyDisplayScale } from "@/lib/display-scale"
+import { persistDisplayScale } from "@/lib/display-scale"
 
 export type LayoutMode = "mobile" | "web"
 
@@ -19,19 +19,10 @@ export function LayoutModeControl() {
     setMode(v)
     try {
       localStorage.setItem("layout_mode", v)
-      if (v === "web") {
-        // Auto scale-down so full sidebar + content fits on a narrow screen.
-        // Uses native viewport scaling (not CSS zoom) to avoid the WebView
-        // black-screen bug.
-        localStorage.setItem("display_zoom", "0.5")
-        applyDisplayScale(0.5)
-      } else {
-        // Restore default scale when switching back to mobile
-        localStorage.setItem("display_zoom", "1")
-        applyDisplayScale(1)
-      }
     } catch {}
-    window.location.reload()
+    // persistDisplayScale reloads — the server then renders the correct
+    // viewport <meta> from the cookie it sets (see src/lib/display-scale.ts).
+    persistDisplayScale(v === "web" ? 0.5 : 1)
   }
 
   return (
