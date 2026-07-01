@@ -1,11 +1,42 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef } from "react"
-import { ResponsiveGridLayout, useContainerWidth } from "react-grid-layout"
+import { ResponsiveGridLayout } from "react-grid-layout"
 import type { LayoutItem, ResponsiveLayouts } from "react-grid-layout"
 import { LayoutGrid, X } from "lucide-react"
 import "react-grid-layout/css/styles.css"
 import "react-resizable/css/styles.css"
+
+// Measures the actual rendered width of the grid's container via
+// ResizeObserver. Replaces the package's own useContainerWidth: in Web mode
+// (wide scaled viewport) that hook was reporting a narrower width than the
+// container's true rendered size, leaving the grid — and every widget in it
+// — short of the available space with unused room on the right. Measuring
+// the container element directly guarantees the grid always fills exactly
+// what's actually there.
+function useMeasuredWidth(initialWidth: number) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const [width, setWidth] = useState(initialWidth)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const measure = () => {
+      const w = el.getBoundingClientRect().width
+      if (w > 0) setWidth(w)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    window.addEventListener("resize", measure)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener("resize", measure)
+    }
+  }, [])
+
+  return { containerRef, width }
+}
 
 export type BlockId =
   | "insights" | "health" | "finances" | "calendar" | "habits"
@@ -138,7 +169,7 @@ export function DashboardGrid({ blocks, header }: Props) {
   const [ready, setReady]     = useState(false)
   const [isMobile, setIsMobile] = useState(false)
 
-  const { containerRef, width } = useContainerWidth({ initialWidth: 1280 })
+  const { containerRef, width } = useMeasuredWidth(1280)
 
   // Refs so async/debounced saves always read the latest state.
   const itemsRef = useRef(items); itemsRef.current = items
