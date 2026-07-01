@@ -12,6 +12,7 @@ import { TrialBanner } from "./TrialBanner"
 import { OfflineToast } from "./OfflineToast"
 import { RateAppPrompt } from "./RateAppPrompt"
 import { cn } from "@/lib/utils"
+import { applyDisplayScale } from "@/lib/display-scale"
 
 const STORAGE_KEY = "sidebar-open"
 
@@ -25,13 +26,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     const isWeb = layoutMode === "web"
     setWebMode(isWeb)
 
-    // Ensure zoom is applied correctly for each mode on load
+    // Ensure scale is applied correctly for each mode on load. Uses native
+    // viewport scaling (not CSS zoom) to avoid the WebView black-screen bug.
     if (isWeb) {
-      const currentZoom = parseFloat(localStorage.getItem("display_zoom") || "1")
+      let currentZoom = parseFloat(localStorage.getItem("display_zoom") || "1")
       if (currentZoom > 0.6) {
+        currentZoom = 0.5
         localStorage.setItem("display_zoom", "0.5")
-        document.documentElement.style.zoom = "0.5"
       }
+      applyDisplayScale(currentZoom)
     }
 
     const saved = localStorage.getItem(STORAGE_KEY)

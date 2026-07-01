@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
+import { applyDisplayScale } from "@/lib/display-scale"
 
 const STEPS = [0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2]
 const DEFAULT = 1
@@ -21,7 +22,7 @@ export function ZoomControl() {
 
   function apply(v: number) {
     setZoom(v)
-    document.documentElement.style.zoom = String(v)
+    applyDisplayScale(v)
     try { localStorage.setItem("display_zoom", String(v)) } catch {}
   }
 

@@ -62,7 +62,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Apply saved accent + base theme before paint to avoid flash */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{const a=localStorage.getItem('accent');if(a&&a!=='indigo')document.documentElement.setAttribute('data-accent',a);const t=localStorage.getItem('base_theme');if(t&&t!=='midnight')document.documentElement.setAttribute('data-theme',t);const z=localStorage.getItem('display_zoom');if(z)document.documentElement.style.zoom=z}catch(e){}`,
+            __html: `try{const a=localStorage.getItem('accent');if(a&&a!=='indigo')document.documentElement.setAttribute('data-accent',a);const t=localStorage.getItem('base_theme');if(t&&t!=='midnight')document.documentElement.setAttribute('data-theme',t);const z=localStorage.getItem('display_zoom');if(z){var s=parseFloat(z)||1;var m=document.querySelector('meta[name=viewport]');if(!m){m=document.createElement('meta');m.setAttribute('name','viewport');document.head.appendChild(m);}if(s>0.999&&s<1.001){m.setAttribute('content','width=device-width, initial-scale=1, viewport-fit=cover');}else{var b=(window.screen&&window.screen.width)||window.innerWidth||390;m.setAttribute('content','width='+Math.round(b/s)+', viewport-fit=cover');}}}catch(e){}`,
           }}
         />
       </head>
