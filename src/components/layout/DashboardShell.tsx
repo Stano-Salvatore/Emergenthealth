@@ -112,7 +112,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             // is guaranteed to land dead-center rather than fighting a second,
             // separately-padded ancestor. Border is a visible accent tint
             // (not a low-contrast neutral) so the boundary actually reads.
-            <div className="max-w-[1400px] mx-auto my-6 rounded-2xl border-2 border-primary/40 bg-card/30 p-6 shadow-lg shadow-black/20">
+            <div className="max-w-[1400px] mx-auto my-6 rounded-2xl border-[3px] border-primary bg-card p-6 shadow-2xl shadow-primary/10">
               {children}
             </div>
           ) : children}
