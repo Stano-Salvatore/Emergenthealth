@@ -188,12 +188,26 @@
 [data-accent="teal"]    { --primary: #14b8a6; --ring: #14b8a6; }
 [data-accent="pink"]    { --primary: #ec4899; --ring: #ec4899; }
 
+/* Defensive catch-all: no element (a wide flex row that refuses to shrink, a
+   fixed-width chart, an unbroken string) may ever push the page wider than
+   the viewport. Flex/grid children default to `min-width: auto`, which lets
+   them refuse to shrink below their content's natural width even when their
+   container has no room — the container (and everything above it, up to
+   <body>) then silently grows past the screen with no visible scrollbar,
+   which reads as "content bleeds off the right edge, no boundary." */
+html {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 * { border-color: var(--border); }

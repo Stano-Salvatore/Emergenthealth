@@ -11,6 +11,7 @@ on:
       - "android-widget/**"
       - ".github/workflows/build-android.yml"
       - "public/.well-known/assetlinks.json"
+      - "public/icons/**"
   workflow_dispatch:
 
 jobs:
@@ -43,6 +44,9 @@ jobs:
         run: |
           npx cap add android
           mkdir -p android/app/src/main/assets
+
+      - name: Generate Android launcher icon
+        run: node .ci/generate-android-icons.mjs
 
       - name: Decode release keystore
         run: |

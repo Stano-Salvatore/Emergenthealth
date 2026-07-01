@@ -333,15 +333,15 @@ export default async function DashboardPage() {
         <div className="absolute -top-12 -right-12 w-56 h-56 bg-primary/15 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-10 left-1/3 w-40 h-40 bg-primary/10 rounded-full blur-2xl pointer-events-none" />
         <div className="absolute top-2 right-1/3 w-24 h-24 bg-primary/8 rounded-full blur-2xl pointer-events-none" />
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 relative">
-          <div>
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 relative min-w-0">
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold">
               Good {getTimeGreeting()}, {session!.user.name?.split(" ")[0] ?? "there"}
             </h1>
             <p className="text-muted-foreground text-sm mt-0.5">{format(now,"EEEE, MMMM d, yyyy")}</p>
             <div className="mt-1"><LiveClock /></div>
           </div>
-          <WeatherWidget />
+          <div className="min-w-0"><WeatherWidget /></div>
         </div>
         <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex items-center gap-2.5 bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50 self-start sm:self-auto">
