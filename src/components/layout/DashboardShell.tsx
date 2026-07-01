@@ -101,18 +101,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
         <div className={cn(
           "transition-[padding] duration-300",
-          webMode ? "" : cn("p-3 lg:p-6", !open && "lg:pl-6 pl-12")
+          webMode ? "p-6" : cn("p-3 lg:p-6", !open && "lg:pl-6 pl-12")
         )}>
           {webMode ? (
             // Web mode zooms out to a much wider layout viewport than any
             // real screen, so raw content left to stretch edge-to-edge looks
-            // arbitrary and off-center. Cap it at a sane desktop width and
-            // center with mx-auto — no padding on the OUTER wrapper above, so
-            // there's exactly one source of horizontal spacing and the panel
-            // is guaranteed to land dead-center rather than fighting a second,
-            // separately-padded ancestor. Border is a visible accent tint
-            // (not a low-contrast neutral) so the boundary actually reads.
-            <div className="max-w-[1400px] mx-auto my-6 rounded-2xl border-[3px] border-primary bg-card p-6 shadow-2xl shadow-primary/10">
+            // arbitrary and off-center. The outer p-6 above gives an EQUAL gap
+            // on every side (left included, flush against the sidebar
+            // otherwise) before the panel itself; max-w + mx-auto only kick in
+            // as an extra cap on very wide viewports. Border is a solid accent
+            // color (not a low-contrast neutral) so the boundary actually reads.
+            <div className="max-w-[1400px] mx-auto rounded-2xl border-[3px] border-primary bg-card p-6 shadow-2xl shadow-primary/10">
               {children}
             </div>
           ) : children}
