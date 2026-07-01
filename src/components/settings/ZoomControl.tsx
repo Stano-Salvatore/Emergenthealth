@@ -4,8 +4,20 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { applyDisplayScale } from "@/lib/display-scale"
 
-const STEPS = [0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2]
+const STEPS = [0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2]
 const DEFAULT = 1
+
+// Find the step closest to a saved/current value so an off-grid value (e.g.
+// legacy 0.5 auto-set by Web mode) doesn't disable both buttons via a -1 index.
+function closestStepIndex(v: number): number {
+  let best = 0
+  let bestDiff = Infinity
+  for (let i = 0; i < STEPS.length; i++) {
+    const diff = Math.abs(STEPS[i] - v)
+    if (diff < bestDiff) { bestDiff = diff; best = i }
+  }
+  return best
+}
 
 export function ZoomControl() {
   const [zoom, setZoom] = useState(DEFAULT)
@@ -26,7 +38,7 @@ export function ZoomControl() {
     try { localStorage.setItem("display_zoom", String(v)) } catch {}
   }
 
-  const idx = STEPS.indexOf(zoom)
+  const idx = closestStepIndex(zoom)
   const canDecrease = idx > 0
   const canIncrease = idx < STEPS.length - 1
 
