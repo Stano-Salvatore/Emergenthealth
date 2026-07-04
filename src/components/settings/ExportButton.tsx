@@ -12,9 +12,13 @@ const FREE_EXPORTS = [
   { label: "Habits (CSV)", url: "/api/export?type=habits" },
 ]
 
+// Your own data should never be paywalled from you — the full backup is
+// free for everyone. Only the formatted transactions CSV (a reporting
+// convenience, not a backup) stays a Pro perk.
+const BACKUP_EXPORT = { label: "Full Backup (JSON)", url: "/api/export?format=json" }
+
 const PRO_EXPORTS = [
   { label: "Transactions (CSV)", url: "/api/export?type=transactions" },
-  { label: "All data (JSON)", url: "/api/export?format=json" },
 ]
 
 export function ExportButton({ isPro = false }: { isPro?: boolean }) {
@@ -49,6 +53,16 @@ export function ExportButton({ isPro = false }: { isPro?: boolean }) {
               </a>
             ))}
             <div className="border-t border-border/50" />
+            <a
+              href={BACKUP_EXPORT.url}
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 px-3 py-2.5 text-sm hover:bg-secondary transition-colors"
+              download
+            >
+              <Download className="h-3.5 w-3.5 text-muted-foreground" />
+              {BACKUP_EXPORT.label}
+            </a>
+            <div className="border-t border-border/50" />
             {isPro ? (
               PRO_EXPORTS.map(e => (
                 <a
@@ -69,7 +83,7 @@ export function ExportButton({ isPro = false }: { isPro?: boolean }) {
                 className="flex items-center gap-2 px-3 py-2.5 text-sm text-primary/70 hover:bg-secondary transition-colors"
               >
                 <Zap className="h-3.5 w-3.5 text-primary" />
-                Transactions & JSON → Pro
+                Transactions CSV → Pro
               </Link>
             )}
           </div>

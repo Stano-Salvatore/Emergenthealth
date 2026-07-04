@@ -29,40 +29,81 @@ export async function GET(req: NextRequest) {
   const format = new URL(req.url).searchParams.get("format") ?? "csv"
   const type = new URL(req.url).searchParams.get("type") ?? "health"
 
-  // JSON export and transactions are Pro-only
-  const { getUserPlan } = await import("@/lib/plan")
-  const plan = await getUserPlan(userId)
-  if (plan !== "pro" && (format === "json" || type === "transactions")) {
-    return new Response(JSON.stringify({ error: "Data export is a Pro feature. Upgrade at /pricing." }), {
-      status: 403,
-      headers: { "Content-Type": "application/json" },
-    })
+  // Transactions CSV (a formatted power-user reporting export) stays a Pro
+  // perk. The full JSON backup below is not gated behind any plan — it's
+  // about never losing your own data, not a premium convenience feature.
+  if (type === "transactions" && format !== "json") {
+    const { getUserPlan } = await import("@/lib/plan")
+    const plan = await getUserPlan(userId)
+    if (plan !== "pro") {
+      return new Response(JSON.stringify({ error: "Transactions export is a Pro feature. Upgrade at /pricing." }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
   }
 
   if (type === "all" || format === "json") {
-    // Full data export as JSON
-    const [health, mood, habits, completions, intake, notes, transactions, books, focus] = await Promise.all([
+    // Full account backup as JSON. Every personal-data table the user can
+    // see in the app, so this is a genuine "everything" export — auth
+    // tokens, sessions, passkeys and other secrets are deliberately excluded.
+    const [
+      profile, health, transactions, habits, completions, reminders, mood, tags,
+      checkIns, savedPlaces, notes, intake, books, screenTime, timeline, focus,
+      chatMessages, ouraTags, morningCheckIns, weatherLogs, caffeineLogs,
+      labResults, bodyMeasurements, habitRoutines, locationPoints, stravaActivities,
+      feedbacks,
+    ] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, email: true, createdAt: true, digestDay: true, digestHour: true },
+      }),
       prisma.healthLog.findMany({ where: { userId }, orderBy: { date: "asc" } }),
-      prisma.moodLog.findMany({ where: { userId }, orderBy: { date: "asc" } }),
+      prisma.transaction.findMany({ where: { userId }, orderBy: { date: "desc" } }),
       prisma.habit.findMany({ where: { userId } }),
       prisma.habitCompletion.findMany({ where: { userId }, orderBy: { date: "desc" } }),
-      prisma.intakeLog.findMany({ where: { userId }, orderBy: { loggedAt: "desc" } }),
+      prisma.reminder.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+      prisma.moodLog.findMany({ where: { userId }, orderBy: { date: "asc" } }),
+      prisma.tag.findMany({ where: { userId } }),
+      prisma.checkIn.findMany({ where: { userId }, orderBy: { checkedAt: "asc" } }),
+      prisma.savedPlace.findMany({ where: { userId } }),
       prisma.dailyNote.findMany({ where: { userId }, orderBy: { date: "asc" } }),
-      prisma.transaction.findMany({ where: { userId }, orderBy: { date: "desc" }, take: 1000 }),
+      prisma.intakeLog.findMany({ where: { userId }, orderBy: { loggedAt: "asc" } }),
       prisma.book.findMany({ where: { userId } }),
-      prisma.focusSession.findMany({ where: { userId }, orderBy: { endedAt: "desc" } }),
+      prisma.screenTimeLog.findMany({ where: { userId }, orderBy: { date: "asc" } }),
+      prisma.timelineEvent.findMany({ where: { userId }, orderBy: { occurredAt: "asc" } }),
+      prisma.focusSession.findMany({ where: { userId }, orderBy: { endedAt: "asc" } }),
+      prisma.chatMessage.findMany({ where: { userId }, orderBy: { createdAt: "asc" }, take: 5000 }),
+      prisma.ouraTag.findMany({ where: { userId } }),
+      prisma.morningCheckIn.findMany({ where: { userId }, orderBy: { date: "asc" } }),
+      prisma.weatherLog.findMany({ where: { userId }, orderBy: { date: "asc" } }),
+      prisma.caffeineLog.findMany({ where: { userId }, orderBy: { loggedAt: "asc" } }),
+      prisma.labResult.findMany({ where: { userId }, orderBy: { date: "asc" } }),
+      prisma.bodyMeasurement.findMany({ where: { userId }, orderBy: { date: "asc" } }),
+      prisma.habitRoutine.findMany({ where: { userId } }),
+      prisma.locationPoint.findMany({ where: { userId }, orderBy: { trackedAt: "asc" }, take: 50000 }),
+      prisma.stravaActivity.findMany({ where: { userId }, orderBy: { startDate: "asc" } }),
+      prisma.userFeedback.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
     ])
 
     const payload = {
       exportedAt: new Date().toISOString(),
+      format: "emergenthealth-export-v1",
       userId,
-      data: { health, mood, habits, completions, intake, notes, transactions, books, focus },
+      profile,
+      data: {
+        health, transactions, habits, completions, reminders, mood, tags,
+        checkIns, savedPlaces, notes, intake, books, screenTime, timeline, focus,
+        chatMessages, ouraTags, morningCheckIns, weatherLogs, caffeineLogs,
+        labResults, bodyMeasurements, habitRoutines, locationPoints, stravaActivities,
+        feedbacks,
+      },
     }
 
     return new Response(JSON.stringify(payload, null, 2), {
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition": `attachment; filename="emergenthealth-export-${new Date().toISOString().split("T")[0]}.json"`,
+        "Content-Disposition": `attachment; filename="emergenthealth-backup-${new Date().toISOString().split("T")[0]}.json"`,
       },
     })
   }
