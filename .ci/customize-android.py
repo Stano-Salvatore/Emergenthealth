@@ -151,6 +151,14 @@ widget_copies = [
     (f"{widget_src}/widget_quick_log.xml",      f"{res_layout}/widget_quick_log.xml"),
     (f"{widget_src}/quick_log_widget_info.xml", f"{res_xml}/quick_log_widget_info.xml"),
     (f"{widget_src}/widget_background.xml",      f"{res_drawable}/widget_background.xml"),
+    # Habits widget (tap a habit to mark it complete)
+    (f"{widget_src}/HabitsWidget.java",         f"{pkg_java_dir}/HabitsWidget.java"),
+    (f"{widget_src}/widget_habits.xml",         f"{res_layout}/widget_habits.xml"),
+    (f"{widget_src}/habits_widget_info.xml",    f"{res_xml}/habits_widget_info.xml"),
+    # Reminders widget (tap a reminder to complete it)
+    (f"{widget_src}/RemindersWidget.java",      f"{pkg_java_dir}/RemindersWidget.java"),
+    (f"{widget_src}/widget_reminders.xml",      f"{res_layout}/widget_reminders.xml"),
+    (f"{widget_src}/reminders_widget_info.xml", f"{res_xml}/reminders_widget_info.xml"),
 ]
 
 widget_ok = True
@@ -192,6 +200,42 @@ if widget_ok:
         print("✓ AndroidManifest.xml updated with QuickLogWidget receiver")
     else:
         print("ℹ️  QuickLogWidget receiver already present")
+
+    # Habits + Reminders receivers (idempotent).
+    extra_receivers = {
+        "HabitsWidget": """
+        <receiver android:name=".HabitsWidget" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="app.emergenthealth.TOGGLE_HABIT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/habits_widget_info" />
+        </receiver>
+""",
+        "RemindersWidget": """
+        <receiver android:name=".RemindersWidget" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="app.emergenthealth.COMPLETE_REMINDER" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/reminders_widget_info" />
+        </receiver>
+""",
+    }
+    for name, block in extra_receivers.items():
+        with open(manifest_path) as f:
+            m = f.read()
+        if name not in m:
+            m = m.replace("</application>", block + "    </application>", 1)
+            with open(manifest_path, "w") as f:
+                f.write(m)
+            print(f"✓ AndroidManifest.xml updated with {name} receiver")
+        else:
+            print(f"ℹ️  {name} receiver already present")
 else:
     print("ℹ️  Skipped widget install (source files not found)")
 

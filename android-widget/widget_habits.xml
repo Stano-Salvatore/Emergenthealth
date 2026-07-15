@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed to the app (Midnight): card bg, indigo accent, monospace font. -->
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="14dp"
+    android:background="@drawable/widget_background">
+
+    <!-- Header (tap to open app) -->
+    <LinearLayout
+        android:id="@+id/btn_habits_open"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingBottom="6dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="✅ Habits"
+            android:textColor="#F2F2FA"
+            android:fontFamily="monospace"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/habits_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="—"
+            android:textColor="#6366F1"
+            android:fontFamily="monospace"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/habit_row_0" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="4dp" android:paddingBottom="4dp" android:clickable="true">
+        <TextView android:id="@+id/habit_check_0" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="⬜" android:textSize="15sp" android:paddingEnd="8dp" />
+        <TextView android:id="@+id/habit_name_0" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="" android:textColor="#C9C9D6" android:fontFamily="monospace" android:textSize="13sp" android:maxLines="1" android:ellipsize="end" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/habit_row_1" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="4dp" android:paddingBottom="4dp" android:clickable="true">
+        <TextView android:id="@+id/habit_check_1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="⬜" android:textSize="15sp" android:paddingEnd="8dp" />
+        <TextView android:id="@+id/habit_name_1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="" android:textColor="#C9C9D6" android:fontFamily="monospace" android:textSize="13sp" android:maxLines="1" android:ellipsize="end" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/habit_row_2" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="4dp" android:paddingBottom="4dp" android:clickable="true">
+        <TextView android:id="@+id/habit_check_2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="⬜" android:textSize="15sp" android:paddingEnd="8dp" />
+        <TextView android:id="@+id/habit_name_2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="" android:textColor="#C9C9D6" android:fontFamily="monospace" android:textSize="13sp" android:maxLines="1" android:ellipsize="end" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/habit_row_3" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="4dp" android:paddingBottom="4dp" android:clickable="true">
+        <TextView android:id="@+id/habit_check_3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="⬜" android:textSize="15sp" android:paddingEnd="8dp" />
+        <TextView android:id="@+id/habit_name_3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="" android:textColor="#C9C9D6" android:fontFamily="monospace" android:textSize="13sp" android:maxLines="1" android:ellipsize="end" />
+    </LinearLayout>
+    <LinearLayout android:id="@+id/habit_row_4" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingTop="4dp" android:paddingBottom="4dp" android:clickable="true">
+        <TextView android:id="@+id/habit_check_4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="⬜" android:textSize="15sp" android:paddingEnd="8dp" />
+        <TextView android:id="@+id/habit_name_4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="" android:textColor="#C9C9D6" android:fontFamily="monospace" android:textSize="13sp" android:maxLines="1" android:ellipsize="end" />
+    </LinearLayout>
+
+</LinearLayout>

@@ -28,7 +28,7 @@ export function LayoutModeControl() {
     const isSmallScreen = window.innerWidth < 768
     // persistDisplayScale reloads — the server then renders the correct
     // viewport <meta> from the cookie it sets (see src/lib/display-scale.ts).
-    persistDisplayScale(v === "web" && isSmallScreen ? 0.5 : 1)
+    persistDisplayScale(v === "web" && isSmallScreen ? 0.25 : 1)
   }
 
   return (
