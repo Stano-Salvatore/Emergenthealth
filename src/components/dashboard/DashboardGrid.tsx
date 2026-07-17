@@ -378,9 +378,10 @@ export function DashboardGrid({ blocks, header }: Props) {
           // Always 12 columns — never collapse to a single column. The 1-col
           // breakpoint reused the 12-col coordinates and produced overlapping
           // widgets and huge blank gaps whenever the measured container was
-          // narrow (notably web layout mode in the APK, where the 0.5 zoom makes
-          // the grid measure < 640px). Real phones use the separate vertical
-          // stack above (isMobile), so this grid path can safely stay 12-col.
+          // narrow (notably web layout mode in the APK, where the zoomed-out
+          // desktop viewport can make the grid measure below a phone breakpoint).
+          // Real phones use the separate vertical stack above (isMobile), so
+          // this grid path can safely stay 12-col.
           cols={{ lg: 12, md: 12, sm: 12 }}
           rowHeight={36}
           margin={[16, 16]}

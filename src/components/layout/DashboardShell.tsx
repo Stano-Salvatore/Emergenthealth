@@ -61,7 +61,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   if (!mounted) return (
     <div className="flex h-screen overflow-hidden bg-background">
       <div className="w-56 shrink-0" />
-      <main className="flex-1 overflow-y-auto p-6">{children}</main>
+      <main
+        className="flex-1 overflow-y-auto p-6"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >{children}</main>
     </div>
   )
 
@@ -98,13 +101,21 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* Main content */}
-      <main className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 relative">
-        {/* Hamburger — visible when sidebar is closed */}
+      <main
+        className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 relative"
+        style={{
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
+      >
+        {/* Hamburger — visible when sidebar is closed. Offset below the status
+            bar so it never sits under the Android clock/wifi icons. */}
         <button
           onClick={toggle}
           aria-label="Open sidebar"
+          style={{ top: "calc(0.75rem + env(safe-area-inset-top))" }}
           className={cn(
-            "fixed top-3 left-3 z-10 h-8 w-8 rounded-lg",
+            "fixed left-3 z-10 h-8 w-8 rounded-lg",
             "bg-background/90 border border-border shadow-sm",
             "flex items-center justify-center",
             "transition-all duration-300",

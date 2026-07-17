@@ -211,8 +211,12 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
   if (compact) {
     return (
       <aside
-        className="w-14 shrink-0 h-screen flex flex-col border-r border-border"
-        style={{ background: "linear-gradient(180deg, var(--sidebar-from) 0%, var(--sidebar-to) 100%)" }}
+        className="w-14 shrink-0 h-full flex flex-col border-r border-border"
+        style={{
+          background: "linear-gradient(180deg, var(--sidebar-from) 0%, var(--sidebar-to) 100%)",
+          paddingTop: "env(safe-area-inset-top)",
+          paddingBottom: "env(safe-area-inset-bottom)",
+        }}
       >
         {/* Logo icon */}
         <div className="flex items-center justify-center h-14 border-b border-border/60">
@@ -262,8 +266,12 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
 
   return (
     <aside
-      className="w-56 shrink-0 h-screen flex flex-col border-r border-border"
-      style={{ background: "linear-gradient(180deg, var(--sidebar-from) 0%, var(--sidebar-to) 100%)" }}
+      className="w-56 shrink-0 h-full flex flex-col border-r border-border"
+      style={{
+        background: "linear-gradient(180deg, var(--sidebar-from) 0%, var(--sidebar-to) 100%)",
+        paddingTop: "env(safe-area-inset-top)",
+        paddingBottom: "env(safe-area-inset-bottom)",
+      }}
     >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-14 border-b border-border/60">
