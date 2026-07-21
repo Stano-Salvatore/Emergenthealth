@@ -136,7 +136,7 @@ export default function CheckInPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center p-4">
+      <div className="flex flex-col items-center px-4 pt-6 pb-10" style={{ paddingBottom: "calc(2.5rem + env(safe-area-inset-bottom))" }}>
         <div className="w-full max-w-sm space-y-6 animate-pulse">
           <div className="h-1 rounded-full bg-border w-full" />
           <div className="rounded-xl border bg-card p-6 space-y-4">
@@ -153,7 +153,15 @@ export default function CheckInPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4">
+    // Top-aligned, not vertically centered: the "done" state is taller than the
+    // viewport (completion card + summary + tags + quick actions), and centering
+    // it inside 100vh pushed the top off-screen and clipped the bottom behind the
+    // Android nav bar — you had to scroll to find things. Flowing from the top
+    // (with safe-area padding) keeps everything reachable with a normal scroll.
+    <div
+      className="flex flex-col items-center px-4 pt-6 pb-10"
+      style={{ paddingBottom: "calc(2.5rem + env(safe-area-inset-bottom))" }}
+    >
       <div className="w-full max-w-sm">
         {step !== "done" && <ProgressBar />}
 

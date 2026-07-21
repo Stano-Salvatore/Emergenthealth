@@ -26,7 +26,7 @@ import { QuickHabits } from "@/components/dashboard/QuickHabits"
 import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
 import { InsightsPanel } from "@/components/dashboard/InsightsPanel"
 import { PeriodInsightCard } from "@/components/dashboard/PeriodInsightCard"
-import { TodayCard } from "@/components/dashboard/TodayCard"
+import { TodayStrip } from "@/components/dashboard/TodayStrip"
 import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
 import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
@@ -354,6 +354,14 @@ export default async function DashboardPage() {
             <MoodWidget todayMood={todayMood} />
           </div>
         </div>
+
+        {/* AI briefing line + condensed today summary — merged in from the
+            former standalone "Daily Briefing" and "Today" widgets so the top of
+            the dashboard reads as one card instead of three overlapping ones. */}
+        <div className="mt-4 space-y-3 relative">
+          <DailyBriefing />
+          <TodayStrip />
+        </div>
       </div>
 
       {!hasCheckedInToday && (
@@ -402,9 +410,6 @@ export default async function DashboardPage() {
   )
 
   const blocks = {
-    briefing: <DailyBriefing />,
-    today: <TodayCard />,
-
     health: (
       <Link href="/dashboard/health" className="block h-full">
         <Card className="card-health hover:border-primary/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-primary/5">
