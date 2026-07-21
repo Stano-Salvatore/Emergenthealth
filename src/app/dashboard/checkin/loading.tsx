@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 export default function Loading() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4">
+    <div className="flex flex-col items-center px-4 pt-6 pb-10">
       <div className="w-full max-w-sm space-y-6">
         {/* progress bar */}
         <div className="space-y-2">
