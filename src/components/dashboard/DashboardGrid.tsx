@@ -41,15 +41,13 @@ function useMeasuredWidth(initialWidth: number) {
 export type BlockId =
   | "insights" | "health" | "finances" | "calendar" | "habits"
   | "reminders" | "gmail" | "quicklog" | "stats"
-  | "location" | "ac" | "today" | "quests" | "quickstart" | "briefing"
+  | "location" | "ac" | "quests" | "quickstart"
   | "notes" | "insights_week" | "insights_month" | "insights_overall"
 
 interface Block { id: BlockId; label: string }
 
 const ALL_BLOCKS: Block[] = [
   { id: "insights",   label: "✨ Insights" },
-  { id: "briefing",   label: "🌟 Daily Briefing" },
-  { id: "today",      label: "🌅 Today" },
   { id: "health",     label: "❤️ Health" },
   { id: "finances",   label: "💰 Finances" },
   { id: "calendar",   label: "🗓️ Calendar" },
@@ -68,26 +66,27 @@ const ALL_BLOCKS: Block[] = [
   { id: "insights_overall", label: "🌐 Insights: Overall" },
 ]
 
+// Note: "today" and "briefing" used to live here but were merged into the
+// dashboard hero card (see the header in app/dashboard/page.tsx), so they're no
+// longer grid widgets. reconcile() drops those ids from any saved layout.
 const DEFAULT_ITEMS: LayoutItem[] = [
   { i: "insights",    x: 0, y: 0,  w: 12, h: 14 },
-  { i: "briefing",    x: 0, y: 14, w: 12, h: 4 },
-  { i: "today",       x: 0, y: 18, w: 12, h: 8 },
-  { i: "quickstart",  x: 0, y: 26, w: 6,  h: 10 },
-  { i: "quests",      x: 6, y: 26, w: 6,  h: 10 },
-  { i: "health",      x: 0, y: 36, w: 4,  h: 9 },
-  { i: "finances",    x: 4, y: 36, w: 4,  h: 9 },
-  { i: "calendar",    x: 8, y: 36, w: 4,  h: 9 },
-  { i: "habits",      x: 0, y: 45, w: 4,  h: 7 },
-  { i: "reminders",   x: 4, y: 45, w: 4,  h: 7 },
-  { i: "gmail",       x: 8, y: 45, w: 4,  h: 7 },
-  { i: "quicklog",    x: 0, y: 52, w: 12, h: 5 },
-  { i: "stats",       x: 0, y: 57, w: 12, h: 4 },
-  { i: "location",    x: 0, y: 61, w: 6,  h: 6 },
-  { i: "ac",          x: 6, y: 61, w: 6,  h: 6 },
-  { i: "notes",       x: 0, y: 67, w: 6,  h: 6 },
-  { i: "insights_week",    x: 0, y: 73, w: 4, h: 11 },
-  { i: "insights_month",   x: 4, y: 73, w: 4, h: 11 },
-  { i: "insights_overall", x: 8, y: 73, w: 4, h: 11 },
+  { i: "quickstart",  x: 0, y: 14, w: 6,  h: 10 },
+  { i: "quests",      x: 6, y: 14, w: 6,  h: 10 },
+  { i: "health",      x: 0, y: 24, w: 4,  h: 9 },
+  { i: "finances",    x: 4, y: 24, w: 4,  h: 9 },
+  { i: "calendar",    x: 8, y: 24, w: 4,  h: 9 },
+  { i: "habits",      x: 0, y: 33, w: 4,  h: 7 },
+  { i: "reminders",   x: 4, y: 33, w: 4,  h: 6 },
+  { i: "gmail",       x: 8, y: 33, w: 4,  h: 7 },
+  { i: "quicklog",    x: 0, y: 40, w: 12, h: 5 },
+  { i: "stats",       x: 0, y: 45, w: 12, h: 4 },
+  { i: "location",    x: 0, y: 49, w: 6,  h: 6 },
+  { i: "ac",          x: 6, y: 49, w: 6,  h: 5 },
+  { i: "notes",       x: 0, y: 55, w: 6,  h: 5 },
+  { i: "insights_week",    x: 0, y: 61, w: 4, h: 11 },
+  { i: "insights_month",   x: 4, y: 61, w: 4, h: 11 },
+  { i: "insights_overall", x: 8, y: 61, w: 4, h: 11 },
 ]
 
 const STORAGE_KEY = "dashboard-layout-v8"
@@ -279,6 +278,23 @@ export function DashboardGrid({ blocks, header }: Props) {
     persist(DEFAULT_ITEMS, [], false)
   }
 
+  // Touch-friendly resize: the corner drag-handles are unusable at web-mode zoom
+  // on a phone, and dragging them fights page scrolling. These steppers change a
+  // widget's grid width/height in whole columns/rows from the header bar instead.
+  function resizeItem(id: string, dw: number, dh: number) {
+    setItems(prev => {
+      const next = prev.map(it => {
+        if (it.i !== id) return it
+        const w = Math.max(1, Math.min(12, (it.w ?? 1) + dw))
+        const h = Math.max(2, (it.h ?? 2) + dh)
+        return { ...it, w, h }
+      })
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { /* */ }
+      persist(next, [...hiddenRef.current] as string[], false)
+      return next
+    })
+  }
+
   const visibleItems = items.filter(item => !hidden.has(item.i as BlockId))
   const layouts: ResponsiveLayouts = { lg: visibleItems, md: visibleItems, sm: visibleItems }
 
@@ -384,7 +400,7 @@ export function DashboardGrid({ blocks, header }: Props) {
           // this grid path can safely stay 12-col.
           cols={{ lg: 12, md: 12, sm: 12 }}
           rowHeight={36}
-          margin={[16, 16]}
+          margin={[12, 12]}
           dragConfig={{ enabled: editing, handle: ".drag-handle", bounded: false, threshold: 3 }}
           resizeConfig={{ enabled: editing, handles: ["se", "sw", "ne", "nw"] }}
           onLayoutChange={onLayoutChange}
@@ -394,15 +410,21 @@ export function DashboardGrid({ blocks, header }: Props) {
             const node = blocks[id]
             if (!node) return null
             const meta = ALL_BLOCKS.find(b => b.id === id)
+            const li = items.find(it => it.i === i)
+            const w = li?.w ?? 1
+            const h = li?.h ?? 2
+            const stopDrag = (e: React.SyntheticEvent) => e.stopPropagation()
+            const stepBtn = "flex items-center justify-center h-5 w-5 rounded text-primary/70 hover:text-primary hover:bg-background/40 disabled:opacity-30 disabled:cursor-not-allowed text-sm leading-none"
 
             return (
               <div key={i} className="relative">
                 {editing && (
                   <>
-                    {/* drag-handle only covers the left portion so react-draggable never sees the X button */}
-                    <div className="drag-handle absolute inset-x-0 top-0 h-9 z-20 flex items-center pr-10 px-3 cursor-grab active:cursor-grabbing bg-primary/15 backdrop-blur-sm rounded-t-xl border-b border-primary/25 select-none">
-                      <div className="flex items-center gap-1.5">
-                        <div className="flex flex-col gap-0.5 opacity-40">
+                    {/* drag-handle covers the header bar; the size steppers and X
+                        button stop propagation so they never start a drag */}
+                    <div className="drag-handle absolute inset-x-0 top-0 h-9 z-20 flex items-center gap-1 pr-9 pl-3 cursor-grab active:cursor-grabbing bg-primary/15 backdrop-blur-sm rounded-t-xl border-b border-primary/25 select-none">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <div className="flex flex-col gap-0.5 opacity-40 shrink-0">
                           <div className="flex gap-0.5">
                             <div className="w-1 h-1 rounded-full bg-current" />
                             <div className="w-1 h-1 rounded-full bg-current" />
@@ -412,7 +434,25 @@ export function DashboardGrid({ blocks, header }: Props) {
                             <div className="w-1 h-1 rounded-full bg-current" />
                           </div>
                         </div>
-                        <span className="text-[11px] font-semibold text-primary/80">{meta?.label}</span>
+                        <span className="text-[11px] font-semibold text-primary/80 truncate">{meta?.label}</span>
+                      </div>
+                      {/* Touch-friendly resize — change grid width/height in steps */}
+                      <div
+                        className="ml-auto flex items-center gap-1.5 shrink-0"
+                        onPointerDown={stopDrag}
+                        onMouseDown={stopDrag}
+                        onTouchStart={stopDrag}
+                      >
+                        <div className="flex items-center gap-0.5">
+                          <span className="text-[9px] font-bold text-primary/50">W</span>
+                          <button onClick={() => resizeItem(i, -1, 0)} disabled={w <= 1} className={stepBtn} aria-label="Narrower">−</button>
+                          <button onClick={() => resizeItem(i, 1, 0)} disabled={w >= 12} className={stepBtn} aria-label="Wider">+</button>
+                        </div>
+                        <div className="flex items-center gap-0.5">
+                          <span className="text-[9px] font-bold text-primary/50">H</span>
+                          <button onClick={() => resizeItem(i, 0, -1)} disabled={h <= 2} className={stepBtn} aria-label="Shorter">−</button>
+                          <button onClick={() => resizeItem(i, 0, 1)} className={stepBtn} aria-label="Taller">+</button>
+                        </div>
                       </div>
                     </div>
                     {/* X button sits outside drag-handle so no event capture conflict */}

@@ -254,6 +254,12 @@ body {
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
+/* Let vertical page scrolling work over dashboard widgets while editing on a
+   touch device: dragging is initiated only from the .drag-handle bar, so the
+   widget body can keep panning the page instead of trapping the gesture. */
+.react-grid-item { touch-action: pan-y; }
+.react-grid-item .drag-handle { touch-action: none; }
+
 /* ── Dashboard grid resize handles ── */
 .react-resizable-handle {
   width: 20px !important;
