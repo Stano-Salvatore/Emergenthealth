@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { RefreshCw, ChevronRight } from "lucide-react"
-import { useInsightsPrefs, sliceCorrelations, CountStepper, PinButton, DEFAULT_COUNTS } from "./insightsControls"
+import { useInsightsPrefs, sliceCorrelations, InsightRowsControl, PinButton, DEFAULT_COUNTS } from "./insightsControls"
 
 type Period = "week" | "month" | "overall"
 
@@ -49,7 +49,7 @@ export function PeriodInsightCard({ period }: { period: Period }) {
   const [locationPatterns, setLocationPatterns] = useState<LocationPattern[]>([])
   const [loaded, setLoaded] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
-  const { counts, pinned, changeCount, togglePin } = useInsightsPrefs()
+  const { counts, pinned, togglePin } = useInsightsPrefs()
 
   const load = useCallback(async () => {
     const fetchLoc = period === "month" || period === "overall"
@@ -129,16 +129,14 @@ export function PeriodInsightCard({ period }: { period: Period }) {
             {hasCorr && (
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      📊 patterns <span className="text-muted-foreground/50">({visibleCorr.length}/{correlations.length})</span>
-                    </p>
-                    <CountStepper value={count} onChange={n => changeCount(period, n)} />
-                  </div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    📊 patterns <span className="text-muted-foreground/50">({visibleCorr.length}/{correlations.length})</span>
+                  </p>
                   <Link href="/dashboard/insights" className="text-[10px] text-primary/70 hover:text-primary flex items-center gap-0.5 transition-colors">
                     Full view <ChevronRight className="h-3 w-3" />
                   </Link>
                 </div>
+                <InsightRowsControl period={period} label="Show" className="mb-2.5" />
                 <div className="space-y-1.5">
                   {visibleCorr.map(item => (
                     <div key={item.id} className="flex items-start gap-2">
