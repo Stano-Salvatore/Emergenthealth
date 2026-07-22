@@ -173,6 +173,10 @@ export async function sendDigestForUser(userId: string, email: string): Promise<
     bestDayReadiness: bestDay?.readinessScore ?? null,
   })
 
+  if (!process.env.RESEND_API_KEY) {
+    throw new Error("Email isn't set up on the server yet (RESEND_API_KEY is missing). Add it in Vercel → Settings → Environment Variables.")
+  }
+
   const resend = new Resend(process.env.RESEND_API_KEY)
   const { error } = await resend.emails.send({
     from: "Emergenthealth <onboarding@resend.dev>",

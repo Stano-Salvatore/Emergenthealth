@@ -18,6 +18,10 @@ export async function POST() {
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error("[digest] Unexpected error:", err)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+    // Surface the real reason (usually a Resend config issue: missing API key,
+    // or the shared onboarding@resend.dev sender only being allowed to email the
+    // Resend account's own address) instead of a generic 500, so it's actionable.
+    const message = err instanceof Error ? err.message : "Failed to send digest email."
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
