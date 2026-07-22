@@ -119,6 +119,47 @@ export async function syncNotifications(reminders: Reminder[]): Promise<number> 
   }
 }
 
+/** Current notification permission state (native only). */
+export async function getNotificationPermission(): Promise<"granted" | "denied" | "prompt" | "unavailable"> {
+  const ln = await getPlugin()
+  if (!ln) return "unavailable"
+  try {
+    const c = await ln.checkPermissions()
+    if (c.display === "granted") return "granted"
+    if (c.display === "denied") return "denied"
+    return "prompt"
+  } catch {
+    return "unavailable"
+  }
+}
+
+/**
+ * Fire a test local notification a few seconds out so the user can confirm
+ * notifications actually arrive on this phone. Returns what happened:
+ *  - "scheduled": on its way (check in ~3s)
+ *  - "denied": permission not granted
+ *  - "unavailable": not running in the native app / plugin missing (APK too old)
+ */
+export async function scheduleTestNotification(): Promise<"scheduled" | "denied" | "unavailable"> {
+  const ln = await getPlugin()
+  if (!ln) return "unavailable"
+  const granted = await ensureNotificationPermission()
+  if (!granted) return "denied"
+  try {
+    await ln.schedule({
+      notifications: [{
+        id: 999_001,
+        title: "🔔 Test notification",
+        body: "Nice — notifications work on this phone!",
+        schedule: { at: new Date(Date.now() + 3000), allowWhileIdle: true },
+      }],
+    })
+    return "scheduled"
+  } catch {
+    return "unavailable"
+  }
+}
+
 /** Fetch reminders from the server and (re)schedule all notifications. */
 export async function resyncNotifications(): Promise<number> {
   try {
