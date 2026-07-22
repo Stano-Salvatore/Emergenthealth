@@ -133,6 +133,17 @@ export async function getNotificationPermission(): Promise<"granted" | "denied" 
   }
 }
 
+// If a native bridge call doesn't respond within `ms`, treat it as unavailable
+// rather than hanging forever. On an APK built without the notifications plugin
+// registered natively, the bridge call never resolves — this is what made the
+// "Send test" button stick on "Sending…" indefinitely.
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>(resolve => setTimeout(() => resolve(fallback), ms)),
+  ])
+}
+
 /**
  * Fire a test local notification a few seconds out so the user can confirm
  * notifications actually arrive on this phone. Returns what happened:
@@ -143,17 +154,21 @@ export async function getNotificationPermission(): Promise<"granted" | "denied" 
 export async function scheduleTestNotification(): Promise<"scheduled" | "denied" | "unavailable"> {
   const ln = await getPlugin()
   if (!ln) return "unavailable"
-  const granted = await ensureNotificationPermission()
+  const granted = await withTimeout(ensureNotificationPermission(), 6000, false)
   if (!granted) return "denied"
   try {
-    await ln.schedule({
-      notifications: [{
-        id: 999_001,
-        title: "🔔 Test notification",
-        body: "Nice — notifications work on this phone!",
-        schedule: { at: new Date(Date.now() + 3000), allowWhileIdle: true },
-      }],
-    })
+    await withTimeout(
+      ln.schedule({
+        notifications: [{
+          id: 999_001,
+          title: "🔔 Test notification",
+          body: "Nice — notifications work on this phone!",
+          schedule: { at: new Date(Date.now() + 3000), allowWhileIdle: true },
+        }],
+      }),
+      6000,
+      "timeout",
+    ).then(r => { if (r === "timeout") throw new Error("bridge timeout") })
     return "scheduled"
   } catch {
     return "unavailable"
