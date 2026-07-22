@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { WatchedPatterns } from "@/components/dashboard/WatchedPatterns"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -189,6 +190,9 @@ export default function InsightsPage() {
           {data ? `Patterns found in your last ${data.dataRange.days} days of data` : "Patterns found in your last 60 days"}
         </p>
       </div>
+
+      {/* ── Watched (pinned) patterns ── */}
+      <WatchedPatterns />
 
       {/* ── Content ── */}
       {loading ? (

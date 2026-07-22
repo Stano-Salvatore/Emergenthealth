@@ -6,6 +6,7 @@ import type { LayoutItem, ResponsiveLayouts } from "react-grid-layout"
 import { LayoutGrid, X } from "lucide-react"
 import "react-grid-layout/css/styles.css"
 import "react-resizable/css/styles.css"
+import { InsightRowsControl, INSIGHT_PERIOD_BLOCKS } from "./insightsControls"
 
 // Measures the actual rendered width of the grid's container via
 // ResizeObserver. Replaces the package's own useContainerWidth: in Web mode
@@ -135,6 +136,11 @@ function WidgetGallery({
 }) {
   const available = ALL_BLOCKS.filter(b => blocks[b.id])
   const shownCount = available.filter(b => !hidden.has(b.id)).length
+  // Insight period widgets that are both available and currently shown — each
+  // gets a "how many pattern rows?" picker right here in the Customize panel.
+  const shownInsightPeriods = INSIGHT_PERIOD_BLOCKS.filter(
+    ip => blocks[ip.id as BlockId] && !hidden.has(ip.id as BlockId),
+  )
   return (
     <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 space-y-2">
       <div className="flex items-center justify-between">
@@ -163,6 +169,15 @@ function WidgetGallery({
           )
         })}
       </div>
+
+      {shownInsightPeriods.length > 0 && (
+        <div className="pt-2 mt-1 border-t border-primary/15 space-y-2">
+          <p className="text-[11px] font-semibold text-primary/70">📊 How many pattern rows to show?</p>
+          {shownInsightPeriods.map(ip => (
+            <InsightRowsControl key={ip.id} period={ip.period} label={ip.label} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

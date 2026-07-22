@@ -176,6 +176,7 @@ export function TogglPanel() {
 
       {/* Slide-in panel */}
       <div
+        style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
         className={cn(
           "fixed top-0 right-0 z-50 h-screen w-80 flex flex-col border-l border-border shadow-2xl transition-transform duration-300 ease-out",
           "bg-card",

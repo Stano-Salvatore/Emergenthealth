@@ -201,7 +201,7 @@ export function EmergyPanel() {
   return (
     <>
       {/* Speech bubble + button row */}
-      <div className="fixed bottom-20 lg:bottom-10 right-6 z-50 flex items-center gap-3">
+      <div className="fixed right-6 z-50 flex items-center gap-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] lg:bottom-10">
         {/* Speech bubble — appears to the left when Emergy has something to say */}
         {showBubble && emergy?.message && (
           <div

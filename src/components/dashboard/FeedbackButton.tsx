@@ -48,7 +48,7 @@ export function FeedbackButton() {
       {/* Floating button */}
       <button
         onClick={() => setOpen(v => !v)}
-        className="fixed bottom-24 left-4 lg:left-auto lg:bottom-6 lg:right-6 z-50 flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-white shadow-lg shadow-primary/25 hover:bg-primary/90 transition-all active:scale-95"
+        className="fixed left-4 lg:left-auto lg:right-6 z-50 flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-white shadow-lg shadow-primary/25 hover:bg-primary/90 transition-all active:scale-95 bottom-[calc(6rem+env(safe-area-inset-bottom))] lg:bottom-6"
         aria-label="Send feedback"
       >
         <MessageSquarePlus className="h-4 w-4 shrink-0" />

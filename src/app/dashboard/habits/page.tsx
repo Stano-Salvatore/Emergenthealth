@@ -114,7 +114,8 @@ function MilestoneBanner({ milestone, onDismiss }: { milestone: MilestoneState; 
         }
       `}</style>
       <div
-        className="milestone-banner fixed top-4 left-1/2 z-[100] w-[min(480px,calc(100vw-2rem))] -translate-x-1/2 cursor-pointer select-none overflow-hidden rounded-2xl border border-amber-400/60 bg-[#0f0a00] px-6 py-4 shadow-2xl"
+        style={{ top: "calc(1rem + env(safe-area-inset-top))" }}
+        className="milestone-banner fixed left-1/2 z-[100] w-[min(480px,calc(100vw-2rem))] -translate-x-1/2 cursor-pointer select-none overflow-hidden rounded-2xl border border-amber-400/60 bg-[#0f0a00] px-6 py-4 shadow-2xl"
         onClick={onDismiss}
         role="status"
         aria-live="polite"
