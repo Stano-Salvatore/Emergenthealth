@@ -36,6 +36,7 @@ import { PasskeyManager } from "@/components/settings/PasskeyManager"
 import { ManageBillingButton } from "@/components/settings/ManageBillingButton"
 import { HelpCard } from "@/components/settings/HelpCard"
 import { InviteCard } from "@/components/settings/InviteCard"
+import { SettingsSection } from "@/components/settings/SettingsSection"
 import { getUserPlan } from "@/lib/plan"
 import { isStripeConfigured } from "@/lib/stripe"
 import Link from "next/link"
@@ -135,6 +136,7 @@ export default async function SettingsPage({
         <p className="text-muted-foreground text-sm mt-0.5">Manage integrations and API access</p>
       </div>
 
+      {/* ── Alerts (connection results & warnings) ── */}
       {upgraded && (
         <Card className="border-green-500/30 bg-green-500/5">
           <CardContent className="pt-4 pb-3">
@@ -179,7 +181,32 @@ export default async function SettingsPage({
         </Card>
       )}
 
-      {/* Plan & subscription */}
+      {stravaConnected && (
+        <Card className="border-green-500/30 bg-green-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-green-400">Strava connected successfully!</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Hit &quot;Sync now&quot; to pull your recent activities.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {stravaError && (
+        <Card className="border-red-500/30 bg-red-500/5">
+          <CardContent className="pt-4 pb-3">
+            <p className="text-sm font-medium text-red-400">Strava connection failed</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {stravaError === "invalid_grant"
+                ? "The authorisation code expired or was already used. Please try connecting again."
+                : stravaError === "db_error"
+                  ? "Tokens were received but could not be saved. Please try again."
+                  : `Error: ${stravaError}. Please try again.`}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ══ Account & plan ══ */}
+      <SettingsSection title="Account & Plan" emoji="👤">
       <Card className={plan === "pro" ? "border-primary/30 bg-primary/5" : ""}>
         <CardContent className="pt-4 pb-4 space-y-3">
           <div className="flex items-center justify-between">
@@ -225,7 +252,15 @@ export default async function SettingsPage({
       {/* Invite friends */}
       <InviteCard />
 
-      {/* Theme */}
+      {/* Passkeys / biometric login */}
+      <PasskeyManager />
+
+      {/* Help & Support */}
+      <HelpCard />
+      </SettingsSection>
+
+      {/* ══ Appearance ══ */}
+      <SettingsSection title="Appearance" emoji="🎨">
       <Card>
         <CardContent className="pt-4 pb-4 space-y-5">
           <ThemeSwitcher />
@@ -235,101 +270,46 @@ export default async function SettingsPage({
           <LayoutModeControl />
         </CardContent>
       </Card>
+      </SettingsSection>
 
-      {/* Passkeys / biometric login */}
-      <PasskeyManager />
-
+      {/* ══ Notifications ══ */}
+      <SettingsSection title="Notifications" emoji="🔔">
       {/* Push notifications */}
       <PushNotifications />
-
       {/* Daily nudge notifications — Android only */}
       <NotificationNudges />
+      </SettingsSection>
 
-      {/* Android home screen widget */}
-      <WidgetSetupCapacitor />
-
-      <TimezoneDetector />
-      <WeatherLocation />
-
-      {/* MCP server info */}
-      <Card className="border-dashed">
-        <CardContent className="pt-4 pb-3 space-y-2">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">MCP Server URL</p>
-          <code className="block text-xs bg-secondary rounded px-3 py-2 break-all">
-            {appUrl}/api/mcp
-          </code>
-          <p className="text-[11px] text-muted-foreground">
-            Add this URL + a Bearer token to Claude Code or Claude.ai mobile → Settings → MCP Servers.
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* DB migration */}
-      <MigrateButton />
-
+      {/* ══ Integrations ══ */}
+      <SettingsSection title="Integrations" emoji="🔗">
       {/* Oura Ring connection (client component) */}
       <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
-
       {/* Health Connect — Android only, syncs from Garmin/Fitbit/Samsung/etc */}
       <HealthConnectManager lastSync={hcLastSync} />
-
       {/* Screen Time — Android only, reads native UsageStats */}
       <ScreenTimeManager />
-
       {/* Samsung Health — one-time CSV import for historical data */}
       <SamsungHealthImporter />
-
       {/* Google Timeline — location visit history for health correlations */}
       <TimelineImporter />
-
       {/* CSV import */}
       <CsvImport />
-
-      {stravaConnected && (
-        <Card className="border-green-500/30 bg-green-500/5">
-          <CardContent className="pt-4 pb-3">
-            <p className="text-sm font-medium text-green-400">Strava connected successfully!</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Hit &quot;Sync now&quot; to pull your recent activities.</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {stravaError && (
-        <Card className="border-red-500/30 bg-red-500/5">
-          <CardContent className="pt-4 pb-3">
-            <p className="text-sm font-medium text-red-400">Strava connection failed</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {stravaError === "invalid_grant"
-                ? "The authorisation code expired or was already used. Please try connecting again."
-                : stravaError === "db_error"
-                  ? "Tokens were received but could not be saved. Please try again."
-                  : `Error: ${stravaError}. Please try again.`}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Strava */}
       <StravaManager isConnected={isStravaConnected} />
-
       {/* GitHub */}
       <GitHubManager username={githubUsername} />
-
       {/* RescueTime */}
       <RescuetimeManager hasKey={hasRescuetimeKey} />
-
       {/* Last.fm */}
       <LastfmManager />
+      </SettingsSection>
 
-      {/* Personal goals */}
-      <GoalsEditor />
-
-      {/* Key manager (client component) */}
-      <FitKeyManager initialKeys={keyRows} />
-
+      {/* ══ Widgets & location ══ */}
+      <SettingsSection title="Widgets & Location" emoji="📱">
+      {/* Android home screen widget */}
+      <WidgetSetupCapacitor />
       {/* Home screen & lock screen widgets */}
       <WidgetSetup appUrl={appUrl} apiKey={keys[0]?.token} />
-
       {/* OwnTracks live location */}
       {keys[0]?.token && (
         <Card>
@@ -347,9 +327,14 @@ export default async function SettingsPage({
           </CardContent>
         </Card>
       )}
+      <TimezoneDetector />
+      <WeatherLocation />
+      </SettingsSection>
 
-      {/* Feedback inbox */}
-      <FeedbackInbox />
+      {/* ══ Data & developer ══ */}
+      <SettingsSection title="Data & Developer" emoji="💾">
+      {/* Personal goals */}
+      <GoalsEditor />
 
       {/* Data: digest + export */}
       <Card>
@@ -373,11 +358,33 @@ export default async function SettingsPage({
         </CardContent>
       </Card>
 
-      {/* Help & Support */}
-      <HelpCard />
+      {/* Key manager (client component) */}
+      <FitKeyManager initialKeys={keyRows} />
 
-      {/* Danger zone */}
+      {/* MCP server info */}
+      <Card className="border-dashed">
+        <CardContent className="pt-4 pb-3 space-y-2">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">MCP Server URL</p>
+          <code className="block text-xs bg-secondary rounded px-3 py-2 break-all">
+            {appUrl}/api/mcp
+          </code>
+          <p className="text-[11px] text-muted-foreground">
+            Add this URL + a Bearer token to Claude Code or Claude.ai mobile → Settings → MCP Servers.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Feedback inbox */}
+      <FeedbackInbox />
+
+      {/* DB migration */}
+      <MigrateButton />
+      </SettingsSection>
+
+      {/* ══ Danger zone ══ */}
+      <SettingsSection title="Danger Zone" emoji="⚠️" defaultOpen={false}>
       <DeleteAccount />
+      </SettingsSection>
 
       <p className="text-center text-[11px] text-muted-foreground/40 pb-2">
         Emergenthealth v1.10.0 · Built with ♥

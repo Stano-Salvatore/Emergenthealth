@@ -11,6 +11,7 @@ import { AppSharePrompt } from "./AppSharePrompt"
 import { TrialBanner } from "./TrialBanner"
 import { OfflineToast } from "./OfflineToast"
 import { RateAppPrompt } from "./RateAppPrompt"
+import { BottomNav } from "./BottomNav"
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "sidebar-open"
@@ -127,7 +128,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
         <div className={cn(
           "transition-[padding] duration-300",
-          webMode ? "p-6" : cn("p-3 lg:p-6", !open && "lg:pl-6 pl-12")
+          // Extra bottom padding on mobile so content clears the fixed bottom
+          // tab bar (hidden at lg and in web mode).
+          webMode ? "p-6" : cn("p-3 lg:p-6 pb-20 lg:pb-6", !open && "lg:pl-6 pl-12")
         )}>
           {webMode ? (
             // Web mode zooms out to a much wider layout viewport than any
@@ -143,6 +146,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           ) : children}
         </div>
       </main>
+
+      {/* Bottom tab bar — mobile only (lg:hidden), and hidden in web mode where
+          the sidebar is always visible. */}
+      {!webMode && <BottomNav />}
 
       <FeedbackButton />
       <InstallPrompt />
