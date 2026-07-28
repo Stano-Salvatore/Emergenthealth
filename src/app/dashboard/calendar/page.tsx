@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type CSSProperties } from "react"
 import {
   addDays, addWeeks, subWeeks, addMonths, subMonths,
   startOfWeek, startOfMonth, endOfMonth,
@@ -19,6 +19,7 @@ interface CalendarEvent {
   end: string | null
   isAllDay: boolean
   url: string | null
+  color?: string | null
   source?: "google" | "device"
 }
 
@@ -41,6 +42,45 @@ function colorFor(title: string) {
   let h = 0
   for (let i = 0; i < title.length; i++) h = (h * 31 + title.charCodeAt(i)) >>> 0
   return PALETTE[h % PALETTE.length]
+}
+
+function normHex(color?: string | null): string | null {
+  if (!color) return null
+  const s = color.trim()
+  return /^#?[0-9a-fA-F]{6}$/.test(s) ? (s.startsWith("#") ? s : `#${s}`) : null
+}
+
+// Visual for an event chip/block: the phone-calendar colour when the event
+// carries one (so it matches Samsung), otherwise the hashed palette.
+function eventVisual(
+  event: CalendarEvent,
+  variant: "chip" | "solid",
+): { className?: string; style?: CSSProperties } {
+  const hex = normHex(event.color)
+  if (variant === "solid") {
+    if (hex) return { style: { backgroundColor: hex } }
+    return { className: colorFor(event.title).solid }
+  }
+  if (hex) return { style: { backgroundColor: `${hex}26`, borderLeft: `3px solid ${hex}` } }
+  return { className: colorFor(event.title).chip }
+}
+
+// Local-midnight timestamp, for whole-day range comparisons.
+function dayKey(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+}
+
+// Whether a (possibly multi-day) event covers the given day, so multi-day
+// events render across every day they span instead of only their start.
+function eventCoversDay(e: CalendarEvent, day: Date): boolean {
+  if (!e.start) return false
+  const start = parseEventDate(e.start, e.isAllDay)
+  const d = dayKey(day)
+  if (!e.end) return dayKey(start) === d
+  let end = parseEventDate(e.end, e.isAllDay)
+  // All-day end is exclusive (midnight after the last day), so step back one.
+  if (e.isAllDay) end = addDays(end, -1)
+  return d >= dayKey(start) && d <= dayKey(end)
 }
 
 function parseEventDate(dateStr: string, isAllDay: boolean): Date {
@@ -66,7 +106,7 @@ function getEventPositionStyle(start: string, end: string | null) {
 // ── Event Detail Panel ────────────────────────────────────────────────────────
 
 function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => void }) {
-  const c = colorFor(event.title)
+  const v = eventVisual(event, "solid")
   const start = event.start ? (event.isAllDay ? parseEventDate(event.start, true) : parseISO(event.start)) : null
   const end = event.end ? (event.isAllDay ? parseEventDate(event.end, true) : parseISO(event.end)) : null
 
@@ -78,10 +118,10 @@ function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => 
         style={{ borderTop: "3px solid" }}
         onClick={e => e.stopPropagation()}
       >
-        <div className={`absolute top-0 left-0 right-0 h-0.5 rounded-t-2xl ${c.solid}`} />
+        <div className={`absolute top-0 left-0 right-0 h-0.5 rounded-t-2xl ${v.className ?? ""}`} style={v.style} />
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
-            <div className={`h-3 w-3 rounded-sm shrink-0 ${c.solid}`} />
+            <div className={`h-3 w-3 rounded-sm shrink-0 ${v.className ?? ""}`} style={v.style} />
             <h3 className="font-semibold text-base leading-snug">{event.title}</h3>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground shrink-0 mt-0.5">
@@ -141,10 +181,7 @@ function MonthView({ currentMonth, events, onEventClick }: {
   const days = eachDayOfInterval({ start: gridStart, end: addDays(monthEnd, 6 * 7) }).slice(0, 42)
 
   function eventsOnDay(day: Date) {
-    return events.filter(e => {
-      if (!e.start) return false
-      return isSameDay(parseEventDate(e.start, e.isAllDay), day)
-    })
+    return events.filter(e => eventCoversDay(e, day))
   }
 
   const weeks: Date[][] = []
@@ -179,10 +216,11 @@ function MonthView({ currentMonth, events, onEventClick }: {
                   </div>
                   <div className="space-y-0.5">
                     {dayEvents.slice(0, 3).map(evt => {
-                      const c = colorFor(evt.title)
+                      const v = eventVisual(evt, "chip")
                       return (
                         <button key={evt.id} onClick={() => onEventClick(evt)}
-                          className={`w-full text-left text-[11px] font-medium px-1.5 py-[3px] rounded-[4px] truncate transition-all hover:brightness-110 ${c.chip}`}>
+                          className={`w-full text-left text-[11px] font-medium px-1.5 py-[3px] rounded-[4px] truncate transition-all hover:brightness-110 ${v.className ?? "text-foreground/90"}`}
+                          style={v.style}>
                           {!evt.isAllDay && evt.start && (
                             <span className="opacity-60 mr-1 font-normal">{format(parseISO(evt.start), "H:mm")}</span>
                           )}
@@ -228,7 +266,7 @@ function WeekView({ weekStart, events, now, onEventClick }: {
     return events.filter(e => !e.isAllDay && e.start && isSameDay(parseISO(e.start), day))
   }
   function allDayEventsFor(day: Date) {
-    return events.filter(e => e.isAllDay && e.start && isSameDay(parseEventDate(e.start, true), day))
+    return events.filter(e => e.isAllDay && eventCoversDay(e, day))
   }
 
   return (
@@ -266,10 +304,11 @@ function WeekView({ weekStart, events, now, onEventClick }: {
             return (
               <div key={i} className={`flex-1 border-r last:border-r-0 px-0.5 py-0.5 space-y-0.5 ${isToday(day) ? "bg-primary/5" : ""}`}>
                 {evts.map(evt => {
-                  const c = colorFor(evt.title)
+                  const v = eventVisual(evt, "solid")
                   return (
                     <button key={evt.id} onClick={() => onEventClick(evt)}
-                      className={`w-full text-[11px] font-semibold px-1.5 py-[3px] rounded-[4px] truncate text-left text-white transition-all hover:brightness-110 ${c.solid}`}>
+                      className={`w-full text-[11px] font-semibold px-1.5 py-[3px] rounded-[4px] truncate text-left text-white transition-all hover:brightness-110 ${v.className ?? ""}`}
+                      style={v.style}>
                       {evt.title}
                     </button>
                   )
@@ -321,12 +360,12 @@ function WeekView({ weekStart, events, now, onEventClick }: {
                 {dayEvents.map(evt => {
                   if (!evt.start) return null
                   const { top, height } = getEventPositionStyle(evt.start, evt.end)
-                  const c = colorFor(evt.title)
+                  const v = eventVisual(evt, "solid")
                   return (
                     <button key={evt.id} onClick={() => onEventClick(evt)}
                       className={`absolute left-[2px] right-[2px] rounded-[5px] px-1.5 overflow-hidden
-                        hover:brightness-110 active:scale-[0.98] transition-all z-10 text-left text-white ${c.solid}`}
-                      style={{ top: top + 1, height: height - 2 }}>
+                        hover:brightness-110 active:scale-[0.98] transition-all z-10 text-left text-white ${v.className ?? ""}`}
+                      style={{ top: top + 1, height: height - 2, ...v.style }}>
                       <p className="text-[11px] font-semibold leading-tight truncate">{evt.title}</p>
                       {height > 28 && (
                         <p className="text-[10px] leading-tight opacity-80 truncate">

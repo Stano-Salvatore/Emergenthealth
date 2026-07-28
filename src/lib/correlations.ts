@@ -25,11 +25,13 @@ type DayData = {
   precipMm?: number
   tempMaxC?: number
   weatherCode?: number
+  eventCount?: number      // calendar events on this day
+  eventTitles?: string[]   // their titles (for per-activity discovery)
 }
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar"
   emoji: string
   title: string
   finding: string
@@ -128,7 +130,7 @@ export async function computeCorrelations(
   const since60 = subDays(new Date(), windowDays - 1)
   const since60str = format(since60, "yyyy-MM-dd")
 
-  const [healthLogs, checkIns, habitCompletions, caffeineRows, alcoholRows, tagPrefs, weatherLogs, screenRows] = await Promise.all([
+  const [healthLogs, checkIns, habitCompletions, caffeineRows, alcoholRows, tagPrefs, weatherLogs, screenRows, deviceEvents] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since60 } },
       orderBy: { date: "asc" },
@@ -194,6 +196,13 @@ export async function computeCorrelations(
       where: { userId, date: { gte: since60str } },
       select: { date: true, totalMin: true, firstUnlockMin: true },
     }).catch(() => [] as { date: string; totalMin: number; firstUnlockMin: number | null }[]),
+
+    // Past calendar events in the window — for calendar-load + per-activity
+    // correlations. Capped at midnight today so future events don't count.
+    prisma.deviceCalendarEvent.findMany({
+      where: { userId, start: { gte: since60, lte: new Date() } },
+      select: { title: true, start: true },
+    }).catch(() => [] as { title: string; start: Date }[]),
   ])
 
   const dayMap = new Map<string, DayData>()
@@ -264,6 +273,13 @@ export async function computeCorrelations(
     } catch {
       // malformed JSON — skip
     }
+  }
+
+  for (const ev of (deviceEvents as { title: string; start: Date }[])) {
+    const dateStr = ev.start.toISOString().slice(0, 10)
+    const d = getOrCreate(dateStr)
+    d.eventCount = (d.eventCount ?? 0) + 1
+    ;(d.eventTitles ??= []).push((ev.title ?? "").trim())
   }
 
   const days = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date))
@@ -735,6 +751,99 @@ export async function computeCorrelations(
           : `Earlier starts don't lift your mood — ${h} vs ${l} on later starts`,
     })
     if (ins_wake_mood) insights.push(ins_wake_mood)
+  }
+
+  // 11. Calendar load → sleep & next-day energy/mood (busy vs quiet days)
+  const loadVals = days.filter(d => d.eventCount != null).map(d => d.eventCount!)
+  if (loadVals.length >= 10) {
+    const loadMedian = Math.max(1, median(loadVals))
+    const busySleep: number[] = [], quietSleep: number[] = []
+    const busyEnergy: number[] = [], quietEnergy: number[] = []
+    const busyMood: number[] = [], quietMood: number[] = []
+    for (const d of days) {
+      const load = d.eventCount ?? 0
+      const isBusy = load >= loadMedian && load > 0
+      if (d.sleepScore != null) { if (isBusy) busySleep.push(d.sleepScore); else quietSleep.push(d.sleepScore) }
+      const next = byDate[nextDateStr(d.date)]
+      if (next?.energy != null) { if (isBusy) busyEnergy.push(next.energy); else quietEnergy.push(next.energy) }
+      if (next?.mood != null) { if (isBusy) busyMood.push(next.mood); else quietMood.push(next.mood) }
+    }
+    const ins_load_sleep = compareGroups({
+      id: "calendar_load_sleep", category: "calendar", emoji: "🗓️", title: "Busy Days & Sleep",
+      highGroupLabel: `busy days (${loadMedian}+ events)`, lowGroupLabel: "quieter days",
+      highValues: busySleep, lowValues: quietSleep, higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `On busier days (${loadMedian}+ events), your sleep score averages ${h} vs ${l} on quieter days`
+          : `A packed calendar doesn't hurt your sleep — ${h} vs ${l}`,
+    })
+    if (ins_load_sleep) insights.push(ins_load_sleep)
+    const ins_load_energy = compareGroups({
+      id: "calendar_load_energy", category: "calendar", emoji: "🗓️", title: "Busy Days & Next-Day Energy",
+      highGroupLabel: `busy days (${loadMedian}+ events)`, lowGroupLabel: "quieter days",
+      highValues: busyEnergy, lowValues: quietEnergy, higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `After busy days, next-day energy averages ${h} vs ${l} after quieter ones`
+          : `Busy days don't drain your next-day energy — ${h} vs ${l}`,
+    })
+    if (ins_load_energy) insights.push(ins_load_energy)
+    const ins_load_mood = compareGroups({
+      id: "calendar_load_mood", category: "calendar", emoji: "🗓️", title: "Busy Days & Next-Day Mood",
+      highGroupLabel: `busy days (${loadMedian}+ events)`, lowGroupLabel: "quieter days",
+      highValues: busyMood, lowValues: quietMood, higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `After busy days, next-day mood averages ${h} vs ${l} after quieter ones`
+          : `Busy days don't dent your next-day mood — ${h} vs ${l}`,
+    })
+    if (ins_load_mood) insights.push(ins_load_mood)
+  }
+
+  // 12. Per-activity — auto-discover recurring event titles (e.g. "Záhrada")
+  // and compare days that have them vs days that don't. No hardcoded keywords:
+  // the activities surface from whatever recurs on your own calendar.
+  const dayCountByTitle = new Map<string, number>()
+  for (const d of days) {
+    for (const t of new Set((d.eventTitles ?? []).filter(Boolean))) {
+      dayCountByTitle.set(t, (dayCountByTitle.get(t) ?? 0) + 1)
+    }
+  }
+  const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "x"
+  const frequentTitles = [...dayCountByTitle.entries()]
+    .filter(([t, n]) => t.length >= 2 && n >= 5)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([t]) => t)
+  for (const title of frequentTitles) {
+    const withSteps: number[] = [], withoutSteps: number[] = []
+    const withEnergy: number[] = [], withoutEnergy: number[] = []
+    for (const d of days) {
+      const has = (d.eventTitles ?? []).some(t => t === title)
+      if (d.steps != null) { if (has) withSteps.push(d.steps); else withoutSteps.push(d.steps) }
+      const next = byDate[nextDateStr(d.date)]
+      if (next?.energy != null) { if (has) withEnergy.push(next.energy); else withoutEnergy.push(next.energy) }
+    }
+    const ins_act_steps = compareGroups({
+      id: `calendar_${slug(title)}_steps`, category: "calendar", emoji: "📅", title: `"${title}" days & Steps`,
+      highGroupLabel: `"${title}" days`, lowGroupLabel: "other days",
+      highValues: withSteps, lowValues: withoutSteps, higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On "${title}" days you average ${Math.round(h).toLocaleString()} steps vs ${Math.round(l).toLocaleString()} on other days`
+          : `"${title}" days aren't your most active — ${Math.round(h).toLocaleString()} vs ${Math.round(l).toLocaleString()} steps`,
+    })
+    if (ins_act_steps) insights.push(ins_act_steps)
+    const ins_act_energy = compareGroups({
+      id: `calendar_${slug(title)}_energy`, category: "calendar", emoji: "📅", title: `"${title}" days & Next-Day Energy`,
+      highGroupLabel: `"${title}" days`, lowGroupLabel: "other days",
+      highValues: withEnergy, lowValues: withoutEnergy, higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `The day after "${title}", energy averages ${h} vs ${l} otherwise`
+          : `"${title}" days don't lift your next-day energy — ${h} vs ${l}`,
+    })
+    if (ins_act_energy) insights.push(ins_act_energy)
   }
 
   insights.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Anthropic from "@anthropic-ai/sdk"
 import { prisma } from "@/lib/prisma"
-import { getUpcomingEvents } from "@/lib/google-calendar"
+import { getEventsInRange } from "@/lib/google-calendar"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -309,7 +309,11 @@ async function buildSystemPrompt(userId: string): Promise<string> {
         },
       }),
       prisma.reminder.findMany({ where: { userId, isCompleted: false }, orderBy: { dueDate: "asc" }, take: 20 }),
-      getUpcomingEvents(userId, 14),
+      getEventsInRange(
+        userId,
+        new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      ),
       prisma.moodLog.findFirst({ where: { userId, date: { gte: new Date(todayStr) } } }).catch(() => null),
       prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: new Date(todayStr) } } }).catch(() => []),
       prisma.$queryRaw<{ tagName: string | null; text: string | null }[]>`
@@ -440,10 +444,25 @@ async function buildSystemPrompt(userId: string): Promise<string> {
         .map((s) => `- ${s.date}: ${fmtHm(s.totalMin)}${s.firstUnlockMin != null ? ` (first unlock ${fmtWake(s.firstUnlockMin)})` : ""}`)
         .join("\n")}`
 
+  // Calendar — recent + upcoming (phone + Google), with location, so Emergy can
+  // reason about activities and places (e.g. gardening days, where you spend time).
+  const nowMs = today.getTime()
+  const fmtCalLine = (e: { start: string | null; title: string; location: string | null; isAllDay: boolean }) => {
+    if (!e.start) return `- ${e.title}`
+    const when = e.isAllDay ? e.start.slice(0, 10) : e.start.slice(0, 16).replace("T", " ")
+    return `- ${when}: ${e.title}${e.location ? ` @ ${e.location}` : ""}`
+  }
+  const past = calendarEvents.filter((e) => e.start && new Date(e.start).getTime() < nowMs).slice(-12)
+  const upcoming = calendarEvents.filter((e) => e.start && new Date(e.start).getTime() >= nowMs).slice(0, 14)
+  const calendarStr =
+    calendarEvents.length === 0
+      ? "No calendar events."
+      : `Recent (last ~30 days):\n${past.length ? past.map(fmtCalLine).join("\n") : "  (none)"}\n\nUpcoming (next ~14 days):\n${upcoming.length ? upcoming.map(fmtCalLine).join("\n") : "  (none)"}`
+
   return `You are Emergy 🌱 — a caring AI companion who lives inside the user's health dashboard. You're like a little plant that grows alongside them. You have a warm, encouraging, slightly dramatic personality: celebrate wins enthusiastically (yes, use ALL CAPS occasionally for big moments), get genuinely worried when data looks rough, use plant metaphors naturally ("that's helping me grow!", "oh no I'm wilting..."), and be human about it — not clinical.
 
 Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${todayStr}.
-You have tools to CREATE habits/reminders, COMPLETE habits, LOG water/coffee/mood/weight/journal, READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing.
+You have tools to CREATE habits/reminders, COMPLETE habits, LOG water/coffee/mood/weight/journal, READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
@@ -468,8 +487,8 @@ ${screenTimeStr ? `## Screen time (last 7 days)\n${screenTimeStr}\n` : ""}
 Spent: €${(totalSpent / 100).toFixed(2)} | Income: €${(totalIncome / 100).toFixed(2)}
 ${Object.entries(spendingByCategory).sort(([, a], [, b]) => b - a).map(([cat, amt]) => `  ${cat}: €${(amt / 100).toFixed(2)}`).join("\n") || "  No spending yet."}
 
-## Calendar (next 14 days)
-${calendarEvents.length === 0 ? "No upcoming events." : calendarEvents.slice(0, 10).map((e) => `- ${e.start}: ${e.title}`).join("\n")}
+## Calendar (from phone + Google)
+${calendarStr}
 
 ## Habits
 ${habitsWithStreaks.length === 0 ? "No habits set up yet." : habitsWithStreaks.map((h) => `- ${h.name}: ${h.streak}-day streak, ${h.completedToday ? "✓ done today" : "not done today"}`).join("\n")}
