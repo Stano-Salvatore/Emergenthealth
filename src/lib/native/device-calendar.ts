@@ -153,20 +153,21 @@ export async function readEvents(): Promise<{
   from: string
   to: string
   events: DeviceEventPayload[]
+  rawCount: number
 }> {
   const cal = await withTimeout(getPlugin(), 4000, null)
   const fromMs = Date.now() - DAYS_BACK * 24 * 60 * 60 * 1000
   const toMs = Date.now() + DAYS_AHEAD * 24 * 60 * 60 * 1000
   const from = new Date(fromMs).toISOString()
   const to = new Date(toMs).toISOString()
-  if (!cal) return { from, to, events: [] }
+  if (!cal) return { from, to, events: [], rawCount: 0 }
 
   let raw: any[] = []
   try {
     const res = await withTimeout<any>(cal.listEventsInRange({ from: fromMs, to: toMs }), 25000, null)
     raw = Array.isArray(res?.result) ? res.result : []
   } catch {
-    return { from, to, events: [] }
+    return { from, to, events: [], rawCount: 0 }
   }
 
   const events: DeviceEventPayload[] = raw
@@ -182,12 +183,38 @@ export async function readEvents(): Promise<{
       isAllDay: e.isAllDay === true,
     }))
 
-  return { from, to, events }
+  return { from, to, events, rawCount: raw.length }
 }
 
-/** Read the device calendar and push it to the server. Returns event count. */
-export async function syncToServer(): Promise<{ synced: number }> {
-  const { from, to, events } = await readEvents()
+/** Number of device calendars the app can see (diagnostic). -1 = couldn't ask. */
+async function countCalendars(): Promise<number> {
+  const cal = await withTimeout(getPlugin(), 4000, null)
+  if (!cal) return -1
+  try {
+    const res = await withTimeout<any>(cal.listCalendars(), 8000, null)
+    return Array.isArray(res?.result) ? res.result.length : -1
+  } catch {
+    return -1
+  }
+}
+
+export type SyncResult = {
+  synced: number
+  rawCount: number
+  calendars: number
+  permission: CalPermission
+}
+
+/** Read the device calendar and push it to the server, with diagnostics. */
+export async function syncToServer(): Promise<SyncResult> {
+  // Gather diagnostics alongside the read so a "0 events" result is explainable.
+  const [permission, calendars, read] = await Promise.all([
+    getPermissionState(),
+    countCalendars(),
+    readEvents(),
+  ])
+  const { from, to, events, rawCount } = read
+
   const res = await fetch("/api/sync/device-calendar", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -195,5 +222,5 @@ export async function syncToServer(): Promise<{ synced: number }> {
   })
   if (!res.ok) throw new Error(`Sync failed: ${res.status}`)
   const data = await res.json().catch(() => ({}))
-  return { synced: data.synced ?? events.length }
+  return { synced: data.synced ?? events.length, rawCount, calendars, permission }
 }

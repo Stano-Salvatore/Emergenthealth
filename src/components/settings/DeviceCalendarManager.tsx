@@ -15,6 +15,7 @@ type Status = "checking" | "unavailable" | "ready" | "syncing" | "done" | "error
 export function DeviceCalendarManager({ lastSync }: { lastSync?: string | null }) {
   const [status, setStatus] = useState<Status>("checking")
   const [syncedCount, setSyncedCount] = useState<number | null>(null)
+  const [diag, setDiag] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastSyncAt, setLastSyncAt] = useState(lastSync ?? null)
 
@@ -48,8 +49,15 @@ export function DeviceCalendarManager({ lastSync }: { lastSync?: string | null }
     setStatus("syncing")
     setError(null)
     try {
-      const { synced } = await syncToServer()
+      const { synced, rawCount, calendars, permission } = await syncToServer()
       setSyncedCount(synced)
+      // When nothing came through, show what the phone actually reported so the
+      // gap (permission vs. no calendars vs. empty query) is diagnosable.
+      setDiag(
+        synced === 0
+          ? `permission: ${permission} · calendars visible: ${calendars} · events read: ${rawCount}`
+          : null,
+      )
       setLastSyncAt(new Date().toISOString())
       setStatus("done")
     } catch (e: unknown) {
@@ -103,6 +111,12 @@ export function DeviceCalendarManager({ lastSync }: { lastSync?: string | null }
           <p className="text-xs text-green-400">
             Synced {syncedCount} event{syncedCount === 1 ? "" : "s"}
             {lastSyncAt ? ` · last synced at ${fmtTime(lastSyncAt)}` : ""}
+          </p>
+        )}
+
+        {status === "done" && diag && (
+          <p className="text-[11px] text-muted-foreground/80 bg-muted/40 rounded-md px-3 py-1.5 break-words">
+            Diagnostics — {diag}
           </p>
         )}
 
