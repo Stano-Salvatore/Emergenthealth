@@ -369,7 +369,12 @@ export default function CalendarPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch("/api/sync/calendar?days=90")
+      // Fetch a broad window (±~13 months) so you can page across the whole
+      // year — past and future — not just the next 90 days.
+      const nowMs = Date.now()
+      const from = new Date(nowMs - 400 * 24 * 60 * 60 * 1000).toISOString()
+      const to = new Date(nowMs + 400 * 24 * 60 * 60 * 1000).toISOString()
+      const res = await fetch(`/api/sync/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
       if (!res.ok) throw new Error(await res.text())
       setEvents(await res.json())
     } catch (e: any) {
