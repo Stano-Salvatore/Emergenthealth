@@ -45,15 +45,69 @@ export interface CalendarEvent {
   end: string | null
   isAllDay: boolean
   url: string | null
+  source?: "google" | "device"
+}
+
+// ── Device calendar (native Android read: Samsung / local / any account) ──────
+// Events synced from the phone's Calendar Provider are stored in the DB and
+// merged into the same results Google events flow through, so they appear
+// everywhere (calendar page, Today, dashboard, Dr. Sophia context).
+
+function deviceKey(title: string, start: string | null): string {
+  // Match at minute granularity so a device-side mirror of a Google event
+  // dedupes against the Google copy.
+  const t = title.trim().toLowerCase()
+  const m = start ? start.slice(0, 16) : ""
+  return `${t}|${m}`
+}
+
+async function getDeviceEvents(
+  userId: string,
+  from: Date,
+  to: Date,
+): Promise<CalendarEvent[]> {
+  try {
+    const rows = await prisma.deviceCalendarEvent.findMany({
+      where: { userId, start: { gte: from, lte: to } },
+      orderBy: { start: "asc" },
+    })
+    return rows.map((r) => ({
+      id: `dev_${r.externalId}`,
+      title: r.title,
+      description: r.description,
+      location: r.location,
+      start: r.start.toISOString(),
+      end: r.end ? r.end.toISOString() : null,
+      isAllDay: r.isAllDay,
+      url: null,
+      source: "device" as const,
+    }))
+  } catch {
+    return []
+  }
+}
+
+// Merge Google + device events, dropping device events that duplicate a Google
+// one (same title + start minute), and sort chronologically.
+function mergeEvents(google: CalendarEvent[], device: CalendarEvent[]): CalendarEvent[] {
+  const seen = new Set(google.map((e) => deviceKey(e.title, e.start)))
+  const merged = [...google]
+  for (const e of device) {
+    if (seen.has(deviceKey(e.title, e.start))) continue
+    seen.add(deviceKey(e.title, e.start))
+    merged.push(e)
+  }
+  return merged.sort((a, b) => (a.start ?? "").localeCompare(b.start ?? ""))
 }
 
 export async function getTodayEvents(userId: string): Promise<CalendarEvent[]> {
+  const now = new Date()
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
+  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+
+  let googleEvents: CalendarEvent[] = []
   try {
     const calendar = await buildCalendarClient(userId)
-    const now = new Date()
-    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
-    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
-
     const response = await calendar.events.list({
       calendarId: "primary",
       timeMin: startOfDay.toISOString(),
@@ -63,7 +117,7 @@ export async function getTodayEvents(userId: string): Promise<CalendarEvent[]> {
       maxResults: 20,
     })
 
-    return (response.data.items ?? []).map((event) => ({
+    googleEvents = (response.data.items ?? []).map((event) => ({
       id: event.id!,
       title: event.summary ?? "(No title)",
       description: event.description ?? null,
@@ -72,18 +126,23 @@ export async function getTodayEvents(userId: string): Promise<CalendarEvent[]> {
       end: event.end?.dateTime ?? event.end?.date ?? null,
       isAllDay: !event.start?.dateTime,
       url: event.htmlLink ?? null,
+      source: "google" as const,
     }))
   } catch {
-    return []
+    googleEvents = []
   }
+
+  const deviceEvents = await getDeviceEvents(userId, startOfDay, endOfDay)
+  return mergeEvents(googleEvents, deviceEvents)
 }
 
 export async function getUpcomingEvents(userId: string, daysAhead = 14): Promise<CalendarEvent[]> {
+  const now = new Date()
+  const future = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000)
+
+  let googleEvents: CalendarEvent[] = []
   try {
     const calendar = await buildCalendarClient(userId)
-    const now = new Date()
-    const future = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000)
-
     const response = await calendar.events.list({
       calendarId: "primary",
       timeMin: now.toISOString(),
@@ -93,7 +152,7 @@ export async function getUpcomingEvents(userId: string, daysAhead = 14): Promise
       maxResults: 50,
     })
 
-    return (response.data.items ?? []).map((event) => ({
+    googleEvents = (response.data.items ?? []).map((event) => ({
       id: event.id!,
       title: event.summary ?? "(No title)",
       description: event.description ?? null,
@@ -102,8 +161,12 @@ export async function getUpcomingEvents(userId: string, daysAhead = 14): Promise
       end: event.end?.dateTime ?? event.end?.date ?? null,
       isAllDay: !event.start?.dateTime,
       url: event.htmlLink ?? null,
+      source: "google" as const,
     }))
   } catch {
-    return []
+    googleEvents = []
   }
+
+  const deviceEvents = await getDeviceEvents(userId, now, future)
+  return mergeEvents(googleEvents, deviceEvents)
 }

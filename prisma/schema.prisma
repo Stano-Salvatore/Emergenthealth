@@ -55,6 +55,7 @@ model User {
   feedbacks        UserFeedback[]
   timelineEvents   TimelineEvent[]
   screenTimeLogs   ScreenTimeLog[]
+  deviceCalendarEvents DeviceCalendarEvent[]
 }
 
 model Account {
@@ -189,6 +190,27 @@ model DriveImportLog {
 
   @@unique([userId, fileId])
   @@index([userId])
+}
+
+// ─── Device Calendar (native Android read: Samsung / local / any account) ────
+
+model DeviceCalendarEvent {
+  id          String    @id @default(cuid())
+  userId      String
+  externalId  String    // event id from the device Calendar Provider
+  calendarId  String?   // owning device calendar (account) id
+  title       String
+  description String?   @db.Text
+  location    String?
+  start       DateTime
+  end         DateTime?
+  isAllDay    Boolean   @default(false)
+  syncedAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, externalId])
+  @@index([userId, start])
 }
 
 // ─── Habits ──────────────────────────────────────────────────────────────────

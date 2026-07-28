@@ -4,6 +4,7 @@ import { DashboardShell } from "@/components/layout/DashboardShell"
 import { EmergyPanel } from "@/components/emergy/EmergyPanel"
 import { AutoSync } from "@/components/layout/AutoSync"
 import { HealthConnectAutoSync } from "@/components/HealthConnectAutoSync"
+import { DeviceCalendarAutoSync } from "@/components/DeviceCalendarAutoSync"
 import { NativeBridge } from "@/components/NativeBridge"
 import { prisma } from "@/lib/prisma"
 
@@ -39,6 +40,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <EmergyPanel />
       <AutoSync />
       <HealthConnectAutoSync />
+      <DeviceCalendarAutoSync />
       <NativeBridge />
     </>
   )
