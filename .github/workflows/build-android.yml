@@ -14,6 +14,9 @@ on:
       - "public/icons/**"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -96,3 +99,25 @@ jobs:
           path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: warn
           retention-days: 90
+
+      # Publish the signed APK to a rolling GitHub Release so it can be installed
+      # straight from the phone — bookmark the stable link below, tap to update:
+      #   https://github.com/<owner>/<repo>/releases/latest/download/emergenthealth.apk
+      # Same keystore ⇒ installs update in place (local data kept). main only.
+      - name: Publish APK to GitHub Release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          if [ ! -f "$APK" ]; then
+            echo "::warning::No signed APK found — skipping Release publish."
+            exit 0
+          fi
+          cp "$APK" emergenthealth.apk
+          # Recreate the rolling tag so the Release always reflects the latest build.
+          gh release delete latest-android --yes --cleanup-tag || true
+          gh release create latest-android emergenthealth.apk \
+            --title "Latest Android build" \
+            --notes "Signed APK · commit ${GITHUB_SHA} · built $(date -u '+%Y-%m-%d %H:%M UTC')" \
+            --latest
