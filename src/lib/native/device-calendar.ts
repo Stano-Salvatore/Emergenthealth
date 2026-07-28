@@ -182,9 +182,25 @@ export type DeviceEventPayload = {
   title: string
   description: string | null
   location: string | null
+  color: string | null   // hex, so events can match the phone's calendar colors
   start: string          // ISO
   end: string | null     // ISO
   isAllDay: boolean
+}
+
+// Map of calendarId → its color (hex), so events without a per-event colour can
+// inherit their calendar's colour — which is what Samsung Calendar shows.
+async function calendarColorMap(cal: any): Promise<Record<string, string>> {
+  const map: Record<string, string> = {}
+  try {
+    const res = await withTimeout<any>(cal.listCalendars(), 8000, null)
+    for (const c of res?.result ?? []) {
+      if (c?.id != null && typeof c.color === "string") map[String(c.id)] = c.color
+    }
+  } catch {
+    /* ignore — events just fall back to the default palette */
+  }
+  return map
 }
 
 /** Read events from every device calendar within the sync window. */
@@ -209,21 +225,30 @@ export async function readEvents(): Promise<{
     return { from, to, events: [], rawCount: 0 }
   }
 
+  const colors = await calendarColorMap(cal)
   const events: DeviceEventPayload[] = raw
     .filter((e) => e && e.id != null && typeof e.startDate === "number")
-    .map((e) => ({
-      // The plugin returns the event id (shared across every occurrence of a
-      // recurring event), so compose it with the instance start to keep each
-      // occurrence distinct — otherwise they collapse onto one DB row.
-      externalId: `${String(e.id)}:${e.startDate}`,
-      calendarId: e.calendarId != null ? String(e.calendarId) : null,
-      title: (e.title ?? "").toString().trim() || "(No title)",
-      description: e.description ?? null,
-      location: e.location ?? null,
-      start: new Date(e.startDate).toISOString(),
-      end: typeof e.endDate === "number" ? new Date(e.endDate).toISOString() : null,
-      isAllDay: e.isAllDay === true,
-    }))
+    .map((e) => {
+      const calId = e.calendarId != null ? String(e.calendarId) : null
+      const color =
+        (typeof e.color === "string" && e.color) ||
+        (calId != null ? colors[calId] : null) ||
+        null
+      return {
+        // The plugin returns the event id (shared across every occurrence of a
+        // recurring event), so compose it with the instance start to keep each
+        // occurrence distinct — otherwise they collapse onto one DB row.
+        externalId: `${String(e.id)}:${e.startDate}`,
+        calendarId: calId,
+        title: (e.title ?? "").toString().trim() || "(No title)",
+        description: e.description ?? null,
+        location: e.location ?? null,
+        color,
+        start: new Date(e.startDate).toISOString(),
+        end: typeof e.endDate === "number" ? new Date(e.endDate).toISOString() : null,
+        isAllDay: e.isAllDay === true,
+      }
+    })
 
   return { from, to, events, rawCount: raw.length }
 }

@@ -11,9 +11,17 @@ type DeviceEventPayload = {
   title: string
   description: string | null
   location: string | null
+  color: string | null
   start: string
   end: string | null
   isAllDay: boolean
+}
+
+// Accept only a safe #RGB / #RRGGBB hex so it can go straight into inline styles.
+function cleanHex(v: unknown): string | null {
+  if (typeof v !== "string") return null
+  const s = v.trim()
+  return /^#?[0-9a-fA-F]{6}$/.test(s) ? (s.startsWith("#") ? s : `#${s}`) : null
 }
 
 export async function POST(req: NextRequest) {
@@ -38,6 +46,7 @@ export async function POST(req: NextRequest) {
       title: (e.title ?? "").toString().slice(0, 500) || "(No title)",
       description: e.description ? String(e.description).slice(0, 5000) : null,
       location: e.location ? String(e.location).slice(0, 500) : null,
+      color: cleanHex(e.color),
       start: new Date(e.start),
       end: e.end && !Number.isNaN(Date.parse(e.end)) ? new Date(e.end) : null,
       isAllDay: e.isAllDay === true,

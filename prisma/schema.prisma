@@ -202,6 +202,7 @@ model DeviceCalendarEvent {
   title       String
   description String?   @db.Text
   location    String?
+  color       String?   // hex, from the event's or its calendar's color
   start       DateTime
   end         DateTime?
   isAllDay    Boolean   @default(false)

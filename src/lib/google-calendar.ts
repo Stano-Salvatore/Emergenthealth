@@ -45,6 +45,7 @@ export interface CalendarEvent {
   end: string | null
   isAllDay: boolean
   url: string | null
+  color?: string | null   // hex; device events carry their phone-calendar colour
   source?: "google" | "device"
 }
 
@@ -82,6 +83,7 @@ async function getDeviceEvents(
       end: r.end ? (r.isAllDay ? r.end.toISOString().slice(0, 10) : r.end.toISOString()) : null,
       isAllDay: r.isAllDay,
       url: null,
+      color: r.color,
       source: "device" as const,
     }))
   } catch {
