@@ -27,8 +27,13 @@ export function DeviceCalendarManager({ lastSync }: { lastSync?: string | null }
   async function handleConnect() {
     setStatus("syncing")
     setError(null)
-    const granted = await requestPermission()
-    if (!granted) {
+    const outcome = await requestPermission()
+    if (outcome === "unavailable") {
+      setStatus("error")
+      setError("Couldn't reach the phone calendar. Make sure you're on the latest app build (reinstall from the release link), then try again.")
+      return
+    }
+    if (outcome === "denied") {
       setStatus("error")
       setError("Calendar permission was denied. Enable it in Android Settings → Apps → Emergenthealth → Permissions.")
       return
