@@ -82,28 +82,55 @@ export async function getPermissionState(): Promise<CalPermission> {
 
 export type PermissionOutcome = "granted" | "denied" | "unavailable"
 
+// A short, technical reason attached to an "unavailable" outcome, so the UI can
+// show *why* — which pins down whether the plugin's JS failed to load, the
+// native side isn't implemented (old APK), or a call stalled.
+export type PermissionResult = { outcome: PermissionOutcome; reason?: string }
+
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message
+  try {
+    return typeof e === "string" ? e : JSON.stringify(e)
+  } catch {
+    return String(e)
+  }
+}
+
 /**
- * Request read-only calendar access.
+ * Request read-only calendar access, returning the outcome plus a diagnostic
+ * `reason` when it's "unavailable":
  *  - "granted": permission is available, ready to sync
  *  - "denied": the user (or the OS) refused it — grantable in system settings
- *  - "unavailable": the calendar plugin didn't respond — usually an APK built
- *    before the plugin shipped; the app needs updating to the latest build
+ *  - "unavailable": couldn't reach the calendar plugin. `reason` distinguishes
+ *    JS-not-loaded vs native-not-implemented (old APK) vs a stalled bridge call.
  */
-export async function requestPermission(): Promise<PermissionOutcome> {
-  const cal = await withTimeout(getPlugin(), 4000, null)
-  if (!cal) return "unavailable"
+export async function requestPermission(): Promise<PermissionResult> {
+  if (!isNativeApp()) return { outcome: "unavailable", reason: "not the native app" }
+
+  // Load the plugin JS (from the deployed bundle) — separate try so a failed
+  // import is reported distinctly from a failed native call.
+  let cal: any
   try {
-    // checkPermission is non-interactive, so a stall here means the plugin
-    // isn't really there (old APK). Time-box it and bail as "unavailable".
-    const current = await withTimeout<any>(cal.checkPermission({ scope: READ_SCOPE }), 6000, null)
-    if (!current) return "unavailable"
-    if (current.result === "granted") return "granted"
-    // The plugin answered, so it's alive — the request prompt is interactive
-    // and may sit while the user decides, so don't time this one out.
+    const mod = await withTimeout<any>(import("@ebarooni/capacitor-calendar"), 8000, "TIMEOUT")
+    if (mod === "TIMEOUT") return { outcome: "unavailable", reason: "plugin JS load timed out" }
+    cal = mod?.CapacitorCalendar
+    if (!cal) return { outcome: "unavailable", reason: "CapacitorCalendar export missing" }
+  } catch (e) {
+    return { outcome: "unavailable", reason: `plugin import failed: ${errMsg(e)}` }
+  }
+
+  try {
+    // checkPermission is non-interactive: a throw here is the native plugin
+    // being absent (old APK); a stall means the bridge isn't answering.
+    const current = await withTimeout<any>(cal.checkPermission({ scope: READ_SCOPE }), 8000, "TIMEOUT")
+    if (current === "TIMEOUT") return { outcome: "unavailable", reason: "native checkPermission timed out" }
+    if (current?.result === "granted") return { outcome: "granted" }
+    // Plugin answered, so it's alive — the request prompt is interactive and
+    // may sit while the user decides, so don't time this one out.
     const { result } = await cal.requestReadOnlyCalendarAccess()
-    return result === "granted" ? "granted" : "denied"
-  } catch {
-    return "unavailable"
+    return { outcome: result === "granted" ? "granted" : "denied" }
+  } catch (e) {
+    return { outcome: "unavailable", reason: `native call failed: ${errMsg(e)}` }
   }
 }
 

@@ -27,10 +27,13 @@ export function DeviceCalendarManager({ lastSync }: { lastSync?: string | null }
   async function handleConnect() {
     setStatus("syncing")
     setError(null)
-    const outcome = await requestPermission()
+    const { outcome, reason } = await requestPermission()
     if (outcome === "unavailable") {
       setStatus("error")
-      setError("Couldn't reach the phone calendar. Make sure you're on the latest app build (reinstall from the release link), then try again.")
+      setError(
+        "Couldn't reach the phone calendar. Make sure you're on the latest app build (reinstall from the release link), then try again." +
+          (reason ? `\n\nDetails: ${reason}` : ""),
+      )
       return
     }
     if (outcome === "denied") {
@@ -93,7 +96,7 @@ export function DeviceCalendarManager({ lastSync }: { lastSync?: string | null }
         </p>
 
         {error && (
-          <p className="text-xs text-red-400 bg-red-500/10 rounded-md px-3 py-2">{error}</p>
+          <p className="text-xs text-red-400 bg-red-500/10 rounded-md px-3 py-2 whitespace-pre-line break-words">{error}</p>
         )}
 
         {status === "done" && syncedCount != null && (
