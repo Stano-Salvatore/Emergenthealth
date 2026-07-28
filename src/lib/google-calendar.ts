@@ -76,8 +76,10 @@ async function getDeviceEvents(
       title: r.title,
       description: r.description,
       location: r.location,
-      start: r.start.toISOString(),
-      end: r.end ? r.end.toISOString() : null,
+      // All-day events use a date-only string (matching Google's contract) so
+      // the calendar's all-day date parsing works; timed events keep full ISO.
+      start: r.isAllDay ? r.start.toISOString().slice(0, 10) : r.start.toISOString(),
+      end: r.end ? (r.isAllDay ? r.end.toISOString().slice(0, 10) : r.end.toISOString()) : null,
       isAllDay: r.isAllDay,
       url: null,
       source: "device" as const,
