@@ -42,13 +42,49 @@ export function isNativeApp(): boolean {
   }
 }
 
+// Resolved plugin proxy, cached so we resolve it at most once.
+let cachedPlugin: any = null
+// How the plugin was obtained last — surfaced in sync diagnostics.
+let pluginSource: "global" | "import" | "none" = "none"
+export function getPluginSource(): "global" | "import" | "none" {
+  return pluginSource
+}
+
+// Grab the plugin without a network round-trip when possible. Capacitor's native
+// bridge injects registered native plugins onto `window.Capacitor.Plugins` at
+// startup, so reading it there is instant and can't fail like a dynamic import
+// of the JS chunk (which, over a mobile connection in the WebView, was throwing
+// ChunkLoadError / timing out — leaving permission "unavailable", 0 events).
+function pluginFromGlobal(): any | null {
+  const plugins = (window as any)?.Capacitor?.Plugins
+  const p = plugins?.CapacitorCalendar
+  // Sanity-check it looks like our plugin (has the methods we call).
+  return p && typeof p.checkPermission === "function" ? p : null
+}
+
 async function getPlugin(): Promise<any | null> {
   if (!isNativeApp()) return null
+  if (cachedPlugin) return cachedPlugin
+
+  const fromGlobal = pluginFromGlobal()
+  if (fromGlobal) {
+    cachedPlugin = fromGlobal
+    pluginSource = "global"
+    return cachedPlugin
+  }
+
+  // Fall back to the JS wrapper (its import registers the proxy).
   try {
     const mod = await import("@ebarooni/capacitor-calendar")
-    return (mod as any).CapacitorCalendar ?? null
+    cachedPlugin = (mod as any).CapacitorCalendar ?? pluginFromGlobal()
+    pluginSource = cachedPlugin ? "import" : "none"
+    return cachedPlugin
   } catch {
-    return null
+    // Import failed (e.g. ChunkLoadError) — last try at the global, in case the
+    // native bridge registered it even though the wrapper chunk didn't load.
+    const g = pluginFromGlobal()
+    pluginSource = g ? "global" : "none"
+    return g
   }
 }
 
@@ -72,7 +108,7 @@ function normalizeState(state: unknown): CalPermission {
 
 /** Current READ_CALENDAR permission state (native only). */
 export async function getPermissionState(): Promise<CalPermission> {
-  const cal = await withTimeout(getPlugin(), 4000, null)
+  const cal = await withTimeout(getPlugin(), 12000, null)
   if (!cal) return "unavailable"
   try {
     const res = await withTimeout<any>(cal.checkPermission({ scope: READ_SCOPE }), 6000, null)
@@ -110,16 +146,19 @@ function errMsg(e: unknown): string {
 export async function requestPermission(): Promise<PermissionResult> {
   if (!isNativeApp()) return { outcome: "unavailable", reason: "not the native app" }
 
-  // Load the plugin JS (from the deployed bundle) — separate try so a failed
-  // import is reported distinctly from a failed native call.
-  let cal: any
-  try {
-    const mod = await withTimeout<any>(import("@ebarooni/capacitor-calendar"), 8000, "TIMEOUT")
-    if (mod === "TIMEOUT") return { outcome: "unavailable", reason: "plugin JS load timed out" }
-    cal = mod?.CapacitorCalendar
-    if (!cal) return { outcome: "unavailable", reason: "CapacitorCalendar export missing" }
-  } catch (e) {
-    return { outcome: "unavailable", reason: `plugin import failed: ${errMsg(e)}` }
+  // Prefer the native-registered global (no chunk fetch); only import the JS
+  // wrapper as a fallback. A failed import is reported distinctly.
+  let cal: any = pluginFromGlobal()
+  if (!cal) {
+    try {
+      const mod = await withTimeout<any>(import("@ebarooni/capacitor-calendar"), 15000, "TIMEOUT")
+      if (mod === "TIMEOUT") return { outcome: "unavailable", reason: "plugin JS load timed out" }
+      cal = mod?.CapacitorCalendar ?? pluginFromGlobal()
+      if (!cal) return { outcome: "unavailable", reason: "CapacitorCalendar export missing" }
+    } catch (e) {
+      cal = pluginFromGlobal()
+      if (!cal) return { outcome: "unavailable", reason: `plugin import failed: ${errMsg(e)}` }
+    }
   }
 
   try {
@@ -155,7 +194,7 @@ export async function readEvents(): Promise<{
   events: DeviceEventPayload[]
   rawCount: number
 }> {
-  const cal = await withTimeout(getPlugin(), 4000, null)
+  const cal = await withTimeout(getPlugin(), 12000, null)
   const fromMs = Date.now() - DAYS_BACK * 24 * 60 * 60 * 1000
   const toMs = Date.now() + DAYS_AHEAD * 24 * 60 * 60 * 1000
   const from = new Date(fromMs).toISOString()
@@ -188,7 +227,7 @@ export async function readEvents(): Promise<{
 
 /** Number of device calendars the app can see (diagnostic). -1 = couldn't ask. */
 async function countCalendars(): Promise<number> {
-  const cal = await withTimeout(getPlugin(), 4000, null)
+  const cal = await withTimeout(getPlugin(), 12000, null)
   if (!cal) return -1
   try {
     const res = await withTimeout<any>(cal.listCalendars(), 8000, null)
@@ -203,10 +242,14 @@ export type SyncResult = {
   rawCount: number
   calendars: number
   permission: CalPermission
+  pluginSource: "global" | "import" | "none"
 }
 
 /** Read the device calendar and push it to the server, with diagnostics. */
 export async function syncToServer(): Promise<SyncResult> {
+  // Resolve the plugin first (also warms the cache + records how it was found).
+  await getPlugin()
+
   // Gather diagnostics alongside the read so a "0 events" result is explainable.
   const [permission, calendars, read] = await Promise.all([
     getPermissionState(),
@@ -222,5 +265,11 @@ export async function syncToServer(): Promise<SyncResult> {
   })
   if (!res.ok) throw new Error(`Sync failed: ${res.status}`)
   const data = await res.json().catch(() => ({}))
-  return { synced: data.synced ?? events.length, rawCount, calendars, permission }
+  return {
+    synced: data.synced ?? events.length,
+    rawCount,
+    calendars,
+    permission,
+    pluginSource: getPluginSource(),
+  }
 }

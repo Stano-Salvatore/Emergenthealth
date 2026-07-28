@@ -49,13 +49,13 @@ export function DeviceCalendarManager({ lastSync }: { lastSync?: string | null }
     setStatus("syncing")
     setError(null)
     try {
-      const { synced, rawCount, calendars, permission } = await syncToServer()
+      const { synced, rawCount, calendars, permission, pluginSource } = await syncToServer()
       setSyncedCount(synced)
       // When nothing came through, show what the phone actually reported so the
-      // gap (permission vs. no calendars vs. empty query) is diagnosable.
+      // gap (plugin vs. permission vs. no calendars vs. empty query) is diagnosable.
       setDiag(
         synced === 0
-          ? `permission: ${permission} · calendars visible: ${calendars} · events read: ${rawCount}`
+          ? `plugin: ${pluginSource} · permission: ${permission} · calendars: ${calendars} · events: ${rawCount}`
           : null,
       )
       setLastSyncAt(new Date().toISOString())
