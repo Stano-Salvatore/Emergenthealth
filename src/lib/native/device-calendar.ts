@@ -230,9 +230,12 @@ export async function readEvents(): Promise<{
     .filter((e) => e && e.id != null && typeof e.startDate === "number")
     .map((e) => {
       const calId = e.calendarId != null ? String(e.calendarId) : null
+      // Prefer the CALENDAR's colour (how Samsung colours events — by calendar,
+      // so events in one calendar share a colour), falling back to a per-event
+      // colour only when the event overrides it.
       const color =
-        (typeof e.color === "string" && e.color) ||
         (calId != null ? colors[calId] : null) ||
+        (typeof e.color === "string" && e.color) ||
         null
       return {
         // The plugin returns the event id (shared across every occurrence of a
