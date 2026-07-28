@@ -31,6 +31,7 @@ import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
 import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
 import { NotesWidget } from "@/components/dashboard/NotesWidget"
+import { ScreenTimeCard } from "@/components/dashboard/ScreenTimeCard"
 
 const DEFAULT_STEP_GOAL = 8_000
 const DEFAULT_SLEEP_GOAL_H = 7.5
@@ -726,6 +727,7 @@ export default async function DashboardPage() {
     insights_month: <PeriodInsightCard period="month" />,
     insights_overall: <PeriodInsightCard period="overall" />,
     notes: <NotesWidget />,
+    screentime: <ScreenTimeCard />,
     location: <LocationCard />,
     ac: <AcCard />,
     quests: <DailyQuests />,

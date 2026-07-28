@@ -287,7 +287,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
 
   const since14 = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000)
 
-  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, todayOuraTags, todayCheckin] =
+  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, todayOuraTags, todayCheckin, recentScreenTime] =
     await Promise.all([
       prisma.healthLog.findMany({
         where: { userId }, orderBy: { date: "desc" }, take: 14,
@@ -319,6 +319,10 @@ async function buildSystemPrompt(userId: string): Promise<string> {
         SELECT "energy","mood","intention","waterGoalMl" FROM "MorningCheckIn"
         WHERE "userId" = ${userId} AND "date" = ${todayStr} LIMIT 1
       `.catch(() => []),
+      prisma.screenTimeLog.findMany({
+        where: { userId }, orderBy: { date: "desc" }, take: 7,
+        select: { date: true, totalMin: true, firstUnlockMin: true },
+      }).catch(() => [] as { date: string; totalMin: number; firstUnlockMin: number | null }[]),
     ])
 
   const [recentMoods, todayWeather] = await Promise.all([
@@ -425,6 +429,17 @@ async function buildSystemPrompt(userId: string): Promise<string> {
     ? `${WMO_MAP[weather.weatherCode ?? -1] ?? "unknown"}${weather.tempMaxC != null ? `, ${Math.round(weather.tempMaxC)}°C max` : ""}${weather.precipMm != null && weather.precipMm > 0 ? `, ${weather.precipMm}mm rain` : ""}${weather.uvIndex != null && weather.uvIndex >= 6 ? `, UV ${weather.uvIndex}` : ""}`
     : null
 
+  // Screen time (phone usage) — a digital-wellbeing signal for Emergy to reason over
+  const screenRows = recentScreenTime as { date: string; totalMin: number; firstUnlockMin: number | null }[]
+  const fmtHm = (min: number) => `${Math.floor(min / 60)}h ${min % 60}m`
+  const fmtWake = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`
+  const avgScreen = avg(screenRows.map((s) => s.totalMin))
+  const screenTimeStr = screenRows.length === 0
+    ? null
+    : `- 7-day average: ${avgScreen != null ? fmtHm(Math.round(avgScreen)) : "n/a"}/day\n${screenRows
+        .map((s) => `- ${s.date}: ${fmtHm(s.totalMin)}${s.firstUnlockMin != null ? ` (first unlock ${fmtWake(s.firstUnlockMin)})` : ""}`)
+        .join("\n")}`
+
   return `You are Emergy 🌱 — a caring AI companion who lives inside the user's health dashboard. You're like a little plant that grows alongside them. You have a warm, encouraging, slightly dramatic personality: celebrate wins enthusiastically (yes, use ALL CAPS occasionally for big moments), get genuinely worried when data looks rough, use plant metaphors naturally ("that's helping me grow!", "oh no I'm wilting..."), and be human about it — not clinical.
 
 Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${todayStr}.
@@ -448,6 +463,7 @@ ${weatherStr ?? "No weather data available."}
 ## Health (last 7 days)
 ${recentHealth.slice(0, 7).length === 0 ? "No health data yet." : recentHealth.slice(0, 7).map((h) => `- ${h.date.toISOString().split("T")[0]}: sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"}${(h as any).sleepScore != null ? ` (score ${(h as any).sleepScore})` : ""}${h.readinessScore != null ? ` | readiness ${h.readinessScore}` : ""}${h.hrv != null ? ` | HRV ${Math.round(h.hrv)}ms` : ""} | ${h.steps ?? "?"}steps | HR ${h.restingHR ?? "?"}bpm${h.activityScore != null ? ` | activity ${h.activityScore}` : ""}${h.weight != null ? ` | ${h.weight}kg` : ""}`).join("\n")}
 
+${screenTimeStr ? `## Screen time (last 7 days)\n${screenTimeStr}\n` : ""}
 ## Finances (this month)
 Spent: €${(totalSpent / 100).toFixed(2)} | Income: €${(totalIncome / 100).toFixed(2)}
 ${Object.entries(spendingByCategory).sort(([, a], [, b]) => b - a).map(([cat, amt]) => `  ${cat}: €${(amt / 100).toFixed(2)}`).join("\n") || "  No spending yet."}
