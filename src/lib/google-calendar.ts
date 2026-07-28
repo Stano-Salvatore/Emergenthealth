@@ -170,3 +170,47 @@ export async function getUpcomingEvents(userId: string, daysAhead = 14): Promise
   const deviceEvents = await getDeviceEvents(userId, now, future)
   return mergeEvents(googleEvents, deviceEvents)
 }
+
+/**
+ * Events across an explicit [from, to] window — past and future — merging Google
+ * with synced device (Samsung/local) events. Powers the calendar page so you can
+ * page back and forth across the whole year, not just the next 90 days.
+ */
+export async function getEventsInRange(
+  userId: string,
+  fromISO: string,
+  toISO: string,
+): Promise<CalendarEvent[]> {
+  const from = new Date(fromISO)
+  const to = new Date(toISO)
+
+  let googleEvents: CalendarEvent[] = []
+  try {
+    const calendar = await buildCalendarClient(userId)
+    const response = await calendar.events.list({
+      calendarId: "primary",
+      timeMin: from.toISOString(),
+      timeMax: to.toISOString(),
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 2500,
+    })
+
+    googleEvents = (response.data.items ?? []).map((event) => ({
+      id: event.id!,
+      title: event.summary ?? "(No title)",
+      description: event.description ?? null,
+      location: event.location ?? null,
+      start: event.start?.dateTime ?? event.start?.date ?? null,
+      end: event.end?.dateTime ?? event.end?.date ?? null,
+      isAllDay: !event.start?.dateTime,
+      url: event.htmlLink ?? null,
+      source: "google" as const,
+    }))
+  } catch {
+    googleEvents = []
+  }
+
+  const deviceEvents = await getDeviceEvents(userId, from, to)
+  return mergeEvents(googleEvents, deviceEvents)
+}

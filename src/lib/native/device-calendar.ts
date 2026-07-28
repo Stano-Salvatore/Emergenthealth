@@ -9,8 +9,11 @@
 // browser / SSR context or on an APK built without the plugin registered.
 
 const READ_SCOPE = "readCalendar" // CalendarPermissionScope.READ_CALENDAR
-const DAYS_BACK = 30
-const DAYS_AHEAD = 120
+// Rolling window, generous on both sides so the whole of the current year is
+// always covered no matter the date (and a good chunk either side of it):
+// ~13 months back + ~13 months ahead.
+const DAYS_BACK = 400
+const DAYS_AHEAD = 400
 
 // If a native bridge/import call doesn't settle within `ms`, treat it as
 // unavailable instead of hanging forever. On an APK built without the calendar
@@ -160,7 +163,7 @@ export async function readEvents(): Promise<{
 
   let raw: any[] = []
   try {
-    const res = await withTimeout<any>(cal.listEventsInRange({ from: fromMs, to: toMs }), 15000, null)
+    const res = await withTimeout<any>(cal.listEventsInRange({ from: fromMs, to: toMs }), 25000, null)
     raw = Array.isArray(res?.result) ? res.result : []
   } catch {
     return { from, to, events: [] }
