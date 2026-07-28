@@ -12,11 +12,36 @@ const READ_SCOPE = "readCalendar" // CalendarPermissionScope.READ_CALENDAR
 const DAYS_BACK = 30
 const DAYS_AHEAD = 120
 
-async function getPlugin(): Promise<any | null> {
-  if (typeof window === "undefined") return null
+// If a native bridge/import call doesn't settle within `ms`, treat it as
+// unavailable instead of hanging forever. On an APK built without the calendar
+// plugin registered, the dynamic import or bridge call can stall — that's what
+// left the "Connect & Sync" button stuck disabled ("untappable").
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
+  ])
+}
+
+/**
+ * Synchronous check for "are we inside the native app?" — reads the Capacitor
+ * global that the Android WebView injects. No dynamic import, so it can't hang;
+ * this is what the UI gates the button on. Whether the calendar *plugin* is
+ * actually present is proven later, on tap, with a timeout.
+ */
+export function isNativeApp(): boolean {
+  if (typeof window === "undefined") return false
+  const cap = (window as any).Capacitor
   try {
-    const core = await import("@capacitor/core")
-    if ((core as any).Capacitor?.isNativePlatform?.() !== true) return null
+    return cap?.isNativePlatform?.() === true
+  } catch {
+    return false
+  }
+}
+
+async function getPlugin(): Promise<any | null> {
+  if (!isNativeApp()) return null
+  try {
     const mod = await import("@ebarooni/capacitor-calendar")
     return (mod as any).CapacitorCalendar ?? null
   } catch {
@@ -24,9 +49,14 @@ async function getPlugin(): Promise<any | null> {
   }
 }
 
-/** Whether native device-calendar reads are possible on this device. */
+/**
+ * Whether to offer device-calendar sync at all. Deliberately just the native
+ * check — it's instant and never hangs, so the button is always tappable in the
+ * app. (Older behaviour awaited the plugin import here, which could stall and
+ * leave the button permanently disabled.)
+ */
 export async function isDeviceCalendarAvailable(): Promise<boolean> {
-  return (await getPlugin()) !== null
+  return isNativeApp()
 }
 
 export type CalPermission = "granted" | "denied" | "prompt" | "unavailable"
@@ -39,27 +69,41 @@ function normalizeState(state: unknown): CalPermission {
 
 /** Current READ_CALENDAR permission state (native only). */
 export async function getPermissionState(): Promise<CalPermission> {
-  const cal = await getPlugin()
+  const cal = await withTimeout(getPlugin(), 4000, null)
   if (!cal) return "unavailable"
   try {
-    const { result } = await cal.checkPermission({ scope: READ_SCOPE })
-    return normalizeState(result)
+    const res = await withTimeout<any>(cal.checkPermission({ scope: READ_SCOPE }), 6000, null)
+    if (!res) return "unavailable"
+    return normalizeState(res.result)
   } catch {
     return "unavailable"
   }
 }
 
-/** Request read-only calendar access. Returns true if granted. */
-export async function requestPermission(): Promise<boolean> {
-  const cal = await getPlugin()
-  if (!cal) return false
+export type PermissionOutcome = "granted" | "denied" | "unavailable"
+
+/**
+ * Request read-only calendar access.
+ *  - "granted": permission is available, ready to sync
+ *  - "denied": the user (or the OS) refused it — grantable in system settings
+ *  - "unavailable": the calendar plugin didn't respond — usually an APK built
+ *    before the plugin shipped; the app needs updating to the latest build
+ */
+export async function requestPermission(): Promise<PermissionOutcome> {
+  const cal = await withTimeout(getPlugin(), 4000, null)
+  if (!cal) return "unavailable"
   try {
-    const current = await cal.checkPermission({ scope: READ_SCOPE })
-    if (current?.result === "granted") return true
+    // checkPermission is non-interactive, so a stall here means the plugin
+    // isn't really there (old APK). Time-box it and bail as "unavailable".
+    const current = await withTimeout<any>(cal.checkPermission({ scope: READ_SCOPE }), 6000, null)
+    if (!current) return "unavailable"
+    if (current.result === "granted") return "granted"
+    // The plugin answered, so it's alive — the request prompt is interactive
+    // and may sit while the user decides, so don't time this one out.
     const { result } = await cal.requestReadOnlyCalendarAccess()
-    return result === "granted"
+    return result === "granted" ? "granted" : "denied"
   } catch {
-    return false
+    return "unavailable"
   }
 }
 
@@ -80,7 +124,7 @@ export async function readEvents(): Promise<{
   to: string
   events: DeviceEventPayload[]
 }> {
-  const cal = await getPlugin()
+  const cal = await withTimeout(getPlugin(), 4000, null)
   const fromMs = Date.now() - DAYS_BACK * 24 * 60 * 60 * 1000
   const toMs = Date.now() + DAYS_AHEAD * 24 * 60 * 60 * 1000
   const from = new Date(fromMs).toISOString()
@@ -89,7 +133,7 @@ export async function readEvents(): Promise<{
 
   let raw: any[] = []
   try {
-    const res = await cal.listEventsInRange({ from: fromMs, to: toMs })
+    const res = await withTimeout<any>(cal.listEventsInRange({ from: fromMs, to: toMs }), 15000, null)
     raw = Array.isArray(res?.result) ? res.result : []
   } catch {
     return { from, to, events: [] }
