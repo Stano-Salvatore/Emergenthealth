@@ -188,19 +188,23 @@ export type DeviceEventPayload = {
   isAllDay: boolean
 }
 
-// Map of calendarId → its color (hex), so events without a per-event colour can
-// inherit their calendar's colour — which is what Samsung Calendar shows.
-async function calendarColorMap(cal: any): Promise<Record<string, string>> {
-  const map: Record<string, string> = {}
+export type DeviceCalendarInfo = { id: string; name: string; color: string | null }
+
+// The phone's calendars (id, name, colour) — for the per-calendar colour picker
+// and to colour events by their calendar (how Samsung colours them).
+async function listDeviceCalendars(cal: any): Promise<DeviceCalendarInfo[]> {
   try {
     const res = await withTimeout<any>(cal.listCalendars(), 8000, null)
-    for (const c of res?.result ?? []) {
-      if (c?.id != null && typeof c.color === "string") map[String(c.id)] = c.color
-    }
+    return (res?.result ?? [])
+      .filter((c: any) => c?.id != null)
+      .map((c: any) => ({
+        id: String(c.id),
+        name: (c.title ?? c.internalTitle ?? c.accountName ?? "Calendar").toString(),
+        color: typeof c.color === "string" ? c.color : null,
+      }))
   } catch {
-    /* ignore — events just fall back to the default palette */
+    return []
   }
-  return map
 }
 
 /** Read events from every device calendar within the sync window. */
@@ -209,30 +213,36 @@ export async function readEvents(): Promise<{
   to: string
   events: DeviceEventPayload[]
   rawCount: number
+  calendars: DeviceCalendarInfo[]
 }> {
   const cal = await withTimeout(getPlugin(), 12000, null)
   const fromMs = Date.now() - DAYS_BACK * 24 * 60 * 60 * 1000
   const toMs = Date.now() + DAYS_AHEAD * 24 * 60 * 60 * 1000
   const from = new Date(fromMs).toISOString()
   const to = new Date(toMs).toISOString()
-  if (!cal) return { from, to, events: [], rawCount: 0 }
+  if (!cal) return { from, to, events: [], rawCount: 0, calendars: [] }
 
   let raw: any[] = []
   try {
     const res = await withTimeout<any>(cal.listEventsInRange({ from: fromMs, to: toMs }), 25000, null)
     raw = Array.isArray(res?.result) ? res.result : []
   } catch {
-    return { from, to, events: [], rawCount: 0 }
+    return { from, to, events: [], rawCount: 0, calendars: [] }
   }
 
-  const colors = await calendarColorMap(cal)
+  const calendars = await listDeviceCalendars(cal)
+  const colors: Record<string, string> = {}
+  for (const c of calendars) if (c.color) colors[c.id] = c.color
+
   const events: DeviceEventPayload[] = raw
     .filter((e) => e && e.id != null && typeof e.startDate === "number")
     .map((e) => {
       const calId = e.calendarId != null ? String(e.calendarId) : null
+      // Prefer the CALENDAR's colour (Samsung colours events by calendar),
+      // falling back to a per-event colour override.
       const color =
-        (typeof e.color === "string" && e.color) ||
         (calId != null ? colors[calId] : null) ||
+        (typeof e.color === "string" && e.color) ||
         null
       return {
         // The plugin returns the event id (shared across every occurrence of a
@@ -250,19 +260,7 @@ export async function readEvents(): Promise<{
       }
     })
 
-  return { from, to, events, rawCount: raw.length }
-}
-
-/** Number of device calendars the app can see (diagnostic). -1 = couldn't ask. */
-async function countCalendars(): Promise<number> {
-  const cal = await withTimeout(getPlugin(), 12000, null)
-  if (!cal) return -1
-  try {
-    const res = await withTimeout<any>(cal.listCalendars(), 8000, null)
-    return Array.isArray(res?.result) ? res.result.length : -1
-  } catch {
-    return -1
-  }
+  return { from, to, events, rawCount: raw.length, calendars }
 }
 
 export type SyncResult = {
@@ -279,24 +277,24 @@ export async function syncToServer(): Promise<SyncResult> {
   await getPlugin()
 
   // Gather diagnostics alongside the read so a "0 events" result is explainable.
-  const [permission, calendars, read] = await Promise.all([
+  const [permission, read] = await Promise.all([
     getPermissionState(),
-    countCalendars(),
     readEvents(),
   ])
-  const { from, to, events, rawCount } = read
+  const { from, to, events, rawCount, calendars } = read
 
   const res = await fetch("/api/sync/device-calendar", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ from, to, events }),
+    // Send the calendar list too, so Settings can offer a per-calendar colour picker.
+    body: JSON.stringify({ from, to, events, calendars }),
   })
   if (!res.ok) throw new Error(`Sync failed: ${res.status}`)
   const data = await res.json().catch(() => ({}))
   return {
     synced: data.synced ?? events.length,
     rawCount,
-    calendars,
+    calendars: calendars.length,
     permission,
     pluginSource: getPluginSource(),
   }

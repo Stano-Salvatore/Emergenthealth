@@ -52,17 +52,20 @@ function normHex(color?: string | null): string | null {
 
 // Visual for an event chip/block: the phone-calendar colour when the event
 // carries one (so it matches Samsung), otherwise the hashed palette.
+//  - "chip"/"block": a soft tinted fill with a coloured left bar (Samsung-style
+//    pastel look) rather than a fully-saturated block.
+//  - "accent": the full solid colour, for the small bar/dot in the detail panel.
 function eventVisual(
   event: CalendarEvent,
-  variant: "chip" | "solid",
+  variant: "chip" | "block" | "accent",
 ): { className?: string; style?: CSSProperties } {
   const hex = normHex(event.color)
-  if (variant === "solid") {
-    if (hex) return { style: { backgroundColor: hex } }
-    return { className: colorFor(event.title).solid }
+  if (!hex) {
+    const c = colorFor(event.title)
+    return { className: variant === "chip" ? c.chip : c.solid }
   }
-  if (hex) return { style: { backgroundColor: `${hex}26`, borderLeft: `3px solid ${hex}` } }
-  return { className: colorFor(event.title).chip }
+  if (variant === "accent") return { style: { backgroundColor: hex } }
+  return { style: { backgroundColor: `${hex}33`, borderLeft: `3px solid ${hex}` } }
 }
 
 // Local-midnight timestamp, for whole-day range comparisons.
@@ -106,7 +109,7 @@ function getEventPositionStyle(start: string, end: string | null) {
 // ── Event Detail Panel ────────────────────────────────────────────────────────
 
 function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => void }) {
-  const v = eventVisual(event, "solid")
+  const v = eventVisual(event, "accent")
   const start = event.start ? (event.isAllDay ? parseEventDate(event.start, true) : parseISO(event.start)) : null
   const end = event.end ? (event.isAllDay ? parseEventDate(event.end, true) : parseISO(event.end)) : null
 
@@ -304,7 +307,7 @@ function WeekView({ weekStart, events, now, onEventClick }: {
             return (
               <div key={i} className={`flex-1 border-r last:border-r-0 px-0.5 py-0.5 space-y-0.5 ${isToday(day) ? "bg-primary/5" : ""}`}>
                 {evts.map(evt => {
-                  const v = eventVisual(evt, "solid")
+                  const v = eventVisual(evt, "block")
                   return (
                     <button key={evt.id} onClick={() => onEventClick(evt)}
                       className={`w-full text-[11px] font-semibold px-1.5 py-[3px] rounded-[4px] truncate text-left text-white transition-all hover:brightness-110 ${v.className ?? ""}`}
@@ -360,7 +363,7 @@ function WeekView({ weekStart, events, now, onEventClick }: {
                 {dayEvents.map(evt => {
                   if (!evt.start) return null
                   const { top, height } = getEventPositionStyle(evt.start, evt.end)
-                  const v = eventVisual(evt, "solid")
+                  const v = eventVisual(evt, "block")
                   return (
                     <button key={evt.id} onClick={() => onEventClick(evt)}
                       className={`absolute left-[2px] right-[2px] rounded-[5px] px-1.5 overflow-hidden
