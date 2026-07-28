@@ -44,7 +44,10 @@ function colorFor(title: string) {
 }
 
 function parseEventDate(dateStr: string, isAllDay: boolean): Date {
-  if (isAllDay) return new Date(dateStr + "T00:00:00")
+  // Take only the date part so both "2026-07-25" and a full ISO string
+  // ("2026-07-25T00:00:00.000Z", as device all-day events used to send) parse
+  // to local midnight rather than an Invalid Date.
+  if (isAllDay) return new Date(dateStr.slice(0, 10) + "T00:00:00")
   return parseISO(dateStr)
 }
 

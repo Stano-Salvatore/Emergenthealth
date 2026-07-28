@@ -212,7 +212,10 @@ export async function readEvents(): Promise<{
   const events: DeviceEventPayload[] = raw
     .filter((e) => e && e.id != null && typeof e.startDate === "number")
     .map((e) => ({
-      externalId: String(e.id),
+      // The plugin returns the event id (shared across every occurrence of a
+      // recurring event), so compose it with the instance start to keep each
+      // occurrence distinct — otherwise they collapse onto one DB row.
+      externalId: `${String(e.id)}:${e.startDate}`,
       calendarId: e.calendarId != null ? String(e.calendarId) : null,
       title: (e.title ?? "").toString().trim() || "(No title)",
       description: e.description ?? null,
