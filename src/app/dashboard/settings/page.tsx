@@ -8,6 +8,7 @@ import { FitKeyManager } from "@/components/settings/FitKeyManager"
 import { OuraManager } from "@/components/settings/OuraManager"
 import { HealthConnectManager } from "@/components/settings/HealthConnectManager"
 import { DeviceCalendarManager } from "@/components/settings/DeviceCalendarManager"
+import { DeviceCalendarColors } from "@/components/settings/DeviceCalendarColors"
 import { ScreenTimeManager } from "@/components/settings/ScreenTimeManager"
 import { NotificationNudges } from "@/components/settings/NotificationNudges"
 import { SamsungHealthImporter } from "@/components/settings/SamsungHealthImporter"
@@ -296,6 +297,8 @@ export default async function SettingsPage({
       <HealthConnectManager lastSync={hcLastSync} />
 
       <DeviceCalendarManager lastSync={deviceCalLastSync} />
+
+      <DeviceCalendarColors />
       {/* Screen Time — Android only, reads native UsageStats */}
       <ScreenTimeManager />
       {/* Samsung Health — one-time CSV import for historical data */}

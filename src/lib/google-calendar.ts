@@ -68,10 +68,21 @@ async function getDeviceEvents(
   to: Date,
 ): Promise<CalendarEvent[]> {
   try {
-    const rows = await prisma.deviceCalendarEvent.findMany({
-      where: { userId, start: { gte: from, lte: to } },
-      orderBy: { start: "asc" },
-    })
+    const [rows, overrideRow] = await Promise.all([
+      prisma.deviceCalendarEvent.findMany({
+        where: { userId, start: { gte: from, lte: to } },
+        orderBy: { start: "asc" },
+      }),
+      prisma.userPreference.findUnique({
+        where: { userId_key: { userId, key: "device_calendar_overrides" } },
+        select: { value: true },
+      }).catch(() => null),
+    ])
+    // Per-calendar colour overrides the user set in Settings win over the
+    // colour read from the phone.
+    let overrides: Record<string, string> = {}
+    try { overrides = overrideRow?.value ? JSON.parse(overrideRow.value) : {} } catch { overrides = {} }
+
     return rows.map((r) => ({
       id: `dev_${r.externalId}`,
       title: r.title,
@@ -83,7 +94,7 @@ async function getDeviceEvents(
       end: r.end ? (r.isAllDay ? r.end.toISOString().slice(0, 10) : r.end.toISOString()) : null,
       isAllDay: r.isAllDay,
       url: null,
-      color: r.color,
+      color: (r.calendarId != null ? overrides[r.calendarId] : null) ?? r.color,
       source: "device" as const,
     }))
   } catch {

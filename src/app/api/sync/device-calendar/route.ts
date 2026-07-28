@@ -29,11 +29,29 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  let body: { from?: string; to?: string; events?: DeviceEventPayload[] }
+  let body: {
+    from?: string
+    to?: string
+    events?: DeviceEventPayload[]
+    calendars?: { id: string; name: string; color: string | null }[]
+  }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
+
+  // Store the phone's calendar list (id, name, source colour) so Settings can
+  // offer a per-calendar colour picker. Kept as a preference — no schema change.
+  if (Array.isArray(body.calendars)) {
+    const cals = body.calendars
+      .filter((c) => c && c.id != null)
+      .map((c) => ({ id: String(c.id), name: String(c.name ?? "Calendar").slice(0, 120), color: cleanHex(c.color) }))
+    await prisma.userPreference.upsert({
+      where: { userId_key: { userId, key: "device_calendars" } },
+      create: { userId, key: "device_calendars", value: JSON.stringify(cals) },
+      update: { value: JSON.stringify(cals) },
+    }).catch(() => {})
   }
 
   const events = Array.isArray(body.events) ? body.events : []
