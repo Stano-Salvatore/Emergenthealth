@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { FitKeyManager } from "@/components/settings/FitKeyManager"
 import { OuraManager } from "@/components/settings/OuraManager"
 import { HealthConnectManager } from "@/components/settings/HealthConnectManager"
+import { DeviceCalendarManager } from "@/components/settings/DeviceCalendarManager"
 import { ScreenTimeManager } from "@/components/settings/ScreenTimeManager"
 import { NotificationNudges } from "@/components/settings/NotificationNudges"
 import { SamsungHealthImporter } from "@/components/settings/SamsungHealthImporter"
@@ -109,6 +110,13 @@ export default async function SettingsPage({
     select: { value: true },
   }).catch(() => null)
   const hcLastSync = hcSyncRows?.value ?? null
+
+  // Device calendar (Samsung / local) last sync
+  const deviceCalSyncRows = await prisma.userPreference.findUnique({
+    where: { userId_key: { userId, key: "device_calendar_last_sync" } },
+    select: { value: true },
+  }).catch(() => null)
+  const deviceCalLastSync = deviceCalSyncRows?.value ?? null
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL ?? ""
   const plan = await getUserPlan(userId)
   const stripeReady = isStripeConfigured()
@@ -286,6 +294,8 @@ export default async function SettingsPage({
       <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
       {/* Health Connect — Android only, syncs from Garmin/Fitbit/Samsung/etc */}
       <HealthConnectManager lastSync={hcLastSync} />
+
+      <DeviceCalendarManager lastSync={deviceCalLastSync} />
       {/* Screen Time — Android only, reads native UsageStats */}
       <ScreenTimeManager />
       {/* Samsung Health — one-time CSV import for historical data */}

@@ -7,7 +7,7 @@ import {
   format, isSameDay, isToday, parseISO,
   differenceInMinutes, eachDayOfInterval,
 } from "date-fns"
-import { ChevronLeft, ChevronRight, RefreshCw, MapPin, X, Clock, Link as LinkIcon } from "lucide-react"
+import { ChevronLeft, ChevronRight, RefreshCw, MapPin, X, Clock, Link as LinkIcon, Smartphone } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 interface CalendarEvent {
@@ -19,6 +19,7 @@ interface CalendarEvent {
   end: string | null
   isAllDay: boolean
   url: string | null
+  source?: "google" | "device"
 }
 
 type ViewMode = "week" | "month"
@@ -112,6 +113,12 @@ function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => 
             className="flex items-center gap-1.5 text-xs text-primary hover:underline">
             <LinkIcon className="h-3 w-3" /> Open in Google Calendar
           </a>
+        )}
+
+        {event.source === "device" && (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Smartphone className="h-3 w-3 shrink-0" /> From your phone calendar
+          </div>
         )}
       </div>
     </div>

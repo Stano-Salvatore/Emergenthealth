@@ -56,6 +56,27 @@ In Android Studio: Build → Build Bundle(s) / APK(s) → Build APK(s)
 - Fill in store listing (title, description, screenshots)
 - Publish!
 
+## Phone calendar sync (Samsung Calendar, local calendars)
+
+The app can read every calendar on the phone — Samsung Calendar, local
+calendars, and any synced account — via the native Calendar Provider, so those
+events show up alongside Google Calendar. (Google Calendar already syncs on
+every platform through your Google sign-in; this is only for the calendars that
+live on the device itself.)
+
+The `@ebarooni/capacitor-calendar` plugin is picked up automatically by
+`npx cap sync`, but Android requires the read permission to be declared in the
+app manifest. Add this line to `android/app/src/main/AndroidManifest.xml`,
+above the `<application>` tag:
+
+```xml
+<uses-permission android:name="android.permission.READ_CALENDAR" />
+```
+
+Then rebuild the APK. In the app: **Settings → Phone calendar (Samsung, local)
+→ Connect & Sync**, and grant the calendar permission when prompted. After that,
+it re-syncs automatically in the background whenever you open the app.
+
 ## Push Notifications
 Already work via the existing service worker — no extra setup needed for web push.
 For native Firebase push (more reliable), see: capacitorjs.com/docs/apis/push-notifications
