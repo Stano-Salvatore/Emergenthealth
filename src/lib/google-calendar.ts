@@ -68,7 +68,7 @@ async function getDeviceEvents(
   to: Date,
 ): Promise<CalendarEvent[]> {
   try {
-    const [rows, overrideRow] = await Promise.all([
+    const [rows, overrideRow, titleRow] = await Promise.all([
       prisma.deviceCalendarEvent.findMany({
         where: { userId, start: { gte: from, lte: to } },
         orderBy: { start: "asc" },
@@ -77,26 +77,39 @@ async function getDeviceEvents(
         where: { userId_key: { userId, key: "device_calendar_overrides" } },
         select: { value: true },
       }).catch(() => null),
+      prisma.userPreference.findUnique({
+        where: { userId_key: { userId, key: "device_calendar_title_overrides" } },
+        select: { value: true },
+      }).catch(() => null),
     ])
-    // Per-calendar colour overrides the user set in Settings win over the
-    // colour read from the phone.
+    // Colour priority: per-activity (title) override → per-calendar override →
+    // the colour read from the phone. Overrides are what the user set in Settings.
     let overrides: Record<string, string> = {}
+    let titleOverrides: Record<string, string> = {}
     try { overrides = overrideRow?.value ? JSON.parse(overrideRow.value) : {} } catch { overrides = {} }
+    try { titleOverrides = titleRow?.value ? JSON.parse(titleRow.value) : {} } catch { titleOverrides = {} }
 
-    return rows.map((r) => ({
-      id: `dev_${r.externalId}`,
-      title: r.title,
-      description: r.description,
-      location: r.location,
-      // All-day events use a date-only string (matching Google's contract) so
-      // the calendar's all-day date parsing works; timed events keep full ISO.
-      start: r.isAllDay ? r.start.toISOString().slice(0, 10) : r.start.toISOString(),
-      end: r.end ? (r.isAllDay ? r.end.toISOString().slice(0, 10) : r.end.toISOString()) : null,
-      isAllDay: r.isAllDay,
-      url: null,
-      color: (r.calendarId != null ? overrides[r.calendarId] : null) ?? r.color,
-      source: "device" as const,
-    }))
+    return rows.map((r) => {
+      const tKey = r.title.trim().toLowerCase().slice(0, 120)
+      const color =
+        titleOverrides[tKey] ??
+        (r.calendarId != null ? overrides[r.calendarId] : null) ??
+        r.color
+      return {
+        id: `dev_${r.externalId}`,
+        title: r.title,
+        description: r.description,
+        location: r.location,
+        // All-day events use a date-only string (matching Google's contract) so
+        // the calendar's all-day date parsing works; timed events keep full ISO.
+        start: r.isAllDay ? r.start.toISOString().slice(0, 10) : r.start.toISOString(),
+        end: r.end ? (r.isAllDay ? r.end.toISOString().slice(0, 10) : r.end.toISOString()) : null,
+        isAllDay: r.isAllDay,
+        url: null,
+        color,
+        source: "device" as const,
+      }
+    })
   } catch {
     return []
   }
