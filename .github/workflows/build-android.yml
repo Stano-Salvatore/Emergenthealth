@@ -41,7 +41,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK platform & build-tools
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+        run: sdkmanager "platforms;android-36" "build-tools;34.0.0"
 
       - name: Initialize Android project
         run: |
@@ -66,6 +66,9 @@ jobs:
       - name: Apply Android customizations
         run: python3 .ci/customize-android.py
         env:
+          # Monotonic per-workflow counter; customize-android.py adds an offset
+          # so Play never sees a versionCode already used by sideloaded builds.
+          ANDROID_RUN_NUMBER: ${{ github.run_number }}
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
@@ -89,7 +92,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -o pipefail
-          cd android && ./gradlew assembleRelease --no-daemon 2>&1 | tee /tmp/gradle.log
+          cd android && ./gradlew assembleRelease bundleRelease --no-daemon 2>&1 | tee /tmp/gradle.log
           grep -E "FAILED|error:|BUILD" /tmp/gradle.log | tail -20 || true
 
       - name: Upload release APK
@@ -97,6 +100,15 @@ jobs:
         with:
           name: emergenthealth-release
           path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: warn
+          retention-days: 90
+
+      # Play Store uploads require an Android App Bundle, not an APK.
+      - name: Upload release AAB (Play Store)
+        uses: actions/upload-artifact@v4
+        with:
+          name: emergenthealth-release-aab
+          path: android/app/build/outputs/bundle/release/app-release.aab
           if-no-files-found: warn
           retention-days: 90
 

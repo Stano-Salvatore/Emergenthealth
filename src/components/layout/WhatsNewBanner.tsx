@@ -3,14 +3,14 @@
 import { useEffect, useState } from "react"
 import { X, Sparkles } from "lucide-react"
 
-const RELEASE_KEY = "whats_new_dismissed_v13"
+const RELEASE_KEY = "whats_new_dismissed_v3_play"
 
 const HIGHLIGHTS = [
+  "🚀 Emergenthealth V3 — now on Google Play",
+  "🗓️ Phone calendar sync with your Samsung colour-coding",
   "✨ Correlations — discover what actually affects your energy",
-  "💊 Medication & vitamin habits with type selector",
-  "🩺 Blood pressure tracker with history",
-  "💤 Sleep debt tracker on Health page",
-  "🍅 Pomodoro focus timer in Garden",
+  "⌚ Wearable sync via Health Connect, Oura & Samsung Health",
+  "📱 Home-screen widgets for habits, reminders & quick logging",
 ]
 
 export function WhatsNewBanner() {
@@ -32,7 +32,7 @@ export function WhatsNewBanner() {
     <div className="fixed bottom-20 left-4 lg:left-auto lg:bottom-4 lg:right-4 z-40 w-72 rounded-2xl border border-primary/25 bg-background/95 backdrop-blur-md shadow-xl shadow-black/30 overflow-hidden">
       <div className="flex items-center gap-2 px-4 pt-3 pb-2 border-b border-border/50">
         <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
-        <span className="text-xs font-semibold text-primary flex-1">V13 · Insights & health</span>
+        <span className="text-xs font-semibold text-primary flex-1">V3 · Play Store launch</span>
         <button
           onClick={dismiss}
           className="text-muted-foreground hover:text-foreground transition-colors"

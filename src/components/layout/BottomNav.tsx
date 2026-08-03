@@ -2,8 +2,9 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, Sun, CheckSquare, DollarSign, Settings } from "lucide-react"
+import { Home, Sun, CheckSquare, DollarSign, Sprout, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { isFeatureEnabled } from "@/lib/features"
 
 type Tab = {
   href: string
@@ -16,7 +17,9 @@ const tabs: Tab[] = [
   { href: "/dashboard",          label: "Home",      Icon: Home,        exact: true },
   { href: "/dashboard/checkin",  label: "Check-in",  Icon: Sun },
   { href: "/dashboard/habits",   label: "Habits",    Icon: CheckSquare },
-  { href: "/dashboard/finances", label: "Finances",  Icon: DollarSign },
+  isFeatureEnabled("finances")
+    ? { href: "/dashboard/finances", label: "Finances", Icon: DollarSign }
+    : { href: "/dashboard/chat",     label: "Emergy",   Icon: Sprout },
   { href: "/dashboard/settings", label: "Settings",  Icon: Settings },
 ]
 

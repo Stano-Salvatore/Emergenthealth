@@ -32,6 +32,7 @@ import { DailyQuests } from "@/components/dashboard/DailyQuests"
 import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
 import { NotesWidget } from "@/components/dashboard/NotesWidget"
 import { ScreenTimeCard } from "@/components/dashboard/ScreenTimeCard"
+import { isFeatureEnabled } from "@/lib/features"
 
 const DEFAULT_STEP_GOAL = 8_000
 const DEFAULT_SLEEP_GOAL_H = 7.5
@@ -535,7 +536,7 @@ export default async function DashboardPage() {
       </Link>
     ),
 
-    finances: (
+    finances: !isFeatureEnabled("finances") ? null : (
       <Link href="/dashboard/finances" className="block h-full">
         <Card className="card-finances hover:border-emerald-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-emerald-500/5">
           <CardHeader className="pb-2">
@@ -693,7 +694,7 @@ export default async function DashboardPage() {
       </Link>
     ),
 
-    gmail: (
+    gmail: !isFeatureEnabled("gmail") ? null : (
       <Link href="/dashboard/gmail" className="block h-full">
         <Card className="card-gmail hover:border-rose-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-rose-500/5">
           <CardHeader className="pb-2">
@@ -756,7 +757,9 @@ export default async function DashboardPage() {
           <StatTile label="Habits today" value={`${doneToday}/${habits.length}`} icon={<CheckSquare className="h-4 w-4 text-amber-400"/>}
             progress={habits.length > 0 ? (doneToday/habits.length)*100 : 0} />
         </Link>
-        <StatTile label="Spent this month" value={`€${(totalSpent/100).toFixed(0)}`} icon={<Flame className="h-4 w-4 text-emerald-400"/>} />
+        {isFeatureEnabled("finances") && (
+          <StatTile label="Spent this month" value={`€${(totalSpent/100).toFixed(0)}`} icon={<Flame className="h-4 w-4 text-emerald-400"/>} />
+        )}
         {todayMedTags.length > 0 ? (
           <Link href="/dashboard/medications">
             <StatTile label="Taken today" value={`${todayMedTags.length}`}
@@ -772,9 +775,9 @@ export default async function DashboardPage() {
     insights_month: <PeriodInsightCard period="month" />,
     insights_overall: <PeriodInsightCard period="overall" />,
     notes: <NotesWidget />,
-    screentime: <ScreenTimeCard />,
+    screentime: isFeatureEnabled("screentime") ? <ScreenTimeCard /> : null,
     location: <LocationCard />,
-    ac: <AcCard />,
+    ac: isFeatureEnabled("smarthome") ? <AcCard /> : null,
     quests: <DailyQuests />,
     quickstart: <QuickStart hasCheckin={hasCheckedInToday} hasHabits={habits.length > 0} />,
   }
