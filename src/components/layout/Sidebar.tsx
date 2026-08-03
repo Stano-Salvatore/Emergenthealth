@@ -17,10 +17,11 @@ import {
   useSortable, verticalListSortingStrategy, arrayMove,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import { isRouteEnabled } from "@/lib/features"
 
 type NavItem = { href: string; label: string; emoji: string }
 
-const ALL_ITEMS: NavItem[] = [
+const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard",             label: "Overview",        emoji: "🏠" },
   { href: "/dashboard/brief",       label: "Brief",           emoji: "🗞️" },
   { href: "/dashboard/chat",        label: "Emergy",          emoji: "🌱" },
@@ -51,6 +52,8 @@ const ALL_ITEMS: NavItem[] = [
   { href: "/dashboard/home",        label: "Home",            emoji: "🏡" },
   { href: "/dashboard/garden",      label: "Garden",          emoji: "🌻" },
 ]
+
+const ALL_ITEMS = NAV_ITEMS.filter(i => isRouteEnabled(i.href))
 
 const DEFAULT_ORDER = ALL_ITEMS.map(i => i.href)
 const DEFAULT_HIDDEN = new Set([

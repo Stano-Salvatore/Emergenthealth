@@ -1,5 +1,7 @@
 import Link from "next/link"
 import type { Metadata } from "next"
+import { headers } from "next/headers"
+import { redirect } from "next/navigation"
 import { auth } from "@/auth"
 import { getUserPlan } from "@/lib/plan"
 import { isStripeConfigured } from "@/lib/stripe"
@@ -35,6 +37,10 @@ const PRO_FEATURES = [
 ]
 
 export default async function PricingPage() {
+  // Google Play billing policy: no external purchase pages inside the Android app
+  const ua = (await headers()).get("user-agent") ?? ""
+  if (ua.includes("Emergenthealth-Capacitor")) redirect("/dashboard")
+
   const session = await auth()
   const plan = session?.user?.id ? await getUserPlan(session.user.id) : "free"
   const stripeReady = isStripeConfigured()

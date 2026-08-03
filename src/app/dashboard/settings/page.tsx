@@ -42,6 +42,8 @@ import { SettingsSection } from "@/components/settings/SettingsSection"
 import { getUserPlan } from "@/lib/plan"
 import { isStripeConfigured } from "@/lib/stripe"
 import Link from "next/link"
+import { headers } from "next/headers"
+import { isFeatureEnabled } from "@/lib/features"
 
 export default async function SettingsPage({
   searchParams,
@@ -120,7 +122,10 @@ export default async function SettingsPage({
   const deviceCalLastSync = deviceCalSyncRows?.value ?? null
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.AUTH_URL ?? ""
   const plan = await getUserPlan(userId)
-  const stripeReady = isStripeConfigured()
+  // Google Play billing policy: no external purchase links inside the Android app
+  const ua = (await headers()).get("user-agent") ?? ""
+  const isCapacitorApp = ua.includes("Emergenthealth-Capacitor")
+  const stripeReady = isStripeConfigured() && !isCapacitorApp
 
   const sub = await prisma.subscription.findUnique({
     where: { userId },
@@ -246,7 +251,7 @@ export default async function SettingsPage({
               stripeReady ? (
                 <ManageBillingButton />
               ) : null
-            ) : (
+            ) : isCapacitorApp ? null : (
               <Link
                 href="/pricing"
                 className="shrink-0 rounded-lg bg-primary/15 text-primary text-xs font-semibold px-3 py-1.5 hover:bg-primary/25 transition-colors"
@@ -300,7 +305,7 @@ export default async function SettingsPage({
 
       <DeviceCalendarColors />
       {/* Screen Time — Android only, reads native UsageStats */}
-      <ScreenTimeManager />
+      {isFeatureEnabled("screentime") && <ScreenTimeManager />}
       {/* Samsung Health — one-time CSV import for historical data */}
       <SamsungHealthImporter />
       {/* Google Timeline — location visit history for health correlations */}
@@ -308,13 +313,13 @@ export default async function SettingsPage({
       {/* CSV import */}
       <CsvImport />
       {/* Strava */}
-      <StravaManager isConnected={isStravaConnected} />
+      {isFeatureEnabled("strava") && <StravaManager isConnected={isStravaConnected} />}
       {/* GitHub */}
       <GitHubManager username={githubUsername} />
       {/* RescueTime */}
-      <RescuetimeManager hasKey={hasRescuetimeKey} />
+      {isFeatureEnabled("rescuetime") && <RescuetimeManager hasKey={hasRescuetimeKey} />}
       {/* Last.fm */}
-      <LastfmManager />
+      {isFeatureEnabled("lastfm") && <LastfmManager />}
       </SettingsSection>
 
       {/* ══ Widgets & location ══ */}

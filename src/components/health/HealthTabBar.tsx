@@ -2,13 +2,14 @@
 
 import Link from "next/link"
 import { cn } from "@/lib/utils"
+import { isFeatureEnabled } from "@/lib/features"
 
 const TABS = [
   { key: "metrics", label: "Metrics", emoji: "❤️" },
   { key: "weight",  label: "Weight",  emoji: "⚖️" },
   { key: "correlations", label: "Correlations", emoji: "✨" },
   { key: "labs",    label: "Lab Results", emoji: "🩸" },
-]
+].filter(t => t.key !== "labs" || isFeatureEnabled("labs"))
 
 export function HealthTabBar({ activeTab }: { activeTab: string }) {
   return (

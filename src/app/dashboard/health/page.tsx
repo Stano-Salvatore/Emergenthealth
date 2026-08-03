@@ -20,6 +20,7 @@ import { format, subDays } from "date-fns"
 import WeightPage from "@/app/dashboard/weight/page"
 import InsightsPage from "@/app/dashboard/insights/page"
 import LabsPage from "@/app/dashboard/labs/page"
+import { isFeatureEnabled } from "@/lib/features"
 
 interface StravaActivityRow {
   id: string
@@ -65,7 +66,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
       </div>
     )
   }
-  if (activeTab === "labs") {
+  if (activeTab === "labs" && isFeatureEnabled("labs")) {
     return (
       <div className="space-y-6">
         <HealthTabBar activeTab={activeTab} />

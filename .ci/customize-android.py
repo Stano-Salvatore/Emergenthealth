@@ -1,11 +1,32 @@
 #!/usr/bin/env python3
 """Apply Emergenthealth-specific patches to the generated Android project."""
 
+import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+
+# 0. versionCode / versionName — Play Store rejects uploads that reuse a
+# versionCode, so CI must bump it on every build (ANDROID_VERSION_CODE is
+# derived from the workflow run number). versionName follows package.json.
+with open("package.json") as f:
+    version_name = json.load(f)["version"]
+run_number = os.environ.get("ANDROID_RUN_NUMBER", "").strip()
+version_code = str(300 + int(run_number)) if run_number.isdigit() else "1"
+
+app_gradle_path = "android/app/build.gradle"
+with open(app_gradle_path) as f:
+    gradle = f.read()
+gradle, n_code = re.subn(r"versionCode \d+", f"versionCode {version_code}", gradle, count=1)
+gradle, n_name = re.subn(r'versionName "[^"]*"', f'versionName "{version_name}"', gradle, count=1)
+with open(app_gradle_path, "w") as f:
+    f.write(gradle)
+if n_code and n_name:
+    print(f"✓ versionCode {version_code}, versionName {version_name}")
+else:
+    print(f"WARNING: version patch incomplete (code={n_code}, name={n_name})")
 
 # 1. minSdkVersion 26 (Health Connect requires >= 26)
 result = subprocess.run(
@@ -28,7 +49,6 @@ extra_permissions = """
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />

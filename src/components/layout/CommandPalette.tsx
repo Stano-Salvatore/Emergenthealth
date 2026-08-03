@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Search } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { isRouteEnabled } from "@/lib/features"
 
 interface NavItem {
   href: string
@@ -12,7 +13,7 @@ interface NavItem {
   group: string
 }
 
-const ALL_ITEMS: NavItem[] = [
+const NAV_ITEMS: NavItem[] = [
   // Dashboard
   { href: "/dashboard",               label: "Overview",       emoji: "🏠", group: "Dashboard" },
   { href: "/dashboard/week",          label: "This Week",      emoji: "📅", group: "Dashboard" },
@@ -43,6 +44,8 @@ const ALL_ITEMS: NavItem[] = [
   { href: "/dashboard/chat",          label: "Claude AI",        emoji: "🤖", group: "Tools" },
   { href: "/dashboard/settings",      label: "Settings",         emoji: "⚙️",  group: "Tools" },
 ]
+
+const ALL_ITEMS = NAV_ITEMS.filter(i => isRouteEnabled(i.href))
 
 function fuzzy(query: string, target: string): boolean {
   if (!query) return true
