@@ -43,10 +43,22 @@ function getTimeGreeting() {
   return "evening"
 }
 
+// Accepts a hex like "#RRGGBB" (or 6 hex chars) — returns null if malformed,
+// so callers can safely fall back to the default palette dot.
+function widgetHex(c: string | null | undefined): string | null {
+  if (!c) return null
+  const s = c.trim()
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s
+  if (/^[0-9a-fA-F]{6}$/.test(s)) return `#${s}`
+  return null
+}
+
 function MiniMonthCalendar({
-  year, month, todayDate, eventDays,
+  year, month, todayDate, eventsByDay,
 }: {
-  year: number; month: number; todayDate: number; eventDays: Set<string>
+  year: number; month: number; todayDate: number
+  // Per-day colour list — one entry per event (up to a few shown as dots).
+  eventsByDay: Map<string, (string | null)[]>
 }) {
   const firstDay = new Date(year, month, 1)
   const daysInMonth = new Date(year, month + 1, 0).getDate()
@@ -74,11 +86,24 @@ function MiniMonthCalendar({
             const isCurrentDay = day===todayDate
             const isSunday = di===6
             const dd = String(day).padStart(2,"0")
-            const hasEvent = eventDays.has(`${year}-${mm}-${dd}`)
+            const colors = (eventsByDay.get(`${year}-${mm}-${dd}`) ?? []).slice(0, 3)
             return (
-              <div key={di} className="w-7 h-7 flex items-center justify-center relative">
+              <div key={di} className="w-7 h-7 flex flex-col items-center justify-center relative">
                 <span className={["text-[11px] leading-none flex items-center justify-center",isCurrentDay?"bg-foreground text-background rounded-full h-5 w-5 font-bold":isSunday?"text-red-400":"text-foreground/80"].join(" ")}>{day}</span>
-                {hasEvent && <div className={`absolute bottom-0 h-[3px] w-[3px] rounded-full ${isCurrentDay?"bg-background":"bg-primary"}`} />}
+                {colors.length > 0 && (
+                  <div className="absolute bottom-0 flex gap-[2px]">
+                    {colors.map((c, i) => {
+                      const hex = widgetHex(c)
+                      return (
+                        <div
+                          key={i}
+                          className={`h-[3px] w-[3px] rounded-full ${hex ? "" : isCurrentDay ? "bg-background" : "bg-primary"}`}
+                          style={hex ? { backgroundColor: hex } : undefined}
+                        />
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -312,7 +337,17 @@ export default async function DashboardPage() {
   }
   const todayEvents = calendarEvents.filter(e => { const d=parseEDay(e); return d && isToday(d) })
   const nextEvents = calendarEvents.filter(e => { const d=parseEDay(e); return d && !isToday(d) }).slice(0,4)
-  const eventDays = new Set(calendarEvents.map(e => { try { const d=parseEDay(e); return d?format(d,"yyyy-MM-dd"):"" } catch { return "" }}).filter(Boolean))
+  // Per-day colour list for the mini calendar dots — each event contributes its
+  // own colour (or null → default), so the widget matches the calendar page.
+  const eventsByDay = new Map<string, (string | null)[]>()
+  for (const e of calendarEvents) {
+    const d = parseEDay(e)
+    if (!d) continue
+    const key = format(d, "yyyy-MM-dd")
+    const arr = eventsByDay.get(key) ?? []
+    arr.push(e.color ?? null)
+    eventsByDay.set(key, arr)
+  }
 
   // ── mood
   const todayMood = todayMoodLogs[0]?.mood ?? null
@@ -559,31 +594,41 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="flex gap-4">
-              <MiniMonthCalendar year={now.getFullYear()} month={now.getMonth()} todayDate={now.getDate()} eventDays={eventDays} />
+              <MiniMonthCalendar year={now.getFullYear()} month={now.getMonth()} todayDate={now.getDate()} eventsByDay={eventsByDay} />
               <div className="flex-1 min-w-0 border-l pl-3">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">{format(now,"MMM d").toUpperCase()}</p>
                 {todayEvents.length===0 ? (
                   <div><p className="text-sm font-medium">No events</p><p className="text-xs text-muted-foreground mt-0.5">Enjoy your day!</p></div>
                 ) : (
                   <div className="space-y-2">
-                    {todayEvents.map(e => (
-                      <div key={e.id} className="flex gap-1.5">
-                        <div className="h-1.5 w-1.5 rounded-full bg-blue-400 mt-1.5 shrink-0" />
-                        <div>
-                          <p className="text-xs font-medium leading-tight">{e.title}</p>
-                          {e.start&&!e.isAllDay && <p className="text-[10px] text-muted-foreground">{format(parseISO(e.start),"h:mm a")}</p>}
+                    {todayEvents.map(e => {
+                      const hex = widgetHex(e.color)
+                      return (
+                        <div key={e.id} className="flex gap-1.5">
+                          <div
+                            className={`h-1.5 w-1.5 rounded-full mt-1.5 shrink-0 ${hex ? "" : "bg-blue-400"}`}
+                            style={hex ? { backgroundColor: hex } : undefined}
+                          />
+                          <div>
+                            <p className="text-xs font-medium leading-tight">{e.title}</p>
+                            {e.start&&!e.isAllDay && <p className="text-[10px] text-muted-foreground">{format(parseISO(e.start),"h:mm a")}</p>}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
                 {nextEvents.length>0 && (
                   <div className="mt-2 pt-2 border-t space-y-1.5">
                     {nextEvents.slice(0,3).map(e => {
                       const d=parseEDay(e)
+                      const hex = widgetHex(e.color)
                       return (
                         <div key={e.id} className="flex gap-1.5">
-                          <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40 mt-1.5 shrink-0" />
+                          <div
+                            className={`h-1.5 w-1.5 rounded-full mt-1.5 shrink-0 ${hex ? "" : "bg-muted-foreground/40"}`}
+                            style={hex ? { backgroundColor: hex, opacity: 0.85 } : undefined}
+                          />
                           <div>
                             <p className="text-xs text-muted-foreground leading-tight truncate">{e.title}</p>
                             <p className="text-[10px] text-muted-foreground/60">{d?(isTomorrow(d)?"Tomorrow":format(d,"EEE MMM d")):""}</p>
