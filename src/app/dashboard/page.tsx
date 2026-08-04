@@ -33,6 +33,7 @@ import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
 import { NotesWidget } from "@/components/dashboard/NotesWidget"
 import { ScreenTimeCard } from "@/components/dashboard/ScreenTimeCard"
 import { isFeatureEnabled } from "@/lib/features"
+import { MobileToday } from "@/components/dashboard/MobileToday"
 
 const DEFAULT_STEP_GOAL = 8_000
 const DEFAULT_SLEEP_GOAL_H = 7.5
@@ -354,7 +355,7 @@ export default async function DashboardPage() {
   const todayMood = todayMoodLogs[0]?.mood ?? null
 
   // ── wellness score
-  const { score: wellnessScore } = computeWellnessScore({
+  const { score: wellnessScore, components: scorePillars } = computeWellnessScore({
     sleepMin: latestHealth?.sleepDuration ?? null,
     steps: latestHealth?.steps ?? null,
     readiness: latestHealth?.readinessScore ?? null,
@@ -421,9 +422,32 @@ export default async function DashboardPage() {
 
       <PlaceDetector />
 
-      {/* ── today's schedule strip ── */}
+      {/* Vora-style mobile Today view — pillar rings + day timeline. Replaces
+          the schedule strip on phones; desktop keeps the strip + card grid. */}
+      <MobileToday
+        pillars={scorePillars}
+        sleepMin={latestHealth?.sleepDuration ?? null}
+        sleepScore={latestHealth?.sleepScore ?? null}
+        hasCheckedInToday={hasCheckedInToday}
+        checkinStreak={checkinStreak}
+        events={todayEvents.map(e => ({
+          id: e.id, title: e.title, start: e.start, isAllDay: e.isAllDay,
+          color: e.color ?? null, location: e.location ?? null,
+        }))}
+        habitsDone={doneToday}
+        habitsTotal={habitsWithStreaks.length}
+        habitsRemaining={habitsWithStreaks.filter(h => !h.completedToday).map(h => h.name)}
+        waterMl={waterMl}
+        coffeeMl={coffeeMl}
+        medTags={todayMedTags}
+        focusMin={focusMinToday}
+        remindersOverdue={overdueReminders.length}
+        remindersDueToday={dueToday.length}
+      />
+
+      {/* ── today's schedule strip (desktop — the mobile timeline replaces it) ── */}
       {todayEvents.length > 0 && (
-        <div className="rounded-xl border bg-primary/5 border-primary/20 px-4 py-3">
+        <div className="hidden lg:block rounded-xl border bg-primary/5 border-primary/20 px-4 py-3">
           <div className="flex items-center gap-2 mb-2">
             <Clock className="h-4 w-4 text-primary" />
             <span className="text-sm font-semibold text-primary">Today&apos;s Schedule</span>
