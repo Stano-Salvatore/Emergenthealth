@@ -79,6 +79,46 @@ function buildMcpServer(userId: string): McpServer {
     async ({ date }) => ok(await getDailySummary(userId, date)))
 
   server.tool(
+    "get_oura_tags",
+    "Get the user's Oura Ring tags for a date range — manual annotations logged in the Oura app such as coffee, supplements, medication, alcohol. Use this to answer 'did coffee affect my sleep', 'what pills did I take', etc.",
+    dateRange,
+    async ({ startDate, endDate }) => {
+      const tags = await prisma.ouraTag.findMany({
+        where: { userId, day: { gte: startDate, lte: endDate } },
+        orderBy: { timestamp: "asc" },
+        select: { day: true, timestamp: true, tagName: true, text: true },
+      }).catch(() => [])
+      if (!tags.length) return msg(`No Oura tags between ${startDate} and ${endDate}. (Tags sync from the Oura app — the user logs coffee/meds there.)`)
+      const byDay: Record<string, { time: string; tag: string; note: string | null }[]> = {}
+      for (const t of tags) {
+        const label = (t.tagName ?? t.text ?? "").trim()
+        if (!label) continue
+        ;(byDay[t.day] ??= []).push({
+          time: t.timestamp.toISOString().slice(11, 16),
+          tag: label,
+          note: t.text && t.text !== label ? t.text : null,
+        })
+      }
+      return ok(byDay)
+    },
+  )
+
+  server.tool(
+    "get_checkins",
+    "Get the user's morning check-ins for a date range: energy (1-5), mood (1-5), and daily intention",
+    dateRange,
+    async ({ startDate, endDate }) => {
+      const rows = await prisma.morningCheckIn.findMany({
+        where: { userId, date: { gte: startDate, lte: endDate } },
+        orderBy: { date: "asc" },
+        select: { date: true, energy: true, mood: true, intention: true },
+      }).catch(() => [])
+      if (!rows.length) return msg(`No morning check-ins between ${startDate} and ${endDate}.`)
+      return ok(rows)
+    },
+  )
+
+  server.tool(
     "get_health_metrics",
     "Get extended health metrics for a date range: HRV, readiness score, SpO2, skin temperature, stress, breathing rate",
     dateRange,
@@ -233,6 +273,21 @@ function buildMcpServer(userId: string): McpServer {
       })
       if (!note) return msg(`No journal entry for ${d}.`)
       return ok({ date: d, content: note.content })
+    },
+  )
+
+  server.tool(
+    "get_journal_entries",
+    "Read all journal/daily notes in a date range (use get_journal for a single date)",
+    dateRange,
+    async ({ startDate, endDate }) => {
+      const notes = await prisma.dailyNote.findMany({
+        where: { userId, date: { gte: startOfDay(startDate), lte: endOfDay(endDate) } },
+        orderBy: { date: "asc" },
+        select: { date: true, content: true },
+      })
+      if (!notes.length) return msg(`No journal entries between ${startDate} and ${endDate}.`)
+      return ok(notes.map(n => ({ date: n.date.toISOString().slice(0, 10), content: n.content })))
     },
   )
 
@@ -647,7 +702,7 @@ function buildMcpServer(userId: string): McpServer {
       const todayStart = startOfDay(d)
       const todayEnd = endOfDay(d)
 
-      const [healthLog, habits, reminders, intakeLogs, focusSessions, moodLog] = await Promise.all([
+      const [healthLog, habits, reminders, intakeLogs, focusSessions, moodLog, checkin, ouraTags, journalNote] = await Promise.all([
         prisma.healthLog.findUnique({ where: { userId_date: { userId, date: todayStart } } }),
         prisma.habit.findMany({
           where: { userId, isArchived: false },
@@ -661,6 +716,19 @@ function buildMcpServer(userId: string): McpServer {
         prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: todayStart, lte: todayEnd } } }),
         prisma.focusSession.findMany({ where: { userId, endedAt: { gte: todayStart, lte: todayEnd } } }),
         prisma.moodLog.findUnique({ where: { userId_date: { userId, date: todayStart } } }),
+        prisma.morningCheckIn.findUnique({
+          where: { userId_date: { userId, date: d } },
+          select: { energy: true, mood: true, intention: true },
+        }).catch(() => null),
+        prisma.ouraTag.findMany({
+          where: { userId, day: d },
+          orderBy: { timestamp: "asc" },
+          select: { timestamp: true, tagName: true, text: true },
+        }).catch(() => []),
+        prisma.dailyNote.findUnique({
+          where: { userId_date: { userId, date: todayStart } },
+          select: { content: true },
+        }).catch(() => null),
       ])
 
       const waterMl = intakeLogs.filter(l => l.type === "water").reduce((s, l) => s + l.amountMl, 0)
@@ -684,6 +752,11 @@ function buildMcpServer(userId: string): McpServer {
           active_min: healthLog.activeMinutes,
         } : null,
         mood: moodLog ? { score: moodLog.mood, label: moodLabels[moodLog.mood], note: moodLog.note } : null,
+        morning_checkin: checkin ? { energy: checkin.energy, mood: checkin.mood, intention: checkin.intention } : null,
+        oura_tags: ouraTags
+          .map(t => ({ time: t.timestamp.toISOString().slice(11, 16), tag: (t.tagName ?? t.text ?? "").trim() }))
+          .filter(t => t.tag),
+        journal: journalNote?.content ?? null,
         habits: { completed: habitsCompleted, total: habits.length, list: habits.map(h => ({ name: h.name, done: h.completions.length > 0 })) },
         intake: { water_ml: waterMl, water_glasses: Math.round(waterMl / 250 * 10) / 10, coffee_cups: coffeeCups },
         focus: { total_min: focusMin, sessions: focusSessions.length },
