@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, User, Mic, MicOff } from "lucide-react"
+import { Send, User, Mic, MicOff, History, Plus, Trash2, X } from "lucide-react"
 import { EmergySVG, type EmergyState } from "@/components/emergy/EmergySVG"
 
 interface Message {
@@ -12,6 +11,12 @@ interface Message {
   role: "user" | "assistant"
   content: string
   streaming?: boolean
+}
+
+interface Conversation {
+  id: string
+  title: string
+  updatedAt: string
 }
 
 function MessageBubble({ msg, emergyState }: { msg: Message; emergyState: EmergyState }) {
@@ -41,8 +46,19 @@ function MessageBubble({ msg, emergyState }: { msg: Message; emergyState: Emergy
   )
 }
 
+function conversationDate(iso: string): string {
+  const d = new Date(iso)
+  const today = new Date()
+  const sameDay = d.toDateString() === today.toDateString()
+  if (sameDay) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  return d.toLocaleDateString([], { month: "short", day: "numeric" })
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([])
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const [emergyState, setEmergyState] = useState<EmergyState>("okay")
@@ -80,20 +96,51 @@ export default function ChatPage() {
     setListening(false)
   }, [])
 
+  const refreshConversations = useCallback(() => {
+    fetch("/api/chat/conversations").then(async (r) => {
+      if (r.ok) setConversations(await r.json())
+    }).catch(() => {})
+  }, [])
+
+  // A fresh visit starts a new empty chat (quick questions visible); past chats
+  // live in the History panel.
   useEffect(() => {
-    fetch("/api/chat").then(async (r) => {
-      if (r.ok) setMessages(await r.json())
-    })
+    refreshConversations()
     fetch("/api/emergy").then(async (r) => {
       if (r.ok) { const d = await r.json(); setEmergyState(d.state) }
     }).catch(() => {})
-  }, [])
+  }, [refreshConversations])
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages])
+
+  function newChat() {
+    if (sending) return
+    setMessages([])
+    setConversationId(null)
+    setHistoryOpen(false)
+    textareaRef.current?.focus()
+  }
+
+  async function openConversation(id: string) {
+    if (sending) return
+    setHistoryOpen(false)
+    const res = await fetch(`/api/chat?conversation=${encodeURIComponent(id)}`)
+    if (!res.ok) return
+    const msgs = await res.json()
+    setMessages(msgs)
+    setConversationId(id)
+  }
+
+  async function deleteConversation(id: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    await fetch(`/api/chat/conversations?id=${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => {})
+    setConversations((c) => c.filter(conv => conv.id !== id))
+    if (conversationId === id) newChat()
+  }
 
   async function sendMessage(overrideText?: string) {
     const text = (overrideText ?? input).trim()
@@ -113,7 +160,7 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history }),
+        body: JSON.stringify({ message: text, history, conversationId }),
       })
 
       if (!res.body) throw new Error("No stream")
@@ -142,15 +189,20 @@ export default function ChatPage() {
             break
           }
           try {
-            const { text: chunk } = JSON.parse(data)
-            setMessages((m) =>
-              m.map((msg, i) =>
-                i === m.length - 1 ? { ...msg, content: msg.content + chunk } : msg
+            const parsed = JSON.parse(data)
+            if (parsed.conversationId) {
+              setConversationId(parsed.conversationId)
+            } else if (parsed.text) {
+              setMessages((m) =>
+                m.map((msg, i) =>
+                  i === m.length - 1 ? { ...msg, content: msg.content + parsed.text } : msg
+                )
               )
-            )
+            }
           } catch {}
         }
       }
+      refreshConversations()
     } catch {
       setMessages((m) =>
         m.map((msg, i) =>
@@ -179,14 +231,63 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-3rem-3rem)]">
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center gap-3 mb-4 relative">
         <EmergySVG state={emergyState} size={52}/>
-        <div>
+        <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold">Emergy</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">
+          <p className="text-muted-foreground text-sm mt-0.5 truncate">
             Your plant companion — knows your health, habits &amp; finances
           </p>
         </div>
+        <Button
+          onClick={() => setHistoryOpen((o) => !o)}
+          size="icon"
+          variant="outline"
+          className="h-9 w-9 shrink-0"
+          title="Past chats"
+        >
+          {historyOpen ? <X className="h-4 w-4" /> : <History className="h-4 w-4" />}
+        </Button>
+        <Button
+          onClick={newChat}
+          size="icon"
+          variant="outline"
+          className="h-9 w-9 shrink-0"
+          title="New chat"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+
+        {historyOpen && (
+          <div className="absolute right-0 top-full mt-2 z-30 w-72 max-h-80 overflow-y-auto rounded-2xl border border-border bg-background shadow-xl shadow-black/30 p-1.5">
+            {conversations.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No past chats yet 🌱</p>
+            ) : (
+              conversations.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => openConversation(c.id)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left transition-colors group ${
+                    c.id === conversationId ? "bg-primary/10 text-primary" : "hover:bg-secondary/60"
+                  }`}
+                >
+                  <span className="flex-1 min-w-0 text-sm truncate">{c.title}</span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">{conversationDate(c.updatedAt)}</span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => deleteConversation(c.id, e)}
+                    onKeyDown={(e) => { if (e.key === "Enter") deleteConversation(c.id, e as unknown as React.MouseEvent) }}
+                    className="opacity-0 group-hover:opacity-100 shrink-0 p-1 text-muted-foreground hover:text-red-400 transition-all"
+                    aria-label="Delete chat"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       <div
@@ -214,8 +315,8 @@ export default function ChatPage() {
               {[
                 "🌅 Log my morning check-in (I feel good and ready)",
                 "How was my sleep this week?",
+                "Does coffee affect my sleep? Check my Oura tags",
                 "What habits am I missing today?",
-                "What did I spend the most on this month?",
                 "What supplements did I take today?",
                 "What's on my calendar this week?",
               ].map((prompt) => (
