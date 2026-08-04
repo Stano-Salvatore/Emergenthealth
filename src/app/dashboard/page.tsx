@@ -426,6 +426,14 @@ export default async function DashboardPage() {
           the schedule strip on phones; desktop keeps the strip + card grid. */}
       <MobileToday
         score={wellnessScore}
+        calYear={now.getFullYear()}
+        calMonth={now.getMonth()}
+        calToday={now.getDate()}
+        monthDots={Object.fromEntries(eventsByDay)}
+        nextEvents={nextEvents.map(e => ({
+          id: e.id, title: e.title, start: e.start, isAllDay: e.isAllDay,
+          color: e.color ?? null, location: e.location ?? null,
+        }))}
         pillars={scorePillars}
         pillarValues={[
           latestHealth?.sleepDuration != null ? `${(latestHealth.sleepDuration / 60).toFixed(1)}h` : "–",

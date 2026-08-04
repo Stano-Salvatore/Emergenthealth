@@ -29,6 +29,11 @@ interface Pillar { label: string; pts: number; max: number }
 
 interface MobileTodayProps {
   score: number
+  calYear: number
+  calMonth: number
+  calToday: number
+  monthDots: Record<string, (string | null)[]>
+  nextEvents: TodayEventItem[]
   pillars: Pillar[]
   pillarValues: string[]
   week: WeekDayStat[]
@@ -115,6 +120,57 @@ function Spark({ values, color }: { values: (number | null)[]; color: string }) 
   )
 }
 
+function MiniMonth({
+  year, month, todayDate, dots,
+}: { year: number; month: number; todayDate: number; dots: Record<string, (string | null)[]> }) {
+  const firstDay = new Date(year, month, 1)
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  let startDow = firstDay.getDay() - 1
+  if (startDow < 0) startDow = 6
+  const cells: (number | null)[] = [
+    ...Array(startDow).fill(null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ]
+  while (cells.length % 7 !== 0) cells.push(null)
+  const mm = String(month + 1).padStart(2, "0")
+  return (
+    <div className="shrink-0 select-none">
+      <div className="grid grid-cols-7">
+        {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
+          <div key={i} className={`w-7 text-center text-[9px] font-semibold pb-1 ${i === 6 ? "text-red-400/70" : "text-muted-foreground"}`}>{d}</div>
+        ))}
+        {cells.map((day, i) => {
+          if (!day) return <div key={i} className="w-7 h-7" />
+          const isCurrentDay = day === todayDate
+          const isSunday = i % 7 === 6
+          const colors = (dots[`${year}-${mm}-${String(day).padStart(2, "0")}`] ?? []).slice(0, 3)
+          return (
+            <div key={i} className="w-7 h-7 flex flex-col items-center justify-center relative">
+              <span className={[
+                "text-[11px] leading-none flex items-center justify-center",
+                isCurrentDay ? "bg-foreground text-background rounded-full h-5 w-5 font-bold" : isSunday ? "text-red-400" : "text-foreground/80",
+              ].join(" ")}>{day}</span>
+              {colors.length > 0 && (
+                <div className="absolute bottom-0 flex gap-[2px]">
+                  {colors.map((c, j) => {
+                    const hex = hexOrNull(c)
+                    return (
+                      <div key={j}
+                        className={`h-[3px] w-[3px] rounded-full ${hex ? "" : isCurrentDay ? "bg-background" : "bg-primary"}`}
+                        style={hex ? { backgroundColor: hex } : undefined}
+                      />
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function TimelineRow({
   dot, dim, children,
 }: { dot?: string | null; dim?: boolean; children: React.ReactNode }) {
@@ -190,6 +246,40 @@ export function MobileToday(p: MobileTodayProps) {
           </div>
         </Link>
       </div>
+
+      {/* Calendar — mini month with per-event colours + what's next */}
+      <Link href="/dashboard/calendar" className="rounded-2xl border border-border bg-card px-4 py-3.5 flex gap-4 block">
+        <MiniMonth year={p.calYear} month={p.calMonth} todayDate={p.calToday} dots={p.monthDots} />
+        <div className="flex-1 min-w-0 border-l border-border pl-3.5">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Up next</p>
+          {p.nextEvents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing coming up 🌿</p>
+          ) : (
+            <div className="space-y-1.5">
+              {p.nextEvents.slice(0, 4).map(e => {
+                const hex = hexOrNull(e.color)
+                const d = e.start ? parseISO(e.isAllDay ? e.start.slice(0, 10) + "T12:00:00" : e.start) : null
+                return (
+                  <div key={e.id} className="flex gap-1.5 items-start">
+                    <div
+                      className={`h-1.5 w-1.5 rounded-full mt-1.5 shrink-0 ${hex ? "" : "bg-primary"}`}
+                      style={hex ? { backgroundColor: hex } : undefined}
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium leading-tight truncate">{e.title}</p>
+                      {d && (
+                        <p className="text-[10px] text-muted-foreground">
+                          {format(d, "EEE d MMM")}{!e.isAllDay ? ` · ${format(d, "HH:mm")}` : ""}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </Link>
 
       {/* Ask Emergy */}
       <Link

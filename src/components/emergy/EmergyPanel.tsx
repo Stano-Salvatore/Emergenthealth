@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback } from "react"
+import { usePathname } from "next/navigation"
 import { X, Send, Bell } from "lucide-react"
 import { EmergySVG, EmergyState } from "./EmergySVG"
 
@@ -39,6 +40,7 @@ function getBriefType(): "morning" | "midday" | "evening" | null {
 }
 
 export function EmergyPanel() {
+  const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [emergy, setEmergy] = useState<EmergyData | null>(null)
   const [brief, setBrief] = useState<string | null>(null)
@@ -198,10 +200,14 @@ export function EmergyPanel() {
   const state = emergy?.state ?? "okay"
   const isScreaming = emergy?.state === "screaming"
 
+  // The chat page IS Emergy — a floating Emergy on top of it is redundant.
+  // On mobile the mascot lives in the bottom nav instead (see BottomNav).
+  if (pathname?.startsWith("/dashboard/chat")) return null
+
   return (
     <>
-      {/* Speech bubble + button row */}
-      <div className="fixed right-6 z-50 flex items-center gap-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] lg:bottom-10">
+      {/* Speech bubble + button row — desktop only */}
+      <div className="fixed right-6 z-50 hidden lg:flex items-center gap-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] lg:bottom-10">
         {/* Speech bubble — appears to the left when Emergy has something to say */}
         {showBubble && emergy?.message && (
           <div
