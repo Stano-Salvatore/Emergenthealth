@@ -117,7 +117,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "get_health_range",
-    description: "Read the user's daily health metrics (sleep, resting HR, HRV, readiness, steps, activity) over the last N days. Use this to answer questions about trends — e.g. 'why is my resting HR up', 'how has my sleep been this month'. Reason over the returned data instead of guessing.",
+    description: "Read the user's full daily history over the last N days: health metrics (sleep, resting HR, HRV, readiness, steps), Oura Ring tags (coffee, supplements, meds, alcohol — the user logs these in the Oura app), morning check-ins (energy/mood/intention), mood logs, journal notes, and logged water/coffee. Use this to answer questions about trends and causes — e.g. 'does coffee affect my sleep', 'how did I feel that week'. Reason over the returned data instead of guessing.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -242,21 +242,87 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   if (name === "get_health_range") {
     const days = Math.min(90, Math.max(1, parseInt(String(input.days), 10) || 7))
     const since = new Date(); since.setDate(since.getDate() - days); since.setHours(0, 0, 0, 0)
-    const logs = await prisma.healthLog.findMany({
-      where: { userId, date: { gte: since } },
-      orderBy: { date: "desc" },
-      select: {
-        date: true, sleepDuration: true, sleepScore: true, restingHR: true,
-        hrv: true, readinessScore: true, steps: true, activityScore: true,
-      },
-    }).catch(() => [] as any[])
-    if (logs.length === 0) return `No health data in the last ${days} days.`
-    const rows = logs.map((l: any) => {
-      const d = l.date.toISOString().split("T")[0]
-      const sleep = l.sleepDuration != null ? `${(l.sleepDuration / 60).toFixed(1)}h` : "?"
-      return `${d}: sleep ${sleep}${l.sleepScore != null ? ` (score ${l.sleepScore})` : ""}, restingHR ${l.restingHR ?? "?"}bpm, HRV ${l.hrv != null ? Math.round(l.hrv) + "ms" : "?"}, readiness ${l.readinessScore ?? "?"}, steps ${l.steps ?? "?"}`
+    const sinceStr = since.toISOString().split("T")[0]
+    const [logs, tags, checkins, notes, moods, intake] = await Promise.all([
+      prisma.healthLog.findMany({
+        where: { userId, date: { gte: since } },
+        orderBy: { date: "desc" },
+        select: {
+          date: true, sleepDuration: true, sleepScore: true, restingHR: true,
+          hrv: true, readinessScore: true, steps: true, activityScore: true,
+        },
+      }).catch(() => [] as any[]),
+      prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
+        SELECT "day","tagName","text" FROM "OuraTag"
+        WHERE "userId" = ${userId} AND "day" >= ${sinceStr} ORDER BY "timestamp"
+      `.catch(() => []),
+      prisma.$queryRaw<{ date: string; energy: number; mood: number; intention: string | null }[]>`
+        SELECT "date","energy","mood","intention" FROM "MorningCheckIn"
+        WHERE "userId" = ${userId} AND "date" >= ${sinceStr}
+      `.catch(() => []),
+      prisma.dailyNote.findMany({
+        where: { userId, date: { gte: since } },
+        select: { date: true, content: true },
+      }).catch(() => [] as { date: Date; content: string }[]),
+      prisma.moodLog.findMany({
+        where: { userId, date: { gte: since } },
+        select: { date: true, mood: true },
+      }).catch(() => [] as { date: Date; mood: number }[]),
+      prisma.intakeLog.findMany({
+        where: { userId, loggedAt: { gte: since } },
+        select: { loggedAt: true, type: true, amountMl: true },
+      }).catch(() => [] as { loggedAt: Date; type: string; amountMl: number }[]),
+    ])
+
+    const tagsByDay = new Map<string, string[]>()
+    for (const t of tags) {
+      const label = (t.tagName ?? t.text ?? "").trim()
+      if (!label) continue
+      const list = tagsByDay.get(t.day) ?? []
+      list.push(label)
+      tagsByDay.set(t.day, list)
+    }
+    const checkinByDay = new Map(checkins.map(c => [c.date, c]))
+    const noteByDay = new Map(notes.map(n => [n.date.toISOString().split("T")[0], n.content]))
+    const moodByDay = new Map(moods.map(m => [m.date.toISOString().split("T")[0], m.mood]))
+    const intakeByDay = new Map<string, { water: number; coffee: number }>()
+    for (const i of intake) {
+      const d = i.loggedAt.toISOString().split("T")[0]
+      const acc = intakeByDay.get(d) ?? { water: 0, coffee: 0 }
+      if (i.type === "water") acc.water += i.amountMl
+      else if (i.type === "coffee") acc.coffee += i.amountMl
+      intakeByDay.set(d, acc)
+    }
+
+    const healthByDay = new Map(logs.map((l: any) => [l.date.toISOString().split("T")[0], l]))
+    const allDays = [...new Set([
+      ...healthByDay.keys(), ...tagsByDay.keys(), ...checkinByDay.keys(),
+      ...noteByDay.keys(), ...moodByDay.keys(), ...intakeByDay.keys(),
+    ])].sort().reverse()
+    if (allDays.length === 0) return `No data in the last ${days} days.`
+
+    const rows = allDays.map(d => {
+      const l = healthByDay.get(d)
+      const parts: string[] = []
+      if (l) {
+        const sleep = l.sleepDuration != null ? `${(l.sleepDuration / 60).toFixed(1)}h` : "?"
+        parts.push(`sleep ${sleep}${l.sleepScore != null ? ` (score ${l.sleepScore})` : ""}, restingHR ${l.restingHR ?? "?"}bpm, HRV ${l.hrv != null ? Math.round(l.hrv) + "ms" : "?"}, readiness ${l.readinessScore ?? "?"}, steps ${l.steps ?? "?"}`)
+      }
+      const dayTags = tagsByDay.get(d)
+      if (dayTags?.length) parts.push(`Oura tags: ${dayTags.join(", ")}`)
+      const ink = intakeByDay.get(d)
+      if (ink && (ink.water > 0 || ink.coffee > 0)) {
+        parts.push(`logged:${ink.water > 0 ? ` water ${ink.water}ml` : ""}${ink.coffee > 0 ? ` coffee ${ink.coffee}ml` : ""}`)
+      }
+      const c = checkinByDay.get(d)
+      if (c) parts.push(`check-in: energy ${c.energy}/5, mood ${c.mood}/5${c.intention ? `, intention "${c.intention}"` : ""}`)
+      const m = moodByDay.get(d)
+      if (m != null) parts.push(`mood ${m}/5`)
+      const note = noteByDay.get(d)
+      if (note) parts.push(`journal: "${note.length > 160 ? note.slice(0, 160) + "…" : note}"`)
+      return `${d}: ${parts.join(" | ")}`
     }).join("\n")
-    return `Last ${days} days of health (most recent first):\n${rows}`
+    return `Last ${days} days (most recent first — health, Oura tags, intake, check-ins, mood, journal):\n${rows}`
   }
 
   if (name === "remember") {
@@ -287,7 +353,9 @@ async function buildSystemPrompt(userId: string): Promise<string> {
 
   const since14 = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000)
 
-  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, todayOuraTags, todayCheckin, recentScreenTime] =
+  const since7Str = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+
+  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, recentOuraTags, recentCheckins, recentScreenTime] =
     await Promise.all([
       prisma.healthLog.findMany({
         where: { userId }, orderBy: { date: "desc" }, take: 14,
@@ -316,12 +384,13 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       ),
       prisma.moodLog.findFirst({ where: { userId, date: { gte: new Date(todayStr) } } }).catch(() => null),
       prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: new Date(todayStr) } } }).catch(() => []),
-      prisma.$queryRaw<{ tagName: string | null; text: string | null }[]>`
-        SELECT "tagName","text" FROM "OuraTag" WHERE "userId" = ${userId} AND "day" = ${todayStr}
+      prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
+        SELECT "day","tagName","text" FROM "OuraTag"
+        WHERE "userId" = ${userId} AND "day" >= ${since7Str} ORDER BY "timestamp"
       `.catch(() => []),
-      prisma.$queryRaw<{ energy: number; mood: number; intention: string | null; waterGoalMl: number }[]>`
-        SELECT "energy","mood","intention","waterGoalMl" FROM "MorningCheckIn"
-        WHERE "userId" = ${userId} AND "date" = ${todayStr} LIMIT 1
+      prisma.$queryRaw<{ date: string; energy: number; mood: number; intention: string | null; waterGoalMl: number }[]>`
+        SELECT "date","energy","mood","intention","waterGoalMl" FROM "MorningCheckIn"
+        WHERE "userId" = ${userId} AND "date" >= ${since7Str} ORDER BY "date" DESC
       `.catch(() => []),
       prisma.screenTimeLog.findMany({
         where: { userId }, orderBy: { date: "desc" }, take: 7,
@@ -329,12 +398,17 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       }).catch(() => [] as { date: string; totalMin: number; firstUnlockMin: number | null }[]),
     ])
 
-  const [recentMoods, todayWeather] = await Promise.all([
+  const [recentMoods, todayWeather, recentNotes] = await Promise.all([
     prisma.moodLog.findMany({ where: { userId, date: { gte: since14 } }, orderBy: { date: "desc" } }).catch(() => [] as { date: Date; mood: number }[]),
     prisma.weatherLog.findFirst({
       where: { userId, date: todayStr },
       select: { tempMaxC: true, tempMinC: true, precipMm: true, uvIndex: true, weatherCode: true },
     }).catch(() => null),
+    prisma.dailyNote.findMany({
+      where: { userId, date: { gte: since14 } },
+      orderBy: { date: "desc" }, take: 5,
+      select: { date: true, content: true },
+    }).catch(() => [] as { date: Date; content: string }[]),
   ])
 
   // Long-term memory — facts Emergy has saved about the user across conversations
@@ -366,6 +440,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const totalIncome = recentTransactions.filter((t) => t.amount > 0 && !t.isTransfer).reduce((sum, t) => sum + t.amount, 0)
 
   // Classify today's Oura tags
+  const todayOuraTags = (recentOuraTags as any[]).filter((t) => t.day === todayStr)
   const ML_RE = /(\d+)\s*ml/i
   let ouraWaterMl = 0, ouraCoffeeMl = 0
   const ouraMeds: string[] = []
@@ -388,7 +463,35 @@ async function buildSystemPrompt(userId: string): Promise<string> {
 
   const moodLabels: Record<number, string> = { 1: "awful", 2: "bad", 3: "ok", 4: "good", 5: "great" }
   const energyLabels: Record<number, string> = { 1: "exhausted", 2: "tired", 3: "ok", 4: "good", 5: "amazing" }
-  const checkin = (todayCheckin as { energy: number; mood: number; intention: string | null; waterGoalMl: number }[])[0] ?? null
+  const checkinRows = recentCheckins as { date: string; energy: number; mood: number; intention: string | null; waterGoalMl: number }[]
+  const checkin = checkinRows.find(c => c.date === todayStr) ?? null
+
+  // Last 7 days of Oura tags grouped by day (coffee, supplements, meds — the
+  // user's manual annotations from the Oura app)
+  const tagDayMap = new Map<string, string[]>()
+  for (const t of (recentOuraTags as any[])) {
+    const label = (t.tagName ?? t.text ?? "").trim()
+    if (!label) continue
+    const list = tagDayMap.get(t.day) ?? []
+    list.push(label)
+    tagDayMap.set(t.day, list)
+  }
+  const ouraTagsStr = tagDayMap.size === 0
+    ? null
+    : [...tagDayMap.entries()].sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([day, labels]) => `- ${day}: ${labels.join(", ")}`).join("\n")
+
+  const checkinHistoryStr = checkinRows.length === 0
+    ? null
+    : checkinRows.map(c => `- ${c.date}: energy ${c.energy}/5, mood ${c.mood}/5${c.intention ? `, intention "${c.intention}"` : ""}`).join("\n")
+
+  const journalStr = recentNotes.length === 0
+    ? null
+    : recentNotes.map(n => {
+        const d = n.date.toISOString().split("T")[0]
+        const text = n.content.length > 200 ? n.content.slice(0, 200) + "…" : n.content
+        return `- ${d}: "${text}"`
+      }).join("\n")
 
   // Weekly trend comparison
   function avg(nums: (number | null | undefined)[]): number | null {
@@ -481,6 +584,15 @@ ${weatherStr ?? "No weather data available."}
 
 ## Health (last 7 days)
 ${recentHealth.slice(0, 7).length === 0 ? "No health data yet." : recentHealth.slice(0, 7).map((h) => `- ${h.date.toISOString().split("T")[0]}: sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"}${(h as any).sleepScore != null ? ` (score ${(h as any).sleepScore})` : ""}${h.readinessScore != null ? ` | readiness ${h.readinessScore}` : ""}${h.hrv != null ? ` | HRV ${Math.round(h.hrv)}ms` : ""} | ${h.steps ?? "?"}steps | HR ${h.restingHR ?? "?"}bpm${h.activityScore != null ? ` | activity ${h.activityScore}` : ""}${h.weight != null ? ` | ${h.weight}kg` : ""}`).join("\n")}
+
+## Oura tags (last 7 days — coffee, supplements, meds the user logs in the Oura app)
+${ouraTagsStr ?? "None logged this week. (For longer history, call get_health_range — it includes tags.)"}
+
+## Morning check-ins (last 7 days)
+${checkinHistoryStr ?? "None this week."}
+
+## Journal notes (most recent)
+${journalStr ?? "No journal notes in the last 14 days."}
 
 ${screenTimeStr ? `## Screen time (last 7 days)\n${screenTimeStr}\n` : ""}
 ## Finances (this month)
