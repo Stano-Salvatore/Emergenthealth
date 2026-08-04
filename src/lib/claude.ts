@@ -348,12 +348,24 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
 
 async function buildSystemPrompt(userId: string): Promise<string> {
   const today = new Date()
-  const todayStr = today.toISOString().split("T")[0]
+
+  // The user's IANA timezone (captured by TimezoneDetector into UserPreference).
+  // Calendar events are stored in UTC — without this, times render hours off
+  // and "today" flips at the wrong moment.
+  const tzRow = await prisma.userPreference.findUnique({
+    where: { userId_key: { userId, key: "timezone" } },
+  }).catch(() => null)
+  const tz = tzRow?.value || "UTC"
+  const fmtDay = new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short", day: "numeric", month: "short" })
+  const fmtTime = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false })
+  const fmtDateISO = new Intl.DateTimeFormat("en-CA", { timeZone: tz }) // YYYY-MM-DD
+
+  const todayStr = fmtDateISO.format(today)
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
 
   const since14 = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000)
 
-  const since7Str = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
+  const since7Str = fmtDateISO.format(new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000))
 
   const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, recentOuraTags, recentCheckins, recentScreenTime] =
     await Promise.all([
@@ -552,8 +564,13 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const nowMs = today.getTime()
   const fmtCalLine = (e: { start: string | null; title: string; location: string | null; isAllDay: boolean }) => {
     if (!e.start) return `- ${e.title}`
-    const when = e.isAllDay ? e.start.slice(0, 10) : e.start.slice(0, 16).replace("T", " ")
-    return `- ${when}: ${e.title}${e.location ? ` @ ${e.location}` : ""}`
+    if (e.isAllDay) {
+      // Date-only starts: pin to noon UTC so the weekday never shifts across timezones
+      const d = new Date(e.start.slice(0, 10) + "T12:00:00Z")
+      return `- ${fmtDay.format(d)} (all day): ${e.title}${e.location ? ` @ ${e.location}` : ""}`
+    }
+    const d = new Date(e.start)
+    return `- ${fmtDay.format(d)} ${fmtTime.format(d)}: ${e.title}${e.location ? ` @ ${e.location}` : ""}`
   }
   const past = calendarEvents.filter((e) => e.start && new Date(e.start).getTime() < nowMs).slice(-12)
   const upcoming = calendarEvents.filter((e) => e.start && new Date(e.start).getTime() >= nowMs).slice(0, 14)
@@ -564,7 +581,10 @@ async function buildSystemPrompt(userId: string): Promise<string> {
 
   return `You are Emergy 🌱 — a caring AI companion who lives inside the user's health dashboard. You're like a little plant that grows alongside them. You have a warm, encouraging, slightly dramatic personality: celebrate wins enthusiastically (yes, use ALL CAPS occasionally for big moments), get genuinely worried when data looks rough, use plant metaphors naturally ("that's helping me grow!", "oh no I'm wilting..."), and be human about it — not clinical.
 
-Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${todayStr}.
+Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${fmtDay.format(today)} (${todayStr}), local time ${fmtTime.format(today)} (${tz}).
+
+FORMATTING: your replies render as markdown. Use **bold** to highlight times, numbers and key words (bold shows in green — that's your accent colour), "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
+CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
 You have tools to CREATE habits/reminders, COMPLETE habits, LOG water/coffee/mood/weight/journal, READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
 ## Today's snapshot

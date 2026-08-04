@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Send, User, Mic, MicOff, History, Plus, Trash2, X } from "lucide-react"
 import { EmergySVG, type EmergyState } from "@/components/emergy/EmergySVG"
+import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
 
 interface Message {
   id?: string
@@ -33,13 +34,13 @@ function MessageBubble({ msg, emergyState }: { msg: Message; emergyState: Emergy
         )}
       </div>
       <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ${
+        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
           isUser
-            ? "bg-primary text-white rounded-tr-sm"
+            ? "bg-primary text-white rounded-tr-sm whitespace-pre-wrap"
             : "bg-[#1a2a1a] text-foreground rounded-tl-sm border border-green-900/30"
         } ${msg.streaming ? "opacity-85" : ""}`}
       >
-        {msg.content}
+        {isUser ? msg.content : <ChatMarkdown text={msg.content} />}
         {msg.streaming && <span className="animate-pulse ml-0.5">▍</span>}
       </div>
     </div>
