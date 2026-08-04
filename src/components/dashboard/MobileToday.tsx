@@ -1,8 +1,8 @@
 "use client"
 
-// Vora-style mobile "Today" view: four pillar rings, an ask-Emergy pill, and
-// the day as one chronological timeline (sleep → check-in → calendar → habits
-// → intake → reminders). Rendered mobile-only — desktop keeps the card grid.
+// Vora-style mobile "Today" view: score gauge with four labeled pillars,
+// sleep + heart chart cards, an ask-Emergy pill, and the day as one
+// chronological timeline. Rendered mobile-only — desktop keeps the card grid.
 // Client component so event times format in the user's local timezone.
 
 import Link from "next/link"
@@ -17,10 +17,21 @@ export interface TodayEventItem {
   location?: string | null
 }
 
+export interface WeekDayStat {
+  date: string
+  sleepMin: number | null
+  hrv: number | null
+  restingHR: number | null
+  steps: number | null
+}
+
 interface Pillar { label: string; pts: number; max: number }
 
 interface MobileTodayProps {
+  score: number
   pillars: Pillar[]
+  pillarValues: string[]
+  week: WeekDayStat[]
   sleepMin: number | null
   sleepScore: number | null
   hasCheckedInToday: boolean
@@ -37,6 +48,8 @@ interface MobileTodayProps {
   remindersDueToday: number
 }
 
+const PILLAR_COLORS = ["#818cf8", "#f472b6", "#34d399", "#fbbf24"]
+
 function hexOrNull(c: string | null | undefined): string | null {
   if (!c) return null
   const s = c.trim()
@@ -45,27 +58,60 @@ function hexOrNull(c: string | null | undefined): string | null {
   return null
 }
 
-function PillarRing({ label, pts, max }: Pillar) {
-  const pct = max > 0 ? Math.min(1, pts / max) : 0
-  const r = 15.5
+function scoreColor(s: number) {
+  if (s >= 85) return "#34d399"
+  if (s >= 70) return "#a3e635"
+  if (s >= 50) return "#fbbf24"
+  return "#f87171"
+}
+
+// 270° arc gauge, Vora-style: score centered, sweep starts bottom-left.
+function ScoreGauge({ score }: { score: number }) {
+  const r = 34
   const circ = 2 * Math.PI * r
-  const color = pct >= 0.8 ? "#34d399" : pct >= 0.5 ? "#a3e635" : pct >= 0.25 ? "#fbbf24" : "#f87171"
+  const arc = circ * 0.75
+  const pct = Math.min(1, Math.max(0, score / 100))
   return (
-    <div className="flex flex-col items-center gap-1 flex-1">
-      <div className="relative h-11 w-11">
-        <svg viewBox="0 0 38 38" className="h-11 w-11 -rotate-90">
-          <circle cx="19" cy="19" r={r} fill="none" strokeWidth="4" className="stroke-secondary" />
-          <circle
-            cx="19" cy="19" r={r} fill="none" strokeWidth="4" strokeLinecap="round"
-            stroke={color} strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}
-          />
-        </svg>
-        <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold tabular-nums">
-          {Math.round(pct * 100)}
-        </span>
+    <div className="relative h-24 w-24 shrink-0">
+      <svg viewBox="0 0 84 84" className="h-24 w-24 rotate-[135deg]">
+        <circle cx="42" cy="42" r={r} fill="none" strokeWidth="7" strokeLinecap="round"
+          className="stroke-secondary" strokeDasharray={`${arc} ${circ}`} />
+        <circle cx="42" cy="42" r={r} fill="none" strokeWidth="7" strokeLinecap="round"
+          stroke={scoreColor(score)} strokeDasharray={`${arc * pct} ${circ}`} />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-3xl font-black tabular-nums leading-none">{score}</span>
+        <span className="text-[8px] font-bold tracking-[0.2em] text-muted-foreground mt-0.5">TODAY</span>
       </div>
-      <span className="text-[10px] text-muted-foreground">{label}</span>
     </div>
+  )
+}
+
+function PillarBar({ label, pts, max, value, color }: Pillar & { value: string; color: string }) {
+  const pct = max > 0 ? Math.min(1, pts / max) : 0
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[11px] text-muted-foreground w-16 shrink-0">{label}</span>
+      <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${pct * 100}%`, backgroundColor: color }} />
+      </div>
+      <span className="text-[11px] font-bold tabular-nums w-10 text-right shrink-0" style={{ color }}>{value}</span>
+    </div>
+  )
+}
+
+function Spark({ values, color }: { values: (number | null)[]; color: string }) {
+  const pts = values.map((v, i) => [i, v] as const).filter(([, v]) => v != null) as [number, number][]
+  if (pts.length < 2) return <div className="h-5" />
+  const min = Math.min(...pts.map(p => p[1]))
+  const max = Math.max(...pts.map(p => p[1]))
+  const span = max - min || 1
+  const n = values.length - 1 || 1
+  const path = pts.map(([i, v]) => `${(i / n) * 60},${18 - ((v - min) / span) * 16}`).join(" ")
+  return (
+    <svg viewBox="0 0 60 20" className="h-5 w-full" preserveAspectRatio="none">
+      <polyline points={path} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 
@@ -91,12 +137,58 @@ export function MobileToday(p: MobileTodayProps) {
     .sort((a, b) => (a.start! < b.start! ? -1 : 1))
   const allDay = p.events.filter(e => e.isAllDay)
   const sleepH = p.sleepMin != null ? (p.sleepMin / 60).toFixed(1) : null
+  const latest = p.week[p.week.length - 1]
 
   return (
     <div className="lg:hidden space-y-3">
-      {/* Four pillars */}
-      <div className="rounded-2xl border border-border bg-card px-3 py-3 flex">
-        {p.pillars.map(pl => <PillarRing key={pl.label} {...pl} />)}
+      {/* Score gauge + pillar bars */}
+      <div className="rounded-2xl border border-border bg-card px-4 py-4 flex items-center gap-4">
+        <ScoreGauge score={p.score} />
+        <div className="flex-1 min-w-0 space-y-2">
+          {p.pillars.map((pl, i) => (
+            <PillarBar key={pl.label} {...pl} value={p.pillarValues[i] ?? ""} color={PILLAR_COLORS[i % PILLAR_COLORS.length]} />
+          ))}
+        </div>
+      </div>
+
+      {/* Sleep + Heart chart cards */}
+      <div className="grid grid-cols-2 gap-3">
+        <Link href="/dashboard/health" className="rounded-2xl border border-border bg-card px-3.5 py-3 block">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">🌙 Sleep</p>
+          <p className="text-xl font-black leading-none">
+            {sleepH ?? "–"}<span className="text-xs font-semibold text-muted-foreground"> h</span>
+          </p>
+          <div className="flex items-end gap-0.5 h-7 mt-2">
+            {p.week.map(d => {
+              const hrs = d.sleepMin != null ? d.sleepMin / 60 : 0
+              return (
+                <div key={d.date}
+                  className={`flex-1 rounded-sm ${hrs >= 7 ? "bg-indigo-400" : "bg-indigo-400/35"}`}
+                  style={{ height: `${Math.max(8, Math.min(100, (hrs / 10) * 100))}%` }}
+                />
+              )
+            })}
+          </div>
+        </Link>
+        <Link href="/dashboard/health" className="rounded-2xl border border-border bg-card px-3.5 py-3 block">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">❤️ Heart</p>
+          <div className="space-y-1.5">
+            <div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[10px] text-muted-foreground">HRV</span>
+                <span className="text-sm font-bold tabular-nums">{latest?.hrv != null ? `${Math.round(latest.hrv)}` : "–"}<span className="text-[9px] text-muted-foreground"> ms</span></span>
+              </div>
+              <Spark values={p.week.map(d => d.hrv)} color="#f472b6" />
+            </div>
+            <div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[10px] text-muted-foreground">RHR</span>
+                <span className="text-sm font-bold tabular-nums">{latest?.restingHR ?? "–"}<span className="text-[9px] text-muted-foreground"> bpm</span></span>
+              </div>
+              <Spark values={p.week.map(d => d.restingHR)} color="#818cf8" />
+            </div>
+          </div>
+        </Link>
       </div>
 
       {/* Ask Emergy */}

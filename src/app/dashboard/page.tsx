@@ -425,7 +425,21 @@ export default async function DashboardPage() {
       {/* Vora-style mobile Today view — pillar rings + day timeline. Replaces
           the schedule strip on phones; desktop keeps the strip + card grid. */}
       <MobileToday
+        score={wellnessScore}
         pillars={scorePillars}
+        pillarValues={[
+          latestHealth?.sleepDuration != null ? `${(latestHealth.sleepDuration / 60).toFixed(1)}h` : "–",
+          latestHealth?.steps != null ? `${(latestHealth.steps / 1000).toFixed(1)}k` : "–",
+          latestHealth?.readinessScore != null ? `${latestHealth.readinessScore}` : "–",
+          `${doneToday}/${habitsWithStreaks.length}`,
+        ]}
+        week={[...healthLogs].reverse().map(l => ({
+          date: l.date.toISOString().slice(0, 10),
+          sleepMin: l.sleepDuration,
+          hrv: l.hrv,
+          restingHR: l.restingHR,
+          steps: l.steps,
+        }))}
         sleepMin={latestHealth?.sleepDuration ?? null}
         sleepScore={latestHealth?.sleepScore ?? null}
         hasCheckedInToday={hasCheckedInToday}
