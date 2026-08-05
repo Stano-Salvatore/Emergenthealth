@@ -196,9 +196,11 @@ export function MobileToday(p: MobileTodayProps) {
   const latest = p.week[p.week.length - 1]
 
   return (
-    // sm:hidden matches DashboardGrid's isMobile boundary (<640px) so no
+    // md:hidden matches DashboardGrid's isMobile boundary (<768px) so no
     // viewport ever renders both this view and the grid's copies of it.
-    <div className="sm:hidden space-y-3">
+    // md (not sm): display zoom widens the layout viewport (412px phone at
+    // 60% zoom ≈ 687px), which must still count as mobile.
+    <div className="md:hidden space-y-3">
       {/* Score gauge + pillar bars */}
       <div className="rounded-2xl border border-border bg-card px-4 py-4 flex items-center gap-4">
         <ScoreGauge score={p.score} />
