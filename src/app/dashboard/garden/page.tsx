@@ -98,7 +98,24 @@ interface GardenData {
   plantChoices: Record<string, string>
   decorations: string[]
   weather: { code: number; temp: number } | null
+  level: { level: number; name: string; emoji: string; progress: number; xp: number; xpToNext: number }
+  unlocked: string[]
+  locked: { id: string; req: string; have: number; need: number }[]
+  watered: { today: boolean; count: number }
 }
+
+// Ambient scenery that appears as the garden levels up — the whole garden
+// visibly grows richer with XP, independent of individual habit plants.
+const LEVEL_FLAIR: { min: number; emoji: string; x: number; y: number; size: number }[] = [
+  { min: 2, emoji: "🌼", x: 10, y: 66, size: 18 },
+  { min: 3, emoji: "🌾", x: 90, y: 68, size: 20 },
+  { min: 4, emoji: "🌺", x: 28, y: 63, size: 18 },
+  { min: 5, emoji: "🪷", x: 66, y: 64, size: 18 },
+  { min: 6, emoji: "🌳", x: 4,  y: 50, size: 34 },
+  { min: 7, emoji: "🌲", x: 94, y: 48, size: 36 },
+  { min: 8, emoji: "⛲", x: 48, y: 60, size: 26 },
+  { min: 9, emoji: "🏡", x: 82, y: 44, size: 32 },
+]
 
 // ─── Emergy chat ─────────────────────────────────────────────────────────────
 
@@ -290,16 +307,19 @@ function LightningFlash() {
 // ─── Garden scene ─────────────────────────────────────────────────────────────
 
 function GardenScene({
-  habits, plantChoices, decorations, weather, onPlantClick,
+  habits, plantChoices, decorations, weather, level, sparkling, onPlantClick,
 }: {
   habits: HabitData[]
   plantChoices: Record<string, string>
   decorations: string[]
   weather: { code: number; temp: number } | null
+  level: number
+  sparkling: boolean
   onPlantClick: (id: string) => void
 }) {
   const theme = getWeatherTheme(weather?.code)
   const activeDecos = ALL_DECORATIONS.filter(d => decorations.includes(d.id))
+  const flair = LEVEL_FLAIR.filter(f => level >= f.min)
 
   return (
     <div className="relative w-full rounded-2xl overflow-hidden select-none" style={{ height: 420 }}>
@@ -352,6 +372,28 @@ function GardenScene({
       <div className="absolute w-full pointer-events-none" style={{ top: "58%" }}>
         <div className="w-full h-px bg-black/10" />
       </div>
+
+      {/* Level scenery — unlocks as the whole garden levels up */}
+      {flair.map(f => (
+        <div key={`${f.min}-${f.emoji}`} className="absolute z-20 pointer-events-none"
+          style={{ left: `${f.x}%`, top: `${f.y}%`, fontSize: f.size,
+            filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.3))" }}>
+          {f.emoji}
+        </div>
+      ))}
+
+      {/* Watering sparkles */}
+      {sparkling && (
+        <div className="absolute inset-0 z-40 pointer-events-none">
+          {[12, 30, 48, 65, 82].map((x, i) => (
+            <span key={i} className="absolute text-2xl"
+              style={{ left: `${x}%`, top: `${45 + (i % 3) * 12}%`,
+                animation: `gardenSparkle 1.4s ease-out ${i * 0.12}s both` }}>
+              {i % 2 === 0 ? "💧" : "✨"}
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* Plants — centered row at ground level */}
       <div className="absolute bottom-0 left-0 right-0 z-30 flex items-end justify-center gap-4 px-6 pb-5"
@@ -481,25 +523,45 @@ function PlantPicker({ habit, currentPlant, onSelect, onClose }: {
 
 // ─── Decoration picker ────────────────────────────────────────────────────────
 
-function DecorationPicker({ selected, onToggle, onClose }: {
+function DecorationPicker({ selected, unlocked, locked, onToggle, onClose }: {
   selected: string[]
+  unlocked: string[]
+  locked: { id: string; req: string; have: number; need: number }[]
   onToggle: (id: string) => void
   onClose: () => void
 }) {
+  const lockedById = new Map(locked.map(l => [l.id, l]))
   return (
     <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <p className="font-semibold text-sm">Garden Decorations</p>
-          <p className="text-xs text-muted-foreground mt-0.5">Add creatures and objects to your garden</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Earn creatures and objects — {unlocked.length}/{ALL_DECORATIONS.length} unlocked
+          </p>
         </div>
         <button onClick={onClose} className="p-1 rounded-lg hover:bg-secondary transition-colors text-muted-foreground">
           <X className="h-4 w-4" />
         </button>
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
         {ALL_DECORATIONS.map(d => {
+          const lock = lockedById.get(d.id)
           const active = selected.includes(d.id)
+          if (lock) {
+            return (
+              <div key={d.id}
+                className="flex flex-col items-center gap-1 p-3 rounded-xl border border-border/50 bg-secondary/20 opacity-70">
+                <span className="text-2xl leading-none grayscale">{d.emoji}</span>
+                <span className="text-[9px] text-muted-foreground text-center leading-none">🔒 {d.name}</span>
+                <span className="text-[8px] text-muted-foreground/70 text-center leading-tight">{lock.req}</span>
+                <div className="w-full h-1 rounded-full bg-secondary overflow-hidden mt-0.5">
+                  <div className="h-full rounded-full bg-primary/60"
+                    style={{ width: `${Math.round((lock.have / lock.need) * 100)}%` }} />
+                </div>
+              </div>
+            )
+          }
           return (
             <button key={d.id} onClick={() => onToggle(d.id)}
               className={cn(
@@ -562,6 +624,8 @@ export default function GardenPage() {
   const [showEmergy, setShowEmergy]       = useState(false)
   const [plantChoices, setPlantChoices]   = useState<Record<string, string>>({})
   const [decorations, setDecorations]     = useState<string[]>([])
+  const [watering, setWatering]           = useState(false)
+  const [sparkling, setSparkling]         = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -589,6 +653,30 @@ export default function GardenPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ habitId: selectedHabitId, plantType: plantKey }),
     })
+  }
+
+  async function handleWater() {
+    if (!data || data.watered.today || watering) return
+    setWatering(true)
+    try {
+      const res = await fetch("/api/garden", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ water: true }),
+      })
+      if (res.ok) {
+        const d = await res.json()
+        setData(prev => prev ? {
+          ...prev,
+          watered: { today: true, count: d.count },
+          level: { ...prev.level, xp: prev.level.xp + 5 },
+        } : prev)
+        setSparkling(true)
+        setTimeout(() => setSparkling(false), 1800)
+      }
+    } finally {
+      setWatering(false)
+    }
   }
 
   async function handleDecoToggle(id: string) {
@@ -637,6 +725,11 @@ export default function GardenPage() {
           0%, 92%, 94%, 96%, 100% { opacity: 0; }
           93%, 95%                { opacity: 0.6; }
         }
+        @keyframes gardenSparkle {
+          0%   { opacity: 0; transform: translateY(6px) scale(0.6); }
+          30%  { opacity: 1; transform: translateY(-6px) scale(1.1); }
+          100% { opacity: 0; transform: translateY(-22px) scale(0.9); }
+        }
       `}</style>
 
       <div className="space-y-5">
@@ -666,6 +759,32 @@ export default function GardenPage() {
           </div>
         </div>
 
+        {/* Level banner + daily watering */}
+        {data?.level && (
+          <div className="rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/10 to-card px-4 py-3 flex items-center gap-3">
+            <span className="text-3xl leading-none">{data.level.emoji}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline gap-2">
+                <p className="text-sm font-bold">{data.level.name}</p>
+                <p className="text-xs text-muted-foreground">Lv.{data.level.level} · {data.level.xp.toLocaleString()} XP</p>
+              </div>
+              <div className="mt-1.5 h-1.5 rounded-full bg-secondary overflow-hidden">
+                <div className="h-full rounded-full bg-green-500 transition-all" style={{ width: `${data.level.progress}%` }} />
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-1">{data.level.xpToNext} XP to the next level</p>
+            </div>
+            <Button
+              size="sm"
+              variant={data.watered.today ? "ghost" : "default"}
+              onClick={handleWater}
+              disabled={data.watered.today || watering}
+              className="shrink-0 gap-1.5"
+            >
+              💧 {data.watered.today ? "Watered ✓" : watering ? "Watering…" : "Water (+5 XP)"}
+            </Button>
+          </div>
+        )}
+
         {/* Summary chips */}
         {data && data.habits.length > 0 && (
           <div className="flex flex-wrap gap-2">
@@ -694,6 +813,8 @@ export default function GardenPage() {
             plantChoices={plantChoices}
             decorations={decorations}
             weather={data?.weather ?? null}
+            level={data?.level.level ?? 1}
+            sparkling={sparkling}
             onPlantClick={id => { setSelectedHabitId(id); setShowDecos(false) }}
           />
         )}
@@ -721,6 +842,8 @@ export default function GardenPage() {
         {showDecos && (
           <DecorationPicker
             selected={decorations}
+            unlocked={data?.unlocked ?? []}
+            locked={data?.locked ?? []}
             onToggle={handleDecoToggle}
             onClose={() => setShowDecos(false)}
           />
@@ -755,8 +878,10 @@ export default function GardenPage() {
               ["🌿 → 🌻", "Seedling → Growing", "3–13 day streak"],
               ["🌻 → ✨", "Blooming", "14+ day streak, glows!"],
               ["🥀", "Wilting", "3+ consecutive missed days"],
+              ["💧", "Daily watering", "One tap a day, +5 XP each"],
+              ["🧙 🦋", "Decorations", "Earned with streaks, XP & logs"],
+              ["🌳 ⛲", "Level scenery", "The garden grows richer as you level"],
               ["🌧️", "Weather", "Reflects real weather outside"],
-              ["🧙 🦋", "Decorations", "Purely cosmetic fun"],
             ].map(([icon, label, desc]) => (
               <div key={label} className="flex flex-col gap-0.5">
                 <p className="text-sm">{icon} <span className="font-medium text-xs">{label}</span></p>
