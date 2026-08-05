@@ -196,7 +196,9 @@ export function MobileToday(p: MobileTodayProps) {
   const latest = p.week[p.week.length - 1]
 
   return (
-    <div className="lg:hidden space-y-3">
+    // sm:hidden matches DashboardGrid's isMobile boundary (<640px) so no
+    // viewport ever renders both this view and the grid's copies of it.
+    <div className="sm:hidden space-y-3">
       {/* Score gauge + pillar bars */}
       <div className="rounded-2xl border border-border bg-card px-4 py-4 flex items-center gap-4">
         <ScoreGauge score={p.score} />
@@ -213,6 +215,7 @@ export function MobileToday(p: MobileTodayProps) {
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">🌙 Sleep</p>
           <p className="text-xl font-black leading-none">
             {sleepH ?? "–"}<span className="text-xs font-semibold text-muted-foreground"> h</span>
+            {p.sleepScore != null && <span className="text-[10px] font-semibold text-muted-foreground"> · score {p.sleepScore}</span>}
           </p>
           <div className="flex items-end gap-0.5 h-7 mt-2">
             {p.week.map(d => {
@@ -298,15 +301,6 @@ export function MobileToday(p: MobileTodayProps) {
         </p>
         <div className="relative">
           <div className="absolute left-[9.5px] top-1.5 bottom-1.5 w-px bg-border" />
-
-          {sleepH && (
-            <TimelineRow dot="#818cf8">
-              <p className="text-sm">
-                🛏️ Slept <span className="font-semibold">{sleepH}h</span>
-                {p.sleepScore != null && <span className="text-muted-foreground text-xs"> · score {p.sleepScore}</span>}
-              </p>
-            </TimelineRow>
-          )}
 
           <TimelineRow dot={p.hasCheckedInToday ? "#34d399" : null} dim={false}>
             {p.hasCheckedInToday ? (
