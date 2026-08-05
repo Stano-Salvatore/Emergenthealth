@@ -217,7 +217,10 @@ export default async function DashboardPage() {
       where: { userId, date: { gte: today } },
       take: 1,
     }),
-    getGmailSummary(userId),
+    // Gmail is feature-flagged off in V3 — skip the external API round-trip
+    isFeatureEnabled("gmail")
+      ? getGmailSummary(userId)
+      : Promise.resolve({ unreadCount: 0, messages: [] } as Awaited<ReturnType<typeof getGmailSummary>>),
     prisma.intakeLog.findMany({
       where: { userId, loggedAt: { gte: todayStart, lte: todayEnd } },
     }).catch(() => [] as any[]),
