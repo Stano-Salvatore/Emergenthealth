@@ -258,17 +258,16 @@ export function DashboardGrid({ blocks, header, mobileHidden }: Props) {
   // desktop layout (persistent sidebar, zoomed out) we keep the full grid so it
   // fills the screen instead of cramming everything into one narrow column.
   useEffect(() => {
-    const check = () => {
-      const webMode = (() => { try { return localStorage.getItem("layout_mode") === "web" } catch { return false } })()
-      setIsMobile(!webMode && window.innerWidth < 640)
-    }
+    // Pure viewport check, matching the CSS `md:` breakpoint used by the
+    // mobile Today view — CSS and JS must agree or blocks render twice/never.
+    // No localStorage layout_mode here: Web mode already widens the
+    // server-rendered viewport to ~1024px (see generateViewport), so
+    // innerWidth reflects it; consulting localStorage separately caused
+    // mismatched states when the cookie and localStorage disagreed.
+    const check = () => setIsMobile(window.innerWidth < 768)
     check()
     window.addEventListener("resize", check)
-    window.addEventListener("storage", check)
-    return () => {
-      window.removeEventListener("resize", check)
-      window.removeEventListener("storage", check)
-    }
+    return () => window.removeEventListener("resize", check)
   }, [])
 
   const onLayoutChange = useCallback((layout: readonly LayoutItem[]) => {

@@ -2,7 +2,7 @@
 // cache instantly and revalidated in the background (stale-while-revalidate),
 // so tab switches feel native even on slow connections. Build assets are
 // cache-first (they're content-hashed and immutable).
-const VERSION = "v4"
+const VERSION = "v5"
 const STATIC_CACHE = `emergenthealth-static-${VERSION}`
 const PAGES_CACHE = `emergenthealth-pages-${VERSION}`
 
@@ -50,10 +50,19 @@ async function staleWhileRevalidate(event) {
     })
     .catch(() => null)
 
-  if (cached) {
+  // Explicit reloads must reach the server: layout/zoom toggles call
+  // location.reload() expecting freshly rendered viewport meta from the new
+  // cookie — serving the cached page here would undo the toggle.
+  const isReload = ["reload", "no-cache", "no-store"].includes(event.request.cache)
+  if (cached && !isReload) {
     event.waitUntil(network)
     return cached
   }
+  if (isReload) {
+    const res = await network
+    if (res) return res
+  }
+  if (cached) return cached
   const res = await network
   if (res) return res
   if (event.request.mode === "navigate") {
