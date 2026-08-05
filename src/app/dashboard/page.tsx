@@ -34,6 +34,7 @@ import { NotesWidget } from "@/components/dashboard/NotesWidget"
 import { ScreenTimeCard } from "@/components/dashboard/ScreenTimeCard"
 import { isFeatureEnabled } from "@/lib/features"
 import { MobileToday } from "@/components/dashboard/MobileToday"
+import { classifyOuraTag } from "@/lib/oura-tag-classify"
 
 const DEFAULT_STEP_GOAL = 8_000
 const DEFAULT_SLEEP_GOAL_H = 7.5
@@ -251,53 +252,27 @@ export default async function DashboardPage() {
     }
   }
 
-  // ── intake (manual logs + Oura ring drink tags)
-  const manualWaterMl = todayIntake.filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
-  const manualCoffeeMl = todayIntake.filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0)
+  // ── intake — IntakeLog is the single source: the Oura sync mirrors drink
+  // tags (water/coffee/alcohol) into it, so no tag-derived amounts are added
+  // here (that would double-count).
+  const waterMl = todayIntake.filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
+  const coffeeMl = todayIntake.filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0)
+  const alcoholMl = todayIntake.filter((l: any) => l.type === "alcohol").reduce((a: number, l: any) => a + l.amountMl, 0)
   const focusMinToday = todayFocus.reduce((a: number, s: any) => a + s.durationMin, 0)
 
-  // Classify today's Oura tags into drink types / meds
-  const ML_RE = /(\d+)\s*ml/i
-  // Default volumes for tags without an explicit ml amount
-  const OURA_DEFAULTS: [RegExp, number][] = [
-    [/espresso/,              30],
-    [/macchiato/,             60],
-    [/flat.?white/,          160],
-    [/cappuccino/,           180],
-    [/latte/,                300],
-    [/americano/,            200],
-    [/v60|aeropress|pour.?over/, 300],
-    [/coffee/,               200],
-    [/\bwater\b/,            300],
-  ]
-  function ouraDefaultMl(label: string): number {
-    for (const [re, ml] of OURA_DEFAULTS) { if (re.test(label)) return ml }
-    return 200
-  }
-  let ouraWaterMl = 0, ouraCoffeeMl = 0
+  // Non-drink Oura tags = supplements/meds taken today (de-duped)
   const todayMedTags: string[] = []
   const seenMedNames = new Set<string>()
-
   for (const t of (todayOuraTags as any[])) {
-    // Combine tagName + text so "Espresso" + "30ml" → "Espresso 30ml"
-    const label = [t.tagName, t.text].filter(Boolean).join(" ").trim().toLowerCase()
+    const label = [t.tagName, t.text].filter(Boolean).join(" ").trim()
     if (!label) continue
-    const mlMatch = label.match(ML_RE)
-    const ml = mlMatch ? parseInt(mlMatch[1]) : ouraDefaultMl(label)
-    if (/\bwater\b/.test(label)) { ouraWaterMl += ml }
-    else if (/coffee|espresso|cappuccino|latte|americano|v60|aeropress|pour.?over|flat.?white|macchiato/.test(label)) { ouraCoffeeMl += ml }
-    else if (!/beer|wine|\balcohol\b|spirit|cocktail|whisky|whiskey|vodka|rum|\bgin\b|cider|juice|smoothie|shake|soda/.test(label)) {
-      // likely a medication or supplement — show name (de-duped, Title Case)
-      const name = (t.tagName ?? t.text ?? "").trim()
-      if (name && !seenMedNames.has(name.toLowerCase())) {
-        seenMedNames.add(name.toLowerCase())
-        todayMedTags.push(name)
-      }
+    if (classifyOuraTag(label).kind !== "med") continue
+    const name = (t.tagName ?? t.text ?? "").trim()
+    if (name && !seenMedNames.has(name.toLowerCase())) {
+      seenMedNames.add(name.toLowerCase())
+      todayMedTags.push(name)
     }
   }
-
-  const waterMl = manualWaterMl + ouraWaterMl
-  const coffeeMl = manualCoffeeMl + ouraCoffeeMl
 
   // ── health
   const latestHealth = healthLogs[0] ?? null
@@ -467,6 +442,7 @@ export default async function DashboardPage() {
         habitsRemaining={habitsWithStreaks.filter(h => !h.completedToday).map(h => h.name)}
         waterMl={waterMl}
         coffeeMl={coffeeMl}
+        alcoholMl={alcoholMl}
         medTags={todayMedTags}
         focusMin={focusMinToday}
         remindersOverdue={overdueReminders.length}

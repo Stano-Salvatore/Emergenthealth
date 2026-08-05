@@ -47,6 +47,7 @@ interface MobileTodayProps {
   habitsRemaining: string[]
   waterMl: number
   coffeeMl: number
+  alcoholMl?: number
   medTags: string[]
   focusMin: number
   remindersOverdue: number
@@ -356,6 +357,7 @@ export function MobileToday(p: MobileTodayProps) {
             <Link href="/dashboard/intake" className="text-sm">
               💧 <span className="font-semibold">{p.waterMl >= 1000 ? `${(p.waterMl / 1000).toFixed(1)}L` : `${p.waterMl}ml`}</span>
               {p.coffeeMl > 0 && <> · ☕ <span className="font-semibold">{p.coffeeMl}ml</span></>}
+              {(p.alcoholMl ?? 0) > 0 && <> · 🍺 <span className="font-semibold">{p.alcoholMl}ml</span></>}
             </Link>
           </TimelineRow>
 

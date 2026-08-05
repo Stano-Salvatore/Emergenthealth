@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
       accessToken: token,
       refreshToken: null,
       expiresAt: null,
-      scope: "personal daily heartrate workout session spo2",
+      scope: "personal daily heartrate workout session spo2 tag",
     },
     update: {
       accessToken: token,

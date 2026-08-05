@@ -2,6 +2,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { prisma } from "@/lib/prisma"
 import { getEventsInRange } from "@/lib/google-calendar"
+import { classifyOuraTag } from "@/lib/oura-tag-classify"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -451,27 +452,23 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const totalSpent = Object.values(spendingByCategory).reduce((a, b) => a + b, 0)
   const totalIncome = recentTransactions.filter((t) => t.amount > 0 && !t.isTransfer).reduce((sum, t) => sum + t.amount, 0)
 
-  // Classify today's Oura tags
+  // Non-drink Oura tags today = supplements/meds (drink tags are mirrored into
+  // IntakeLog by the Oura sync, so intake totals below already include them —
+  // adding tag amounts here would double-count)
   const todayOuraTags = (recentOuraTags as any[]).filter((t) => t.day === todayStr)
-  const ML_RE = /(\d+)\s*ml/i
-  let ouraWaterMl = 0, ouraCoffeeMl = 0
   const ouraMeds: string[] = []
   const seenMedNames = new Set<string>()
   for (const t of (todayOuraTags as any[])) {
     const label = (t.tagName ?? t.text ?? "").trim()
-    const l = label.toLowerCase()
-    if (!l) continue
-    const ml = (l.match(ML_RE)?.[1] ? parseInt(l.match(ML_RE)![1]) : 0)
-    if (/\bwater\b/.test(l)) ouraWaterMl += ml
-    else if (/coffee|espresso|latte|cappuccino|americano|v60|aeropress|pour.?over|flat.?white/.test(l)) ouraCoffeeMl += ml
-    else if (!/beer|wine|alcohol|vodka|rum|\bgin\b|whisky|cider|juice|smoothie|soda/.test(l)) {
-      if (label && !seenMedNames.has(l)) { seenMedNames.add(l); ouraMeds.push(label) }
-    }
+    if (!label) continue
+    if (classifyOuraTag(label).kind !== "med") continue
+    if (!seenMedNames.has(label.toLowerCase())) { seenMedNames.add(label.toLowerCase()); ouraMeds.push(label) }
   }
 
-  // Intake totals (manual + Oura)
-  const waterToday = (todayIntake as any[]).filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0) + ouraWaterMl
-  const coffeeToday = (todayIntake as any[]).filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0) + ouraCoffeeMl
+  // Intake totals (IntakeLog — includes drinks mirrored from Oura tags)
+  const waterToday = (todayIntake as any[]).filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
+  const coffeeToday = (todayIntake as any[]).filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0)
+  const alcoholToday = (todayIntake as any[]).filter((l: any) => l.type === "alcohol").reduce((a: number, l: any) => a + l.amountMl, 0)
 
   const moodLabels: Record<number, string> = { 1: "awful", 2: "bad", 3: "ok", 4: "good", 5: "great" }
   const energyLabels: Record<number, string> = { 1: "exhausted", 2: "tired", 3: "ok", 4: "good", 5: "amazing" }
@@ -589,7 +586,7 @@ You have tools to CREATE habits/reminders, COMPLETE habits, LOG water/coffee/moo
 ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
-- Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}
+- Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml` : ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
 ${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}
 

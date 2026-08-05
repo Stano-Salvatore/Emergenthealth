@@ -14,5 +14,10 @@ export async function POST() {
     )
   }
 
-  return NextResponse.json({ success: true, synced: result.synced, tagsSynced: result.tagsSynced })
+  return NextResponse.json({
+    success: true,
+    synced: result.synced,
+    tagsSynced: result.tagsSynced,
+    ...(result.tagsError ? { tagsError: result.tagsError } : {}),
+  })
 }

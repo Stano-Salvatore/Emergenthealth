@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/prisma"
 import { getDailySleep, getDailySleepScores, getDailyActivity, getDailyReadiness, getDailySpo2, getDailyStress, getOuraTags } from "@/lib/oura"
+import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { format, subDays } from "date-fns"
 
 export type OuraSyncResult =
-  | { ok: true; synced: number; tagsSynced: number }
+  | { ok: true; synced: number; tagsSynced: number; tagsError?: string }
   | { ok: false; error: string; notConnected?: boolean }
 
 /**
@@ -113,6 +114,7 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
 
     // Sync Oura tags (best-effort — table may not exist yet)
     let tagsSynced = 0
+    let tagsError: string | undefined
     try {
       await prisma.$executeRaw`
         CREATE TABLE IF NOT EXISTS "OuraTag" (
@@ -164,13 +166,38 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         }
       }
 
+      // Mirror drink tags into IntakeLog so water/coffee/alcohol logged in the
+      // Oura app show up everywhere intake does (Intake page, dashboard,
+      // Emergy) from one source. Deterministic ids make the upsert idempotent.
+      for (const t of tagData) {
+        const label = [t.tagName, t.comment].filter(Boolean).join(" ").trim()
+        if (!label) continue
+        const { kind, ml } = classifyOuraTag(label)
+        if ((kind !== "water" && kind !== "coffee" && kind !== "alcohol") || ml <= 0) continue
+        await prisma.intakeLog.upsert({
+          where: { id: `oura_${t.id}` },
+          create: {
+            id: `oura_${t.id}`,
+            userId,
+            type: kind,
+            amountMl: ml,
+            note: `${t.tagName || label} (Oura)`,
+            loggedAt: new Date(t.timestamp),
+          },
+          update: { type: kind, amountMl: ml },
+        }).catch(() => null)
+      }
+
       tagsSynced = tagData.length
     } catch (tagErr) {
-      console.error("[oura-sync] tag upsert error:", tagErr)
-      // silently skip if tag scope not granted yet
+      console.error("[oura-sync] tag sync error:", tagErr)
+      // Surface instead of silently skipping — an Oura connection made before
+      // the "tag" scope was requested can sync sleep fine while every tag
+      // fetch 403s, which looks like the user's tags are being ignored.
+      tagsError = tagErr instanceof Error ? tagErr.message : "Tag sync failed"
     }
 
-    return { ok: true, synced: results.length, tagsSynced }
+    return { ok: true, synced: results.length, tagsSynced, tagsError }
   } catch (e) {
     console.error("[oura-sync] error:", e)
     return { ok: false, error: "Internal server error" }
