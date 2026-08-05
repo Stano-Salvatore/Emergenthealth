@@ -217,7 +217,10 @@ export default async function DashboardPage() {
       where: { userId, date: { gte: today } },
       take: 1,
     }),
-    getGmailSummary(userId),
+    // Gmail is feature-flagged off in V3 — skip the external API round-trip
+    isFeatureEnabled("gmail")
+      ? getGmailSummary(userId)
+      : Promise.resolve({ unreadCount: 0, messages: [] } as Awaited<ReturnType<typeof getGmailSummary>>),
     prisma.intakeLog.findMany({
       where: { userId, loggedAt: { gte: todayStart, lte: todayEnd } },
     }).catch(() => [] as any[]),
@@ -425,7 +428,29 @@ export default async function DashboardPage() {
       {/* Vora-style mobile Today view — pillar rings + day timeline. Replaces
           the schedule strip on phones; desktop keeps the strip + card grid. */}
       <MobileToday
+        score={wellnessScore}
+        calYear={now.getFullYear()}
+        calMonth={now.getMonth()}
+        calToday={now.getDate()}
+        monthDots={Object.fromEntries(eventsByDay)}
+        nextEvents={nextEvents.map(e => ({
+          id: e.id, title: e.title, start: e.start, isAllDay: e.isAllDay,
+          color: e.color ?? null, location: e.location ?? null,
+        }))}
         pillars={scorePillars}
+        pillarValues={[
+          latestHealth?.sleepDuration != null ? `${(latestHealth.sleepDuration / 60).toFixed(1)}h` : "–",
+          latestHealth?.steps != null ? `${(latestHealth.steps / 1000).toFixed(1)}k` : "–",
+          latestHealth?.readinessScore != null ? `${latestHealth.readinessScore}` : "–",
+          `${doneToday}/${habitsWithStreaks.length}`,
+        ]}
+        week={[...healthLogs].reverse().map(l => ({
+          date: l.date.toISOString().slice(0, 10),
+          sleepMin: l.sleepDuration,
+          hrv: l.hrv,
+          restingHR: l.restingHR,
+          steps: l.steps,
+        }))}
         sleepMin={latestHealth?.sleepDuration ?? null}
         sleepScore={latestHealth?.sleepScore ?? null}
         hasCheckedInToday={hasCheckedInToday}

@@ -1,11 +1,16 @@
-const CACHE = "emergenthealth-v3"
+// v4: app-shell speed pass. Navigations and RSC payloads are served from
+// cache instantly and revalidated in the background (stale-while-revalidate),
+// so tab switches feel native even on slow connections. Build assets are
+// cache-first (they're content-hashed and immutable).
+const VERSION = "v4"
+const STATIC_CACHE = `emergenthealth-static-${VERSION}`
+const PAGES_CACHE = `emergenthealth-pages-${VERSION}`
 
-// Static shell assets worth caching offline
-const PRECACHE = ["/", "/dashboard", "/offline", "/signin", "/pricing"]
+const PRECACHE = ["/", "/dashboard", "/offline", "/signin"]
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
-    caches.open(CACHE).then((c) => c.addAll(PRECACHE).catch(() => {}))
+    caches.open(PAGES_CACHE).then((c) => c.addAll(PRECACHE).catch(() => {}))
   )
   self.skipWaiting()
 })
@@ -13,47 +18,73 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
+      Promise.all(
+        keys
+          .filter((k) => k !== STATIC_CACHE && k !== PAGES_CACHE)
+          .map((k) => caches.delete(k))
+      )
     )
   )
   self.clients.claim()
 })
 
-self.addEventListener("fetch", (e) => {
-  const url = new URL(e.request.url)
+async function cacheFirst(request) {
+  const cache = await caches.open(STATIC_CACHE)
+  const cached = await cache.match(request)
+  if (cached) return cached
+  const res = await fetch(request)
+  if (res.ok) cache.put(request, res.clone())
+  return res
+}
 
-  // Let API, auth, and external requests go straight to network
-  if (
-    url.pathname.startsWith("/api/") ||
-    url.pathname.startsWith("/auth/") ||
-    url.origin !== self.location.origin
-  ) {
-    return
-  }
-
-  // Network-first for navigation (always fresh dashboard)
-  if (e.request.mode === "navigate") {
-    e.respondWith(
-      fetch(e.request).catch(() =>
-        caches.match("/offline").then((r) => r ?? caches.match("/"))
-      )
-    )
-    return
-  }
-
-  // Cache-first for static assets (JS, CSS, fonts, images)
-  e.respondWith(
-    caches.match(e.request).then((cached) => {
-      if (cached) return cached
-      return fetch(e.request).then((res) => {
-        if (res.ok && e.request.method === "GET") {
-          const clone = res.clone()
-          caches.open(CACHE).then((c) => c.put(e.request, clone))
-        }
-        return res
-      })
+// Serve cached copy immediately, refresh it in the background. First visit
+// (nothing cached) falls through to network; offline navigations get the
+// offline page.
+async function staleWhileRevalidate(event) {
+  const cache = await caches.open(PAGES_CACHE)
+  const cached = await cache.match(event.request)
+  const network = fetch(event.request)
+    .then((res) => {
+      if (res.ok) cache.put(event.request, res.clone())
+      return res
     })
-  )
+    .catch(() => null)
+
+  if (cached) {
+    event.waitUntil(network)
+    return cached
+  }
+  const res = await network
+  if (res) return res
+  if (event.request.mode === "navigate") {
+    const offline = await cache.match("/offline")
+    if (offline) return offline
+    const home = await cache.match("/")
+    if (home) return home
+  }
+  return Response.error()
+}
+
+self.addEventListener("fetch", (e) => {
+  if (e.request.method !== "GET") return
+  const url = new URL(e.request.url)
+  if (url.origin !== self.location.origin) return
+
+  // Live data stays live — API/auth requests never touch the SW caches
+  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/auth/")) return
+
+  // Immutable build output + static resources
+  if (
+    url.pathname.startsWith("/_next/static/") ||
+    url.pathname.startsWith("/icons/") ||
+    ["style", "script", "font", "image"].includes(e.request.destination)
+  ) {
+    e.respondWith(cacheFirst(e.request))
+    return
+  }
+
+  // Pages + RSC payloads: instant from cache, fresh in the background
+  e.respondWith(staleWhileRevalidate(e))
 })
 
 self.addEventListener("push", function (event) {
