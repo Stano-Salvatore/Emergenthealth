@@ -126,6 +126,10 @@ function loadItems(): LayoutItem[] {
 interface Props {
   blocks: Partial<Record<BlockId, React.ReactNode>>
   header: React.ReactNode
+  // Blocks the mobile Today view already covers — excluded from the mobile
+  // stack (and its widget gallery) so info never appears twice on phones.
+  // Desktop grid is unaffected.
+  mobileHidden?: BlockId[]
 }
 
 // Edit-mode panel listing every available widget so the user can add or remove
@@ -185,7 +189,7 @@ function WidgetGallery({
   )
 }
 
-export function DashboardGrid({ blocks, header }: Props) {
+export function DashboardGrid({ blocks, header, mobileHidden }: Props) {
   const [items, setItems]     = useState<LayoutItem[]>(DEFAULT_ITEMS)
   const [hidden, setHidden]   = useState<Set<BlockId>>(new Set())
   const [editing, setEditing] = useState(false)
@@ -331,6 +335,11 @@ export function DashboardGrid({ blocks, header }: Props) {
   }
 
   if (isMobile) {
+    const mh = new Set(mobileHidden ?? [])
+    const mobileItems = visibleItems.filter(({ i }) => !mh.has(i as BlockId))
+    const mobileBlocks = Object.fromEntries(
+      Object.entries(blocks).filter(([k]) => !mh.has(k as BlockId))
+    ) as Props["blocks"]
     return (
       <div className="space-y-4">
         {header}
@@ -351,10 +360,10 @@ export function DashboardGrid({ blocks, header }: Props) {
           </button>
         </div>
 
-        {editing && <WidgetGallery blocks={blocks} hidden={hidden} onToggle={toggleHide} />}
+        {editing && <WidgetGallery blocks={mobileBlocks} hidden={hidden} onToggle={toggleHide} />}
 
         <div className="space-y-4">
-          {visibleItems.map(({ i }) => {
+          {mobileItems.map(({ i }) => {
             const id = i as BlockId
             const node = blocks[id]
             if (!node) return null

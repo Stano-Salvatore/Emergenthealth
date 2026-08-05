@@ -386,7 +386,8 @@ export default async function DashboardPage() {
           <div className="min-w-0"><WeatherWidget /></div>
         </div>
         <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="flex items-center gap-2.5 bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50 self-start sm:self-auto">
+          {/* Score chip — desktop only; the mobile Today view has the gauge */}
+          <div className="hidden sm:flex items-center gap-2.5 bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50 self-start sm:self-auto">
             <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>
             <p className={`text-[11px] font-semibold uppercase tracking-wider ${scoreColor}`}>{scoreEmoji} {scoreLabel}</p>
           </div>
@@ -401,12 +402,14 @@ export default async function DashboardPage() {
             the dashboard reads as one card instead of three overlapping ones. */}
         <div className="mt-4 space-y-3 relative">
           <DailyBriefing />
-          <TodayStrip />
+          {/* TodayStrip — desktop only; the mobile gauge + timeline cover it */}
+          <div className="hidden sm:block"><TodayStrip /></div>
         </div>
       </div>
 
+      {/* Desktop only — the mobile timeline has its own check-in row/CTA */}
       {!hasCheckedInToday && (
-        <Link href="/dashboard/checkin" className="block">
+        <Link href="/dashboard/checkin" className="hidden sm:block">
           <Card className="border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors cursor-pointer">
             <CardContent className="pt-4 pb-3 flex items-center justify-between">
               <div>
@@ -472,7 +475,7 @@ export default async function DashboardPage() {
 
       {/* ── today's schedule strip (desktop — the mobile timeline replaces it) ── */}
       {todayEvents.length > 0 && (
-        <div className="hidden lg:block rounded-xl border bg-primary/5 border-primary/20 px-4 py-3">
+        <div className="hidden sm:block rounded-xl border bg-primary/5 border-primary/20 px-4 py-3">
           <div className="flex items-center gap-2 mb-2">
             <Clock className="h-4 w-4 text-primary" />
             <span className="text-sm font-semibold text-primary">Today&apos;s Schedule</span>
@@ -831,7 +834,15 @@ export default async function DashboardPage() {
     quickstart: <QuickStart hasCheckin={hasCheckedInToday} hasHabits={habits.length > 0} />,
   }
 
-  return <DashboardGrid header={header} blocks={blocks} />
+  // On phones the Today view (gauge, sleep/heart cards, calendar, timeline)
+  // is the single source for these — drop their grid twins from the mobile stack.
+  return (
+    <DashboardGrid
+      header={header}
+      blocks={blocks}
+      mobileHidden={["health", "calendar", "habits", "reminders", "stats"]}
+    />
+  )
 }
 
 function MetricBox({ icon, label, value, sub, ok }: {
