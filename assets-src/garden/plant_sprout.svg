@@ -1,6 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 30">
-  <path d="M14 28 Q13.4 20 14 12" fill="none" stroke="#5c9a48" stroke-width="2.6" stroke-linecap="round"/>
-  <path d="M14 14 Q8 13 5 7 Q12 6 14.5 11 Z" fill="#6fae57" stroke="#4c7d3c" stroke-width="1.5" stroke-linejoin="round"/>
-  <path d="M14 12 Q19 9 23 4 Q24 11 17 13.5 Z" fill="#8cc46e" stroke="#4c7d3c" stroke-width="1.5" stroke-linejoin="round"/>
-  <path d="M7 8.5 Q10 8.5 12.6 10.6" fill="none" stroke="#4c7d3c" stroke-width="1" opacity="0.6"/>
+  <defs>
+    <radialGradient id="sl" cx="0.6" cy="0.25" r="0.9">
+      <stop offset="0" stop-color="#9ed67e"/><stop offset="0.6" stop-color="#6fae57"/><stop offset="1" stop-color="#3f7031"/>
+    </radialGradient>
+  </defs>
+  <path d="M13.2 28 Q12.8 20 13.6 12 L14.8 12 Q14.6 20 14.8 28 Z" fill="#4c8a3c"/>
+  <path d="M14 14 Q8 13 5 7 Q12 6 14.5 11 Z" fill="url(#sl)"/>
+  <path d="M14 12 Q19 9 23 4 Q24 11 17 13.5 Z" fill="url(#sl)"/>
+  <path d="M21.6 5.6 Q18.6 8.6 16 12 Q20.6 10.6 21.6 5.6 Z" fill="#c4e8ad" opacity="0.7"/>
 </svg>

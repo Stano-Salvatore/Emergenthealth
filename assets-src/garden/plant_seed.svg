@@ -1,7 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 22">
-  <ellipse cx="12" cy="17" rx="9" ry="4.4" fill="#5a4028" stroke="#3d2b1a" stroke-width="1.4"/>
-  <ellipse cx="12" cy="15.6" rx="6.4" ry="2.8" fill="#6b4c30"/>
-  <path d="M12 15 Q10 11 12 8 Q14 11 12 15 Z" fill="#e8d3a0" stroke="#b89a63 " stroke-width="1.2"/>
+  <defs>
+    <radialGradient id="mound" cx="0.58" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#7d5c3a"/><stop offset="0.6" stop-color="#5a4028"/><stop offset="1" stop-color="#3a2817"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="12" cy="17" rx="9" ry="4.4" fill="url(#mound)"/>
+  <ellipse cx="10.4" cy="15.4" rx="4" ry="1.7" fill="#8a6844" opacity="0.75"/>
+  <path d="M12 15 Q10 11 12 8 Q14 11 12 15 Z" fill="#e8d3a0"/>
+  <path d="M12 9 Q12.9 11 12.6 13.6 Q13.6 11 12 9 Z" fill="#fbf0d4" opacity="0.9"/>
   <circle cx="17.5" cy="6" r="1" fill="#ffe9a3" opacity="0.9"/>
   <circle cx="6.5" cy="8.5" r="0.8" fill="#ffe9a3" opacity="0.7"/>
 </svg>

@@ -1,10 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 36">
-  <!-- pad -->
-  <path d="M22 33 L37 26 A17.5 8.5 0 1 0 22 33 Z" fill="#4f9a52" stroke="#3d7c41" stroke-width="1.8" stroke-linejoin="round"/>
-  <path d="M22 33 L35 28 A16 7 0 0 1 24 34.4 Z" fill="#5cae5f"/>
-  <!-- flower: tulip-like -->
-  <path d="M13 22 Q11 12 14 7 Q18 11 18 16 Z" fill="#ffb7d1" stroke="#d9648f" stroke-width="1.6" stroke-linejoin="round"/>
-  <path d="M31 22 Q33 12 30 7 Q26 11 26 16 Z" fill="#ffb7d1" stroke="#d9648f" stroke-width="1.6" stroke-linejoin="round"/>
-  <path d="M22 24 Q15 22 14 12 Q19 14 20 18 Q19 9 22 4 Q25 9 24 18 Q25 14 30 12 Q29 22 22 24 Z" fill="#ff9fc0" stroke="#d9648f" stroke-width="1.8" stroke-linejoin="round"/>
-  <circle cx="22" cy="21.4" r="2.4" fill="#ffe9a3" stroke="#e8b93d" stroke-width="1.2"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 38">
+  <defs>
+    <radialGradient id="lpad" cx="0.55" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#6cbf6f"/><stop offset="0.6" stop-color="#4f9a52"/><stop offset="1" stop-color="#2f6134"/>
+    </radialGradient>
+    <radialGradient id="lpetal" cx="0.58" cy="0.28" r="0.95">
+      <stop offset="0" stop-color="#ffd3e2"/><stop offset="0.55" stop-color="#ff9fc0"/><stop offset="1" stop-color="#c85788"/>
+    </radialGradient>
+  </defs>
+  <path d="M22 33 L37 26 A17.5 8.5 0 1 0 22 33 Z" fill="url(#lpad)"/>
+  <path d="M22 33 L35 28 A16 7 0 0 1 24 34.4 Z" fill="#5cae5f" opacity="0.85"/>
+  <path d="M13 22 Q11 12 14 7 Q18 11 18 16 Z" fill="url(#lpetal)"/>
+  <path d="M31 22 Q33 12 30 7 Q26 11 26 16 Z" fill="url(#lpetal)"/>
+  <path d="M22 24 Q15 22 14 12 Q19 14 20 18 Q19 9 22 4 Q25 9 24 18 Q25 14 30 12 Q29 22 22 24 Z" fill="url(#lpetal)"/>
+  <path d="M22 5.6 Q20.2 9.6 20.6 15 Q21.4 10 22 5.6 Z" fill="#ffe2ec" opacity="0.85"/>
+  <circle cx="22" cy="21.4" r="2.4" fill="#ffe9a3"/>
+  <circle cx="21.4" cy="20.8" r="0.9" fill="#fff6d9"/>
 </svg>

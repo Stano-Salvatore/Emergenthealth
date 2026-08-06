@@ -1,8 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 38 38">
-  <path d="M19 36 Q18.4 26 19 18" fill="none" stroke="#4c7d3c" stroke-width="2.8" stroke-linecap="round"/>
-  <path d="M19 24 Q10 23 6 15 Q15 14 19.5 20 Z" fill="#5c9a48" stroke="#40632f" stroke-width="1.6" stroke-linejoin="round"/>
-  <path d="M19 22 Q28 20 32 12 Q23 11 18.6 18 Z" fill="#6fae57" stroke="#40632f" stroke-width="1.6" stroke-linejoin="round"/>
-  <path d="M19 18 Q13 12 13 4 Q21 8 20 16 Z" fill="#6fae57" stroke="#40632f" stroke-width="1.6" stroke-linejoin="round"/>
-  <path d="M19 17 Q23 10 30 7 Q28 16 21 18.5 Z" fill="#8cc46e" stroke="#40632f" stroke-width="1.6" stroke-linejoin="round"/>
-  <path d="M19 16 Q18.6 9 19 5" fill="none" stroke="#8cc46e" stroke-width="2" stroke-linecap="round"/>
+  <defs>
+    <radialGradient id="ll" cx="0.6" cy="0.25" r="0.9">
+      <stop offset="0" stop-color="#8cc46e"/><stop offset="0.55" stop-color="#5c9a48"/><stop offset="1" stop-color="#345527"/>
+    </radialGradient>
+    <radialGradient id="ll2" cx="0.6" cy="0.25" r="0.9">
+      <stop offset="0" stop-color="#a8d88a"/><stop offset="0.55" stop-color="#6fae57"/><stop offset="1" stop-color="#3f7031"/>
+    </radialGradient>
+  </defs>
+  <path d="M18.4 36 Q17.8 26 18.6 18 L19.6 18 Q19.6 26 19.6 36 Z" fill="#40632f"/>
+  <path d="M19 24 Q10 23 6 15 Q15 14 19.5 20 Z" fill="url(#ll)"/>
+  <path d="M19 22 Q28 20 32 12 Q23 11 18.6 18 Z" fill="url(#ll2)"/>
+  <path d="M19 18 Q13 12 13 4 Q21 8 20 16 Z" fill="url(#ll2)"/>
+  <path d="M19 17 Q23 10 30 7 Q28 16 21 18.5 Z" fill="url(#ll)"/>
+  <path d="M29 8.4 Q25 11.6 21.6 16 Q27 14.6 29 8.4 Z" fill="#c4e8ad" opacity="0.65"/>
+  <path d="M14 6 Q17.6 10 18.6 14.6 Q14.6 11.6 14 6 Z" fill="#c4e8ad" opacity="0.5"/>
 </svg>
