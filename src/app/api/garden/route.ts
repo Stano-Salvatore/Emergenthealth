@@ -2,6 +2,38 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getWeatherCoords } from "@/lib/weather-location"
+import { computeXp, getLevel } from "@/lib/xp"
+
+// ─── Decoration unlocks ───────────────────────────────────────────────────────
+// Decorations are earned, not toggled freely — each has a real-data condition.
+// Once earned they stay unlocked forever (persisted in garden:unlocked).
+
+interface UnlockCtx {
+  level: number
+  completions: number
+  maxStreak: number
+  journal: number
+  focus: number
+  intakeDays: number
+  checkins: number
+}
+
+const UNLOCK_RULES: { id: string; req: string; have: (c: UnlockCtx) => number; need: number }[] = [
+  { id: "ladybug",   req: "10 habit completions",   have: c => c.completions, need: 10 },
+  { id: "stone",     req: "Reach level 2",           have: c => c.level,       need: 2 },
+  { id: "snail",     req: "3 journal entries",       have: c => c.journal,     need: 3 },
+  { id: "butterfly", req: "7-day habit streak",      have: c => c.maxStreak,   need: 7 },
+  { id: "mushroom",  req: "5 focus sessions",        have: c => c.focus,       need: 5 },
+  { id: "hedgehog",  req: "5 morning check-ins",     have: c => c.checkins,    need: 5 },
+  { id: "frog",      req: "15 days of intake logs",  have: c => c.intakeDays,  need: 15 },
+  { id: "bee",       req: "50 habit completions",    have: c => c.completions, need: 50 },
+  { id: "bird",      req: "14-day habit streak",     have: c => c.maxStreak,   need: 14 },
+  { id: "gnome",     req: "Reach level 5 (Flower)",  have: c => c.level,       need: 5 },
+  { id: "fox",       req: "30-day habit streak",     have: c => c.maxStreak,   need: 30 },
+  { id: "rainbow",   req: "Reach level 7 (Forest)",  have: c => c.level,       need: 7 },
+]
+
+function todayStr() { return new Date().toISOString().split("T")[0] }
 
 export async function GET() {
   const session = await auth()
@@ -10,24 +42,34 @@ export async function GET() {
 
   const sixtyDaysAgo = new Date(Date.now() - 60 * 86400000)
 
-  const habits = await prisma.habit.findMany({
-    where: { userId, isArchived: false },
-    include: {
-      completions: {
-        where: { date: { gte: sixtyDaysAgo } },
-        orderBy: { date: "desc" },
+  const [habits, prefs, checkinRows, xp] = await Promise.all([
+    prisma.habit.findMany({
+      where: { userId, isArchived: false },
+      include: {
+        completions: {
+          where: { date: { gte: sixtyDaysAgo } },
+          orderBy: { date: "desc" },
+        },
       },
-    },
-    orderBy: { createdAt: "asc" },
-  })
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.$queryRaw<{ key: string; value: string }[]>`
+      SELECT "key", "value" FROM "UserPreference"
+      WHERE "userId" = ${userId} AND "key" LIKE 'garden:%'
+    `,
+    prisma.$queryRaw<{ n: bigint }[]>`
+      SELECT COUNT(*)::bigint AS n FROM "MorningCheckIn" WHERE "userId" = ${userId}
+    `.catch(() => [{ n: BigInt(0) }]),
+    computeXp(userId),
+  ])
 
-  const todayStr = new Date().toISOString().split("T")[0]
+  const today = todayStr()
 
   const habitsData = habits.map(habit => {
     const completionDates = new Set(
       habit.completions.map(c => new Date(c.date).toISOString().split("T")[0])
     )
-    const completedToday = completionDates.has(todayStr)
+    const completedToday = completionDates.has(today)
 
     // Current streak (back from today or yesterday)
     let streak = 0
@@ -50,18 +92,47 @@ export async function GET() {
     return { id: habit.id, name: habit.name, icon: habit.icon, color: habit.color, streak, completedToday, missedDays }
   })
 
-  // Plant choices and decorations from UserPreference (raw SQL for consistency)
-  const prefs = await prisma.$queryRaw<{ key: string; value: string }[]>`
-    SELECT "key", "value" FROM "UserPreference"
-    WHERE "userId" = ${userId} AND "key" LIKE 'garden:%'
-  `
-
+  // Preferences
   const plantChoices: Record<string, string> = {}
   let decorations: string[] = []
+  let storedUnlocked: string[] = []
+  let watered: { count: number; last: string } = { count: 0, last: "" }
   for (const p of prefs) {
     if (p.key.startsWith("garden:plant:")) plantChoices[p.key.slice(13)] = p.value
     else if (p.key === "garden:decorations") { try { decorations = JSON.parse(p.value) } catch {} }
+    else if (p.key === "garden:unlocked") { try { storedUnlocked = JSON.parse(p.value) } catch {} }
+    else if (p.key === "garden:watered") { try { watered = { count: 0, last: "", ...JSON.parse(p.value) } } catch {} }
   }
+
+  // Level + unlock evaluation
+  const level = getLevel(xp.total)
+  const ctx: UnlockCtx = {
+    level: level.level,
+    completions: Math.round(xp.habits / 10),
+    maxStreak: Math.max(0, ...habitsData.map(h => h.streak)),
+    journal: Math.round(xp.journal / 10),
+    focus: Math.round(xp.focus / 10),
+    intakeDays: Math.round(xp.intake / 5),
+    checkins: Number(checkinRows[0]?.n ?? 0),
+  }
+
+  // Anything already placed in the garden stays unlocked (pre-overhaul users)
+  const unlocked = new Set([...storedUnlocked, ...decorations])
+  for (const rule of UNLOCK_RULES) {
+    if (rule.have(ctx) >= rule.need) unlocked.add(rule.id)
+  }
+  if (unlocked.size !== storedUnlocked.length) {
+    const value = JSON.stringify([...unlocked])
+    await prisma.$executeRaw`
+      INSERT INTO "UserPreference" ("userId", "key", "value")
+      VALUES (${userId}, 'garden:unlocked', ${value})
+      ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${value}
+    `.catch(() => null)
+  }
+
+  const locked = UNLOCK_RULES
+    .filter(r => !unlocked.has(r.id))
+    .map(r => ({ id: r.id, req: r.req, have: Math.min(r.have(ctx), r.need), need: r.need }))
 
   // Weather (Open-Meteo, cached 30 min)
   const wc = await getWeatherCoords(userId)
@@ -77,7 +148,23 @@ export async function GET() {
     }
   } catch {}
 
-  return NextResponse.json({ habits: habitsData, plantChoices, decorations, weather })
+  return NextResponse.json({
+    habits: habitsData,
+    plantChoices,
+    decorations,
+    weather,
+    level: {
+      level: level.level,
+      name: level.levelName,
+      emoji: level.levelEmoji,
+      progress: level.progress,
+      xp: xp.total,
+      xpToNext: level.xpToNext,
+    },
+    unlocked: [...unlocked],
+    locked,
+    watered: { today: watered.last === today, count: watered.count },
+  })
 }
 
 export async function POST(req: Request) {
@@ -97,14 +184,42 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true })
   }
 
+  // Daily watering ritual — one tap per day, +5 XP each (see computeXp)
+  if (body.water === true) {
+    const today = todayStr()
+    const row = await prisma.$queryRaw<{ value: string }[]>`
+      SELECT "value" FROM "UserPreference" WHERE "userId" = ${userId} AND "key" = 'garden:watered'
+    `.catch(() => [] as { value: string }[])
+    let watered = { count: 0, last: "" }
+    try { if (row[0]) watered = { count: 0, last: "", ...JSON.parse(row[0].value) } } catch {}
+    if (watered.last === today) {
+      return NextResponse.json({ ok: true, already: true, count: watered.count })
+    }
+    watered = { count: watered.count + 1, last: today }
+    const value = JSON.stringify(watered)
+    await prisma.$executeRaw`
+      INSERT INTO "UserPreference" ("userId", "key", "value")
+      VALUES (${userId}, 'garden:watered', ${value})
+      ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${value}
+    `
+    return NextResponse.json({ ok: true, already: false, count: watered.count })
+  }
+
   if (Array.isArray(body.decorations)) {
-    const value = JSON.stringify(body.decorations)
+    // Only earned decorations can be placed
+    const row = await prisma.$queryRaw<{ value: string }[]>`
+      SELECT "value" FROM "UserPreference" WHERE "userId" = ${userId} AND "key" = 'garden:unlocked'
+    `.catch(() => [] as { value: string }[])
+    let unlocked: string[] = []
+    try { if (row[0]) unlocked = JSON.parse(row[0].value) } catch {}
+    const filtered = body.decorations.filter((d: unknown) => typeof d === "string" && unlocked.includes(d))
+    const value = JSON.stringify(filtered)
     await prisma.$executeRaw`
       INSERT INTO "UserPreference" ("userId", "key", "value")
       VALUES (${userId}, 'garden:decorations', ${value})
       ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${value}
     `
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, decorations: filtered })
   }
 
   return NextResponse.json({ error: "Invalid body" }, { status: 400 })
