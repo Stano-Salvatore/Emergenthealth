@@ -89,6 +89,21 @@ const SPRITE_DEFS: Record<string, AssetDef> = {
   bee:        { emoji: "🐝", size: 26 },
   rainbow:    { emoji: "🌈", size: 60 },
   bloom:      { emoji: "🌼", size: 34 },
+  // habit plant growth stages (shared) + one mature "model" per plant type
+  plant_wilt:      { emoji: "🥀", size: 22 },
+  plant_seed:      { emoji: "🌱", size: 16 },
+  plant_sprout:    { emoji: "🌿", size: 24 },
+  plant_leafy:     { emoji: "🌿", size: 32 },
+  bloom_sunflower: { emoji: "🌻", size: 46 },
+  bloom_rose:      { emoji: "🌹", size: 44 },
+  bloom_cactus:    { emoji: "🌵", size: 42 },
+  bloom_mushroom:  { emoji: "🍄", size: 38 },
+  bloom_bamboo:    { emoji: "🎋", size: 48 },
+  bloom_sakura:    { emoji: "🌸", size: 46 },
+  bloom_oak:       { emoji: "🌳", size: 46 },
+  bloom_tulip:     { emoji: "🌷", size: 42 },
+  bloom_fern:      { emoji: "🌿", size: 40 },
+  bloom_bonsai:    { emoji: "🪴", size: 42 },
   bird_fly:   { emoji: "🐦", size: 28 },
   petal:      { emoji: "🌸", size: 12 },
   sparkle:    { emoji: "✨", size: 22 },
@@ -152,10 +167,12 @@ const GROUND_COLORS: Record<Ground, GroundColors> = {
   wood:  { top: 0x9a6a3c, topAlt: 0x8c5e34, sideL: 0x5e3f23, sideR: 0x6f4b29, edge: 0xb28049 },
 }
 
-function tileTexture(app: Application, ground: Ground, alt: boolean): Texture {
-  const key = `tile:${ground}:${alt}`
+// four texture variants per ground type so neighbouring tiles never repeat
+function tileTexture(app: Application, ground: Ground, variant: number): Texture {
+  const key = `tile:${ground}:${variant}`
   const hit = textureCache.get(key)
   if (hit) return hit
+  const alt = variant % 2 === 1
   const c = GROUND_COLORS[ground]
   const g = new Graphics()
   const hw = TW / 2, hh = TH / 2
@@ -180,6 +197,15 @@ function tileTexture(app: Application, ground: Ground, alt: boolean): Texture {
     // side skirt (SW + SE faces) with a darker foot for weight
     g.poly([-hw, hh, 0, TH, 0, TH + SKIRT, -hw, hh + SKIRT]).fill(c.sideL)
     g.poly([0, TH, hw, hh, hw, hh + SKIRT, 0, TH + SKIRT]).fill(c.sideR)
+    // vertical texture streaks on the faces
+    for (let i = 0; i < 3; i++) {
+      const fx = -hw + 8 + i * 11 + (variant % 2) * 4
+      g.moveTo(fx, hh + (fx + hw) * (hh / hw) * 0 + 6 + i).lineTo(fx, hh + SKIRT - 5)
+        .stroke({ width: 1.4, color: 0x000000, alpha: 0.1 })
+      const fx2 = 8 + i * 11 + (variant % 2) * 3
+      g.moveTo(fx2, TH + 2 - i).lineTo(fx2, TH + SKIRT - 6)
+        .stroke({ width: 1.4, color: 0xffffff, alpha: 0.06 })
+    }
     g.poly([-hw, hh + SKIRT - 4, 0, TH + SKIRT - 4, 0, TH + SKIRT, -hw, hh + SKIRT]).fill({ color: 0x000000, alpha: 0.18 })
     g.poly([0, TH + SKIRT - 4, hw, hh + SKIRT - 4, hw, hh + SKIRT, 0, TH + SKIRT]).fill({ color: 0x000000, alpha: 0.14 })
     // top diamond
@@ -190,31 +216,66 @@ function tileTexture(app: Application, ground: Ground, alt: boolean): Texture {
   }
 
   if (ground === "grass") {
-    // moss speckles + grass tufts along the front edges
-    for (let i = 0; i < 5; i++) {
-      const a = (i * 2.399) % (Math.PI * 2)
-      const r = 6 + (i % 3) * 5
-      g.circle(Math.cos(a) * r, hh + Math.sin(a) * r * 0.5, 2.2).fill({ color: c.edge, alpha: 0.3 })
+    // mottled patches, speckles in two tones, tufts, and blades that
+    // overhang the front edges onto the skirt
+    g.ellipse((variant - 1.5) * 9, hh + (variant % 2 ? 3 : -2), 13, 6)
+      .fill({ color: 0x000000, alpha: 0.07 })
+    for (let i = 0; i < 8; i++) {
+      const a = ((i + variant) * 2.399) % (Math.PI * 2)
+      const r = 5 + ((i + variant) % 4) * 4
+      g.circle(Math.cos(a) * r, hh + Math.sin(a) * r * 0.5, i % 2 ? 2.2 : 1.4)
+        .fill({ color: i % 3 === 0 ? 0x86b465 : c.edge, alpha: 0.32 })
     }
     const tufts: [number, number][] = alt
-      ? [[-hw + 12, hh + 4], [-6, TH - 3], [hw - 16, hh + 6]]
-      : [[-hw + 18, hh + 7], [8, TH - 4], [hw - 10, hh + 3]]
+      ? [[-hw + 12, hh + 4], [-6, TH - 3], [hw - 16, hh + 6], [hw - 26, hh - 3]]
+      : [[-hw + 18, hh + 7], [8, TH - 4], [hw - 10, hh + 3], [-hw + 26, hh - 4]]
     for (const [tx, ty] of tufts) {
       g.poly([tx - 3, ty, tx - 1, ty - 6, tx, ty]).fill(c.edge)
-      g.poly([tx - 1, ty, tx + 1, ty - 8, tx + 2, ty]).fill(c.top === GROUND_COLORS.grass.top ? 0x86b465 : c.edge)
+      g.poly([tx - 1, ty, tx + 1, ty - 8, tx + 2, ty]).fill(0x86b465)
       g.poly([tx + 2, ty, tx + 4, ty - 5, tx + 5, ty]).fill(c.edge)
+    }
+    // overhanging blades spilling over the front edges
+    const hang: [number, number][] = [[-hw + 14, hh + 8], [-8, TH + 2], [12, TH - 1], [hw - 18, hh + 9]]
+    for (const [bx, by] of hang) {
+      g.poly([bx - 2, by, bx, by + 6 + (variant % 2) * 2, bx + 2.4, by]).fill({ color: c.top, alpha: 0.95 })
+    }
+    if (variant === 3) {
+      g.circle(-8, hh - 4, 1.6).fill(0xffd9e8)
+      g.circle(10, hh + 5, 1.4).fill(0xffe9a3)
     }
   }
   if (ground === "stone") {
-    // beveled slab: inner highlight rim + hairline cracks
+    // beveled slab: highlight rim, surface mottle, cracks and a chipped corner
     g.poly([0, 3, hw - 5, hh, 0, TH - 3, -hw + 5, hh])
       .stroke({ width: 1.6, color: 0xe8dfcc, alpha: 0.6 })
-    g.moveTo(-hw + 6, hh).lineTo(0, 6).stroke({ width: 1, color: 0x8a7a5e, alpha: 0.25 })
-    g.moveTo(0, TH - 6).lineTo(hw - 6, hh).stroke({ width: 1, color: 0x8a7a5e, alpha: 0.25 })
+    for (let i = 0; i < 6; i++) {
+      const a = ((i + variant * 2) * 2.399) % (Math.PI * 2)
+      const r = 4 + ((i + variant) % 3) * 5
+      g.ellipse(Math.cos(a) * r, hh + Math.sin(a) * r * 0.45, 2.6, 1.4)
+        .fill({ color: i % 2 ? 0xb5a88e : 0xe0d6c2, alpha: 0.35 })
+    }
+    if (variant === 0 || variant === 2) {
+      g.moveTo(-hw + 8, hh + 2).lineTo(-6, hh - 3).lineTo(2, hh + 4)
+        .stroke({ width: 1, color: 0x8a7a5e, alpha: 0.4 })
+    }
+    if (variant === 1 || variant === 3) {
+      g.moveTo(4, 8).lineTo(10, hh - 2).lineTo(hw - 12, hh + 1)
+        .stroke({ width: 1, color: 0x8a7a5e, alpha: 0.35 })
+    }
+    if (variant === 2) {
+      g.poly([hw - 8, hh - 2, hw - 2, hh, hw - 7, hh + 3]).fill({ color: 0x9a8c70, alpha: 0.6 })
+    }
   }
   if (ground === "wood") {
-    g.moveTo(-hw / 2, hh / 2 + 4).lineTo(hw / 2 - 8, TH - 4).stroke({ width: 1.2, color: 0x503219, alpha: 0.4 })
-    g.moveTo(-hw / 2 + 10, hh / 2 - 2).lineTo(hw / 2, TH - 12).stroke({ width: 1.2, color: 0x503219, alpha: 0.35 })
+    // plank seam, wavy grain lines, nail heads
+    g.moveTo(-hw + 6, hh - 1).lineTo(0, TH - 2).stroke({ width: 1.6, color: 0x503219, alpha: 0.5 })
+    g.moveTo(-hw / 2, hh / 2 + 4).quadraticCurveTo(0, hh + (variant % 2 ? 3 : -2), hw / 2 - 8, TH - 4)
+      .stroke({ width: 1.1, color: 0x503219, alpha: 0.4 })
+    g.moveTo(-hw / 2 + 10, hh / 2 - 2).quadraticCurveTo(6, hh - 4, hw / 2, TH - 12)
+      .stroke({ width: 1.1, color: 0x503219, alpha: 0.32 })
+    g.circle(-hw + 12, hh + 1, 1.3).fill({ color: 0x3d2712, alpha: 0.7 })
+    g.circle(hw - 14, hh - 1, 1.3).fill({ color: 0x3d2712, alpha: 0.7 })
+    g.ellipse(6, hh / 2 + 2, 3, 1.4).fill({ color: 0xb28049, alpha: 0.5 })
   }
   const t = app.renderer.generateTexture({ target: g, resolution: 2 })
   g.destroy()
@@ -240,8 +301,20 @@ function glowTexture(app: Application, color: number, radius: number): Texture {
 
 export interface EngineHabit {
   id: string; name: string; streak: number; completedToday: boolean; missedDays: number
-  stageEmoji: string; stage: number
+  stageEmoji: string; stage: number; plantKey: string
 }
+
+// which sprite represents a plant type at a growth stage
+export function plantSpriteKey(plant: string, stage: number): string {
+  if (stage === 0) return "plant_wilt"
+  if (stage === 1) return "plant_seed"
+  if (stage === 2) return plant === "cactus" || plant === "mushroom" ? `bloom_${plant}` : "plant_sprout"
+  if (stage === 3) return "plant_leafy"
+  return SPRITE_DEFS[`bloom_${plant}`] ? `bloom_${plant}` : "plant_leafy"
+}
+
+// on-screen plant height per stage (the mature stage grows once more at 5)
+const PLANT_STAGE_SIZE = [22, 16, 24, 32, 40, 47]
 
 export interface EngineData {
   habits: EngineHabit[]
@@ -465,10 +538,23 @@ export class GardenEngine {
       bottomV[0], bottomV[1] + D2, leftV[0], leftV[1] + D2]).fill(0x241811)
     slab.poly([bottomV[0], bottomV[1] + D1, rightV[0], rightV[1] + D1,
       rightV[0], rightV[1] + D2, bottomV[0], bottomV[1] + D2]).fill(0x2b1d14)
+    // soil strata lines + embedded pebbles on the slab faces
+    const faces: [[number, number], [number, number]][] = [[leftV, bottomV], [bottomV, rightV]]
+    for (const [A, B] of faces) {
+      for (const d of [SKIRT + 5, SKIRT + 12]) {
+        slab.moveTo(A[0], A[1] + d).lineTo(B[0], B[1] + d)
+          .stroke({ width: 1.5, color: 0x000000, alpha: 0.14 })
+      }
+      for (let i = 1; i < 5; i++) {
+        const px = A[0] + (B[0] - A[0]) * (i / 5)
+        const py = A[1] + (B[1] - A[1]) * (i / 5)
+        slab.ellipse(px, py + SKIRT + 8 + (i % 2) * 7, 3.4, 2).fill({ color: 0x54402c, alpha: 0.8 })
+      }
+    }
     this.groundLayer.addChild(slab)
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
       const g = this.ground[y][x]
-      const tex = tileTexture(this.app, g, (x + y) % 2 === 1)
+      const tex = tileTexture(this.app, g, (x * 13 + y * 7) % 4)
       const s = new Sprite(tex)
       const { wx, wy } = cellToWorld({ x, y })
       s.anchor.set(0.5, 0)
@@ -626,11 +712,17 @@ export class GardenEngine {
     pot.poly([-12, -14, 0, -14, 0, 0, -9, 0]).fill({ color: 0x8a4527, alpha: 0.35 })
     root.addChild(pot)
 
-    // plant (sways)
-    const plant = new Sprite(emojiTexture(h.stageEmoji, 20 + h.stage * 7))
+    // plant (sways) — dimensional sprite art per type + stage, sized by stage
+    const key = plantSpriteKey(h.plantKey, h.stage)
+    const target = PLANT_STAGE_SIZE[h.stage] ?? 32
+    const plant: Sprite = new Sprite(spriteTextureSync(key, t => {
+      if (plant.destroyed) return
+      plant.texture = t
+      if (t.height > 0) plant.scale.set(target / t.height)
+    }))
     plant.anchor.set(0.5, 1)
     plant.position.set(0, -16)
-    if (h.missedDays >= 3) { plant.tint = 0x999999; plant.alpha = 0.75 }
+    if (plant.texture.height > 0) plant.scale.set(target / plant.texture.height)
     root.addChild(plant)
 
     if (h.stage === 5) {

@@ -26,6 +26,10 @@ const SIZES = {
   teapot: 30, basket: 34, candle: 26, potted: 38, gnome: 44, bird: 32,
   stone: 30, mushroom: 30, ladybug: 22, snail: 24, frog: 32, fox: 36,
   hedgehog: 30, butterfly: 30, bee: 26, rainbow: 60, bloom: 34,
+  plant_wilt: 22, plant_seed: 16, plant_sprout: 24, plant_leafy: 32,
+  bloom_sunflower: 46, bloom_rose: 44, bloom_cactus: 42, bloom_mushroom: 38,
+  bloom_bamboo: 48, bloom_sakura: 46, bloom_oak: 46, bloom_tulip: 42,
+  bloom_fern: 40, bloom_bonsai: 42,
 }
 const SCALE = 2 // bake at 2x for crisp rendering; engine normalizes by height
 
