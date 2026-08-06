@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
-import { RefreshCw, Leaf, X, Check, Send, Sparkles } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { useEffect, useState, useCallback, useMemo, useRef } from "react"
+import { RefreshCw, Leaf, X, Check, Send, Sparkles, Move } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { GardenCanvas } from "@/components/garden/GardenCanvas"
+import type { EngineData } from "@/components/garden/engine"
 
 // ─── Plant definitions ────────────────────────────────────────────────────────
 
@@ -22,8 +23,6 @@ const PLANT_TYPES = {
 
 type PlantKey = keyof typeof PLANT_TYPES
 
-// stage 0 = wilting (3+ missed), 1 = seed, 2 = sprout, 3 = seedling, 4 = grown, 5 = mature
-const STAGE_PX  = [28, 28, 36, 48, 60, 76]
 const STAGE_LABEL = ["Wilting","Seed","Sprout","Seedling","Growing","Blooming"]
 
 function getStage(streak: number, missed: number): 0 | 1 | 2 | 3 | 4 | 5 {
@@ -52,38 +51,13 @@ const ALL_DECORATIONS = [
   { id: "hedgehog",  emoji: "🦔",  name: "Hedgehog"     },
 ] as const
 
-// Fixed positions in the scene for decorations (% of container)
-const DECO_POSITIONS: Record<string, { x: number; y: number; sky: boolean }> = {
-  gnome:     { x: 8,  y: 75, sky: false },
-  butterfly: { x: 22, y: 28, sky: true  },
-  bee:       { x: 68, y: 22, sky: true  },
-  bird:      { x: 82, y: 68, sky: false },
-  stone:     { x: 45, y: 82, sky: false },
-  mushroom:  { x: 72, y: 78, sky: false },
-  rainbow:   { x: 50, y: 10, sky: true  },
-  ladybug:   { x: 33, y: 72, sky: false },
-  snail:     { x: 60, y: 85, sky: false },
-  frog:      { x: 14, y: 85, sky: false },
-  fox:       { x: 88, y: 80, sky: false },
-  hedgehog:  { x: 4,  y: 80, sky: false },
-}
-
-// ─── Weather ─────────────────────────────────────────────────────────────────
-
-interface WeatherTheme {
-  skyTop: string; skyBot: string
-  groundTop: string; groundBot: string
-  type: "sunny"|"cloudy"|"foggy"|"rainy"|"snowy"|"stormy"|"clear"
-  icon: string; label: string
-}
-
-function getWeatherTheme(code?: number | null): WeatherTheme {
-  if (code == null || code <= 1) return { skyTop:"#38bdf8", skyBot:"#93c5fd", groundTop:"#16a34a", groundBot:"#15803d", type:"sunny",  icon:"☀️",  label:"Sunny"   }
-  if (code <= 3)                 return { skyTop:"#94a3b8", skyBot:"#cbd5e1", groundTop:"#15803d", groundBot:"#166534", type:"cloudy", icon:"⛅",  label:"Cloudy"  }
-  if (code <= 48)                return { skyTop:"#64748b", skyBot:"#94a3b8", groundTop:"#166534", groundBot:"#14532d", type:"foggy",  icon:"🌫️", label:"Foggy"   }
-  if (code <= 67)                return { skyTop:"#334155", skyBot:"#475569", groundTop:"#14532d", groundBot:"#052e16", type:"rainy",  icon:"🌧️", label:"Rainy"   }
-  if (code <= 77)                return { skyTop:"#bfdbfe", skyBot:"#dbeafe", groundTop:"#d1fae5", groundBot:"#a7f3d0", type:"snowy",  icon:"❄️",  label:"Snowy"   }
-  return                                { skyTop:"#1e293b", skyBot:"#334155", groundTop:"#052e16", groundBot:"#064e3b", type:"stormy", icon:"⛈️", label:"Stormy"  }
+function weatherMeta(code: number | null): { icon: string; label: string } {
+  if (code == null || code <= 1) return { icon: "☀️", label: "Sunny" }
+  if (code <= 3)  return { icon: "⛅",  label: "Cloudy" }
+  if (code <= 48) return { icon: "🌫️", label: "Foggy" }
+  if (code <= 67) return { icon: "🌧️", label: "Rainy" }
+  if (code <= 77) return { icon: "❄️",  label: "Snowy" }
+  return { icon: "⛈️", label: "Stormy" }
 }
 
 // ─── Data types ───────────────────────────────────────────────────────────────
@@ -97,25 +71,13 @@ interface GardenData {
   habits: HabitData[]
   plantChoices: Record<string, string>
   decorations: string[]
+  layout?: { placed: Record<string, { x: number; y: number }> }
   weather: { code: number; temp: number } | null
   level: { level: number; name: string; emoji: string; progress: number; xp: number; xpToNext: number }
   unlocked: string[]
   locked: { id: string; req: string; have: number; need: number }[]
   watered: { today: boolean; count: number }
 }
-
-// Ambient scenery that appears as the garden levels up — the whole garden
-// visibly grows richer with XP, independent of individual habit plants.
-const LEVEL_FLAIR: { min: number; emoji: string; x: number; y: number; size: number }[] = [
-  { min: 2, emoji: "🌼", x: 10, y: 66, size: 18 },
-  { min: 3, emoji: "🌾", x: 90, y: 68, size: 20 },
-  { min: 4, emoji: "🌺", x: 28, y: 63, size: 18 },
-  { min: 5, emoji: "🪷", x: 66, y: 64, size: 18 },
-  { min: 6, emoji: "🌳", x: 4,  y: 50, size: 34 },
-  { min: 7, emoji: "🌲", x: 94, y: 48, size: 36 },
-  { min: 8, emoji: "⛲", x: 48, y: 60, size: 26 },
-  { min: 9, emoji: "🏡", x: 82, y: 44, size: 32 },
-]
 
 // ─── Emergy chat ─────────────────────────────────────────────────────────────
 
@@ -249,220 +211,6 @@ function EmergyChatPanel({
   )
 }
 
-// ─── Weather particles ────────────────────────────────────────────────────────
-
-function RainDrops() {
-  const drops = Array.from({ length: 24 }, (_, i) => ({
-    left: `${(i * 4.3 + 1) % 100}%`,
-    delay: `${((i * 0.13) % 1.2).toFixed(2)}s`,
-    duration: `${(0.55 + (i % 5) * 0.1).toFixed(2)}s`,
-    height: `${14 + (i % 4) * 5}px`,
-    opacity: 0.4 + (i % 3) * 0.2,
-  }))
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-10">
-      {drops.map((d, i) => (
-        <div key={i} className="absolute w-0.5 rounded-full bg-blue-200"
-          style={{ left: d.left, top: -20, height: d.height, opacity: d.opacity,
-            animation: `gardenRain ${d.duration} linear ${d.delay} infinite` }} />
-      ))}
-    </div>
-  )
-}
-
-function Snowflakes() {
-  const flakes = Array.from({ length: 18 }, (_, i) => ({
-    left: `${(i * 5.8 + 2) % 100}%`,
-    delay: `${((i * 0.25) % 2.5).toFixed(2)}s`,
-    duration: `${(2.5 + (i % 4) * 0.6).toFixed(2)}s`,
-    size: 10 + (i % 4) * 3,
-  }))
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-10">
-      {flakes.map((f, i) => (
-        <div key={i} className="absolute select-none"
-          style={{ left: f.left, top: -24, fontSize: f.size,
-            animation: `gardenSnow ${f.duration} linear ${f.delay} infinite` }}>
-          ❄️
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function FogLayer() {
-  return (
-    <div className="absolute inset-0 pointer-events-none z-10"
-      style={{ background: "linear-gradient(180deg, rgba(148,163,184,0.45) 0%, rgba(148,163,184,0.15) 60%, transparent 100%)" }} />
-  )
-}
-
-function LightningFlash() {
-  return (
-    <div className="absolute inset-0 pointer-events-none z-10 rounded-2xl"
-      style={{ background: "rgba(255,255,255,0.7)", animation: "gardenLightning 5s linear infinite" }} />
-  )
-}
-
-// ─── Garden scene ─────────────────────────────────────────────────────────────
-
-function GardenScene({
-  habits, plantChoices, decorations, weather, level, sparkling, onPlantClick,
-}: {
-  habits: HabitData[]
-  plantChoices: Record<string, string>
-  decorations: string[]
-  weather: { code: number; temp: number } | null
-  level: number
-  sparkling: boolean
-  onPlantClick: (id: string) => void
-}) {
-  const theme = getWeatherTheme(weather?.code)
-  const activeDecos = ALL_DECORATIONS.filter(d => decorations.includes(d.id))
-  const flair = LEVEL_FLAIR.filter(f => level >= f.min)
-
-  return (
-    <div className="relative w-full rounded-2xl overflow-hidden select-none" style={{ height: 420 }}>
-      {/* Sky */}
-      <div className="absolute inset-0" style={{
-        background: `linear-gradient(180deg, ${theme.skyTop} 0%, ${theme.skyBot} 58%, ${theme.groundTop} 58%, ${theme.groundBot} 100%)`,
-      }} />
-
-      {/* Weather FX */}
-      {theme.type === "rainy"  && <RainDrops />}
-      {theme.type === "snowy"  && <Snowflakes />}
-      {theme.type === "foggy"  && <FogLayer />}
-      {theme.type === "stormy" && <><RainDrops /><LightningFlash /></>}
-
-      {/* Sun / moon */}
-      {(theme.type === "sunny" || theme.type === "clear") && (
-        <div className="absolute top-5 right-8 text-5xl pointer-events-none z-10"
-          style={{ animation: "gardenSunSpin 40s linear infinite", filter: "drop-shadow(0 0 16px #fbbf24)" }}>
-          ☀️
-        </div>
-      )}
-      {theme.type === "cloudy" && (
-        <>
-          <div className="absolute top-6 left-12 text-3xl pointer-events-none z-10"
-            style={{ animation: "gardenFloat 6s ease-in-out infinite" }}>⛅</div>
-          <div className="absolute top-10 right-20 text-2xl pointer-events-none z-10 opacity-70"
-            style={{ animation: "gardenFloat 8s ease-in-out 2s infinite" }}>☁️</div>
-        </>
-      )}
-      {theme.type === "stormy" && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 text-3xl pointer-events-none z-10 opacity-70">⛈️</div>
-      )}
-
-      {/* Decorations */}
-      {activeDecos.map(d => {
-        const pos = DECO_POSITIONS[d.id] ?? { x: 50, y: 50, sky: false }
-        const anim = ["butterfly","bee","rainbow"].includes(d.id)
-          ? "gardenFloat 4s ease-in-out infinite"
-          : undefined
-        return (
-          <div key={d.id} className="absolute z-20 pointer-events-none"
-            style={{ left: `${pos.x}%`, top: `${pos.y}%`, fontSize: 22, animation: anim,
-              filter: pos.sky ? undefined : "drop-shadow(0 2px 3px rgba(0,0,0,0.3))" }}>
-            {d.emoji}
-          </div>
-        )
-      })}
-
-      {/* Ground line indicator */}
-      <div className="absolute w-full pointer-events-none" style={{ top: "58%" }}>
-        <div className="w-full h-px bg-black/10" />
-      </div>
-
-      {/* Level scenery — unlocks as the whole garden levels up */}
-      {flair.map(f => (
-        <div key={`${f.min}-${f.emoji}`} className="absolute z-20 pointer-events-none"
-          style={{ left: `${f.x}%`, top: `${f.y}%`, fontSize: f.size,
-            filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.3))" }}>
-          {f.emoji}
-        </div>
-      ))}
-
-      {/* Watering sparkles */}
-      {sparkling && (
-        <div className="absolute inset-0 z-40 pointer-events-none">
-          {[12, 30, 48, 65, 82].map((x, i) => (
-            <span key={i} className="absolute text-2xl"
-              style={{ left: `${x}%`, top: `${45 + (i % 3) * 12}%`,
-                animation: `gardenSparkle 1.4s ease-out ${i * 0.12}s both` }}>
-              {i % 2 === 0 ? "💧" : "✨"}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Plants — centered row at ground level */}
-      <div className="absolute bottom-0 left-0 right-0 z-30 flex items-end justify-center gap-4 px-6 pb-5"
-        style={{ paddingTop: 8 }}>
-        {habits.slice(0, 10).map(h => {
-          const plantKey = (plantChoices[h.id] ?? "sunflower") as PlantKey
-          const plant = PLANT_TYPES[plantKey] ?? PLANT_TYPES.sunflower
-          const stage = getStage(h.streak, h.missedDays)
-          const px = STAGE_PX[stage]
-          const isMature = stage === 5
-          const isDead = stage === 0
-
-          return (
-            <button key={h.id} onClick={() => onPlantClick(h.id)}
-              className="flex flex-col items-center gap-0.5 group transition-transform hover:scale-110 active:scale-95 focus:outline-none">
-              {/* Streak badge */}
-              {h.streak > 0 && (
-                <span className="text-[9px] font-bold bg-orange-500/80 text-white rounded-full px-1.5 py-0.5 leading-none mb-0.5">
-                  {h.streak}d🔥
-                </span>
-              )}
-              {/* Plant emoji */}
-              <span
-                style={{
-                  fontSize: px,
-                  lineHeight: 1,
-                  filter: isDead
-                    ? "grayscale(1) opacity(0.5)"
-                    : isMature
-                      ? "drop-shadow(0 0 8px rgba(255,230,50,0.8))"
-                      : undefined,
-                  animation: isMature
-                    ? "gardenGlow 2s ease-in-out infinite"
-                    : h.completedToday
-                      ? "gardenFloat 3s ease-in-out infinite"
-                      : undefined,
-                }}
-              >
-                {plant.stages[stage]}
-              </span>
-              {/* Label */}
-              <span className="text-[9px] font-medium text-white/90 truncate max-w-[56px] leading-none mt-0.5"
-                style={{ textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
-                {h.name.length > 7 ? h.name.slice(0, 6) + "…" : h.name}
-              </span>
-              {/* Soil patch */}
-              <div className="w-10 h-2 rounded-full mt-0.5 opacity-60"
-                style={{ background: "radial-gradient(ellipse, #92400e 0%, #78350f 100%)" }} />
-            </button>
-          )
-        })}
-        {habits.length === 0 && (
-          <p className="text-white/70 text-sm" style={{ textShadow: "0 1px 4px rgba(0,0,0,0.6)" }}>
-            No habits yet — add some in Habits to grow your garden
-          </p>
-        )}
-      </div>
-
-      {/* Weather badge */}
-      {weather && (
-        <div className="absolute top-3 left-4 z-30 flex items-center gap-1.5 bg-black/25 backdrop-blur-sm rounded-full px-3 py-1">
-          <span className="text-sm">{theme.icon}</span>
-          <span className="text-xs text-white font-medium">{weather.temp}°C · {theme.label}</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Plant picker ─────────────────────────────────────────────────────────────
 
 function PlantPicker({ habit, currentPlant, onSelect, onClose }: {
@@ -581,39 +329,6 @@ function DecorationPicker({ selected, unlocked, locked, onToggle, onClose }: {
   )
 }
 
-// ─── Habit list ───────────────────────────────────────────────────────────────
-
-function HabitRow({ habit, plantKey, onClick }: { habit: HabitData; plantKey: PlantKey; onClick: () => void }) {
-  const plant = PLANT_TYPES[plantKey] ?? PLANT_TYPES.sunflower
-  const stage = getStage(habit.streak, habit.missedDays)
-
-  return (
-    <button onClick={onClick}
-      className="flex items-center gap-3 w-full rounded-xl px-3 py-2.5 hover:bg-secondary/40 transition-colors text-left group">
-      <span style={{ fontSize: 26, lineHeight: 1, filter: stage === 0 ? "grayscale(1) opacity(0.4)" : undefined }}>
-        {plant.stages[stage]}
-      </span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{habit.name}</span>
-          <span className="text-xs text-muted-foreground shrink-0">{plant.name}</span>
-        </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className={cn("text-xs", stage === 0 ? "text-red-400" : stage >= 4 ? "text-green-400" : "text-muted-foreground")}>
-            {STAGE_LABEL[stage]}
-          </span>
-          {habit.streak > 0 && <span className="text-xs text-orange-400">🔥 {habit.streak}d streak</span>}
-          {habit.missedDays >= 3 && <span className="text-xs text-red-400">⚠️ {habit.missedDays}d missed</span>}
-          {habit.completedToday && <span className="text-xs text-green-400">✓ Done today</span>}
-        </div>
-      </div>
-      <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors shrink-0">
-        Change plant →
-      </span>
-    </button>
-  )
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function GardenPage() {
@@ -622,10 +337,12 @@ export default function GardenPage() {
   const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null)
   const [showDecos, setShowDecos]         = useState(false)
   const [showEmergy, setShowEmergy]       = useState(false)
+  const [editMode, setEditMode]           = useState(false)
   const [plantChoices, setPlantChoices]   = useState<Record<string, string>>({})
   const [decorations, setDecorations]     = useState<string[]>([])
+  const [placed, setPlaced]               = useState<Record<string, { x: number; y: number }>>({})
   const [watering, setWatering]           = useState(false)
-  const [sparkling, setSparkling]         = useState(false)
+  const [sparkleSignal, setSparkleSignal] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -636,6 +353,7 @@ export default function GardenPage() {
         setData(d)
         setPlantChoices(d.plantChoices)
         setDecorations(d.decorations)
+        setPlaced(d.layout?.placed ?? {})
       }
     } finally {
       setLoading(false)
@@ -671,8 +389,7 @@ export default function GardenPage() {
           watered: { today: true, count: d.count },
           level: { ...prev.level, xp: prev.level.xp + 5 },
         } : prev)
-        setSparkling(true)
-        setTimeout(() => setSparkling(false), 1800)
+        setSparkleSignal(s => s + 1)
       }
     } finally {
       setWatering(false)
@@ -689,135 +406,206 @@ export default function GardenPage() {
     })
   }
 
+  const savePlaced = useCallback((next: Record<string, { x: number; y: number }>) => {
+    setPlaced(next)
+    fetch("/api/garden", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ layout: { placed: next } }),
+    }).catch(() => {})
+  }, [])
+
   const selectedHabit = data?.habits.find(h => h.id === selectedHabitId) ?? null
 
-  // Garden summary stats
-  const thriving = data?.habits.filter(h => getStage(h.streak, h.missedDays) >= 4).length ?? 0
-  const wilting  = data?.habits.filter(h => getStage(h.streak, h.missedDays) === 0).length ?? 0
-  const doneToday = data?.habits.filter(h => h.completedToday).length ?? 0
+  // Engine data — recomputed when garden state changes
+  const engineData: EngineData | null = useMemo(() => {
+    if (!data) return null
+    return {
+      habits: data.habits.map(h => {
+        const plantKey = (plantChoices[h.id] ?? "sunflower") as PlantKey
+        const plant = PLANT_TYPES[plantKey] ?? PLANT_TYPES.sunflower
+        const stage = getStage(h.streak, h.missedDays)
+        return {
+          id: h.id, name: h.name, streak: h.streak,
+          completedToday: h.completedToday, missedDays: h.missedDays,
+          stageEmoji: plant.stages[stage], stage,
+        }
+      }),
+      decorations,
+      level: data.level.level,
+      weatherCode: data.weather?.code ?? null,
+      placed,
+    }
+  }, [data, plantChoices, decorations, placed])
+
+  const wm = weatherMeta(data?.weather?.code ?? null)
 
   return (
     <>
-      {/* CSS keyframes injected once */}
       <style>{`
-        @keyframes gardenRain {
-          0%   { transform: translateY(-5px); }
-          100% { transform: translateY(440px); }
-        }
-        @keyframes gardenSnow {
-          0%   { transform: translateY(-5px) translateX(0); }
-          50%  { transform: translateY(200px) translateX(18px); }
-          100% { transform: translateY(440px) translateX(-10px); }
-        }
-        @keyframes gardenFloat {
-          0%, 100% { transform: translateY(0px); }
-          50%      { transform: translateY(-8px); }
-        }
-        @keyframes gardenGlow {
-          0%, 100% { filter: drop-shadow(0 0 4px rgba(255,230,50,0.7)); }
-          50%      { filter: drop-shadow(0 0 14px rgba(255,230,50,1)); }
-        }
-        @keyframes gardenSunSpin {
-          from { transform: rotate(0deg); }
-          to   { transform: rotate(360deg); }
-        }
-        @keyframes gardenLightning {
-          0%, 92%, 94%, 96%, 100% { opacity: 0; }
-          93%, 95%                { opacity: 0.6; }
-        }
-        @keyframes gardenSparkle {
-          0%   { opacity: 0; transform: translateY(6px) scale(0.6); }
-          30%  { opacity: 1; transform: translateY(-6px) scale(1.1); }
-          100% { opacity: 0; transform: translateY(-22px) scale(0.9); }
+        @keyframes gardenBulb {
+          0%, 100% { opacity: 0.55; }
+          50%      { opacity: 1; }
         }
       `}</style>
 
       <div className="space-y-5">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Leaf className="h-6 w-6 text-green-400" /> Garden
-            </h1>
-            <p className="text-muted-foreground text-sm mt-0.5">
-              Your habits, growing in the wild
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant={showEmergy ? "default" : "outline"}
-              onClick={() => { setShowEmergy(v => !v); setShowDecos(false); setSelectedHabitId(null) }}
-              className="gap-1.5">
-              <Sparkles className="h-3.5 w-3.5" />
-              Emergy
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => { setShowDecos(v => !v); setSelectedHabitId(null); setShowEmergy(false) }}>
-              🪨 Decorate
-            </Button>
-            <Button size="sm" variant="ghost" onClick={load} disabled={loading} className="gap-1">
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-            </Button>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Leaf className="h-6 w-6 text-green-400" /> Garden
+          </h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            Your habits, growing in a cozy corner of the world
+          </p>
         </div>
 
-        {/* Level banner + daily watering */}
-        {data?.level && (
-          <div className="rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/10 to-card px-4 py-3 flex items-center gap-3">
-            <span className="text-3xl leading-none">{data.level.emoji}</span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-baseline gap-2">
-                <p className="text-sm font-bold">{data.level.name}</p>
-                <p className="text-xs text-muted-foreground">Lv.{data.level.level} · {data.level.xp.toLocaleString()} XP</p>
-              </div>
-              <div className="mt-1.5 h-1.5 rounded-full bg-secondary overflow-hidden">
-                <div className="h-full rounded-full bg-green-500 transition-all" style={{ width: `${data.level.progress}%` }} />
-              </div>
-              <p className="text-[10px] text-muted-foreground mt-1">{data.level.xpToNext} XP to the next level</p>
+        {/* Game screen */}
+        <div className="relative w-full rounded-3xl overflow-hidden" style={{ height: 620 }}>
+          {loading && !data ? (
+            <div className="absolute inset-0 bg-secondary/30 flex items-center justify-center">
+              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-            <Button
-              size="sm"
-              variant={data.watered.today ? "ghost" : "default"}
-              onClick={handleWater}
-              disabled={data.watered.today || watering}
-              className="shrink-0 gap-1.5"
-            >
-              💧 {data.watered.today ? "Watered ✓" : watering ? "Watering…" : "Water (+5 XP)"}
-            </Button>
-          </div>
-        )}
+          ) : (
+            <GardenCanvas
+              data={engineData}
+              editMode={editMode}
+              sparkleSignal={sparkleSignal}
+              onPlantClick={id => {
+                setSelectedHabitId(id); setShowDecos(false); setShowEmergy(false)
+              }}
+              onPlaced={savePlaced}
+            />
+          )}
 
-        {/* Summary chips */}
-        {data && data.habits.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            <span className="text-xs px-3 py-1.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
-              🌻 {thriving} thriving
-            </span>
-            <span className="text-xs px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              ✅ {doneToday}/{data.habits.length} done today
-            </span>
-            {wilting > 0 && (
-              <span className="text-xs px-3 py-1.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
-                🥀 {wilting} wilting — tend them!
+          {/* Level chip */}
+          {data?.level && (
+            <div className="absolute z-50" style={{ top: 14, left: 14 }}>
+              <div className="flex items-center gap-2.5 rounded-2xl px-3.5 py-2 pl-2.5"
+                style={{ background: "rgba(22,26,22,0.82)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <div className="flex items-center justify-center rounded-xl" style={{ width: 34, height: 34, background: "rgba(255,255,255,0.1)", fontSize: 19 }}>
+                  {data.level.emoji}
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center justify-center rounded-full font-extrabold"
+                      style={{ background: "#3e5d33", color: "#cde8b0", fontSize: 10, width: 18, height: 18 }}>
+                      {data.level.level}
+                    </span>
+                    <span className="font-bold" style={{ color: "#f2efe4", fontSize: 13 }}>{data.level.name}</span>
+                  </div>
+                  <div className="mt-1 rounded-full" style={{ width: 120, height: 6, background: "rgba(255,255,255,0.14)" }}>
+                    <div className="h-full rounded-full" style={{ width: `${data.level.progress}%`, background: "linear-gradient(90deg,#8fd05e,#5fae3d)" }} />
+                  </div>
+                  <div className="mt-0.5 font-semibold" style={{ color: "#a9c790", fontSize: 9 }}>
+                    {data.level.xp.toLocaleString()} XP · {data.level.xpToNext} to next
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Weather chip + refresh */}
+          {data?.weather && (
+            <div className="absolute z-50 flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ top: 14, right: 64,
+              background: "rgba(22,26,22,0.82)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <span style={{ fontSize: 13 }}>{wm.icon}</span>
+              <span className="font-semibold" style={{ color: "#f2efe4", fontSize: 11.5 }}>{data.weather.temp}°C · {wm.label}</span>
+            </div>
+          )}
+          <button onClick={load} disabled={loading}
+            className="absolute z-50 flex items-center justify-center rounded-full transition-opacity hover:opacity-80"
+            style={{ top: 12, right: 14, width: 38, height: 38, background: "rgba(22,26,22,0.82)",
+              border: "1px solid rgba(255,255,255,0.1)", color: "#cfe6b8" }}>
+            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+          </button>
+
+          {/* Edit-mode hint */}
+          {editMode && (
+            <div className="absolute z-50 left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 pointer-events-none"
+              style={{ top: 14, background: "rgba(22,26,22,0.82)", border: "1px solid rgba(255,233,176,0.4)" }}>
+              <span className="font-semibold" style={{ color: "#ffe9b0", fontSize: 11.5 }}>
+                🖐 Drag plants & decorations to rearrange
               </span>
-            )}
-          </div>
-        )}
+            </div>
+          )}
 
-        {/* Garden scene */}
-        {loading ? (
-          <div className="w-full rounded-2xl bg-secondary/30 flex items-center justify-center" style={{ height: 420 }}>
-            <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : (
-          <GardenScene
-            habits={data?.habits ?? []}
-            plantChoices={plantChoices}
-            decorations={decorations}
-            weather={data?.weather ?? null}
-            level={data?.level.level ?? 1}
-            sparkling={sparkling}
-            onPlantClick={id => { setSelectedHabitId(id); setShowDecos(false) }}
-          />
-        )}
+          {/* Round corner buttons */}
+          <button onClick={() => { setShowEmergy(v => !v); setShowDecos(false); setSelectedHabitId(null) }}
+            className="absolute z-50 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
+            style={{ bottom: 16, left: 16, width: 58, height: 58, borderRadius: "50%",
+              background: "radial-gradient(circle at 35% 30%, #6f9c50, #46702f)",
+              border: showEmergy ? "3px solid #ffe9b0" : "3px solid rgba(240,240,220,0.85)",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
+            <span style={{ fontSize: 19 }}>✨</span>
+            <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 8.5 }}>Emergy</span>
+          </button>
+          <button onClick={() => { setShowDecos(v => !v); setShowEmergy(false); setSelectedHabitId(null) }}
+            className="absolute z-50 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
+            style={{ bottom: 84, right: 16, width: 50, height: 50, borderRadius: "50%",
+              background: "radial-gradient(circle at 35% 30%, #6f9c50, #46702f)",
+              border: showDecos ? "3px solid #ffe9b0" : "3px solid rgba(240,240,220,0.85)",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
+            <span style={{ fontSize: 16 }}>🪨</span>
+            <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 7.5 }}>Decorate</span>
+          </button>
+          <button onClick={() => setEditMode(v => !v)}
+            className="absolute z-50 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
+            style={{ bottom: 16, right: 16, width: 58, height: 58, borderRadius: "50%",
+              background: editMode
+                ? "radial-gradient(circle at 35% 30%, #d0a04e, #96702f)"
+                : "radial-gradient(circle at 35% 30%, #6f9c50, #46702f)",
+              border: editMode ? "3px solid #ffe9b0" : "3px solid rgba(240,240,220,0.85)",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
+            <Move className="h-4 w-4" style={{ color: "#f4f2e2" }} />
+            <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 8.5 }}>{editMode ? "Done" : "Edit"}</span>
+          </button>
+
+          {/* Bottom card bar: Water + habit cards */}
+          {data && (
+            <div className="absolute z-50 flex gap-2 overflow-x-auto rounded-2xl p-2"
+              style={{ bottom: 14, left: 88, right: 88, background: "rgba(22,26,22,0.55)", backdropFilter: "blur(6px)" }}>
+              <button onClick={handleWater} disabled={data.watered.today || watering}
+                className="relative shrink-0 flex flex-col items-center gap-1 rounded-xl px-1 pt-2 pb-1.5 transition-transform hover:scale-105 active:scale-95 disabled:hover:scale-100"
+                style={{ width: 72, background: "linear-gradient(180deg,#faf4e2,#efe6cc)",
+                  border: data.watered.today ? "2px solid #b9d89a" : "2px solid #8fd05e",
+                  boxShadow: "0 3px 8px rgba(0,0,0,0.35)", opacity: data.watered.today ? 0.75 : 1 }}>
+                <span style={{ fontSize: 24, lineHeight: 1 }}>💧</span>
+                <span className="font-bold" style={{ color: "#4a3f2c", fontSize: 10 }}>
+                  {data.watered.today ? "Watered" : watering ? "…" : "Water"}
+                </span>
+                <span className="absolute font-extrabold" style={{ right: 5, bottom: 3, color: "#7a6f56", fontSize: 9 }}>
+                  {data.watered.today ? "✓" : "+5"}
+                </span>
+              </button>
+              {data.habits.map(h => {
+                const plantKey = (plantChoices[h.id] ?? "sunflower") as PlantKey
+                const plant = PLANT_TYPES[plantKey] ?? PLANT_TYPES.sunflower
+                const stage = getStage(h.streak, h.missedDays)
+                return (
+                  <button key={h.id} onClick={() => { setSelectedHabitId(h.id); setShowDecos(false); setShowEmergy(false) }}
+                    className="relative shrink-0 flex flex-col items-center gap-1 rounded-xl px-1 pt-2 pb-1.5 transition-transform hover:scale-105 active:scale-95"
+                    style={{ width: 72, background: "linear-gradient(180deg,#faf4e2,#efe6cc)", border: "2px solid #dccfae",
+                      boxShadow: "0 3px 8px rgba(0,0,0,0.35)" }}>
+                    <span style={{ fontSize: 24, lineHeight: 1,
+                      filter: stage === 0 ? "grayscale(1) opacity(0.5)" : undefined }}>
+                      {plant.stages[stage]}
+                    </span>
+                    <span className="font-bold truncate max-w-full px-0.5" style={{ color: "#4a3f2c", fontSize: 10 }}>{h.name}</span>
+                    {h.streak > 0 && (
+                      <span className="absolute font-extrabold" style={{ right: 5, bottom: 3, color: "#7a6f56", fontSize: 9 }}>
+                        {h.streak}
+                      </span>
+                    )}
+                    {h.completedToday && (
+                      <span className="absolute" style={{ left: 5, top: 3, color: "#5fae3d", fontSize: 9, fontWeight: 800 }}>✓</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Emergy chat */}
         {showEmergy && (
@@ -849,26 +637,6 @@ export default function GardenPage() {
           />
         )}
 
-        {/* Habit plant list */}
-        {data && data.habits.length > 0 && (
-          <div className="rounded-2xl border border-border bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border/60">
-              <p className="text-sm font-semibold">Your plants</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Click any to change its plant type</p>
-            </div>
-            <div className="divide-y divide-border/40 p-2">
-              {data.habits.map(h => (
-                <HabitRow
-                  key={h.id}
-                  habit={h}
-                  plantKey={(plantChoices[h.id] ?? "sunflower") as PlantKey}
-                  onClick={() => { setSelectedHabitId(h.id); setShowDecos(false) }}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* How it works */}
         <div className="rounded-2xl border border-border/50 bg-card/50 px-4 py-4">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">How your garden grows</p>
@@ -879,9 +647,9 @@ export default function GardenPage() {
               ["🌻 → ✨", "Blooming", "14+ day streak, glows!"],
               ["🥀", "Wilting", "3+ consecutive missed days"],
               ["💧", "Daily watering", "One tap a day, +5 XP each"],
-              ["🧙 🦋", "Decorations", "Earned with streaks, XP & logs"],
-              ["🌳 ⛲", "Level scenery", "The garden grows richer as you level"],
-              ["🌧️", "Weather", "Reflects real weather outside"],
+              ["🖐", "Edit mode", "Drag plants & decorations anywhere"],
+              ["🏡 ⛲", "Level scenery", "Ponds, decks & trees unlock as you level"],
+              ["🌧️ 🌙", "Weather & night", "Real weather + day/night lighting"],
             ].map(([icon, label, desc]) => (
               <div key={label} className="flex flex-col gap-0.5">
                 <p className="text-sm">{icon} <span className="font-medium text-xs">{label}</span></p>
