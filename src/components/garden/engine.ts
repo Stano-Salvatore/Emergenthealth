@@ -329,6 +329,11 @@ export class GardenEngine {
   private ambient: { sprite: Sprite; kind: string; seed: number; data?: Record<string, number> }[] = []
   private rainDrops: Graphics[] = []
   private lightningAt = 0
+  // parallax: pointer (desktop) or gyroscope tilt (mobile) shifts the island
+  // against the fixed sky — motion parallax is what sells the depth
+  private basePos = { x: 0, y: 0 }
+  private par = { tx: 0, ty: 0, cx: 0, cy: 0 }
+  private onOrient: ((e: DeviceOrientationEvent) => void) | null = null
 
   private constructor(host: HTMLElement, cb: EngineCallbacks) {
     this.host = host
@@ -380,11 +385,21 @@ export class GardenEngine {
 
     e.app.ticker.add(tk => e.tick(tk))
     e.layoutWorld()
+
+    // gyroscope parallax on devices that expose orientation without a
+    // permission prompt (Android WebView / Chrome)
+    e.onOrient = (ev: DeviceOrientationEvent) => {
+      if (ev.gamma == null || ev.beta == null) return
+      e.par.tx = Math.max(-1, Math.min(1, ev.gamma / 22))
+      e.par.ty = Math.max(-1, Math.min(1, (ev.beta - 42) / 22))
+    }
+    try { window.addEventListener("deviceorientation", e.onOrient) } catch {}
     return e
   }
 
   destroy() {
     this.destroyed = true
+    if (this.onOrient) { try { window.removeEventListener("deviceorientation", this.onOrient) } catch {} }
     try { this.app?.destroy(true, { children: true }) } catch {}
   }
 
@@ -399,8 +414,9 @@ export class GardenEngine {
     const scale = Math.min(w / (gridW + 60), h / (gridH + 60))
     this.world.scale.set(scale)
     // world origin is the grid's top corner; shift so the island's center of
-    // mass sits mid-canvas
-    this.world.position.set(w / 2, h * 0.47 - ((COLS + ROWS) / 4) * TH * scale)
+    // mass sits mid-canvas (parallax offsets are applied on top in tick())
+    this.basePos = { x: w / 2, y: h * 0.47 - ((COLS + ROWS) / 4) * TH * scale }
+    this.world.position.set(this.basePos.x, this.basePos.y)
     this.nightOverlay.width = w
     this.nightOverlay.height = h
   }
@@ -429,6 +445,27 @@ export class GardenEngine {
     this.groundLayer.removeChildren().forEach(c => c.destroy())
     const kind = weatherKind(this.data?.weatherCode ?? null)
     const tint = GROUND_TINT[kind]
+
+    // thick soil slab under the whole island + soft ground shadow, so the
+    // garden reads as a fat floating diorama chunk
+    const rightV: [number, number] = [((COLS - 1) * TW) / 2 + TW / 2, ((COLS - 1) * TH) / 2]
+    const bottomV: [number, number] = [0, (COLS + ROWS - 2) * (TH / 2) + TH / 2]
+    const leftV: [number, number] = [-(((ROWS - 1) * TW) / 2 + TW / 2), ((ROWS - 1) * TH) / 2]
+    const slab = new Graphics()
+    for (let i = 3; i >= 1; i--) {
+      slab.ellipse(0, bottomV[1] / 2 + 74 + i * 6, 330 + i * 26, 84 + i * 10)
+        .fill({ color: 0x000000, alpha: 0.07 })
+    }
+    const D1 = SKIRT + 16, D2 = SKIRT + 30
+    slab.poly([leftV[0], leftV[1] + D2, leftV[0], leftV[1] + SKIRT - 2,
+      bottomV[0], bottomV[1] + SKIRT - 2, bottomV[0], bottomV[1] + D2]).fill(0x33231a)
+    slab.poly([bottomV[0], bottomV[1] + D2, bottomV[0], bottomV[1] + SKIRT - 2,
+      rightV[0], rightV[1] + SKIRT - 2, rightV[0], rightV[1] + D2]).fill(0x3d2a1e)
+    slab.poly([leftV[0], leftV[1] + D1, bottomV[0], bottomV[1] + D1,
+      bottomV[0], bottomV[1] + D2, leftV[0], leftV[1] + D2]).fill(0x241811)
+    slab.poly([bottomV[0], bottomV[1] + D1, rightV[0], rightV[1] + D1,
+      rightV[0], rightV[1] + D2, bottomV[0], bottomV[1] + D2]).fill(0x2b1d14)
+    this.groundLayer.addChild(slab)
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
       const g = this.ground[y][x]
       const tex = tileTexture(this.app, g, (x + y) % 2 === 1)
@@ -448,11 +485,19 @@ export class GardenEngine {
     this.groundLayer.addChild(glow)
   }
 
-  // small deterministic terrain elevation for grass tiles — chunky stepped
-  // ground like a low-poly diorama; hard surfaces stay flat
+  // deterministic terrain elevation for grass tiles — a raised back plateau
+  // (terraced hill with exposed retaining walls) plus small stepped jitter;
+  // hard surfaces (plaza/deck/water) stay flat
   private elev(c: Cell): number {
     if (!inGrid(c) || this.ground[c.y][c.x] !== "grass") return 0
-    return ((c.x * 7 + c.y * 13) % 3) * 3
+    const plateau = c.x + c.y <= 5 ? 10 : 0
+    return plateau + ((c.x * 7 + c.y * 13) % 3) * 3
+  }
+
+  // fake camera perspective: things nearer the viewer render slightly larger
+  private persp(wy: number): number {
+    const gridH = ((COLS + ROWS) / 2) * TH
+    return 0.93 + (Math.max(0, Math.min(wy + gridH * 0.1, gridH)) / gridH) * 0.13
   }
 
   private resolveCell(id: string, fallback: Cell): Cell {
@@ -542,9 +587,12 @@ export class GardenEngine {
   private addFixedSprite(key: string, cell: Cell, wx: number, wy: number, onUp: () => void, glow: boolean) {
     const s: Sprite = new Sprite(spriteTextureSync(key, t => { paintSprite(s, key)(t); onUp() }))
     s.anchor.set(0.5, 1)
-    s.position.set(wx, wy - this.elev(cell))
-    s.zIndex = cell.x + cell.y
-    this.objectLayer.addChild(s)
+    const holder = new Container()
+    holder.position.set(wx, wy - this.elev(cell))
+    holder.scale.set(this.persp(wy))
+    holder.zIndex = cell.x + cell.y
+    holder.addChild(s)
+    this.objectLayer.addChild(holder)
     this.occupied.add(cellKey(cell))
     if (glow) {
       const g = new Sprite(glowTexture(this.app, 0xffa050, 44))
@@ -568,6 +616,7 @@ export class GardenEngine {
     const { wx, wy } = cellToWorld(cell)
     const root = new Container()
     root.position.set(wx, wy + TH / 2 - 2 - this.elev(cell))
+    root.scale.set(this.persp(wy))
     root.zIndex = cell.x + cell.y
 
     // terracotta pot
@@ -630,6 +679,7 @@ export class GardenEngine {
     const { wx, wy } = cellToWorld(cell)
     const root = new Container()
     root.position.set(wx, wy + TH / 2 - 2 - this.elev(cell))
+    root.scale.set(this.persp(wy))
     root.zIndex = cell.x + cell.y
     const s: Sprite = new Sprite(spriteTextureSync(key, t => paintSprite(s, key)(t)))
     s.anchor.set(0.5, 1)
@@ -765,7 +815,13 @@ export class GardenEngine {
   }
 
   private onPointerMove(ev: FederatedPointerEvent) {
-    if (!this.dragging) return
+    if (!this.dragging) {
+      // pointer parallax (desktop hover / touch drag over the sky)
+      const w = this.app.screen.width, h = this.app.screen.height
+      this.par.tx = Math.max(-1, Math.min(1, (ev.global.x - w / 2) / (w / 2)))
+      this.par.ty = Math.max(-1, Math.min(1, (ev.global.y - h / 2) / (h / 2)))
+      return
+    }
     const local = this.world.toLocal(ev.global)
     this.dragging.root.position.set(local.x + this.dragOffset.x, local.y + this.dragOffset.y)
     const cell = worldToCell(local.x + this.dragOffset.x, local.y + this.dragOffset.y - TH / 2 + 2)
@@ -789,6 +845,7 @@ export class GardenEngine {
     }
     const { wx, wy } = cellToWorld(ps.cell)
     ps.root.position.set(wx, wy + TH / 2 - 2 - this.elev(ps.cell))
+    ps.root.scale.set(this.persp(wy))
     ps.root.zIndex = ps.cell.x + ps.cell.y
   }
 
@@ -888,6 +945,13 @@ export class GardenEngine {
     }
     const sinceFlash = t - this.lightningAt
     const flash = kind === "stormy" && sinceFlash < 0.25 ? Math.max(0, 0.5 - sinceFlash * 2.4) : 0
+
+    // parallax — ease toward target, island shifts against the fixed sky,
+    // the air layer (butterflies, clouds, fireflies) drifts a touch more
+    this.par.cx += (this.par.tx - this.par.cx) * 0.04
+    this.par.cy += (this.par.ty - this.par.cy) * 0.04
+    this.world.position.set(this.basePos.x - this.par.cx * 14, this.basePos.y - this.par.cy * 9)
+    this.airLayer.position.set(-this.par.cx * 9, -this.par.cy * 6)
 
     // night lighting
     const targetNight = (isNight() ? 0.32 : kind === "stormy" ? 0.25 : kind === "rainy" ? 0.12 : 0)
