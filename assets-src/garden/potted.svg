@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 46 56">
+  <defs>
+    <linearGradient id="pot" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#cf7748"/><stop offset="1" stop-color="#a85434"/>
+    </linearGradient>
+  </defs>
+  <!-- leaves -->
+  <path d="M23 34 Q23 16 23 8 M23 20 Q13 16 10 7 M23 20 Q33 16 36 7 M23 27 Q14 27 8 20 M23 27 Q32 27 38 20"
+    fill="none" stroke="#5c9a48" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M23 8 Q19 5 18 2 Q23 3 23 8 M10 7 Q7 5 6 2 Q11 3 12 8 M36 7 Q39 5 40 2 Q35 3 34 8"
+    fill="#6fae57" stroke="#4c7d3c" stroke-width="1.4"/>
+  <!-- pot -->
+  <path d="M9 34 L37 34 L34 52 Q33.5 54 30 54 L16 54 Q12.5 54 12 52 Z" fill="url(#pot)" stroke="#8a4527" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="7" y="30" width="32" height="7" rx="3" fill="#d98352" stroke="#8a4527" stroke-width="2"/>
+  <path d="M12 39 Q14 46 13 50" fill="none" stroke="#e8a877" stroke-width="2" opacity="0.55" stroke-linecap="round"/>
+</svg>

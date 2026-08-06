@@ -23,7 +23,7 @@ export const COLS = 10
 export const ROWS = 10
 const TW = 76            // tile width (px, world space)
 const TH = 38            // tile height
-const SKIRT = 14         // visible soil thickness on south-facing edges
+const SKIRT = 20         // visible block thickness on south-facing edges
 
 export interface Cell { x: number; y: number }
 
@@ -88,6 +88,7 @@ const SPRITE_DEFS: Record<string, AssetDef> = {
   butterfly:  { emoji: "🦋", size: 30 },
   bee:        { emoji: "🐝", size: 26 },
   rainbow:    { emoji: "🌈", size: 60 },
+  bloom:      { emoji: "🌼", size: 34 },
   bird_fly:   { emoji: "🐦", size: 28 },
   petal:      { emoji: "🌸", size: 12 },
   sparkle:    { emoji: "✨", size: 22 },
@@ -129,6 +130,17 @@ function spriteTextureSync(key: string, onUpgrade: (t: Texture, key: string) => 
   return fallback
 }
 
+// Painted PNGs are baked at 2x (any scale, really) — normalize the sprite so
+// its on-screen height stays the registry size regardless of texture source.
+function paintSprite(s: Sprite, key: string): (t: Texture) => void {
+  return (t: Texture) => {
+    if (s.destroyed) return
+    s.texture = t
+    const def = SPRITE_DEFS[key]
+    if (def && t.height > 0) s.scale.set(def.size / t.height)
+  }
+}
+
 // ─── Ground tile textures (procedural) ────────────────────────────────────────
 
 interface GroundColors { top: number; topAlt: number; sideL: number; sideR: number; edge: number }
@@ -147,30 +159,60 @@ function tileTexture(app: Application, ground: Ground, alt: boolean): Texture {
   const c = GROUND_COLORS[ground]
   const g = new Graphics()
   const hw = TW / 2, hh = TH / 2
-  // side skirt (SW + SE faces)
-  g.poly([-hw, hh, 0, TH, 0, TH + SKIRT, -hw, hh + SKIRT]).fill(c.sideL)
-  g.poly([0, TH, hw, hh, hw, hh + SKIRT, 0, TH + SKIRT]).fill(c.sideR)
-  // top diamond
-  g.poly([0, 0, hw, hh, 0, TH, -hw, hh]).fill(alt ? c.topAlt : c.top)
-  // soft top edge highlight (NW + NE edges)
-  g.poly([0, 0, hw, hh, hw - 4, hh, 0, 4]).fill({ color: c.edge, alpha: 0.35 })
-  g.poly([0, 0, -hw, hh, -hw + 4, hh, 0, 4]).fill({ color: c.edge, alpha: 0.25 })
+
+  if (ground === "water") {
+    // sunken basin: grassy rim + thick sides, water surface recessed below
+    const gr = GROUND_COLORS.grass
+    g.poly([-hw, hh, 0, TH, 0, TH + SKIRT, -hw, hh + SKIRT]).fill(gr.sideL)
+    g.poly([0, TH, hw, hh, hw, hh + SKIRT, 0, TH + SKIRT]).fill(gr.sideR)
+    g.poly([0, 0, hw, hh, 0, TH, -hw, hh]).fill(gr.top)
+    // inner walls of the basin (visible on the north faces)
+    const s = 0.78, dy = 7
+    g.poly([0, TH * (1 - s) / 2 + dy - 6, hw * s, hh + dy - 6, hw * s, hh + dy, 0, TH - (TH * (1 - s)) / 2 + dy]).fill(0x2c4a26)
+    g.poly([0, TH * (1 - s) / 2 + dy - 6, -hw * s, hh + dy - 6, -hw * s, hh + dy, 0, TH - (TH * (1 - s)) / 2 + dy]).fill(0x223a1e)
+    // water surface
+    g.poly([0, TH * (1 - s) / 2 + dy, hw * s, hh + dy, 0, TH - (TH * (1 - s)) / 2 + dy, -hw * s, hh + dy]).fill(c.top)
+    // shading near the far walls + glint
+    g.poly([0, TH * (1 - s) / 2 + dy, hw * s, hh + dy, hw * s - 8, hh + dy, 0, TH * (1 - s) / 2 + dy + 4]).fill({ color: 0x1e4a5e, alpha: 0.4 })
+    g.poly([0, TH * (1 - s) / 2 + dy, -hw * s, hh + dy, -hw * s + 8, hh + dy, 0, TH * (1 - s) / 2 + dy + 4]).fill({ color: 0x1e4a5e, alpha: 0.3 })
+    g.ellipse(-6, hh + dy - 1, 6, 2.2).fill({ color: 0xcdeef7, alpha: 0.55 })
+  } else {
+    // side skirt (SW + SE faces) with a darker foot for weight
+    g.poly([-hw, hh, 0, TH, 0, TH + SKIRT, -hw, hh + SKIRT]).fill(c.sideL)
+    g.poly([0, TH, hw, hh, hw, hh + SKIRT, 0, TH + SKIRT]).fill(c.sideR)
+    g.poly([-hw, hh + SKIRT - 4, 0, TH + SKIRT - 4, 0, TH + SKIRT, -hw, hh + SKIRT]).fill({ color: 0x000000, alpha: 0.18 })
+    g.poly([0, TH + SKIRT - 4, hw, hh + SKIRT - 4, hw, hh + SKIRT, 0, TH + SKIRT]).fill({ color: 0x000000, alpha: 0.14 })
+    // top diamond
+    g.poly([0, 0, hw, hh, 0, TH, -hw, hh]).fill(alt ? c.topAlt : c.top)
+    // soft top edge highlight (NW + NE edges)
+    g.poly([0, 0, hw, hh, hw - 4, hh, 0, 4]).fill({ color: c.edge, alpha: 0.4 })
+    g.poly([0, 0, -hw, hh, -hw + 4, hh, 0, 4]).fill({ color: c.edge, alpha: 0.3 })
+  }
+
   if (ground === "grass") {
-    // moss speckles
+    // moss speckles + grass tufts along the front edges
     for (let i = 0; i < 5; i++) {
       const a = (i * 2.399) % (Math.PI * 2)
       const r = 6 + (i % 3) * 5
       g.circle(Math.cos(a) * r, hh + Math.sin(a) * r * 0.5, 2.2).fill({ color: c.edge, alpha: 0.3 })
     }
+    const tufts: [number, number][] = alt
+      ? [[-hw + 12, hh + 4], [-6, TH - 3], [hw - 16, hh + 6]]
+      : [[-hw + 18, hh + 7], [8, TH - 4], [hw - 10, hh + 3]]
+    for (const [tx, ty] of tufts) {
+      g.poly([tx - 3, ty, tx - 1, ty - 6, tx, ty]).fill(c.edge)
+      g.poly([tx - 1, ty, tx + 1, ty - 8, tx + 2, ty]).fill(c.top === GROUND_COLORS.grass.top ? 0x86b465 : c.edge)
+      g.poly([tx + 2, ty, tx + 4, ty - 5, tx + 5, ty]).fill(c.edge)
+    }
   }
   if (ground === "stone") {
+    // beveled slab: inner highlight rim + hairline cracks
+    g.poly([0, 3, hw - 5, hh, 0, TH - 3, -hw + 5, hh])
+      .stroke({ width: 1.6, color: 0xe8dfcc, alpha: 0.6 })
     g.moveTo(-hw + 6, hh).lineTo(0, 6).stroke({ width: 1, color: 0x8a7a5e, alpha: 0.25 })
     g.moveTo(0, TH - 6).lineTo(hw - 6, hh).stroke({ width: 1, color: 0x8a7a5e, alpha: 0.25 })
   }
   if (ground === "wood") {
-    for (let i = -2; i <= 2; i++) {
-      g.moveTo(i * 12 - hw / 2, hh + i * 6 * 0).lineTo(i * 12 - hw / 2 + hw, hh)
-    }
     g.moveTo(-hw / 2, hh / 2 + 4).lineTo(hw / 2 - 8, TH - 4).stroke({ width: 1.2, color: 0x503219, alpha: 0.4 })
     g.moveTo(-hw / 2 + 10, hh / 2 - 2).lineTo(hw / 2, TH - 12).stroke({ width: 1.2, color: 0x503219, alpha: 0.35 })
   }
@@ -346,15 +388,19 @@ export class GardenEngine {
     try { this.app?.destroy(true, { children: true }) } catch {}
   }
 
-  // fit + center the iso grid inside the host
+  // fit + center the iso grid inside the host.
+  // app.screen is in CSS pixels regardless of devicePixelRatio — using renderer
+  // dimensions here shrank and offset the garden on high-DPR phones.
   private layoutWorld() {
-    const w = this.app.renderer.width / this.app.renderer.resolution
-    const h = this.app.renderer.height / this.app.renderer.resolution
+    const w = this.app.screen.width
+    const h = this.app.screen.height
     const gridW = (COLS + ROWS) / 2 * TW
     const gridH = (COLS + ROWS) / 2 * TH + SKIRT + 90
     const scale = Math.min(w / (gridW + 60), h / (gridH + 60))
     this.world.scale.set(scale)
-    this.world.position.set(w / 2, h / 2 - ((COLS + ROWS) / 4 * TH - 40) * scale)
+    // world origin is the grid's top corner; shift so the island's center of
+    // mass sits mid-canvas
+    this.world.position.set(w / 2, h * 0.47 - ((COLS + ROWS) / 4) * TH * scale)
     this.nightOverlay.width = w
     this.nightOverlay.height = h
   }
@@ -389,7 +435,7 @@ export class GardenEngine {
       const s = new Sprite(tex)
       const { wx, wy } = cellToWorld({ x, y })
       s.anchor.set(0.5, 0)
-      s.position.set(wx, wy - TH / 2)
+      s.position.set(wx, wy - TH / 2 - this.elev({ x, y }))
       s.tint = tint
       this.groundLayer.addChild(s)
     }
@@ -400,6 +446,13 @@ export class GardenEngine {
     glow.position.set((pc.wx + cellToWorld({ x: 5, y: 5 }).wx) / 2, (pc.wy + cellToWorld({ x: 5, y: 5 }).wy) / 2 + TH / 2)
     glow.scale.y = 0.55
     this.groundLayer.addChild(glow)
+  }
+
+  // small deterministic terrain elevation for grass tiles — chunky stepped
+  // ground like a low-poly diorama; hard surfaces stay flat
+  private elev(c: Cell): number {
+    if (!inGrid(c) || this.ground[c.y][c.x] !== "grass") return 0
+    return ((c.x * 7 + c.y * 13) % 3) * 3
   }
 
   private resolveCell(id: string, fallback: Cell): Cell {
@@ -420,21 +473,32 @@ export class GardenEngine {
     const center = cellToWorld({ x: 4, y: 4 })
     const cx = (center.wx + cellToWorld({ x: 5, y: 5 }).wx) / 2
     const cy = (center.wy + cellToWorld({ x: 5, y: 5 }).wy) / 2 + TH / 2
+    // chunky raised pedestal block: brick body, beveled stone cap, gold dish
     const ped = new Graphics()
-    ped.poly([-22, -14, 22, -14, 22, 8, 0, 18, -22, 8]).fill(0x95573a)
-    ped.poly([0, -36, 22, -25, 0, -14, -22, -25]).fill(0xa86a4a)
-    ped.ellipse(0, -30, 12, 5).fill(0xe8c979)
+    ped.poly([-26, -18, 0, -5, 0, 22, -26, 9]).fill(0x8a4f36)
+    ped.poly([0, -5, 26, -18, 26, 9, 0, 22]).fill(0x7a422c)
+    ped.moveTo(-26, -4).lineTo(0, 9).moveTo(0, 9).lineTo(26, -4)
+      .stroke({ width: 1.4, color: 0x5e3423, alpha: 0.6 })
+    ped.poly([0, -44, 26, -31, 0, -18, -26, -31]).fill(0xa86a4a)
+    ped.poly([0, -18, 26, -31, 26, -18, 0, -5]).fill(0x95573a)
+    ped.poly([0, -31, -26, -18, -26, -31, 0, -44]).fill(0x8a4f36)
+    ped.poly([0, -44, 26, -31, 0, -18, -26, -31])
+      .stroke({ width: 1.6, color: 0xc9855e, alpha: 0.5 })
+    ped.poly([0, -50, 16, -42, 0, -34, -16, -42]).fill(0xd8ccb5)
+    ped.poly([0, -34, 16, -42, 16, -38, 0, -30]).fill(0xa89877)
+    ped.poly([0, -42, -16, -34, -16, -38, 0, -46]).fill(0xbcae94)
+    ped.ellipse(0, -44, 10, 4.2).fill(0xe8c979)
     ped.position.set(cx, cy)
     ped.zIndex = 8 + 8
     this.objectLayer.addChild(ped)
-    const bloom = new Sprite(emojiTexture("🌼", 34))
+    const bloom: Sprite = new Sprite(spriteTextureSync("bloom", t => paintSprite(bloom, "bloom")(t)))
     bloom.anchor.set(0.5, 1)
-    bloom.position.set(cx, cy - 30)
+    bloom.position.set(cx, cy - 38)
     bloom.zIndex = 8 + 8.1
     this.objectLayer.addChild(bloom)
     const bloomGlow = new Sprite(glowTexture(this.app, 0xffd060, 60))
     bloomGlow.anchor.set(0.5)
-    bloomGlow.position.set(cx, cy - 48)
+    bloomGlow.position.set(cx, cy - 60)
     bloomGlow.zIndex = 8 + 8.05
     this.objectLayer.addChild(bloomGlow)
     this.ambient.push({ sprite: bloomGlow, kind: "pulse", seed: 1 })
@@ -476,9 +540,9 @@ export class GardenEngine {
   }
 
   private addFixedSprite(key: string, cell: Cell, wx: number, wy: number, onUp: () => void, glow: boolean) {
-    const s = new Sprite(spriteTextureSync(key, t => { s.texture = t; onUp() }))
+    const s: Sprite = new Sprite(spriteTextureSync(key, t => { paintSprite(s, key)(t); onUp() }))
     s.anchor.set(0.5, 1)
-    s.position.set(wx, wy)
+    s.position.set(wx, wy - this.elev(cell))
     s.zIndex = cell.x + cell.y
     this.objectLayer.addChild(s)
     this.occupied.add(cellKey(cell))
@@ -503,7 +567,7 @@ export class GardenEngine {
   private spawnPot(id: string, cell: Cell, h: EngineHabit) {
     const { wx, wy } = cellToWorld(cell)
     const root = new Container()
-    root.position.set(wx, wy + TH / 2 - 2)
+    root.position.set(wx, wy + TH / 2 - 2 - this.elev(cell))
     root.zIndex = cell.x + cell.y
 
     // terracotta pot
@@ -565,9 +629,9 @@ export class GardenEngine {
   private spawnDeco(id: string, key: string, cell: Cell) {
     const { wx, wy } = cellToWorld(cell)
     const root = new Container()
-    root.position.set(wx, wy + TH / 2 - 2)
+    root.position.set(wx, wy + TH / 2 - 2 - this.elev(cell))
     root.zIndex = cell.x + cell.y
-    const s = new Sprite(spriteTextureSync(key, t => { s.texture = t }))
+    const s: Sprite = new Sprite(spriteTextureSync(key, t => paintSprite(s, key)(t)))
     s.anchor.set(0.5, 1)
     root.addChild(s)
     root.eventMode = "static"
@@ -594,7 +658,7 @@ export class GardenEngine {
     if (this.data.decorations.includes("butterfly")) this.spawnAir("butterfly", "flutter", 2)
     if (this.data.decorations.includes("bee")) this.spawnAir("bee", "orbit", 1)
     if (this.data.decorations.includes("rainbow")) {
-      const r = new Sprite(spriteTextureSync("rainbow", t => { r.texture = t }))
+      const r: Sprite = new Sprite(spriteTextureSync("rainbow", t => paintSprite(r, "rainbow")(t)))
       r.anchor.set(0.5, 1)
       const { wx, wy } = cellToWorld({ x: 5, y: 0 })
       r.position.set(wx, wy - 60)
@@ -666,7 +730,7 @@ export class GardenEngine {
 
   private spawnAir(key: string, kind: string, count: number) {
     for (let i = 0; i < count; i++) {
-      const s = new Sprite(spriteTextureSync(key, t => { s.texture = t }))
+      const s: Sprite = new Sprite(spriteTextureSync(key, t => paintSprite(s, key)(t)))
       s.anchor.set(0.5)
       const { wx, wy } = cellToWorld({ x: 2 + i * 4, y: 2 })
       s.position.set(wx, wy - 60)
@@ -724,7 +788,7 @@ export class GardenEngine {
       this.cb.onPlaced(placed)
     }
     const { wx, wy } = cellToWorld(ps.cell)
-    ps.root.position.set(wx, wy + TH / 2 - 2)
+    ps.root.position.set(wx, wy + TH / 2 - 2 - this.elev(ps.cell))
     ps.root.zIndex = ps.cell.x + ps.cell.y
   }
 
@@ -780,7 +844,9 @@ export class GardenEngine {
         case "flutter": {
           const bx = a.data!.bx, by = a.data!.by
           s.position.set(bx + Math.sin(t * 0.5 + a.seed) * 150, by + Math.sin(t * 1.1 + a.seed * 2) * 30 - 10)
-          s.scale.x = Math.cos(t * 6 + a.seed) > 0 ? 1 : -1
+          // preserve painted-texture scale magnitude when flipping
+          const m = Math.abs(s.scale.y) || 1
+          s.scale.x = Math.cos(t * 6 + a.seed) > 0 ? m : -m
           break
         }
         case "orbit": {
@@ -804,8 +870,8 @@ export class GardenEngine {
     }
 
     // rain / snow
-    const w = this.app.renderer.width / this.app.renderer.resolution
-    const h = this.app.renderer.height / this.app.renderer.resolution
+    const w = this.app.screen.width
+    const h = this.app.screen.height
     for (const d of this.rainDrops) {
       if (kind === "snowy") {
         d.y += tk.deltaMS * 0.045
