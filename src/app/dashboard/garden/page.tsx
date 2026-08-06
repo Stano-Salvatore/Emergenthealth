@@ -1,8 +1,7 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef, type CSSProperties } from "react"
+import { Fragment, useEffect, useState, useCallback, useRef, type CSSProperties, type ReactNode } from "react"
 import { RefreshCw, Leaf, X, Check, Send, Sparkles } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 // ─── Plant definitions ────────────────────────────────────────────────────────
@@ -23,7 +22,7 @@ const PLANT_TYPES = {
 type PlantKey = keyof typeof PLANT_TYPES
 
 // stage 0 = wilting (3+ missed), 1 = seed, 2 = sprout, 3 = seedling, 4 = grown, 5 = mature
-const STAGE_PX  = [28, 28, 36, 48, 60, 76]
+const STAGE_PX  = [20, 20, 26, 32, 40, 48]
 const STAGE_LABEL = ["Wilting","Seed","Sprout","Seedling","Growing","Blooming"]
 
 function getStage(streak: number, missed: number): 0 | 1 | 2 | 3 | 4 | 5 {
@@ -52,44 +51,71 @@ const ALL_DECORATIONS = [
   { id: "hedgehog",  emoji: "🦔",  name: "Hedgehog"     },
 ] as const
 
-// Ground decorations live on isometric tiles [row, col]; sky ones float above.
-const DECO_TILES: Record<string, [number, number]> = {
-  gnome:    [6, 3],
-  bird:     [2, 1],
-  stone:    [7, 4],
-  mushroom: [6, 5],
-  ladybug:  [6, 1],
-  snail:    [7, 5],
-  frog:     [6, 0],
-  fox:      [7, 6],
-  hedgehog: [7, 1],
+// Ground decorations live on the lawn (scene-% coords); sky ones float above.
+const DECO_SPOTS: Record<string, { x: number; y: number; s: number }> = {
+  gnome:    { x: 44,   y: 63.5, s: 21 },
+  bird:     { x: 61,   y: 66,   s: 16 },
+  stone:    { x: 86,   y: 59.5, s: 14 },
+  mushroom: { x: 26,   y: 66,   s: 14 },
+  ladybug:  { x: 52,   y: 73,   s: 11 },
+  snail:    { x: 41,   y: 70.5, s: 12 },
+  frog:     { x: 20,   y: 68,   s: 16 },
+  fox:      { x: 68,   y: 68.5, s: 17 },
+  hedgehog: { x: 47,   y: 76.5, s: 15 },
 }
-const DECO_SKY: Record<string, { x: number; y: number }> = {
-  butterfly: { x: 24, y: 30 },
-  bee:       { x: 66, y: 26 },
-  rainbow:   { x: 50, y: 8  },
+const DECO_SKY: Record<string, { x: number; y: number; s: number }> = {
+  butterfly: { x: 30, y: 26, s: 20 },
+  bee:       { x: 63, y: 22, s: 18 },
+  rainbow:   { x: 50, y: 12, s: 30 },
 }
 
-// ─── Weather ─────────────────────────────────────────────────────────────────
+// ─── Weather palettes ─────────────────────────────────────────────────────────
+// The garden lives in a cozy perpetual dusk — weather shifts the light.
 
 interface WeatherTheme {
   sky: string
-  grassA: string; grassB: string
-  stoneA: string; stoneB: string
-  water: string
-  type: "sunny"|"cloudy"|"foggy"|"rainy"|"snowy"|"stormy"|"clear"
+  lawn: string; lawnDark: string; lawnEdge: string
+  bedTop: string; bedTopB: string; bedSideL: string; bedSideR: string
+  stone: string; stoneB: string; stoneSideL: string; stoneSideR: string; stoneLine: string
+  wood: string; woodB: string; woodSideL: string; woodSideR: string; plank: string
+  water: string; waterDeep: string
+  type: "sunny"|"cloudy"|"foggy"|"rainy"|"snowy"|"stormy"
   icon: string; label: string
 }
 
-const STONE = { stoneA: "#e2d5c1", stoneB: "#d5c7b0" }
+const P_WOOD = { wood:"#9a6a3c", woodB:"#8c5e34", woodSideL:"#5e3f23", woodSideR:"#6f4b29", plank:"rgba(50,30,16,0.5)" }
+const P_WARM = {
+  lawn:"#4e7a3a", lawnDark:"#446b33", lawnEdge:"#3a5c2b",
+  bedTop:"#6fa14c", bedTopB:"#659647", bedSideL:"#2f4d20", bedSideR:"#3a5c28",
+  stone:"#cec2ab", stoneB:"#c2b59c", stoneSideL:"#96866a", stoneSideR:"#a89877", stoneLine:"rgba(90,75,55,0.16)",
+  ...P_WOOD, water:"#57aecb", waterDeep:"#3a89a8",
+}
+const P_DIM = {
+  lawn:"#456b34", lawnDark:"#3c5e2d", lawnEdge:"#345226",
+  bedTop:"#628f44", bedTopB:"#588540", bedSideL:"#2a441d", bedSideR:"#345224",
+  stone:"#bdb098", stoneB:"#b1a48a", stoneSideL:"#87785e", stoneSideR:"#968769", stoneLine:"rgba(80,66,48,0.16)",
+  ...P_WOOD, water:"#4a99b5", waterDeep:"#337892",
+}
+const P_DARK = {
+  lawn:"#3a5a2e", lawnDark:"#324e28", lawnEdge:"#2a4221",
+  bedTop:"#4d7336", bedTopB:"#456a31", bedSideL:"#223a17", bedSideR:"#2a461d",
+  stone:"#a99c85", stoneB:"#9d9079", stoneSideL:"#756750", stoneSideR:"#82745a", stoneLine:"rgba(70,58,42,0.18)",
+  ...P_WOOD, water:"#3a86a4", waterDeep:"#2a6a84",
+}
+const P_SNOW = {
+  lawn:"#d7dfe9", lawnDark:"#c6d1de", lawnEdge:"#a9b8c9",
+  bedTop:"#e3eaf2", bedTopB:"#d6dfe9", bedSideL:"#8fa0b5", bedSideR:"#9fb0c4",
+  stone:"#e0dbd2", stoneB:"#d4cdc0", stoneSideL:"#a89f90", stoneSideR:"#b5ab9a", stoneLine:"rgba(90,80,70,0.13)",
+  ...P_WOOD, water:"#a5cfe4", waterDeep:"#7fb3cc",
+}
 
 function getWeatherTheme(code?: number | null): WeatherTheme {
-  if (code == null || code <= 1) return { sky:"linear-gradient(180deg,#4d84bc 0%,#8fc2e8 52%,#f4d7a3 100%)", grassA:"#8dba60", grassB:"#7caa52", ...STONE, water:"#5ac4ec", type:"sunny",  icon:"☀️",  label:"Sunny"   }
-  if (code <= 3)                 return { sky:"linear-gradient(180deg,#75889f 0%,#aeb8c2 60%,#d8d2c4 100%)", grassA:"#7ea75c", grassB:"#6f974f", ...STONE, water:"#54b4dc", type:"cloudy", icon:"⛅",  label:"Cloudy"  }
-  if (code <= 48)                return { sky:"linear-gradient(180deg,#65758a 0%,#93a2b1 60%,#b6bfc8 100%)", grassA:"#719755", grassB:"#64884a", ...STONE, water:"#4ea4c8", type:"foggy",  icon:"🌫️", label:"Foggy"   }
-  if (code <= 67)                return { sky:"linear-gradient(180deg,#3a4a61 0%,#5b6f87 62%,#77889c 100%)", grassA:"#5e8a4e", grassB:"#527a44", ...STONE, water:"#4498c4", type:"rainy",  icon:"🌧️", label:"Rainy"   }
-  if (code <= 77)                return { sky:"linear-gradient(180deg,#a9bcd6 0%,#d7e1ee 60%,#eef2f7 100%)", grassA:"#e3ebf4", grassB:"#d2dde9", stoneA:"#e9e4dc", stoneB:"#ddd6ca", water:"#a5cfe4", type:"snowy",  icon:"❄️",  label:"Snowy"   }
-  return                                { sky:"linear-gradient(180deg,#20283a 0%,#333f55 60%,#465268 100%)", grassA:"#4c7440", grassB:"#416638", ...STONE, water:"#3a86ac", type:"stormy", icon:"⛈️", label:"Stormy"  }
+  if (code == null || code <= 1) return { sky:"linear-gradient(180deg,#2c3550 0%,#3c4a6e 40%,#6b5f7d 72%,#c98a63 100%)", ...P_WARM, type:"sunny",  icon:"☀️",  label:"Sunny"  }
+  if (code <= 3)                 return { sky:"linear-gradient(180deg,#2b3550 0%,#4a5877 55%,#8d8398 100%)",             ...P_DIM,  type:"cloudy", icon:"⛅",  label:"Cloudy" }
+  if (code <= 48)                return { sky:"linear-gradient(180deg,#3e4a5e 0%,#66748a 60%,#98a2b1 100%)",             ...P_DIM,  type:"foggy",  icon:"🌫️", label:"Foggy"  }
+  if (code <= 67)                return { sky:"linear-gradient(180deg,#1e2738 0%,#35435c 60%,#526078 100%)",             ...P_DARK, type:"rainy",  icon:"🌧️", label:"Rainy"  }
+  if (code <= 77)                return { sky:"linear-gradient(180deg,#5a6c8e 0%,#9fb2cc 60%,#cfd9e8 100%)",             ...P_SNOW, type:"snowy",  icon:"❄️",  label:"Snowy"  }
+  return                                { sky:"linear-gradient(180deg,#121724 0%,#20283c 60%,#333e52 100%)",             ...P_DARK, type:"stormy", icon:"⛈️", label:"Stormy" }
 }
 
 // ─── Data types ───────────────────────────────────────────────────────────────
@@ -110,19 +136,66 @@ interface GardenData {
   watered: { today: boolean; count: number }
 }
 
-// Ambient scenery that appears as the garden levels up — the whole garden
-// visibly grows richer with XP, independent of individual habit plants.
-// Placed on isometric tiles [row, col]; the lotus floats on the pond.
-const LEVEL_FLAIR: { min: number; emoji: string; r: number; c: number; size: number }[] = [
-  { min: 2, emoji: "🌼", r: 6, c: 6, size: 18 },
-  { min: 3, emoji: "🌾", r: 0, c: 5, size: 20 },
-  { min: 4, emoji: "🌺", r: 2, c: 7, size: 18 },
-  { min: 5, emoji: "🪷", r: 5, c: 0, size: 18 },
-  { min: 6, emoji: "🌳", r: 0, c: 0, size: 36 },
-  { min: 7, emoji: "🌲", r: 0, c: 7, size: 38 },
-  { min: 8, emoji: "⛲", r: 1, c: 3, size: 28 },
-  { min: 9, emoji: "🏡", r: 0, c: 3, size: 34 },
+// ─── Scene geometry ───────────────────────────────────────────────────────────
+// One hand-drawn isometric diorama, coordinates in scene-%.
+
+type Pt = [number, number]
+
+const C = { x: 50, y: 49 }                 // plaza center
+const PLAZA = { hw: 21, hh: 10.5 }
+const BEDS  = { hw: 27.5, hh: 14 }         // outer edge of the raised-bed ring
+const LAWN  = { hw: 46, hh: 24.5, cy: 55 }
+const BED_LIFT = 3.4, PLAZA_LIFT = 1.1, DECK_LIFT = 3.2
+
+const dia = (cx: number, cy: number, hw: number, hh: number): Pt[] =>
+  [[cx, cy - hh], [cx + hw, cy], [cx, cy + hh], [cx - hw, cy]]
+const upPt = (p: Pt, dy: number): Pt => [p[0], p[1] - dy]
+
+function quadStyle(pts: Pt[], z: number, bg: string): CSSProperties {
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1])
+  const x0 = Math.min(...xs), y0 = Math.min(...ys)
+  const w = Math.max(...xs) - x0, h = Math.max(...ys) - y0
+  const poly = pts.map(p => `${(((p[0] - x0) / w) * 100).toFixed(2)}% ${(((p[1] - y0) / h) * 100).toFixed(2)}%`).join(",")
+  return { position: "absolute", left: `${x0}%`, top: `${y0}%`, width: `${w}%`, height: `${h}%`,
+    clipPath: `polygon(${poly})`, zIndex: z, background: bg }
+}
+
+function Quad({ pts, z, bg, style }: { pts: Pt[]; z: number; bg: string; style?: CSSProperties }) {
+  return <div style={{ ...quadStyle(pts, z, bg), ...style }} />
+}
+
+// wall dropping height h below edge a→b
+const wallPts = (a: Pt, b: Pt, h: number): Pt[] => [a, b, [b[0], b[1] + h], [a[0], a[1] + h]]
+
+function Sprite({ x, y, s, z, children, style }: {
+  x: number; y: number; s: number; z: number; children: ReactNode; style?: CSSProperties
+}) {
+  return (
+    <div style={{ position: "absolute", left: `${x}%`, top: `${y}%`, transform: "translate(-50%,-100%)",
+      fontSize: s, lineHeight: 1, zIndex: z, filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.45))",
+      pointerEvents: "none", ...style }}>
+      {children}
+    </div>
+  )
+}
+
+// Habit plant slots (10): on the bed ring and front lawn
+const PLANT_SLOTS: Pt[] = [
+  [38, 39.5], [43.5, 36.7], [48, 34.5],   // NW bed
+  [56, 34.5], [62, 37.5], [68, 41],       // NE bed
+  [60.5, 58],                             // SE bed
+  [33, 64.5], [24, 60], [56.5, 63],       // front lawn
 ]
+
+const STARS: Pt[] = [[6,5],[15,10],[26,4],[38,8],[52,3],[64,7],[76,11],[87,5],[94,10],[21,15],[71,16],[91,18],[45,13],[57,17]]
+const LAWN_FLOWERS: [number, number, string][] = [
+  [12,57,"#ffd9e8"],[18,52,"#fff"],[24,66,"#ffe9a3"],[8,61,"#fff"],[30,72,"#ffd9e8"],[40,76,"#fff"],
+  [60,77,"#ffe9a3"],[70,72,"#ffd9e8"],[80,64,"#fff"],[88,57,"#ffe9a3"],[84,50,"#ffd9e8"],[76,44,"#fff"],
+  [34,38,"#ffe9a3"],[42,34,"#ffd9e8"],[58,33,"#fff"],[66,37,"#ffd9e8"],[16,47,"#ffe9a3"],[57,71,"#fff"],
+]
+const BED_FLOWERS: [number, number][] = [[27,40],[33,36.5],[40,33.5],[47,31],[56,32],[63,35],[70,39],[74,43],[71,52],[66,57],[60,61],[30,46]]
+const FIREFLIES: Pt[] = [[24,50],[36,62],[58,46],[73,57],[47,42],[81,46],[30,40],[64,66]]
+const BULBS: Pt[] = [[7,10],[17,14],[29,16],[41,14],[52,9],[64,11],[76,13],[88,12],[97,11]]
 
 // ─── Emergy chat ─────────────────────────────────────────────────────────────
 
@@ -311,270 +384,476 @@ function LightningFlash() {
   )
 }
 
-// ─── Garden scene ─────────────────────────────────────────────────────────────
-// A cozy isometric "diorama island": diamond tiles projected in 2D, a stone
-// plaza with a glowing lantern in the middle, ponds, string lights, fireflies.
+// ─── Scene pieces ─────────────────────────────────────────────────────────────
 
-// G = grass, P = stone plaza, W = water
-const TILE_GRID = [
-  "GGGGGGGG",
-  "GGPPPPGG",
-  "GGPPPPGG",
-  "GGPPPPGG",
-  "GGPPPPGG",
-  "WGPPPPGG",
-  "GGGGGGGG",
-  "GGWGGGGG",
-]
-const TW = 12   // tile width, % of scene width
-const TH = 6    // tile height, % of scene height
-const ISO_TOP = 30 // y of the back corner, %
-const DIAMOND = "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)"
-
-const isoX = (r: number, c: number) => 50 + (c - r) * (TW / 2)
-const isoY = (r: number, c: number) => ISO_TOP + (c + r) * (TH / 2)
-
-// Where an object stands on a tile: centered, feet at ~3/4 down the diamond.
-function tileAnchor(r: number, c: number): CSSProperties {
-  return {
-    left: `${isoX(r, c)}%`,
-    top: `${isoY(r, c) + TH * 0.72}%`,
-    transform: "translate(-50%, -100%)",
-    zIndex: 10 + r + c,
-  }
+function Pond({ x, y, hw, hh, theme, lily }: { x: number; y: number; hw: number; hh: number; theme: WeatherTheme; lily: boolean }) {
+  return (
+    <>
+      <Quad pts={dia(x, y, hw + 1.1, hh + 0.7)} z={3} bg={theme.lawnEdge} />
+      <Quad pts={dia(x, y, hw, hh)} z={3}
+        bg={`radial-gradient(ellipse at 45% 38%, #79c8de 0 20%, ${theme.water} 52%, ${theme.waterDeep} 100%), radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(10,30,45,0.35) 100%)`} />
+      <span style={{ position: "absolute", left: `${x - 2}%`, top: `${y - 0.6}%`, width: 5, height: 3,
+        borderRadius: "50%", background: "rgba(255,255,255,0.35)", zIndex: 4 }} />
+      {lily && <Sprite x={x} y={y + 0.6} s={15} z={4}>🪷</Sprite>}
+    </>
+  )
 }
 
-// Grass tiles ringing the plaza where habit plants live (up to 10)
-const PLANT_SLOTS: [number, number][] = [
-  [2, 6], [3, 6], [4, 6], [5, 6], [6, 4], [6, 2], [5, 1], [3, 1], [1, 1], [1, 6],
-]
+function PotShelf() {
+  return (
+    <>
+      <div style={{ position: "absolute", left: "31.5%", top: "43.5%", transform: "translate(-50%,-100%)",
+        width: 86, height: 64, zIndex: 9 }}>
+        <div style={{ position: "absolute", left: 6, bottom: 0, width: 7, height: 58, background: "linear-gradient(90deg,#7d5530,#5e3f23)", borderRadius: 2 }} />
+        <div style={{ position: "absolute", right: 6, bottom: 0, width: 7, height: 58, background: "linear-gradient(90deg,#7d5530,#5e3f23)", borderRadius: 2 }} />
+        <div style={{ position: "absolute", left: 0, bottom: 22, width: "100%", height: 8, background: "linear-gradient(180deg,#a9743f,#8a5c33)", borderRadius: 2 }} />
+        <div style={{ position: "absolute", left: 0, bottom: 52, width: "100%", height: 8, background: "linear-gradient(180deg,#a9743f,#8a5c33)", borderRadius: 2 }} />
+      </div>
+      <Sprite x={27} y={35.1} s={17} z={10}>🪴</Sprite>
+      <Sprite x={31.5} y={35.1} s={16} z={10}>🌿</Sprite>
+      <Sprite x={36} y={35.1} s={15} z={10}>🌵</Sprite>
+      <Sprite x={28} y={39.8} s={14} z={10}>🍄</Sprite>
+      <Sprite x={34} y={39.8} s={16} z={10}>🪻</Sprite>
+      <Sprite x={31.5} y={43.3} s={14} z={10}>🧺</Sprite>
+    </>
+  )
+}
 
-const STRING_LIGHT_BULBS: [number, number][] = [
-  [6, 9], [16, 13], [28, 15], [40, 13], [50, 8], [62, 11], [74, 13], [86, 12], [96, 10],
-]
+function Gazebo() {
+  return (
+    <>
+      <div style={{ position: "absolute", left: "71%", top: "40.5%", transform: "translate(-50%,-100%)",
+        width: 132, height: 86, zIndex: 8 }}>
+        <div style={{ position: "absolute", left: "50%", bottom: 0, transform: "translateX(-50%)", width: 132, height: 80, borderRadius: "66px 66px 0 0", background: "rgba(20,26,20,0.18)" }} />
+        <div style={{ position: "absolute", left: "50%", bottom: 0, transform: "translateX(-50%)", width: 132, height: 80, border: "4px solid #7d5530", borderBottom: "none", borderRadius: "66px 66px 0 0" }} />
+        <div style={{ position: "absolute", left: "50%", bottom: 0, transform: "translateX(-50%)", width: 84, height: 80, border: "3px solid #6e4a29", borderBottom: "none", borderRadius: "42px 42px 0 0" }} />
+        <div style={{ position: "absolute", left: "50%", bottom: 0, transform: "translateX(-50%)", width: 30, height: 80, border: "3px solid #6e4a29", borderBottom: "none", borderRadius: "15px 15px 0 0" }} />
+        <div style={{ position: "absolute", left: "50%", bottom: 22, transform: "translateX(-50%)", width: 126, height: 26, border: "2.5px solid #6e4a29", borderRadius: "50%" }} />
+        <div style={{ position: "absolute", left: "50%", top: -9, transform: "translateX(-50%)", fontSize: 14 }}>🌿</div>
+      </div>
+      <Sprite x={64.5} y={40.5} s={15} z={9}>🌿</Sprite>
+      <Sprite x={77.5} y={40.5} s={14} z={9}>🌿</Sprite>
+      <Sprite x={71} y={36.5} s={15} z={9}
+        style={{ filter: "drop-shadow(0 0 8px rgba(255,170,70,0.95))", animation: "gardenGlowPulse 3s ease-in-out infinite" }}>🏮</Sprite>
+    </>
+  )
+}
 
-const FIREFLIES = [
-  { x: 20, y: 48, d: 0   },
-  { x: 34, y: 60, d: 1.2 },
-  { x: 62, y: 44, d: 2.1 },
-  { x: 76, y: 62, d: 0.6 },
-  { x: 47, y: 40, d: 1.7 },
-  { x: 86, y: 50, d: 2.6 },
-]
+function Deck({ theme }: { theme: WeatherTheme }) {
+  const dk: Pt[] = [[70, 54], [81, 48.5], [90, 53.5], [79, 59]]
+  return (
+    <>
+      <Quad pts={wallPts(upPt(dk[3], DECK_LIFT), upPt(dk[2], DECK_LIFT), DECK_LIFT + 1)} z={5}
+        bg={`linear-gradient(180deg,${theme.woodSideR},${theme.woodSideL})`} />
+      <Quad pts={wallPts(upPt(dk[0], DECK_LIFT), upPt(dk[3], DECK_LIFT), DECK_LIFT + 1)} z={5} bg={theme.woodSideL} />
+      <Quad pts={dk.map(p => upPt(p, DECK_LIFT))} z={6}
+        bg={`repeating-linear-gradient(63.4deg, transparent 0 9px, ${theme.plank} 9px 10px), linear-gradient(135deg, ${theme.wood} 0 60%, ${theme.woodB} 100%)`} />
+      <Quad pts={[[76, 60.2], [82.5, 57], [85.5, 58.6], [79, 61.9]]} z={6}
+        bg={`repeating-linear-gradient(63.4deg, transparent 0 9px, ${theme.plank} 9px 10px), ${theme.woodB}`} />
+      {/* table + props */}
+      <div style={{ position: "absolute", left: "83.5%", top: "50.2%", transform: "translate(-50%,-100%)", width: 52, height: 26, zIndex: 12 }}>
+        <div style={{ position: "absolute", left: "50%", top: 0, transform: "translateX(-50%)", width: 52, height: 13, background: "linear-gradient(135deg,#a9743f,#8f5f33)", borderRadius: 4 }} />
+        <div style={{ position: "absolute", left: "20%", top: 12, width: 6, height: 13, background: "#5e3f23" }} />
+        <div style={{ position: "absolute", left: "74%", top: 12, width: 6, height: 13, background: "#5e3f23" }} />
+      </div>
+      <Sprite x={82.5} y={48.6} s={15} z={13}>🫖</Sprite>
+      <Sprite x={86} y={49} s={14} z={13}>🪴</Sprite>
+      <Sprite x={77.5} y={55.8} s={16} z={13}>🧺</Sprite>
+      <Sprite x={88} y={55.2} s={13} z={13}
+        style={{ filter: "drop-shadow(0 0 7px rgba(255,190,90,0.95))" }}>🕯️</Sprite>
+    </>
+  )
+}
+
+function PillarPlanters() {
+  const pN = dia(C.x, C.y, PLAZA.hw, PLAZA.hh)
+  const W: Pt = [pN[3][0] - 1.3, pN[3][1] - PLAZA_LIFT + 0.8]
+  const S: Pt = [pN[2][0] - 1.3, pN[2][1] - PLAZA_LIFT + 0.8]
+  return (
+    <>
+      {[W, S].map(([x, y], i) => (
+        <div key={i}>
+          <div style={{ position: "absolute", left: `${x}%`, top: `${y + 0.4}%`, transform: "translate(-50%,-100%)",
+            width: 26, height: 34, zIndex: 12, background: "linear-gradient(90deg,#cfc2a8 0 55%,#a99a7c 55% 100%)",
+            borderRadius: 3, boxShadow: "0 2px 4px rgba(0,0,0,0.4)" }} />
+          <div style={{ position: "absolute", left: `${x}%`, top: `${y + 0.55}%`,
+            transform: "translate(-50%,-100%) translateY(-34px)", width: 32, height: 7, zIndex: 12,
+            background: "linear-gradient(180deg,#d8ccb2,#b3a385)", borderRadius: 2 }} />
+        </div>
+      ))}
+      <Sprite x={W[0]} y={W[1] - 5.4} s={22} z={13}>🪴</Sprite>
+      <Sprite x={S[0]} y={S[1] - 5.4} s={20} z={13}>🌷</Sprite>
+    </>
+  )
+}
+
+function Pedestal() {
+  return (
+    <>
+      <div style={{ position: "absolute", left: `${C.x}%`, top: `${C.y + 2}%`, transform: "translate(-50%,-50%)",
+        width: "26%", height: "20%", zIndex: 13, pointerEvents: "none",
+        background: "radial-gradient(closest-side, rgba(255,180,90,0.32), rgba(255,150,70,0.10) 55%, transparent 78%)" }} />
+      <div style={{ position: "absolute", left: `${C.x}%`, top: `${C.y + 3.5}%`, transform: "translate(-50%,-100%)",
+        width: 64, height: 58, zIndex: 14, pointerEvents: "none" }}>
+        <div style={{ position: "absolute", left: "50%", bottom: 0, transform: "translateX(-50%)", width: 64, height: 30,
+          clipPath: "polygon(50% 0,100% 26%,100% 74%,50% 100%,0 74%,0 26%)",
+          background: "linear-gradient(90deg,#9a5c40 0 50%,#8a4f36 50% 100%)" }} />
+        <div style={{ position: "absolute", left: "50%", bottom: 20, transform: "translateX(-50%)", width: 64, height: 32,
+          clipPath: "polygon(50% 0,100% 50%,50% 100%,0 50%)",
+          background: `repeating-linear-gradient(63.4deg, transparent 0 12px, rgba(60,30,18,0.3) 12px 13px),
+            repeating-linear-gradient(116.6deg, transparent 0 12px, rgba(60,30,18,0.3) 12px 13px),
+            linear-gradient(135deg,#a86a4a,#95573a)` }} />
+        <div style={{ position: "absolute", left: "50%", bottom: 32, transform: "translateX(-50%)", width: 34, height: 10,
+          background: "linear-gradient(180deg,#e8c979,#c9a24e)", borderRadius: "50%" }} />
+      </div>
+      <div style={{ position: "absolute", left: `${C.x}%`, top: `${C.y - 3.2}%`, transform: "translate(-50%,-100%)",
+        fontSize: 30, lineHeight: 1, zIndex: 15, pointerEvents: "none", animation: "gardenGlowPulse 3s ease-in-out infinite",
+        filter: "sepia(1) saturate(2.6) hue-rotate(-12deg) brightness(1.35) drop-shadow(0 0 14px rgba(255,200,90,1)) drop-shadow(0 0 30px rgba(255,170,60,0.75))" }}>
+        🌷
+      </div>
+      {[[46.5, 44], [54, 43.5], [50, 41.5]].map(([x, y], i) => (
+        <span key={i} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, fontSize: 11, zIndex: 15,
+          opacity: 0.9, animation: `gardenFloat ${3 + i}s ease-in-out ${i * 0.6}s infinite` }}>✨</span>
+      ))}
+    </>
+  )
+}
+
+// ─── Garden scene (the full game screen) ─────────────────────────────────────
 
 function GardenScene({
-  habits, plantChoices, decorations, weather, level, sparkling, onPlantClick,
+  habits, plantChoices, decorations, weather, level, levelInfo, watered, watering, sparkling,
+  onPlantClick, onWater, onEmergy, onDecorate, onRefresh, loading, emergyOpen, decorateOpen,
 }: {
   habits: HabitData[]
   plantChoices: Record<string, string>
   decorations: string[]
   weather: { code: number; temp: number } | null
   level: number
+  levelInfo: GardenData["level"] | null
+  watered: boolean
+  watering: boolean
   sparkling: boolean
   onPlantClick: (id: string) => void
+  onWater: () => void
+  onEmergy: () => void
+  onDecorate: () => void
+  onRefresh: () => void
+  loading: boolean
+  emergyOpen: boolean
+  decorateOpen: boolean
 }) {
   const theme = getWeatherTheme(weather?.code)
   const activeDecos = ALL_DECORATIONS.filter(d => decorations.includes(d.id))
-  const flair = LEVEL_FLAIR.filter(f => level >= f.min)
+  const lawnPts = dia(C.x, LAWN.cy, LAWN.hw, LAWN.hh)
+  const pN = dia(C.x, C.y, PLAZA.hw, PLAZA.hh)
+  const bN = dia(C.x, C.y, BEDS.hw, BEDS.hh)
+  const ring = [
+    { o: [bN[3], bN[0]] as [Pt, Pt], i: [pN[3], pN[0]] as [Pt, Pt] },
+    { o: [bN[0], bN[1]] as [Pt, Pt], i: [pN[0], pN[1]] as [Pt, Pt] },
+    { o: [bN[1], bN[2]] as [Pt, Pt], i: [pN[1], pN[2]] as [Pt, Pt] },
+  ]
 
   return (
-    <div className="relative w-full rounded-2xl overflow-hidden select-none" style={{ height: 440 }}>
-      {/* Sky */}
-      <div className="absolute inset-0" style={{ background: theme.sky }} />
-
-      {/* Sun / clouds */}
-      {theme.type === "sunny" && (
-        <div className="absolute top-5 right-8 text-4xl pointer-events-none z-10"
-          style={{ animation: "gardenSunSpin 40s linear infinite", filter: "drop-shadow(0 0 16px #fbbf24)" }}>
-          ☀️
-        </div>
-      )}
-      {theme.type === "cloudy" && (
-        <>
-          <div className="absolute top-6 left-12 text-3xl pointer-events-none z-10"
-            style={{ animation: "gardenFloat 6s ease-in-out infinite" }}>⛅</div>
-          <div className="absolute top-10 right-20 text-2xl pointer-events-none z-10 opacity-70"
-            style={{ animation: "gardenFloat 8s ease-in-out 2s infinite" }}>☁️</div>
-        </>
-      )}
-      {theme.type === "stormy" && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 text-3xl pointer-events-none z-10 opacity-70">⛈️</div>
-      )}
-
-      {/* String lights swinging across the top */}
-      <svg className="absolute inset-x-0 top-0 w-full pointer-events-none" style={{ height: "26%", zIndex: 30 }}
-        viewBox="0 0 100 26" preserveAspectRatio="none">
-        <path d="M0,6 Q25,20 50,8 T100,10" fill="none" stroke="rgba(50,38,26,0.55)" strokeWidth="0.4" />
-        {STRING_LIGHT_BULBS.map(([x, y], i) => (
-          <circle key={i} cx={x} cy={y + 1.5} r="1.1" fill="#ffd98c"
-            style={{ filter: "drop-shadow(0 0 2px rgba(255,200,110,0.9))",
-              animation: `gardenBulb 2.4s ease-in-out ${i * 0.3}s infinite` }} />
+    <div className="w-full overflow-x-auto rounded-3xl">
+      <div className="relative select-none min-w-[680px]" style={{ height: 620 }}>
+        {/* Sky + stars */}
+        <div className="absolute inset-0" style={{ background: theme.sky }} />
+        {STARS.map(([x, y], i) => (
+          <span key={i} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, width: i % 3 ? 2 : 3,
+            height: i % 3 ? 2 : 3, borderRadius: "50%", background: "#fff", opacity: 0.3 + (i % 4) * 0.15, zIndex: 1 }} />
         ))}
-      </svg>
 
-      {/* Island plate — soil thickness under the tiles, floating with a shadow */}
-      <div className="absolute" style={{ left: "2%", top: "32.8%", width: "96%", height: "48%",
-        clipPath: DIAMOND, background: "#46301c", zIndex: 0,
-        filter: "drop-shadow(0 16px 20px rgba(0,0,0,0.4))" }} />
-      <div className="absolute" style={{ left: "2%", top: "31.4%", width: "96%", height: "48%",
-        clipPath: DIAMOND, background: "#5c3f26", zIndex: 1 }} />
+        {/* Lawn island */}
+        <Quad pts={lawnPts.map(([x, y]) => [x, y + 2.6] as Pt)} z={1} bg="#2e2013"
+          style={{ filter: "drop-shadow(0 16px 22px rgba(0,0,0,0.55))" }} />
+        <Quad pts={lawnPts.map(([x, y]) => [x, y + 1.4] as Pt)} z={1} bg="#3d2b1a" />
+        <Quad pts={lawnPts} z={2} bg={`
+          radial-gradient(ellipse at 50% 45%, rgba(255,200,120,0.10), transparent 55%),
+          radial-gradient(ellipse at 30% 65%, ${theme.lawnDark} 0 8%, transparent 9%),
+          radial-gradient(ellipse at 72% 40%, ${theme.lawnDark} 0 7%, transparent 8%),
+          radial-gradient(ellipse at 60% 75%, ${theme.lawnDark} 0 6%, transparent 7%),
+          ${theme.lawn}`} />
+        {LAWN_FLOWERS.map(([x, y, color], i) => (
+          <span key={i} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, width: 3, height: 3,
+            borderRadius: "50%", background: color, opacity: 0.9, zIndex: 3 }} />
+        ))}
 
-      {/* Isometric tiles */}
-      {TILE_GRID.flatMap((row, r) => row.split("").map((t, c) => {
-        const alt = (r + c) % 2 === 1
-        const bg = t === "W"
-          ? `radial-gradient(ellipse at 50% 40%, ${theme.water} 0%, ${theme.water} 45%, rgba(0,0,0,0.18) 100%), ${theme.water}`
-          : t === "P"
-            ? (alt ? theme.stoneA : theme.stoneB)
-            : (alt ? theme.grassA : theme.grassB)
-        return (
-          <div key={`${r}-${c}`} className="absolute" style={{
-            left: `${isoX(r, c) - TW / 2}%`, top: `${isoY(r, c)}%`,
-            width: `${TW}%`, height: `${TH}%`,
-            clipPath: DIAMOND, background: bg, zIndex: 2,
-          }} />
-        )
-      }))}
+        {/* Ponds — second one unlocks at level 3, lilies at level 5 */}
+        <Pond x={13.5} y={58} hw={9} hh={4.5} theme={theme} lily={level >= 5} />
+        {level >= 3 && <Pond x={31} y={72.5} hw={8} hh={4} theme={theme} lily={level >= 5} />}
 
-      {/* Warm lantern glow over the plaza */}
-      <div className="absolute pointer-events-none" style={{
-        left: "53%", top: "52%", transform: "translate(-50%, -50%)",
-        width: "46%", height: "38%", zIndex: 8,
-        background: "radial-gradient(closest-side, rgba(255,176,84,0.35), rgba(255,176,84,0.12) 55%, transparent 78%)",
-      }} />
-      {/* Lantern centerpiece */}
-      <div className="absolute pointer-events-none" style={{
-        left: "53%", top: "51.5%", transform: "translate(-50%, -100%)", fontSize: 30, zIndex: 17,
-        animation: "gardenGlowPulse 3s ease-in-out infinite",
-      }}>🏮</div>
+        {/* Raised bed ring */}
+        {ring.map(({ o, i }, k) => (
+          <Fragment key={k}>
+            <Quad pts={wallPts(upPt(o[0], BED_LIFT), upPt(o[1], BED_LIFT), BED_LIFT + 1.2)} z={5}
+              bg={`linear-gradient(180deg,${theme.bedSideR},${theme.bedSideL})`} />
+            <Quad pts={[upPt(o[0], BED_LIFT), upPt(o[1], BED_LIFT), upPt(i[1], BED_LIFT), upPt(i[0], BED_LIFT)]} z={6}
+              bg={`radial-gradient(ellipse at 20% 50%, ${theme.bedTopB} 0 12%, transparent 13%),
+                   radial-gradient(ellipse at 55% 30%, ${theme.bedTopB} 0 10%, transparent 11%),
+                   radial-gradient(ellipse at 80% 60%, ${theme.bedTopB} 0 11%, transparent 12%),
+                   ${theme.bedTop}`} />
+            <Quad pts={wallPts(upPt(i[0], BED_LIFT), upPt(i[1], BED_LIFT), BED_LIFT)} z={6} bg={theme.bedSideL} />
+            <Quad pts={[upPt(o[0], BED_LIFT), upPt(o[1], BED_LIFT), upPt(o[1], BED_LIFT - 0.5), upPt(o[0], BED_LIFT - 0.5)]} z={7}
+              bg="rgba(160,205,110,0.45)" />
+          </Fragment>
+        ))}
+        {BED_FLOWERS.map(([x, y], i) => (
+          <span key={i} style={{ position: "absolute", left: `${x}%`, top: `${y - BED_LIFT}%`, width: 4, height: 4,
+            borderRadius: "50%", background: ["#ffd9e8", "#ffe9a3", "#f6b6ce", "#fff"][i % 4], opacity: 0.95, zIndex: 7 }} />
+        ))}
 
-      {/* Level scenery — unlocks as the whole garden levels up */}
-      {flair.map(f => (
-        <div key={`${f.min}-${f.emoji}`} className="absolute pointer-events-none"
-          style={{ ...tileAnchor(f.r, f.c), fontSize: f.size,
-            filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.35))" }}>
-          {f.emoji}
-        </div>
-      ))}
+        {/* Plaza */}
+        <Quad pts={wallPts(upPt(pN[3], PLAZA_LIFT), upPt(pN[2], PLAZA_LIFT), PLAZA_LIFT + 0.4)} z={5} bg={theme.stoneSideL} />
+        <Quad pts={wallPts(upPt(pN[2], PLAZA_LIFT), upPt(pN[1], PLAZA_LIFT), PLAZA_LIFT + 0.4)} z={5} bg={theme.stoneSideR} />
+        <Quad pts={pN.map(p => upPt(p, PLAZA_LIFT))} z={6} bg={`
+          radial-gradient(ellipse at 50% 50%, rgba(255,190,110,0.10), transparent 60%),
+          repeating-linear-gradient(63.4deg, transparent 0 52px, ${theme.stoneLine} 52px 53.2px),
+          repeating-linear-gradient(116.6deg, transparent 0 52px, ${theme.stoneLine} 52px 53.2px),
+          linear-gradient(135deg, ${theme.stone} 0 55%, ${theme.stoneB} 100%)`} />
 
-      {/* Decorations */}
-      {activeDecos.map(d => {
-        const sky = DECO_SKY[d.id]
-        if (sky) {
+        {/* Structures — unlock as the garden levels up */}
+        <Pedestal />
+        {level >= 2 && <PotShelf />}
+        {level >= 4 && (
+          <>
+            <Sprite x={13} y={53.5} s={36} z={4}>🌳</Sprite>
+            <Sprite x={87.5} y={52.5} s={34} z={4}>🌲</Sprite>
+          </>
+        )}
+        {level >= 5 && <Deck theme={theme} />}
+        {level >= 6 && <Gazebo />}
+        {level >= 7 && <PillarPlanters />}
+        {level >= 8 && <Sprite x={50} y={31.6} s={34} z={4}>🏡</Sprite>}
+
+        {/* Plaza props */}
+        <Sprite x={59} y={60.5} s={19} z={14}
+          style={{ filter: "drop-shadow(0 0 10px rgba(255,170,70,0.95))", animation: "gardenGlowPulse 3.6s ease-in-out infinite" }}>🏮</Sprite>
+
+        {/* Decorations */}
+        {activeDecos.map(d => {
+          const sky = DECO_SKY[d.id]
+          if (sky) {
+            return (
+              <Sprite key={d.id} x={sky.x} y={sky.y} s={sky.s} z={32}
+                style={{ animation: "gardenFloat 4s ease-in-out infinite", filter: "none" }}>{d.emoji}</Sprite>
+            )
+          }
+          const spot = DECO_SPOTS[d.id] ?? { x: 50, y: 70, s: 15 }
+          return <Sprite key={d.id} x={spot.x} y={spot.y} s={spot.s} z={8}>{d.emoji}</Sprite>
+        })}
+
+        {/* Habit plants in pots */}
+        {habits.slice(0, PLANT_SLOTS.length).map((h, i) => {
+          const [x, y] = PLANT_SLOTS[i]
+          const plantKey = (plantChoices[h.id] ?? "sunflower") as PlantKey
+          const plant = PLANT_TYPES[plantKey] ?? PLANT_TYPES.sunflower
+          const stage = getStage(h.streak, h.missedDays)
+          const px = STAGE_PX[stage]
+          const isMature = stage === 5
+          const isDead = stage === 0
           return (
-            <div key={d.id} className="absolute pointer-events-none" style={{
-              left: `${sky.x}%`, top: `${sky.y}%`, fontSize: 22, zIndex: 32,
-              animation: "gardenFloat 4s ease-in-out infinite",
-            }}>{d.emoji}</div>
+            <button key={h.id} onClick={() => onPlantClick(h.id)}
+              className="absolute group focus:outline-none"
+              style={{ left: `${x}%`, top: `${y}%`, transform: "translate(-50%,-100%)", zIndex: 16, width: 44, height: 20 + px }}>
+              {/* pot */}
+              <div style={{ position: "absolute", left: "50%", bottom: 0, transform: "translateX(-50%)", width: 30, height: 20 }}>
+                <div style={{ position: "absolute", left: "50%", top: 0, transform: "translateX(-50%)", width: 30, height: 7,
+                  background: "linear-gradient(180deg,#cf7748,#b35f35)", borderRadius: 3 }} />
+                <div style={{ position: "absolute", left: "50%", top: 6, transform: "translateX(-50%)", width: 24, height: 14,
+                  background: "linear-gradient(90deg,#c06a3d 0 55%,#9c5230 55% 100%)",
+                  clipPath: "polygon(6% 0,94% 0,78% 100%,22% 100%)" }} />
+              </div>
+              {/* plant */}
+              <span className="inline-block transition-transform group-hover:scale-110 group-active:scale-95"
+                style={{ position: "absolute", left: "50%", bottom: 17, transform: "translateX(-50%)" }}>
+                <span className="inline-block" style={{
+                  fontSize: px, lineHeight: 1,
+                  filter: isDead ? "grayscale(1) opacity(0.55)"
+                    : isMature ? "drop-shadow(0 0 8px rgba(255,230,50,0.8))"
+                    : "drop-shadow(0 2px 3px rgba(0,0,0,0.4))",
+                  animation: isMature ? "gardenGlow 2s ease-in-out infinite"
+                    : h.completedToday ? "gardenFloat 3s ease-in-out infinite" : undefined,
+                }}>
+                  {plant.stages[stage]}
+                </span>
+              </span>
+              {/* streak chip */}
+              {h.streak > 0 && (
+                <span style={{ position: "absolute", left: "50%", bottom: 17 + px + 3, transform: "translateX(-50%)",
+                  background: "rgba(24,20,14,0.8)", border: "1px solid rgba(255,180,80,0.55)", color: "#ffd08e",
+                  fontSize: 9, fontWeight: 700, borderRadius: 99, padding: "2px 6px", lineHeight: 1, whiteSpace: "nowrap" }}>
+                  {h.streak}d
+                </span>
+              )}
+              {/* label */}
+              <span style={{ position: "absolute", left: "50%", bottom: -13, transform: "translateX(-50%)",
+                color: "rgba(255,246,224,0.95)", fontSize: 9.5, fontWeight: 600, whiteSpace: "nowrap",
+                textShadow: "0 1px 3px rgba(0,0,0,0.95)" }}>
+                {h.name.length > 9 ? h.name.slice(0, 8) + "…" : h.name}
+              </span>
+            </button>
           )
-        }
-        const [r, c] = DECO_TILES[d.id] ?? [7, 7]
-        return (
-          <div key={d.id} className="absolute pointer-events-none"
-            style={{ ...tileAnchor(r, c), fontSize: 20,
-              filter: "drop-shadow(0 2px 3px rgba(0,0,0,0.35))" }}>
-            {d.emoji}
-          </div>
-        )
-      })}
+        })}
+        {habits.length === 0 && !loading && (
+          <p className="absolute left-1/2 z-30 text-sm text-center px-6" style={{ top: "68%", transform: "translateX(-50%)",
+            color: "rgba(255,246,224,0.95)", textShadow: "0 1px 4px rgba(0,0,0,0.8)" }}>
+            No habits yet — add some in Habits to grow your garden 🌱
+          </p>
+        )}
 
-      {/* Fireflies */}
-      {FIREFLIES.map((f, i) => (
-        <span key={i} className="absolute rounded-full pointer-events-none" style={{
-          left: `${f.x}%`, top: `${f.y}%`, width: 5, height: 5, zIndex: 35, opacity: 0,
-          background: "#ffe9a3", boxShadow: "0 0 8px 3px rgba(255,224,130,0.75)",
-          animation: `gardenFirefly ${5 + (i % 3)}s ease-in-out ${f.d}s infinite`,
-        }} />
-      ))}
+        {/* Fireflies */}
+        {theme.type !== "snowy" && FIREFLIES.map(([x, y], i) => (
+          <span key={i} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, width: 5, height: 5,
+            borderRadius: "50%", background: "#ffe9a3", boxShadow: "0 0 9px 3px rgba(255,224,130,0.8)",
+            zIndex: 33, opacity: 0, animation: `gardenFirefly ${5 + (i % 3)}s ease-in-out ${(i * 0.7) % 3}s infinite` }} />
+        ))}
 
-      {/* Watering sparkles */}
-      {sparkling && (
-        <div className="absolute inset-0 z-40 pointer-events-none">
-          {[36, 46, 54, 62, 44].map((x, i) => (
-            <span key={i} className="absolute text-2xl"
-              style={{ left: `${x}%`, top: `${40 + (i % 3) * 9}%`,
-                animation: `gardenSparkle 1.4s ease-out ${i * 0.12}s both` }}>
-              {i % 2 === 0 ? "💧" : "✨"}
-            </span>
+        {/* String lights + hanging stars (stars at level 9) */}
+        <svg className="absolute inset-x-0 top-0 w-full pointer-events-none" style={{ height: "30%", zIndex: 31 }}
+          viewBox="0 0 100 30" preserveAspectRatio="none">
+          <path d="M-2,7 Q28,20 55,9 T102,12" fill="none" stroke="rgba(35,26,18,0.65)" strokeWidth="0.35" />
+          {BULBS.map(([x, y], i) => (
+            <circle key={i} cx={x} cy={y + 1.3} r="0.55" fill={i % 2 ? "#ffd98c" : "#ffe9b0"}
+              style={{ filter: "drop-shadow(0 0 1.6px rgba(255,205,115,0.95))",
+                animation: `gardenBulb 2.4s ease-in-out ${i * 0.3}s infinite` }} />
           ))}
-        </div>
-      )}
+        </svg>
+        {level >= 9 && [[9, 13], [13, 18], [17, 12]].map(([x, y], i) => (
+          <div key={i} style={{ position: "absolute", left: `${x}%`, top: `${y}%`, fontSize: 12, zIndex: 31,
+            filter: "drop-shadow(0 0 5px rgba(255,220,130,0.9))", animation: `gardenFloat ${4 + i}s ease-in-out infinite` }}>⭐</div>
+        ))}
 
-      {/* Habit plants — each on its own tile around the plaza */}
-      {habits.slice(0, PLANT_SLOTS.length).map((h, i) => {
-        const [r, c] = PLANT_SLOTS[i]
-        const plantKey = (plantChoices[h.id] ?? "sunflower") as PlantKey
-        const plant = PLANT_TYPES[plantKey] ?? PLANT_TYPES.sunflower
-        const stage = getStage(h.streak, h.missedDays)
-        const px = STAGE_PX[stage]
-        const isMature = stage === 5
-        const isDead = stage === 0
+        {/* Watering sparkles */}
+        {sparkling && (
+          <div className="absolute inset-0 z-[38] pointer-events-none">
+            {[40, 47, 53, 60, 44, 57].map((x, i) => (
+              <span key={i} className="absolute text-2xl"
+                style={{ left: `${x}%`, top: `${42 + (i % 3) * 7}%`,
+                  animation: `gardenSparkle 1.4s ease-out ${i * 0.12}s both` }}>
+                {i % 2 === 0 ? "💧" : "✨"}
+              </span>
+            ))}
+          </div>
+        )}
 
-        return (
-          <button key={h.id} onClick={() => onPlantClick(h.id)}
-            className="absolute flex flex-col items-center gap-0.5 group focus:outline-none"
-            style={tileAnchor(r, c)}>
-            {/* Streak badge */}
-            {h.streak > 0 && (
-              <span className="text-[9px] font-bold bg-orange-500/80 text-white rounded-full px-1.5 py-0.5 leading-none mb-0.5">
-                {h.streak}d🔥
-              </span>
-            )}
-            {/* Plant emoji (hover scale on a wrapper so it doesn't fight the anchor transform) */}
-            <span className="inline-block transition-transform group-hover:scale-110 group-active:scale-95">
-              <span
-                className="inline-block"
-                style={{
-                  fontSize: px,
-                  lineHeight: 1,
-                  filter: isDead
-                    ? "grayscale(1) opacity(0.5)"
-                    : isMature
-                      ? "drop-shadow(0 0 8px rgba(255,230,50,0.8))"
-                      : "drop-shadow(0 2px 3px rgba(0,0,0,0.3))",
-                  animation: isMature
-                    ? "gardenGlow 2s ease-in-out infinite"
-                    : h.completedToday
-                      ? "gardenFloat 3s ease-in-out infinite"
-                      : undefined,
-                }}
-              >
-                {plant.stages[stage]}
-              </span>
+        {/* Weather FX */}
+        {theme.type === "rainy"  && <RainDrops />}
+        {theme.type === "snowy"  && <Snowflakes />}
+        {theme.type === "foggy"  && <FogLayer />}
+        {theme.type === "stormy" && <><RainDrops /><LightningFlash /></>}
+
+        {/* Atmosphere */}
+        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 42,
+          background: "radial-gradient(ellipse at 50% 50%, rgba(255,170,80,0.08), transparent 60%)" }} />
+        <div className="absolute inset-0 pointer-events-none" style={{ zIndex: 43,
+          boxShadow: "inset 0 0 130px rgba(12,9,28,0.62)", borderRadius: "inherit" }} />
+
+        {/* ── Game UI chrome ── */}
+        {/* Level chip */}
+        {levelInfo && (
+          <div className="absolute z-50" style={{ top: 14, left: 14 }}>
+            <div className="flex items-center gap-2.5 rounded-2xl px-3.5 py-2 pl-2.5"
+              style={{ background: "rgba(22,26,22,0.82)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,0.08)" }}>
+              <div className="flex items-center justify-center rounded-xl" style={{ width: 34, height: 34, background: "rgba(255,255,255,0.1)", fontSize: 19 }}>
+                {levelInfo.emoji}
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex items-center justify-center rounded-full font-extrabold"
+                    style={{ background: "#3e5d33", color: "#cde8b0", fontSize: 10, width: 18, height: 18 }}>
+                    {levelInfo.level}
+                  </span>
+                  <span className="font-bold" style={{ color: "#f2efe4", fontSize: 13 }}>{levelInfo.name}</span>
+                </div>
+                <div className="mt-1 rounded-full" style={{ width: 120, height: 6, background: "rgba(255,255,255,0.14)" }}>
+                  <div className="h-full rounded-full" style={{ width: `${levelInfo.progress}%`, background: "linear-gradient(90deg,#8fd05e,#5fae3d)" }} />
+                </div>
+                <div className="mt-0.5 font-semibold" style={{ color: "#a9c790", fontSize: 9 }}>
+                  {levelInfo.xp.toLocaleString()} XP · {levelInfo.xpToNext} to next
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Weather chip + refresh */}
+        {weather && (
+          <div className="absolute z-50 flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ top: 14, right: 64,
+            background: "rgba(22,26,22,0.82)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,0.08)" }}>
+            <span style={{ fontSize: 13 }}>{theme.icon}</span>
+            <span className="font-semibold" style={{ color: "#f2efe4", fontSize: 11.5 }}>{weather.temp}°C · {theme.label}</span>
+          </div>
+        )}
+        <button onClick={onRefresh} disabled={loading}
+          className="absolute z-50 flex items-center justify-center rounded-full transition-opacity hover:opacity-80"
+          style={{ top: 12, right: 14, width: 38, height: 38, background: "rgba(22,26,22,0.82)",
+            border: "1px solid rgba(255,255,255,0.1)", color: "#cfe6b8" }}>
+          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+        </button>
+
+        {/* Round corner buttons */}
+        <button onClick={onEmergy}
+          className="absolute z-50 flex flex-col items-center justify-center gap-0 transition-transform hover:scale-105 active:scale-95"
+          style={{ bottom: 16, left: 16, width: 58, height: 58, borderRadius: "50%",
+            background: "radial-gradient(circle at 35% 30%, #6f9c50, #46702f)",
+            border: emergyOpen ? "3px solid #ffe9b0" : "3px solid rgba(240,240,220,0.85)",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
+          <span style={{ fontSize: 19 }}>✨</span>
+          <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 8.5 }}>Emergy</span>
+        </button>
+        <button onClick={onDecorate}
+          className="absolute z-50 flex flex-col items-center justify-center gap-0 transition-transform hover:scale-105 active:scale-95"
+          style={{ bottom: 16, right: 16, width: 58, height: 58, borderRadius: "50%",
+            background: "radial-gradient(circle at 35% 30%, #6f9c50, #46702f)",
+            border: decorateOpen ? "3px solid #ffe9b0" : "3px solid rgba(240,240,220,0.85)",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
+          <span style={{ fontSize: 19 }}>🪨</span>
+          <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 8.5 }}>Decorate</span>
+        </button>
+
+        {/* Bottom card bar: Water + habit cards */}
+        <div className="absolute z-50 flex gap-2 overflow-x-auto rounded-2xl p-2"
+          style={{ bottom: 14, left: 88, right: 88, background: "rgba(22,26,22,0.55)", backdropFilter: "blur(6px)" }}>
+          <button onClick={onWater} disabled={watered || watering}
+            className="relative shrink-0 flex flex-col items-center gap-1 rounded-xl px-1 pt-2 pb-1.5 transition-transform hover:scale-105 active:scale-95 disabled:hover:scale-100"
+            style={{ width: 72, background: "linear-gradient(180deg,#faf4e2,#efe6cc)",
+              border: watered ? "2px solid #b9d89a" : "2px solid #8fd05e",
+              boxShadow: "0 3px 8px rgba(0,0,0,0.35)", opacity: watered ? 0.75 : 1 }}>
+            <span style={{ fontSize: 24, lineHeight: 1 }}>💧</span>
+            <span className="font-bold" style={{ color: "#4a3f2c", fontSize: 10 }}>
+              {watered ? "Watered" : watering ? "…" : "Water"}
             </span>
-            {/* Label */}
-            <span className="text-[9px] font-medium text-white/90 truncate max-w-[56px] leading-none mt-0.5"
-              style={{ textShadow: "0 1px 3px rgba(0,0,0,0.8)" }}>
-              {h.name.length > 7 ? h.name.slice(0, 6) + "…" : h.name}
+            <span className="absolute font-extrabold" style={{ right: 5, bottom: 3, color: "#7a6f56", fontSize: 9 }}>
+              {watered ? "✓" : "+5"}
             </span>
           </button>
-        )
-      })}
-      {habits.length === 0 && (
-        <p className="absolute left-1/2 z-30 text-white/80 text-sm text-center px-6"
-          style={{ top: "50%", transform: "translateX(-50%)", textShadow: "0 1px 4px rgba(0,0,0,0.6)" }}>
-          No habits yet — add some in Habits to grow your garden
-        </p>
-      )}
-
-      {/* Weather FX */}
-      {theme.type === "rainy"  && <RainDrops />}
-      {theme.type === "snowy"  && <Snowflakes />}
-      {theme.type === "foggy"  && <FogLayer />}
-      {theme.type === "stormy" && <><RainDrops /><LightningFlash /></>}
-
-      {/* Cozy vignette */}
-      <div className="absolute inset-0 pointer-events-none" style={{
-        zIndex: 45, boxShadow: "inset 0 0 80px rgba(18,14,36,0.35)", borderRadius: "inherit",
-      }} />
-
-      {/* Weather badge */}
-      {weather && (
-        <div className="absolute top-3 left-4 z-50 flex items-center gap-1.5 bg-black/25 backdrop-blur-sm rounded-full px-3 py-1">
-          <span className="text-sm">{theme.icon}</span>
-          <span className="text-xs text-white font-medium">{weather.temp}°C · {theme.label}</span>
+          {habits.map(h => {
+            const plantKey = (plantChoices[h.id] ?? "sunflower") as PlantKey
+            const plant = PLANT_TYPES[plantKey] ?? PLANT_TYPES.sunflower
+            const stage = getStage(h.streak, h.missedDays)
+            return (
+              <button key={h.id} onClick={() => onPlantClick(h.id)}
+                className="relative shrink-0 flex flex-col items-center gap-1 rounded-xl px-1 pt-2 pb-1.5 transition-transform hover:scale-105 active:scale-95"
+                style={{ width: 72, background: "linear-gradient(180deg,#faf4e2,#efe6cc)", border: "2px solid #dccfae",
+                  boxShadow: "0 3px 8px rgba(0,0,0,0.35)" }}>
+                <span style={{ fontSize: 24, lineHeight: 1,
+                  filter: stage === 0 ? "grayscale(1) opacity(0.5)" : undefined }}>
+                  {plant.stages[stage]}
+                </span>
+                <span className="font-bold truncate max-w-full px-0.5" style={{ color: "#4a3f2c", fontSize: 10 }}>{h.name}</span>
+                {h.streak > 0 && (
+                  <span className="absolute font-extrabold" style={{ right: 5, bottom: 3, color: "#7a6f56", fontSize: 9 }}>
+                    {h.streak}
+                  </span>
+                )}
+                {h.completedToday && (
+                  <span className="absolute" style={{ left: 5, top: 3, color: "#5fae3d", fontSize: 9, fontWeight: 800 }}>✓</span>
+                )}
+              </button>
+            )
+          })}
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -697,39 +976,6 @@ function DecorationPicker({ selected, unlocked, locked, onToggle, onClose }: {
   )
 }
 
-// ─── Habit list ───────────────────────────────────────────────────────────────
-
-function HabitRow({ habit, plantKey, onClick }: { habit: HabitData; plantKey: PlantKey; onClick: () => void }) {
-  const plant = PLANT_TYPES[plantKey] ?? PLANT_TYPES.sunflower
-  const stage = getStage(habit.streak, habit.missedDays)
-
-  return (
-    <button onClick={onClick}
-      className="flex items-center gap-3 w-full rounded-xl px-3 py-2.5 hover:bg-secondary/40 transition-colors text-left group">
-      <span style={{ fontSize: 26, lineHeight: 1, filter: stage === 0 ? "grayscale(1) opacity(0.4)" : undefined }}>
-        {plant.stages[stage]}
-      </span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">{habit.name}</span>
-          <span className="text-xs text-muted-foreground shrink-0">{plant.name}</span>
-        </div>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className={cn("text-xs", stage === 0 ? "text-red-400" : stage >= 4 ? "text-green-400" : "text-muted-foreground")}>
-            {STAGE_LABEL[stage]}
-          </span>
-          {habit.streak > 0 && <span className="text-xs text-orange-400">🔥 {habit.streak}d streak</span>}
-          {habit.missedDays >= 3 && <span className="text-xs text-red-400">⚠️ {habit.missedDays}d missed</span>}
-          {habit.completedToday && <span className="text-xs text-green-400">✓ Done today</span>}
-        </div>
-      </div>
-      <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors shrink-0">
-        Change plant →
-      </span>
-    </button>
-  )
-}
-
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function GardenPage() {
@@ -807,23 +1053,18 @@ export default function GardenPage() {
 
   const selectedHabit = data?.habits.find(h => h.id === selectedHabitId) ?? null
 
-  // Garden summary stats
-  const thriving = data?.habits.filter(h => getStage(h.streak, h.missedDays) >= 4).length ?? 0
-  const wilting  = data?.habits.filter(h => getStage(h.streak, h.missedDays) === 0).length ?? 0
-  const doneToday = data?.habits.filter(h => h.completedToday).length ?? 0
-
   return (
     <>
       {/* CSS keyframes injected once */}
       <style>{`
         @keyframes gardenRain {
           0%   { transform: translateY(-5px); }
-          100% { transform: translateY(470px); }
+          100% { transform: translateY(650px); }
         }
         @keyframes gardenSnow {
           0%   { transform: translateY(-5px) translateX(0); }
-          50%  { transform: translateY(210px) translateX(18px); }
-          100% { transform: translateY(470px) translateX(-10px); }
+          50%  { transform: translateY(300px) translateX(18px); }
+          100% { transform: translateY(650px) translateX(-10px); }
         }
         @keyframes gardenBulb {
           0%, 100% { opacity: 0.55; }
@@ -836,8 +1077,8 @@ export default function GardenPage() {
           75%      { opacity: 0.8; transform: translate(-6px, -6px); }
         }
         @keyframes gardenGlowPulse {
-          0%, 100% { filter: drop-shadow(0 0 6px rgba(255,190,90,0.8)); }
-          50%      { filter: drop-shadow(0 0 16px rgba(255,190,90,1)); }
+          0%, 100% { opacity: 0.92; }
+          50%      { opacity: 1; }
         }
         @keyframes gardenFloat {
           0%, 100% { transform: translateY(0px); }
@@ -846,10 +1087,6 @@ export default function GardenPage() {
         @keyframes gardenGlow {
           0%, 100% { filter: drop-shadow(0 0 4px rgba(255,230,50,0.7)); }
           50%      { filter: drop-shadow(0 0 14px rgba(255,230,50,1)); }
-        }
-        @keyframes gardenSunSpin {
-          from { transform: rotate(0deg); }
-          to   { transform: rotate(360deg); }
         }
         @keyframes gardenLightning {
           0%, 92%, 94%, 96%, 100% { opacity: 0; }
@@ -864,77 +1101,18 @@ export default function GardenPage() {
 
       <div className="space-y-5">
         {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Leaf className="h-6 w-6 text-green-400" /> Garden
-            </h1>
-            <p className="text-muted-foreground text-sm mt-0.5">
-              Your habits, growing in the wild
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button size="sm" variant={showEmergy ? "default" : "outline"}
-              onClick={() => { setShowEmergy(v => !v); setShowDecos(false); setSelectedHabitId(null) }}
-              className="gap-1.5">
-              <Sparkles className="h-3.5 w-3.5" />
-              Emergy
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => { setShowDecos(v => !v); setSelectedHabitId(null); setShowEmergy(false) }}>
-              🪨 Decorate
-            </Button>
-            <Button size="sm" variant="ghost" onClick={load} disabled={loading} className="gap-1">
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-            </Button>
-          </div>
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Leaf className="h-6 w-6 text-green-400" /> Garden
+          </h1>
+          <p className="text-muted-foreground text-sm mt-0.5">
+            Your habits, growing in a cozy corner of the world
+          </p>
         </div>
 
-        {/* Level banner + daily watering */}
-        {data?.level && (
-          <div className="rounded-2xl border border-primary/20 bg-gradient-to-r from-primary/10 to-card px-4 py-3 flex items-center gap-3">
-            <span className="text-3xl leading-none">{data.level.emoji}</span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-baseline gap-2">
-                <p className="text-sm font-bold">{data.level.name}</p>
-                <p className="text-xs text-muted-foreground">Lv.{data.level.level} · {data.level.xp.toLocaleString()} XP</p>
-              </div>
-              <div className="mt-1.5 h-1.5 rounded-full bg-secondary overflow-hidden">
-                <div className="h-full rounded-full bg-green-500 transition-all" style={{ width: `${data.level.progress}%` }} />
-              </div>
-              <p className="text-[10px] text-muted-foreground mt-1">{data.level.xpToNext} XP to the next level</p>
-            </div>
-            <Button
-              size="sm"
-              variant={data.watered.today ? "ghost" : "default"}
-              onClick={handleWater}
-              disabled={data.watered.today || watering}
-              className="shrink-0 gap-1.5"
-            >
-              💧 {data.watered.today ? "Watered ✓" : watering ? "Watering…" : "Water (+5 XP)"}
-            </Button>
-          </div>
-        )}
-
-        {/* Summary chips */}
-        {data && data.habits.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            <span className="text-xs px-3 py-1.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
-              🌻 {thriving} thriving
-            </span>
-            <span className="text-xs px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              ✅ {doneToday}/{data.habits.length} done today
-            </span>
-            {wilting > 0 && (
-              <span className="text-xs px-3 py-1.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
-                🥀 {wilting} wilting — tend them!
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Garden scene */}
-        {loading ? (
-          <div className="w-full rounded-2xl bg-secondary/30 flex items-center justify-center" style={{ height: 440 }}>
+        {/* Game screen */}
+        {loading && !data ? (
+          <div className="w-full rounded-3xl bg-secondary/30 flex items-center justify-center" style={{ height: 620 }}>
             <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
@@ -944,8 +1122,18 @@ export default function GardenPage() {
             decorations={decorations}
             weather={data?.weather ?? null}
             level={data?.level.level ?? 1}
+            levelInfo={data?.level ?? null}
+            watered={data?.watered.today ?? false}
+            watering={watering}
             sparkling={sparkling}
-            onPlantClick={id => { setSelectedHabitId(id); setShowDecos(false) }}
+            loading={loading}
+            emergyOpen={showEmergy}
+            decorateOpen={showDecos}
+            onPlantClick={id => { setSelectedHabitId(id); setShowDecos(false); setShowEmergy(false) }}
+            onWater={handleWater}
+            onEmergy={() => { setShowEmergy(v => !v); setShowDecos(false); setSelectedHabitId(null) }}
+            onDecorate={() => { setShowDecos(v => !v); setShowEmergy(false); setSelectedHabitId(null) }}
+            onRefresh={load}
           />
         )}
 
@@ -979,26 +1167,6 @@ export default function GardenPage() {
           />
         )}
 
-        {/* Habit plant list */}
-        {data && data.habits.length > 0 && (
-          <div className="rounded-2xl border border-border bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border/60">
-              <p className="text-sm font-semibold">Your plants</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Click any to change its plant type</p>
-            </div>
-            <div className="divide-y divide-border/40 p-2">
-              {data.habits.map(h => (
-                <HabitRow
-                  key={h.id}
-                  habit={h}
-                  plantKey={(plantChoices[h.id] ?? "sunflower") as PlantKey}
-                  onClick={() => { setSelectedHabitId(h.id); setShowDecos(false) }}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* How it works */}
         <div className="rounded-2xl border border-border/50 bg-card/50 px-4 py-4">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">How your garden grows</p>
@@ -1010,7 +1178,7 @@ export default function GardenPage() {
               ["🥀", "Wilting", "3+ consecutive missed days"],
               ["💧", "Daily watering", "One tap a day, +5 XP each"],
               ["🧙 🦋", "Decorations", "Earned with streaks, XP & logs"],
-              ["🌳 ⛲", "Level scenery", "The garden grows richer as you level"],
+              ["🏡 ⛲", "Level scenery", "Ponds, decks & gazebos unlock as you level"],
               ["🌧️", "Weather", "Reflects real weather outside"],
             ].map(([icon, label, desc]) => (
               <div key={label} className="flex flex-col gap-0.5">
