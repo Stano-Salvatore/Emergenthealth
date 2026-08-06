@@ -97,11 +97,13 @@ export async function GET() {
   let decorations: string[] = []
   let storedUnlocked: string[] = []
   let watered: { count: number; last: string } = { count: 0, last: "" }
+  let layout: { placed: Record<string, { x: number; y: number }> } = { placed: {} }
   for (const p of prefs) {
     if (p.key.startsWith("garden:plant:")) plantChoices[p.key.slice(13)] = p.value
     else if (p.key === "garden:decorations") { try { decorations = JSON.parse(p.value) } catch {} }
     else if (p.key === "garden:unlocked") { try { storedUnlocked = JSON.parse(p.value) } catch {} }
     else if (p.key === "garden:watered") { try { watered = { count: 0, last: "", ...JSON.parse(p.value) } } catch {} }
+    else if (p.key === "garden:layout") { try { layout = { placed: {}, ...JSON.parse(p.value) } } catch {} }
   }
 
   // Level + unlock evaluation
@@ -152,6 +154,7 @@ export async function GET() {
     habits: habitsData,
     plantChoices,
     decorations,
+    layout,
     weather,
     level: {
       level: level.level,
@@ -203,6 +206,27 @@ export async function POST(req: Request) {
       ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${value}
     `
     return NextResponse.json({ ok: true, already: false, count: watered.count })
+  }
+
+  // Tile-grid layout: user-arranged object positions from garden edit mode.
+  // Only {placed: {objectId: {x, y}}} is stored; ground/structures derive from level.
+  if (body.layout && typeof body.layout === "object") {
+    const placed: Record<string, { x: number; y: number }> = {}
+    const entries = Object.entries((body.layout.placed ?? {}) as Record<string, unknown>).slice(0, 100)
+    for (const [id, pos] of entries) {
+      if (typeof id !== "string" || id.length > 80 || !pos || typeof pos !== "object") continue
+      const { x, y } = pos as { x?: unknown; y?: unknown }
+      if (!Number.isInteger(x) || !Number.isInteger(y)) continue
+      if ((x as number) < 0 || (x as number) > 31 || (y as number) < 0 || (y as number) > 31) continue
+      placed[id] = { x: x as number, y: y as number }
+    }
+    const value = JSON.stringify({ placed })
+    await prisma.$executeRaw`
+      INSERT INTO "UserPreference" ("userId", "key", "value")
+      VALUES (${userId}, 'garden:layout', ${value})
+      ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${value}
+    `
+    return NextResponse.json({ ok: true })
   }
 
   if (Array.isArray(body.decorations)) {
