@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 84">
+  <defs>
+    <linearGradient id="hat" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e0645a"/><stop offset="1" stop-color="#b23f38"/>
+    </linearGradient>
+    <linearGradient id="robe" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b7fc7"/><stop offset="1" stop-color="#3f5f9c"/>
+    </linearGradient>
+  </defs>
+  <!-- boots -->
+  <ellipse cx="24" cy="78" rx="7" ry="4" fill="#4a3423"/>
+  <ellipse cx="40" cy="78" rx="7" ry="4" fill="#4a3423"/>
+  <!-- robe -->
+  <path d="M20 42 Q32 36 44 42 L50 72 Q51 77 46 77 L18 77 Q13 77 14 72 Z" fill="url(#robe)" stroke="#34517f" stroke-width="2" stroke-linejoin="round"/>
+  <!-- arms -->
+  <path d="M19 48 Q12 54 14 62 Q18 64 21 60 Z" fill="#4a6bb0" stroke="#34517f" stroke-width="1.6"/>
+  <path d="M45 48 Q52 54 50 62 Q46 64 43 60 Z" fill="#4a6bb0" stroke="#34517f" stroke-width="1.6"/>
+  <!-- beard -->
+  <path d="M18 38 Q16 56 32 58 Q48 56 46 38 Q39 46 32 45 Q25 46 18 38 Z" fill="#f4f0e6" stroke="#d5cdb8" stroke-width="1.6"/>
+  <!-- face -->
+  <circle cx="32" cy="36" r="8" fill="#f3c9a0"/>
+  <circle cx="28" cy="35" r="1.4" fill="#4a3423"/>
+  <circle cx="36" cy="35" r="1.4" fill="#4a3423"/>
+  <circle cx="26" cy="38.5" r="1.8" fill="#eda37a" opacity="0.7"/>
+  <circle cx="38" cy="38.5" r="1.8" fill="#eda37a" opacity="0.7"/>
+  <ellipse cx="32" cy="39" rx="2.6" ry="2.1" fill="#e8a877"/>
+  <!-- hat -->
+  <path d="M15 31 Q22 12 30 6 Q46 -2 45 8 Q44 14 47 20 Q49 26 49 31 Q32 25 15 31 Z" fill="url(#hat)" stroke="#8e2f29" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M13 31 Q32 24 51 31 Q32 36 13 31 Z" fill="#c94f45" stroke="#8e2f29" stroke-width="1.6"/>
+  <circle cx="45" cy="6" r="3" fill="#e0645a" stroke="#8e2f29" stroke-width="1.4"/>
+</svg>

@@ -88,6 +88,7 @@ const SPRITE_DEFS: Record<string, AssetDef> = {
   butterfly:  { emoji: "🦋", size: 30 },
   bee:        { emoji: "🐝", size: 26 },
   rainbow:    { emoji: "🌈", size: 60 },
+  bloom:      { emoji: "🌼", size: 34 },
   bird_fly:   { emoji: "🐦", size: 28 },
   petal:      { emoji: "🌸", size: 12 },
   sparkle:    { emoji: "✨", size: 22 },
@@ -127,6 +128,17 @@ function spriteTextureSync(key: string, onUpgrade: (t: Texture, key: string) => 
     .then(t => { textureCache.set(`asset:${key}`, t); onUpgrade(t, key) })
     .catch(() => { textureCache.set(`asset:${key}`, fallback) })
   return fallback
+}
+
+// Painted PNGs are baked at 2x (any scale, really) — normalize the sprite so
+// its on-screen height stays the registry size regardless of texture source.
+function paintSprite(s: Sprite, key: string): (t: Texture) => void {
+  return (t: Texture) => {
+    if (s.destroyed) return
+    s.texture = t
+    const def = SPRITE_DEFS[key]
+    if (def && t.height > 0) s.scale.set(def.size / t.height)
+  }
 }
 
 // ─── Ground tile textures (procedural) ────────────────────────────────────────
@@ -427,7 +439,7 @@ export class GardenEngine {
     ped.position.set(cx, cy)
     ped.zIndex = 8 + 8
     this.objectLayer.addChild(ped)
-    const bloom = new Sprite(emojiTexture("🌼", 34))
+    const bloom: Sprite = new Sprite(spriteTextureSync("bloom", t => paintSprite(bloom, "bloom")(t)))
     bloom.anchor.set(0.5, 1)
     bloom.position.set(cx, cy - 30)
     bloom.zIndex = 8 + 8.1
@@ -476,7 +488,7 @@ export class GardenEngine {
   }
 
   private addFixedSprite(key: string, cell: Cell, wx: number, wy: number, onUp: () => void, glow: boolean) {
-    const s = new Sprite(spriteTextureSync(key, t => { s.texture = t; onUp() }))
+    const s: Sprite = new Sprite(spriteTextureSync(key, t => { paintSprite(s, key)(t); onUp() }))
     s.anchor.set(0.5, 1)
     s.position.set(wx, wy)
     s.zIndex = cell.x + cell.y
@@ -567,7 +579,7 @@ export class GardenEngine {
     const root = new Container()
     root.position.set(wx, wy + TH / 2 - 2)
     root.zIndex = cell.x + cell.y
-    const s = new Sprite(spriteTextureSync(key, t => { s.texture = t }))
+    const s: Sprite = new Sprite(spriteTextureSync(key, t => paintSprite(s, key)(t)))
     s.anchor.set(0.5, 1)
     root.addChild(s)
     root.eventMode = "static"
@@ -594,7 +606,7 @@ export class GardenEngine {
     if (this.data.decorations.includes("butterfly")) this.spawnAir("butterfly", "flutter", 2)
     if (this.data.decorations.includes("bee")) this.spawnAir("bee", "orbit", 1)
     if (this.data.decorations.includes("rainbow")) {
-      const r = new Sprite(spriteTextureSync("rainbow", t => { r.texture = t }))
+      const r: Sprite = new Sprite(spriteTextureSync("rainbow", t => paintSprite(r, "rainbow")(t)))
       r.anchor.set(0.5, 1)
       const { wx, wy } = cellToWorld({ x: 5, y: 0 })
       r.position.set(wx, wy - 60)
@@ -666,7 +678,7 @@ export class GardenEngine {
 
   private spawnAir(key: string, kind: string, count: number) {
     for (let i = 0; i < count; i++) {
-      const s = new Sprite(spriteTextureSync(key, t => { s.texture = t }))
+      const s: Sprite = new Sprite(spriteTextureSync(key, t => paintSprite(s, key)(t)))
       s.anchor.set(0.5)
       const { wx, wy } = cellToWorld({ x: 2 + i * 4, y: 2 })
       s.position.set(wx, wy - 60)
@@ -780,7 +792,9 @@ export class GardenEngine {
         case "flutter": {
           const bx = a.data!.bx, by = a.data!.by
           s.position.set(bx + Math.sin(t * 0.5 + a.seed) * 150, by + Math.sin(t * 1.1 + a.seed * 2) * 30 - 10)
-          s.scale.x = Math.cos(t * 6 + a.seed) > 0 ? 1 : -1
+          // preserve painted-texture scale magnitude when flipping
+          const m = Math.abs(s.scale.y) || 1
+          s.scale.x = Math.cos(t * 6 + a.seed) > 0 ? m : -m
           break
         }
         case "orbit": {

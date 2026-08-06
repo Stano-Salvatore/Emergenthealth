@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 36">
+  <!-- handle -->
+  <path d="M32 14 Q42 14 42 21 Q42 28 33 28" fill="none" stroke="#c9b48c" stroke-width="3.4" stroke-linecap="round"/>
+  <!-- spout -->
+  <path d="M10 16 Q3 16 2 10 Q6 8 10 11 Z" fill="#f2e8d0" stroke="#c9b48c" stroke-width="1.8" stroke-linejoin="round"/>
+  <!-- body -->
+  <path d="M8 20 Q8 10 21 10 Q34 10 34 20 Q34 31 21 31 Q8 31 8 20 Z" fill="#f2e8d0" stroke="#c9b48c" stroke-width="2"/>
+  <ellipse cx="21" cy="9.6" rx="8" ry="2.8" fill="#e3d5b4" stroke="#c9b48c" stroke-width="1.6"/>
+  <circle cx="21" cy="6.4" r="2.6" fill="#f2e8d0" stroke="#c9b48c" stroke-width="1.6"/>
+  <!-- decoration -->
+  <circle cx="18" cy="20" r="3" fill="#e88fb0" opacity="0.9"/>
+  <circle cx="25" cy="22.5" r="1.8" fill="#7fb069" opacity="0.9"/>
+  <ellipse cx="14" cy="15" rx="2.6" ry="3.6" fill="#fbf6ea" opacity="0.9"/>
+  <ellipse cx="21" cy="33" rx="8" ry="1.8" fill="#c9b48c" opacity="0.6"/>
+</svg>

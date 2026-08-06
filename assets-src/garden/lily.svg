@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 36">
+  <!-- pad -->
+  <path d="M22 33 L37 26 A17.5 8.5 0 1 0 22 33 Z" fill="#4f9a52" stroke="#3d7c41" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M22 33 L35 28 A16 7 0 0 1 24 34.4 Z" fill="#5cae5f"/>
+  <!-- flower: tulip-like -->
+  <path d="M13 22 Q11 12 14 7 Q18 11 18 16 Z" fill="#ffb7d1" stroke="#d9648f" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M31 22 Q33 12 30 7 Q26 11 26 16 Z" fill="#ffb7d1" stroke="#d9648f" stroke-width="1.6" stroke-linejoin="round"/>
+  <path d="M22 24 Q15 22 14 12 Q19 14 20 18 Q19 9 22 4 Q25 9 24 18 Q25 14 30 12 Q29 22 22 24 Z" fill="#ff9fc0" stroke="#d9648f" stroke-width="1.8" stroke-linejoin="round"/>
+  <circle cx="22" cy="21.4" r="2.4" fill="#ffe9a3" stroke="#e8b93d" stroke-width="1.2"/>
+</svg>

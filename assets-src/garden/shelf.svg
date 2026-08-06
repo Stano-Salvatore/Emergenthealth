@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 76 92">
+  <!-- posts -->
+  <rect x="8" y="24" width="7" height="66" rx="3" fill="#7d5530" stroke="#5e3f23" stroke-width="1.8"/>
+  <rect x="61" y="24" width="7" height="66" rx="3" fill="#7d5530" stroke="#5e3f23" stroke-width="1.8"/>
+  <!-- top slab plants -->
+  <g transform="translate(14,6)">
+    <path d="M9 20 Q3 16 2 8 Q8 10 9 14 Q10 6 15 2 Q14 10 11 16 Q16 12 20 12 Q17 18 11 20 Z" fill="#6fae57" stroke="#4c7d3c" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M4 30 L18 30 L16 19 L6 19 Z" fill="#c06a3d" stroke="#9c5230" stroke-width="1.6"/>
+    <rect x="3" y="17" width="16" height="5" rx="2" fill="#d98352" stroke="#9c5230" stroke-width="1.4"/>
+  </g>
+  <g transform="translate(40,10)">
+    <circle cx="11" cy="8" r="6.4" fill="#e88fb0" stroke="#c25e86" stroke-width="1.6"/>
+    <circle cx="11" cy="8" r="2.2" fill="#ffe9b0"/>
+    <path d="M5 26 L17 26 L15.5 17 L6.5 17 Z" fill="#c06a3d" stroke="#9c5230" stroke-width="1.6"/>
+    <rect x="4" y="15" width="14" height="4.6" rx="2" fill="#d98352" stroke="#9c5230" stroke-width="1.4"/>
+  </g>
+  <!-- top slab -->
+  <rect x="4" y="36" width="68" height="9" rx="3.5" fill="#a9743f" stroke="#5e3f23" stroke-width="1.8"/>
+  <rect x="4" y="36" width="68" height="3.4" rx="1.7" fill="#c08a4e"/>
+  <!-- lower slab plants -->
+  <g transform="translate(16,50)">
+    <path d="M8 14 Q8 4 8 2 M8 8 Q4 7 3 3.4 M8 8 Q12 7 13 3.4" fill="none" stroke="#5c9a48" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M2 24 L14 24 L12.5 14 L3.5 14 Z" fill="#c06a3d" stroke="#9c5230" stroke-width="1.6"/>
+  </g>
+  <g transform="translate(42,54)">
+    <ellipse cx="8" cy="6" rx="5.6" ry="6" fill="#95c17e" stroke="#4c7d3c" stroke-width="1.6"/>
+    <path d="M2 20 L14 20 L12.5 11 L3.5 11 Z" fill="#c06a3d" stroke="#9c5230" stroke-width="1.6"/>
+  </g>
+  <!-- lower slab -->
+  <rect x="4" y="74" width="68" height="9" rx="3.5" fill="#a9743f" stroke="#5e3f23" stroke-width="1.8"/>
+  <rect x="4" y="74" width="68" height="3.4" rx="1.7" fill="#c08a4e"/>
+</svg>

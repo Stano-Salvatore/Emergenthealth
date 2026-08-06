@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 84 80">
+  <defs>
+    <linearGradient id="roof" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d97e5c"/><stop offset="1" stop-color="#b45a3c"/>
+    </linearGradient>
+  </defs>
+  <!-- chimney -->
+  <path d="M58 10 L66 10 L66 26 L58 26 Z" fill="#a5705a" stroke="#7d4e3c" stroke-width="1.8"/>
+  <path d="M56 8 L68 8 L68 12 L56 12 Z" fill="#8c5c48" stroke="#7d4e3c" stroke-width="1.6"/>
+  <!-- walls -->
+  <path d="M16 38 L68 38 L68 70 Q68 73 65 73 L19 73 Q16 73 16 70 Z" fill="#f2e3c8" stroke="#c9b48c" stroke-width="2"/>
+  <!-- roof -->
+  <path d="M10 40 Q9 37 12 35 L40 10 Q42 8 44 10 L72 35 Q75 37 74 40 Q73 42 70 41 L42 17 L14 41 Q11 42 10 40 Z" fill="url(#roof)" stroke="#8e4530 " stroke-width="2" stroke-linejoin="round"/>
+  <path d="M14 41 L42 17 L70 41 L64 41 L42 22 L20 41 Z" fill="#c96b48"/>
+  <!-- door -->
+  <path d="M36 73 L36 52 Q36 46 42 46 Q48 46 48 52 L48 73 Z" fill="#8a5c33" stroke="#5e3f23" stroke-width="1.8"/>
+  <circle cx="45" cy="60" r="1.4" fill="#f4c15d"/>
+  <!-- windows -->
+  <circle cx="27" cy="52" r="5.4" fill="#ffe9b0" stroke="#c9b48c" stroke-width="1.8"/>
+  <path d="M21.6 52 L32.4 52 M27 46.6 L27 57.4" stroke="#c9b48c" stroke-width="1.4"/>
+  <circle cx="58" cy="52" r="5.4" fill="#ffe9b0" stroke="#c9b48c" stroke-width="1.8"/>
+  <path d="M52.6 52 L63.4 52 M58 46.6 L58 57.4" stroke="#c9b48c" stroke-width="1.4"/>
+  <!-- step + bush -->
+  <path d="M33 73 L51 73 L52 77 L32 77 Z" fill="#cfc2ab" stroke="#a89877" stroke-width="1.6"/>
+  <circle cx="14" cy="70" r="6" fill="#6fae57" stroke="#4c7d3c" stroke-width="1.8"/>
+  <circle cx="70" cy="70" r="6" fill="#6fae57" stroke="#4c7d3c" stroke-width="1.8"/>
+  <circle cx="12.5" cy="68" r="1.2" fill="#f2a2c0"/>
+  <circle cx="71.5" cy="68" r="1.2" fill="#ffe9a3"/>
+</svg>

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 32">
+  <!-- spiky back -->
+  <path d="M6 26 Q2 18 8 12 L11 15 L12 8 L16 13 L19 5 L22 12 L27 6 L28 13 L34 9 L33 16 L39 14 Q42 20 38 26 Z"
+    fill="#8a5c33" stroke="#5e3f23" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M10 24 Q8 19 11 15 L13 17 L15 12 L18 16 L21 10 L23 15 Q17 18 13 24 Z" fill="#a9743f" opacity="0.75"/>
+  <!-- face -->
+  <path d="M34 15 Q43 18 42 24 Q41 28 35 28 L30 27 Q28 21 34 15 Z" fill="#f0dcc0" stroke="#c9a877" stroke-width="1.6" stroke-linejoin="round"/>
+  <circle cx="42" cy="23.4" r="2.2" fill="#3a2a20"/>
+  <circle cx="36" cy="20" r="1.5" fill="#3a2a20"/>
+  <!-- feet -->
+  <ellipse cx="14" cy="28.6" rx="3.4" ry="2.2" fill="#5e3f23"/>
+  <ellipse cx="30" cy="28.6" rx="3.4" ry="2.2" fill="#5e3f23"/>
+</svg>
