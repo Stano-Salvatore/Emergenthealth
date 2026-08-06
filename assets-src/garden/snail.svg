@@ -1,16 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 32">
-  <!-- eye stalks -->
+  <defs>
+    <radialGradient id="nshell" cx="0.6" cy="0.28" r="0.95">
+      <stop offset="0" stop-color="#e8b878"/><stop offset="0.55" stop-color="#cf9350"/><stop offset="1" stop-color="#8e5a28"/>
+    </radialGradient>
+    <radialGradient id="nbody" cx="0.55" cy="0.25" r="1">
+      <stop offset="0" stop-color="#f7e8c4"/><stop offset="0.6" stop-color="#ecd7ab"/><stop offset="1" stop-color="#c4a473"/>
+    </radialGradient>
+  </defs>
   <path d="M9 23 Q6 16 4.4 12" fill="none" stroke="#c9a877" stroke-width="2" stroke-linecap="round"/>
   <path d="M13 22 Q12.6 15 12 11" fill="none" stroke="#c9a877" stroke-width="2" stroke-linecap="round"/>
-  <circle cx="4.2" cy="10.6" r="2.2" fill="#e8c88f" stroke="#b08c55" stroke-width="1.2"/>
-  <circle cx="12" cy="9.6" r="2.2" fill="#e8c88f" stroke="#b08c55" stroke-width="1.2"/>
+  <circle cx="4.2" cy="10.6" r="2.2" fill="url(#nbody)"/>
+  <circle cx="12" cy="9.6" r="2.2" fill="url(#nbody)"/>
   <circle cx="4.8" cy="10.2" r="0.8" fill="#5a4632"/>
   <circle cx="12.6" cy="9.2" r="0.8" fill="#5a4632"/>
-  <!-- body -->
-  <path d="M4 28 Q3 23 10 22 L30 22 Q37 23 37 26 Q37 30 31 30 L9 30 Q4 30 4 28 Z" fill="#ecd7ab" stroke="#c9a877" stroke-width="1.8" stroke-linejoin="round"/>
-  <!-- shell: clean concentric circles -->
-  <circle cx="25" cy="15" r="11" fill="#cf9350" stroke="#935e2c" stroke-width="1.8"/>
-  <circle cx="25" cy="15" r="7" fill="none" stroke="#935e2c" stroke-width="1.6" opacity="0.85"/>
-  <circle cx="25" cy="15" r="3.4" fill="#e0ac68" stroke="#935e2c" stroke-width="1.4"/>
-  <ellipse cx="20.5" cy="9.5" rx="3" ry="2" fill="#e8bd80" opacity="0.9"/>
+  <path d="M4 28 Q3 23 10 22 L30 22 Q37 23 37 26 Q37 30 31 30 L9 30 Q4 30 4 28 Z" fill="url(#nbody)"/>
+  <circle cx="25" cy="15" r="11" fill="url(#nshell)"/>
+  <circle cx="25" cy="15" r="7" fill="none" stroke="#8e5a28" stroke-width="1.6" opacity="0.8"/>
+  <circle cx="25" cy="15" r="3.4" fill="#e0ac68" stroke="#8e5a28" stroke-width="1.2" opacity="0.95"/>
+  <ellipse cx="20.5" cy="9.5" rx="3.4" ry="2.2" fill="#f4d4a0" opacity="0.95"/>
 </svg>

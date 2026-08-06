@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 26 28">
+  <defs>
+    <radialGradient id="wleaf" cx="0.6" cy="0.3" r="0.9">
+      <stop offset="0" stop-color="#b8a374"/><stop offset="0.6" stop-color="#9a8a5e"/><stop offset="1" stop-color="#6b5c3d"/>
+    </radialGradient>
+  </defs>
+  <path d="M12.4 26 Q11.6 16 14.6 11 Q17.6 7 21 8" fill="none" stroke="#8a7a52" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M21 8 Q24 10 23 14 Q20 13 20 10 Z" fill="url(#wleaf)"/>
+  <path d="M13 18 Q8 18 5.5 14.5 Q10 13 13 16 Z" fill="url(#wleaf)"/>
+  <path d="M12 14 Q9 9 10 5 Q13 8 13 12 Z" fill="url(#wleaf)" opacity="0.9"/>
+  <path d="M22 9.4 Q23 11 22.4 12.8 Q21.4 11.2 22 9.4 Z" fill="#d4c194" opacity="0.7"/>
+</svg>

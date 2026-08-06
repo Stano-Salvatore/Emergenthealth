@@ -1,25 +1,26 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 52">
   <defs>
-    <linearGradient id="fur" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#f09347"/><stop offset="1" stop-color="#d9742f"/>
-    </linearGradient>
+    <radialGradient id="xfur" cx="0.6" cy="0.25" r="0.95">
+      <stop offset="0" stop-color="#f7a862"/><stop offset="0.55" stop-color="#e8863a"/><stop offset="1" stop-color="#b45c22"/>
+    </radialGradient>
+    <radialGradient id="xtail" cx="0.55" cy="0.3" r="0.95">
+      <stop offset="0" stop-color="#f2984e"/><stop offset="0.6" stop-color="#d9742f"/><stop offset="1" stop-color="#a34f1c"/>
+    </radialGradient>
   </defs>
-  <!-- tail curled around front -->
-  <path d="M34 46 Q46 44 45 33 Q44 26 38 24 Q42 32 36 38 Q30 44 22 44 Q27 48 34 46 Z" fill="url(#fur)" stroke="#b45c22" stroke-width="1.8" stroke-linejoin="round"/>
-  <path d="M43 36 Q44 30 38 26 Q41 33 36 37 Q39 38 43 36 Z" fill="#f7e8d6"/>
-  <!-- body -->
-  <path d="M14 24 Q10 38 12 44 Q13 48 22 48 Q31 48 32 43 Q34 34 28 24 Z" fill="url(#fur)" stroke="#b45c22" stroke-width="1.8" stroke-linejoin="round"/>
-  <ellipse cx="21" cy="40" rx="7" ry="8" fill="#f7e8d6"/>
-  <!-- ears -->
-  <path d="M10 12 L13 2 L19 9 Z" fill="#e8863a" stroke="#b45c22" stroke-width="1.6" stroke-linejoin="round"/>
-  <path d="M32 12 L29 2 L23 9 Z" fill="#e8863a" stroke="#b45c22" stroke-width="1.6" stroke-linejoin="round"/>
-  <path d="M12.4 10 L13.6 5.5 L16.4 8.8 Z" fill="#6b4526"/>
-  <path d="M29.6 10 L28.4 5.5 L25.6 8.8 Z" fill="#6b4526"/>
-  <!-- head -->
-  <path d="M8 15 Q8 7 21 7 Q34 7 34 15 Q34 23 27 26 L21 30 L15 26 Q8 23 8 15 Z" fill="url(#fur)" stroke="#b45c22" stroke-width="1.8" stroke-linejoin="round"/>
-  <path d="M15 22 Q21 31 27 22 Q24 26 21 26.5 Q18 26 15 22 Z" fill="#f7e8d6"/>
+  <path d="M34 46 Q46 44 45 33 Q44 26 38 24 Q42 32 36 38 Q30 44 22 44 Q27 48 34 46 Z" fill="url(#xtail)"/>
+  <path d="M43 36 Q44 30 38 26 Q41 33 36 37 Q39 38 43 36 Z" fill="#f9ecd9"/>
+  <path d="M14 24 Q10 38 12 44 Q13 48 22 48 Q31 48 32 43 Q34 34 28 24 Z" fill="url(#xfur)"/>
+  <ellipse cx="21" cy="40" rx="7" ry="8" fill="#f9ecd9"/>
+  <ellipse cx="21" cy="37.6" rx="5" ry="4.6" fill="#fef8ee" opacity="0.9"/>
+  <path d="M10 12 L13 2 L19 9 Z" fill="url(#xfur)"/>
+  <path d="M32 12 L29 2 L23 9 Z" fill="url(#xfur)"/>
+  <path d="M12.4 10 L13.6 5.5 L16.4 8.8 Z" fill="#5a3a20"/>
+  <path d="M29.6 10 L28.4 5.5 L25.6 8.8 Z" fill="#5a3a20"/>
+  <path d="M8 15 Q8 7 21 7 Q34 7 34 15 Q34 23 27 26 L21 30 L15 26 Q8 23 8 15 Z" fill="url(#xfur)"/>
+  <path d="M15 22 Q21 31 27 22 Q24 26 21 26.5 Q18 26 15 22 Z" fill="#f9ecd9"/>
   <ellipse cx="21" cy="24.5" rx="2.4" ry="1.8" fill="#3a2a20"/>
-  <!-- happy closed eyes -->
+  <ellipse cx="20.2" cy="23.9" rx="0.8" ry="0.6" fill="#6b584a"/>
   <path d="M13 17 Q15.5 15 18 17" fill="none" stroke="#3a2a20" stroke-width="1.8" stroke-linecap="round"/>
   <path d="M24 17 Q26.5 15 29 17" fill="none" stroke="#3a2a20" stroke-width="1.8" stroke-linecap="round"/>
+  <ellipse cx="15" cy="11" rx="3.6" ry="2" fill="#fbc98e" opacity="0.6"/>
 </svg>

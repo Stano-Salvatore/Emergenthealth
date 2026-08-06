@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { RefreshCw, Leaf, X, Check, Send, Sparkles, Move } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { GardenCanvas } from "@/components/garden/GardenCanvas"
-import type { EngineData } from "@/components/garden/engine"
+import { plantSpriteKey, type EngineData } from "@/components/garden/engine"
 
 // ─── Plant definitions ────────────────────────────────────────────────────────
 
@@ -428,7 +428,7 @@ export default function GardenPage() {
         return {
           id: h.id, name: h.name, streak: h.streak,
           completedToday: h.completedToday, missedDays: h.missedDays,
-          stageEmoji: plant.stages[stage], stage,
+          stageEmoji: plant.stages[stage], stage, plantKey,
         }
       }),
       decorations,
@@ -580,17 +580,15 @@ export default function GardenPage() {
               </button>
               {data.habits.map(h => {
                 const plantKey = (plantChoices[h.id] ?? "sunflower") as PlantKey
-                const plant = PLANT_TYPES[plantKey] ?? PLANT_TYPES.sunflower
                 const stage = getStage(h.streak, h.missedDays)
                 return (
                   <button key={h.id} onClick={() => { setSelectedHabitId(h.id); setShowDecos(false); setShowEmergy(false) }}
                     className="relative shrink-0 flex flex-col items-center gap-1 rounded-xl px-1 pt-2 pb-1.5 transition-transform hover:scale-105 active:scale-95"
                     style={{ width: 72, background: "linear-gradient(180deg,#faf4e2,#efe6cc)", border: "2px solid #dccfae",
                       boxShadow: "0 3px 8px rgba(0,0,0,0.35)" }}>
-                    <span style={{ fontSize: 24, lineHeight: 1,
-                      filter: stage === 0 ? "grayscale(1) opacity(0.5)" : undefined }}>
-                      {plant.stages[stage]}
-                    </span>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={`/garden-assets/${plantSpriteKey(plantKey, stage)}.png`}
+                      alt="" style={{ height: 26, width: "auto" }} />
                     <span className="font-bold truncate max-w-full px-0.5" style={{ color: "#4a3f2c", fontSize: 10 }}>{h.name}</span>
                     {h.streak > 0 && (
                       <span className="absolute font-extrabold" style={{ right: 5, bottom: 3, color: "#7a6f56", fontSize: 9 }}>

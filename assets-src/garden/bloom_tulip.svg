@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42 48">
+  <defs>
+    <linearGradient id="tstem" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#35602a"/><stop offset="0.5" stop-color="#4c8a3c"/><stop offset="1" stop-color="#35602a"/>
+    </linearGradient>
+    <radialGradient id="tred" cx="0.6" cy="0.28" r="0.95">
+      <stop offset="0" stop-color="#f2899c"/><stop offset="0.55" stop-color="#e85a72"/><stop offset="1" stop-color="#a83048"/>
+    </radialGradient>
+    <radialGradient id="tgold" cx="0.6" cy="0.28" r="0.95">
+      <stop offset="0" stop-color="#fbe08a"/><stop offset="0.55" stop-color="#f4c15d"/><stop offset="1" stop-color="#c98a2a"/>
+    </radialGradient>
+    <radialGradient id="tpink" cx="0.6" cy="0.28" r="0.95">
+      <stop offset="0" stop-color="#f7b9d0"/><stop offset="0.55" stop-color="#e88fb0"/><stop offset="1" stop-color="#b45a80"/>
+    </radialGradient>
+    <radialGradient id="tleaf" cx="0.6" cy="0.25" r="0.9">
+      <stop offset="0" stop-color="#8cc46e"/><stop offset="0.6" stop-color="#5c9a48"/><stop offset="1" stop-color="#38592c"/>
+    </radialGradient>
+  </defs>
+  <path d="M10 46 Q10 34 11.4 24 L12.6 24 Q12 34 12 46 Z M20.2 46 Q20.2 32 20.6 20 L21.8 20 Q21.8 32 21.8 46 Z M30 46 Q30.4 34 29.4 24 L30.6 24 Q31.6 34 32 46 Z" fill="url(#tstem)"/>
+  <path d="M14 40 Q7 39 4 33 Q11 32 15 37 Z" fill="url(#tleaf)"/>
+  <path d="M27 41 Q34 40 38 34 Q31 33 27 38 Z" fill="url(#tleaf)"/>
+  <path d="M6.5 15 Q6 24 12 25 Q18 24 17.5 15 Q15.5 18 14.5 15.4 Q12 19 9.5 15.4 Q8.5 18 6.5 15 Z" fill="url(#tred)"/>
+  <path d="M15.5 9 Q15 19 21 20 Q27 19 26.5 9 Q24.5 12.4 23.5 9.4 Q21 13.4 18.5 9.4 Q17.5 12.4 15.5 9 Z" fill="url(#tgold)"/>
+  <path d="M24.5 15 Q24 24 30 25 Q36 24 35.5 15 Q33.5 18 32.5 15.4 Q30 19 27.5 15.4 Q26.5 18 24.5 15 Z" fill="url(#tpink)"/>
+  <path d="M8 16.6 Q8 22 11.4 23.6 Q9.4 20 9.4 16.6 Z" fill="#fbc4cc" opacity="0.6"/>
+  <path d="M17 10.6 Q17 17 20.4 18.6 Q18.4 15 18.4 11 Z" fill="#fdedbd" opacity="0.7"/>
+  <path d="M26 16.6 Q26 22 29.4 23.6 Q27.4 20 27.4 16.6 Z" fill="#fbd9e6" opacity="0.65"/>
+</svg>
