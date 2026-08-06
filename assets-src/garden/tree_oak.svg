@@ -1,21 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 88 104">
   <defs>
-    <linearGradient id="trunk" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#966a3d"/><stop offset="1" stop-color="#7a5230"/>
+    <radialGradient id="toak" cx="0.62" cy="0.24" r="0.95">
+      <stop offset="0" stop-color="#94ca74"/><stop offset="0.5" stop-color="#6fae57"/><stop offset="1" stop-color="#33552a"/>
+    </radialGradient>
+    <linearGradient id="ttrunk" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5e3f23"/><stop offset="0.45" stop-color="#966a3d"/><stop offset="1" stop-color="#6b4a28"/>
     </linearGradient>
   </defs>
-  <path d="M38 100 Q40 78 39 62 L49 62 Q48 78 50 100 Q54 103 44 103 Q34 103 38 100 Z" fill="url(#trunk)" stroke="#5e3f23" stroke-width="2" stroke-linejoin="round"/>
-  <path d="M30 101 Q36 97 38 100 L38 103 Z" fill="#7a5230" stroke="#5e3f23" stroke-width="1.6"/>
-  <path d="M58 101 Q52 97 50 100 L50 103 Z" fill="#7a5230" stroke="#5e3f23" stroke-width="1.6"/>
-  <!-- canopy -->
-  <circle cx="24" cy="52" r="19" fill="#5c9a48" stroke="#4c7d3c" stroke-width="2"/>
-  <circle cx="64" cy="50" r="18" fill="#5c9a48" stroke="#4c7d3c" stroke-width="2"/>
-  <circle cx="44" cy="34" r="26" fill="#6fae57" stroke="#4c7d3c" stroke-width="2"/>
-  <circle cx="30" cy="46" r="17" fill="#6fae57"/>
-  <circle cx="58" cy="45" r="16" fill="#6fae57"/>
-  <!-- shade + light -->
-  <path d="M18 60 Q34 70 60 62 Q46 72 30 68 Q22 66 18 60 Z" fill="#4c7d3c" opacity="0.55"/>
-  <circle cx="52" cy="24" r="9" fill="#8cc46e" opacity="0.9"/>
-  <circle cx="38" cy="20" r="6" fill="#8cc46e" opacity="0.8"/>
-  <circle cx="63" cy="36" r="5" fill="#8cc46e" opacity="0.7"/>
+  <ellipse cx="44" cy="100" rx="13" ry="4" fill="#2c1e12" opacity="0.4"/>
+  <path d="M38 100 Q40 78 39 62 L49 62 Q48 78 50 100 Q52 102.6 44 102.6 Q36 102.6 38 100 Z" fill="url(#ttrunk)"/>
+  <path d="M41 64 Q41.6 82 41 99" fill="none" stroke="#5a3c20" stroke-width="1.4" opacity="0.6"/>
+  <!-- canopy: shaded balls with visible dark undersides -->
+  <circle cx="24" cy="52" r="19" fill="url(#toak)"/>
+  <circle cx="64" cy="50" r="18" fill="url(#toak)"/>
+  <circle cx="44" cy="34" r="26" fill="url(#toak)"/>
+  <path d="M12 60 Q24 70 40 66 Q28 72 18 68 Q13 65 12 60 Z" fill="#243d1e" opacity="0.65"/>
+  <path d="M50 62 Q62 68 76 58 Q68 68 56 68 Q52 66 50 62 Z" fill="#243d1e" opacity="0.6"/>
+  <path d="M24 44 Q34 54 58 50 Q44 58 32 54 Q26 50 24 44 Z" fill="#3a5c2c" opacity="0.55"/>
+  <ellipse cx="54" cy="20" rx="9" ry="6.4" fill="#b4e096" opacity="0.9"/>
+  <ellipse cx="36" cy="18" rx="5.6" ry="4" fill="#b4e096" opacity="0.7"/>
+  <ellipse cx="66" cy="40" rx="4.6" ry="3.4" fill="#a3d488" opacity="0.6"/>
 </svg>

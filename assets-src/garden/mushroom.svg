@@ -1,18 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 38">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 38 36">
   <defs>
-    <radialGradient id="dmcap" cx="0.6" cy="0.25" r="0.95">
-      <stop offset="0" stop-color="#ef8078"/><stop offset="0.55" stop-color="#d9534a"/><stop offset="1" stop-color="#93332c"/>
+    <radialGradient id="dmc" cx="0.58" cy="0.3" r="0.95">
+      <stop offset="0" stop-color="#f2837a"/><stop offset="0.5" stop-color="#d9534a"/><stop offset="1" stop-color="#8e2f28"/>
     </radialGradient>
-    <linearGradient id="dmstem" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#cfc0a0"/><stop offset="0.5" stop-color="#f0e4cc"/><stop offset="1" stop-color="#c2b291"/>
+    <linearGradient id="dms" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c9b891"/><stop offset="0.5" stop-color="#f0e4cc"/><stop offset="1" stop-color="#bcab84"/>
     </linearGradient>
   </defs>
-  <path d="M13 22 Q12 32 14 34 Q18 36 22 34 Q24 32 23 22 Z" fill="url(#dmstem)"/>
-  <path d="M2 20 Q2 6 18 6 Q34 6 34 20 Q34 23 30 23 L6 23 Q2 23 2 20 Z" fill="url(#dmcap)"/>
-  <path d="M5 21.6 Q18 25 31 21.6 L30 22.8 Q18 26 6 22.8 Z" fill="#7d2a24" opacity="0.75"/>
-  <circle cx="11" cy="13" r="2.8" fill="#fbe4de"/>
-  <circle cx="21" cy="10.5" r="2.2" fill="#fbe4de"/>
-  <circle cx="27" cy="16" r="2.5" fill="#fbe4de"/>
-  <circle cx="16" cy="18" r="1.7" fill="#fbe4de"/>
-  <ellipse cx="23" cy="8" rx="4" ry="2.2" fill="#f9a89e" opacity="0.75"/>
+  <ellipse cx="19" cy="33.4" rx="9" ry="2.4" fill="#2c1e12" opacity="0.35"/>
+  <path d="M14 20 Q13.4 30 15 33 Q19 35 23 33 Q24.6 30 24 20 Z" fill="url(#dms)"/>
+  <!-- domed cap seen from 3/4 above: top surface + underside rim -->
+  <ellipse cx="19" cy="14.5" rx="16" ry="7" fill="#a83a30"/>
+  <path d="M3 14 Q3 3 19 3 Q35 3 35 14 Q35 17.4 31 18.6 Q19 22 7 18.6 Q3 17.4 3 14 Z" fill="url(#dmc)"/>
+  <ellipse cx="19" cy="17.6" rx="14.5" ry="4.2" fill="#7d241e" opacity="0.55"/>
+  <!-- spots lying on the domed top (skewed ellipses) -->
+  <ellipse cx="11" cy="9.6" rx="2.8" ry="1.9" fill="#fbe4de" transform="rotate(-12 11 9.6)"/>
+  <ellipse cx="23" cy="6.6" rx="2.2" ry="1.5" fill="#fbe4de" transform="rotate(8 23 6.6)"/>
+  <ellipse cx="28.5" cy="12.4" rx="2.4" ry="1.6" fill="#fbe4de" transform="rotate(16 28.5 12.4)"/>
+  <ellipse cx="17" cy="13.6" rx="1.7" ry="1.2" fill="#fbe4de"/>
+  <ellipse cx="24" cy="4.6" rx="3.4" ry="1.8" fill="#f9a89e" opacity="0.8"/>
 </svg>

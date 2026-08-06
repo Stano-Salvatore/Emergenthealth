@@ -692,7 +692,7 @@ export class GardenEngine {
 
   private spawnShadow(root: Container, w: number) {
     const sh = new Graphics()
-    sh.ellipse(0, 0, w, w * 0.4).fill({ color: 0x142010, alpha: 0.28 })
+    sh.ellipse(0, 0, w, w * 0.4).fill({ color: 0x142010, alpha: 0.34 })
     sh.position.set(root.x, root.y + 1)
     this.shadowLayer.addChild(sh)
     return sh
@@ -705,11 +705,16 @@ export class GardenEngine {
     root.scale.set(this.persp(wy))
     root.zIndex = cell.x + cell.y
 
-    // terracotta pot
+    // terracotta pot drawn from the same 3/4 camera as the ground:
+    // tapered body with side shading, elliptical rim, visible soil inside
     const pot = new Graphics()
-    pot.poly([-12, -14, 12, -14, 9, 0, -9, 0]).fill(0xb35f35)
-    pot.rect(-14, -18, 28, 6).fill(0xcf7748)
-    pot.poly([-12, -14, 0, -14, 0, 0, -9, 0]).fill({ color: 0x8a4527, alpha: 0.35 })
+    pot.poly([-12, -16, 12, -16, 9, -1, -9, -1]).fill(0xc06a3d)
+    pot.poly([-12, -16, -4, -16, -6, -1, -9, -1]).fill({ color: 0x8a4527, alpha: 0.4 })
+    pot.poly([6, -16, 12, -16, 9, -1, 5, -1]).fill({ color: 0xe89060, alpha: 0.45 })
+    pot.ellipse(0, -1, 9, 2.6).fill(0x8a4527)
+    pot.ellipse(0, -16, 14, 4.4).fill(0xd98352)
+    pot.ellipse(0, -16, 10.4, 3).fill(0x4a3421)
+    pot.ellipse(0, -16.7, 10.4, 2.3).fill({ color: 0x5c4128, alpha: 0.85 })
     root.addChild(pot)
 
     // plant (sways) — dimensional sprite art per type + stage, sized by stage
