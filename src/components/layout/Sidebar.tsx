@@ -27,6 +27,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/chat",        label: "Emergy",          emoji: "🌱" },
   { href: "/dashboard/checkin",     label: "Check-in",        emoji: "🌅" },
   { href: "/dashboard/habits",      label: "Habits",          emoji: "✅" },
+  { href: "/dashboard/garden",      label: "Garden",          emoji: "🌻" },
   { href: "/dashboard/medications", label: "Medications",     emoji: "💊" },
   { href: "/dashboard/intake",      label: "Intake",          emoji: "🥤" },
   { href: "/dashboard/health",      label: "Health",          emoji: "❤️" },
@@ -50,7 +51,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/rescuetime",  label: "RescueTime",      emoji: "⏱️" },
   { href: "/dashboard/subscriptions", label: "Subscriptions", emoji: "🔄" },
   { href: "/dashboard/home",        label: "Home",            emoji: "🏡" },
-  { href: "/dashboard/garden",      label: "Garden",          emoji: "🌻" },
 ]
 
 const ALL_ITEMS = NAV_ITEMS.filter(i => isRouteEnabled(i.href))
@@ -68,7 +68,6 @@ const DEFAULT_HIDDEN = new Set([
   "/dashboard/rescuetime",
   "/dashboard/subscriptions",
   "/dashboard/home",
-  "/dashboard/garden",
 ])
 const NON_HIDEABLE = new Set(["/dashboard", "/dashboard/settings", "/dashboard/chat"])
 const LS_HIDDEN     = "sidebar-hidden-v2"
