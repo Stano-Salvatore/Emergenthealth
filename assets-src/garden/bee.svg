@@ -1,20 +1,31 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 28">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 28">
   <defs>
     <radialGradient id="beeb" cx="0.6" cy="0.28" r="0.95">
       <stop offset="0" stop-color="#fbdf8a"/><stop offset="0.55" stop-color="#f4c15d"/><stop offset="1" stop-color="#b8862a"/>
     </radialGradient>
   </defs>
-  <ellipse cx="12" cy="8" rx="6.5" ry="4.6" fill="#fff" opacity="0.8" transform="rotate(-18 12 8)"/>
-  <ellipse cx="22" cy="8" rx="6.5" ry="4.6" fill="#fff" opacity="0.8" transform="rotate(18 22 8)"/>
-  <ellipse cx="11" cy="6.6" rx="3" ry="1.8" fill="#fff" transform="rotate(-18 11 6.6)"/>
-  <path d="M31 18 L34 19.5 L31 21 Z" fill="#3a3128"/>
-  <ellipse cx="18" cy="18" rx="12" ry="8" fill="url(#beeb)"/>
-  <path d="M12 10.8 Q10 18 12 25 Q15 26.2 16.5 25.6 Q14.5 18 16.2 10.6 Q14 10 12 10.8 Z" fill="#3a3128"/>
-  <path d="M20.6 10.6 Q19 18 21 25.5 Q24 25 25.6 23.6 Q24 17.5 24.6 12.6 Q23 11 20.6 10.6 Z" fill="#3a3128"/>
-  <path d="M13 11.6 Q12.4 14 12.4 16 Q13.6 13 14.6 11.2 Z" fill="#5c554c" opacity="0.85"/>
-  <circle cx="8" cy="16" r="4.6" fill="#3a3128"/>
-  <circle cx="6.6" cy="14.8" r="1.2" fill="#7a7268"/>
-  <path d="M6 12 Q4 9 2.6 7.6" fill="none" stroke="#3a3128" stroke-width="1.3" stroke-linecap="round"/>
-  <circle cx="2.6" cy="7.6" r="1" fill="#3a3128"/>
-  <ellipse cx="20" cy="13.4" rx="4" ry="2" fill="#fbe8b0" opacity="0.8"/>
+  <!-- far wing, smaller behind the near one -->
+  <ellipse cx="25" cy="7.6" rx="4.8" ry="2.9" fill="#fff" opacity="0.5" transform="rotate(24 25 7.6)"/>
+  <path d="M22 6 Q25 4.4 28.6 5.6" fill="none" stroke="#fff" stroke-width="0.8" opacity="0.5"/>
+  <!-- near wing over the back -->
+  <ellipse cx="15" cy="6.2" rx="6.6" ry="4" fill="#fff" opacity="0.75" transform="rotate(-20 15 6.2)"/>
+  <ellipse cx="13.8" cy="5" rx="2.8" ry="1.5" fill="#fff" opacity="0.9" transform="rotate(-20 13.8 5)"/>
+  <path d="M10 8.5 Q15 4.6 20.4 6.4" fill="none" stroke="#dce4f0" stroke-width="0.9" opacity="0.9"/>
+  <!-- stinger at the rear -->
+  <path d="M30.6 19.2 L34.6 21.2 L30.9 22.6 Z" fill="#3a3128"/>
+  <!-- body tilted toward the front-left -->
+  <ellipse cx="19" cy="17.5" rx="11.5" ry="7.6" transform="rotate(-8 19 17.5)" fill="url(#beeb)"/>
+  <!-- stripes wrapping the volume -->
+  <path d="M13.5 10.8 Q11 17.8 13.6 24.6 Q16.4 25.6 17.8 25 Q15.6 17.8 17.2 10.2 Q15.2 10 13.5 10.8 Z" fill="#3a3128"/>
+  <path d="M21.6 10.2 Q20 17.2 22.2 23.8 Q25.2 22.8 26.8 21.2 Q25.4 16.2 25.8 12.2 Q24 10.6 21.6 10.2 Z" fill="#3a3128"/>
+  <path d="M14.4 11.6 Q13.8 14 13.8 16 Q15 13 16 11.2 Z" fill="#5c554c" opacity="0.85"/>
+  <!-- top highlight on the back -->
+  <ellipse cx="19.3" cy="11.8" rx="2.6" ry="1.6" fill="#fbe8b0" opacity="0.6" transform="rotate(-8 19.3 11.8)"/>
+  <!-- head at the front-left -->
+  <circle cx="7.8" cy="14.6" r="4.6" fill="#3a3128"/>
+  <circle cx="6.4" cy="13.2" r="1.2" fill="#7a7268"/>
+  <path d="M6 10.6 Q4 7.8 2.6 6.4" fill="none" stroke="#3a3128" stroke-width="1.3" stroke-linecap="round"/>
+  <circle cx="2.6" cy="6.4" r="1" fill="#3a3128"/>
+  <!-- little legs hanging beneath -->
+  <path d="M12.5 24.4 Q12 26.4 10.8 27.2 M17.5 25.4 Q17.3 27 16.2 27.8 M22.5 24.6 Q22.5 26.2 21.6 27" fill="none" stroke="#3a3128" stroke-width="1.2" stroke-linecap="round"/>
 </svg>
