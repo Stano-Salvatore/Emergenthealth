@@ -50,9 +50,21 @@ export async function createGardenScene(host, opts = {}) {
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.minDistance = 7;
-  controls.maxDistance = 26;
+  controls.maxDistance = 36;
   controls.maxPolarAngle = Math.PI / 2.15;
   controls.target.set(0, 0.6, 0);
+
+  // Start far enough back that the island fits the viewport — on a tall
+  // phone the horizontal fov is the tight one, so fit against whichever
+  // half-angle is smaller. Runs once; after that the user's zoom rules.
+  const fitCamera = () => {
+    const FIT_R = 8.0;                       // island half-extent incl. trees
+    const vh = THREE.MathUtils.degToRad(camera.fov) / 2;
+    const hh = Math.atan(Math.tan(vh) * camera.aspect);
+    const d = Math.min(Math.max((FIT_R / Math.tan(Math.min(vh, hh))) * 0.92, 12), 32);
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    camera.position.copy(controls.target).addScaledVector(dir, d);
+  };
 
   const root = group('habit_garden');
   const terrain = buildTerrain();
@@ -119,6 +131,7 @@ export async function createGardenScene(host, opts = {}) {
     camera.updateProjectionMatrix();
   };
   resize();
+  fitCamera();
   const ro = new ResizeObserver(resize);
   ro.observe(host);
 
