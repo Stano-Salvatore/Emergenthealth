@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react"
 import { RefreshCw, Leaf, X, Check, Send, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { Garden3D } from "@/components/garden/Garden3D"
+import { Garden3DCanvas } from "@/components/garden3d/Garden3DCanvas"
 import { plantSpriteKey, type EngineData } from "@/components/garden/engine"
 
 // ─── Plant definitions ────────────────────────────────────────────────────────
@@ -457,7 +457,7 @@ export default function GardenPage() {
               <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <Garden3D
+            <Garden3DCanvas
               data={engineData}
               sparkleSignal={sparkleSignal}
               onPlantClick={id => {
