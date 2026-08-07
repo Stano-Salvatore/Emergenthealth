@@ -1,32 +1,45 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 76 92">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 78 94">
+  <defs>
+    <linearGradient id="shpost" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8a5c33"/><stop offset="1" stop-color="#5e3f23"/>
+    </linearGradient>
+  </defs>
   <!-- posts -->
-  <rect x="8" y="24" width="7" height="66" rx="3" fill="#7d5530" stroke="#5e3f23" stroke-width="1.8"/>
-  <rect x="61" y="24" width="7" height="66" rx="3" fill="#7d5530" stroke="#5e3f23" stroke-width="1.8"/>
-  <!-- top slab plants -->
-  <g transform="translate(14,6)">
-    <path d="M9 20 Q3 16 2 8 Q8 10 9 14 Q10 6 15 2 Q14 10 11 16 Q16 12 20 12 Q17 18 11 20 Z" fill="#6fae57" stroke="#4c7d3c" stroke-width="1.6" stroke-linejoin="round"/>
-    <path d="M4 30 L18 30 L16 19 L6 19 Z" fill="#c06a3d" stroke="#9c5230" stroke-width="1.6"/>
-    <rect x="3" y="17" width="16" height="5" rx="2" fill="#d98352" stroke="#9c5230" stroke-width="1.4"/>
+  <rect x="8" y="26" width="6.4" height="64" rx="2.6" fill="url(#shpost)"/>
+  <rect x="63" y="22" width="6.4" height="64" rx="2.6" fill="url(#shpost)"/>
+  <!-- top shelf: iso plane (top face + front edge) -->
+  <path d="M4 40 L66 36 L74 41 L12 45 Z" fill="#c08a4e"/>
+  <path d="M12 45 L74 41 L74 46.5 L12 50.5 Z" fill="#8a5c33"/>
+  <!-- lower shelf -->
+  <path d="M4 76 L66 72 L74 77 L12 81 Z" fill="#c08a4e"/>
+  <path d="M12 81 L74 77 L74 82.5 L12 86.5 Z" fill="#8a5c33"/>
+  <!-- pots on top shelf (iso pots with elliptical rims) -->
+  <g>
+    <path d="M17 40.4 Q17 44 20 44 Q23 44 23 40.4 Z" fill="#a85434"/>
+    <ellipse cx="20" cy="40.2" rx="4.4" ry="1.7" fill="#d98352"/>
+    <ellipse cx="20" cy="40.2" rx="3" ry="1.1" fill="#4a3421"/>
+    <path d="M20 39 Q16 33 15 28 Q21 30 20.6 36 Q23 31 27 29 Q25 36 21 39 Z" fill="#6fae57"/>
   </g>
-  <g transform="translate(40,10)">
-    <circle cx="11" cy="8" r="6.4" fill="#e88fb0" stroke="#c25e86" stroke-width="1.6"/>
-    <circle cx="11" cy="8" r="2.2" fill="#ffe9b0"/>
-    <path d="M5 26 L17 26 L15.5 17 L6.5 17 Z" fill="#c06a3d" stroke="#9c5230" stroke-width="1.6"/>
-    <rect x="4" y="15" width="14" height="4.6" rx="2" fill="#d98352" stroke="#9c5230" stroke-width="1.4"/>
+  <g transform="translate(22,-2)">
+    <path d="M17 40.4 Q17 44 20 44 Q23 44 23 40.4 Z" fill="#a85434"/>
+    <ellipse cx="20" cy="40.2" rx="4.4" ry="1.7" fill="#d98352"/>
+    <ellipse cx="20" cy="40.2" rx="3" ry="1.1" fill="#4a3421"/>
+    <circle cx="20" cy="33" r="4.6" fill="#e88fb0"/>
+    <circle cx="18.8" cy="31.8" r="1.6" fill="#f7c4d8"/>
+    <circle cx="20" cy="33" r="1.5" fill="#ffe9b0"/>
   </g>
-  <!-- top slab -->
-  <rect x="4" y="36" width="68" height="9" rx="3.5" fill="#a9743f" stroke="#5e3f23" stroke-width="1.8"/>
-  <rect x="4" y="36" width="68" height="3.4" rx="1.7" fill="#c08a4e"/>
-  <!-- lower slab plants -->
-  <g transform="translate(16,50)">
-    <path d="M8 14 Q8 4 8 2 M8 8 Q4 7 3 3.4 M8 8 Q12 7 13 3.4" fill="none" stroke="#5c9a48" stroke-width="2.2" stroke-linecap="round"/>
-    <path d="M2 24 L14 24 L12.5 14 L3.5 14 Z" fill="#c06a3d" stroke="#9c5230" stroke-width="1.6"/>
+  <!-- pots on lower shelf -->
+  <g transform="translate(4,36)">
+    <path d="M17 40.4 Q17 44 20 44 Q23 44 23 40.4 Z" fill="#a85434"/>
+    <ellipse cx="20" cy="40.2" rx="4.4" ry="1.7" fill="#d98352"/>
+    <ellipse cx="20" cy="40.2" rx="3" ry="1.1" fill="#4a3421"/>
+    <path d="M20 40 Q20 32 20 29 M20 34 Q17 33 16 30 M20 34 Q23 33 24 30" fill="none" stroke="#5c9a48" stroke-width="1.8" stroke-linecap="round"/>
   </g>
-  <g transform="translate(42,54)">
-    <ellipse cx="8" cy="6" rx="5.6" ry="6" fill="#95c17e" stroke="#4c7d3c" stroke-width="1.6"/>
-    <path d="M2 20 L14 20 L12.5 11 L3.5 11 Z" fill="#c06a3d" stroke="#9c5230" stroke-width="1.6"/>
+  <g transform="translate(30,34)">
+    <path d="M17 40.4 Q17 44 20 44 Q23 44 23 40.4 Z" fill="#a85434"/>
+    <ellipse cx="20" cy="40.2" rx="4.4" ry="1.7" fill="#d98352"/>
+    <ellipse cx="20" cy="40.2" rx="3" ry="1.1" fill="#4a3421"/>
+    <ellipse cx="20" cy="34.6" rx="4" ry="4.4" fill="#95c17e"/>
+    <ellipse cx="18.8" cy="33.2" rx="1.6" ry="1.7" fill="#c4e8ad"/>
   </g>
-  <!-- lower slab -->
-  <rect x="4" y="74" width="68" height="9" rx="3.5" fill="#a9743f" stroke="#5e3f23" stroke-width="1.8"/>
-  <rect x="4" y="74" width="68" height="3.4" rx="1.7" fill="#c08a4e"/>
 </svg>

@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 32">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42 34">
   <defs>
     <radialGradient id="nshell" cx="0.6" cy="0.28" r="0.95">
       <stop offset="0" stop-color="#e8b878"/><stop offset="0.55" stop-color="#cf9350"/><stop offset="1" stop-color="#8e5a28"/>
@@ -7,15 +7,29 @@
       <stop offset="0" stop-color="#f7e8c4"/><stop offset="0.6" stop-color="#ecd7ab"/><stop offset="1" stop-color="#c4a473"/>
     </radialGradient>
   </defs>
-  <path d="M9 23 Q6 16 4.4 12" fill="none" stroke="#c9a877" stroke-width="2" stroke-linecap="round"/>
-  <path d="M13 22 Q12.6 15 12 11" fill="none" stroke="#c9a877" stroke-width="2" stroke-linecap="round"/>
-  <circle cx="4.2" cy="10.6" r="2.2" fill="url(#nbody)"/>
-  <circle cx="12" cy="9.6" r="2.2" fill="url(#nbody)"/>
-  <circle cx="4.8" cy="10.2" r="0.8" fill="#5a4632"/>
-  <circle cx="12.6" cy="9.2" r="0.8" fill="#5a4632"/>
-  <path d="M4 28 Q3 23 10 22 L30 22 Q37 23 37 26 Q37 30 31 30 L9 30 Q4 30 4 28 Z" fill="url(#nbody)"/>
-  <circle cx="25" cy="15" r="11" fill="url(#nshell)"/>
-  <circle cx="25" cy="15" r="7" fill="none" stroke="#8e5a28" stroke-width="1.6" opacity="0.8"/>
-  <circle cx="25" cy="15" r="3.4" fill="#e0ac68" stroke="#8e5a28" stroke-width="1.2" opacity="0.95"/>
-  <ellipse cx="20.5" cy="9.5" rx="3.4" ry="2.2" fill="#f4d4a0" opacity="0.95"/>
+  <!-- eye stalks -->
+  <path d="M6 19 Q4 15 3.4 12.4" fill="none" stroke="#c9a877" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M9 18.4 Q9.4 14.5 9.6 11.6" fill="none" stroke="#c9a877" stroke-width="1.8" stroke-linecap="round"/>
+  <circle cx="3.2" cy="11.4" r="2.1" fill="url(#nbody)"/>
+  <circle cx="9.7" cy="10.6" r="2.1" fill="url(#nbody)"/>
+  <circle cx="2.6" cy="11" r="0.75" fill="#5a4632"/>
+  <circle cx="9.1" cy="10.2" r="0.75" fill="#5a4632"/>
+  <!-- slug body flat on the ground, head raised at the front-left -->
+  <path d="M4.5 23.5 Q3 27 5 29.5 Q7 31.5 13 31.5 L31 31.5 Q37 31.5 37 28.6 Q37 26 31.5 25.6 L15 24.8 Q10.5 24.4 9.6 21.5 Q9.2 19 7 18.6 Q4.6 18.4 4.1 20.6 Q3.8 22 4.5 23.5 Z" fill="url(#nbody)"/>
+  <!-- top ridge highlight along the body -->
+  <path d="M6 19.6 Q9 20.4 11 23.6 Q16 25.6 30 26.2 Q35 26.5 36 28 Q35 26.8 30.5 26.8 L14 26 Q10 25.4 8.4 22.4 Q7.4 20.2 6 19.6 Z" fill="#f7e8c4" opacity="0.85"/>
+  <!-- ground contact edge -->
+  <path d="M6.5 30.5 Q14 31.9 31 31.9 Q36 31.8 37 29.6 Q36.6 32.2 31 32.2 L11 32.2 Q7.4 32 6.5 30.5 Z" fill="#9a7c4e" opacity="0.6"/>
+  <!-- occlusion where the shell rests on the body -->
+  <ellipse cx="26.5" cy="25.8" rx="9" ry="1.8" fill="#5c3a16" opacity="0.4"/>
+  <!-- shell: a sphere with the spiral turned 3/4 toward the camera -->
+  <circle cx="26" cy="15" r="10.5" fill="url(#nshell)"/>
+  <!-- spiral off-center toward the front-left -->
+  <ellipse cx="23" cy="16" rx="6.6" ry="6.2" fill="none" stroke="#8e5a28" stroke-width="1.6" opacity="0.8"/>
+  <ellipse cx="23.5" cy="16" rx="3.2" ry="3" fill="#e0ac68" stroke="#8e5a28" stroke-width="1.2" opacity="0.95"/>
+  <!-- shell lip where it opens onto the body -->
+  <path d="M16.5 18.5 Q18.5 23.5 24.5 25.2 Q18.6 25 15.9 20.8 Z" fill="#6b3f1a" opacity="0.6"/>
+  <!-- top-right specular + rim light -->
+  <ellipse cx="30.5" cy="9" rx="3.6" ry="2.4" fill="#f4d4a0" opacity="0.95"/>
+  <path d="M34.5 12 Q36.6 15.5 35 19.5" fill="none" stroke="#f0c890" stroke-width="1.2" opacity="0.55" stroke-linecap="round"/>
 </svg>

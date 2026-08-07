@@ -1,29 +1,36 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 84 80">
   <defs>
-    <linearGradient id="roof" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#d97e5c"/><stop offset="1" stop-color="#b45a3c"/>
+    <linearGradient id="wallR" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f6e9cc"/><stop offset="1" stop-color="#e8d5ac"/>
+    </linearGradient>
+    <linearGradient id="roofL" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a34c30"/><stop offset="1" stop-color="#8a3c26"/>
+    </linearGradient>
+    <linearGradient id="roofR" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e08a64"/><stop offset="1" stop-color="#c2603c"/>
     </linearGradient>
   </defs>
-  <!-- chimney -->
-  <path d="M58 10 L66 10 L66 26 L58 26 Z" fill="#a5705a" stroke="#7d4e3c" stroke-width="1.8"/>
-  <path d="M56 8 L68 8 L68 12 L56 12 Z" fill="#8c5c48" stroke="#7d4e3c" stroke-width="1.6"/>
-  <!-- walls -->
-  <path d="M16 38 L68 38 L68 70 Q68 73 65 73 L19 73 Q16 73 16 70 Z" fill="#f2e3c8" stroke="#c9b48c" stroke-width="2"/>
-  <!-- roof -->
-  <path d="M10 40 Q9 37 12 35 L40 10 Q42 8 44 10 L72 35 Q75 37 74 40 Q73 42 70 41 L42 17 L14 41 Q11 42 10 40 Z" fill="url(#roof)" stroke="#8e4530 " stroke-width="2" stroke-linejoin="round"/>
-  <path d="M14 41 L42 17 L70 41 L64 41 L42 22 L20 41 Z" fill="#c96b48"/>
-  <!-- door -->
-  <path d="M36 73 L36 52 Q36 46 42 46 Q48 46 48 52 L48 73 Z" fill="#8a5c33" stroke="#5e3f23" stroke-width="1.8"/>
-  <circle cx="45" cy="60" r="1.4" fill="#f4c15d"/>
-  <!-- windows -->
-  <circle cx="27" cy="52" r="5.4" fill="#ffe9b0" stroke="#c9b48c" stroke-width="1.8"/>
-  <path d="M21.6 52 L32.4 52 M27 46.6 L27 57.4" stroke="#c9b48c" stroke-width="1.4"/>
-  <circle cx="58" cy="52" r="5.4" fill="#ffe9b0" stroke="#c9b48c" stroke-width="1.8"/>
-  <path d="M52.6 52 L63.4 52 M58 46.6 L58 57.4" stroke="#c9b48c" stroke-width="1.4"/>
-  <!-- step + bush -->
-  <path d="M33 73 L51 73 L52 77 L32 77 Z" fill="#cfc2ab" stroke="#a89877" stroke-width="1.6"/>
-  <circle cx="14" cy="70" r="6" fill="#6fae57" stroke="#4c7d3c" stroke-width="1.8"/>
-  <circle cx="70" cy="70" r="6" fill="#6fae57" stroke="#4c7d3c" stroke-width="1.8"/>
-  <circle cx="12.5" cy="68" r="1.2" fill="#f2a2c0"/>
-  <circle cx="71.5" cy="68" r="1.2" fill="#ffe9a3"/>
+  <!-- walls: left (shaded) + right (lit), iso construction -->
+  <path d="M10 54 L42 70 L42 44 L10 28 Z" fill="#d9c49e"/>
+  <path d="M42 70 L74 54 L74 28 L42 44 Z" fill="url(#wallR)"/>
+  <!-- door on right wall (skewed with the wall plane) -->
+  <path d="M50 64 L60 59 L60 41.5 Q60 39 57.5 40.2 L52.5 42.7 Q50 44 50 46.5 Z" fill="#8a5c33"/>
+  <path d="M51.4 62.6 L54.6 61 L54.6 43.4 L51.4 45 Z" fill="#a9743f" opacity="0.55"/>
+  <circle cx="58" cy="51" r="1.2" fill="#f4c15d"/>
+  <!-- window on left wall -->
+  <ellipse cx="24" cy="43" rx="6" ry="5.4" fill="#ffe9b0" transform="rotate(-14 24 43)"/>
+  <ellipse cx="24" cy="43" rx="6" ry="5.4" fill="none" stroke="#b09a6e" stroke-width="1.8" transform="rotate(-14 24 43)"/>
+  <path d="M19 40 L29 46 M26 37.6 L22 48.4" stroke="#b09a6e" stroke-width="1.2"/>
+  <!-- glow spill from window -->
+  <ellipse cx="24" cy="43" rx="8.5" ry="7.5" fill="#ffd97a" opacity="0.18" transform="rotate(-14 24 43)"/>
+  <!-- roof planes to a single apex -->
+  <path d="M6 28 L42 47 L42 4 Z" fill="url(#roofL)"/>
+  <path d="M42 47 L78 28 L42 4 Z" fill="url(#roofR)"/>
+  <path d="M42 47 L42 4" stroke="#f2a882" stroke-width="1.6" opacity="0.8"/>
+  <path d="M6 28 L42 47 L78 28" fill="none" stroke="#6b2c1c" stroke-width="1.6" opacity="0.5"/>
+  <!-- chimney as a tiny iso box on the right plane -->
+  <path d="M56 14 L62 11 L62 20 L56 23 Z" fill="#b0785e"/>
+  <path d="M50 11 L56 14 L56 23 L50 20 Z" fill="#96604a"/>
+  <path d="M50 11 L56 8 L62 11 L56 14 Z" fill="#c98a6e"/>
+  <ellipse cx="56" cy="10.4" rx="3.4" ry="1.6" fill="#5a3a2c"/>
 </svg>

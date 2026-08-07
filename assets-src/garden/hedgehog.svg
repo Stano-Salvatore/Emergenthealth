@@ -1,20 +1,37 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 32">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 46 34">
   <defs>
-    <radialGradient id="hspike" cx="0.6" cy="0.25" r="1">
+    <radialGradient id="hspike" cx="0.62" cy="0.25" r="1">
       <stop offset="0" stop-color="#b08a54"/><stop offset="0.55" stop-color="#8a5c33"/><stop offset="1" stop-color="#54371e"/>
     </radialGradient>
     <radialGradient id="hface" cx="0.62" cy="0.3" r="0.9">
       <stop offset="0" stop-color="#fbecd4"/><stop offset="0.65" stop-color="#f0dcc0"/><stop offset="1" stop-color="#cdb08a"/>
     </radialGradient>
   </defs>
-  <ellipse cx="14" cy="28.6" rx="3.4" ry="2.2" fill="#54371e"/>
-  <ellipse cx="30" cy="28.6" rx="3.4" ry="2.2" fill="#54371e"/>
-  <path d="M6 26 Q2 18 8 12 L11 15 L12 8 L16 13 L19 5 L22 12 L27 6 L28 13 L34 9 L33 16 L39 14 Q42 20 38 26 Z" fill="url(#hspike)"/>
-  <path d="M10 24 Q8 19 11 15 L13 17 L15 12 L18 16 L21 10 L23 15 Q17 18 13 24 Z" fill="#c99e63" opacity="0.55"/>
-  <path d="M34 15 Q43 18 42 24 Q41 28 35 28 L30 27 Q28 21 34 15 Z" fill="url(#hface)"/>
-  <circle cx="42" cy="23.4" r="2.2" fill="#3a2a20"/>
-  <circle cx="41.4" cy="22.8" r="0.7" fill="#7a685c"/>
-  <circle cx="36" cy="20" r="1.5" fill="#3a2a20"/>
-  <circle cx="36.5" cy="19.5" r="0.5" fill="#fff" opacity="0.8"/>
-  <circle cx="33.6" cy="24.6" r="1.4" fill="#e8b4a0" opacity="0.6"/>
+  <!-- far legs -->
+  <ellipse cx="33.5" cy="30" rx="3.1" ry="2" fill="#3f2814"/>
+  <ellipse cx="17.5" cy="30.4" rx="3.1" ry="2" fill="#3f2814"/>
+  <!-- spiky back dome, walking toward the front-left -->
+  <path d="M40 28.5 Q45 22.5 42 15.5 Q44.4 13 40.8 10.4 Q41.8 6.6 37.2 7.4 Q36.8 3.2 32.4 5.8 Q30.4 1.8 26.8 5.2 Q23.2 2.2 21.4 6.4 Q16.8 4.2 16.4 8.4 Q11.8 8 13.4 12 Q8.8 13 11.4 16.6 Q7.4 19 10.6 22 Q8 26 12.2 28.5 Z" fill="url(#hspike)"/>
+  <!-- lit spike tips across the visible top of the dome -->
+  <path d="M30 6.5 L28.4 11.5 M35 8.5 L32.4 13 M39 12 L35.6 15.5 M24 7 L24 12 M19 9 L20.6 13.5" fill="none" stroke="#c99e63" stroke-width="1.6" stroke-linecap="round" opacity="0.7"/>
+  <path d="M40.5 16.5 L36.8 18.8 M14.8 12.6 L17.6 15.2" fill="none" stroke="#c99e63" stroke-width="1.4" stroke-linecap="round" opacity="0.5"/>
+  <ellipse cx="31" cy="11" rx="6" ry="3" fill="#c99e63" opacity="0.45"/>
+  <!-- belly occlusion where the dome sits over the legs -->
+  <ellipse cx="25" cy="28.2" rx="13" ry="2.2" fill="#2c1a0c" opacity="0.4"/>
+  <!-- cream face wedge at the front-left, snout to the ground -->
+  <path d="M12.5 16.5 Q4.5 20.5 2.6 25.5 Q6 29.8 12 29.8 L17.5 29.2 Q19.5 22 12.5 16.5 Z" fill="url(#hface)"/>
+  <circle cx="3.8" cy="25.2" r="2" fill="#3a2a20"/>
+  <circle cx="3.2" cy="24.6" r="0.65" fill="#7a685c"/>
+  <circle cx="10.2" cy="22.4" r="1.6" fill="#3a2a20"/>
+  <circle cx="10.7" cy="21.9" r="0.5" fill="#fff" opacity="0.8"/>
+  <circle cx="14.8" cy="17.6" r="2" fill="#d9b98a"/>
+  <circle cx="15.1" cy="17.9" r="1.1" fill="#a8865c"/>
+  <circle cx="7.6" cy="26.6" r="1.4" fill="#e8b4a0" opacity="0.55"/>
+  <!-- near legs, grounded -->
+  <ellipse cx="12.5" cy="32.6" rx="3.6" ry="1.1" fill="#2c1a0c" opacity="0.45"/>
+  <ellipse cx="30" cy="32.6" rx="3.6" ry="1.1" fill="#2c1a0c" opacity="0.45"/>
+  <ellipse cx="12.5" cy="31.6" rx="3.3" ry="2.1" fill="#54371e"/>
+  <ellipse cx="30" cy="31.6" rx="3.3" ry="2.1" fill="#54371e"/>
+  <ellipse cx="11.7" cy="30.9" rx="1.7" ry="0.9" fill="#7a5230" opacity="0.9"/>
+  <ellipse cx="29.2" cy="30.9" rx="1.7" ry="0.9" fill="#7a5230" opacity="0.9"/>
 </svg>

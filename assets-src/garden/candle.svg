@@ -1,13 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 44">
   <defs>
-    <radialGradient id="flame" cx="0.5" cy="0.7" r="0.7">
+    <radialGradient id="cfl" cx="0.5" cy="0.7" r="0.7">
       <stop offset="0" stop-color="#fff3c4"/><stop offset="0.6" stop-color="#f4c15d"/><stop offset="1" stop-color="#e8863a"/>
     </radialGradient>
+    <linearGradient id="cwax" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#d9cfae"/><stop offset="0.45" stop-color="#f4ecd8"/><stop offset="0.8" stop-color="#fbf6ea"/><stop offset="1" stop-color="#cfc2a4"/>
+    </linearGradient>
   </defs>
   <ellipse cx="15" cy="10" rx="9" ry="10" fill="#f4c15d" opacity="0.22"/>
-  <path d="M15 3 Q19 8 18 12 Q17 16 15 16 Q13 16 12 12 Q11 8 15 3 Z" fill="url(#flame)" stroke="#d97b2a" stroke-width="1.2"/>
-  <line x1="15" y1="16" x2="15" y2="19" stroke="#5a4632" stroke-width="1.6"/>
-  <path d="M9 19 L21 19 L21 36 L9 36 Z" fill="#f4ecd8" stroke="#cfc2a4" stroke-width="1.8"/>
-  <path d="M9 19 Q11 25 10 19.5 M13 19 Q14 24 15 19 M18 19 Q19 26 20 19.5" fill="none" stroke="#fbf6ea" stroke-width="2.4" stroke-linecap="round"/>
-  <ellipse cx="15" cy="37" rx="10" ry="3" fill="#e8b93d" stroke="#c98f2e" stroke-width="1.6"/>
+  <path d="M15 3 Q19 8 18 12 Q17 16 15 16 Q13 16 12 12 Q11 8 15 3 Z" fill="url(#cfl)"/>
+  <line x1="15" y1="16" x2="15" y2="19.4" stroke="#5a4632" stroke-width="1.6"/>
+  <!-- cylinder body with elliptical top showing the wax pool -->
+  <path d="M9 20 L9 36 L21 36 L21 20 Z" fill="url(#cwax)"/>
+  <ellipse cx="15" cy="20" rx="6" ry="2.2" fill="#fbf6ea"/>
+  <ellipse cx="15" cy="20" rx="4.2" ry="1.4" fill="#e0d4b0"/>
+  <path d="M9.6 21.4 Q10.6 26 9.8 30 M20.4 21.4 Q19.6 25 20.2 29" stroke="#fbf6ea" stroke-width="2" stroke-linecap="round" opacity="0.9"/>
+  <ellipse cx="15" cy="36" rx="6" ry="2" fill="#cfc2a4"/>
+  <!-- gold dish -->
+  <ellipse cx="15" cy="37.6" rx="10.5" ry="3.4" fill="#e8b93d"/>
+  <ellipse cx="15" cy="36.6" rx="10.5" ry="2.8" fill="#f4d15d"/>
+  <ellipse cx="11" cy="36" rx="3" ry="0.9" fill="#fbe8a0" opacity="0.9"/>
 </svg>

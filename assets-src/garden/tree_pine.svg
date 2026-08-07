@@ -1,7 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 68 100">
-  <path d="M30 96 L30 82 L38 82 L38 96 Q39 99 34 99 Q29 99 30 96 Z" fill="#7a5230" stroke="#5e3f23" stroke-width="2" stroke-linejoin="round"/>
-  <path d="M34 4 Q40 14 48 26 Q42 29 40 28 Q48 38 54 48 Q46 51 43 50 Q52 62 60 72 Q62 76 57 77 L11 77 Q6 76 8 72 Q16 62 25 50 Q22 51 14 48 Q20 38 28 28 Q26 29 20 26 Q28 14 34 4 Z"
-    fill="#3f7f4f" stroke="#2f6139" stroke-width="2" stroke-linejoin="round"/>
-  <path d="M34 8 Q38 15 44 24 L36 24 Q42 34 49 45 L39 45 Q47 58 55 71 L34 71 Z" fill="#4f9a5e" opacity="0.55"/>
-  <path d="M14 72 Q24 74 34 74 Q44 74 54 72 L57 77 L11 77 Z" fill="#2f6139" opacity="0.6"/>
+  <defs>
+    <linearGradient id="ptier" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2c5738"/><stop offset="0.45" stop-color="#3f7f4f"/><stop offset="0.75" stop-color="#549a5e"/><stop offset="1" stop-color="#356b42"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="34" cy="96" rx="11" ry="3.4" fill="#2c1e12" opacity="0.4"/>
+  <path d="M30 96 L30 80 L38 80 L38 96 Q39 99 34 99 Q29 99 30 96 Z" fill="#6b4a28"/>
+  <!-- stacked tiers, each with a visible elliptical underside -->
+  <path d="M34 58 Q46 62 58 70 Q60 74 55 75 L13 75 Q8 74 10 70 Q22 62 34 58 Z" fill="url(#ptier)"/>
+  <ellipse cx="34" cy="74" rx="23" ry="4.4" fill="#22452c" opacity="0.85"/>
+  <path d="M34 34 Q44 38 53 48 Q55 52 50 53 L18 53 Q13 52 15 48 Q24 38 34 34 Z" fill="url(#ptier)"/>
+  <ellipse cx="34" cy="52" rx="17.5" ry="3.6" fill="#22452c" opacity="0.85"/>
+  <path d="M34 6 Q40 12 46 26 Q48 30 43 31 L25 31 Q20 30 22 26 Q28 12 34 6 Z" fill="url(#ptier)"/>
+  <ellipse cx="34" cy="30" rx="11.5" ry="2.8" fill="#22452c" opacity="0.85"/>
+  <!-- lit edges -->
+  <path d="M34 8 Q39 14 43 25 Q39 18 34 12 Z" fill="#6fb478" opacity="0.7"/>
+  <path d="M36 36 Q45 41 51 50 Q44 44 36 40 Z" fill="#6fb478" opacity="0.6"/>
+  <path d="M36 60 Q48 65 56 72 Q47 67 36 64 Z" fill="#6fb478" opacity="0.55"/>
 </svg>
