@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react"
-import { RefreshCw, Leaf, X, Check, Send, Sparkles, Move } from "lucide-react"
+import { RefreshCw, Leaf, X, Check, Send, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { GardenCanvas } from "@/components/garden/GardenCanvas"
+import { Garden3DCanvas } from "@/components/garden3d/Garden3DCanvas"
 import { plantSpriteKey, type EngineData } from "@/components/garden/engine"
 
 // ─── Plant definitions ────────────────────────────────────────────────────────
@@ -337,7 +337,6 @@ export default function GardenPage() {
   const [selectedHabitId, setSelectedHabitId] = useState<string | null>(null)
   const [showDecos, setShowDecos]         = useState(false)
   const [showEmergy, setShowEmergy]       = useState(false)
-  const [editMode, setEditMode]           = useState(false)
   const [plantChoices, setPlantChoices]   = useState<Record<string, string>>({})
   const [decorations, setDecorations]     = useState<string[]>([])
   const [placed, setPlaced]               = useState<Record<string, { x: number; y: number }>>({})
@@ -406,15 +405,6 @@ export default function GardenPage() {
     })
   }
 
-  const savePlaced = useCallback((next: Record<string, { x: number; y: number }>) => {
-    setPlaced(next)
-    fetch("/api/garden", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ layout: { placed: next } }),
-    }).catch(() => {})
-  }, [])
-
   const selectedHabit = data?.habits.find(h => h.id === selectedHabitId) ?? null
 
   // Engine data — recomputed when garden state changes
@@ -467,14 +457,12 @@ export default function GardenPage() {
               <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <GardenCanvas
+            <Garden3DCanvas
               data={engineData}
-              editMode={editMode}
               sparkleSignal={sparkleSignal}
               onPlantClick={id => {
                 setSelectedHabitId(id); setShowDecos(false); setShowEmergy(false)
               }}
-              onPlaced={savePlaced}
             />
           )}
 
@@ -520,16 +508,6 @@ export default function GardenPage() {
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           </button>
 
-          {/* Edit-mode hint */}
-          {editMode && (
-            <div className="absolute z-50 left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 pointer-events-none"
-              style={{ top: 14, background: "rgba(22,26,22,0.82)", border: "1px solid rgba(255,233,176,0.4)" }}>
-              <span className="font-semibold" style={{ color: "#ffe9b0", fontSize: 11.5 }}>
-                🖐 Drag plants & decorations to rearrange
-              </span>
-            </div>
-          )}
-
           {/* Round corner buttons */}
           <button onClick={() => { setShowEmergy(v => !v); setShowDecos(false); setSelectedHabitId(null) }}
             className="absolute z-50 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
@@ -542,23 +520,12 @@ export default function GardenPage() {
           </button>
           <button onClick={() => { setShowDecos(v => !v); setShowEmergy(false); setSelectedHabitId(null) }}
             className="absolute z-50 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
-            style={{ bottom: 84, right: 16, width: 50, height: 50, borderRadius: "50%",
+            style={{ bottom: 16, right: 16, width: 58, height: 58, borderRadius: "50%",
               background: "radial-gradient(circle at 35% 30%, #6f9c50, #46702f)",
               border: showDecos ? "3px solid #ffe9b0" : "3px solid rgba(240,240,220,0.85)",
               boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
-            <span style={{ fontSize: 16 }}>🪨</span>
-            <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 7.5 }}>Decorate</span>
-          </button>
-          <button onClick={() => setEditMode(v => !v)}
-            className="absolute z-50 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
-            style={{ bottom: 16, right: 16, width: 58, height: 58, borderRadius: "50%",
-              background: editMode
-                ? "radial-gradient(circle at 35% 30%, #d0a04e, #96702f)"
-                : "radial-gradient(circle at 35% 30%, #6f9c50, #46702f)",
-              border: editMode ? "3px solid #ffe9b0" : "3px solid rgba(240,240,220,0.85)",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
-            <Move className="h-4 w-4" style={{ color: "#f4f2e2" }} />
-            <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 8.5 }}>{editMode ? "Done" : "Edit"}</span>
+            <span style={{ fontSize: 17 }}>🪨</span>
+            <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 8 }}>Decorate</span>
           </button>
 
           {/* Bottom card bar: Water + habit cards */}
@@ -645,7 +612,7 @@ export default function GardenPage() {
               ["🌻 → ✨", "Blooming", "14+ day streak, glows!"],
               ["🥀", "Wilting", "3+ consecutive missed days"],
               ["💧", "Daily watering", "One tap a day, +5 XP each"],
-              ["🖐", "Edit mode", "Drag plants & decorations anywhere"],
+              ["🖐", "Orbit view", "Drag to spin the garden, pinch to zoom"],
               ["🏡 ⛲", "Level scenery", "Ponds, decks & trees unlock as you level"],
               ["🌧️ 🌙", "Weather & night", "Real weather + day/night lighting"],
             ].map(([icon, label, desc]) => (
