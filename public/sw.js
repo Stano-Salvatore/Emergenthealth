@@ -2,11 +2,22 @@
 // cache instantly and revalidated in the background (stale-while-revalidate),
 // so tab switches feel native even on slow connections. Build assets are
 // cache-first (they're content-hashed and immutable).
-const VERSION = "v5"
+// v6 fixes an APK-bricking bug: precaching "/" and "/dashboard" followed
+// their auth redirects, and serving a redirect-followed response to a
+// navigation is forbidden — the browser fails the load with net::ERR_FAILED.
+// Redirected responses are never cached or served to navigations now, and
+// only the redirect-free /offline page is precached.
+const VERSION = "v6"
 const STATIC_CACHE = `emergenthealth-static-${VERSION}`
 const PAGES_CACHE = `emergenthealth-pages-${VERSION}`
 
-const PRECACHE = ["/", "/dashboard", "/offline", "/signin"]
+const PRECACHE = ["/offline"]
+
+// Only same-origin, non-redirected 200s are safe to cache — a stored
+// redirected response served to a navigation hard-fails the page load.
+function cacheable(res) {
+  return res.ok && !res.redirected && res.type === "basic"
+}
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -33,7 +44,7 @@ async function cacheFirst(request) {
   const cached = await cache.match(request)
   if (cached) return cached
   const res = await fetch(request)
-  if (res.ok) cache.put(request, res.clone())
+  if (cacheable(res)) cache.put(request, res.clone())
   return res
 }
 
@@ -42,10 +53,16 @@ async function cacheFirst(request) {
 // offline page.
 async function staleWhileRevalidate(event) {
   const cache = await caches.open(PAGES_CACHE)
-  const cached = await cache.match(event.request)
+  let cached = await cache.match(event.request)
+  // Defensive: purge any redirected entry left by earlier SW versions —
+  // serving it to a navigation would net::ERR_FAILED the page.
+  if (cached && cached.redirected) {
+    cache.delete(event.request).catch(() => {})
+    cached = undefined
+  }
   const network = fetch(event.request)
     .then((res) => {
-      if (res.ok) cache.put(event.request, res.clone())
+      if (cacheable(res)) cache.put(event.request, res.clone())
       return res
     })
     .catch(() => null)
