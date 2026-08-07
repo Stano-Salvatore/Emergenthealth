@@ -72,6 +72,12 @@ const DEFAULT_HIDDEN = new Set([
 const NON_HIDEABLE = new Set(["/dashboard", "/dashboard/settings", "/dashboard/chat"])
 const LS_HIDDEN     = "sidebar-hidden-v2"
 const LS_ORDER      = "sidebar-order-v1"
+// Garden used to sit in DEFAULT_HIDDEN, and those defaults were persisted as
+// if the user chose them — so removing it from the defaults never surfaced it
+// for existing users. Strip it from stored prefs once; re-hiding afterwards
+// sticks because the flag stays set.
+const LS_GARDEN_MIGRATED = "sidebar-garden-unhidden-v1"
+const GARDEN_HREF = "/dashboard/garden"
 
 function SortableItem({
   item, active, isHidden, editing, onToggleHidden, onClose,
@@ -144,26 +150,52 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
   )
 
   useEffect(() => {
+    const migrated = localStorage.getItem(LS_GARDEN_MIGRATED) === "1"
+    const stripGarden = (arr: string[]) => arr.filter(p => p !== GARDEN_HREF)
+
     const lsH = localStorage.getItem(LS_HIDDEN)
     const lsO = localStorage.getItem(LS_ORDER)
-    if (lsH) try { setHidden(new Set(JSON.parse(lsH))) } catch {}
-    else setHidden(new Set(DEFAULT_HIDDEN))
-    if (lsO) try { setOrder(JSON.parse(lsO)) } catch {}
+    let localOrder: string[] = DEFAULT_ORDER
+    if (lsO) try { localOrder = JSON.parse(lsO); setOrder(localOrder) } catch {}
+    if (lsH) {
+      try {
+        let arr: string[] = JSON.parse(lsH)
+        if (!migrated && arr.includes(GARDEN_HREF)) {
+          arr = stripGarden(arr)
+          localStorage.setItem(LS_HIDDEN, JSON.stringify(arr))
+        }
+        setHidden(new Set(arr))
+      } catch {}
+    } else setHidden(new Set(DEFAULT_HIDDEN))
 
     fetch("/api/preferences/sidebar")
       .then(r => r.json())
       .then(d => {
         // Only override defaults if user has an explicit saved preference
-        if (Array.isArray(d.hidden) && d.hidden.length > 0) {
-          setHidden(new Set(d.hidden))
-          localStorage.setItem(LS_HIDDEN, JSON.stringify(d.hidden))
+        let serverHidden: string[] | null = Array.isArray(d.hidden) && d.hidden.length > 0 ? d.hidden : null
+        const serverOrder: string[] | null = Array.isArray(d.order) && d.order.length > 0 ? d.order : null
+        if (serverHidden && !migrated && serverHidden.includes(GARDEN_HREF)) {
+          serverHidden = stripGarden(serverHidden)
+          fetch("/api/preferences/sidebar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ order: serverOrder ?? localOrder, hidden: serverHidden }),
+          })
+            .then(() => localStorage.setItem(LS_GARDEN_MIGRATED, "1"))
+            .catch(() => {})
+        } else {
+          localStorage.setItem(LS_GARDEN_MIGRATED, "1")
+        }
+        if (serverHidden) {
+          setHidden(new Set(serverHidden))
+          localStorage.setItem(LS_HIDDEN, JSON.stringify(serverHidden))
         } else if (!lsH) {
           // No saved pref anywhere — persist the defaults so reset works correctly
           localStorage.setItem(LS_HIDDEN, JSON.stringify([...DEFAULT_HIDDEN]))
         }
-        if (Array.isArray(d.order) && d.order.length > 0) {
-          setOrder(d.order)
-          localStorage.setItem(LS_ORDER, JSON.stringify(d.order))
+        if (serverOrder) {
+          setOrder(serverOrder)
+          localStorage.setItem(LS_ORDER, JSON.stringify(serverOrder))
         }
       })
       .catch(() => {})
