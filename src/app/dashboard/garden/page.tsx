@@ -451,7 +451,7 @@ export default function GardenPage() {
         </div>
 
         {/* Game screen */}
-        <div className="relative w-full rounded-3xl overflow-hidden" style={{ height: 620 }}>
+        <div className="relative w-full rounded-3xl overflow-hidden" style={{ height: "clamp(400px, 56vh, 620px)" }}>
           {loading && !data ? (
             <div className="absolute inset-0 bg-secondary/30 flex items-center justify-center">
               <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -508,30 +508,23 @@ export default function GardenPage() {
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
           </button>
 
-          {/* Round corner buttons */}
+        </div>
+
+        {/* Control bar under the garden: Emergy | Water + habit cards | Decorate */}
+        <div className="flex items-center gap-2">
           <button onClick={() => { setShowEmergy(v => !v); setShowDecos(false); setSelectedHabitId(null) }}
-            className="absolute z-50 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
-            style={{ bottom: 16, left: 16, width: 58, height: 58, borderRadius: "50%",
+            className="shrink-0 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
+            style={{ width: 58, height: 58, borderRadius: "50%",
               background: "radial-gradient(circle at 35% 30%, #6f9c50, #46702f)",
               border: showEmergy ? "3px solid #ffe9b0" : "3px solid rgba(240,240,220,0.85)",
               boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
             <span style={{ fontSize: 19 }}>✨</span>
             <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 8.5 }}>Emergy</span>
           </button>
-          <button onClick={() => { setShowDecos(v => !v); setShowEmergy(false); setSelectedHabitId(null) }}
-            className="absolute z-50 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
-            style={{ bottom: 16, right: 16, width: 58, height: 58, borderRadius: "50%",
-              background: "radial-gradient(circle at 35% 30%, #6f9c50, #46702f)",
-              border: showDecos ? "3px solid #ffe9b0" : "3px solid rgba(240,240,220,0.85)",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
-            <span style={{ fontSize: 17 }}>🪨</span>
-            <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 8 }}>Decorate</span>
-          </button>
 
-          {/* Bottom card bar: Water + habit cards */}
           {data && (
-            <div className="absolute z-50 flex gap-2 overflow-x-auto rounded-2xl p-2"
-              style={{ bottom: 14, left: 88, right: 88, background: "rgba(22,26,22,0.55)", backdropFilter: "blur(6px)" }}>
+            <div className="flex-1 min-w-0 flex gap-2 overflow-x-auto rounded-2xl p-2"
+              style={{ background: "rgba(22,26,22,0.55)", backdropFilter: "blur(6px)" }}>
               <button onClick={handleWater} disabled={data.watered.today || watering}
                 className="relative shrink-0 flex flex-col items-center gap-1 rounded-xl px-1 pt-2 pb-1.5 transition-transform hover:scale-105 active:scale-95 disabled:hover:scale-100"
                 style={{ width: 72, background: "linear-gradient(180deg,#faf4e2,#efe6cc)",
@@ -570,6 +563,16 @@ export default function GardenPage() {
               })}
             </div>
           )}
+
+          <button onClick={() => { setShowDecos(v => !v); setShowEmergy(false); setSelectedHabitId(null) }}
+            className="shrink-0 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
+            style={{ width: 58, height: 58, borderRadius: "50%",
+              background: "radial-gradient(circle at 35% 30%, #6f9c50, #46702f)",
+              border: showDecos ? "3px solid #ffe9b0" : "3px solid rgba(240,240,220,0.85)",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
+            <span style={{ fontSize: 17 }}>🪨</span>
+            <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 8 }}>Decorate</span>
+          </button>
         </div>
 
         {/* Emergy chat */}
