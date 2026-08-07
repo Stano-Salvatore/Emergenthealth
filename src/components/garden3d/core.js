@@ -36,6 +36,9 @@ mat('furDark', 0x8a5a2c, 0.85);
 mat('wing', 0xe98fb0, 0.6);
 mat('feather', 0x5c7fb5, 0.8);
 mat('koi', 0xe2743c, 0.55);
+mat('wiltStem', 0x8a6a44, 0.95);
+mat('wiltLeaf', 0x7a7d5a, 0.95);
+mat('wiltPetal', 0xb08a8a, 0.9);
 
 export const COLS = 11, ROWS = 11;
 export const G = Array.from({ length: ROWS }, () => Array(COLS).fill('grass'));

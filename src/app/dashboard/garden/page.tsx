@@ -213,10 +213,12 @@ function EmergyChatPanel({
 
 // ─── Plant picker ─────────────────────────────────────────────────────────────
 
-function PlantPicker({ habit, currentPlant, onSelect, onClose }: {
+function PlantPicker({ habit, currentPlant, completing, onSelect, onComplete, onClose }: {
   habit: HabitData
   currentPlant: PlantKey
+  completing: boolean
   onSelect: (plantKey: PlantKey) => void
+  onComplete: () => void
   onClose: () => void
 }) {
   const stage = getStage(habit.streak, habit.missedDays)
@@ -233,6 +235,17 @@ function PlantPicker({ habit, currentPlant, onSelect, onClose }: {
           <X className="h-4 w-4" />
         </button>
       </div>
+
+      {habit.completedToday ? (
+        <p className="text-xs font-semibold" style={{ color: "#5fae3d" }}>✓ Completed today — the garden thanks you</p>
+      ) : (
+        <button onClick={onComplete} disabled={completing}
+          className="w-full rounded-xl py-2.5 text-sm font-bold transition-transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60"
+          style={{ background: "linear-gradient(90deg,#5fae3d,#7cc95a)", color: "#fff",
+            boxShadow: "0 2px 8px rgba(95,174,61,0.35)" }}>
+          {completing ? "Saving…" : "✓ Mark done today"}
+        </button>
+      )}
 
       <p className="text-xs text-muted-foreground">Choose a plant for this habit:</p>
       <div className="grid grid-cols-5 gap-2">
@@ -392,6 +405,28 @@ export default function GardenPage() {
       }
     } finally {
       setWatering(false)
+    }
+  }
+
+  const [completing, setCompleting] = useState(false)
+  async function handleCompleteHabit() {
+    const habit = data?.habits.find(h => h.id === selectedHabitId)
+    if (!habit || habit.completedToday || completing) return
+    setCompleting(true)
+    try {
+      const res = await fetch(`/api/habits/${habit.id}/complete`, { method: "POST" })
+      if (res.ok) {
+        setData(prev => prev ? {
+          ...prev,
+          habits: prev.habits.map(h => h.id === habit.id
+            ? { ...h, completedToday: true, streak: h.streak + 1, missedDays: 0 }
+            : h),
+        } : prev)
+        setSparkleSignal(s => s + 1)
+        setSelectedHabitId(null)
+      }
+    } finally {
+      setCompleting(false)
     }
   }
 
@@ -589,7 +624,9 @@ export default function GardenPage() {
           <PlantPicker
             habit={selectedHabit}
             currentPlant={(plantChoices[selectedHabit.id] ?? "sunflower") as PlantKey}
+            completing={completing}
             onSelect={handlePlantSelect}
+            onComplete={handleCompleteHabit}
             onClose={() => setSelectedHabitId(null)}
           />
         )}
