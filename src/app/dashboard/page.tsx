@@ -407,6 +407,8 @@ export default async function DashboardPage() {
           the schedule strip on phones; desktop keeps the strip + card grid. */}
       <MobileToday
         score={wellnessScore}
+        healthDate={latestHealth ? latestHealth.date.toISOString().slice(0, 10) : null}
+        today={todayStr}
         calYear={now.getFullYear()}
         calMonth={now.getMonth()}
         calToday={now.getDate()}

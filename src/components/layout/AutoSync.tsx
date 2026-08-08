@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
+import { useRouter } from "next/navigation"
 import { RefreshCw } from "lucide-react"
 
 const SYNC_INTERVAL_MS = 30 * 60 * 1000 // 30 minutes
@@ -8,29 +9,45 @@ const SYNC_KEY = "eh_last_sync"
 
 export function AutoSync() {
   const [syncing, setSyncing] = useState(false)
+  const router = useRouter()
+  const running = useRef(false)
 
-  useEffect(() => {
+  const runSync = useCallback(async (force = false) => {
+    if (running.current) return
     const last = parseInt(localStorage.getItem(SYNC_KEY) ?? "0", 10)
-    if (Date.now() - last < SYNC_INTERVAL_MS) return
+    if (!force && Date.now() - last < SYNC_INTERVAL_MS) return
 
+    running.current = true
     setSyncing(true)
-
-    // Check if YNAB is connected before including it in the sync batch
-    const ynabCheck = fetch("/api/ynab/connect").then(r => r.json()).catch(() => ({ connected: false }))
-
-    ynabCheck.then(ynab => {
+    try {
+      // Check if YNAB is connected before including it in the sync batch
+      const ynab = await fetch("/api/ynab/connect").then(r => r.json()).catch(() => ({ connected: false }))
       const syncs = [
         fetch("/api/sync/oura", { method: "POST" }),
         fetch("/api/sync/calendar", { method: "POST" }),
       ]
       if (ynab.connected) syncs.push(fetch("/api/sync/ynab", { method: "POST" }))
-      return Promise.allSettled(syncs)
-    }).then(() => {
+      await Promise.allSettled(syncs)
       localStorage.setItem(SYNC_KEY, String(Date.now()))
-    }).finally(() => {
+      // Pages are server-rendered from the DB *before* this sync runs, so
+      // without a refresh the user keeps seeing pre-sync numbers (e.g. last
+      // night's sleep missing because Oura published it after the cron ran).
+      router.refresh()
+    } finally {
+      running.current = false
       setSyncing(false)
-    })
-  }, [])
+    }
+  }, [router])
+
+  useEffect(() => {
+    runSync()
+
+    // Re-sync when the app comes back to the foreground — the phone app is
+    // usually resumed rather than cold-started, so mount alone isn't enough.
+    const onVisible = () => { if (document.visibilityState === "visible") runSync() }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => document.removeEventListener("visibilitychange", onVisible)
+  }, [runSync])
 
   if (!syncing) return null
 
