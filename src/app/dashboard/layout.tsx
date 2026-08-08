@@ -6,6 +6,7 @@ import { AutoSync } from "@/components/layout/AutoSync"
 import { HealthConnectAutoSync } from "@/components/HealthConnectAutoSync"
 import { DeviceCalendarAutoSync } from "@/components/DeviceCalendarAutoSync"
 import { NativeBridge } from "@/components/NativeBridge"
+import { MorningBriefPopup } from "@/components/dashboard/MorningBriefPopup"
 import { prisma } from "@/lib/prisma"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -37,6 +38,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <>
       <DashboardShell>{children}</DashboardShell>
+      <MorningBriefPopup name={session.user.name?.split(" ")[0] ?? "there"} />
       <EmergyPanel />
       <AutoSync />
       <HealthConnectAutoSync />
