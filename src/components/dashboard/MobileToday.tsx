@@ -303,15 +303,8 @@ export function MobileToday(p: MobileTodayProps) {
         </div>
       </Link>
 
-      {/* Ask Emergy */}
-      <Link
-        href="/dashboard/chat"
-        className="flex items-center gap-2.5 rounded-2xl border border-green-900/40 bg-[#14210f] px-4 py-3 hover:bg-[#1a2a14] transition-colors"
-      >
-        <span className="text-lg leading-none">🌱</span>
-        <span className="text-sm text-muted-foreground flex-1">Ask Emergy anything…</span>
-        <span className="text-green-400 text-xs font-semibold">Chat →</span>
-      </Link>
+      {/* No Ask-Emergy pill here: on mobile he's the centre button in the
+          bottom nav, so a second entry point is pure duplication. */}
 
       {/* Day timeline */}
       <div className="rounded-2xl border border-border bg-card px-4 py-4">
