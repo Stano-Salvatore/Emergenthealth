@@ -791,7 +791,7 @@ export default async function DashboardPage() {
           <StatTile label="Spent this month" value={`€${(totalSpent/100).toFixed(0)}`} icon={<Flame className="h-4 w-4 text-emerald-400"/>} />
         )}
         {todayMedTags.length > 0 ? (
-          <Link href="/dashboard/medications">
+          <Link href="/dashboard/intake?tab=meds">
             <StatTile label="Taken today" value={`${todayMedTags.length}`}
               sub={todayMedTags.slice(0, 2).join(", ") + (todayMedTags.length > 2 ? ` +${todayMedTags.length - 2}` : "")}
               icon={<span className="text-base leading-none">💊</span>} ok />

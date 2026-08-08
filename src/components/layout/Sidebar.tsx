@@ -28,10 +28,10 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/checkin",     label: "Check-in",        emoji: "🌅" },
   { href: "/dashboard/habits",      label: "Habits",          emoji: "✅" },
   { href: "/dashboard/garden",      label: "Garden",          emoji: "🌻" },
-  { href: "/dashboard/medications", label: "Medications",     emoji: "💊" },
-  { href: "/dashboard/intake",      label: "Intake",          emoji: "🥤" },
-  { href: "/dashboard/health",      label: "Health",          emoji: "❤️" },
-  { href: "/dashboard/body",        label: "Body & Trackers", emoji: "📏" },
+  // Medications live as a tab inside Intake, Body & Trackers as a tab inside
+  // Health — one nav entry each instead of two.
+  { href: "/dashboard/intake",      label: "Intake & Meds",   emoji: "🥤" },
+  { href: "/dashboard/health",      label: "Health & Body",   emoji: "❤️" },
   { href: "/dashboard/calendar",    label: "Calendar",        emoji: "🗓️" },
   { href: "/dashboard/reminders",   label: "Reminders",       emoji: "🔔" },
   { href: "/dashboard/finances",    label: "Finances",        emoji: "💰" },

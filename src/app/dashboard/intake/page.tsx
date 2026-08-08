@@ -8,6 +8,7 @@ import { format, subDays } from "date-fns"
 import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CaffeinePage from "@/app/dashboard/caffeine/page"
+import MedicationsPage from "@/app/dashboard/medications/page"
 
 interface IntakeLog {
   id: string
@@ -71,7 +72,7 @@ function localDateStr(d: Date = new Date()): string {
 }
 
 export default function IntakePage() {
-  const [activeTab, setActiveTab] = useState<"intake" | "caffeine">("intake")
+  const [activeTab, setActiveTab] = useState<"intake" | "caffeine" | "meds">("intake")
   const [logs, setLogs] = useState<IntakeLog[]>([])
   const [ouraEntries, setOuraEntries] = useState<OuraEntry[]>([])
   const [loading, setLoading] = useState(true)
@@ -80,6 +81,14 @@ export default function IntakePage() {
   const [weekData, setWeekData] = useState<WeekDay[]>([])
   const [waterGoal, setWaterGoal] = useState(2000)
   const isToday = date === localDateStr()
+
+  // Deep links (?tab=meds) from the dashboard card and command palette.
+  // Read after mount rather than during render so the server and client
+  // markup match.
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab")
+    if (tab === "meds" || tab === "caffeine") setActiveTab(tab)
+  }, [])
 
   // Load check-in water goal for today
   useEffect(() => {
@@ -201,6 +210,7 @@ export default function IntakePage() {
         {([
           { key: "intake", label: "Intake", emoji: "🥤" },
           { key: "caffeine", label: "Caffeine", emoji: "☕" },
+          { key: "meds", label: "Medications", emoji: "💊" },
         ] as const).map(t => (
           <button
             key={t.key}
@@ -217,7 +227,7 @@ export default function IntakePage() {
         ))}
       </div>
 
-      {activeTab === "caffeine" ? <CaffeinePage /> : (<>
+      {activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : (<>
 
       {/* summary cards */}
       <div className={`grid gap-3 grid-cols-2 sm:grid-cols-${2 + (teaTotal > 0 ? 1 : 0) + (beerTotal > 0 ? 1 : 0) + (wineTotal > 0 ? 1 : 0) + (alcoholTotal > 0 ? 1 : 0)}`}>
