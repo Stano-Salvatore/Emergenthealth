@@ -15,6 +15,7 @@ export type FeatureKey =
   | "rescuetime"
   | "labs"
   | "screentime"
+  | "fasting"
 
 export const FEATURE_ROUTES: Record<FeatureKey, string[]> = {
   finances:   ["/dashboard/finances", "/dashboard/bills", "/dashboard/subscriptions"],
@@ -25,6 +26,7 @@ export const FEATURE_ROUTES: Record<FeatureKey, string[]> = {
   rescuetime: ["/dashboard/rescuetime"],
   labs:       ["/dashboard/labs"],
   screentime: [],
+  fasting:    ["/dashboard/fasting"],
 }
 
 const HELD_BACK: FeatureKey[] = [
@@ -36,6 +38,9 @@ const HELD_BACK: FeatureKey[] = [
   "rescuetime",
   "labs",
   "screentime",
+  // Built and working, but never linked from anywhere — holding it as a
+  // proper future release instead of leaving it an accidental orphan.
+  "fasting",
 ]
 
 function envOverrides(): Set<string> {

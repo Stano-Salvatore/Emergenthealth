@@ -21,13 +21,30 @@ jobs:
           APP_URL: https://emergenthealth.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          # A missing secret used to fail silently: every call 401'd while the
+          # job still reported success, so months of "green" runs synced
+          # nothing. Misconfiguration now fails loudly; only transient errors
+          # are downgraded to warnings.
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CRON_SECRET repository secret is not set — every sync will 401."
+            echo "Add it under Settings → Secrets and variables → Actions, matching CRON_SECRET in Vercel."
+            exit 1
+          fi
+
           # Data syncs only — health + finances. The notification/digest crons
           # stay on Vercel's daily schedule (running them this often would spam).
+          auth_failed=0
           for path in oura ynab truelayer; do
             code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${path}") || true
             echo "[${path}] HTTP $code"; cat /tmp/out.txt || true; echo
-            # Don't fail the workflow on a transient sync hiccup
-            if [ "$code" != "200" ]; then echo "::warning::${path} sync returned $code"; fi
+            if [ "$code" = "401" ] || [ "$code" = "403" ]; then
+              echo "::error::${path} rejected the CRON_SECRET (HTTP $code) — it does not match Vercel's."
+              auth_failed=1
+            elif [ "$code" != "200" ]; then
+              # Network blips and cold starts shouldn't turn the run red
+              echo "::warning::${path} sync returned $code"
+            fi
           done
+          exit $auth_failed

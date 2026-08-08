@@ -11,6 +11,7 @@ import { DeviceCalendarManager } from "@/components/settings/DeviceCalendarManag
 import { DeviceCalendarColors } from "@/components/settings/DeviceCalendarColors"
 import { ScreenTimeManager } from "@/components/settings/ScreenTimeManager"
 import { NotificationNudges } from "@/components/settings/NotificationNudges"
+import { MorningBriefToggle } from "@/components/settings/MorningBriefToggle"
 import { SamsungHealthImporter } from "@/components/settings/SamsungHealthImporter"
 import { TimelineImporter } from "@/components/settings/TimelineImporter"
 import { MigrateButton } from "@/components/settings/MigrateButton"
@@ -292,6 +293,7 @@ export default async function SettingsPage({
       <PushNotifications />
       {/* Daily nudge notifications — Android only */}
       <NotificationNudges />
+      <MorningBriefToggle />
       </SettingsSection>
 
       {/* ══ Integrations ══ */}

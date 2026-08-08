@@ -29,6 +29,10 @@ interface Pillar { label: string; pts: number; max: number }
 
 interface MobileTodayProps {
   score: number
+  // ISO date of the newest health row — when it isn't today's, the ring
+  // numbers describe an earlier day and must say so rather than read "TODAY".
+  healthDate: string | null
+  today: string
   calYear: number
   calMonth: number
   calToday: number
@@ -72,7 +76,7 @@ function scoreColor(s: number) {
 }
 
 // 270° arc gauge, Vora-style: score centered, sweep starts bottom-left.
-function ScoreGauge({ score }: { score: number }) {
+function ScoreGauge({ score, label }: { score: number; label: string }) {
   const r = 34
   const circ = 2 * Math.PI * r
   const arc = circ * 0.75
@@ -87,7 +91,7 @@ function ScoreGauge({ score }: { score: number }) {
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-3xl font-black tabular-nums leading-none">{score}</span>
-        <span className="text-[8px] font-bold tracking-[0.2em] text-muted-foreground mt-0.5">TODAY</span>
+        <span className="text-[8px] font-bold tracking-[0.15em] text-muted-foreground mt-0.5">{label}</span>
       </div>
     </div>
   )
@@ -195,6 +199,10 @@ export function MobileToday(p: MobileTodayProps) {
   const allDay = p.events.filter(e => e.isAllDay)
   const sleepH = p.sleepMin != null ? (p.sleepMin / 60).toFixed(1) : null
   const latest = p.week[p.week.length - 1]
+  const stale = !!p.healthDate && p.healthDate !== p.today
+  const staleLabel = p.healthDate
+    ? format(parseISO(p.healthDate + "T12:00:00"), "EEE d MMM")
+    : ""
 
   return (
     // md:hidden matches DashboardGrid's isMobile boundary (<768px) so no
@@ -203,13 +211,21 @@ export function MobileToday(p: MobileTodayProps) {
     // 60% zoom ≈ 687px), which must still count as mobile.
     <div className="md:hidden space-y-3">
       {/* Score gauge + pillar bars */}
-      <div className="rounded-2xl border border-border bg-card px-4 py-4 flex items-center gap-4">
-        <ScoreGauge score={p.score} />
-        <div className="flex-1 min-w-0 space-y-2">
-          {p.pillars.map((pl, i) => (
-            <PillarBar key={pl.label} {...pl} value={p.pillarValues[i] ?? ""} color={PILLAR_COLORS[i % PILLAR_COLORS.length]} />
-          ))}
+      <div className="rounded-2xl border border-border bg-card px-4 py-4 space-y-3">
+        <div className="flex items-center gap-4">
+          <ScoreGauge score={p.score} label={stale ? "LAST DATA" : "TODAY"} />
+          <div className="flex-1 min-w-0 space-y-2">
+            {p.pillars.map((pl, i) => (
+              <PillarBar key={pl.label} {...pl} value={p.pillarValues[i] ?? ""} color={PILLAR_COLORS[i % PILLAR_COLORS.length]} />
+            ))}
+          </div>
         </div>
+        {stale && (
+          <p className="text-[11px] text-amber-400/90 leading-snug">
+            ⏳ Today&apos;s wearable data hasn&apos;t arrived yet — showing{" "}
+            <span className="font-semibold">{staleLabel}</span>. Oura publishes a night once you&apos;re up; it syncs automatically.
+          </p>
+        )}
       </div>
 
       {/* Sleep + Heart chart cards */}
@@ -287,15 +303,8 @@ export function MobileToday(p: MobileTodayProps) {
         </div>
       </Link>
 
-      {/* Ask Emergy */}
-      <Link
-        href="/dashboard/chat"
-        className="flex items-center gap-2.5 rounded-2xl border border-green-900/40 bg-[#14210f] px-4 py-3 hover:bg-[#1a2a14] transition-colors"
-      >
-        <span className="text-lg leading-none">🌱</span>
-        <span className="text-sm text-muted-foreground flex-1">Ask Emergy anything…</span>
-        <span className="text-green-400 text-xs font-semibold">Chat →</span>
-      </Link>
+      {/* No Ask-Emergy pill here: on mobile he's the centre button in the
+          bottom nav, so a second entry point is pure duplication. */}
 
       {/* Day timeline */}
       <div className="rounded-2xl border border-border bg-card px-4 py-4">
