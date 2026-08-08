@@ -70,6 +70,16 @@ const DEFAULT_HIDDEN = new Set([
   "/dashboard/home",
 ])
 const NON_HIDEABLE = new Set(["/dashboard", "/dashboard/settings", "/dashboard/chat"])
+// Pinned in the bottom nav, which exists below lg — repeating them in the
+// drawer is pure duplication, so they only show where there's no bottom nav
+// (lg+, incl. web layout mode, whose viewport is widened past lg).
+// Still listed while customizing so they can be reordered.
+const IN_BOTTOM_NAV = new Set([
+  "/dashboard/chat",
+  "/dashboard/checkin",
+  "/dashboard/habits",
+  "/dashboard/settings",
+])
 const LS_HIDDEN     = "sidebar-hidden-v2"
 const LS_ORDER      = "sidebar-order-v1"
 // Garden used to sit in DEFAULT_HIDDEN, and those defaults were persisted as
@@ -92,11 +102,19 @@ function SortableItem({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item.href, disabled: !editing })
 
+  // One display utility only — "hidden" and "flex" have equal specificity, so
+  // combining them would leave the winner up to stylesheet order.
+  const dup = !editing && IN_BOTTOM_NAV.has(item.href)
+
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={cn("flex items-center rounded-lg", isDragging && "opacity-40 z-50 bg-secondary/60")}
+      className={cn(
+        dup ? "hidden lg:flex" : "flex",
+        "items-center rounded-lg",
+        isDragging && "opacity-40 z-50 bg-secondary/60",
+      )}
     >
       {editing && (
         <div
@@ -273,7 +291,8 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
                 href={item.href}
                 title={item.label}
                 className={cn(
-                  "flex items-center justify-center w-9 h-9 rounded-lg text-base transition-all",
+                  IN_BOTTOM_NAV.has(item.href) ? "hidden lg:flex" : "flex",
+                  "items-center justify-center w-9 h-9 rounded-lg text-base transition-all",
                   active
                     ? "bg-primary/20 border border-primary/25"
                     : "text-muted-foreground hover:bg-secondary/60"
