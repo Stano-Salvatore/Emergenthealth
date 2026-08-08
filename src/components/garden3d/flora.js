@@ -13,11 +13,30 @@ export function pot(name, r = 0.26, h = 0.3, m = M.terracotta) {
 
 /** kind: bush | herb | lavender | rose | tulip — stage: 0…5.
  *  petalName (optional) overrides the bloom material, e.g. 'yellow' for a
- *  sunflower rendered on the tulip archetype. */
-export function plant(name, kind, stage = 4, petalName) {
+ *  sunflower rendered on the tulip archetype.
+ *  wilted renders the missed-too-many-days look instead of the seed mound. */
+export function plant(name, kind, stage = 4, petalName, wilted = false) {
   const g = group(name);
-  g.userData = { kind, stage };
+  g.userData = { kind, stage, wilted };
   const petalOverride = petalName ? M[petalName] : null;
+
+  if (wilted) {
+    // drooping brown stem with a hanging head, limp leaves, fallen petals
+    g.add(mk(`${name}_wilt_mound`, new THREE.SphereGeometry(0.13, 12, 8), M.soil, 0, 0.02, 0)).scale.set(1, 0.4, 1);
+    const stem = mk(`${name}_wilt_stem`, new THREE.CylinderGeometry(0.02, 0.028, 0.34, 6), M.wiltStem, 0.07, 0.14, 0);
+    stem.rotation.z = -0.55; g.add(stem);
+    const head = mk(`${name}_wilt_head`, new THREE.SphereGeometry(0.06, 8, 6), M.wiltStem, 0.21, 0.24, 0);
+    head.scale.set(1, 0.75, 1); g.add(head);
+    const leafA = mk(`${name}_wilt_leaf_a`, new THREE.SphereGeometry(0.11, 8, 6), M.wiltLeaf, -0.1, 0.035, 0.05);
+    leafA.scale.set(1.4, 0.18, 0.7); leafA.rotation.y = 0.7; g.add(leafA);
+    const leafB = mk(`${name}_wilt_leaf_b`, new THREE.SphereGeometry(0.09, 8, 6), M.wiltLeaf, 0.04, 0.03, -0.12);
+    leafB.scale.set(1.3, 0.16, 0.65); leafB.rotation.y = -0.9; g.add(leafB);
+    [[0.16, 0.1], [-0.05, 0.17], [0.24, -0.06]].forEach(([px, pz], i) => {
+      const p = mk(`${name}_wilt_petal_${i}`, new THREE.SphereGeometry(0.035, 6, 5), M.wiltPetal, px, 0.015, pz);
+      p.scale.set(1, 0.35, 0.8); p.rotation.y = i * 1.9; g.add(p);
+    });
+    return g;
+  }
   const leafBlade = (id, x, y, z, s, rot, m = M.leaf) => {
     const l = mk(`${name}_${id}`, new THREE.SphereGeometry(0.16, 12, 10), m, x, y, z);
     l.scale.set(s * 1.3, s * 0.35, s * 0.75); l.rotation.set(0, rot, 0.4); g.add(l);
@@ -140,13 +159,14 @@ export function buildFlora() {
   HABITS.forEach(([x, y, kind, label], i) => {
     const g = group(`habit_${i}_${kind}`, wx(x) + (i % 2 ? 0.1 : -0.08), topY(x, y), wz(y) + (i % 3 ? -0.05 : 0.12));
     g.add(pot(`habit_${i}_pot`, 0.24 + (i % 3) * 0.03, 0.3, i % 4 === 0 ? M.stoneWarm : M.terracotta));
-    const rec = { index: i, kind, label, stage: DEFAULT_STAGES[i], petal: null, holder: g, mesh: null };
-    rec.set = (s, k = rec.kind, petal = rec.petal) => {
+    const rec = { index: i, kind, label, stage: DEFAULT_STAGES[i], petal: null, wilted: false, holder: g, mesh: null };
+    rec.set = (s, k = rec.kind, petal = rec.petal, wilted = rec.wilted) => {
       if (rec.mesh) { g.remove(rec.mesh); rec.mesh.traverse(o => o.geometry && o.geometry.dispose()); }
       rec.stage = Math.max(0, Math.min(5, s));
       rec.kind = k;
       rec.petal = petal;
-      const pl = plant(`habit_${i}_plant`, rec.kind, rec.stage, rec.petal);
+      rec.wilted = wilted;
+      const pl = plant(`habit_${i}_plant`, rec.kind, rec.stage, rec.petal, rec.wilted);
       pl.position.y = 0.32; pl.rotation.y = i * 0.8;
       pl.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
       g.add(pl); rec.mesh = pl;
