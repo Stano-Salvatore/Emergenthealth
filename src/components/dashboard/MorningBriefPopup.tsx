@@ -6,6 +6,7 @@
 // open the app at 20:00 and nothing pops.
 
 import { useEffect, useState, useCallback } from "react"
+import { usePathname } from "next/navigation"
 import { X } from "lucide-react"
 import { BriefView } from "./BriefView"
 
@@ -20,9 +21,14 @@ function localDateStr(d = new Date()): string {
 
 export function MorningBriefPopup({ name }: { name: string }) {
   const [open, setOpen] = useState(false)
+  const pathname = usePathname()
+  // The Brief page already *is* this content — popping it over itself just
+  // shows the same brief twice, stacked.
+  const onBriefPage = pathname === "/dashboard/brief"
 
   const maybeOpen = useCallback(() => {
     try {
+      if (onBriefPage) return
       if (localStorage.getItem(DISABLED_KEY) === "1") return
       const hour = new Date().getHours()
       if (hour < START_HOUR || hour >= END_HOUR) return
@@ -30,7 +36,7 @@ export function MorningBriefPopup({ name }: { name: string }) {
       localStorage.setItem(LAST_SHOWN_KEY, localDateStr())
       setOpen(true)
     } catch { /* private mode — just don't show it */ }
-  }, [])
+  }, [onBriefPage])
 
   useEffect(() => {
     maybeOpen()

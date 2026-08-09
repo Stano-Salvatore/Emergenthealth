@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getWeatherCoords } from "@/lib/weather-location"
+import { getUserTimezone, localTimeStr } from "@/lib/local-date"
 
 // Weather code → emoji
 function weatherEmoji(code: number): string {
@@ -31,6 +32,7 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const userId = session.user.id
+  const timezone = await getUserTimezone(userId)
 
   // Sleep + readiness from latest HealthLog
   const latestHealth = await prisma.healthLog.findFirst({
@@ -79,7 +81,11 @@ export async function GET() {
       const currentTemp = Math.round(data.current?.temperature_2m ?? 15)
       const currentCode = data.current?.weathercode ?? 0
 
-      const nowHour = new Date().getHours()
+      // Open-Meteo returns times in the location's own timezone, so the
+      // "hide hours already past" cut has to use the user's clock. Comparing
+      // against the server's hour (UTC on Vercel) started the forecast a
+      // couple of hours in the past and lost the end of the day.
+      const nowHour = parseInt(localTimeStr(timezone).slice(0, 2), 10)
       const hours = (data.hourly?.time as string[] ?? [])
         .map((t: string, i: number) => ({
           hour: t.slice(11, 16), // "HH:MM"
