@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { format, parseISO, subDays, addDays, formatDistanceToNow } from "date-fns"
 import { ChevronLeft, ChevronRight, MapPin, Clock, Zap, Navigation, RefreshCw, Trash2, Plus, Search, Settings2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -47,6 +48,8 @@ function SavedPlacesManager({ onClose }: { onClose: () => void }) {
   const [picked, setPicked]         = useState<GeoResult | null>(null)
   const [radius, setRadius]         = useState(100)
   const [saving, setSaving]         = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const queryTimer                  = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -101,13 +104,30 @@ function SavedPlacesManager({ onClose }: { onClose: () => void }) {
     }
   }
 
+  // Two taps to delete, and the row comes back if the request fails — it used
+  // to disappear before the request was even sent, so a failed delete left the
+  // place gone from the screen but still in the database until a reload.
   async function handleDelete(id: string) {
+    if (confirmDelete !== id) {
+      setConfirmDelete(id)
+      if (confirmTimer.current) clearTimeout(confirmTimer.current)
+      confirmTimer.current = setTimeout(() => setConfirmDelete(null), 4000)
+      return
+    }
+    if (confirmTimer.current) clearTimeout(confirmTimer.current)
+    setConfirmDelete(null)
+    const previous = places
     setPlaces(p => p.filter(pl => pl.id !== id))
-    await fetch("/api/saved-places", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    })
+    try {
+      const res = await fetch("/api/saved-places", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+    } catch {
+      setPlaces(previous)
+    }
   }
 
   return (
@@ -238,8 +258,15 @@ function SavedPlacesManager({ onClose }: { onClose: () => void }) {
                 {p.address && <p className="text-xs text-muted-foreground truncate">{p.address.split(",").slice(0, 2).join(",")}</p>}
               </div>
               <span className="text-xs text-muted-foreground shrink-0">{p.radiusM}m</span>
+              {/* Always visible: hover-to-reveal is unreachable on a touchscreen */}
               <button onClick={() => handleDelete(p.id)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-400 p-1">
+                aria-label={confirmDelete === p.id ? `Confirm deleting ${p.name}` : `Delete ${p.name}`}
+                className={cn(
+                  "transition-colors p-1 rounded-md shrink-0",
+                  confirmDelete === p.id
+                    ? "text-red-400 bg-red-500/15"
+                    : "text-muted-foreground/60 hover:text-red-400"
+                )}>
                 <Trash2 className="h-3.5 w-3.5"/>
               </button>
             </div>
@@ -291,14 +318,14 @@ function PlaceHealthImpact() {
         if (!placesRes?.ok) { setLoading(false); return }
         const savedPlaces: SavedPlace[] = await placesRes.json()
         if (!savedPlaces.length) { setLoading(false); return }
-        const correlations = await Promise.all(
-          savedPlaces.map(p =>
-            fetch(`/api/location/correlation?placeId=${p.id}`)
-              .then(r => r.json())
-              .catch(() => null)
-          )
+        // One request for every place. Asking per place also made the server
+        // re-read the whole 90-day health and mood history once per place,
+        // since that part of the comparison is identical for all of them.
+        const res = await fetch(
+          `/api/location/correlation?placeIds=${savedPlaces.map(p => encodeURIComponent(p.id)).join(",")}`
         )
-        const valid = correlations.filter((c): c is CorrelationResult => c != null && c.placeId)
+        const correlations: unknown[] = res.ok ? await res.json() : []
+        const valid = (correlations as CorrelationResult[]).filter(c => c != null && c.placeId)
         valid.sort((a, b) => b.visitCount - a.visitCount)
         setResults(valid)
       } catch {}
@@ -527,7 +554,8 @@ function PlacesSection({ autoTagged }: { autoTagged: { name: string; emoji: stri
               </div>
               {c.note && !c.isAuto && <p className="text-xs text-muted-foreground truncate max-w-[120px]">{c.note}</p>}
               <button onClick={() => handleDelete(c.id)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-400 p-1 shrink-0">
+                aria-label={`Delete check-in at ${c.place}`}
+                className="text-muted-foreground/60 hover:text-red-400 transition-colors p-1 shrink-0">
                 <Trash2 className="h-3.5 w-3.5"/>
               </button>
             </div>
@@ -596,7 +624,12 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
 }
 
 export default function LocationPage() {
-  const [activeTab, setActiveTab] = useState<"map" | "insights">("map")
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  // In the address, so refresh and back keep the tab you were on.
+  const activeTab: "map" | "insights" = searchParams.get("tab") === "insights" ? "insights" : "map"
+  const setActiveTab = (tab: "map" | "insights") =>
+    router.replace(tab === "map" ? "/dashboard/location" : "/dashboard/location?tab=insights", { scroll: false })
   const [date, setDate]           = useState(() => { const _d = new Date(); return [_d.getFullYear(), String(_d.getMonth()+1).padStart(2,"0"), String(_d.getDate()).padStart(2,"0")].join("-") })
   const [track, setTrack]         = useState<TrackData | null>(null)
   const [loading, setLoading]     = useState(true)
@@ -633,7 +666,7 @@ export default function LocationPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold">Location</h1>
-          <p className="text-muted-foreground text-sm mt-0.5">GPS track · places · health correlations</p>
+          <p className="text-muted-foreground text-sm mt-0.5">Route trace · places · health correlations</p>
         </div>
         {activeTab === "map" && (
         <div className="flex items-center gap-2">
