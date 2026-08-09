@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { RefreshCw, ChevronRight } from "lucide-react"
 import { useInsightsPrefs, sliceCorrelations, InsightRowsControl, PinButton, DEFAULT_COUNTS } from "./insightsControls"
+import { sharedFetchJson } from "@/lib/shared-fetch"
 
 type Period = "week" | "month" | "overall"
 
@@ -57,7 +58,7 @@ export function PeriodInsightCard({ period }: { period: Period }) {
       fetch(`/api/insight?period=${period}`).then(r => r.json()),
       fetch(`/api/insights/correlations?period=${period}`).then(r => r.json()),
       fetchLoc
-        ? fetch("/api/location-correlations?metric=hrv").then(r => r.json())
+        ? sharedFetchJson("/api/location-correlations?metric=hrv")
         : Promise.resolve([]),
     ])
     setInsight(insightRes.status === "fulfilled" ? insightRes.value : null)
