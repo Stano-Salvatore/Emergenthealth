@@ -29,7 +29,17 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        run: npm install --ignore-scripts
+        # The registry occasionally drops the connection mid-install
+        # (npm ECONNRESET), which has no bearing on the code being built —
+        # retry before failing a release build over a network blip.
+        run: |
+          for attempt in 1 2 3; do
+            if npm install --ignore-scripts; then exit 0; fi
+            echo "::warning::npm install failed (attempt $attempt/3) — retrying in $((attempt * 10))s"
+            sleep $((attempt * 10))
+          done
+          echo "::error::npm install failed after 3 attempts"
+          exit 1
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
