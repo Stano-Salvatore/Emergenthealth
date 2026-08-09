@@ -20,9 +20,14 @@ export async function POST(req: NextRequest) {
 
   const rl = checkRateLimit(userId, "chat", 20, 60 * 60 * 1000) // 20/hr
   if (!rl.allowed) {
+    // resetAt lets the client tell the user *when* they can chat again rather
+    // than failing silently; Retry-After is the same number for HTTP clients.
     return NextResponse.json(
       { error: "Rate limit exceeded. Try again later.", resetAt: rl.resetAt },
-      { status: 429 }
+      {
+        status: 429,
+        headers: { "Retry-After": String(Math.max(1, Math.ceil((rl.resetAt - Date.now()) / 1000))) },
+      }
     )
   }
 

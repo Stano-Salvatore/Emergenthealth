@@ -60,7 +60,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     })
 
   if (!mounted) return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-[100dvh] overflow-hidden bg-background">
       <div className="w-56 shrink-0" />
       <main
         className="flex-1 overflow-y-auto p-6"
@@ -70,7 +70,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   )
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-[100dvh] overflow-hidden bg-background">
       {/* Mobile backdrop — only in mobile mode when sidebar is open */}
       {open && !webMode && (
         <div
