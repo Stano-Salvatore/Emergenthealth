@@ -30,6 +30,45 @@ function getLocalDateStr(timezone: string): string {
   }
 }
 
+// How far back a reminder may be and still be worth sending. This job used to
+// require the clock to match a reminder's time to the exact minute, so unless a
+// run happened to land on that minute nothing was ever delivered. Now anything
+// due within this window fires on the next run — which also survives the
+// scheduler being a few minutes late — while a window (rather than "anything
+// earlier today") stops the whole day's backlog arriving at once.
+const CATCHUP_MINUTES = 150
+
+function minutesBefore(hhmm: string, minutes: number): string {
+  const [h, m] = hhmm.split(":").map(Number)
+  const total = Math.max(0, (h ?? 0) * 60 + (m ?? 0) - minutes)
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
+}
+
+// Per-user, per-day record of what has already gone out, so a job that runs
+// every few minutes doesn't re-send the same reminder on every pass.
+interface SentLog { date: string; ids: string[] }
+
+async function readSentLog(userId: string, localDate: string): Promise<Set<string>> {
+  const row = await prisma.userPreference.findUnique({
+    where: { userId_key: { userId, key: "reminders_sent" } },
+    select: { value: true },
+  }).catch(() => null)
+  try {
+    const parsed = JSON.parse(row?.value ?? "{}") as SentLog
+    if (parsed.date === localDate && Array.isArray(parsed.ids)) return new Set(parsed.ids)
+  } catch { /* corrupt or first run — start clean */ }
+  return new Set()
+}
+
+async function writeSentLog(userId: string, localDate: string, ids: Set<string>): Promise<void> {
+  const value = JSON.stringify({ date: localDate, ids: [...ids] } satisfies SentLog)
+  await prisma.userPreference.upsert({
+    where:  { userId_key: { userId, key: "reminders_sent" } },
+    create: { userId, key: "reminders_sent", value },
+    update: { value },
+  }).catch(() => {})
+}
+
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET
   if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
@@ -69,35 +108,42 @@ export async function GET(req: NextRequest) {
 
     const localTime = getCurrentHHMM(timezone)
     const localDate = getLocalDateStr(timezone)
+    const windowStart = minutesBefore(localTime, CATCHUP_MINUTES)
 
-    // Find incomplete habits with reminderTime matching this exact HH:MM
-    const habitReminders = await prisma.$queryRaw<{ id: string; name: string; reminderTime: string }[]>`
+    const alreadySent = await readSentLog(userId, localDate)
+
+    // Incomplete habits whose reminder fell due in the catch-up window
+    const habitReminders = (await prisma.$queryRaw<{ id: string; name: string; reminderTime: string }[]>`
       SELECT h.id, h.name, h."reminderTime"
       FROM "Habit" h
       WHERE h."userId" = ${userId}
         AND h."isArchived" = false
         AND h."reminderTime" IS NOT NULL
-        AND h."reminderTime" = ${localTime}
+        AND h."reminderTime" <= ${localTime}
+        AND h."reminderTime" >= ${windowStart}
         AND NOT EXISTS (
           SELECT 1 FROM "HabitCompletion" hc
           WHERE hc."habitId" = h.id AND hc."date"::date = ${localDate}::date
         )
-    `.catch(() => [] as { id: string; name: string; reminderTime: string }[])
+    `.catch(() => [] as { id: string; name: string; reminderTime: string }[]))
+      .filter(h => !alreadySent.has(`habit:${h.id}`))
 
-    // Find reminders due today/overdue with reminderTime matching this exact HH:MM, not completed
-    const reminderAlerts = await prisma.$queryRaw<{ id: string; title: string; reminderTime: string }[]>`
+    // Reminders due today or overdue, same window, not yet ticked off
+    const reminderAlerts = (await prisma.$queryRaw<{ id: string; title: string; reminderTime: string }[]>`
       SELECT id, title, "reminderTime"
       FROM "Reminder"
       WHERE "userId" = ${userId}
         AND "isCompleted" = false
         AND "reminderTime" IS NOT NULL
-        AND "reminderTime" = ${localTime}
+        AND "reminderTime" <= ${localTime}
+        AND "reminderTime" >= ${windowStart}
         AND "dueDate"::date <= ${localDate}::date
-    `.catch(() => [] as { id: string; title: string; reminderTime: string }[])
+    `.catch(() => [] as { id: string; title: string; reminderTime: string }[]))
+      .filter(r => !alreadySent.has(`reminder:${r.id}`))
 
-    // Streak protection: at 21:00 local time, warn about habits with streaks at risk
+    // Streak protection: from 21:00 local, warn about habits with streaks at risk
     let streakProtectionNotif: { title: string; body: string; url: string; tag: string; requireInteraction: boolean } | null = null
-    if (localTime === "21:00") {
+    if (localTime >= "21:00" && localTime < "23:30" && !alreadySent.has("streak")) {
       const atRiskHabits = await prisma.$queryRaw<{ id: string; name: string; streak: number }[]>`
         SELECT h.id, h.name,
           (SELECT COUNT(*) FROM "HabitCompletion" hc2
@@ -173,6 +219,13 @@ export async function GET(req: NextRequest) {
         )
       )
     }
+
+    // Mark everything from this pass as delivered. Recorded even if every push
+    // failed: a dead subscription would otherwise retry on every run all day.
+    if (streakProtectionNotif) alreadySent.add("streak")
+    for (const h of habitReminders)  alreadySent.add(`habit:${h.id}`)
+    for (const r of reminderAlerts)  alreadySent.add(`reminder:${r.id}`)
+    await writeSentLog(userId, localDate, alreadySent)
   }
 
   return NextResponse.json({ ok: true, sent: totalSent })

@@ -1,0 +1,56 @@
+name: Reminder delivery
+
+# Habit reminders and to-do reminders are set to a wall-clock time, so the
+# checker has to run often enough to notice one falling due. Vercel's Hobby
+# plan only allows daily crons — which meant a reminder set for anything other
+# than the single daily run time was never delivered at all.
+#
+# GitHub Actions minutes are free and unmetered on public repositories, so this
+# runs every 10 minutes. The endpoint keeps a per-day record of what it has
+# already sent, so extra runs never duplicate a notification.
+#
+# Setup: add a repository secret CRON_SECRET (Settings → Secrets and
+# variables → Actions) matching the CRON_SECRET env var in Vercel.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # GitHub may delay a few minutes; the catch-up window absorbs it
+  workflow_dispatch: {}
+
+# A late run should not stack up behind an in-flight one.
+concurrency:
+  group: reminder-delivery
+  cancel-in-progress: false
+
+jobs:
+  deliver:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deliver due reminders
+        env:
+          APP_URL: https://emergenthealth.vercel.app
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CRON_SECRET repository secret is not set — every run will 401 and no reminder will ever be delivered."
+            echo "Add it under Settings → Secrets and variables → Actions, matching CRON_SECRET in Vercel."
+            exit 1
+          fi
+
+          code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${APP_URL}/api/cron/habit-reminders") || true
+          echo "HTTP $code"; cat /tmp/out.txt || true; echo
+
+          case "$code" in
+            200) ;;
+            401|403)
+              echo "::error::habit-reminders rejected the CRON_SECRET (HTTP $code) — it does not match Vercel's."
+              exit 1 ;;
+            503)
+              # VAPID keys missing — push cannot work until they are configured
+              echo "::warning::push notifications are not configured (HTTP 503)" ;;
+            *)
+              # Cold starts and network blips shouldn't turn the run red
+              echo "::warning::habit-reminders returned $code" ;;
+          esac
