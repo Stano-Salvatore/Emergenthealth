@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Check, Copy, ExternalLink, Smartphone } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { SecretUrl } from "@/components/settings/SecretUrl"
 
 export function WidgetSetup({ appUrl, apiKey }: { appUrl: string; apiKey?: string }) {
   const [copied, setCopied] = useState(false)
@@ -49,14 +50,23 @@ export function WidgetSetup({ appUrl, apiKey }: { appUrl: string; apiKey?: strin
                 Tap to log water, coffee, beer — directly from your home screen.
                 Use <strong>WebsiteWidget</strong> (Android) or the <strong>Median app</strong>.
               </p>
-              <div className="rounded-lg bg-secondary/60 px-3 py-2 font-mono text-xs text-muted-foreground break-all mb-2">
-                {drinksUrl}
+              {/* The URL carries a live API key — masked until asked for. */}
+              <div className="mb-2">
+                {apiKey ? (
+                  <SecretUrl url={drinksUrl} secret={apiKey} label="contains your API key" />
+                ) : (
+                  <div className="rounded-lg bg-secondary/60 px-3 py-2 font-mono text-xs text-muted-foreground break-all">
+                    {drinksUrl}
+                  </div>
+                )}
               </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={copyDrinksUrl}>
-                  {copiedUrl ? <><Check className="h-3 w-3 text-green-400" /> Copied!</> : <><Copy className="h-3 w-3" /> Copy URL</>}
-                </Button>
-              </div>
+              {!apiKey && (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={copyDrinksUrl}>
+                    {copiedUrl ? <><Check className="h-3 w-3 text-green-400" /> Copied!</> : <><Copy className="h-3 w-3" /> Copy URL</>}
+                  </Button>
+                </div>
+              )}
               {!apiKey && (
                 <p className="text-xs text-amber-400 mt-2">
                   Generate an API key below to get your personal widget URL.
