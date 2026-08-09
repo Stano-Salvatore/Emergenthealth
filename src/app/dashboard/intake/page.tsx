@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -42,6 +43,15 @@ const TYPE_META: Record<string, { label: string; color: string; goal?: number; i
   other:   { label: "Other",   color: "bg-slate-500",              icon: <Plus className="h-4 w-4 text-slate-400" /> },
 }
 
+// Literal classes, indexed by how many summary cards are showing.
+const SUMMARY_COLS: Record<number, string> = {
+  2: "sm:grid-cols-2",
+  3: "sm:grid-cols-3",
+  4: "sm:grid-cols-4",
+  5: "sm:grid-cols-5",
+  6: "sm:grid-cols-6",
+}
+
 function progressColor(pct: number) {
   if (pct >= 100) return "bg-green-500"
   if (pct >= 60) return "bg-blue-500"
@@ -54,15 +64,6 @@ interface WeekDay {
   label: string
 }
 
-interface OuraEntry {
-  id: string
-  name: string
-  type: string
-  emoji: string
-  amountMl: number | null
-  timestamp: string
-}
-
 function localDateStr(d: Date = new Date()): string {
   return [
     d.getFullYear(),
@@ -71,24 +72,33 @@ function localDateStr(d: Date = new Date()): string {
   ].join("-")
 }
 
+type Tab = "intake" | "caffeine" | "meds"
+
+const TAB_META: Record<Tab, { title: string; subtitle: string; icon: string }> = {
+  intake:   { title: "Intake",      subtitle: "Water, coffee & more",     icon: "🥤" },
+  caffeine: { title: "Caffeine",    subtitle: "Intake and its half-life", icon: "☕" },
+  meds:     { title: "Medications", subtitle: "Meds & supplements",       icon: "💊" },
+}
+
 export default function IntakePage() {
-  const [activeTab, setActiveTab] = useState<"intake" | "caffeine" | "meds">("intake")
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  // The tab is part of the address, so refreshing or pressing back keeps you
+  // where you were instead of silently returning to Intake.
+  const tabParam = searchParams.get("tab")
+  const activeTab: Tab = tabParam === "meds" || tabParam === "caffeine" ? tabParam : "intake"
+
+  const setActiveTab = useCallback((tab: Tab) => {
+    router.replace(tab === "intake" ? "/dashboard/intake" : `/dashboard/intake?tab=${tab}`, { scroll: false })
+  }, [router])
+
   const [logs, setLogs] = useState<IntakeLog[]>([])
-  const [ouraEntries, setOuraEntries] = useState<OuraEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState<string | null>(null)
   const [date, setDate] = useState(() => localDateStr())
   const [weekData, setWeekData] = useState<WeekDay[]>([])
   const [waterGoal, setWaterGoal] = useState(2000)
   const isToday = date === localDateStr()
-
-  // Deep links (?tab=meds) from the dashboard card and command palette.
-  // Read after mount rather than during render so the server and client
-  // markup match.
-  useEffect(() => {
-    const tab = new URLSearchParams(window.location.search).get("tab")
-    if (tab === "meds" || tab === "caffeine") setActiveTab(tab)
-  }, [])
 
   // Load check-in water goal for today
   useEffect(() => {
@@ -101,18 +111,18 @@ export default function IntakePage() {
       .catch(() => {})
   }, [])
 
+  // Oura drinks are mirrored into IntakeLog by the sync, so this one request
+  // already carries them. Reading the raw Oura tags here as a *second* source
+  // counted every ring-logged drink twice — 300 ml of water showed as 600 —
+  // and listed it twice, using a second, English-only tag classifier that
+  // disagreed with the shared one.
   const load = useCallback(async () => {
     setLoading(true)
-    const [logRes, ouraRes] = await Promise.all([
-      fetch(`/api/intake?date=${date}`),
-      fetch(`/api/intake/oura?date=${date}`),
-    ])
-    if (logRes.ok) setLogs(await logRes.json())
-    if (ouraRes.ok) {
-      const d = await ouraRes.json()
-      setOuraEntries(d.entries ?? [])
-    }
-    setLoading(false)
+    try {
+      const res = await fetch(`/api/intake?date=${date}`)
+      if (res.ok) setLogs(await res.json())
+    } catch { /* keep whatever is on screen */ }
+    finally { setLoading(false) }
   }, [date])
 
   useEffect(() => { load() }, [load])
@@ -168,17 +178,14 @@ export default function IntakePage() {
     return acc
   }, {} as Record<string, number>)
 
-  const ouraTotals = ouraEntries.reduce((acc, e) => {
-    if (e.amountMl) acc[e.type] = (acc[e.type] ?? 0) + e.amountMl
-    return acc
-  }, {} as Record<string, number>)
+  const waterTotal   = totals.water ?? 0
+  const coffeeTotal  = totals.coffee ?? 0
+  const teaTotal     = totals.tea ?? 0
+  const alcoholTotal = totals.alcohol ?? 0
+  const beerTotal    = totals.beer ?? 0
+  const wineTotal    = totals.wine ?? 0
 
-  const waterTotal = (totals.water ?? 0) + (ouraTotals.water ?? 0)
-  const coffeeTotal = (totals.coffee ?? 0) + (ouraTotals.coffee ?? 0)
-  const teaTotal = (totals.tea ?? 0) + (ouraTotals.tea ?? 0)
-  const alcoholTotal = (totals.alcohol ?? 0) + (ouraTotals.alcohol ?? 0)
-  const beerTotal = totals.beer ?? 0
-  const wineTotal = totals.wine ?? 0
+  const cardCount = 2 + (teaTotal > 0 ? 1 : 0) + (beerTotal > 0 ? 1 : 0) + (wineTotal > 0 ? 1 : 0) + (alcoholTotal > 0 ? 1 : 0)
 
   const dateLabel = isToday ? "Today" : format(new Date(date + "T12:00:00"), "EEE, MMM d")
 
@@ -188,9 +195,9 @@ export default function IntakePage() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Droplets className="h-6 w-6 text-blue-400" /> Intake
+            <span aria-hidden>{TAB_META[activeTab].icon}</span> {TAB_META[activeTab].title}
           </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Water, coffee & more</p>
+          <p className="text-muted-foreground text-sm mt-0.5">{TAB_META[activeTab].subtitle}</p>
         </div>
         {activeTab === "intake" && (
           <div className="flex items-center gap-1">
@@ -230,7 +237,10 @@ export default function IntakePage() {
       {activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : (<>
 
       {/* summary cards */}
-      <div className={`grid gap-3 grid-cols-2 sm:grid-cols-${2 + (teaTotal > 0 ? 1 : 0) + (beerTotal > 0 ? 1 : 0) + (wineTotal > 0 ? 1 : 0) + (alcoholTotal > 0 ? 1 : 0)}`}>
+      {/* Column count must be a literal class: Tailwind only ships classes it
+          can see in the source, so the old built-up `sm:grid-cols-${n}` left
+          5- and 6-column layouts with no CSS at all. */}
+      <div className={cn("grid gap-3 grid-cols-2", SUMMARY_COLS[cardCount])}>
         <SummaryCard label="Water" value={waterTotal} goal={waterGoal} unit="ml" color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
         <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕" />
         {teaTotal > 0 && <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />}
@@ -294,7 +304,7 @@ export default function IntakePage() {
       {/* log timeline */}
       <div>
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-          {logs.length + ouraEntries.length} {logs.length + ouraEntries.length === 1 ? "entry" : "entries"}
+          {logs.length} {logs.length === 1 ? "entry" : "entries"}
         </p>
         {loading ? (
           <div className="space-y-2">
@@ -302,7 +312,7 @@ export default function IntakePage() {
               <div key={i} className="h-12 rounded-xl border bg-card animate-pulse" />
             ))}
           </div>
-        ) : logs.length === 0 && ouraEntries.length === 0 ? (
+        ) : logs.length === 0 ? (
           <Card className="border-dashed">
             <CardContent className="py-10 text-center">
               <Droplets className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
@@ -326,29 +336,17 @@ export default function IntakePage() {
                   <span className="text-xs text-muted-foreground shrink-0">
                     {format(new Date(log.loggedAt), "HH:mm")}
                   </span>
-                  <button onClick={() => deleteEntry(log.id)}
-                    className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-all p-1">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )
-            })}
-            {ouraEntries.map(entry => {
-              const meta = TYPE_META[entry.type] ?? TYPE_META.other
-              return (
-                <div key={entry.id}
-                  className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-border/40 bg-secondary/30">
-                  <span className="text-base leading-none shrink-0">{entry.emoji}</span>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-sm font-medium">{entry.name}</span>
-                    {entry.amountMl && (
-                      <span className="text-muted-foreground text-sm"> · {entry.amountMl} ml</span>
-                    )}
-                    <span className="text-xs text-muted-foreground/50 ml-2">· Oura Ring</span>
-                  </div>
-                  <span className="text-xs text-muted-foreground shrink-0">
-                    {format(new Date(entry.timestamp), "HH:mm")}
-                  </span>
+                  {/* Entries mirrored from Oura can't be deleted here — the next
+                      sync would simply put them back. Fix them in the Oura app. */}
+                  {log.id.startsWith("oura_") ? (
+                    <span className="text-[10px] text-muted-foreground/60 shrink-0">Oura</span>
+                  ) : (
+                    <button onClick={() => deleteEntry(log.id)}
+                      aria-label={`Delete ${TYPE_META[log.type]?.label ?? "entry"} entry`}
+                      className="text-muted-foreground/60 hover:text-destructive transition-colors p-1 shrink-0">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               )
             })}

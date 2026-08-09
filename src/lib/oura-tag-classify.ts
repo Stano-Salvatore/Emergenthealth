@@ -2,7 +2,7 @@
 // app): drinks are mirrored into IntakeLog by the Oura sync; anything that
 // isn't a drink is treated as a likely supplement/medication for display.
 
-export type OuraTagKind = "water" | "coffee" | "alcohol" | "med" | "other"
+export type OuraTagKind = "water" | "coffee" | "tea" | "alcohol" | "med" | "other"
 
 const ML_RE = /(\d+)\s*ml/i
 
@@ -17,6 +17,9 @@ const DEFAULTS: [RegExp, OuraTagKind, number][] = [
   [/v60|aeropress|pour.?over/, "coffee", 300],
   [/coffee|kava|káva/, "coffee", 200],
   [/\bwater\b|voda/, "water", 300],
+  // Tea is a real intake type on the page, so it is classified here rather
+  // than being lumped in with untracked drinks below.
+  [/\btea\b|čaj|caj/, "tea", 250],
   [/beer|pivo/, "alcohol", 500],
   [/wine|vino|víno/, "alcohol", 150],
   [/vodka|rum|\bgin\b|whisky|whiskey|spirit|borovi(c|č)ka|slivovica|shot/, "alcohol", 40],
@@ -33,7 +36,7 @@ export function classifyOuraTag(rawLabel: string): { kind: OuraTagKind; ml: numb
     }
   }
   // Other drinks: not tracked as intake, but also not medication
-  if (/juice|smoothie|shake|soda|\btea\b|čaj/.test(label)) {
+  if (/juice|smoothie|shake|soda/.test(label)) {
     return { kind: "other", ml: 0 }
   }
   // Everything else is shown as a supplement/med annotation
