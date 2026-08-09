@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserPlan } from "@/lib/plan"
-import { getUserTimezone, localDateStr, addDaysISO } from "@/lib/local-date"
+import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { computeStreak, getVacationWindow, makeIsFrozen } from "@/lib/streak"
 
 const FREE_HABIT_LIMIT = 10
 
@@ -33,49 +34,16 @@ export async function GET() {
     orderBy: { createdAt: "asc" },
   })
 
-  // Load vacation mode — frozen days don't break streaks
-  let vacationFrom: string | null = null
-  let vacationUntil: string | null = null
-  try {
-    const vRows = await prisma.$queryRaw<{ value: string }[]>`
-      SELECT "value" FROM "UserPreference" WHERE "userId" = ${session.user.id} AND "key" = 'vacation_mode' LIMIT 1
-    `
-    if (vRows.length) {
-      const v = JSON.parse(vRows[0].value)
-      if (v.active && v.from && v.until) {
-        vacationFrom  = String(v.from).slice(0, 10)
-        vacationUntil = String(v.until).slice(0, 10)
-      }
-    }
-  } catch {}
-
-  function isFrozen(day: string): boolean {
-    if (!vacationFrom || !vacationUntil) return false
-    return day >= vacationFrom && day <= vacationUntil
-  }
+  // Vacation mode and the streak walk itself live in lib/streak so the garden
+  // computes the same answer (it used to have its own, freeze-blind version).
+  const isFrozen = makeIsFrozen(await getVacationWindow(session.user.id))
 
   const result = habits.map((h) => {
     const completionDates = new Set(h.completions.map((c) => c.date.toISOString().split("T")[0]))
-    const completedToday = completionDates.has(todayStr)
-
-    // The streak used to start counting at today, so an unbroken run showed as
-    // "0 day streak" every morning until the box was ticked — and because the
-    // client compares the before/after streak to decide whether to celebrate, a
-    // reset-to-zero made it fire the 7-day milestone banner every single day.
-    // Today is still in progress, so it only extends the streak; it never ends
-    // one. Count back from yesterday when today isn't done yet.
-    let cursor = completedToday || isFrozen(todayStr) ? todayStr : addDaysISO(todayStr, -1)
-    let streak = 0
-    while (completionDates.has(cursor) || isFrozen(cursor)) {
-      if (!isFrozen(cursor)) streak++ // frozen days hold the streak without extending it
-      cursor = addDaysISO(cursor, -1)
-      if (streak > 365) break // safety
-    }
-
     return {
       ...h,
-      streak,
-      completedToday,
+      streak: computeStreak(completionDates, todayStr, isFrozen),
+      completedToday: completionDates.has(todayStr),
       frozen: isFrozen(todayStr),
     }
   })
