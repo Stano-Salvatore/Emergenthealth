@@ -29,7 +29,6 @@ import { GitHubManager } from "@/components/settings/GitHubManager"
 import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
 import { LastfmManager } from "@/components/settings/LastfmManager"
 import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
-import { WidgetSetup } from "@/components/settings/WidgetSetup"
 import { DeleteAccount } from "@/components/settings/DeleteAccount"
 import { PushNotifications } from "@/components/settings/PushNotifications"
 import { WidgetSetupCapacitor } from "@/components/settings/WidgetSetupCapacitor"
@@ -334,8 +333,6 @@ export default async function SettingsPage({
       <SettingsSection title="Widgets & Location" emoji="📱">
       {/* Android home screen widget */}
       <WidgetSetupCapacitor />
-      {/* Home screen & lock screen widgets */}
-      <WidgetSetup appUrl={appUrl} apiKey={keys[0]?.token} />
       {/* OwnTracks live location */}
       {keys[0]?.token && (
         <Card>
