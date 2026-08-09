@@ -29,7 +29,6 @@ import { GitHubManager } from "@/components/settings/GitHubManager"
 import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
 import { LastfmManager } from "@/components/settings/LastfmManager"
 import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
-import { WidgetSetup } from "@/components/settings/WidgetSetup"
 import { DeleteAccount } from "@/components/settings/DeleteAccount"
 import { PushNotifications } from "@/components/settings/PushNotifications"
 import { WidgetSetupCapacitor } from "@/components/settings/WidgetSetupCapacitor"
@@ -40,6 +39,9 @@ import { ManageBillingButton } from "@/components/settings/ManageBillingButton"
 import { HelpCard } from "@/components/settings/HelpCard"
 import { InviteCard } from "@/components/settings/InviteCard"
 import { SettingsSection } from "@/components/settings/SettingsSection"
+import { SignOutCard } from "@/components/settings/SignOutCard"
+import { SecretUrl } from "@/components/settings/SecretUrl"
+import { APP_VERSION } from "@/lib/version"
 import { getUserPlan } from "@/lib/plan"
 import { isStripeConfigured } from "@/lib/stripe"
 import Link from "next/link"
@@ -127,6 +129,10 @@ export default async function SettingsPage({
   const ua = (await headers()).get("user-agent") ?? ""
   const isCapacitorApp = ua.includes("Emergenthealth-Capacitor")
   const stripeReady = isStripeConfigured() && !isCapacitorApp
+  // Owner-only tooling: the migrate endpoint 403s for everyone else, so showing
+  // the button to normal users only ever produced a red error.
+  const ownerEmail = process.env.FEEDBACK_NOTIFY_EMAIL ?? process.env.OWNER_EMAIL
+  const isOwner = !!ownerEmail && session.user.email === ownerEmail
 
   const sub = await prisma.subscription.findUnique({
     where: { userId },
@@ -148,7 +154,7 @@ export default async function SettingsPage({
     <div className="space-y-6 max-w-2xl">
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-muted-foreground text-sm mt-0.5">Manage integrations and API access</p>
+        <p className="text-muted-foreground text-sm mt-0.5">Your account, devices and preferences</p>
       </div>
 
       {/* ── Alerts (connection results & warnings) ── */}
@@ -164,9 +170,11 @@ export default async function SettingsPage({
       {dbMissing && (
         <Card className="border-yellow-500/30 bg-yellow-500/5">
           <CardContent className="pt-4 pb-3 space-y-1">
-            <p className="text-sm font-medium text-yellow-400">Database migration needed</p>
+            <p className="text-sm font-medium text-yellow-400">Some settings are unavailable</p>
             <p className="text-xs text-muted-foreground">
-              The MCP tables haven&apos;t been created in your database yet. Run the SQL migration in your Neon dashboard, then reload this page.
+              {isOwner
+                ? "The MCP tables haven't been created yet — run the migration below, then reload this page."
+                : "We're finishing a maintenance update. Everything else works normally; please check back shortly."}
             </p>
           </CardContent>
         </Card>
@@ -272,6 +280,9 @@ export default async function SettingsPage({
 
       {/* Help & Support */}
       <HelpCard />
+
+      {/* Sign out */}
+      <SignOutCard email={session.user.email} />
       </SettingsSection>
 
       {/* ══ Appearance ══ */}
@@ -296,8 +307,8 @@ export default async function SettingsPage({
       <MorningBriefToggle />
       </SettingsSection>
 
-      {/* ══ Integrations ══ */}
-      <SettingsSection title="Integrations" emoji="🔗">
+      {/* ══ Connected apps & devices ══ */}
+      <SettingsSection title="Connected apps & devices" emoji="🔗">
       {/* Oura Ring connection (client component) */}
       <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
       {/* Health Connect — Android only, syncs from Garmin/Fitbit/Samsung/etc */}
@@ -308,12 +319,6 @@ export default async function SettingsPage({
       <DeviceCalendarColors />
       {/* Screen Time — Android only, reads native UsageStats */}
       {isFeatureEnabled("screentime") && <ScreenTimeManager />}
-      {/* Samsung Health — one-time CSV import for historical data */}
-      <SamsungHealthImporter />
-      {/* Google Timeline — location visit history for health correlations */}
-      <TimelineImporter />
-      {/* CSV import */}
-      <CsvImport />
       {/* Strava */}
       {isFeatureEnabled("strava") && <StravaManager isConnected={isStravaConnected} />}
       {/* GitHub */}
@@ -328,8 +333,6 @@ export default async function SettingsPage({
       <SettingsSection title="Widgets & Location" emoji="📱">
       {/* Android home screen widget */}
       <WidgetSetupCapacitor />
-      {/* Home screen & lock screen widgets */}
-      <WidgetSetup appUrl={appUrl} apiKey={keys[0]?.token} />
       {/* OwnTracks live location */}
       {keys[0]?.token && (
         <Card>
@@ -338,9 +341,11 @@ export default async function SettingsPage({
             <p className="text-xs text-muted-foreground">
               Open OwnTracks → Preferences → Connection → Mode: <strong>HTTP</strong>. Paste the URL below.
             </p>
-            <div className="rounded-lg bg-secondary/50 px-3 py-2 font-mono text-[11px] break-all select-all">
-              {appUrl}/api/location/track?token={keys[0].token}
-            </div>
+            <SecretUrl
+              url={`${appUrl}/api/location/track?token=${keys[0].token}`}
+              secret={keys[0].token}
+              label="contains your API key"
+            />
             <p className="text-[10px] text-muted-foreground/60">
               Set update interval to 60–300 s. Your path appears on the dashboard Location card automatically.
             </p>
@@ -351,21 +356,34 @@ export default async function SettingsPage({
       <WeatherLocation />
       </SettingsSection>
 
-      {/* ══ Data & developer ══ */}
-      <SettingsSection title="Data & Developer" emoji="💾">
+      {/* ══ Goals & reports ══ */}
+      <SettingsSection title="Goals & reports" emoji="🎯">
       {/* Personal goals */}
       <GoalsEditor />
 
-      {/* Data: digest + export */}
       <Card>
         <CardContent className="pt-4 pb-4 space-y-4">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Data</p>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Daily digest</p>
           <DigestPreferences />
           <div className="border-t border-border/50" />
           <DigestSchedule />
           <div className="border-t border-border/50" />
           <DigestButton />
-          <div className="border-t border-border/50" />
+        </CardContent>
+      </Card>
+      </SettingsSection>
+
+      {/* ══ Import & export ══ */}
+      <SettingsSection title="Import & export" emoji="💾">
+      {/* Samsung Health — one-time CSV import for historical data */}
+      <SamsungHealthImporter />
+      {/* Google Timeline — location visit history for health correlations */}
+      <TimelineImporter />
+      {/* CSV import */}
+      <CsvImport />
+
+      <Card>
+        <CardContent className="pt-4 pb-4">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium">Export CSV</p>
@@ -377,7 +395,12 @@ export default async function SettingsPage({
           </div>
         </CardContent>
       </Card>
+      </SettingsSection>
 
+      {/* ══ Developer ══ Power-user tooling: API keys for the MCP server and
+          home-screen widgets. Kept last and collapsed — nobody needs it to use
+          the app. */}
+      <SettingsSection title="Developer" emoji="🧪">
       {/* Key manager (client component) */}
       <FitKeyManager initialKeys={keyRows} />
 
@@ -397,8 +420,8 @@ export default async function SettingsPage({
       {/* Feedback inbox */}
       <FeedbackInbox />
 
-      {/* DB migration */}
-      <MigrateButton />
+      {/* DB migration — owner only; the endpoint 403s for everyone else */}
+      {isOwner && <MigrateButton />}
       </SettingsSection>
 
       {/* ══ Danger zone ══ */}
@@ -407,7 +430,7 @@ export default async function SettingsPage({
       </SettingsSection>
 
       <p className="text-center text-[11px] text-muted-foreground/40 pb-2">
-        Emergenthealth v1.10.0 · Built with ♥
+        Emergenthealth v{APP_VERSION} · Built with ♥
       </p>
     </div>
   )

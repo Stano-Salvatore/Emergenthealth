@@ -1,5 +1,6 @@
 import { google } from "googleapis"
 import { prisma } from "@/lib/prisma"
+import { getUserTimezone, zonedDayRange } from "@/lib/local-date"
 
 async function buildCalendarClient(userId: string) {
   const account = await prisma.account.findFirst({
@@ -129,9 +130,11 @@ function mergeEvents(google: CalendarEvent[], device: CalendarEvent[]): Calendar
 }
 
 export async function getTodayEvents(userId: string): Promise<CalendarEvent[]> {
-  const now = new Date()
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0)
-  const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
+  // "Today" has to be the user's day. Deriving it from the server's clock —
+  // UTC on Vercel — shifted the window by the user's offset, dropping events
+  // in the early hours and pulling in the tail of the night before.
+  const timezone = await getUserTimezone(userId)
+  const { start: startOfDay, end: endOfDay } = zonedDayRange(timezone)
 
   let googleEvents: CalendarEvent[] = []
   try {

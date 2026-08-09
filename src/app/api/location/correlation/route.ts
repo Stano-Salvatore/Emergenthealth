@@ -60,84 +60,45 @@ function nextDay(dateStr: string): string {
   return d.toISOString().split("T")[0]
 }
 
-export async function GET(req: NextRequest) {
-  const session = await auth()
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+type SavedPlaceRow = { id: string; name: string; emoji: string }
+type CheckInRow = { checkedAt: Date; savedPlaceId: string }
+type HealthRow = { date: Date; readinessScore: number | null; sleepDuration: number | null; hrv: number | null; steps: number | null; restingHR: number | null }
+type MoodRow = { date: Date; mood: number }
 
-  const { searchParams } = new URL(req.url)
-  const placeId = searchParams.get("placeId")
-  if (!placeId) return NextResponse.json({ error: "placeId required" }, { status: 400 })
+const day = (d: Date) => new Date(d).toISOString().split("T")[0]
 
-  const userId = session.user.id
-  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+// One place's correlation, given data already loaded for the whole account.
+// Health and mood history is identical for every place, so it is fetched once
+// by the caller rather than re-read per place.
+function correlatePlace(
+  place: SavedPlaceRow,
+  placeCheckIns: CheckInRow[],
+  health: HealthRow[],
+  moods: MoodRow[],
+): PlaceCorrelation {
+  const visitDates = new Set(placeCheckIns.map(c => day(c.checkedAt)))
+  const postVisitDates = new Set(Array.from(visitDates).map(d => nextDay(d)))
 
-  type SavedPlaceRow = { id: string; name: string; emoji: string }
-  type CheckInRow = { checkedAt: Date }
+  const healthByDate = new Map(health.map(h => [day(h.date), h]))
 
-  const placeRows = await prisma.$queryRaw<SavedPlaceRow[]>`
-    SELECT id, name, emoji FROM "SavedPlace" WHERE id = ${placeId} AND "userId" = ${userId} LIMIT 1
-  `.catch(() => [] as SavedPlaceRow[])
+  const visitHealth    = health.filter(h =>  visitDates.has(day(h.date)))
+  const nonVisitHealth = health.filter(h => !visitDates.has(day(h.date)) && !postVisitDates.has(day(h.date)))
+  const visitMoods     = moods.filter(m =>  visitDates.has(day(m.date)))
+  const nonVisitMoods  = moods.filter(m => !visitDates.has(day(m.date)))
 
-  if (!placeRows.length) return NextResponse.json({ error: "Place not found" }, { status: 404 })
-  const place = placeRows[0]
-
-  const [checkIns, healthLogs, moodLogs] = await Promise.all([
-    prisma.$queryRaw<CheckInRow[]>`
-      SELECT "checkedAt" FROM "CheckIn"
-      WHERE "userId" = ${userId}
-        AND "savedPlaceId" = ${placeId}
-        AND "isAuto" = true
-        AND "checkedAt" >= ${since}
-    `.catch(() => [] as CheckInRow[]),
-    prisma.healthLog.findMany({
-      where: { userId, date: { gte: since } },
-      select: {
-        date: true,
-        readinessScore: true,
-        sleepDuration: true,
-        hrv: true,
-        steps: true,
-        restingHR: true,
-      },
-    }),
-    prisma.moodLog.findMany({
-      where: { userId, date: { gte: since } },
-      select: { date: true, mood: true },
-    }),
-  ])
-
-  const typedCheckIns = checkIns as CheckInRow[]
-  const visitDates = new Set(typedCheckIns.map((c: CheckInRow) => new Date(c.checkedAt).toISOString().split("T")[0]))
-  // Next-day dates after any visit (deduplicated)
-  const postVisitDates = new Set(Array.from(visitDates).map((d: string) => nextDay(d)))
-
-  type HealthRow = { date: Date; readinessScore: number | null; sleepDuration: number | null; hrv: number | null; steps: number | null; restingHR: number | null }
-  type MoodRow = { date: Date; mood: number }
-  const typedHealth = healthLogs as HealthRow[]
-  const typedMoods  = moodLogs as MoodRow[]
-
-  const healthByDate = new Map(typedHealth.map((h: HealthRow) => [h.date.toISOString().split("T")[0], h]))
-
-  const visitHealth    = typedHealth.filter((h: HealthRow) =>  visitDates.has(h.date.toISOString().split("T")[0]))
-  const nonVisitHealth = typedHealth.filter((h: HealthRow) => !visitDates.has(h.date.toISOString().split("T")[0]) && !postVisitDates.has(h.date.toISOString().split("T")[0]))
-  const visitMoods     = typedMoods.filter((m: MoodRow) =>  visitDates.has(m.date.toISOString().split("T")[0]))
-  const nonVisitMoods  = typedMoods.filter((m: MoodRow) => !visitDates.has(m.date.toISOString().split("T")[0]))
-
-  // Next-day health: morning after a visit
-  const nextDayHealth = Array.from(postVisitDates).map((d: string) => healthByDate.get(d)).filter((h): h is HealthRow => h != null)
-  // Baseline next-day: mornings after non-visit days
-  const allDates = new Set(typedHealth.map((h: HealthRow) => h.date.toISOString().split("T")[0]))
-  const nonVisitDates = Array.from(allDates).filter((d: string) => !visitDates.has(d))
-  const nonVisitNextDayHealth = nonVisitDates.map((d: string) => healthByDate.get(nextDay(d))).filter((h): h is HealthRow => h != null)
+  const nextDayHealth = Array.from(postVisitDates).map(d => healthByDate.get(d)).filter((h): h is HealthRow => h != null)
+  const allDates = new Set(health.map(h => day(h.date)))
+  const nonVisitDates = Array.from(allDates).filter(d => !visitDates.has(d))
+  const nonVisitNextDayHealth = nonVisitDates.map(d => healthByDate.get(nextDay(d))).filter((h): h is HealthRow => h != null)
 
   const hasNextDay = nextDayHealth.length >= 3
 
-  const result: PlaceCorrelation = {
+  return {
     placeId: place.id,
     placeName: place.name,
     placeEmoji: place.emoji,
-    visitCount: checkIns.length,
-    confidence: confidence(checkIns.length),
+    visitCount: placeCheckIns.length,
+    confidence: confidence(placeCheckIns.length),
     visitAvg: {
       readiness: avg(visitHealth.map(h => h.readinessScore)),
       sleepHours: avg(visitHealth.map(h => h.sleepDuration != null ? h.sleepDuration / 60 : null)),
@@ -167,6 +128,63 @@ export async function GET(req: NextRequest) {
       restingHR: avg(nonVisitNextDayHealth.map(h => h.restingHR)),
     } : null,
   }
+}
 
-  return NextResponse.json(result)
+// `placeId` returns one correlation; `placeIds` (comma-separated) returns an
+// array. The Insights panel needs every place at once, and asking per place
+// re-read the whole 90-day health and mood history once per place.
+export async function GET(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { searchParams } = new URL(req.url)
+  const single = searchParams.get("placeId")
+  const many = searchParams.get("placeIds")?.split(",").map(s => s.trim()).filter(Boolean) ?? []
+  const ids = single ? [single] : many
+  if (!ids.length) return NextResponse.json({ error: "placeId or placeIds required" }, { status: 400 })
+  if (ids.length > 50) return NextResponse.json({ error: "too many places" }, { status: 400 })
+
+  const userId = session.user.id
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+
+  const places = await prisma.$queryRaw<SavedPlaceRow[]>`
+    SELECT id, name, emoji FROM "SavedPlace" WHERE id = ANY(${ids}::text[]) AND "userId" = ${userId}
+  `.catch(() => [] as SavedPlaceRow[])
+
+  if (!places.length) {
+    return single
+      ? NextResponse.json({ error: "Place not found" }, { status: 404 })
+      : NextResponse.json([])
+  }
+
+  const [checkIns, healthLogs, moodLogs] = await Promise.all([
+    prisma.$queryRaw<CheckInRow[]>`
+      SELECT "checkedAt", "savedPlaceId" FROM "CheckIn"
+      WHERE "userId" = ${userId}
+        AND "savedPlaceId" = ANY(${ids}::text[])
+        AND "isAuto" = true
+        AND "checkedAt" >= ${since}
+    `.catch(() => [] as CheckInRow[]),
+    prisma.healthLog.findMany({
+      where: { userId, date: { gte: since } },
+      select: { date: true, readinessScore: true, sleepDuration: true, hrv: true, steps: true, restingHR: true },
+    }),
+    prisma.moodLog.findMany({
+      where: { userId, date: { gte: since } },
+      select: { date: true, mood: true },
+    }),
+  ])
+
+  const byPlace = new Map<string, CheckInRow[]>()
+  for (const c of checkIns as CheckInRow[]) {
+    const list = byPlace.get(c.savedPlaceId)
+    if (list) list.push(c)
+    else byPlace.set(c.savedPlaceId, [c])
+  }
+
+  const results = places.map(place =>
+    correlatePlace(place, byPlace.get(place.id) ?? [], healthLogs as HealthRow[], moodLogs as MoodRow[])
+  )
+
+  return NextResponse.json(single ? results[0] : results)
 }

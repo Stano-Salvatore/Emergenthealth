@@ -354,19 +354,24 @@ export default function GardenPage() {
   const [decorations, setDecorations]     = useState<string[]>([])
   const [placed, setPlaced]               = useState<Record<string, { x: number; y: number }>>({})
   const [watering, setWatering]           = useState(false)
+  const [loadError, setLoadError]         = useState(false)
   const [sparkleSignal, setSparkleSignal] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetch("/api/garden")
-      if (res.ok) {
-        const d: GardenData = await res.json()
-        setData(d)
-        setPlantChoices(d.plantChoices)
-        setDecorations(d.decorations)
-        setPlaced(d.layout?.placed ?? {})
-      }
+      if (!res.ok) throw new Error(String(res.status))
+      const d: GardenData = await res.json()
+      setData(d)
+      setPlantChoices(d.plantChoices)
+      setDecorations(d.decorations)
+      setPlaced(d.layout?.placed ?? {})
+      setLoadError(false)
+    } catch {
+      // A failed load used to leave an empty garden with no explanation, which
+      // reads as "you have no habits" rather than "something went wrong".
+      setLoadError(true)
     } finally {
       setLoading(false)
     }
@@ -490,6 +495,18 @@ export default function GardenPage() {
           {loading && !data ? (
             <div className="absolute inset-0 bg-secondary/30 flex items-center justify-center">
               <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : loadError && !data ? (
+            <div className="absolute inset-0 bg-secondary/30 flex flex-col items-center justify-center gap-3 text-center px-6">
+              <Leaf className="h-8 w-8 text-muted-foreground/40" />
+              <div>
+                <p className="text-sm font-medium">Couldn&apos;t load your garden</p>
+                <p className="text-xs text-muted-foreground mt-1">Your plants are fine — this is just the view.</p>
+              </div>
+              <button onClick={load}
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity">
+                Try again
+              </button>
             </div>
           ) : (
             <Garden3DCanvas

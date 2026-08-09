@@ -173,7 +173,7 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         const label = [t.tagName, t.comment].filter(Boolean).join(" ").trim()
         if (!label) continue
         const { kind, ml } = classifyOuraTag(label)
-        if ((kind !== "water" && kind !== "coffee" && kind !== "alcohol") || ml <= 0) continue
+        if ((kind !== "water" && kind !== "coffee" && kind !== "tea" && kind !== "alcohol") || ml <= 0) continue
         await prisma.intakeLog.upsert({
           where: { id: `oura_${t.id}` },
           create: {

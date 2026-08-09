@@ -1,10 +1,10 @@
 "use client"
 
-import { useEffect, useRef, useState, type CSSProperties } from "react"
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react"
 import {
   addDays, addWeeks, subWeeks, addMonths, subMonths,
-  startOfWeek, startOfMonth, endOfMonth,
-  format, isSameDay, isToday, parseISO,
+  startOfWeek, endOfWeek, startOfMonth, endOfMonth,
+  format, isToday, parseISO,
   differenceInMinutes, eachDayOfInterval,
 } from "date-fns"
 import { ChevronLeft, ChevronRight, RefreshCw, MapPin, X, Clock, Link as LinkIcon, Smartphone } from "lucide-react"
@@ -23,7 +23,11 @@ interface CalendarEvent {
   source?: "google" | "device"
 }
 
-type ViewMode = "week" | "month"
+type ViewMode = "3day" | "week" | "month"
+
+const VIEW_KEY = "calendar_view"
+const DAY_COUNT: Record<string, number> = { "3day": 3, week: 7 }
+const VIEW_LABEL: Record<ViewMode, string> = { "3day": "3 days", week: "Week", month: "Month" }
 
 const HOUR_HEIGHT = 56
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -94,17 +98,82 @@ function parseEventDate(dateStr: string, isAllDay: boolean): Date {
   return parseISO(dateStr)
 }
 
-function getEventPositionStyle(start: string, end: string | null) {
-  const s = parseISO(start)
-  const topPx = (s.getHours() * 60 + s.getMinutes()) / 60 * HOUR_HEIGHT
-  let heightPx = HOUR_HEIGHT
-  if (end) {
-    const e = parseISO(end)
-    const durMin = differenceInMinutes(e, s)
-    heightPx = Math.max(22, (durMin / 60) * HOUR_HEIGHT)
-  }
-  return { top: topPx, height: heightPx }
+// Places a day's timed events so overlapping ones sit side by side. Every
+// block used to be drawn the full width of its column, which meant two events
+// at the same time landed exactly on top of each other and the one underneath
+// was invisible.
+//
+// Events are grouped into clusters of mutually-overlapping blocks; within a
+// cluster each event takes the first column that is free by the time it
+// starts, and the cluster is divided into as many columns as it needed.
+interface PositionedEvent {
+  evt: CalendarEvent
+  top: number
+  height: number
+  leftPct: number
+  widthPct: number
 }
+
+const MIN_EVENT_MS = 15 * 60 * 1000
+
+function layoutDayEvents(events: CalendarEvent[], day: Date): PositionedEvent[] {
+  const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime()
+  const dayEnd = dayStart + 24 * 60 * 60 * 1000
+
+  const spans = events
+    .flatMap(e => {
+      if (!e.start) return []
+      const rawStart = parseISO(e.start).getTime()
+      const rawEnd = e.end ? parseISO(e.end).getTime() : rawStart + 60 * 60 * 1000
+      if (Number.isNaN(rawStart) || Number.isNaN(rawEnd)) return []
+      // Clamp to this day so an event running past midnight shows on both days
+      // rather than only the one it started on.
+      const start = Math.max(rawStart, dayStart)
+      const end = Math.min(Math.max(rawEnd, start + MIN_EVENT_MS), dayEnd)
+      if (end <= dayStart || start >= dayEnd) return []
+      return [{ evt: e, start, end }]
+    })
+    .sort((a, b) => a.start - b.start || b.end - a.end)
+
+  const out: PositionedEvent[] = []
+  let cluster: typeof spans = []
+  let clusterEnd = -Infinity
+
+  const flush = () => {
+    if (!cluster.length) return
+    const columnEnds: number[] = []
+    const columnOf = new Map<(typeof cluster)[number], number>()
+    for (const item of cluster) {
+      let col = columnEnds.findIndex(end => end <= item.start)
+      if (col === -1) { col = columnEnds.length; columnEnds.push(0) }
+      columnEnds[col] = item.end
+      columnOf.set(item, col)
+    }
+    const cols = columnEnds.length
+    for (const item of cluster) {
+      const col = columnOf.get(item) ?? 0
+      out.push({
+        evt: item.evt,
+        top: ((item.start - dayStart) / 3600000) * HOUR_HEIGHT,
+        height: Math.max(22, ((item.end - item.start) / 3600000) * HOUR_HEIGHT),
+        leftPct: (col / cols) * 100,
+        widthPct: 100 / cols,
+      })
+    }
+    cluster = []
+    clusterEnd = -Infinity
+  }
+
+  for (const item of spans) {
+    if (cluster.length && item.start >= clusterEnd) flush()
+    cluster.push(item)
+    clusterEnd = Math.max(clusterEnd, item.end)
+  }
+  flush()
+
+  return out
+}
+
 
 // ── Event Detail Panel ────────────────────────────────────────────────────────
 
@@ -180,8 +249,11 @@ function MonthView({ currentMonth, events, onEventClick }: {
 }) {
   const monthStart = startOfMonth(currentMonth)
   const monthEnd = endOfMonth(currentMonth)
-  let gridStart = startOfWeek(monthStart, { weekStartsOn: 1 })
-  const days = eachDayOfInterval({ start: gridStart, end: addDays(monthEnd, 6 * 7) }).slice(0, 42)
+  // Exactly the weeks this month touches. It always drew six rows, so most
+  // months carried a whole row of empty cells — costly on a phone.
+  const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 })
+  const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 })
+  const days = eachDayOfInterval({ start: gridStart, end: gridEnd })
 
   function eventsOnDay(day: Date) {
     return events.filter(e => eventCoversDay(e, day))
@@ -247,14 +319,15 @@ function MonthView({ currentMonth, events, onEventClick }: {
 
 // ── Week View ─────────────────────────────────────────────────────────────────
 
-function WeekView({ weekStart, events, now, onEventClick }: {
+function WeekView({ weekStart, dayCount, events, now, onEventClick }: {
   weekStart: Date
+  dayCount: number
   events: CalendarEvent[]
   now: Date
   onEventClick: (e: CalendarEvent) => void
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+  const days = Array.from({ length: dayCount }, (_, i) => addDays(weekStart, i))
   const nowTop = (now.getHours() * 60 + now.getMinutes()) / 60 * HOUR_HEIGHT
   const todayInWeek = days.some(d => isToday(d))
 
@@ -266,7 +339,9 @@ function WeekView({ weekStart, events, now, onEventClick }: {
   }, [])
 
   function timedEventsFor(day: Date) {
-    return events.filter(e => !e.isAllDay && e.start && isSameDay(parseISO(e.start), day))
+    // eventCoversDay rather than a start-day match, so an event running across
+    // midnight appears on both days (clamped to each by layoutDayEvents).
+    return events.filter(e => !e.isAllDay && e.start && eventCoversDay(e, day))
   }
   function allDayEventsFor(day: Date) {
     return events.filter(e => e.isAllDay && eventCoversDay(e, day))
@@ -279,13 +354,13 @@ function WeekView({ weekStart, events, now, onEventClick }: {
         <div className="w-14 shrink-0 border-r" />
         {days.map((day, i) => {
           const today = isToday(day)
-          const isWeekend = i >= 5
+          const isWeekend = dayCount === 7 && i >= 5
           return (
             <div key={i} className={`flex-1 flex flex-col items-center py-2.5 border-r last:border-r-0 select-none
               ${today ? "bg-primary/5" : ""}`}>
               <span className={`text-[10px] font-bold uppercase tracking-widest
                 ${today ? "text-primary" : isWeekend ? "text-muted-foreground/50" : "text-muted-foreground/70"}`}>
-                {format(day, "EEE")}
+                {format(day, dayCount <= 3 ? "EEEE" : "EEE")}
               </span>
               <span className={`mt-1 h-8 w-8 flex items-center justify-center rounded-full text-sm font-bold
                 ${today ? "bg-primary text-white shadow-sm shadow-primary/40" : isWeekend ? "text-muted-foreground/60" : "text-foreground"}`}>
@@ -337,7 +412,7 @@ function WeekView({ weekStart, events, now, onEventClick }: {
 
           {days.map((day, dayIdx) => {
             const today = isToday(day)
-            const isWeekend = dayIdx >= 5
+            const isWeekend = dayCount === 7 && dayIdx >= 5
             const dayEvents = timedEventsFor(day)
             return (
               <div key={dayIdx} className={`flex-1 relative border-r last:border-r-0
@@ -359,16 +434,21 @@ function WeekView({ weekStart, events, now, onEventClick }: {
                   </div>
                 )}
 
-                {/* events */}
-                {dayEvents.map(evt => {
+                {/* events — laid out so overlaps sit side by side */}
+                {layoutDayEvents(dayEvents, day).map(({ evt, top, height, leftPct, widthPct }) => {
                   if (!evt.start) return null
-                  const { top, height } = getEventPositionStyle(evt.start, evt.end)
                   const v = eventVisual(evt, "block")
                   return (
-                    <button key={evt.id} onClick={() => onEventClick(evt)}
-                      className={`absolute left-[2px] right-[2px] rounded-[5px] px-1.5 overflow-hidden
+                    <button key={`${evt.id}-${day.toDateString()}`} onClick={() => onEventClick(evt)}
+                      className={`absolute rounded-[5px] px-1.5 overflow-hidden
                         hover:brightness-110 active:scale-[0.98] transition-all z-10 text-left text-white ${v.className ?? ""}`}
-                      style={{ top: top + 1, height: height - 2, ...v.style }}>
+                      style={{
+                        top: top + 1,
+                        height: height - 2,
+                        left: `calc(${leftPct}% + 2px)`,
+                        width: `calc(${widthPct}% - 4px)`,
+                        ...v.style,
+                      }}>
                       <p className="text-[11px] font-semibold leading-tight truncate">{evt.title}</p>
                       {height > 28 && (
                         <p className="text-[10px] leading-tight opacity-80 truncate">
@@ -396,6 +476,8 @@ function WeekView({ weekStart, events, now, onEventClick }: {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
+  // Week stays the default everywhere; 3 days is an option for when seven
+  // columns are too narrow to read. The choice is remembered.
   const [view, setView] = useState<ViewMode>("week")
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [currentMonth, setCurrentMonth] = useState(() => new Date())
@@ -410,50 +492,96 @@ export default function CalendarPage() {
     return () => clearInterval(id)
   }, [])
 
-  async function load() {
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_KEY)
+      if (saved === "3day" || saved === "week" || saved === "month") setView(saved)
+    } catch { /* private mode */ }
+  }, [])
+
+  function chooseView(v: ViewMode) {
+    setView(v)
+    try { localStorage.setItem(VIEW_KEY, v) } catch { /* private mode */ }
+    // Moving between 3-day and week keeps you on the same day rather than
+    // jumping to an unrelated week.
+    if (v === "week") setWeekStart(w => startOfWeek(w, { weekStartsOn: 1 }))
+  }
+
+  // Only the visible period plus a buffer is fetched, and only re-fetched when
+  // you page outside what is already loaded. Pulling ±400 days on every visit
+  // meant downloading up to 2500 events before anything could render, and
+  // anything past that ceiling silently never arrived at all.
+  const loadedRange = useRef<{ from: number; to: number } | null>(null)
+  const BUFFER_DAYS = 45
+
+  const load = useCallback(async (centreFrom: Date, centreTo: Date, force = false) => {
+    const from = addDays(centreFrom, -BUFFER_DAYS)
+    const to = addDays(centreTo, BUFFER_DAYS)
+    const covered =
+      !force &&
+      loadedRange.current !== null &&
+      loadedRange.current.from <= centreFrom.getTime() &&
+      loadedRange.current.to >= centreTo.getTime()
+    if (covered) return
+
     setLoading(true)
     setError(null)
     try {
-      // Fetch a broad window (±~13 months) so you can page across the whole
-      // year — past and future — not just the next 90 days.
-      const nowMs = Date.now()
-      const from = new Date(nowMs - 400 * 24 * 60 * 60 * 1000).toISOString()
-      const to = new Date(nowMs + 400 * 24 * 60 * 60 * 1000).toISOString()
-      const res = await fetch(`/api/sync/calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
-      if (!res.ok) throw new Error(await res.text())
+      const res = await fetch(
+        `/api/sync/calendar?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`
+      )
+      if (!res.ok) throw new Error(String(res.status))
       setEvents(await res.json())
-    } catch (e: any) {
-      setError(e.message)
+      loadedRange.current = { from: from.getTime(), to: to.getTime() }
+    } catch {
+      // The raw response body was being shown to the user — often a whole HTML
+      // error page.
+      setError("Couldn't load your calendar.")
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(() => { load() }, [])
+  // Visible range drives what gets fetched.
+  const visibleFrom = view === "month" ? startOfMonth(currentMonth) : weekStart
+  const visibleTo =
+    view === "month" ? endOfMonth(currentMonth) : addDays(weekStart, (DAY_COUNT[view] ?? 7) - 1)
 
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
-  const weekEndDay = days[6]
+  useEffect(() => {
+    load(visibleFrom, visibleTo)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleFrom.getTime(), visibleTo.getTime()])
+
+  const dayCount = DAY_COUNT[view] ?? 7
+  const weekEndDay = addDays(weekStart, dayCount - 1)
   const weekLabel =
-    format(weekStart, "MMMM") === format(weekEndDay, "MMMM")
-      ? format(weekStart, "MMMM yyyy")
-      : `${format(weekStart, "MMM")} – ${format(weekEndDay, "MMM yyyy")}`
+    view === "3day"
+      ? `${format(weekStart, "d MMM")} – ${format(weekEndDay, "d MMM")}`
+      : format(weekStart, "MMMM") === format(weekEndDay, "MMMM")
+        ? format(weekStart, "MMMM yyyy")
+        : `${format(weekStart, "MMM")} – ${format(weekEndDay, "MMM yyyy")}`
   const monthLabel = format(currentMonth, "MMMM yyyy")
 
   function prevPeriod() {
-    if (view === "week") setWeekStart(w => subWeeks(w, 1))
-    else setCurrentMonth(m => subMonths(m, 1))
+    if (view === "month") setCurrentMonth(m => subMonths(m, 1))
+    else if (view === "3day") setWeekStart(w => addDays(w, -3))
+    else setWeekStart(w => subWeeks(w, 1))
   }
   function nextPeriod() {
-    if (view === "week") setWeekStart(w => addWeeks(w, 1))
-    else setCurrentMonth(m => addMonths(m, 1))
+    if (view === "month") setCurrentMonth(m => addMonths(m, 1))
+    else if (view === "3day") setWeekStart(w => addDays(w, 3))
+    else setWeekStart(w => addWeeks(w, 1))
   }
   function goToday() {
-    setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))
+    setWeekStart(view === "3day" ? new Date() : startOfWeek(new Date(), { weekStartsOn: 1 }))
     setCurrentMonth(new Date())
   }
 
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 8rem)" }}>
+    // 100dvh follows the visible viewport on phones, and the subtraction
+    // matches the padding the dashboard shell actually reserves — with 100vh
+    // the bottom of the grid ended up under the tab bar.
+    <div className="flex flex-col h-[calc(100dvh_-_5.75rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] lg:h-[calc(100dvh_-_3rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))]">
       {/* ── toolbar ── */}
       <div className="flex items-center justify-between mb-3 flex-shrink-0 gap-2 flex-wrap">
         <div className="flex items-center gap-2">
@@ -475,15 +603,15 @@ export default function CalendarPage() {
         <div className="flex items-center gap-2">
           {/* view toggle — pill style */}
           <div className="flex rounded-lg border bg-secondary/40 p-0.5 gap-0.5">
-            {(["week", "month"] as ViewMode[]).map(v => (
-              <button key={v} onClick={() => setView(v)}
-                className={`px-3 py-1 text-xs font-semibold rounded-md transition-all capitalize
+            {(["3day", "week", "month"] as ViewMode[]).map(v => (
+              <button key={v} onClick={() => chooseView(v)}
+                className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap
                   ${view === v ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
-                {v}
+                {VIEW_LABEL[v]}
               </button>
             ))}
           </div>
-          <Button size="sm" variant="ghost" onClick={load} disabled={loading} className="gap-1.5 h-8 text-xs text-muted-foreground hover:text-foreground">
+          <Button size="sm" variant="ghost" onClick={() => load(visibleFrom, visibleTo, true)} disabled={loading} className="gap-1.5 h-8 text-xs text-muted-foreground hover:text-foreground">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Sync
           </Button>
@@ -492,12 +620,12 @@ export default function CalendarPage() {
 
       {error && (
         <p className="text-sm text-red-400 mb-3 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20">
-          {error} — make sure Google Calendar is connected
+          {error} Check that Google Calendar is still connected in Settings, then try Sync.
         </p>
       )}
 
-      {view === "week" ? (
-        <WeekView weekStart={weekStart} events={events} now={now} onEventClick={setSelectedEvent} />
+      {view !== "month" ? (
+        <WeekView weekStart={weekStart} dayCount={dayCount} events={events} now={now} onEventClick={setSelectedEvent} />
       ) : (
         <MonthView currentMonth={currentMonth} events={events} onEventClick={setSelectedEvent} />
       )}

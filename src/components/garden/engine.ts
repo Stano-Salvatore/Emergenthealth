@@ -496,6 +496,12 @@ export class GardenEngine {
 
   resize() { this.layoutWorld() }
 
+  // Halt the render loop while the garden isn't on screen.
+  setPaused(paused: boolean) {
+    if (paused) this.app.ticker.stop()
+    else this.app.ticker.start()
+  }
+
   setEditMode(on: boolean) {
     this.editMode = on
     this.highlight.visible = false

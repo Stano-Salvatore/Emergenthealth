@@ -5,12 +5,14 @@ import { ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // Collapsible group heading for the settings page, so the ~25 setting cards
-// aren't one endless flat scroll on a phone. Server-rendered cards are passed
-// through as children; only the open/closed toggle is client-side.
+// aren't one endless flat scroll on a phone. Sections start closed: open, the
+// page ran to several screens of scrolling and the headings — the actual way
+// you find anything — were buried. Server-rendered cards are passed through as
+// children; only the open/closed toggle is client-side.
 export function SettingsSection({
   title,
   emoji,
-  defaultOpen = true,
+  defaultOpen = false,
   children,
 }: {
   title: string

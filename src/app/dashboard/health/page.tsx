@@ -22,6 +22,7 @@ import InsightsPage from "@/app/dashboard/insights/page"
 import LabsPage from "@/app/dashboard/labs/page"
 import BodyPage from "@/app/dashboard/body/page"
 import { isFeatureEnabled } from "@/lib/features"
+import { getUserTimezone, localDateStr, addDaysISO } from "@/lib/local-date"
 
 interface StravaActivityRow {
   id: string
@@ -87,7 +88,10 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   const ouraToken = await prisma.ouraToken.findUnique({ where: { userId }, select: { id: true } })
   const isOuraConnected = !!ouraToken
 
-  const since14str = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  // 14 days back from the user's today, not the server's — on UTC the window
+  // slipped a day for anyone east of Greenwich late in the evening.
+  const timezone = await getUserTimezone(userId)
+  const since14str = addDaysISO(localDateStr(timezone), -14)
   const stravaActivities = await prisma.stravaActivity.findMany({
     where: { userId, day: { gte: since14str } },
     orderBy: { startDate: "desc" },

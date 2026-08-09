@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import Anthropic from "@anthropic-ai/sdk"
+import { getUserTimezone, localDateStr } from "@/lib/local-date"
 
 const anthropic = new Anthropic()
 
@@ -16,8 +17,11 @@ export async function GET(req: NextRequest) {
   const userId = session.user.id
   const firstName = session.user.name?.split(" ")[0] ?? "there"
 
-  const today = new Date()
-  const todayStr = today.toISOString().split("T")[0]
+  // Cache one brief per *user's* day. Keying on the server's UTC date meant
+  // that around midnight the brief could be served for the wrong day, or
+  // regenerated needlessly.
+  const timezone = await getUserTimezone(userId)
+  const todayStr = localDateStr(timezone)
   const cacheKey = `daily_briefing_${todayStr}`
 
   const { searchParams } = new URL(req.url)

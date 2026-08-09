@@ -3,6 +3,8 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getWeatherCoords } from "@/lib/weather-location"
 import { computeXp, getLevel } from "@/lib/xp"
+import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { computeStreak, computeMissedDays, getVacationWindow, makeIsFrozen } from "@/lib/streak"
 
 // ─── Decoration unlocks ───────────────────────────────────────────────────────
 // Decorations are earned, not toggled freely — each has a real-data condition.
@@ -33,8 +35,6 @@ const UNLOCK_RULES: { id: string; req: string; have: (c: UnlockCtx) => number; n
   { id: "rainbow",   req: "Reach level 7 (Forest)",  have: c => c.level,       need: 7 },
 ]
 
-function todayStr() { return new Date().toISOString().split("T")[0] }
-
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -42,7 +42,13 @@ export async function GET() {
 
   const sixtyDaysAgo = new Date(Date.now() - 60 * 86400000)
 
-  const [habits, prefs, checkinRows, xp] = await Promise.all([
+  // Unlock requirements are counted, not reverse-engineered from XP. Dividing
+  // xp.habits by 10 to recover a completion count silently moved every
+  // threshold whenever an XP rate changed, and only ever saw the last year.
+  const [
+    habits, prefs, checkinRows, xp, timezone, vacation,
+    completionCount, journalCount, focusCount, intakeDayRows,
+  ] = await Promise.all([
     prisma.habit.findMany({
       where: { userId, isArchived: false },
       include: {
@@ -61,33 +67,28 @@ export async function GET() {
       SELECT COUNT(*)::bigint AS n FROM "MorningCheckIn" WHERE "userId" = ${userId}
     `.catch(() => [{ n: BigInt(0) }]),
     computeXp(userId),
+    getUserTimezone(userId),
+    getVacationWindow(userId),
+    prisma.habitCompletion.count({ where: { userId } }).catch(() => 0),
+    prisma.dailyNote.count({ where: { userId } }).catch(() => 0),
+    prisma.focusSession.count({ where: { userId, type: "focus" } }).catch(() => 0),
+    prisma.$queryRaw<{ n: bigint }[]>`
+      SELECT COUNT(DISTINCT DATE("loggedAt"))::bigint AS n FROM "IntakeLog" WHERE "userId" = ${userId}
+    `.catch(() => [{ n: BigInt(0) }]),
   ])
 
-  const today = todayStr()
+  const today = localDateStr(timezone)
+  const isFrozen = makeIsFrozen(vacation)
 
   const habitsData = habits.map(habit => {
     const completionDates = new Set(
       habit.completions.map(c => new Date(c.date).toISOString().split("T")[0])
     )
     const completedToday = completionDates.has(today)
-
-    // Current streak (back from today or yesterday)
-    let streak = 0
-    const sc = new Date()
-    if (!completedToday) sc.setDate(sc.getDate() - 1)
-    while (completionDates.has(sc.toISOString().split("T")[0])) {
-      streak++
-      sc.setDate(sc.getDate() - 1)
-    }
-
-    // Consecutive missed days (back from yesterday)
-    let missedDays = 0
-    const mc = new Date()
-    mc.setDate(mc.getDate() - 1)
-    while (!completionDates.has(mc.toISOString().split("T")[0]) && missedDays < 10) {
-      missedDays++
-      mc.setDate(mc.getDate() - 1)
-    }
+    // Same walk the Habits page uses — including vacation days, which this
+    // used to ignore, so a frozen streak still wilted its plant.
+    const streak = computeStreak(completionDates, today, isFrozen)
+    const missedDays = computeMissedDays(completionDates, today, isFrozen)
 
     return { id: habit.id, name: habit.name, icon: habit.icon, color: habit.color, streak, completedToday, missedDays }
   })
@@ -110,11 +111,11 @@ export async function GET() {
   const level = getLevel(xp.total)
   const ctx: UnlockCtx = {
     level: level.level,
-    completions: Math.round(xp.habits / 10),
+    completions: completionCount,
     maxStreak: Math.max(0, ...habitsData.map(h => h.streak)),
-    journal: Math.round(xp.journal / 10),
-    focus: Math.round(xp.focus / 10),
-    intakeDays: Math.round(xp.intake / 5),
+    journal: journalCount,
+    focus: focusCount,
+    intakeDays: Number(intakeDayRows[0]?.n ?? 0),
     checkins: Number(checkinRows[0]?.n ?? 0),
   }
 
@@ -189,7 +190,9 @@ export async function POST(req: Request) {
 
   // Daily watering ritual — one tap per day, +5 XP each (see computeXp)
   if (body.water === true) {
-    const today = todayStr()
+    // The user's day, not the server's: on UTC the lock only lifted at 02:00
+    // local, so the first two hours of a new day still counted as yesterday.
+    const today = localDateStr(await getUserTimezone(userId))
     const row = await prisma.$queryRaw<{ value: string }[]>`
       SELECT "value" FROM "UserPreference" WHERE "userId" = ${userId} AND "key" = 'garden:watered'
     `.catch(() => [] as { value: string }[])

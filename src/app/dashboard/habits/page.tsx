@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -9,10 +9,16 @@ import { Progress } from "@/components/ui/progress"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
-import { CheckSquare, Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X, Zap, Bell, BellOff } from "lucide-react"
-import { EmptyState } from "@/components/ui/EmptyState"
+import { Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X, Zap, Bell, AlertTriangle } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { isFeatureEnabled } from "@/lib/features"
 import { format, subDays } from "date-fns"
+
+// Google Play forbids external purchase links inside the app, so /pricing
+// redirects to the dashboard there — an upsell button would just dead-end.
+function isAndroidApp(): boolean {
+  return typeof navigator !== "undefined" && navigator.userAgent.includes("Emergenthealth-Capacitor")
+}
 
 interface Habit {
   id: string
@@ -204,11 +210,15 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
   const [formEmoji, setFormEmoji] = useState("⭐")
   const [formHabitIds, setFormHabitIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   async function loadRoutines() {
-    const res = await fetch("/api/routines")
-    if (res.ok) setRoutines(await res.json())
-    setLoadingRoutines(false)
+    try {
+      const res = await fetch("/api/routines")
+      if (res.ok) setRoutines(await res.json())
+    } catch { /* routines are secondary — the habits list still renders */ }
+    finally { setLoadingRoutines(false) }
   }
 
   useEffect(() => { loadRoutines() }, [])
@@ -246,7 +256,18 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
     setCompleting(null)
   }
 
+  // Two-tap delete: the first tap arms it, a second within 4s confirms. Enough
+  // friction to survive a mis-tap without a full modal for something you can
+  // rebuild in seconds (unlike a habit, this discards no history).
   async function deleteRoutine(id: string) {
+    if (confirmDelete !== id) {
+      setConfirmDelete(id)
+      if (confirmTimer.current) clearTimeout(confirmTimer.current)
+      confirmTimer.current = setTimeout(() => setConfirmDelete(null), 4000)
+      return
+    }
+    if (confirmTimer.current) clearTimeout(confirmTimer.current)
+    setConfirmDelete(null)
     await fetch("/api/routines", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -367,7 +388,13 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <button onClick={() => deleteRoutine(routine.id)}
-                      className="text-muted-foreground hover:text-destructive transition-colors p-1">
+                      aria-label={confirmDelete === routine.id ? `Confirm deleting ${routine.name}` : `Delete ${routine.name}`}
+                      className={cn(
+                        "transition-colors p-1 rounded-md",
+                        confirmDelete === routine.id
+                          ? "text-destructive bg-destructive/15"
+                          : "text-muted-foreground hover:text-destructive"
+                      )}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                     <Button size="sm"
@@ -396,7 +423,7 @@ function HabitCard({ habit, days28, onToggle, onDelete, onUpdateReminder }: {
   habit: Habit
   days28: Date[]
   onToggle: (h: Habit) => void
-  onDelete: (id: string) => void
+  onDelete: (h: Habit) => void
   onUpdateReminder: (id: string, reminderTime: string | null) => void
 }) {
   const [showTimePicker, setShowTimePicker] = useState(false)
@@ -449,25 +476,25 @@ function HabitCard({ habit, days28, onToggle, onDelete, onUpdateReminder }: {
                 {habit.description && (
                   <span className="text-xs text-muted-foreground">{habit.description}</span>
                 )}
-                {!habit.description && (
-                  <>
-                    <Flame className="h-3 w-3 text-orange-400" />
-                    <span className="text-xs text-muted-foreground">{habit.streak} day streak</span>
-                    {habit.streak >= 7 && <Trophy className="h-3 w-3 text-amber-400" />}
-                  </>
-                )}
-                {habit.description && habit.streak > 0 && (
-                  <span className="text-xs text-muted-foreground">🔥 {habit.streak}d</span>
-                )}
+                {/* Streak always shows — it used to disappear entirely on a
+                    habit that had a dose written in and a streak of 0. */}
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <Flame className="h-3 w-3 text-orange-400" />
+                  {habit.description ? `${habit.streak}d` : `${habit.streak} day streak`}
+                </span>
+                {habit.streak >= 7 && <Trophy className="h-3 w-3 text-amber-400" />}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <button onClick={() => onDelete(habit.id)}
+            <button onClick={() => onDelete(habit)}
+              aria-label={`Delete ${habit.name}`}
               className="text-muted-foreground hover:text-destructive transition-colors p-1">
               <Trash2 className="h-3.5 w-3.5" />
             </button>
             <button onClick={() => onToggle(habit)}
+              aria-label={habit.completedToday ? `Mark ${habit.name} as not done` : `Mark ${habit.name} as done`}
+              aria-pressed={habit.completedToday}
               className={`h-9 w-9 rounded-full border-2 flex items-center justify-center transition-all ${
                 habit.completedToday ? "bg-green-500 border-green-500 text-white scale-110" : "border-border hover:border-green-500 hover:scale-105"
               }`}>
@@ -557,6 +584,9 @@ export default function HabitsPage() {
     const d = new Date(); d.setDate(d.getDate() + 7); return localDateStr(d)
   })
   const [milestone, setMilestone] = useState<MilestoneState | null>(null)
+  const [loadError, setLoadError] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<Habit | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const milestoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function showMilestone(state: MilestoneState) {
@@ -572,10 +602,19 @@ export default function HabitsPage() {
 
   const days28 = Array.from({ length: 28 }, (_, i) => subDays(new Date(), 27 - i))
 
+  // A failed request used to reject unhandled, leaving the skeletons spinning
+  // forever with no way to retry.
   async function loadHabits() {
-    const res = await fetch("/api/habits")
-    if (res.ok) setHabits(await res.json())
-    setLoading(false)
+    try {
+      const res = await fetch("/api/habits")
+      if (!res.ok) throw new Error(String(res.status))
+      setHabits(await res.json())
+      setLoadError(false)
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -644,9 +683,19 @@ export default function HabitsPage() {
     }
   }
 
-  async function deleteHabit(id: string) {
-    await fetch(`/api/habits/${id}`, { method: "DELETE" })
-    loadHabits()
+  // Deleting is permanent and takes the whole completion history with it, so it
+  // now asks first — the bin sits right next to the complete button, and a
+  // mis-tap used to wipe a long streak with no undo.
+  async function confirmDeleteHabit() {
+    if (!pendingDelete) return
+    setDeleting(true)
+    try {
+      await fetch(`/api/habits/${pendingDelete.id}`, { method: "DELETE" })
+      setPendingDelete(null)
+      await loadHabits()
+    } finally {
+      setDeleting(false)
+    }
   }
 
   function updateHabitReminder(id: string, reminderTime: string | null) {
@@ -661,6 +710,15 @@ export default function HabitsPage() {
     loadHabits()
   }
 
+  const inApp = isAndroidApp()
+  // Only list what this release actually ships — finance tracking is held back.
+  const PRO_FEATURES = [
+    "Unlimited habits & routines",
+    "Full data history",
+    "Daily AI insights",
+    ...(isFeatureEnabled("finances") ? ["Finance tracking"] : []),
+  ]
+
   const regularHabits = habits.filter(h => !h.icon || (h.icon !== "💊" && h.icon !== "🌿"))
   const medHabits = habits.filter(h => h.icon === "💊" || h.icon === "🌿")
   const completed = habits.filter(h => h.completedToday).length
@@ -672,6 +730,34 @@ export default function HabitsPage() {
     <div className="space-y-6">
       {/* Streak milestone celebration banner */}
       {milestone && <MilestoneBanner milestone={milestone} onDismiss={dismissMilestone} />}
+
+      {/* Delete confirmation — permanent, and takes the streak with it */}
+      {pendingDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => !deleting && setPendingDelete(null)}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-card border border-destructive/40 p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-destructive/15">
+              <AlertTriangle className="h-5 w-5 text-destructive" />
+            </div>
+            <h3 className="text-lg font-bold mb-1">Delete &ldquo;{pendingDelete.name}&rdquo;?</h3>
+            <p className="text-sm text-muted-foreground mb-5">
+              {pendingDelete.streak > 0
+                ? `This permanently deletes the habit and its ${pendingDelete.streak}-day streak. It can't be undone.`
+                : "This permanently deletes the habit and its whole history. It can't be undone."}
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" disabled={deleting} onClick={() => setPendingDelete(null)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" className="flex-1" disabled={deleting} onClick={confirmDeleteHabit}>
+                {deleting ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Upgrade modal */}
       {showUpgradeModal && (
@@ -687,22 +773,31 @@ export default function HabitsPage() {
             </div>
             <h3 className="text-lg font-bold mb-1">You&apos;ve hit the free limit</h3>
             <p className="text-sm text-muted-foreground mb-5">
-              Free plan supports up to 10 habits. Upgrade to Pro for unlimited habits, full history, and daily AI insights.
+              Free plan supports up to 10 habits. Pro adds unlimited habits, full history, and daily AI insights.
             </p>
             <div className="space-y-2.5 mb-5 text-sm">
-              {["Unlimited habits & routines", "Full data history", "Daily AI insights", "Finance tracking"].map(f => (
+              {PRO_FEATURES.map(f => (
                 <div key={f} className="flex items-center gap-2">
                   <span className="text-primary">✓</span>
                   <span>{f}</span>
                 </div>
               ))}
             </div>
-            <a
-              href="/pricing"
-              className="block w-full rounded-xl bg-primary py-3 text-center text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
-            >
-              Start 14-day free trial →
-            </a>
+            {/* Inside the Android app /pricing redirects away (Play billing
+                policy), so the button would silently do nothing — point people
+                at the website instead of dead-ending them. */}
+            {inApp ? (
+              <p className="rounded-xl border border-border bg-secondary/50 px-4 py-3 text-center text-xs text-muted-foreground">
+                Manage your plan at <span className="text-foreground">emergenthealth.vercel.app</span> in a browser.
+              </p>
+            ) : (
+              <a
+                href="/pricing"
+                className="block w-full rounded-xl bg-primary py-3 text-center text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+              >
+                Start 14-day free trial →
+              </a>
+            )}
             <button
               onClick={() => setShowUpgradeModal(false)}
               className="mt-2.5 block w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -864,6 +959,17 @@ export default function HabitsPage() {
             </CardContent></Card>
           ))}
         </div>
+      ) : loadError ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/50 px-8 py-16 text-center">
+          <div className="mb-3 text-4xl leading-none select-none">🌧️</div>
+          <h3 className="text-base font-semibold text-foreground">Couldn&apos;t load your habits</h3>
+          <p className="mt-2 max-w-xs text-sm text-muted-foreground leading-relaxed">
+            The connection dropped on the way. Your habits are safe — this is just the list.
+          </p>
+          <Button className="mt-5" size="sm" onClick={() => { setLoading(true); loadHabits() }}>
+            Try again
+          </Button>
+        </div>
       ) : habits.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/50 px-8 py-16 text-center">
           <div className="mb-3 text-5xl leading-none select-none">🌱</div>
@@ -883,7 +989,7 @@ export default function HabitsPage() {
           {regularHabits.length > 0 && (
             <div className="space-y-3">
               {regularHabits.map(habit => (
-                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={deleteHabit} onUpdateReminder={updateHabitReminder} />
+                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={setPendingDelete} onUpdateReminder={updateHabitReminder} />
               ))}
             </div>
           )}
@@ -891,7 +997,7 @@ export default function HabitsPage() {
             <div className="space-y-3">
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">💊 Medications & Vitamins</h2>
               {medHabits.map(habit => (
-                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={deleteHabit} onUpdateReminder={updateHabitReminder} />
+                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={setPendingDelete} onUpdateReminder={updateHabitReminder} />
               ))}
             </div>
           )}

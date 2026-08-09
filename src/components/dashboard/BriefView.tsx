@@ -34,6 +34,25 @@ function periodFor(h: number): Period {
   return "evening"
 }
 
+// Times arrive as ISO strings. Formatting them in the browser's own locale and
+// zone is right by construction; slicing "HH:MM" out of the raw text only
+// happened to work because Google sends an offset with every timestamp.
+function eventTime(iso: string): string {
+  if (!iso.includes("T")) return "All day"
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+}
+
+// An event still counts as ahead of you until it ends (or, with no end time,
+// until it starts).
+function isUpcoming(e: { start: string; end: string }, now: number): boolean {
+  if (e.start && !e.start.includes("T")) return true // all-day: runs all day
+  const ref = e.end && e.end.includes("T") ? e.end : e.start
+  const t = new Date(ref).getTime()
+  return Number.isNaN(t) ? false : t >= now
+}
+
 export function BriefView({ name }: { name: string }) {
   const [period, setPeriod] = useState<Period>("morning")
   const [today, setToday] = useState<TodayData | null>(null)
@@ -41,8 +60,22 @@ export function BriefView({ name }: { name: string }) {
   const [checkin, setCheckin] = useState<CheckIn | null>(null)
   const [loading, setLoading] = useState(true)
 
+  // The page changes shape in the evening, so the period can't be decided once
+  // at mount — a brief left open from the afternoon would still be greeting you
+  // with "Good afternoon" and showing the morning layout hours later.
   useEffect(() => {
-    setPeriod(periodFor(new Date().getHours()))
+    const sync = () => setPeriod(periodFor(new Date().getHours()))
+    sync()
+    const t = setInterval(sync, 60000)
+    const onVisible = () => { if (document.visibilityState === "visible") sync() }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      clearInterval(t)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [])
+
+  useEffect(() => {
     const d = new Date()
     const localDate = [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-")
     Promise.allSettled([
@@ -67,7 +100,10 @@ export function BriefView({ name }: { name: string }) {
   const sleepColor = today?.sleep.adequate === true ? "text-green-400"
     : today?.sleep.adequate === false && (today?.sleep.hours ?? 0) >= 6 ? "text-yellow-400" : "text-red-400"
 
-  const nextEvent = today?.calendar?.[0] ?? null
+  // The evening card used to show calendar[0] — the day's *first* event — and
+  // label it "still on your calendar", so at 21:00 it announced the 09:00
+  // standup. Only events that haven't finished yet qualify.
+  const nextEvent = today?.calendar?.find(e => isUpcoming(e, Date.now())) ?? null
 
   return (
     <div className="space-y-5 max-w-2xl">
@@ -205,9 +241,7 @@ export function BriefView({ name }: { name: string }) {
                   <CardContent className="pt-4 pb-4">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">📅 Still on your calendar</p>
                     <p className="text-sm">
-                      <span className="text-muted-foreground tabular-nums mr-2">
-                        {nextEvent.start.includes("T") ? nextEvent.start.slice(11, 16) : "All day"}
-                      </span>
+                      <span className="text-muted-foreground tabular-nums mr-2">{eventTime(nextEvent.start)}</span>
                       {nextEvent.title}
                     </p>
                   </CardContent>

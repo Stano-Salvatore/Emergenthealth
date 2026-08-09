@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -39,17 +39,35 @@ const TAG_COLORS = [
   "#8b5cf6","#06b6d4","#ec4899","#14b8a6",
 ]
 
+// Due dates are stored at UTC midnight, so the date part of the stored string
+// *is* the intended calendar day. Turning it back into a Date and comparing
+// against local time shifted it: west of Greenwich a reminder due the 9th read
+// as the 8th and showed up overdue a day early.
+function dueDay(dueDate: string | null): string | null {
+  return dueDate ? dueDate.slice(0, 10) : null
+}
+
+function todayStr(): string {
+  const d = new Date()
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-")
+}
+
+// A reminder is due until the end of its day, so today's are never overdue.
 function isOverdue(dueDate: string | null) {
-  if (!dueDate) return false
-  // Treat due date as end-of-day so today's reminders aren't immediately "overdue"
-  const d = new Date(dueDate)
-  d.setHours(23, 59, 59, 999)
-  return d < new Date()
+  const day = dueDay(dueDate)
+  return day != null && day < todayStr()
 }
 
 function isToday(dueDate: string | null) {
-  if (!dueDate) return false
-  return new Date(dueDate).toDateString() === new Date().toDateString()
+  return dueDay(dueDate) === todayStr()
+}
+
+// Format the stored day without letting a timezone shift it.
+function formatDueDate(dueDate: string): string {
+  const [y, m, d] = dueDate.slice(0, 10).split("-").map(Number)
+  return new Date(y, (m ?? 1) - 1, d ?? 1).toLocaleDateString(undefined, {
+    month: "short", day: "numeric", year: "numeric",
+  })
 }
 
 function TagChip({ name, color, onRemove }: { name: string; color: string; onRemove?: () => void }) {
@@ -72,6 +90,9 @@ export default function RemindersPage() {
   const [reminders, setReminders] = useState<Reminder[]>([])
   const [allTags, setAllTags] = useState<TagItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [filterTag, setFilterTag] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -81,10 +102,18 @@ export default function RemindersPage() {
   const [saving, setSaving] = useState(false)
 
   async function load() {
-    const [rRes, tRes] = await Promise.all([fetch("/api/reminders"), fetch("/api/tags")])
-    if (rRes.ok) setReminders(await rRes.json())
-    if (tRes.ok) setAllTags(await tRes.json())
-    setLoading(false)
+    try {
+      const [rRes, tRes] = await Promise.all([fetch("/api/reminders"), fetch("/api/tags")])
+      if (!rRes.ok) throw new Error(String(rRes.status))
+      setReminders(await rRes.json())
+      if (tRes.ok) setAllTags(await tRes.json())
+      setLoadError(false)
+    } catch {
+      // Without this the rejected fetch left the skeletons up for good.
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => { load() }, [])
@@ -139,7 +168,17 @@ export default function RemindersPage() {
     load()
   }
 
+  // First tap arms, second within 4s deletes — a single tap used to remove a
+  // reminder outright, with no undo.
   async function deleteReminder(id: string) {
+    if (confirmDelete !== id) {
+      setConfirmDelete(id)
+      if (confirmTimer.current) clearTimeout(confirmTimer.current)
+      confirmTimer.current = setTimeout(() => setConfirmDelete(null), 4000)
+      return
+    }
+    if (confirmTimer.current) clearTimeout(confirmTimer.current)
+    setConfirmDelete(null)
     await fetch(`/api/reminders/${id}`, { method: "DELETE" })
     load()
   }
@@ -169,7 +208,7 @@ export default function RemindersPage() {
         {r.dueDate && (
           <p className={`flex items-center gap-1 text-xs mt-0.5 ${isOverdue(r.dueDate) && !r.isCompleted ? "text-red-400" : "text-muted-foreground"}`}>
             <Clock className="h-3 w-3" />
-            {new Date(r.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            {formatDueDate(r.dueDate)}
             {isOverdue(r.dueDate) && !r.isCompleted && " · Overdue"}
             {r.reminderTime && <span className="ml-1">🔔 {r.reminderTime}</span>}
           </p>
@@ -183,12 +222,22 @@ export default function RemindersPage() {
           </div>
         )}
       </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <span className={PRIORITY_COLORS[r.priority]}>
-          {r.priority === "high" && <AlertCircle className="h-3.5 w-3.5" />}
-        </span>
+      <div className="flex items-center gap-1.5 shrink-0">
+        {/* Priority used to render only for "high" — Normal and Low were
+            settable but never appeared anywhere. */}
+        {r.priority === "high" && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-400" title="High priority">
+            <AlertCircle className="h-3.5 w-3.5" /> High
+          </span>
+        )}
+        {r.priority === "low" && (
+          <span className="text-[10px] text-muted-foreground/70" title="Low priority">Low</span>
+        )}
         <button onClick={() => deleteReminder(r.id)}
-          className="text-muted-foreground hover:text-destructive transition-colors p-1">
+          aria-label={confirmDelete === r.id ? `Confirm deleting ${r.title}` : `Delete ${r.title}`}
+          className={`transition-colors p-1 rounded-md ${
+            confirmDelete === r.id ? "text-destructive bg-destructive/15" : "text-muted-foreground/60 hover:text-destructive"
+          }`}>
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
@@ -360,6 +409,15 @@ export default function RemindersPage() {
             ))}
           </div>
         </CardContent></Card>
+      ) : loadError ? (
+        <Card className="border-dashed">
+          <CardContent className="py-12 text-center">
+            <Bell className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
+            <p className="text-sm font-medium">Couldn&apos;t load your reminders</p>
+            <p className="text-xs text-muted-foreground mt-1">Nothing was lost — this is just the list.</p>
+            <Button size="sm" className="mt-4" onClick={() => { setLoading(true); load() }}>Try again</Button>
+          </CardContent>
+        </Card>
       ) : reminders.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="py-16 text-center">

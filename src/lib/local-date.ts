@@ -1,0 +1,90 @@
+// Server-side "what day is it for this user?" helpers.
+//
+// The server runs in UTC, so `new Date()` there is not the user's day. For a
+// user in UTC+2 the two disagree between 00:00 and 02:00 local — long enough
+// that a habit ticked just after midnight was being filed under yesterday.
+// Everything here works in plain YYYY-MM-DD strings, which compare and sort
+// correctly without any further timezone juggling.
+
+import { prisma } from "@/lib/prisma"
+
+export async function getUserTimezone(userId: string): Promise<string> {
+  const row = await prisma.userPreference.findUnique({
+    where: { userId_key: { userId, key: "timezone" } },
+    select: { value: true },
+  }).catch(() => null)
+  return row?.value?.trim() || "UTC"
+}
+
+// Today's date in the user's timezone. en-CA formats as YYYY-MM-DD.
+export function localDateStr(timezone: string, at: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(at)
+  } catch {
+    return at.toISOString().slice(0, 10)
+  }
+}
+
+// Current wall-clock time in the user's timezone, as "HH:MM" (24h).
+export function localTimeStr(timezone: string, at: Date = new Date()): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(at)
+    const h = parts.find(p => p.type === "hour")?.value ?? "00"
+    const m = parts.find(p => p.type === "minute")?.value ?? "00"
+    return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`
+  } catch {
+    return at.toISOString().slice(11, 16)
+  }
+}
+
+// Minutes that `timezone` is ahead of UTC at a given instant (handles DST).
+export function tzOffsetMinutes(timezone: string, at: Date = new Date()): number {
+  try {
+    const parts = Object.fromEntries(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone, hour12: false,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+      }).formatToParts(at).filter(p => p.type !== "literal").map(p => [p.type, p.value])
+    ) as Record<string, string>
+    const asUTC = Date.UTC(
+      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+      Number(parts.hour) % 24, Number(parts.minute), Number(parts.second)
+    )
+    return Math.round((asUTC - at.getTime()) / 60000)
+  } catch {
+    return 0
+  }
+}
+
+// The instant local midnight falls at, for a given YYYY-MM-DD. Resolved in two
+// passes: the first guess uses the offset at UTC midnight, the second uses the
+// offset actually in force at that guess — which is what makes the clock-change
+// days come out right rather than an hour adrift.
+function zonedMidnight(timezone: string, dayISO: string): Date {
+  const naive = Date.parse(`${dayISO}T00:00:00Z`)
+  const first = naive - tzOffsetMinutes(timezone, new Date(naive)) * 60000
+  return new Date(naive - tzOffsetMinutes(timezone, new Date(first)) * 60000)
+}
+
+// The instants at which the user's day starts and ends. Querying a calendar
+// for "today" using the server's own midnight silently shifts the window by the
+// user's offset — dropping early-morning events and pulling in last night's.
+// Deriving the end from the *next* local midnight also makes the 23- and
+// 25-hour days around a clock change exact.
+export function zonedDayRange(timezone: string, dayISO?: string): { start: Date; end: Date } {
+  const day = dayISO ?? localDateStr(timezone)
+  const start = zonedMidnight(timezone, day)
+  const end = new Date(zonedMidnight(timezone, addDaysISO(day, 1)).getTime() - 1)
+  return { start, end }
+}
+
+// Shift a YYYY-MM-DD string by n days, staying in date-string space.
+export function addDaysISO(iso: string, n: number): string {
+  const [y, m, d] = iso.split("-").map(Number)
+  const dt = new Date(Date.UTC(y, (m ?? 1) - 1, d ?? 1))
+  dt.setUTCDate(dt.getUTCDate() + n)
+  return dt.toISOString().slice(0, 10)
+}

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserPlan } from "@/lib/plan"
+import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { computeStreak, getVacationWindow, makeIsFrozen } from "@/lib/streak"
 
 const FREE_HABIT_LIMIT = 10
 
@@ -9,12 +11,17 @@ export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
+  // The user's day, not the server's — completions are filed under the date
+  // shown on the user's phone, so "today" has to mean the same thing here.
+  const timezone = await getUserTimezone(session.user.id)
+  const todayStr = localDateStr(timezone)
+
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const plan = await getUserPlan(session.user.id)
   const historyDays = plan === "pro" ? 730 : 30
   const historyFrom = new Date(today)
-  historyFrom.setDate(today.getDate() - historyDays)
+  historyFrom.setDate(today.getDate() - historyDays - 1)
 
   const habits = await prisma.habit.findMany({
     where: { userId: session.user.id, isArchived: false },
@@ -27,43 +34,17 @@ export async function GET() {
     orderBy: { createdAt: "asc" },
   })
 
-  const todayStr = today.toISOString().split("T")[0]
-
-  // Load vacation mode — frozen days don't break streaks
-  let vacationFrom: Date | null = null
-  let vacationUntil: Date | null = null
-  try {
-    const vRows = await prisma.$queryRaw<{ value: string }[]>`
-      SELECT "value" FROM "UserPreference" WHERE "userId" = ${session.user.id} AND "key" = 'vacation_mode' LIMIT 1
-    `
-    if (vRows.length) {
-      const v = JSON.parse(vRows[0].value)
-      if (v.active && v.from && v.until) {
-        vacationFrom  = new Date(v.from)
-        vacationUntil = new Date(v.until)
-      }
-    }
-  } catch {}
-
-  function isFrozen(d: Date): boolean {
-    if (!vacationFrom || !vacationUntil) return false
-    return d >= vacationFrom && d <= vacationUntil
-  }
+  // Vacation mode and the streak walk itself live in lib/streak so the garden
+  // computes the same answer (it used to have its own, freeze-blind version).
+  const isFrozen = makeIsFrozen(await getVacationWindow(session.user.id))
 
   const result = habits.map((h) => {
     const completionDates = new Set(h.completions.map((c) => c.date.toISOString().split("T")[0]))
-    let streak = 0
-    const cursor = new Date(today)
-    while (completionDates.has(cursor.toISOString().split("T")[0]) || isFrozen(cursor)) {
-      if (!isFrozen(cursor)) streak++ // frozen days don't count toward streak length but don't break it
-      cursor.setDate(cursor.getDate() - 1)
-      if (streak > 365) break // safety
-    }
     return {
       ...h,
-      streak,
+      streak: computeStreak(completionDates, todayStr, isFrozen),
       completedToday: completionDates.has(todayStr),
-      frozen: isFrozen(today),
+      frozen: isFrozen(todayStr),
     }
   })
 

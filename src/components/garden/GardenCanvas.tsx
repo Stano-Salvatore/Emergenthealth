@@ -48,6 +48,14 @@ export function GardenCanvas({ data, editMode, sparkleSignal, onPlantClick, onPl
       const ro = new ResizeObserver(() => engine.resize())
       ro.observe(host)
       ;(engine as unknown as { _ro?: ResizeObserver })._ro = ro
+
+      // Stop rendering while the page is hidden, matching the 3D scene. The
+      // browser already withholds animation frames from a hidden tab, but a
+      // WebView that keeps them coming would otherwise render a garden nobody
+      // is looking at.
+      const onVisibility = () => engine.setPaused(document.hidden)
+      document.addEventListener("visibilitychange", onVisibility)
+      ;(engine as unknown as { _vis?: () => void })._vis = onVisibility
     })
     return () => {
       cancelled = true
@@ -55,6 +63,8 @@ export function GardenCanvas({ data, editMode, sparkleSignal, onPlantClick, onPl
       engineRef.current = null
       if (engine) {
         ;(engine as unknown as { _ro?: ResizeObserver })._ro?.disconnect()
+        const vis = (engine as unknown as { _vis?: () => void })._vis
+        if (vis) document.removeEventListener("visibilitychange", vis)
         engine.destroy()
       }
     }
