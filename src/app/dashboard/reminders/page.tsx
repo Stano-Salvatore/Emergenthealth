@@ -10,6 +10,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
 import { Bell, Plus, Check, Trash2, AlertCircle, Clock, Tag, X } from "lucide-react"
+import { resyncNotifications } from "@/lib/native/notifications"
 
 interface Reminder {
   id: string
@@ -138,6 +139,8 @@ export default function RemindersPage() {
     setFormOpen(false)
     setSaving(false)
     load()
+    // Hand the new reminder to the phone's alarm scheduler straight away.
+    resyncNotifications().catch(() => {})
   }
 
   async function addNewTag() {
@@ -166,6 +169,8 @@ export default function RemindersPage() {
       body: JSON.stringify({ isCompleted: !r.isCompleted }),
     })
     load()
+    // Completing one should stop it buzzing later.
+    resyncNotifications().catch(() => {})
   }
 
   // First tap arms, second within 4s deletes — a single tap used to remove a
