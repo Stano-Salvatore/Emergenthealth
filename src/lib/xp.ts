@@ -42,6 +42,7 @@ export function getLevel(xp: number): LevelInfo {
 
 export interface XpBreakdown {
   habits: number
+  checkins: number
   sleep: number
   weight: number
   mood: number
@@ -87,6 +88,14 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
     `.catch(() => [] as { day: string }[]),
   ])
 
+  // Morning check-ins: the completion screen has always promised +10 XP, but
+  // check-ins were never part of the total (they only live in MorningCheckIn,
+  // not MoodLog), so the most consistent daily ritual scored nothing.
+  const checkinRows = await prisma.$queryRaw<{ n: bigint }[]>`
+    SELECT COUNT(*)::bigint AS n FROM "MorningCheckIn" WHERE "userId" = ${userId}
+  `.catch(() => [{ n: BigInt(0) }])
+  const checkinCount = Number(checkinRows[0]?.n ?? 0)
+
   // Daily garden waterings (the garden page's once-a-day ritual)
   const wateredRow = await prisma.userPreference.findUnique({
     where: { userId_key: { userId, key: "garden:watered" } },
@@ -98,6 +107,7 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
   const suppDays     = (ouraTagDays as { day: string }[]).length
 
   const habits     = habitCount  * 10
+  const checkins   = checkinCount * 10
   const sleep      = healthCount * 5
   const weight     = weightCount * 3
   const mood       = moodCount   * 5
@@ -109,7 +119,7 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
   const garden     = wateredCount * 5
 
   return {
-    habits, sleep, weight, mood, journal, intake, focus, reading, supplements, garden,
-    total: habits + sleep + weight + mood + journal + intake + focus + reading + supplements + garden,
+    habits, checkins, sleep, weight, mood, journal, intake, focus, reading, supplements, garden,
+    total: habits + checkins + sleep + weight + mood + journal + intake + focus + reading + supplements + garden,
   }
 }
