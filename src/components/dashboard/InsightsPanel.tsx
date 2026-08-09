@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import Link from "next/link"
 import { RefreshCw, ChevronRight, Star, Minus, Plus } from "lucide-react"
+import { sharedFetchJson } from "@/lib/shared-fetch"
 
 type Period = "today" | "week" | "month" | "overall"
 
@@ -346,7 +347,7 @@ export function InsightsPanel() {
       fetch(`/api/insight?period=${period}`).then(r => r.json()),
       fetch(`/api/insights/correlations?period=${period}`).then(r => r.json()),
       fetchLoc
-        ? fetch("/api/location-correlations?metric=hrv").then(r => r.json())
+        ? sharedFetchJson("/api/location-correlations?metric=hrv")
         : Promise.resolve([]),
     ])
 

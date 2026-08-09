@@ -6,6 +6,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Send, User, Mic, MicOff, History, Plus, Trash2, X } from "lucide-react"
 import { EmergySVG, type EmergyState } from "@/components/emergy/EmergySVG"
 import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
+import { isFeatureEnabled } from "@/lib/features"
+
+// An error we already have a human sentence for — shown to the user verbatim
+// instead of the generic fallback.
+class ChatError extends Error {}
 
 interface Message {
   id?: string
@@ -66,6 +71,7 @@ export default function ChatPage() {
   const [listening, setListening] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const historyRef = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null)
 
@@ -118,6 +124,22 @@ export default function ChatPage() {
     }
   }, [messages])
 
+  // Tapping anywhere outside the panel (or pressing Escape) closes it — the X
+  // was previously the only way out.
+  useEffect(() => {
+    if (!historyOpen) return
+    const onPointerDown = (e: PointerEvent) => {
+      if (!historyRef.current?.contains(e.target as Node)) setHistoryOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setHistoryOpen(false) }
+    document.addEventListener("pointerdown", onPointerDown)
+    document.addEventListener("keydown", onKey)
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [historyOpen])
+
   function newChat() {
     if (sending) return
     setMessages([])
@@ -164,11 +186,33 @@ export default function ChatPage() {
         body: JSON.stringify({ message: text, history, conversationId }),
       })
 
-      if (!res.body) throw new Error("No stream")
+      // Error replies are plain JSON, not a stream. Without this check the
+      // parser below finds no "data:" lines, falls out of the loop silently and
+      // leaves an empty bubble stuck on the blinking cursor forever.
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        if (res.status === 429) {
+          const mins = typeof body?.resetAt === "number"
+            ? Math.max(1, Math.ceil((body.resetAt - Date.now()) / 60000))
+            : null
+          throw new ChatError(
+            mins
+              ? `Phew — that's a lot of questions 🌱 I can pick this back up in about ${mins} minute${mins === 1 ? "" : "s"}.`
+              : "Phew — that's a lot of questions 🌱 Give me a little while and ask again."
+          )
+        }
+        if (res.status === 401) {
+          throw new ChatError("You've been signed out. Sign in again and I'll be right here 🌱")
+        }
+        throw new ChatError("I couldn't reach my brain just now — please try again in a moment.")
+      }
+
+      if (!res.body) throw new ChatError("I couldn't reach my brain just now — please try again in a moment.")
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ""
+      let received = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -194,6 +238,7 @@ export default function ChatPage() {
             if (parsed.conversationId) {
               setConversationId(parsed.conversationId)
             } else if (parsed.text) {
+              received = true
               setMessages((m) =>
                 m.map((msg, i) =>
                   i === m.length - 1 ? { ...msg, content: msg.content + parsed.text } : msg
@@ -203,14 +248,22 @@ export default function ChatPage() {
           } catch {}
         }
       }
+      // A stream that ended without a single token would also leave a blank
+      // bubble — say something instead.
+      if (!received) throw new ChatError("I went quiet there, sorry — ask me again?")
       refreshConversations()
-    } catch {
+    } catch (err) {
+      const note = err instanceof ChatError
+        ? err.message
+        : "Sorry, something went wrong. Please try again."
       setMessages((m) =>
-        m.map((msg, i) =>
-          i === m.length - 1
-            ? { ...msg, content: "Sorry, something went wrong.", streaming: false }
-            : msg
-        )
+        m.map((msg, i) => {
+          if (i !== m.length - 1) return msg
+          // If the connection dropped mid-answer, keep what he already said
+          // and add the note rather than throwing the reply away.
+          const content = msg.content ? `${msg.content}\n\n_${note}_` : note
+          return { ...msg, content, streaming: false }
+        })
       )
     } finally {
       setSending(false)
@@ -230,65 +283,97 @@ export default function ChatPage() {
     sendMessage(prompt)
   }
 
+  // Emergy's intro must only promise what this build actually ships — finances
+  // are held back for a later release (see src/lib/features.ts).
+  const financesOn = isFeatureEnabled("finances")
+  const subtitle = financesOn
+    ? "Your plant companion — knows your health, habits & finances"
+    : "Your plant companion — knows your sleep, habits, meds & calendar"
+  const intro = financesOn
+    ? "I know your sleep, habits, meds, finances, and calendar. Ask me anything or just say hi!"
+    : "I know your sleep, habits, meds, and calendar. Ask me anything or just say hi!"
+
+  // Every suggestion sends straight away — previously the big briefing button
+  // sent while the six below it only pasted text, which looked identical but
+  // behaved differently.
+  const QUICK_QUESTIONS = [
+    "🌅 Start my morning check-in",
+    "How was my sleep this week?",
+    "Does coffee affect my sleep? Check my Oura tags",
+    "What habits am I missing today?",
+    "What supplements did I take today?",
+    "What's on my calendar this week?",
+  ]
+
   return (
-    <div className="flex flex-col h-[calc(100vh-3rem-3rem)]">
-      <div className="flex items-center gap-3 mb-4 relative">
+    // Fill exactly the space the shell leaves us: 100dvh follows the real
+    // visible viewport on phones (100vh does not — it assumes the browser's
+    // URL bar is hidden), minus the shell's own padding, so the composer can
+    // never end up underneath the bottom nav.
+    <div className="flex flex-col h-[calc(100dvh_-_5.75rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] lg:h-[calc(100dvh_-_3rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))]">
+      <div className="flex items-center gap-3 mb-4">
         <EmergySVG state={emergyState} size={52}/>
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold">Emergy</h1>
-          <p className="text-muted-foreground text-sm mt-0.5 truncate">
-            Your plant companion — knows your health, habits &amp; finances
-          </p>
+          <p className="text-muted-foreground text-sm mt-0.5 truncate">{subtitle}</p>
         </div>
-        <Button
-          onClick={() => setHistoryOpen((o) => !o)}
-          size="icon"
-          variant="outline"
-          className="h-9 w-9 shrink-0"
-          title="Past chats"
-        >
-          {historyOpen ? <X className="h-4 w-4" /> : <History className="h-4 w-4" />}
-        </Button>
-        <Button
-          onClick={newChat}
-          size="icon"
-          variant="outline"
-          className="h-9 w-9 shrink-0"
-          title="New chat"
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
 
-        {historyOpen && (
-          <div className="absolute right-0 top-full mt-2 z-30 w-72 max-h-80 overflow-y-auto rounded-2xl border border-border bg-background shadow-xl shadow-black/30 p-1.5">
-            {conversations.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-6">No past chats yet 🌱</p>
-            ) : (
-              conversations.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => openConversation(c.id)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-left transition-colors group ${
-                    c.id === conversationId ? "bg-primary/10 text-primary" : "hover:bg-secondary/60"
-                  }`}
-                >
-                  <span className="flex-1 min-w-0 text-sm truncate">{c.title}</span>
-                  <span className="text-[10px] text-muted-foreground shrink-0">{conversationDate(c.updatedAt)}</span>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => deleteConversation(c.id, e)}
-                    onKeyDown={(e) => { if (e.key === "Enter") deleteConversation(c.id, e as unknown as React.MouseEvent) }}
-                    className="opacity-0 group-hover:opacity-100 shrink-0 p-1 text-muted-foreground hover:text-red-400 transition-all"
-                    aria-label="Delete chat"
+        <div ref={historyRef} className="relative shrink-0 flex items-center gap-3">
+          <Button
+            onClick={() => setHistoryOpen((o) => !o)}
+            size="icon"
+            variant="outline"
+            className="h-9 w-9 shrink-0"
+            title="Past chats"
+          >
+            {historyOpen ? <X className="h-4 w-4" /> : <History className="h-4 w-4" />}
+          </Button>
+          <Button
+            onClick={newChat}
+            size="icon"
+            variant="outline"
+            className="h-9 w-9 shrink-0"
+            title="New chat"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+
+          {historyOpen && (
+            <div className="absolute right-0 top-full mt-2 z-30 w-72 max-h-80 overflow-y-auto rounded-2xl border border-border bg-background shadow-xl shadow-black/30 p-1.5">
+              {conversations.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">No past chats yet 🌱</p>
+              ) : (
+                conversations.map((c) => (
+                  // Row is a plain container: the delete control is a real
+                  // button, so it can't be nested inside the open-chat button.
+                  <div
+                    key={c.id}
+                    className={`w-full flex items-center rounded-xl transition-colors ${
+                      c.id === conversationId ? "bg-primary/10 text-primary" : "hover:bg-secondary/60"
+                    }`}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        )}
+                    <button
+                      onClick={() => openConversation(c.id)}
+                      className="flex-1 min-w-0 flex items-center gap-2 pl-3 pr-1 py-2 text-left"
+                    >
+                      <span className="flex-1 min-w-0 text-sm truncate">{c.title}</span>
+                      <span className="text-[10px] text-muted-foreground shrink-0">{conversationDate(c.updatedAt)}</span>
+                    </button>
+                    {/* Always visible — hover-to-reveal made this unreachable
+                        on a touchscreen, so chats couldn't be deleted at all. */}
+                    <button
+                      onClick={(e) => deleteConversation(c.id, e)}
+                      className="shrink-0 p-2 mr-0.5 rounded-lg text-muted-foreground/60 hover:text-red-400 transition-colors"
+                      aria-label={`Delete chat: ${c.title}`}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <div
@@ -300,9 +385,7 @@ export default function ChatPage() {
             <EmergySVG state={emergyState} size={100}/>
             <div>
               <p className="font-semibold text-base">Hi!! I&apos;m Emergy 🌱</p>
-              <p className="text-sm text-muted-foreground mt-1 max-w-xs">
-                I know your sleep, habits, meds, finances, and calendar. Ask me anything or just say hi!
-              </p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-xs">{intro}</p>
             </div>
             {/* Morning briefing CTA */}
             <button
@@ -313,18 +396,12 @@ export default function ChatPage() {
               ☀️ Morning Briefing
             </button>
             <div className="grid grid-cols-1 gap-2 w-full max-w-sm">
-              {[
-                "🌅 Log my morning check-in (I feel good and ready)",
-                "How was my sleep this week?",
-                "Does coffee affect my sleep? Check my Oura tags",
-                "What habits am I missing today?",
-                "What supplements did I take today?",
-                "What's on my calendar this week?",
-              ].map((prompt) => (
+              {QUICK_QUESTIONS.map((prompt) => (
                 <button
                   key={prompt}
-                  onClick={() => { setInput(prompt); textareaRef.current?.focus() }}
-                  className="text-left text-sm px-4 py-2.5 rounded-xl border border-border bg-secondary hover:bg-accent transition-colors"
+                  onClick={() => quickSend(prompt)}
+                  disabled={sending}
+                  className="text-left text-sm px-4 py-2.5 rounded-xl border border-border bg-secondary hover:bg-accent transition-colors disabled:opacity-50"
                 >
                   {prompt}
                 </button>

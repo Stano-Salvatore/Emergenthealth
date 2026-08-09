@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import Link from "next/link"
-import { Flame, Zap } from "lucide-react"
+import { Flame, Zap, ArrowLeft, Pencil } from "lucide-react"
 import { DailyTags } from "@/components/dashboard/DailyTags"
 
 type CheckIn = {
@@ -47,6 +47,7 @@ export default function CheckInPage() {
   const [selectedMood, setSelectedMood] = useState<number | null>(null)
   const [streak, setStreak] = useState(0)
   const [isNewCheckin, setIsNewCheckin] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
 
   useEffect(() => {
     const today = new Date()
@@ -88,7 +89,15 @@ export default function CheckInPage() {
     })
     const data = await res.json().catch(() => ({}))
     if (data.streak) setStreak(data.streak)
-    setIsNewCheckin(true)
+    // Keep the summary in step with what was just saved — otherwise an edit
+    // would still render the previous answers.
+    if (energy != null && mood != null) {
+      setExisting({ energy, mood, intention: intention.trim() || null, waterGoalMl: waterMl })
+    }
+    // Editing upserts the same row, so no check-in is added and no XP is
+    // earned — don't celebrate it as a fresh one.
+    setIsNewCheckin(!isEditing)
+    setIsEditing(false)
     // Haptic feedback: short buzz on completion
     if (typeof navigator !== "undefined" && navigator.vibrate) {
       navigator.vibrate([30, 20, 60, 20, 100])
@@ -105,6 +114,35 @@ export default function CheckInPage() {
     setSelectedMood(value)
     setMood(value)
     setTimeout(() => { setStep(2); setSelectedMood(null) }, 150)
+  }
+
+  // Re-open the wizard on today's saved answers. The API upserts, so saving
+  // again overwrites rather than duplicating — a mistapped emoji shouldn't be
+  // locked in for the rest of the day (and fed to Emergy and correlations).
+  function editCheckin() {
+    const src = existing
+    if (src) {
+      setEnergy(src.energy)
+      setMood(src.mood)
+      setIntention(src.intention ?? "")
+      setWaterGoalMl(src.waterGoalMl)
+    }
+    setIsNewCheckin(false)
+    setIsEditing(true)
+    setStep(0)
+  }
+
+  // Steps 1-3 can go back; step 0 is the start and "done" is terminal.
+  function BackButton({ to }: { to: 0 | 1 | 2 }) {
+    return (
+      <button
+        onClick={() => setStep(to)}
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        aria-label="Back to previous step"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" /> Back
+      </button>
+    )
   }
 
   function ProgressBar() {
@@ -192,6 +230,7 @@ export default function CheckInPage() {
         {step === 1 && (
           <Card>
             <CardContent className="pt-8 pb-6 px-6">
+              <div className="mb-4"><BackButton to={0} /></div>
               <p className="text-center text-xl font-semibold mb-6">How&apos;s your mood?</p>
               <div className="grid grid-cols-5 gap-2">
                 {MOOD_OPTIONS.map(opt => (
@@ -216,6 +255,7 @@ export default function CheckInPage() {
         {step === 2 && (
           <Card>
             <CardContent className="pt-8 pb-6 px-6">
+              <div className="mb-4"><BackButton to={1} /></div>
               <p className="text-center text-xl font-semibold mb-2">What&apos;s your focus today?</p>
               <p className="text-center text-sm text-muted-foreground mb-5">Optional — skip if you prefer</p>
               <Textarea
@@ -244,6 +284,7 @@ export default function CheckInPage() {
         {step === 3 && (
           <Card>
             <CardContent className="pt-8 pb-6 px-6">
+              <div className="mb-4"><BackButton to={2} /></div>
               <p className="text-center text-xl font-semibold mb-2">Daily water goal?</p>
               <p className="text-center text-sm text-muted-foreground mb-6">Tap to save and finish</p>
               <div className="grid grid-cols-2 gap-3">
@@ -255,13 +296,25 @@ export default function CheckInPage() {
                       await save(ml)
                       setStep("done")
                     }}
-                    className="flex flex-col items-center justify-center rounded-xl border border-border py-4 min-h-[72px] text-lg font-bold hover:border-primary/40 hover:bg-primary/5 transition-all active:scale-95"
+                    className={`flex flex-col items-center justify-center rounded-xl border py-4 min-h-[72px] text-lg font-bold transition-all active:scale-95 ${
+                      waterGoalMl === ml
+                        ? "border-primary bg-primary/10"
+                        : "border-border hover:border-primary/40 hover:bg-primary/5"
+                    }`}
                   >
                     {ml >= 1000 ? `${ml / 1000}L` : `${ml}ml`}
                     <span className="text-xs font-normal text-muted-foreground mt-0.5">{ml}ml</span>
                   </button>
                 ))}
               </div>
+              {/* The only step with no way past it without choosing — finish
+                  with whatever goal is already set (2L default). */}
+              <button
+                onClick={async () => { await save(waterGoalMl); setStep("done") }}
+                className="mt-4 w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Skip — keep {waterGoalMl >= 1000 ? `${waterGoalMl / 1000}L` : `${waterGoalMl}ml`}
+              </button>
             </CardContent>
           </Card>
         )}
@@ -324,6 +377,13 @@ export default function CheckInPage() {
                     </div>
                   )
                 })()}
+
+                <button
+                  onClick={editCheckin}
+                  className="mt-3 inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Pencil className="h-3 w-3" /> Edit today&apos;s check-in
+                </button>
               </CardContent>
             </Card>
 

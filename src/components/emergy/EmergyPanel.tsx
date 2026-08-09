@@ -41,6 +41,10 @@ function getBriefType(): "morning" | "midday" | "evening" | null {
 
 export function EmergyPanel() {
   const pathname = usePathname()
+  // On mobile Emergy lives in the bottom nav, which polls /api/emergy itself.
+  // Hiding this panel with CSS still left it mounted and polling for a UI
+  // nobody could see, so it now genuinely only exists at lg+.
+  const [isDesktop, setIsDesktop] = useState(false)
   const [open, setOpen] = useState(false)
   const [emergy, setEmergy] = useState<EmergyData | null>(null)
   const [brief, setBrief] = useState<string | null>(null)
@@ -76,10 +80,19 @@ export function EmergyPanel() {
   }, [])
 
   useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)")
+    const apply = () => setIsDesktop(mq.matches)
+    apply()
+    mq.addEventListener("change", apply)
+    return () => mq.removeEventListener("change", apply)
+  }, [])
+
+  useEffect(() => {
+    if (!isDesktop) return
     fetchEmergy()
     intervalRef.current = setInterval(fetchEmergy, 5 * 60 * 1000)
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [fetchEmergy])
+  }, [fetchEmergy, isDesktop])
 
   useEffect(() => {
     if (typeof Notification !== "undefined") {
@@ -202,12 +215,12 @@ export function EmergyPanel() {
 
   // The chat page IS Emergy — a floating Emergy on top of it is redundant.
   // On mobile the mascot lives in the bottom nav instead (see BottomNav).
-  if (pathname?.startsWith("/dashboard/chat")) return null
+  if (!isDesktop || pathname?.startsWith("/dashboard/chat")) return null
 
   return (
     <>
       {/* Speech bubble + button row — desktop only */}
-      <div className="fixed right-6 z-50 hidden lg:flex items-center gap-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] lg:bottom-10">
+      <div className="fixed right-6 z-50 flex items-center gap-3 bottom-10">
         {/* Speech bubble — appears to the left when Emergy has something to say */}
         {showBubble && emergy?.message && (
           <div
