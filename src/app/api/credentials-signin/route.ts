@@ -13,11 +13,15 @@ import { randomUUID, timingSafeEqual } from "crypto"
 // owner's account, health data, chat history and API keys included. Never put
 // them back in the source.
 //
-// Required environment variables (the route refuses every request unless all
-// three are set):
-//   CREDENTIALS_USERNAME   the username to accept
-//   CREDENTIALS_PASSWORD   the password to accept
-//   CREDENTIALS_EMAIL      the email of the User row to issue the session for
+// Two independent logins can be configured, each a username/password/email
+// trio. Neither is required; an unset trio simply isn't accepted.
+//
+//   CREDENTIALS_USERNAME / CREDENTIALS_PASSWORD / CREDENTIALS_EMAIL
+//     the owner's own login, for the Android WebView
+//
+//   DEMO_USERNAME / DEMO_PASSWORD / DEMO_EMAIL
+//     the Play Store reviewer's login, pointed at the seeded demo account so
+//     no real data is ever exposed to review
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a)
@@ -27,13 +31,23 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ab, bb)
 }
 
+interface Login { username: string; password: string; email: string }
+
+function configuredLogins(): Login[] {
+  const trios: [string | undefined, string | undefined, string | undefined][] = [
+    [process.env.CREDENTIALS_USERNAME, process.env.CREDENTIALS_PASSWORD, process.env.CREDENTIALS_EMAIL],
+    [process.env.DEMO_USERNAME, process.env.DEMO_PASSWORD, process.env.DEMO_EMAIL],
+  ]
+  return trios
+    .filter((t): t is [string, string, string] => t.every(Boolean))
+    .map(([username, password, email]) => ({ username, password, email }))
+}
+
 export async function POST(request: Request) {
-  const expectedUser = process.env.CREDENTIALS_USERNAME
-  const expectedPass = process.env.CREDENTIALS_PASSWORD
-  const accountEmail = process.env.CREDENTIALS_EMAIL
+  const logins = configuredLogins()
 
   // Unconfigured means disabled, not open.
-  if (!expectedUser || !expectedPass || !accountEmail) {
+  if (logins.length === 0) {
     return Response.json({ error: "Password sign-in is not enabled." }, { status: 404 })
   }
 
@@ -46,15 +60,19 @@ export async function POST(request: Request) {
     return Response.json({ error: "Bad request" }, { status: 400 })
   }
 
-  // Both compared regardless of the first result, so a wrong username and a
-  // wrong password cost the same time.
-  const userOk = safeEqual(username, expectedUser)
-  const passOk = safeEqual(password, expectedPass)
-  if (!userOk || !passOk) {
+  // Every configured login is checked with both fields compared, so the time
+  // taken doesn't reveal which username exists.
+  let matched: Login | null = null
+  for (const login of logins) {
+    const userOk = safeEqual(username, login.username)
+    const passOk = safeEqual(password, login.password)
+    if (userOk && passOk) matched = login
+  }
+  if (!matched) {
     return Response.json({ error: "Invalid username or password." }, { status: 401 })
   }
 
-  const user = await prisma.user.findFirst({ where: { email: accountEmail } })
+  const user = await prisma.user.findFirst({ where: { email: matched.email } })
   if (!user) {
     return Response.json({ error: "User not found. Sign in with Google first." }, { status: 404 })
   }
