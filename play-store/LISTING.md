@@ -5,7 +5,10 @@ with what is actually submitted.
 
 ## App details
 
-- **App name:** Emergenthealth — AI Health Companion
+- **App name:** `Emergenthealth` (14/30)
+  Play caps the app name at 30 characters — the old value here,
+  "Emergenthealth — AI Health Companion", was 36 and could not be submitted.
+  Room for a short suffix if wanted: "Emergenthealth: AI Health" (25).
 - **Package:** `app.emergenthealth`
 - **Category:** Health & Fitness
 - **Short description (max 80 chars):**
@@ -43,14 +46,19 @@ with what is actually submitted.
 > you do. Log water and coffee straight from a home-screen widget.
 >
 > **Also inside:** morning check-ins, mood and journal, medications and
-> vitamins, fasting timer, caffeine tracking, focus/Pomodoro timer, reminders,
-> weight and body measurements, custom trackers, and location insights.
+> vitamins, caffeine tracking, focus/Pomodoro timer, reminders, weight and
+> body measurements, custom trackers, and location insights.
 >
 > **Private by design**
 > Your data is yours: passkey sign-in, full export anytime, delete your account
 > and all data in one tap. We never sell health data or use it for ads.
 >
 > New features ship regularly — updates land every few weeks.
+
+<!-- Do not list held-back features in the description. Fasting is built but
+     disabled in V3 (see src/lib/features.ts), so advertising it would promise
+     something the shipped build does not have. Add each one back as its
+     release goes out. -->
 
 ## Release notes template (per update)
 

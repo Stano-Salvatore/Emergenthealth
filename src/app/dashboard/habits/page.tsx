@@ -13,6 +13,7 @@ import { Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X, Zap, Be
 import { cn } from "@/lib/utils"
 import { isFeatureEnabled } from "@/lib/features"
 import { format, subDays } from "date-fns"
+import { resyncNotifications } from "@/lib/native/notifications"
 
 // Google Play forbids external purchase links inside the app, so /pricing
 // redirects to the dashboard there — an upsell button would just dead-end.
@@ -441,6 +442,9 @@ function HabitCard({ habit, days28, onToggle, onDelete, onUpdateReminder }: {
         body: JSON.stringify({ reminderTime: value }),
       })
       onUpdateReminder(habit.id, value)
+      // Reschedule the device's alarms right away instead of waiting for the
+      // next app foreground. No-ops in a browser.
+      resyncNotifications().catch(() => {})
     } finally {
       setSavingReminder(false)
       setShowTimePicker(false)
@@ -649,6 +653,7 @@ export default function HabitsPage() {
     }
     setNewName(""); setNewReminderTime(""); setNewDose(""); setNewType("habit"); setFormOpen(false); setSaving(false)
     loadHabits()
+    if (newReminderTime) resyncNotifications().catch(() => {})
   }
 
   async function toggleComplete(habit: Habit) {

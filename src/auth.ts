@@ -38,14 +38,18 @@ export const authConfig: NextAuthConfig = {
       checks: [],
       authorization: {
         params: {
+          // Only ask for what this release actually uses. Gmail and smart home
+          // are held back (see lib/features.ts), so requesting their scopes at
+          // sign-in put "read your email" and "control your devices" on the
+          // consent screen of a health app for features nobody can reach —
+          // alarming to the user, and needless verification burden on the
+          // OAuth app. Add each back alongside the release that turns it on.
           scope: [
             "openid",
             "email",
             "profile",
             "https://www.googleapis.com/auth/calendar.readonly",
-            "https://www.googleapis.com/auth/sdm.service",
             "https://www.googleapis.com/auth/drive.readonly",
-            "https://www.googleapis.com/auth/gmail.readonly",
           ].join(" "),
           access_type: "offline",
           prompt: "consent",
