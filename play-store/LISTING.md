@@ -48,16 +48,17 @@ with what is actually submitted.
 > **Also inside:** morning check-ins, mood and journal, medications and
 > vitamins, caffeine tracking, focus/Pomodoro timer, reminders, weight and
 > body measurements, custom trackers, and location insights.
-
-<!-- Do not list held-back features here. Fasting is built but disabled in V3
-     (see src/lib/features.ts), so advertising it would promise something the
-     shipped build does not have. Add each one back as its release goes out. -->
 >
 > **Private by design**
 > Your data is yours: passkey sign-in, full export anytime, delete your account
 > and all data in one tap. We never sell health data or use it for ads.
 >
 > New features ship regularly — updates land every few weeks.
+
+<!-- Do not list held-back features in the description. Fasting is built but
+     disabled in V3 (see src/lib/features.ts), so advertising it would promise
+     something the shipped build does not have. Add each one back as its
+     release goes out. -->
 
 ## Release notes template (per update)
 
