@@ -47,7 +47,22 @@ extra_permissions = """
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!--
+      SCHEDULE_EXACT_ALARM, not USE_EXACT_ALARM.
+
+      USE_EXACT_ALARM is granted at install with no prompt, but Play restricts
+      it to apps whose *core functionality* is an alarm clock or a calendar.
+      Emergenthealth is neither — it is a health app that happens to sync a
+      calendar — so declaring it made Play demand a core-functionality answer
+      that could only be given falsely, and shipping it was a policy violation
+      waiting to be enforced.
+
+      SCHEDULE_EXACT_ALARM covers the same ground for a reminder app and needs
+      no eligibility claim; the user grants it under "Alarms & reminders". If
+      they don't, the Capacitor plugin falls back to setAndAllowWhileIdle, so
+      reminders still arrive — just not to the exact minute. Settings offers
+      the upgrade rather than assuming it.
+    -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />

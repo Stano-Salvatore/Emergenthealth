@@ -45,7 +45,8 @@ January 2026 health-app enforcement.
 | `ACCESS_FINE/COARSE_LOCATION` | Runtime-requested, optional feature (location insights); disclose in Data safety |
 | `POST_NOTIFICATIONS` | Runtime-requested (reminders, nudges) |
 | `READ_CALENDAR` | Runtime-requested (device calendar sync — core feature) |
-| `USE_EXACT_ALARM` / `SCHEDULE_EXACT_ALARM` | Reminders at user-chosen times |
+| `SCHEDULE_EXACT_ALARM` | Reminders at user-chosen times. User-granted under "Alarms & reminders"; Settings → Phone Notifications offers it. |
+| `USE_EXACT_ALARM` | **Removed.** Play restricts it to apps whose core functionality is an alarm clock or calendar — this is neither, so the Console's "Exact alarms" form could only be answered falsely. Without it the Capacitor plugin falls back to `setAndAllowWhileIdle`, so reminders still fire, just not to the minute. Do not re-add it. |
 | `PACKAGE_USAGE_STATS` | **Removed in V3** (screen time is feature-flagged off) — do not declare |
 
 ## 4. Billing

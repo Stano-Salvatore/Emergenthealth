@@ -199,6 +199,44 @@ export async function syncNotifications(
   }
 }
 
+/**
+ * Whether Android will let us schedule *exact* alarms.
+ *
+ * Separate from the notification permission above, and separately grantable.
+ * The app declares SCHEDULE_EXACT_ALARM rather than USE_EXACT_ALARM — the
+ * latter is reserved by Play for alarm-clock and calendar apps, which this
+ * isn't. On Android 13+ SCHEDULE_EXACT_ALARM starts denied, so reminders land
+ * via setAndAllowWhileIdle: they still fire, but Android may batch them a few
+ * minutes either side. Fine for "take your vitamins", less so for someone who
+ * wants 07:30 to mean 07:30 — hence the opt-in.
+ */
+export async function getExactAlarmPermission(): Promise<"granted" | "denied" | "unavailable"> {
+  const ln = await getPlugin()
+  if (!ln?.checkExactNotificationSetting) return "unavailable"
+  try {
+    const res = await ln.checkExactNotificationSetting()
+    return res?.exact_alarm === "granted" ? "granted" : "denied"
+  } catch {
+    return "unavailable"
+  }
+}
+
+/**
+ * Send the user to Android's "Alarms & reminders" screen for this app. There
+ * is no in-app prompt for this one — the system settings page is the only way
+ * to grant it. Returns the state after they come back.
+ */
+export async function requestExactAlarmPermission(): Promise<"granted" | "denied" | "unavailable"> {
+  const ln = await getPlugin()
+  if (!ln?.changeExactNotificationSetting) return "unavailable"
+  try {
+    const res = await ln.changeExactNotificationSetting()
+    return res?.exact_alarm === "granted" ? "granted" : "denied"
+  } catch {
+    return "unavailable"
+  }
+}
+
 /** Current notification permission state (native only). */
 export async function getNotificationPermission(): Promise<"granted" | "denied" | "prompt" | "unavailable"> {
   const ln = await getPlugin()
