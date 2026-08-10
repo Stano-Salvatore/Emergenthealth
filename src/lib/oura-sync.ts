@@ -131,6 +131,10 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
       await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "tagName" TEXT`
       const tagData = await getOuraTags(userId, startDate, endDate)
       for (const t of tagData) {
+        // A tag with no resolvable date can't be stored (the column is NOT
+        // NULL) and would abort the whole loop — skip it rather than lose the
+        // rest of the batch.
+        if (!t.day || !t.id) continue
         const tagsLiteral = `{${t.tags.join(",")}}`
         const tagName = t.tagName || null
         const text = t.comment || null
