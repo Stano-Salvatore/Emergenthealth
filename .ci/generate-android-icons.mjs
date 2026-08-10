@@ -1,61 +1,90 @@
-// Replaces Capacitor's default (generic blue) launcher icon with the app's
-// own branded icon (public/icons/icon-512.png — purple gradient + pulse line,
-// already used as the PWA icon). Nothing in this pipeline previously touched
-// the Android launcher icon, so every APK build shipped Capacitor's stock
-// template icon unchanged.
+// Builds the Android launcher icon from the brand mark.
 //
-// This overwrites the legacy per-density mipmap PNGs and removes the
-// adaptive-icon XML (mipmap-anydpi-v26), which otherwise takes priority on
-// API 26+ and would keep pointing at Capacitor's own foreground/background
-// drawables even after the legacy PNGs are replaced.
-import { existsSync, mkdirSync, rmSync } from "node:fs"
+// This used to write the PWA icon into the legacy mipmap PNGs and then delete
+// mipmap-anydpi-v26 so those PNGs would win. That worked in the sense that the
+// stock Capacitor icon was gone, but it also opted the app out of adaptive
+// icons — and on API 26+ a launcher handed a legacy icon shrinks it and drops
+// it on a white circle. So the installed app showed a small purple square
+// floating on white, which is not what the mark looks like.
+//
+// The fix is to ship the adaptive icon properly: a background layer, a
+// foreground layer inset into the safe zone, and a monochrome layer so Android
+// 13+ themed icons get a silhouette rather than falling back to the same
+// legacy treatment. Legacy PNGs stay for pre-API-26 devices.
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import sharp from "sharp"
+import {
+  squareIcon,
+  adaptiveBackground,
+  adaptiveForeground,
+  monochromeForeground,
+} from "./brand-icon.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const repoRoot = join(__dirname, "..")
-const source = join(repoRoot, "public/icons/icon-512.png")
-const resDir = join(repoRoot, "android/app/src/main/res")
+const resDir = join(__dirname, "..", "android/app/src/main/res")
 
+// Legacy icons are 48dp; adaptive layers are 108dp. Both scale by density.
 const DENSITIES = {
-  "mipmap-mdpi": 48,
-  "mipmap-hdpi": 72,
-  "mipmap-xhdpi": 96,
-  "mipmap-xxhdpi": 144,
-  "mipmap-xxxhdpi": 192,
+  "mipmap-mdpi": 1,
+  "mipmap-hdpi": 1.5,
+  "mipmap-xhdpi": 2,
+  "mipmap-xxhdpi": 3,
+  "mipmap-xxxhdpi": 4,
 }
 
+async function render(svgMarkup, size, out) {
+  await sharp(Buffer.from(svgMarkup)).resize(size, size).png().toFile(out)
+}
+
+const ADAPTIVE_XML =
+  `<?xml version="1.0" encoding="utf-8"?>\n` +
+  `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n` +
+  `    <background android:drawable="@mipmap/ic_launcher_bg"/>\n` +
+  `    <foreground android:drawable="@mipmap/ic_launcher_fg"/>\n` +
+  `    <monochrome android:drawable="@mipmap/ic_launcher_mono"/>\n` +
+  `</adaptive-icon>\n`
+
 async function main() {
-  if (!existsSync(source)) {
-    console.warn(`WARNING: icon source not found at ${source} — skipping icon generation`)
-    return
-  }
   if (!existsSync(resDir)) {
     console.warn(`WARNING: Android res dir not found at ${resDir} — skipping icon generation`)
     return
   }
 
-  for (const [dir, size] of Object.entries(DENSITIES)) {
+  // The mark with its own rounded corners, for launchers that show the icon
+  // as-is. 0.88 keeps the pulse clear of the rounding.
+  const legacy = squareIcon({ radius: 108, scale: 0.88 })
+  const background = adaptiveBackground()
+  const foreground = adaptiveForeground()
+  const monochrome = monochromeForeground()
+
+  for (const [dir, factor] of Object.entries(DENSITIES)) {
     const outDir = join(resDir, dir)
     mkdirSync(outDir, { recursive: true })
-    for (const name of ["ic_launcher.png", "ic_launcher_round.png"]) {
-      const out = join(outDir, name)
-      await sharp(source).resize(size, size).png().toFile(out)
-    }
-    console.log(`✓ ${dir} (${size}x${size})`)
+
+    const legacySize = Math.round(48 * factor)
+    const adaptiveSize = Math.round(108 * factor)
+
+    await render(legacy, legacySize, join(outDir, "ic_launcher.png"))
+    await render(legacy, legacySize, join(outDir, "ic_launcher_round.png"))
+    await render(background, adaptiveSize, join(outDir, "ic_launcher_bg.png"))
+    await render(foreground, adaptiveSize, join(outDir, "ic_launcher_fg.png"))
+    await render(monochrome, adaptiveSize, join(outDir, "ic_launcher_mono.png"))
+
+    console.log(`✓ ${dir} — legacy ${legacySize}px, adaptive ${adaptiveSize}px`)
   }
 
-  // Remove the adaptive-icon declaration so Android falls back to the legacy
-  // PNGs above on every API level, instead of keeping Capacitor's own
-  // foreground/background layers (which take priority on API 26+).
+  // Capacitor's template ships its own foreground/background drawables here;
+  // overwriting the XML points the adaptive icon at ours instead.
   const anydpi = join(resDir, "mipmap-anydpi-v26")
-  if (existsSync(anydpi)) {
-    rmSync(anydpi, { recursive: true, force: true })
-    console.log("✓ removed stale adaptive-icon XML (mipmap-anydpi-v26)")
+  mkdirSync(anydpi, { recursive: true })
+  for (const name of ["ic_launcher.xml", "ic_launcher_round.xml"]) {
+    writeFileSync(join(anydpi, name), ADAPTIVE_XML)
   }
+  console.log("✓ mipmap-anydpi-v26 — adaptive icon (background + foreground + monochrome)")
 
-  console.log("Android launcher icon replaced with app branding.")
+  console.log("Android launcher icon rebuilt from the brand mark.")
 }
 
 main().catch(err => {
