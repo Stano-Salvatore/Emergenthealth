@@ -122,24 +122,39 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-      # Publish the signed APK to a rolling GitHub Release so it can be installed
-      # straight from the phone — bookmark the stable link below, tap to update:
-      #   https://github.com/<owner>/<repo>/releases/latest/download/emergenthealth.apk
-      # Same keystore ⇒ installs update in place (local data kept). main only.
-      - name: Publish APK to GitHub Release
+      # Publish both artifacts to a rolling GitHub Release. Bookmark these —
+      # each is a direct download, no login and no zip to unpack, which is what
+      # makes them usable from a phone:
+      #   .../releases/latest/download/emergenthealth.apk   sideload onto a device
+      #   .../releases/latest/download/emergenthealth.aab   upload to Play Console
+      # The APK is only for sideloading; Play will not accept it. Same keystore
+      # ⇒ APK installs update in place (local data kept). main only.
+      - name: Publish APK + AAB to GitHub Release
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           APK=android/app/build/outputs/apk/release/app-release.apk
-          if [ ! -f "$APK" ]; then
-            echo "::warning::No signed APK found — skipping Release publish."
+          AAB=android/app/build/outputs/bundle/release/app-release.aab
+
+          FILES=""
+          [ -f "$APK" ] && cp "$APK" emergenthealth.apk && FILES="$FILES emergenthealth.apk"
+          [ -f "$AAB" ] && cp "$AAB" emergenthealth.aab && FILES="$FILES emergenthealth.aab"
+          if [ -z "$FILES" ]; then
+            echo "::warning::Neither APK nor AAB found — skipping Release publish."
             exit 0
           fi
-          cp "$APK" emergenthealth.apk
+
+          # Play rejects a bundle whose versionCode it has already seen, so the
+          # notes carry it: it's the number to expect in the Play upload.
+          VERSION_CODE=$(grep -oP 'versionCode \K\d+' android/app/build.gradle | head -1)
+
           # Recreate the rolling tag so the Release always reflects the latest build.
           gh release delete latest-android --yes --cleanup-tag || true
-          gh release create latest-android emergenthealth.apk \
+          gh release create latest-android $FILES \
             --title "Latest Android build" \
-            --notes "Signed APK · commit ${GITHUB_SHA} · built $(date -u '+%Y-%m-%d %H:%M UTC')" \
+            --notes "versionCode ${VERSION_CODE:-unknown} · commit ${GITHUB_SHA} · built $(date -u '+%Y-%m-%d %H:%M UTC')
+
+          - **emergenthealth.aab** — upload this one to Play Console
+          - **emergenthealth.apk** — sideload onto a device for testing" \
             --latest
