@@ -71,8 +71,19 @@ with what is actually submitted.
 
 ## Assets checklist
 
-- [ ] App icon 512×512 (use `public/icons/icon-512.png`)
-- [ ] Feature graphic 1024×500
+Regenerate the first two with `npm run store-assets` (source of truth:
+`.ci/brand-icon.mjs`). The script checks each output against Play's rules and
+fails rather than writing a file Play would reject.
+
+- [ ] App icon 512×512 — upload `play-store/assets/icon-512.png`
+
+      Not `public/icons/icon-512.png`: that one is the PWA icon, which has
+      transparent pre-rounded corners. Play applies its own corner mask, so a
+      pre-rounded source shows a visible double curve, and Play rejects alpha
+      on this slot. The generated file is square and fully opaque.
+
+- [ ] Feature graphic 1024×500 — upload
+      `play-store/assets/feature-graphic-1024x500.png`
 - [ ] At least 4 phone screenshots (1080×1920+): Overview, Emergy chat,
       Health/correlations, Habits+Garden, Calendar
 - [ ] Privacy policy URL: `https://emergenthealth.vercel.app/privacy`

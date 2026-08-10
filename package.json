@@ -7,7 +7,8 @@
     "build": "prisma db push --accept-data-loss && next build",
     "postinstall": "prisma generate",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "store-assets": "node .ci/generate-store-assets.mjs"
   },
   "dependencies": {
     "@actual-app/api": "^26.4.0",
