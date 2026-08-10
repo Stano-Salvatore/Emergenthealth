@@ -235,10 +235,21 @@ export async function getOuraTags(userId: string, startDate: string, endDate: st
     const uuid = item.tag_type_code && UUID_PATTERN.test(String(item.tag_type_code))
       ? String(item.tag_type_code)
       : null
+    // The enhanced_tag endpoint labels the date "start_day"; only the older
+    // tag model calls it "day". Reading just "day" produced undefined, and the
+    // insert then failed the NOT NULL constraint — every tag sync since has
+    // dropped its tags on the floor. Fall back through both, then to the date
+    // part of start_time.
+    const start = (item.start_time as string) ?? null
+    const day =
+      (item.start_day as string) ??
+      (item.day as string) ??
+      (start ? start.slice(0, 10) : null)
+
     return {
       id: item.id as string,
-      day: item.day as string,
-      timestamp: (item.start_time as string) ?? (item.day as string),
+      day: day as string,
+      timestamp: start ?? (day as string),
       tagName: name,
       comment: commentText || null,
       tags: item.tag_type_code ? [item.tag_type_code as string] : [],

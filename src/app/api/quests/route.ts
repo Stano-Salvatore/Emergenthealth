@@ -38,7 +38,10 @@ export async function GET() {
     prisma.intakeLog.aggregate({ where: { userId, type: "water", loggedAt: { gte: today } }, _sum: { amountMl: true } }),
     prisma.moodLog.findFirst({ where: { userId, date: { gte: today } }, select: { id: true } }),
     prisma.healthLog.findFirst({ where: { userId, date: { gte: today } }, select: { id: true } }),
-    prisma.dailyNote.findFirst({ where: { userId, date: todayStr }, select: { id: true } }),
+    // DailyNote.date is a Date column: passing the "YYYY-MM-DD" string threw
+    // "premature end of input. Expected ISO-8601 DateTime" on every request,
+    // so the journal quest never reported as done.
+    prisma.dailyNote.findFirst({ where: { userId, date: { gte: today } }, select: { id: true } }),
     prisma.focusSession.findFirst({ where: { userId, type: "focus", startedAt: { gte: today } }, select: { id: true } }),
     prisma.healthLog.findFirst({ where: { userId, weight: { not: null } }, orderBy: { date: "desc" }, select: { date: true } }),
     prisma.$queryRaw<{ id: string }[]>`SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId} AND "date" = ${todayStr} LIMIT 1`.catch(() => [] as { id: string }[]),

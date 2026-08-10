@@ -2,12 +2,19 @@
 // cache instantly and revalidated in the background (stale-while-revalidate),
 // so tab switches feel native even on slow connections. Build assets are
 // cache-first (they're content-hashed and immutable).
+// v7 stops serving cached HTML to navigations. A cached document embeds the
+// build it came from — Server Action ids, the Next build id — so after a
+// deploy the old page posts an action the server no longer has and the app
+// dies on "Failed to find Server Action". Documents are network-first now;
+// the cache is only a fallback for being offline. Static assets are
+// content-hashed and stay cache-first.
+//
 // v6 fixes an APK-bricking bug: precaching "/" and "/dashboard" followed
 // their auth redirects, and serving a redirect-followed response to a
 // navigation is forbidden — the browser fails the load with net::ERR_FAILED.
 // Redirected responses are never cached or served to navigations now, and
 // only the redirect-free /offline page is precached.
-const VERSION = "v6"
+const VERSION = "v7"
 const STATIC_CACHE = `emergenthealth-static-${VERSION}`
 const PAGES_CACHE = `emergenthealth-pages-${VERSION}`
 
@@ -91,6 +98,24 @@ async function staleWhileRevalidate(event) {
   return Response.error()
 }
 
+// Documents: always ask the server, fall back to the cache only when the
+// network is unreachable. Costs a round trip on navigation and buys immunity
+// to every stale-deployment failure.
+async function networkFirst(event) {
+  const cache = await caches.open(PAGES_CACHE)
+  try {
+    const res = await fetch(event.request)
+    if (cacheable(res)) cache.put(event.request, res.clone())
+    return res
+  } catch {
+    const cached = await cache.match(event.request)
+    if (cached && !cached.redirected) return cached
+    const offline = await cache.match("/offline")
+    if (offline) return offline
+    return Response.error()
+  }
+}
+
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return
   const url = new URL(e.request.url)
@@ -109,7 +134,13 @@ self.addEventListener("fetch", (e) => {
     return
   }
 
-  // Pages + RSC payloads: instant from cache, fresh in the background
+  // Documents must match the running deployment; everything else (RSC
+  // payloads and the like) can still come from cache first.
+  if (e.request.mode === "navigate" || e.request.destination === "document") {
+    e.respondWith(networkFirst(e))
+    return
+  }
+
   e.respondWith(staleWhileRevalidate(e))
 })
 
