@@ -84,8 +84,21 @@ fails rather than writing a file Play would reject.
 
 - [ ] Feature graphic 1024×500 — upload
       `play-store/assets/feature-graphic-1024x500.png`
-- [ ] At least 4 phone screenshots (1080×1920+): Overview, Emergy chat,
-      Health/correlations, Habits+Garden, Calendar
+- [ ] 2–8 phone screenshots at 1080×1920: Overview, Emergy chat,
+      Health/correlations, Habits, Garden, Calendar
+
+      Run the **Capture Play Store screenshots** workflow from the Actions tab
+      (works from the GitHub mobile app) and download the artifact, or
+      `npm run screenshots` locally with `DEMO_USERNAME`/`DEMO_PASSWORD` set.
+
+      It signs in as the **demo account**, never the owner's — these go on a
+      public listing, and screenshotting a real account publishes that person's
+      health history. The capture emulates a real phone (360×640 CSS at 3×)
+      rather than shrinking a desktop render, so Tailwind resolves its mobile
+      breakpoints and the result matches what a phone actually shows.
+
+      Look at them before uploading. A half-loaded chart is worse than no
+      screenshot, and no automated check catches that.
 - [ ] Privacy policy URL: `https://emergenthealth.vercel.app/privacy`
 - [ ] Account deletion URL: `https://emergenthealth.vercel.app/account-delete`
 

@@ -8,7 +8,8 @@
     "postinstall": "prisma generate",
     "start": "next start",
     "lint": "eslint",
-    "store-assets": "node .ci/generate-store-assets.mjs"
+    "store-assets": "node .ci/generate-store-assets.mjs",
+    "screenshots": "node .ci/capture-screenshots.mjs"
   },
   "dependencies": {
     "@actual-app/api": "^26.4.0",
@@ -78,6 +79,7 @@
     "dotenv": "^17.4.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
+    "playwright-core": "^1.62.1",
     "sharp": "^0.35.2",
     "tailwindcss": "^4",
     "typescript": "^5"
