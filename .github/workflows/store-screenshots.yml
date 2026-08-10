@@ -1,0 +1,74 @@
+# Captures the Play Store phone screenshots and uploads them as an artifact.
+#
+# Run it from the Actions tab (including the GitHub mobile app) — there is
+# nothing to install locally, which matters when the only device to hand is a
+# phone. The screenshots come back as a downloadable zip; look at them before
+# uploading anything to Play.
+#
+# Requires two repository secrets, the same pair configured on Vercel:
+#   DEMO_USERNAME, DEMO_PASSWORD
+# Screenshots are deliberately taken as the seeded demo account. Capturing the
+# owner's account would publish real health data on a public store listing.
+name: Capture Play Store screenshots
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Deployment to screenshot"
+        required: false
+        default: "https://emergenthealth.vercel.app"
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # playwright-core ships no browsers. The CLI version must match the
+      # library version or playwright-core will look for a build that isn't
+      # there, so it is read from the lockfile rather than pinned by hand.
+      - name: Install Chromium
+        run: |
+          VERSION=$(node -p "require('./node_modules/playwright-core/package.json').version")
+          echo "playwright-core $VERSION"
+          npx --yes "playwright@$VERSION" install --with-deps chromium
+
+      - name: Fail early if the demo login is not configured
+        env:
+          DEMO_USERNAME: ${{ secrets.DEMO_USERNAME }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+        run: |
+          if [ -z "$DEMO_USERNAME" ] || [ -z "$DEMO_PASSWORD" ]; then
+            echo "::error::Set the DEMO_USERNAME and DEMO_PASSWORD repository secrets"
+            echo "::error::(Settings → Secrets and variables → Actions). They must match"
+            echo "::error::the DEMO_* values on Vercel, and DEMO_EMAIL must point at the"
+            echo "::error::seeded demo account."
+            exit 1
+          fi
+
+      - name: Capture
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          DEMO_USERNAME: ${{ secrets.DEMO_USERNAME }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+        run: node .ci/capture-screenshots.mjs
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: play-store-screenshots
+          path: play-store/assets/screenshots/*.png
+          if-no-files-found: error
+          retention-days: 30
