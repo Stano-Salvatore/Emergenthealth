@@ -5,6 +5,8 @@ import { PasskeySignIn } from "./PasskeySignIn"
 import { Suspense } from "react"
 import { RefCapture } from "./RefCapture"
 import { CredentialsSignInForm } from "./CredentialsSignInForm"
+import { MobileSignInButton } from "./MobileSignInButton"
+import { headers } from "next/headers"
 
 const ERROR_MESSAGES: Record<string, string> = {
   OAuthAccountNotLinked: "This email is already linked to a different sign-in method.",
@@ -46,6 +48,15 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const errorKey = sp.error ?? ""
   const errorMsg = ERROR_MESSAGES[errorKey] ?? (errorKey ? ERROR_MESSAGES.Default : null)
   const buttonLabel = errorMsg ? "Try again with Google" : "Continue with Google"
+
+  // Inside the Android app the plain web OAuth form is a dead end: the flow
+  // opens in a Chrome Custom Tab, so the session cookie is set in Chrome's
+  // cookie jar and the WebView — which has its own — stays signed out. The
+  // handoff that solves this (mobile-signin → mobile-auth-bridge → poll →
+  // set-cookie) already existed but nothing on this page ever triggered it,
+  // so no one installing from the Play Store could sign in at all.
+  const ua = (await headers()).get("user-agent") ?? ""
+  const isCapacitorApp = ua.includes("Emergenthealth-Capacitor")
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background overflow-hidden relative">
@@ -95,21 +106,25 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
 
             <PasskeySignIn />
 
-            <form
-              action={async () => {
-                "use server"
-                await signIn("google", { redirectTo: "/dashboard" })
-              }}
-            >
-              <Button type="submit" className={GOOGLE_BTN_CLASS} size="lg">
-                <GoogleIcon />
-                {buttonLabel}
-              </Button>
-            </form>
+            {isCapacitorApp ? (
+              <MobileSignInButton label={buttonLabel} />
+            ) : (
+              <form
+                action={async () => {
+                  "use server"
+                  await signIn("google", { redirectTo: "/dashboard" })
+                }}
+              >
+                <Button type="submit" className={GOOGLE_BTN_CLASS} size="lg">
+                  <GoogleIcon />
+                  {buttonLabel}
+                </Button>
+              </form>
+            )}
           </div>
 
           <p className="text-xs text-center text-muted-foreground/70 leading-relaxed">
-            Connects to Google Calendar &amp; Gmail.
+            Connects to Google Calendar.
             <br />
             Health data synced via Oura.
           </p>
