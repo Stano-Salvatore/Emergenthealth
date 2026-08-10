@@ -12,14 +12,18 @@ import {
   scheduleTestNotification,
   getNotificationPermission,
   ensureNotificationPermission,
+  getExactAlarmPermission,
+  requestExactAlarmPermission,
 } from "@/lib/native/notifications"
 
 type Perm = "granted" | "denied" | "prompt" | "unavailable" | "loading"
+type Exact = "granted" | "denied" | "unavailable" | "loading"
 
 export function NotificationNudges() {
   const [inApp, setInApp] = useState(false)
   const [on, setOn] = useState(true)
   const [perm, setPerm] = useState<Perm>("loading")
+  const [exact, setExact] = useState<Exact>("loading")
   const [test, setTest] = useState<"idle" | "sending" | "scheduled" | "denied" | "unavailable">("idle")
 
   useEffect(() => {
@@ -28,6 +32,7 @@ export function NotificationNudges() {
       if (native) {
         setOn(nudgesEnabled())
         setPerm(await getNotificationPermission())
+        setExact(await getExactAlarmPermission())
       }
     })
   }, [])
@@ -90,6 +95,36 @@ export function NotificationNudges() {
           </p>
         ) : (
           <p className="text-xs text-green-400">✓ Notifications are on for this phone.</p>
+        )}
+
+        {/* Exact timing. Only worth showing once notifications actually work,
+            and only when Android has something left to grant. */}
+        {perm === "granted" && exact === "denied" && (
+          <div className="flex items-center justify-between gap-3 border-t border-border/40 pt-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium">Reminders arrive within a few minutes</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Android batches them to save battery. Allow exact alarms and 07:30 means 07:30.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs shrink-0"
+              onClick={async () => {
+                setExact("loading")
+                setExact(await requestExactAlarmPermission())
+                await resyncNotifications()
+              }}
+            >
+              Allow
+            </Button>
+          </div>
+        )}
+        {perm === "granted" && exact === "granted" && (
+          <p className="text-[11px] text-green-400 border-t border-border/40 pt-3">
+            ✓ Exact timing on — reminders fire at the minute you set.
+          </p>
         )}
 
         {/* Daily nudges toggle */}
