@@ -1,35 +1,28 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { COMPOUNDS, LIMIT_MG, HALF_LIFE_H, activeFromDoses } from "@/lib/caffeine"
 
-const LIMIT_MG = 400
-
-export const COMPOUNDS: Record<string, { label: string; mg: number; emoji: string }> = {
-  espresso:      { label: "Espresso",      mg: 63,  emoji: "☕" },
-  filter_coffee: { label: "Filter coffee", mg: 140, emoji: "☕" },
-  green_tea:     { label: "Green tea",     mg: 30,  emoji: "🍵" },
-  black_tea:     { label: "Black tea",     mg: 50,  emoji: "🍵" },
-  matcha:        { label: "Matcha",        mg: 70,  emoji: "🍵" },
-  energy_drink:  { label: "Energy drink",  mg: 80,  emoji: "⚡" },
-  pre_workout:   { label: "Pre-workout",   mg: 200, emoji: "💪" },
-  cola:          { label: "Cola (330ml)",  mg: 35,  emoji: "🥤" },
+// Today's log list + total, plus the caffeine still active right now. Active
+// looks back 24h (not just midnight) so a late espresso still counts at 7am.
+async function caffeineState(userId: string) {
+  const now = Date.now()
+  const logs24 = await prisma.caffeineLog.findMany({
+    where: { userId, loggedAt: { gte: new Date(now - 24 * 3600_000) } },
+    orderBy: { loggedAt: "desc" },
+  })
+  const startOfDay = new Date()
+  startOfDay.setHours(0, 0, 0, 0)
+  const logs = logs24.filter(l => l.loggedAt >= startOfDay)
+  const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
+  const activeMg = activeFromDoses(logs24, now)
+  return { logs, totalMg, activeMg, halfLifeH: HALF_LIFE_H, limitMg: LIMIT_MG }
 }
 
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const userId = session.user.id
-
-  const startOfDay = new Date()
-  startOfDay.setHours(0, 0, 0, 0)
-
-  const logs = await prisma.caffeineLog.findMany({
-    where: { userId, loggedAt: { gte: startOfDay } },
-    orderBy: { loggedAt: "desc" },
-  })
-
-  const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
-  return NextResponse.json({ logs, totalMg, limitMg: LIMIT_MG })
+  return NextResponse.json(await caffeineState(session.user.id))
 }
 
 export async function POST(req: NextRequest) {
@@ -49,16 +42,7 @@ export async function POST(req: NextRequest) {
     data: { userId, compound, caffeineMg, servings },
   })
 
-  const startOfDay = new Date()
-  startOfDay.setHours(0, 0, 0, 0)
-
-  const logs = await prisma.caffeineLog.findMany({
-    where: { userId, loggedAt: { gte: startOfDay } },
-    orderBy: { loggedAt: "desc" },
-  })
-
-  const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
-  return NextResponse.json({ ok: true, logs, totalMg, limitMg: LIMIT_MG })
+  return NextResponse.json({ ok: true, ...(await caffeineState(userId)) })
 }
 
 export async function DELETE(req: NextRequest) {

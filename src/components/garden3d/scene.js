@@ -157,8 +157,8 @@ export async function createGardenScene(host, opts = {}) {
   const pulses = [];
   let labelsOn = false, longPressFired = false, longPressTimer = 0;
 
-  /* move mode: tap a plant to pick it up, tap a tile to set it down */
-  let moveMode = false, moveSel = null;
+  /* move mode: tap a plant or decoration to pick it up, tap a tile to set it down */
+  let moveMode = false, moveSel = null;   // moveSel: { holder, id }
   const selRing = new THREE.Mesh(
     new THREE.TorusGeometry(0.42, 0.035, 8, 26),
     new THREE.MeshBasicMaterial({ color: 0xffe9b0, transparent: true, opacity: 0.9, depthWrite: false }));
@@ -166,11 +166,27 @@ export async function createGardenScene(host, opts = {}) {
   selRing.visible = false;
   scene.add(selRing);
 
+  // Static decor the user may rearrange (animated critters roam on their own).
+  const MOVABLE_IDS = ['gnome', 'feed_bowl', 'basket', 'stool'];
+  const movables = new Map();
+  for (const id of MOVABLE_IDS) {
+    const o = id === 'feed_bowl' ? fauna.bowl : root.getObjectByName(id);
+    if (o) movables.set(id, o);
+  }
+
   const plantAtPointer = () => {
     for (const hit of ray.intersectObject(flora.root, true)) {
       let o = hit.object;
       while (o && !byIndex.has(o)) o = o.parent;
       if (o) return byIndex.get(o);
+    }
+    return null;
+  };
+
+  const movableAtPointer = () => {
+    for (const [id, obj] of movables) {
+      if (!obj.visible) continue;
+      if (ray.intersectObject(obj, true).length > 0) return { holder: obj, id };
     }
     return null;
   };
@@ -184,10 +200,11 @@ export async function createGardenScene(host, opts = {}) {
 
     if (moveMode) {
       const rec = plantAtPointer();
-      if (rec) {                                     // pick up (or switch selection)
-        moveSel = rec;
+      const pick = rec ? { holder: rec.holder, id: rec.habitId ?? rec.label } : movableAtPointer();
+      if (pick) {                                     // pick up (or switch selection)
+        moveSel = pick;
         selRing.visible = true;
-        pulses.push({ holder: rec.holder, t0: t });
+        pulses.push({ holder: pick.holder, t0: t });
         return;
       }
       if (!moveSel) return;
@@ -198,7 +215,7 @@ export async function createGardenScene(host, opts = {}) {
       if (gx < 0 || gx >= COLS || gy < 0 || gy >= ROWS || G[gy][gx] === 'water') return;
       moveSel.holder.position.set(wx(gx), topY(gx, gy), wz(gy));
       pulses.push({ holder: moveSel.holder, t0: t });
-      opts.onPlantMoved?.(moveSel.habitId ?? moveSel.label, { x: gx, y: gy });
+      opts.onPlantMoved?.(moveSel.id, { x: gx, y: gy });
       moveSel = null;
       selRing.visible = false;
       return;
@@ -518,6 +535,16 @@ export async function createGardenScene(host, opts = {}) {
         syncLabels();
       }
       if (typeof data.fedToday === 'boolean') fauna.setKibble(data.fedToday);
+      // user-arranged decor positions (same layout store as the plants)
+      if (data.placed && typeof data.placed === 'object') {
+        for (const [id, obj] of movables) {
+          const pos = data.placed[id];
+          if (pos && Number.isInteger(pos.x) && Number.isInteger(pos.y)
+              && pos.x >= 0 && pos.x < COLS && pos.y >= 0 && pos.y < ROWS && G[pos.y][pos.x] !== 'water') {
+            obj.position.set(wx(pos.x), topY(pos.x, pos.y), wz(pos.y));
+          }
+        }
+      }
       if (Array.isArray(data.decorations)) {
         const on = id => data.decorations.includes(id);
         const show = (name, v) => { const o = root.getObjectByName(name); if (o) o.visible = v };

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { estimateCaffeine } from "@/lib/caffeine"
 
 const ALLOWED_TYPES = ["water", "coffee", "beer", "wine"] as const
 type AllowedType = (typeof ALLOWED_TYPES)[number]
@@ -48,13 +49,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "amountMl must be a positive number" }, { status: 400 })
   }
 
-  await prisma.intakeLog.create({
+  const log = await prisma.intakeLog.create({
     data: {
       userId,
       type: type as string,
       amountMl: Math.round(amountMl),
     },
   })
+
+  // caffeinated drinks auto-feed the caffeine tracker (same as /api/intake)
+  const est = estimateCaffeine(type as string, "", Math.round(amountMl))
+  if (est) {
+    await prisma.caffeineLog.create({
+      data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg },
+    }).catch(() => null)
+  }
 
   return NextResponse.json({ ok: true, type, amountMl })
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { estimateCaffeine } from "@/lib/caffeine"
 
 async function resolveUser(req: NextRequest): Promise<string | null> {
   const auth = req.headers.get("authorization") ?? ""
@@ -41,6 +42,14 @@ export async function POST(req: NextRequest) {
   const log = await prisma.intakeLog.create({
     data: { userId, type, amountMl, note: note ?? null },
   })
+
+  // caffeinated drinks auto-feed the caffeine tracker (same as /api/intake)
+  const est = estimateCaffeine(type, note ?? "", amountMl)
+  if (est) {
+    await prisma.caffeineLog.create({
+      data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg },
+    }).catch(() => null)
+  }
 
   return NextResponse.json(log, { status: 201 })
 }

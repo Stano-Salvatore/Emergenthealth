@@ -7,18 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Trash2 } from "lucide-react"
 import { format } from "date-fns"
 
-const COMPOUNDS: Record<string, { label: string; mg: number; emoji: string }> = {
-  espresso:      { label: "Espresso",      mg: 63,  emoji: "☕" },
-  filter_coffee: { label: "Filter coffee", mg: 140, emoji: "☕" },
-  green_tea:     { label: "Green tea",     mg: 30,  emoji: "🍵" },
-  black_tea:     { label: "Black tea",     mg: 50,  emoji: "🍵" },
-  matcha:        { label: "Matcha",        mg: 70,  emoji: "🍵" },
-  energy_drink:  { label: "Energy drink",  mg: 80,  emoji: "⚡" },
-  pre_workout:   { label: "Pre-workout",   mg: 200, emoji: "💪" },
-  cola:          { label: "Cola (330ml)",  mg: 35,  emoji: "🥤" },
-}
+import { COMPOUNDS, COMPOUND_LABELS, LIMIT_MG, decayed, hoursToBedtime } from "@/lib/caffeine"
 
-const LIMIT_MG = 400
+// Entries created automatically from intake drinks / Oura tags carry a
+// deterministic id prefix; the log marks them so manual ones stand apart.
+const isAutoEntry = (id: string) => id.startsWith("intake_") || id.startsWith("oura_caf_")
 
 interface CaffeineLog {
   id: string
@@ -31,6 +24,8 @@ interface CaffeineLog {
 interface CaffeineData {
   logs: CaffeineLog[]
   totalMg: number
+  activeMg?: number
+  halfLifeH?: number
   limitMg: number
 }
 
@@ -38,6 +33,51 @@ function progressColor(mg: number): string {
   if (mg < 200) return "bg-green-500"
   if (mg <= 350) return "bg-amber-500"
   return "bg-red-500"
+}
+
+function ActiveNowCard({ activeMg, halfLifeH }: { activeMg: number; halfLifeH: number }) {
+  const bedH = hoursToBedtime()
+  const atBed = decayed(activeMg, bedH, halfLifeH)
+  // decay curve over the next 12h, 30-min steps, in a 100×32 viewBox
+  const points = Array.from({ length: 25 }, (_, i) => {
+    const h = i * 0.5
+    const mg = activeMg * Math.pow(0.5, h / halfLifeH)
+    return `${(h / 12) * 100},${32 - (mg / activeMg) * 28 - 2}`
+  }).join(" ")
+  const bedX = Math.min(100, (bedH / 12) * 100)
+
+  return (
+    <Card className="rounded-2xl border border-border bg-card">
+      <CardContent className="pt-4 pb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground">In your system now</p>
+            <p className="text-2xl font-black mt-0.5">
+              {activeMg} <span className="text-sm font-semibold text-muted-foreground">mg</span>
+            </p>
+            <p className={`text-xs mt-1 ${atBed > 50 ? "text-amber-400" : "text-muted-foreground"}`}>
+              ≈{atBed} mg at 23:00 {atBed > 50 ? "— may affect sleep" : "— sleep-safe"}
+            </p>
+          </div>
+          <div className="flex-1 max-w-[220px] pt-1">
+            <svg viewBox="0 0 100 32" className="w-full h-12" preserveAspectRatio="none">
+              <polyline points={points} fill="none" stroke="currentColor"
+                className="text-primary" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+              {bedH <= 12 && (
+                <line x1={bedX} y1="0" x2={bedX} y2="32" stroke="currentColor"
+                  className="text-muted-foreground/40" strokeWidth="1" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
+              )}
+            </svg>
+            <div className="flex justify-between text-[9px] text-muted-foreground/60">
+              <span>now</span>
+              {bedH <= 12 && <span>23:00</span>}
+              <span>+12h</span>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
 
 export default function CaffeinePage() {
@@ -119,6 +159,11 @@ export default function CaffeinePage() {
         </div>
       </div>
 
+      {/* Active caffeine + decay projection */}
+      {(data.activeMg ?? 0) > 0 && (
+        <ActiveNowCard activeMg={data.activeMg!} halfLifeH={data.halfLifeH ?? 5} />
+      )}
+
       {/* Progress bar */}
       <Card className="rounded-2xl border border-border bg-card">
         <CardContent className="pt-4 pb-4 space-y-2">
@@ -184,14 +229,21 @@ export default function CaffeinePage() {
             </p>
           ) : (
             data.logs.map(log => {
-              const info = COMPOUNDS[log.compound]
+              const info = COMPOUND_LABELS[log.compound]
               return (
                 <div
                   key={log.id}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-border/50 bg-secondary/20 text-sm"
                 >
                   <span className="text-base shrink-0">{info?.emoji ?? "☕"}</span>
-                  <span className="flex-1 font-medium">{info?.label ?? log.compound}</span>
+                  <span className="flex-1 font-medium">
+                    {info?.label ?? log.compound}
+                    {isAutoEntry(log.id) && (
+                      <span className="ml-2 text-[9px] uppercase tracking-wider text-muted-foreground/60 border border-border/60 rounded px-1 py-0.5">
+                        auto
+                      </span>
+                    )}
+                  </span>
                   <Badge variant="secondary" className="text-xs shrink-0">
                     {log.caffeineMg} mg
                   </Badge>

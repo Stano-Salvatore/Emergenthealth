@@ -6,8 +6,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { format, subDays } from "date-fns"
-import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight } from "lucide-react"
+import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 import CaffeinePage from "@/app/dashboard/caffeine/page"
 import MedicationsPage from "@/app/dashboard/medications/page"
 
@@ -36,12 +37,13 @@ const QUICK_GROUPS: { title: string; items: QuickItem[] }[] = [
   {
     title: "Coffee & tea",
     items: [
-      { type: "coffee", label: "Espresso",   amount: 30,  icon: "☕" },
-      { type: "coffee", label: "Americano",  amount: 200, icon: "☕" },
-      { type: "coffee", label: "Flat white", amount: 160, icon: "☕" },
-      { type: "coffee", label: "Latte",      amount: 300, icon: "☕" },
-      { type: "coffee", label: "Cold brew",  amount: 300, icon: "🧊" },
-      { type: "coffee", label: "Batch brew", amount: 250, icon: "🫖" },
+      // note doubles as the drink style for the caffeine auto-log
+      { type: "coffee", label: "Espresso",   amount: 30,  icon: "☕", note: "Espresso" },
+      { type: "coffee", label: "Americano",  amount: 200, icon: "☕", note: "Americano" },
+      { type: "coffee", label: "Flat white", amount: 160, icon: "☕", note: "Flat white" },
+      { type: "coffee", label: "Latte",      amount: 300, icon: "☕", note: "Latte" },
+      { type: "coffee", label: "Cold brew",  amount: 300, icon: "🧊", note: "Cold brew" },
+      { type: "coffee", label: "Batch brew", amount: 250, icon: "🫖", note: "Batch brew" },
       { type: "tea",    label: "Tea",        amount: 250, icon: "🍵" },
       { type: "matcha", label: "Matcha",     amount: 250, icon: "🍃" },
     ],
@@ -142,7 +144,22 @@ export default function IntakePage() {
   const [date, setDate] = useState(() => localDateStr())
   const [weekData, setWeekData] = useState<WeekDay[]>([])
   const [waterGoal, setWaterGoal] = useState(2000)
+  const [caffeineMg, setCaffeineMg] = useState<number | null>(null)
+  const [lateCoffeeMg, setLateCoffeeMg] = useState<number | null>(null)
   const isToday = date === localDateStr()
+
+  // Today's caffeine total (auto-fed from these drinks) shown on the coffee
+  // card. Returns the full state so addEntry can check the bedtime projection.
+  const loadCaffeine = useCallback(async () => {
+    try {
+      const res = await fetch("/api/caffeine")
+      if (!res.ok) return null
+      const d = await res.json()
+      if (typeof d?.totalMg === "number") setCaffeineMg(d.totalMg)
+      return d as { totalMg: number; activeMg?: number; halfLifeH?: number }
+    } catch { return null }
+  }, [])
+  useEffect(() => { loadCaffeine() }, [loadCaffeine])
 
   // Load check-in water goal for today
   useEffect(() => {
@@ -198,6 +215,13 @@ export default function IntakePage() {
     })
     setAdding(null)
     load()
+    const caf = await loadCaffeine()
+    // Gentle heads-up after a caffeinated drink: how much will still be
+    // circulating at 23:00? Informational only — the drink is already logged.
+    if (caf?.activeMg && estimateCaffeine(type, note ?? "", amountMl)) {
+      const atBed = decayed(caf.activeMg, hoursToBedtime(), caf.halfLifeH ?? 5)
+      setLateCoffeeMg(atBed > 50 ? atBed : null)
+    }
   }
 
   // Custom entry: any type, any ml, optional strength (13° / 5.5%) for alcohol
@@ -222,6 +246,7 @@ export default function IntakePage() {
       body: JSON.stringify({ id }),
     })
     load()
+    loadCaffeine()
   }
 
   function navDate(delta: number) {
@@ -300,13 +325,28 @@ export default function IntakePage() {
 
       {activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : (<>
 
+      {/* gentle late-caffeine heads-up */}
+      {lateCoffeeMg != null && (
+        <div className="flex items-center gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5">
+          <span className="text-base shrink-0">🌙</span>
+          <p className="flex-1 text-xs text-amber-400">
+            Heads-up: ≈{lateCoffeeMg} mg of caffeine will still be active at 23:00 — it might affect your sleep.
+          </p>
+          <button onClick={() => setLateCoffeeMg(null)} aria-label="Dismiss"
+            className="p-1 rounded-md text-amber-400/60 hover:text-amber-400 transition-colors shrink-0">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* summary cards */}
       {/* Column count must be a literal class: Tailwind only ships classes it
           can see in the source, so the old built-up `sm:grid-cols-${n}` left
           5- and 6-column layouts with no CSS at all. */}
       <div className={cn("grid gap-3 grid-cols-2", SUMMARY_COLS[cardCount])}>
         <SummaryCard label="Water" value={waterTotal} goal={waterGoal} unit="ml" color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
-        <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕" />
+        <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕"
+          sub={isToday && caffeineMg != null && caffeineMg > 0 ? `≈${caffeineMg} mg caffeine` : undefined} />
         {sparklingTotal > 0 && <SummaryCard label="Sparkling" value={sparklingTotal} unit="ml" color="text-cyan-400" barColor="bg-cyan-500" emoji="🫧" />}
         {teaTotal > 0 && <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />}
         {matchaTotal > 0 && <SummaryCard label="Matcha" value={matchaTotal} unit="ml" color="text-emerald-400" barColor="bg-emerald-500" emoji="🍃" />}
@@ -487,8 +527,8 @@ export default function IntakePage() {
   )
 }
 
-function SummaryCard({ label, value, goal, unit, color, barColor, emoji }: {
-  label: string; value: number; goal?: number; unit: string; color: string; barColor: string; emoji: string
+function SummaryCard({ label, value, goal, unit, color, barColor, emoji, sub }: {
+  label: string; value: number; goal?: number; unit: string; color: string; barColor: string; emoji: string; sub?: string
 }) {
   const pct = goal ? Math.min(100, (value / goal) * 100) : null
   const display = value >= 1000 ? `${(value / 1000).toFixed(1)}L` : `${value}ml`
@@ -499,6 +539,7 @@ function SummaryCard({ label, value, goal, unit, color, barColor, emoji }: {
         <p className={`text-xl font-black ${color}`}>{display}</p>
         {goal && <p className="text-[10px] text-muted-foreground">of {goal >= 1000 ? `${goal/1000}L` : `${goal}ml`}</p>}
         <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+        {sub && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{sub}</p>}
         {pct !== null && (
           <div className="mt-2 h-1 bg-secondary rounded-full overflow-hidden">
             <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />

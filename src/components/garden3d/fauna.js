@@ -103,6 +103,7 @@ export function buildFauna() {
   anims.push(t => {
     if (pendingFeed) { pendingFeed = false; feedStart = t; kibble.visible = true; }
     const p = feedPhase(t);
+    hearts.position.copy(bowl.position);   // the bowl can be moved in move mode
     hearts.material.opacity = p * 0.9;
     if (p > 0) {
       for (let i = 0; i < HEARTS; i++) {
@@ -175,12 +176,13 @@ export function buildFauna() {
 
   const kitty = cat('cat');
   const catHome = { x: wx(8.4), z: wz(7.4), rot: -2.2 };
-  const catSpot = { x: wx(6.3) + 0.42, z: wz(7.1) + 0.18, rot: -2.6 };   // beside the bowl
   kitty.g.position.set(catHome.x, 0.28, catHome.z);
   kitty.g.rotation.y = catHome.rot;
   root.add(kitty.g);
   anims.push(t => {
     const fp = feedPhase(t);
+    // derived each frame — the bowl can be moved in move mode
+    const catSpot = { x: bowl.position.x + 0.42, z: bowl.position.z + 0.18, rot: -2.6 };
     kitty.g.position.x = catHome.x + (catSpot.x - catHome.x) * fp;
     kitty.g.position.z = catHome.z + (catSpot.z - catHome.z) * fp;
     kitty.g.rotation.y = catHome.rot + (catSpot.rot - catHome.rot) * fp;
@@ -203,6 +205,7 @@ export function buildFauna() {
 
   return {
     root,
+    bowl,
     update: t => anims.forEach(f => f(t)),
     feed: () => { pendingFeed = true; },
     setKibble: v => { kibble.visible = v; },

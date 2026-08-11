@@ -11,6 +11,7 @@ interface TagItem {
   day: string
   timestamp: Date
   tagName: string | null
+  rawName?: string | null    // pre-normalization label from Oura
   text: string | null
   tags: string[]
   category: string
@@ -35,8 +36,10 @@ const CATEGORY_BG: Record<string, string> = {
 // ── By-Type view: one card per unique tag type ───────────────────────────────
 
 interface TagGroup {
-  uuid: string | null      // null = tag with no type code
+  key: string
+  uuids: string[]          // every Oura tag type merged into this group
   name: string | null
+  variants: string[]       // distinct raw labels that normalized to this name
   category: string
   emoji: string
   entries: TagItem[]
@@ -45,11 +48,18 @@ interface TagGroup {
 function buildGroups(items: TagItem[]): TagGroup[] {
   const map = new Map<string, TagGroup>()
   for (const item of items) {
-    const key = item.tags[0] ?? `__no_uuid_${item.id}`
+    // Named tags group by (normalized) display name so different Oura tag
+    // types that mean the same thing merge into one card; unnamed tags fall
+    // back to their type UUID.
+    const key = item.tagName
+      ? `name:${item.tagName.toLowerCase()}`
+      : item.tags[0] ? `uuid:${item.tags[0]}` : `id:${item.id}`
     if (!map.has(key)) {
       map.set(key, {
-        uuid: item.tags[0] ?? null,
+        key,
+        uuids: [],
         name: item.tagName,
+        variants: [],
         category: item.category,
         emoji: item.emoji,
         entries: [],
@@ -57,15 +67,21 @@ function buildGroups(items: TagItem[]): TagGroup[] {
     }
     const g = map.get(key)!
     if (!g.name && item.tagName) { g.name = item.tagName; g.category = item.category; g.emoji = item.emoji }
+    if (item.tags[0] && !g.uuids.includes(item.tags[0])) g.uuids.push(item.tags[0])
+    const raw = item.rawName?.trim()
+    if (raw && raw.toLowerCase() !== (g.name ?? "").toLowerCase()
+        && !g.variants.some(v => v.toLowerCase() === raw.toLowerCase())) {
+      g.variants.push(raw)
+    }
     g.entries.push(item)
   }
 
-  // Sort: named groups first (alphabetically), then unnamed (by UUID for stable order)
+  // Sort: named groups first (alphabetically), then unnamed (stable order)
   return [...map.values()].sort((a, b) => {
     if (a.name && !b.name) return -1
     if (!a.name && b.name) return 1
     if (a.name && b.name) return a.name.localeCompare(b.name)
-    return (a.uuid ?? "").localeCompare(b.uuid ?? "")
+    return a.key.localeCompare(b.key)
   })
 }
 
@@ -74,7 +90,7 @@ function TypeCard({
   onRename,
 }: {
   group: TagGroup
-  onRename: (uuid: string, current: string) => void
+  onRename: (uuids: string[], current: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const sorted = [...group.entries].sort(
@@ -98,9 +114,9 @@ function TypeCard({
               <p className={cn("text-sm font-semibold leading-snug", !group.name && "text-amber-400/80 italic")}>
                 {group.name ?? "Unnamed tag"}
               </p>
-              {group.uuid && (
+              {group.uuids.length > 0 && (
                 <button
-                  onClick={() => onRename(group.uuid!, group.name ?? "")}
+                  onClick={() => onRename(group.uuids, group.name ?? "")}
                   className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground/40 hover:text-primary hover:bg-primary/10 active:bg-primary/20 transition-colors shrink-0"
                   title="Rename this tag type"
                 >
@@ -111,7 +127,13 @@ function TypeCard({
             <p className="text-xs text-muted-foreground mt-0.5">
               {group.entries.length} {group.entries.length === 1 ? "entry" : "entries"}
               {lastSeen && ` · last ${format(new Date(lastSeen + "T12:00:00"), "MMM d")}`}
+              {group.uuids.length > 1 && ` · ${group.uuids.length} Oura tags merged`}
             </p>
+            {group.variants.length > 0 && (
+              <p className="text-[10px] text-muted-foreground/60 mt-0.5 truncate">
+                aka {group.variants.slice(0, 4).join(", ")}{group.variants.length > 4 ? "…" : ""}
+              </p>
+            )}
           </div>
           <button
             onClick={() => setExpanded(e => !e)}
@@ -151,7 +173,7 @@ export default function MedicationsPage() {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"date" | "type">("type")
-  const [renaming, setRenaming] = useState<{ uuid: string; current: string } | null>(null)
+  const [renaming, setRenaming] = useState<{ uuids: string[]; current: string } | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const [renameSaving, setRenameSaving] = useState(false)
 
@@ -191,8 +213,8 @@ export default function MedicationsPage() {
     load(filter, cat)
   }
 
-  function startRename(uuid: string, current: string) {
-    setRenaming({ uuid, current })
+  function startRename(uuids: string[], current: string) {
+    setRenaming({ uuids, current })
     setRenameValue(current)
   }
 
@@ -200,11 +222,15 @@ export default function MedicationsPage() {
     if (!renaming || !renameValue.trim()) { setRenaming(null); return }
     setRenameSaving(true)
     try {
-      await fetch("/api/tag-aliases", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tagTypeUuid: renaming.uuid, name: renameValue.trim() }),
-      })
+      // A merged group covers several Oura tag types — the new name applies
+      // to all of them so they stay together.
+      await Promise.all(renaming.uuids.map(uuid =>
+        fetch("/api/tag-aliases", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tagTypeUuid: uuid, name: renameValue.trim() }),
+        })
+      ))
       setRenaming(null)
       await load()
     } finally {
@@ -375,9 +401,9 @@ export default function MedicationsPage() {
       {/* ── By Type view ── */}
       {!loading && viewMode === "type" && groups.length > 0 && (
         <div className="space-y-3">
-          {groups.map((group, i) => (
+          {groups.map(group => (
             <TypeCard
-              key={group.uuid ?? `no-uuid-${i}`}
+              key={group.key}
               group={group}
               onRename={startRename}
             />
@@ -428,7 +454,7 @@ export default function MedicationsPage() {
                                   </p>
                                   {item.tags[0] && (
                                     <button
-                                      onClick={() => startRename(item.tags[0], item.tagName ?? "")}
+                                      onClick={() => startRename([item.tags[0]], item.tagName ?? "")}
                                       className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground/40 hover:text-primary hover:bg-primary/10 active:bg-primary/20 transition-colors shrink-0"
                                       title="Rename this tag type"
                                     >
@@ -467,7 +493,9 @@ export default function MedicationsPage() {
           <div className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl p-5 space-y-4">
             <div>
               <h3 className="font-semibold text-base">Name this tag type</h3>
-              <p className="text-xs text-muted-foreground mt-0.5">Renames all entries of this tag type across all days.</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Renames all entries across all days{renaming.uuids.length > 1 ? ` (${renaming.uuids.length} merged Oura tag types)` : ""}.
+              </p>
             </div>
             <input
               autoFocus

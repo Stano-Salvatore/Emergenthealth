@@ -565,7 +565,7 @@ export default function GardenPage() {
               style={{ bottom: 14, background: "rgba(22,26,22,0.85)", backdropFilter: "blur(6px)",
                 border: "1px solid rgba(255,233,176,0.4)" }}>
               <span className="font-semibold" style={{ color: "#ffe9b0", fontSize: 11.5 }}>
-                🖐 Tap a plant, then tap a tile to move it
+                🖐 Tap a plant or decoration, then tap a tile to move it
               </span>
             </div>
           )}
@@ -747,7 +747,7 @@ export default function GardenPage() {
               ["🥀", "Wilting", "3+ consecutive missed days"],
               ["💧", "Daily watering", "One tap a day, +5 XP each"],
               ["🥣", "Feed the animals", "Fill the bowl daily — everyone gathers, +5 XP"],
-              ["🖐 ↔", "Move plants", "Move mode: tap a plant, then a tile"],
+              ["🖐 ↔", "Rearrange", "Move mode: tap a plant or decoration, then a tile"],
               ["🖐", "Orbit view", "Drag to spin the garden, pinch to zoom"],
               ["🏡 ⛲", "Level scenery", "Ponds, decks & trees unlock as you level"],
               ["🌧️ 🌙", "Weather & night", "Real weather + day/night lighting"],

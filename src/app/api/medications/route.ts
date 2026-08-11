@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { normalizeSupplement, cleanLabel, fold } from "@/lib/supplement-normalize"
 
 async function ensureTable() {
   await prisma.$executeRaw`
@@ -30,20 +31,27 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 function isUuid(s: string) { return UUID_RE.test(s.trim()) }
 
 function categorize(label: string): { category: string; emoji: string } {
-  const l = label.toLowerCase()
+  // Diacritics-insensitive so Slovak labels (káva, horčík, vitamín…) match too
+  const l = fold(label)
 
   // Volume amounts (200ml, 300ml …) → Drinks
   if (/\d+\s*ml/.test(l)) return { category: "Drinks", emoji: "🥤" }
 
   const drinkKeywords = ["coffee", "alcohol", "beer", "wine", "spirit", "cocktail", "drink", "water", "tea",
     "juice", "soda", "energy drink", "protein shake", "shake", "beverage", "smoothie", "latte",
-    "espresso", "cappuccino", "whisky", "whiskey", "vodka", "rum", "gin", "cider"]
+    "espresso", "cappuccino", "whisky", "whiskey", "vodka", "rum", "gin", "cider", "matcha", "sparkling",
+    // Slovak (folded)
+    "kava", "pivo", "vino", "voda", "caj", "dzus", "borovicka", "slivovica"]
   const vitaminKeywords = ["vitamin", "vit ", "omega", "zinc", "magnesium", "calcium", "iron", "probiotic",
     "supplement", "fish oil", "d3", "b12", "folate", "biotin", "collagen", "melatonin", "glutamine",
-    "creatine", "coq10", "ashwagandha", "turmeric", "curcumin", "quercetin"]
+    "creatine", "coq10", "ashwagandha", "turmeric", "curcumin", "quercetin",
+    // Slovak (folded)
+    "horcik", "zelezo", "vapnik", "zinok", "selen", "kolagen", "kreatin", "kurkuma", "probiotik"]
   const medicationKeywords = ["pill", "tablet", "capsule", "medication", "medicine", "drug", "dose", "mg ",
     "ibuprofen", "paracetamol", "aspirin", "antibiotic", "prescription", "painkiller", "antihistamine",
     "inhaler", "injection", "cream", "gel", "spray", "meds", "med ", "rx",
+    // Slovak (folded)
+    "liek", "tabletka", "kvapky", "sirup", "mast", "antibiotik",
     // common drug name suffixes
     "zepam", "prazole", "mycin", "cillin", "azole", "tidine", "vastatin", "sartan", "pril",
     "olol", "triptan", "setron", "gliptin", "gliflozin", "oxetine", "zepine", "razine",
@@ -102,15 +110,25 @@ export async function GET(req: Request) {
         (r.text && r.text.trim() && !isUuid(r.text) ? r.text.trim() : null) ??
         (r.tags[0] ? uuidToName.get(r.tags[0]) ?? null : null)
 
-      const { category: cat, emoji } = categorize(resolved ?? "")
-      return { ...r, tagName: resolved, category: cat, emoji }
+      // Canonical substance name so "D3", "vit d 2000IU" and "vitamín D" all
+      // group as one thing; unrecognized labels are just tidied up.
+      const canonical = resolved ? normalizeSupplement(resolved) : null
+      const display = canonical ?? (resolved ? cleanLabel(resolved) : null)
+
+      // Every canonical match is a supplement, so it lands in Vitamins even
+      // when the raw label carries dosage words that look like medication.
+      const { category: cat, emoji } = canonical
+        ? { category: "Vitamins", emoji: "🌿" }
+        : categorize(resolved ?? "")
+      return { ...r, tagName: display, rawName: resolved, category: cat, emoji }
     })
 
     if (filter) {
-      const q = filter.toLowerCase()
+      const q = fold(filter)
       items = items.filter(r =>
-        r.tagName?.toLowerCase().includes(q) ||
-        r.text?.toLowerCase().includes(q) ||
+        (r.tagName && fold(r.tagName).includes(q)) ||
+        (r.rawName && fold(r.rawName).includes(q)) ||
+        (r.text && fold(r.text).includes(q)) ||
         r.tags.some(t => t.toLowerCase().includes(q))
       )
     }
