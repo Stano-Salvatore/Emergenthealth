@@ -7,18 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Trash2 } from "lucide-react"
 import { format } from "date-fns"
 
-const COMPOUNDS: Record<string, { label: string; mg: number; emoji: string }> = {
-  espresso:      { label: "Espresso",      mg: 63,  emoji: "☕" },
-  filter_coffee: { label: "Filter coffee", mg: 140, emoji: "☕" },
-  green_tea:     { label: "Green tea",     mg: 30,  emoji: "🍵" },
-  black_tea:     { label: "Black tea",     mg: 50,  emoji: "🍵" },
-  matcha:        { label: "Matcha",        mg: 70,  emoji: "🍵" },
-  energy_drink:  { label: "Energy drink",  mg: 80,  emoji: "⚡" },
-  pre_workout:   { label: "Pre-workout",   mg: 200, emoji: "💪" },
-  cola:          { label: "Cola (330ml)",  mg: 35,  emoji: "🥤" },
-}
+import { COMPOUNDS, COMPOUND_LABELS, LIMIT_MG } from "@/lib/caffeine"
 
-const LIMIT_MG = 400
+// Entries created automatically from intake drinks / Oura tags carry a
+// deterministic id prefix; the log marks them so manual ones stand apart.
+const isAutoEntry = (id: string) => id.startsWith("intake_") || id.startsWith("oura_caf_")
 
 interface CaffeineLog {
   id: string
@@ -184,14 +177,21 @@ export default function CaffeinePage() {
             </p>
           ) : (
             data.logs.map(log => {
-              const info = COMPOUNDS[log.compound]
+              const info = COMPOUND_LABELS[log.compound]
               return (
                 <div
                   key={log.id}
                   className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-border/50 bg-secondary/20 text-sm"
                 >
                   <span className="text-base shrink-0">{info?.emoji ?? "☕"}</span>
-                  <span className="flex-1 font-medium">{info?.label ?? log.compound}</span>
+                  <span className="flex-1 font-medium">
+                    {info?.label ?? log.compound}
+                    {isAutoEntry(log.id) && (
+                      <span className="ml-2 text-[9px] uppercase tracking-wider text-muted-foreground/60 border border-border/60 rounded px-1 py-0.5">
+                        auto
+                      </span>
+                    )}
+                  </span>
                   <Badge variant="secondary" className="text-xs shrink-0">
                     {log.caffeineMg} mg
                   </Badge>

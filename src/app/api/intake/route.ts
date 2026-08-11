@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { estimateCaffeine } from "@/lib/caffeine"
 import { NextResponse } from "next/server"
 
 export async function GET(req: Request) {
@@ -54,6 +55,15 @@ export async function POST(req: Request) {
     data: { userId, type, amountMl, note: note ?? null },
   })
 
+  // Caffeinated drinks feed the caffeine tracker automatically. The shared id
+  // ties the two entries together so deleting the drink removes its caffeine.
+  const est = estimateCaffeine(type, note ?? "", amountMl)
+  if (est) {
+    await prisma.caffeineLog.create({
+      data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg },
+    }).catch(() => null)
+  }
+
   return NextResponse.json(log, { status: 201 })
 }
 
@@ -69,5 +79,7 @@ export async function DELETE(req: Request) {
   }
 
   await prisma.intakeLog.delete({ where: { id } })
+  // remove the auto-logged caffeine that came with this drink, if any
+  await prisma.caffeineLog.deleteMany({ where: { id: `intake_${id}`, userId } }).catch(() => null)
   return NextResponse.json({ ok: true })
 }

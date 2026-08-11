@@ -36,12 +36,13 @@ const QUICK_GROUPS: { title: string; items: QuickItem[] }[] = [
   {
     title: "Coffee & tea",
     items: [
-      { type: "coffee", label: "Espresso",   amount: 30,  icon: "☕" },
-      { type: "coffee", label: "Americano",  amount: 200, icon: "☕" },
-      { type: "coffee", label: "Flat white", amount: 160, icon: "☕" },
-      { type: "coffee", label: "Latte",      amount: 300, icon: "☕" },
-      { type: "coffee", label: "Cold brew",  amount: 300, icon: "🧊" },
-      { type: "coffee", label: "Batch brew", amount: 250, icon: "🫖" },
+      // note doubles as the drink style for the caffeine auto-log
+      { type: "coffee", label: "Espresso",   amount: 30,  icon: "☕", note: "Espresso" },
+      { type: "coffee", label: "Americano",  amount: 200, icon: "☕", note: "Americano" },
+      { type: "coffee", label: "Flat white", amount: 160, icon: "☕", note: "Flat white" },
+      { type: "coffee", label: "Latte",      amount: 300, icon: "☕", note: "Latte" },
+      { type: "coffee", label: "Cold brew",  amount: 300, icon: "🧊", note: "Cold brew" },
+      { type: "coffee", label: "Batch brew", amount: 250, icon: "🫖", note: "Batch brew" },
       { type: "tea",    label: "Tea",        amount: 250, icon: "🍵" },
       { type: "matcha", label: "Matcha",     amount: 250, icon: "🍃" },
     ],

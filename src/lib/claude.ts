@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk"
 import { prisma } from "@/lib/prisma"
 import { getEventsInRange } from "@/lib/google-calendar"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { estimateCaffeine } from "@/lib/caffeine"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -183,7 +184,15 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
 
   if (name === "log_coffee") {
     const amountMl = parseInt(String(input.amountMl), 10)
-    await prisma.intakeLog.create({ data: { userId, type: "coffee", amountMl } }).catch(() => null)
+    const log = await prisma.intakeLog.create({ data: { userId, type: "coffee", amountMl } }).catch(() => null)
+    if (log) {
+      const est = estimateCaffeine("coffee", "", amountMl)
+      if (est) {
+        await prisma.caffeineLog.create({
+          data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg },
+        }).catch(() => null)
+      }
+    }
     return `Logged ${amountMl}ml of coffee.`
   }
 

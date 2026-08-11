@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { getDailySleep, getDailySleepScores, getDailyActivity, getDailyReadiness, getDailySpo2, getDailyStress, getOuraTags } from "@/lib/oura"
 import { classifyOuraTag, INTAKE_KINDS } from "@/lib/oura-tag-classify"
+import { estimateCaffeine } from "@/lib/caffeine"
 import { format, subDays } from "date-fns"
 
 export type OuraSyncResult =
@@ -190,6 +191,22 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
           },
           update: { type: kind, amountMl: ml },
         }).catch(() => null)
+
+        // ring-logged coffee/tea/matcha auto-feeds the caffeine tracker too
+        const est = estimateCaffeine(kind, label, ml)
+        if (est) {
+          await prisma.caffeineLog.upsert({
+            where: { id: `oura_caf_${t.id}` },
+            create: {
+              id: `oura_caf_${t.id}`,
+              userId,
+              compound: est.compound,
+              caffeineMg: est.mg,
+              loggedAt: new Date(t.timestamp),
+            },
+            update: { compound: est.compound, caffeineMg: est.mg },
+          }).catch(() => null)
+        }
       }
 
       tagsSynced = tagData.length

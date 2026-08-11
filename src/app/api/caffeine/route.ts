@@ -1,19 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-
-const LIMIT_MG = 400
-
-export const COMPOUNDS: Record<string, { label: string; mg: number; emoji: string }> = {
-  espresso:      { label: "Espresso",      mg: 63,  emoji: "☕" },
-  filter_coffee: { label: "Filter coffee", mg: 140, emoji: "☕" },
-  green_tea:     { label: "Green tea",     mg: 30,  emoji: "🍵" },
-  black_tea:     { label: "Black tea",     mg: 50,  emoji: "🍵" },
-  matcha:        { label: "Matcha",        mg: 70,  emoji: "🍵" },
-  energy_drink:  { label: "Energy drink",  mg: 80,  emoji: "⚡" },
-  pre_workout:   { label: "Pre-workout",   mg: 200, emoji: "💪" },
-  cola:          { label: "Cola (330ml)",  mg: 35,  emoji: "🥤" },
-}
+import { COMPOUNDS, LIMIT_MG } from "@/lib/caffeine"
 
 export async function GET() {
   const session = await auth()

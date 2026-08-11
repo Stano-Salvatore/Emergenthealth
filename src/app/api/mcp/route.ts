@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
+import { estimateCaffeine } from "@/lib/caffeine"
 import {
   getSteps, getCalories, getHeartRate, getSleep,
   getWeight, getDistance, getActivitySessions, getDailySummary,
@@ -415,14 +416,21 @@ function buildMcpServer(userId: string): McpServer {
     "log_intake",
     "Log water, coffee, tea, or alcohol intake",
     {
-      type: z.enum(["water", "coffee", "tea", "alcohol", "other"]).describe("Type of drink"),
+      type: z.enum(["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "other"]).describe("Type of drink"),
       amount_ml: z.number().describe("Amount in millilitres, e.g. 250 for a glass, 500 for a bottle"),
-      note: z.string().optional().describe("Optional note"),
+      note: z.string().optional().describe("Optional note, e.g. the drink style (cold brew, 12°)"),
     },
     async ({ type, amount_ml, note }) => {
-      await prisma.intakeLog.create({
+      const log = await prisma.intakeLog.create({
         data: { userId, type, amountMl: amount_ml, note: note ?? null, loggedAt: new Date() },
       })
+      // caffeinated drinks auto-feed the caffeine tracker (same as /api/intake)
+      const est = estimateCaffeine(type, note ?? "", amount_ml)
+      if (est) {
+        await prisma.caffeineLog.create({
+          data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg },
+        }).catch(() => null)
+      }
       return msg(`Logged ${amount_ml}ml of ${type}.`)
     },
   )
