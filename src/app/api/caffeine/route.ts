@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { COMPOUNDS, LIMIT_MG } from "@/lib/caffeine"
-
-const HALF_LIFE_H = 5
+import { COMPOUNDS, LIMIT_MG, HALF_LIFE_H, activeFromDoses } from "@/lib/caffeine"
 
 // Today's log list + total, plus the caffeine still active right now. Active
 // looks back 24h (not just midnight) so a late espresso still counts at 7am.
@@ -17,8 +15,7 @@ async function caffeineState(userId: string) {
   startOfDay.setHours(0, 0, 0, 0)
   const logs = logs24.filter(l => l.loggedAt >= startOfDay)
   const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
-  const activeMg = Math.round(logs24.reduce(
-    (sum, r) => sum + r.caffeineMg * Math.pow(0.5, (now - r.loggedAt.getTime()) / 3600_000 / HALF_LIFE_H), 0))
+  const activeMg = activeFromDoses(logs24, now)
   return { logs, totalMg, activeMg, halfLifeH: HALF_LIFE_H, limitMg: LIMIT_MG }
 }
 

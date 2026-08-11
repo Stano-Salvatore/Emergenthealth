@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Trash2 } from "lucide-react"
 import { format } from "date-fns"
 
-import { COMPOUNDS, COMPOUND_LABELS, LIMIT_MG } from "@/lib/caffeine"
+import { COMPOUNDS, COMPOUND_LABELS, LIMIT_MG, decayed, hoursToBedtime } from "@/lib/caffeine"
 
 // Entries created automatically from intake drinks / Oura tags carry a
 // deterministic id prefix; the log marks them so manual ones stand apart.
@@ -33,19 +33,6 @@ function progressColor(mg: number): string {
   if (mg < 200) return "bg-green-500"
   if (mg <= 350) return "bg-amber-500"
   return "bg-red-500"
-}
-
-// What's still circulating N hours from now, given exponential decay
-const decayed = (activeMg: number, hours: number, halfLifeH: number) =>
-  Math.round(activeMg * Math.pow(0.5, hours / halfLifeH))
-
-// Next 23:00 — the "will it bother my sleep" reference point
-function hoursToBedtime(): number {
-  const now = new Date()
-  const bed = new Date(now)
-  bed.setHours(23, 0, 0, 0)
-  if (bed <= now) bed.setDate(bed.getDate() + 1)
-  return (bed.getTime() - now.getTime()) / 3600_000
 }
 
 function ActiveNowCard({ activeMg, halfLifeH }: { activeMg: number; halfLifeH: number }) {

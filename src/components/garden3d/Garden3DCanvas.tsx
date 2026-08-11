@@ -91,6 +91,7 @@ function toSceneData(d: EngineData) {
     level: d.level,
     decorations: d.decorations,
     fedToday: d.fedToday ?? false,
+    placed: d.placed ?? {},
     habits: d.habits.map(h => {
       const map = PLANT_KIND[h.plantKey] ?? PLANT_KIND.sunflower
       return {

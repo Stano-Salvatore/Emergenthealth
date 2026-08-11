@@ -28,6 +28,26 @@ export const COMPOUND_LABELS: Record<string, { label: string; emoji: string }> =
   tea:        { label: "Tea",        emoji: "🍵" },
 }
 
+export const HALF_LIFE_H = 5
+
+/** Caffeine still circulating after `hours`, at the ~5h half-life. */
+export const decayed = (mg: number, hours: number, halfLifeH = HALF_LIFE_H) =>
+  Math.round(mg * Math.pow(0.5, hours / halfLifeH))
+
+/** Sum a set of doses down to what is active at `now`. */
+export function activeFromDoses(doses: { caffeineMg: number; loggedAt: Date }[], now = Date.now()): number {
+  return Math.round(doses.reduce(
+    (sum, d) => sum + d.caffeineMg * Math.pow(0.5, (now - d.loggedAt.getTime()) / 3600_000 / HALF_LIFE_H), 0))
+}
+
+/** Hours until the next 23:00 \u2014 the "will it bother my sleep" reference point. */
+export function hoursToBedtime(from = new Date()): number {
+  const bed = new Date(from)
+  bed.setHours(23, 0, 0, 0)
+  if (bed <= from) bed.setDate(bed.getDate() + 1)
+  return (bed.getTime() - from.getTime()) / 3600_000
+}
+
 const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
 
 const espressoShots = (ml: number) => Math.max(1, Math.round(ml / 35))

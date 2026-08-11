@@ -3,7 +3,8 @@ import Anthropic from "@anthropic-ai/sdk"
 import { prisma } from "@/lib/prisma"
 import { getEventsInRange } from "@/lib/google-calendar"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
-import { estimateCaffeine } from "@/lib/caffeine"
+import { estimateCaffeine, activeFromDoses } from "@/lib/caffeine"
+import { normalizeSupplement } from "@/lib/supplement-normalize"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -377,7 +378,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
 
   const since7Str = fmtDateISO.format(new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000))
 
-  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, recentOuraTags, recentCheckins, recentScreenTime] =
+  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, recentOuraTags, recentCheckins, recentScreenTime, caffeineDoses24h] =
     await Promise.all([
       prisma.healthLog.findMany({
         where: { userId }, orderBy: { date: "desc" }, take: 14,
@@ -418,6 +419,10 @@ async function buildSystemPrompt(userId: string): Promise<string> {
         where: { userId }, orderBy: { date: "desc" }, take: 7,
         select: { date: true, totalMin: true, firstUnlockMin: true },
       }).catch(() => [] as { date: string; totalMin: number; firstUnlockMin: number | null }[]),
+      prisma.caffeineLog.findMany({
+        where: { userId, loggedAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
+        select: { caffeineMg: true, loggedAt: true },
+      }).catch(() => [] as { caffeineMg: number; loggedAt: Date }[]),
     ])
 
   const [recentMoods, todayWeather, recentNotes] = await Promise.all([
@@ -471,8 +476,17 @@ async function buildSystemPrompt(userId: string): Promise<string> {
     const label = (t.tagName ?? t.text ?? "").trim()
     if (!label) continue
     if (classifyOuraTag(label).kind !== "med") continue
-    if (!seenMedNames.has(label.toLowerCase())) { seenMedNames.add(label.toLowerCase()); ouraMeds.push(label) }
+    // canonical substance names ("vitamín D" → Vitamin D) so Emergy talks
+    // about one thing per supplement, not one per spelling
+    const display = normalizeSupplement(label) ?? label
+    if (!seenMedNames.has(display.toLowerCase())) { seenMedNames.add(display.toLowerCase()); ouraMeds.push(display) }
   }
+
+  // Caffeine currently circulating (5h half-life over the last 24h of doses)
+  const todayCaffeineMg = (caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[])
+    .filter(d => d.loggedAt >= new Date(todayStr))
+    .reduce((s, d) => s + d.caffeineMg, 0)
+  const activeCaffeineMg = activeFromDoses(caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[])
 
   // Intake totals (IntakeLog — includes drinks mirrored from Oura tags)
   const waterToday = (todayIntake as any[]).filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
@@ -596,6 +610,7 @@ ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- 
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
 - Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml` : ""}
+${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today, ≈${activeCaffeineMg}mg still active in their system (5h half-life — factor this into sleep/energy advice, e.g. discourage more coffee if a lot is still circulating late in the day)` : ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
 ${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}
 

@@ -6,8 +6,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { format, subDays } from "date-fns"
-import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight } from "lucide-react"
+import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 import CaffeinePage from "@/app/dashboard/caffeine/page"
 import MedicationsPage from "@/app/dashboard/medications/page"
 
@@ -144,14 +145,19 @@ export default function IntakePage() {
   const [weekData, setWeekData] = useState<WeekDay[]>([])
   const [waterGoal, setWaterGoal] = useState(2000)
   const [caffeineMg, setCaffeineMg] = useState<number | null>(null)
+  const [lateCoffeeMg, setLateCoffeeMg] = useState<number | null>(null)
   const isToday = date === localDateStr()
 
-  // Today's caffeine total (auto-fed from these drinks) shown on the coffee card
-  const loadCaffeine = useCallback(() => {
-    fetch("/api/caffeine")
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (typeof d?.totalMg === "number") setCaffeineMg(d.totalMg) })
-      .catch(() => {})
+  // Today's caffeine total (auto-fed from these drinks) shown on the coffee
+  // card. Returns the full state so addEntry can check the bedtime projection.
+  const loadCaffeine = useCallback(async () => {
+    try {
+      const res = await fetch("/api/caffeine")
+      if (!res.ok) return null
+      const d = await res.json()
+      if (typeof d?.totalMg === "number") setCaffeineMg(d.totalMg)
+      return d as { totalMg: number; activeMg?: number; halfLifeH?: number }
+    } catch { return null }
   }, [])
   useEffect(() => { loadCaffeine() }, [loadCaffeine])
 
@@ -209,7 +215,13 @@ export default function IntakePage() {
     })
     setAdding(null)
     load()
-    loadCaffeine()
+    const caf = await loadCaffeine()
+    // Gentle heads-up after a caffeinated drink: how much will still be
+    // circulating at 23:00? Informational only — the drink is already logged.
+    if (caf?.activeMg && estimateCaffeine(type, note ?? "", amountMl)) {
+      const atBed = decayed(caf.activeMg, hoursToBedtime(), caf.halfLifeH ?? 5)
+      setLateCoffeeMg(atBed > 50 ? atBed : null)
+    }
   }
 
   // Custom entry: any type, any ml, optional strength (13° / 5.5%) for alcohol
@@ -312,6 +324,20 @@ export default function IntakePage() {
       </div>
 
       {activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : (<>
+
+      {/* gentle late-caffeine heads-up */}
+      {lateCoffeeMg != null && (
+        <div className="flex items-center gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5">
+          <span className="text-base shrink-0">🌙</span>
+          <p className="flex-1 text-xs text-amber-400">
+            Heads-up: ≈{lateCoffeeMg} mg of caffeine will still be active at 23:00 — it might affect your sleep.
+          </p>
+          <button onClick={() => setLateCoffeeMg(null)} aria-label="Dismiss"
+            className="p-1 rounded-md text-amber-400/60 hover:text-amber-400 transition-colors shrink-0">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* summary cards */}
       {/* Column count must be a literal class: Tailwind only ships classes it
