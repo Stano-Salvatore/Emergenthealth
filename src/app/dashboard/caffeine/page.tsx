@@ -24,6 +24,8 @@ interface CaffeineLog {
 interface CaffeineData {
   logs: CaffeineLog[]
   totalMg: number
+  activeMg?: number
+  halfLifeH?: number
   limitMg: number
 }
 
@@ -31,6 +33,64 @@ function progressColor(mg: number): string {
   if (mg < 200) return "bg-green-500"
   if (mg <= 350) return "bg-amber-500"
   return "bg-red-500"
+}
+
+// What's still circulating N hours from now, given exponential decay
+const decayed = (activeMg: number, hours: number, halfLifeH: number) =>
+  Math.round(activeMg * Math.pow(0.5, hours / halfLifeH))
+
+// Next 23:00 — the "will it bother my sleep" reference point
+function hoursToBedtime(): number {
+  const now = new Date()
+  const bed = new Date(now)
+  bed.setHours(23, 0, 0, 0)
+  if (bed <= now) bed.setDate(bed.getDate() + 1)
+  return (bed.getTime() - now.getTime()) / 3600_000
+}
+
+function ActiveNowCard({ activeMg, halfLifeH }: { activeMg: number; halfLifeH: number }) {
+  const bedH = hoursToBedtime()
+  const atBed = decayed(activeMg, bedH, halfLifeH)
+  // decay curve over the next 12h, 30-min steps, in a 100×32 viewBox
+  const points = Array.from({ length: 25 }, (_, i) => {
+    const h = i * 0.5
+    const mg = activeMg * Math.pow(0.5, h / halfLifeH)
+    return `${(h / 12) * 100},${32 - (mg / activeMg) * 28 - 2}`
+  }).join(" ")
+  const bedX = Math.min(100, (bedH / 12) * 100)
+
+  return (
+    <Card className="rounded-2xl border border-border bg-card">
+      <CardContent className="pt-4 pb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground">In your system now</p>
+            <p className="text-2xl font-black mt-0.5">
+              {activeMg} <span className="text-sm font-semibold text-muted-foreground">mg</span>
+            </p>
+            <p className={`text-xs mt-1 ${atBed > 50 ? "text-amber-400" : "text-muted-foreground"}`}>
+              ≈{atBed} mg at 23:00 {atBed > 50 ? "— may affect sleep" : "— sleep-safe"}
+            </p>
+          </div>
+          <div className="flex-1 max-w-[220px] pt-1">
+            <svg viewBox="0 0 100 32" className="w-full h-12" preserveAspectRatio="none">
+              <polyline points={points} fill="none" stroke="currentColor"
+                className="text-primary" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+              {bedH <= 12 && (
+                <line x1={bedX} y1="0" x2={bedX} y2="32" stroke="currentColor"
+                  className="text-muted-foreground/40" strokeWidth="1" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />
+              )}
+            </svg>
+            <div className="flex justify-between text-[9px] text-muted-foreground/60">
+              <span>now</span>
+              {bedH <= 12 && <span>23:00</span>}
+              <span>+12h</span>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
 }
 
 export default function CaffeinePage() {
@@ -111,6 +171,11 @@ export default function CaffeinePage() {
           </Badge>
         </div>
       </div>
+
+      {/* Active caffeine + decay projection */}
+      {(data.activeMg ?? 0) > 0 && (
+        <ActiveNowCard activeMg={data.activeMg!} halfLifeH={data.halfLifeH ?? 5} />
+      )}
 
       {/* Progress bar */}
       <Card className="rounded-2xl border border-border bg-card">

@@ -143,7 +143,17 @@ export default function IntakePage() {
   const [date, setDate] = useState(() => localDateStr())
   const [weekData, setWeekData] = useState<WeekDay[]>([])
   const [waterGoal, setWaterGoal] = useState(2000)
+  const [caffeineMg, setCaffeineMg] = useState<number | null>(null)
   const isToday = date === localDateStr()
+
+  // Today's caffeine total (auto-fed from these drinks) shown on the coffee card
+  const loadCaffeine = useCallback(() => {
+    fetch("/api/caffeine")
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (typeof d?.totalMg === "number") setCaffeineMg(d.totalMg) })
+      .catch(() => {})
+  }, [])
+  useEffect(() => { loadCaffeine() }, [loadCaffeine])
 
   // Load check-in water goal for today
   useEffect(() => {
@@ -199,6 +209,7 @@ export default function IntakePage() {
     })
     setAdding(null)
     load()
+    loadCaffeine()
   }
 
   // Custom entry: any type, any ml, optional strength (13° / 5.5%) for alcohol
@@ -223,6 +234,7 @@ export default function IntakePage() {
       body: JSON.stringify({ id }),
     })
     load()
+    loadCaffeine()
   }
 
   function navDate(delta: number) {
@@ -307,7 +319,8 @@ export default function IntakePage() {
           5- and 6-column layouts with no CSS at all. */}
       <div className={cn("grid gap-3 grid-cols-2", SUMMARY_COLS[cardCount])}>
         <SummaryCard label="Water" value={waterTotal} goal={waterGoal} unit="ml" color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
-        <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕" />
+        <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕"
+          sub={isToday && caffeineMg != null && caffeineMg > 0 ? `≈${caffeineMg} mg caffeine` : undefined} />
         {sparklingTotal > 0 && <SummaryCard label="Sparkling" value={sparklingTotal} unit="ml" color="text-cyan-400" barColor="bg-cyan-500" emoji="🫧" />}
         {teaTotal > 0 && <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />}
         {matchaTotal > 0 && <SummaryCard label="Matcha" value={matchaTotal} unit="ml" color="text-emerald-400" barColor="bg-emerald-500" emoji="🍃" />}
@@ -488,8 +501,8 @@ export default function IntakePage() {
   )
 }
 
-function SummaryCard({ label, value, goal, unit, color, barColor, emoji }: {
-  label: string; value: number; goal?: number; unit: string; color: string; barColor: string; emoji: string
+function SummaryCard({ label, value, goal, unit, color, barColor, emoji, sub }: {
+  label: string; value: number; goal?: number; unit: string; color: string; barColor: string; emoji: string; sub?: string
 }) {
   const pct = goal ? Math.min(100, (value / goal) * 100) : null
   const display = value >= 1000 ? `${(value / 1000).toFixed(1)}L` : `${value}ml`
@@ -500,6 +513,7 @@ function SummaryCard({ label, value, goal, unit, color, barColor, emoji }: {
         <p className={`text-xl font-black ${color}`}>{display}</p>
         {goal && <p className="text-[10px] text-muted-foreground">of {goal >= 1000 ? `${goal/1000}L` : `${goal}ml`}</p>}
         <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+        {sub && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{sub}</p>}
         {pct !== null && (
           <div className="mt-2 h-1 bg-secondary rounded-full overflow-hidden">
             <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />

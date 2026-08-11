@@ -3,21 +3,29 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { COMPOUNDS, LIMIT_MG } from "@/lib/caffeine"
 
+const HALF_LIFE_H = 5
+
+// Today's log list + total, plus the caffeine still active right now. Active
+// looks back 24h (not just midnight) so a late espresso still counts at 7am.
+async function caffeineState(userId: string) {
+  const now = Date.now()
+  const logs24 = await prisma.caffeineLog.findMany({
+    where: { userId, loggedAt: { gte: new Date(now - 24 * 3600_000) } },
+    orderBy: { loggedAt: "desc" },
+  })
+  const startOfDay = new Date()
+  startOfDay.setHours(0, 0, 0, 0)
+  const logs = logs24.filter(l => l.loggedAt >= startOfDay)
+  const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
+  const activeMg = Math.round(logs24.reduce(
+    (sum, r) => sum + r.caffeineMg * Math.pow(0.5, (now - r.loggedAt.getTime()) / 3600_000 / HALF_LIFE_H), 0))
+  return { logs, totalMg, activeMg, halfLifeH: HALF_LIFE_H, limitMg: LIMIT_MG }
+}
+
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const userId = session.user.id
-
-  const startOfDay = new Date()
-  startOfDay.setHours(0, 0, 0, 0)
-
-  const logs = await prisma.caffeineLog.findMany({
-    where: { userId, loggedAt: { gte: startOfDay } },
-    orderBy: { loggedAt: "desc" },
-  })
-
-  const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
-  return NextResponse.json({ logs, totalMg, limitMg: LIMIT_MG })
+  return NextResponse.json(await caffeineState(session.user.id))
 }
 
 export async function POST(req: NextRequest) {
@@ -37,16 +45,7 @@ export async function POST(req: NextRequest) {
     data: { userId, compound, caffeineMg, servings },
   })
 
-  const startOfDay = new Date()
-  startOfDay.setHours(0, 0, 0, 0)
-
-  const logs = await prisma.caffeineLog.findMany({
-    where: { userId, loggedAt: { gte: startOfDay } },
-    orderBy: { loggedAt: "desc" },
-  })
-
-  const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
-  return NextResponse.json({ ok: true, logs, totalMg, limitMg: LIMIT_MG })
+  return NextResponse.json({ ok: true, ...(await caffeineState(userId)) })
 }
 
 export async function DELETE(req: NextRequest) {
