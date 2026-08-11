@@ -5,7 +5,6 @@ import { Menu } from "lucide-react"
 import { Sidebar } from "./Sidebar"
 import { CommandPalette } from "./CommandPalette"
 import { WhatsNewBanner } from "./WhatsNewBanner"
-import { FeedbackButton } from "@/components/dashboard/FeedbackButton"
 import { InstallPrompt } from "./InstallPrompt"
 import { AppSharePrompt } from "./AppSharePrompt"
 import { TrialBanner } from "./TrialBanner"
@@ -151,7 +150,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           the sidebar is always visible. */}
       {!webMode && <BottomNav />}
 
-      <FeedbackButton />
+      {/* The floating "Suggest" feedback button used to live here, but it sat
+          in the same corner as the Emergy bubble and ended up behind it. */}
       <InstallPrompt />
       <AppSharePrompt />
       <CommandPalette />
