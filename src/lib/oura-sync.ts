@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { getDailySleep, getDailySleepScores, getDailyActivity, getDailyReadiness, getDailySpo2, getDailyStress, getOuraTags } from "@/lib/oura"
-import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { classifyOuraTag, INTAKE_KINDS } from "@/lib/oura-tag-classify"
 import { format, subDays } from "date-fns"
 
 export type OuraSyncResult =
@@ -177,7 +177,7 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         const label = [t.tagName, t.comment].filter(Boolean).join(" ").trim()
         if (!label) continue
         const { kind, ml } = classifyOuraTag(label)
-        if ((kind !== "water" && kind !== "coffee" && kind !== "tea" && kind !== "alcohol") || ml <= 0) continue
+        if (!INTAKE_KINDS.has(kind) || ml <= 0) continue
         await prisma.intakeLog.upsert({
           where: { id: `oura_${t.id}` },
           create: {

@@ -85,6 +85,9 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
         AND "tagName" NOT ILIKE '%coffee%' AND "tagName" NOT ILIKE '%water%'
         AND "tagName" NOT ILIKE '%tea%'    AND "tagName" NOT ILIKE '%beer%'
         AND "tagName" NOT ILIKE '%wine%'   AND "tagName" NOT ILIKE '%ml%'
+        AND "tagName" NOT ILIKE '%matcha%' AND "tagName" NOT ILIKE '%sparkling%'
+        AND "tagName" NOT ILIKE '%kava%'   AND "tagName" NOT ILIKE '%káva%'
+        AND "tagName" NOT ILIKE '%pivo%'   AND "tagName" NOT ILIKE '%víno%'
     `.catch(() => [] as { day: string }[]),
   ])
 
