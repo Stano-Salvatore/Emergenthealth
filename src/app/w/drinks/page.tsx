@@ -5,23 +5,29 @@ import { useSearchParams } from "next/navigation"
 import { Suspense } from "react"
 
 const DRINKS = [
-  { type: "water",  label: "Water",    emoji: "💧", amountMl: 250,  color: "#3b82f6", goal: 2000 },
-  { type: "water",  label: "Water",    emoji: "🚰", amountMl: 500,  color: "#3b82f6", goal: 2000 },
-  { type: "coffee", label: "Espresso", emoji: "☕", amountMl: 30,   color: "#d97706" },
-  { type: "coffee", label: "Coffee",   emoji: "☕", amountMl: 200,  color: "#d97706", goal: 400 },
-  { type: "tea",    label: "Tea",      emoji: "🍵", amountMl: 250,  color: "#16a34a" },
-  { type: "beer",   label: "Beer",     emoji: "🍺", amountMl: 330,  color: "#ca8a04" },
-  { type: "beer",   label: "Beer",     emoji: "🍺", amountMl: 500,  color: "#ca8a04" },
-  { type: "wine",   label: "Wine",     emoji: "🍷", amountMl: 150,  color: "#9f1239" },
-  { type: "wine",   label: "Wine",     emoji: "🍷", amountMl: 250,  color: "#9f1239" },
+  { type: "water",     label: "Water",     emoji: "💧", amountMl: 250,  color: "#3b82f6", goal: 2000 },
+  { type: "water",     label: "Water",     emoji: "🚰", amountMl: 500,  color: "#3b82f6", goal: 2000 },
+  { type: "sparkling", label: "Sparkling", emoji: "🫧", amountMl: 330,  color: "#06b6d4" },
+  { type: "sparkling", label: "Sparkling", emoji: "🫧", amountMl: 500,  color: "#06b6d4" },
+  { type: "coffee",    label: "Espresso",  emoji: "☕", amountMl: 30,   color: "#d97706" },
+  { type: "coffee",    label: "Coffee",    emoji: "☕", amountMl: 200,  color: "#d97706", goal: 400 },
+  { type: "coffee",    label: "Cold brew", emoji: "🧊", amountMl: 300,  color: "#d97706" },
+  { type: "tea",       label: "Tea",       emoji: "🍵", amountMl: 250,  color: "#16a34a" },
+  { type: "matcha",    label: "Matcha",    emoji: "🍃", amountMl: 250,  color: "#10b981" },
+  { type: "beer",      label: "Beer",      emoji: "🍺", amountMl: 330,  color: "#ca8a04" },
+  { type: "beer",      label: "Beer",      emoji: "🍺", amountMl: 500,  color: "#ca8a04" },
+  { type: "wine",      label: "Wine",      emoji: "🍷", amountMl: 150,  color: "#9f1239" },
+  { type: "wine",      label: "Wine",      emoji: "🍷", amountMl: 250,  color: "#9f1239" },
 ]
 
 const TYPE_SUMMARY = [
-  { type: "water",  emoji: "💧", label: "Water",  goal: 2000, color: "#3b82f6" },
-  { type: "coffee", emoji: "☕", label: "Coffee", goal: 400,  color: "#d97706" },
-  { type: "tea",    emoji: "🍵", label: "Tea",    goal: null, color: "#16a34a" },
-  { type: "beer",   emoji: "🍺", label: "Beer",   goal: null, color: "#ca8a04" },
-  { type: "wine",   emoji: "🍷", label: "Wine",   goal: null, color: "#9f1239" },
+  { type: "water",     emoji: "💧", label: "Water",     goal: 2000, color: "#3b82f6" },
+  { type: "sparkling", emoji: "🫧", label: "Sparkling", goal: null, color: "#06b6d4" },
+  { type: "coffee",    emoji: "☕", label: "Coffee",    goal: 400,  color: "#d97706" },
+  { type: "tea",       emoji: "🍵", label: "Tea",       goal: null, color: "#16a34a" },
+  { type: "matcha",    emoji: "🍃", label: "Matcha",    goal: null, color: "#10b981" },
+  { type: "beer",      emoji: "🍺", label: "Beer",      goal: null, color: "#ca8a04" },
+  { type: "wine",      emoji: "🍷", label: "Wine",      goal: null, color: "#9f1239" },
 ]
 
 function fmt(ml: number) {
@@ -123,8 +129,9 @@ function DrinksWidget({ apiKey }: { apiKey: string }) {
           {/* Group drinks by type */}
           {[
             { type: "water", emoji: "💧", items: DRINKS.filter(d => d.type === "water") },
+            { type: "sparkling", emoji: "🫧", items: DRINKS.filter(d => d.type === "sparkling") },
             { type: "coffee", emoji: "☕", items: DRINKS.filter(d => d.type === "coffee") },
-            { type: "tea", emoji: "🍵", items: DRINKS.filter(d => d.type === "tea") },
+            { type: "tea", emoji: "🍵", items: DRINKS.filter(d => d.type === "tea" || d.type === "matcha") },
             { type: "beer", emoji: "🍺", items: DRINKS.filter(d => d.type === "beer") },
             { type: "wine", emoji: "🍷", items: DRINKS.filter(d => d.type === "wine") },
           ].map(group => (

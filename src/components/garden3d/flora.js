@@ -150,16 +150,22 @@ export const HABITS = [
 ];
 const DEFAULT_STAGES = [5, 5, 4, 3, 4, 5, 4, 5, 3, 4, 4, 2];
 
+// Grass spots for pots beyond the built-in 12 — habits used to simply vanish
+// once every default pot was taken.
+const EXTRA_SPOTS = [
+  [3, 0], [5, 0], [7, 0], [0, 2], [9, 2], [4, 8], [6, 7], [2, 9], [7, 9], [1, 3], [8, 0], [0, 5],
+];
+
 /** Flora layer: habit pots, planter boxes, trees. Growth is re-buildable per pot. */
 export function buildFlora() {
   const root = group('flora');
   const plantings = [];
   const canopies = [];
 
-  HABITS.forEach(([x, y, kind, label], i) => {
+  const makePlanting = (i, x, y, kind, label) => {
     const g = group(`habit_${i}_${kind}`, wx(x) + (i % 2 ? 0.1 : -0.08), topY(x, y), wz(y) + (i % 3 ? -0.05 : 0.12));
     g.add(pot(`habit_${i}_pot`, 0.24 + (i % 3) * 0.03, 0.3, i % 4 === 0 ? M.stoneWarm : M.terracotta));
-    const rec = { index: i, kind, label, stage: DEFAULT_STAGES[i], petal: null, wilted: false, holder: g, mesh: null };
+    const rec = { index: i, kind, label, stage: DEFAULT_STAGES[i] ?? 3, petal: null, wilted: false, holder: g, mesh: null };
     rec.set = (s, k = rec.kind, petal = rec.petal, wilted = rec.wilted) => {
       if (rec.mesh) { g.remove(rec.mesh); rec.mesh.traverse(o => o.geometry && o.geometry.dispose()); }
       rec.stage = Math.max(0, Math.min(5, s));
@@ -174,7 +180,22 @@ export function buildFlora() {
     rec.set(rec.stage);
     plantings.push(rec);
     root.add(g);
-  });
+    return rec;
+  };
+
+  HABITS.forEach(([x, y, kind, label], i) => makePlanting(i, x, y, kind, label));
+
+  // Grow the pot pool to fit n habits; returns the newly created records so
+  // the scene can wire them up for clicks, shadows and sway.
+  const ensureCapacity = n => {
+    const added = [];
+    while (plantings.length < Math.min(n, HABITS.length + EXTRA_SPOTS.length)) {
+      const i = plantings.length;
+      const [x, y] = EXTRA_SPOTS[i - HABITS.length];
+      added.push(makePlanting(i, x, y, ['bush', 'herb', 'tulip', 'rose', 'lavender'][i % 5], `Habit ${i + 1}`));
+    }
+    return added;
+  };
 
   [[2, 3], [2, 5], [7, 6]].forEach(([x, y], i) => {
     const g = group(`planter_box_${i}`, wx(x), topY(x, y), wz(y));
@@ -189,5 +210,5 @@ export function buildFlora() {
    pineTree('tree_pine_b', 9, 0, 0.72), pineTree('tree_pine_c', 5, 0, 0.85)]
     .forEach(t => { root.add(t); t.children.forEach(c => { if (/canopy|blossom/.test(c.name)) canopies.push(c); }); });
 
-  return { root, plantings, canopies };
+  return { root, plantings, canopies, ensureCapacity };
 }

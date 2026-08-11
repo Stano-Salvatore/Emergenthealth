@@ -98,12 +98,14 @@ export async function GET() {
   let decorations: string[] = []
   let storedUnlocked: string[] = []
   let watered: { count: number; last: string } = { count: 0, last: "" }
+  let fed: { count: number; last: string } = { count: 0, last: "" }
   let layout: { placed: Record<string, { x: number; y: number }> } = { placed: {} }
   for (const p of prefs) {
     if (p.key.startsWith("garden:plant:")) plantChoices[p.key.slice(13)] = p.value
     else if (p.key === "garden:decorations") { try { decorations = JSON.parse(p.value) } catch {} }
     else if (p.key === "garden:unlocked") { try { storedUnlocked = JSON.parse(p.value) } catch {} }
     else if (p.key === "garden:watered") { try { watered = { count: 0, last: "", ...JSON.parse(p.value) } } catch {} }
+    else if (p.key === "garden:fed") { try { fed = { count: 0, last: "", ...JSON.parse(p.value) } } catch {} }
     else if (p.key === "garden:layout") { try { layout = { placed: {}, ...JSON.parse(p.value) } } catch {} }
   }
 
@@ -168,6 +170,7 @@ export async function GET() {
     unlocked: [...unlocked],
     locked,
     watered: { today: watered.last === today, count: watered.count },
+    fed: { today: fed.last === today, count: fed.count },
   })
 }
 
@@ -209,6 +212,27 @@ export async function POST(req: Request) {
       ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${value}
     `
     return NextResponse.json({ ok: true, already: false, count: watered.count })
+  }
+
+  // Daily feeding ritual — the animals gather at the bowl, +5 XP (see computeXp)
+  if (body.feed === true) {
+    const today = localDateStr(await getUserTimezone(userId))
+    const row = await prisma.$queryRaw<{ value: string }[]>`
+      SELECT "value" FROM "UserPreference" WHERE "userId" = ${userId} AND "key" = 'garden:fed'
+    `.catch(() => [] as { value: string }[])
+    let fed = { count: 0, last: "" }
+    try { if (row[0]) fed = { count: 0, last: "", ...JSON.parse(row[0].value) } } catch {}
+    if (fed.last === today) {
+      return NextResponse.json({ ok: true, already: true, count: fed.count })
+    }
+    fed = { count: fed.count + 1, last: today }
+    const value = JSON.stringify(fed)
+    await prisma.$executeRaw`
+      INSERT INTO "UserPreference" ("userId", "key", "value")
+      VALUES (${userId}, 'garden:fed', ${value})
+      ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${value}
+    `
+    return NextResponse.json({ ok: true, already: false, count: fed.count })
   }
 
   // Tile-grid layout: user-arranged object positions from garden edit mode.

@@ -7,7 +7,7 @@
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { group } from './core.js';
+import { group, wx, wz, topY, G, COLS, ROWS } from './core.js';
 import { buildTerrain } from './terrain.js';
 import { buildFlora, HABITS } from './flora.js';
 import { buildDecor } from './decor.js';
@@ -157,21 +157,58 @@ export async function createGardenScene(host, opts = {}) {
   const pulses = [];
   let labelsOn = false, longPressFired = false, longPressTimer = 0;
 
-  const onPointerUp = e => {
-    clearTimeout(longPressTimer);
-    if (!opts.onPlantClick || dragged || longPressFired) return;
-    const r = renderer.domElement.getBoundingClientRect();
-    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-    ray.setFromCamera(ndc, camera);
+  /* move mode: tap a plant to pick it up, tap a tile to set it down */
+  let moveMode = false, moveSel = null;
+  const selRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.42, 0.035, 8, 26),
+    new THREE.MeshBasicMaterial({ color: 0xffe9b0, transparent: true, opacity: 0.9, depthWrite: false }));
+  selRing.rotation.x = Math.PI / 2;
+  selRing.visible = false;
+  scene.add(selRing);
+
+  const plantAtPointer = () => {
     for (const hit of ray.intersectObject(flora.root, true)) {
       let o = hit.object;
       while (o && !byIndex.has(o)) o = o.parent;
-      if (o) {
-        const rec = byIndex.get(o);
+      if (o) return byIndex.get(o);
+    }
+    return null;
+  };
+
+  const onPointerUp = e => {
+    clearTimeout(longPressTimer);
+    if (dragged || longPressFired) return;
+    const r = renderer.domElement.getBoundingClientRect();
+    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+
+    if (moveMode) {
+      const rec = plantAtPointer();
+      if (rec) {                                     // pick up (or switch selection)
+        moveSel = rec;
+        selRing.visible = true;
         pulses.push({ holder: rec.holder, t0: t });
-        opts.onPlantClick(rec.habitId ?? rec.label);
         return;
       }
+      if (!moveSel) return;
+      const hit = ray.intersectObject(terrain.root, true)[0];
+      if (!hit) return;
+      const gx = Math.round(hit.point.x + (COLS - 1) / 2);
+      const gy = Math.round(hit.point.z + (ROWS - 1) / 2);
+      if (gx < 0 || gx >= COLS || gy < 0 || gy >= ROWS || G[gy][gx] === 'water') return;
+      moveSel.holder.position.set(wx(gx), topY(gx, gy), wz(gy));
+      pulses.push({ holder: moveSel.holder, t0: t });
+      opts.onPlantMoved?.(moveSel.habitId ?? moveSel.label, { x: gx, y: gy });
+      moveSel = null;
+      selRing.visible = false;
+      return;
+    }
+
+    if (!opts.onPlantClick) return;
+    const rec = plantAtPointer();
+    if (rec) {
+      pulses.push({ holder: rec.holder, t0: t });
+      opts.onPlantClick(rec.habitId ?? rec.label);
     }
   };
   let dragged = false, downAt = 0;
@@ -360,6 +397,13 @@ export async function createGardenScene(host, opts = {}) {
     // halos spin
     halos.forEach(halo => { halo.rotation.y = t * 0.7 });
 
+    // move-mode selection ring hugs the picked-up plant
+    if (selRing.visible && moveSel) {
+      selRing.position.copy(moveSel.holder.position);
+      selRing.position.y += 0.08;
+      selRing.scale.setScalar(1 + Math.sin(t * 4) * 0.08);
+    }
+
     // watering-can flight: out → tilt & pour → home
     if (waterT >= 0) {
       waterT += dt;
@@ -445,6 +489,12 @@ export async function createGardenScene(host, opts = {}) {
     update(data = {}) {
       if (data.hour !== undefined) hourOverride = data.hour;
       if (Array.isArray(data.habits)) {
+        // add pots for habits beyond the built-in dozen
+        for (const rec of flora.ensureCapacity(data.habits.length)) {
+          byIndex.set(rec.holder, rec);
+          swayables.push({ o: rec.holder, amp: 0.035, base: 0 });
+          rec.holder.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+        }
         data.habits.slice(0, flora.plantings.length).forEach((h, i) => {
           const rec = flora.plantings[i];
           rec.habitId = h.id ?? rec.habitId;
@@ -455,12 +505,19 @@ export async function createGardenScene(host, opts = {}) {
           const petal = h.petal !== undefined ? h.petal : rec.petal;
           const wilted = !!h.wilted;
           if (s !== rec.stage || k !== rec.kind || petal !== rec.petal || wilted !== rec.wilted) rec.set(s, k, petal, wilted);
+          // user-arranged position (garden move mode), snapped to a dry tile
+          const pos = h.pos;
+          if (pos && Number.isInteger(pos.x) && Number.isInteger(pos.y)
+              && pos.x >= 0 && pos.x < COLS && pos.y >= 0 && pos.y < ROWS && G[pos.y][pos.x] !== 'water') {
+            rec.holder.position.set(wx(pos.x), topY(pos.x, pos.y), wz(pos.y));
+          }
         });
         // pots without a habit behind them stay out of the scene
         flora.plantings.forEach((rec, i) => { rec.holder.visible = i < data.habits.length });
         flora.plantings.forEach(rec => ensureHalo(rec));
         syncLabels();
       }
+      if (typeof data.fedToday === 'boolean') fauna.setKibble(data.fedToday);
       if (Array.isArray(data.decorations)) {
         const on = id => data.decorations.includes(id);
         const show = (name, v) => { const o = root.getObjectByName(name); if (o) o.visible = v };
@@ -483,6 +540,11 @@ export async function createGardenScene(host, opts = {}) {
       fx.setWeather(weather);
     },
     setFaunaVisible(v) { fauna.root.visible = v; },
+    setMoveMode(v) {
+      moveMode = !!v;
+      if (!moveMode) { moveSel = null; selRing.visible = false; }
+    },
+    feed() { fauna.feed(); },
     sparkle() {
       if (can && can.visible && waterT < 0) {
         waterT = 0;

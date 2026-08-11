@@ -19,28 +19,69 @@ interface IntakeLog {
   loggedAt: string
 }
 
-const QUICK_ADD = [
-  { type: "water", label: "Water 250ml", amount: 250, icon: "💧" },
-  { type: "water", label: "Water 500ml", amount: 500, icon: "💧" },
-  { type: "water", label: "Water 1L", amount: 1000, icon: "🚰" },
-  { type: "coffee", label: "Espresso", amount: 30, icon: "☕" },
-  { type: "coffee", label: "Americano", amount: 200, icon: "☕" },
-  { type: "coffee", label: "Latte", amount: 300, icon: "☕" },
-  { type: "tea", label: "Tea", amount: 250, icon: "🍵" },
-  { type: "beer",    label: "Beer 330ml", amount: 330, icon: "🍺" },
-  { type: "beer",    label: "Beer 500ml", amount: 500, icon: "🍺" },
-  { type: "wine",    label: "Wine 150ml", amount: 150, icon: "🍷" },
-  { type: "wine",    label: "Wine 250ml", amount: 250, icon: "🍷" },
+interface QuickItem { type: string; label: string; amount: number; icon: string; note?: string }
+
+// Grouped quick-adds. `note` carries strength (beer degrees / ABV) into the log.
+const QUICK_GROUPS: { title: string; items: QuickItem[] }[] = [
+  {
+    title: "Water",
+    items: [
+      { type: "water",     label: "Water 250ml",     amount: 250,  icon: "💧" },
+      { type: "water",     label: "Water 500ml",     amount: 500,  icon: "💧" },
+      { type: "water",     label: "Water 1L",        amount: 1000, icon: "🚰" },
+      { type: "sparkling", label: "Sparkling 330ml", amount: 330,  icon: "🫧" },
+      { type: "sparkling", label: "Sparkling 500ml", amount: 500,  icon: "🫧" },
+    ],
+  },
+  {
+    title: "Coffee & tea",
+    items: [
+      { type: "coffee", label: "Espresso",   amount: 30,  icon: "☕" },
+      { type: "coffee", label: "Americano",  amount: 200, icon: "☕" },
+      { type: "coffee", label: "Flat white", amount: 160, icon: "☕" },
+      { type: "coffee", label: "Latte",      amount: 300, icon: "☕" },
+      { type: "coffee", label: "Cold brew",  amount: 300, icon: "🧊" },
+      { type: "coffee", label: "Batch brew", amount: 250, icon: "🫖" },
+      { type: "tea",    label: "Tea",        amount: 250, icon: "🍵" },
+      { type: "matcha", label: "Matcha",     amount: 250, icon: "🍃" },
+    ],
+  },
+  {
+    title: "Alcohol",
+    items: [
+      { type: "beer",    label: "Beer 330ml",   amount: 330, icon: "🍺" },
+      { type: "beer",    label: "Beer 500ml",   amount: 500, icon: "🍺" },
+      { type: "beer",    label: "Beer 10°",     amount: 500, icon: "🍺", note: "10°" },
+      { type: "beer",    label: "Beer 12°",     amount: 500, icon: "🍺", note: "12°" },
+      { type: "beer",    label: "Beer 13°",     amount: 500, icon: "🍺", note: "13°" },
+      { type: "beer",    label: "Beer 17°",     amount: 400, icon: "🍻", note: "17°" },
+      { type: "wine",    label: "Wine 150ml",   amount: 150, icon: "🍷" },
+      { type: "wine",    label: "Wine 250ml",   amount: 250, icon: "🍷" },
+      { type: "spirits", label: "Shot 40ml",    amount: 40,  icon: "🥃", note: "40%" },
+      { type: "alcohol", label: "Cider 5.5%",   amount: 330, icon: "🍾", note: "5.5%" },
+    ],
+  },
 ]
 
 const TYPE_META: Record<string, { label: string; color: string; goal?: number; icon: React.ReactNode }> = {
-  water:   { label: "Water",   color: "bg-blue-500",   goal: 2000, icon: <Droplets className="h-4 w-4 text-blue-400" /> },
-  coffee:  { label: "Coffee",  color: "bg-amber-700",  goal: 400,  icon: <Coffee className="h-4 w-4 text-amber-600" /> },
-  tea:     { label: "Tea",     color: "bg-green-600",              icon: <span className="text-sm">🍵</span> },
-  alcohol: { label: "Alcohol", color: "bg-yellow-600",             icon: <Wine className="h-4 w-4 text-yellow-500" /> },
-  beer:    { label: "Beer",    color: "bg-yellow-500",             icon: <span className="text-sm">🍺</span> },
-  wine:    { label: "Wine",    color: "bg-rose-700",               icon: <span className="text-sm">🍷</span> },
-  other:   { label: "Other",   color: "bg-slate-500",              icon: <Plus className="h-4 w-4 text-slate-400" /> },
+  water:     { label: "Water",     color: "bg-blue-500",   goal: 2000, icon: <Droplets className="h-4 w-4 text-blue-400" /> },
+  sparkling: { label: "Sparkling", color: "bg-cyan-500",               icon: <span className="text-sm">🫧</span> },
+  coffee:    { label: "Coffee",    color: "bg-amber-700",  goal: 400,  icon: <Coffee className="h-4 w-4 text-amber-600" /> },
+  tea:       { label: "Tea",       color: "bg-green-600",              icon: <span className="text-sm">🍵</span> },
+  matcha:    { label: "Matcha",    color: "bg-emerald-500",            icon: <span className="text-sm">🍃</span> },
+  alcohol:   { label: "Alcohol",   color: "bg-yellow-600",             icon: <Wine className="h-4 w-4 text-yellow-500" /> },
+  beer:      { label: "Beer",      color: "bg-yellow-500",             icon: <span className="text-sm">🍺</span> },
+  wine:      { label: "Wine",      color: "bg-rose-700",               icon: <span className="text-sm">🍷</span> },
+  spirits:   { label: "Spirits",   color: "bg-purple-500",             icon: <span className="text-sm">🥃</span> },
+  other:     { label: "Other",     color: "bg-slate-500",              icon: <Plus className="h-4 w-4 text-slate-400" /> },
+}
+
+// Types the custom-entry form offers, and which of them ask for a strength.
+const CUSTOM_TYPES = ["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "other"] as const
+const STRENGTH_TYPES = new Set(["beer", "wine", "spirits", "alcohol"])
+const CUSTOM_EMOJI: Record<string, string> = {
+  water: "💧", sparkling: "🫧", coffee: "☕", tea: "🍵", matcha: "🍃",
+  beer: "🍺", wine: "🍷", spirits: "🥃", alcohol: "🍾", other: "🥤",
 }
 
 // Literal classes, indexed by how many summary cards are showing.
@@ -50,6 +91,9 @@ const SUMMARY_COLS: Record<number, string> = {
   4: "sm:grid-cols-4",
   5: "sm:grid-cols-5",
   6: "sm:grid-cols-6",
+  7: "sm:grid-cols-4",
+  8: "sm:grid-cols-4",
+  9: "sm:grid-cols-5",
 }
 
 function progressColor(pct: number) {
@@ -144,16 +188,31 @@ export default function IntakePage() {
     loadWeek()
   }, [])
 
-  async function addEntry(type: string, amountMl: number) {
+  async function addEntry(type: string, amountMl: number, note?: string) {
     if ("vibrate" in navigator) navigator.vibrate(20)
-    setAdding(`${type}-${amountMl}`)
+    setAdding(`${type}-${amountMl}-${note ?? ""}`)
     await fetch("/api/intake", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, amountMl }),
+      body: JSON.stringify({ type, amountMl, ...(note ? { note } : {}) }),
     })
     setAdding(null)
     load()
+  }
+
+  // Custom entry: any type, any ml, optional strength (13° / 5.5%) for alcohol
+  const [showCustom, setShowCustom]         = useState(false)
+  const [customType, setCustomType]         = useState<string>("water")
+  const [customMl, setCustomMl]             = useState("")
+  const [customStrength, setCustomStrength] = useState("")
+
+  async function addCustom() {
+    const ml = parseInt(customMl)
+    if (!Number.isFinite(ml) || ml <= 0) return
+    const strength = STRENGTH_TYPES.has(customType) ? customStrength.trim() : ""
+    await addEntry(customType, ml, strength || undefined)
+    setCustomMl("")
+    setCustomStrength("")
   }
 
   async function deleteEntry(id: string) {
@@ -178,14 +237,19 @@ export default function IntakePage() {
     return acc
   }, {} as Record<string, number>)
 
-  const waterTotal   = totals.water ?? 0
-  const coffeeTotal  = totals.coffee ?? 0
-  const teaTotal     = totals.tea ?? 0
-  const alcoholTotal = totals.alcohol ?? 0
-  const beerTotal    = totals.beer ?? 0
-  const wineTotal    = totals.wine ?? 0
+  const waterTotal     = totals.water ?? 0
+  const sparklingTotal = totals.sparkling ?? 0
+  const coffeeTotal    = totals.coffee ?? 0
+  const teaTotal       = totals.tea ?? 0
+  const matchaTotal    = totals.matcha ?? 0
+  const alcoholTotal   = totals.alcohol ?? 0
+  const beerTotal      = totals.beer ?? 0
+  const wineTotal      = totals.wine ?? 0
+  const spiritsTotal   = totals.spirits ?? 0
 
-  const cardCount = 2 + (teaTotal > 0 ? 1 : 0) + (beerTotal > 0 ? 1 : 0) + (wineTotal > 0 ? 1 : 0) + (alcoholTotal > 0 ? 1 : 0)
+  const cardCount = 2
+    + (sparklingTotal > 0 ? 1 : 0) + (teaTotal > 0 ? 1 : 0) + (matchaTotal > 0 ? 1 : 0)
+    + (beerTotal > 0 ? 1 : 0) + (wineTotal > 0 ? 1 : 0) + (spiritsTotal > 0 ? 1 : 0) + (alcoholTotal > 0 ? 1 : 0)
 
   const dateLabel = isToday ? "Today" : format(new Date(date + "T12:00:00"), "EEE, MMM d")
 
@@ -243,10 +307,13 @@ export default function IntakePage() {
       <div className={cn("grid gap-3 grid-cols-2", SUMMARY_COLS[cardCount])}>
         <SummaryCard label="Water" value={waterTotal} goal={waterGoal} unit="ml" color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
         <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕" />
+        {sparklingTotal > 0 && <SummaryCard label="Sparkling" value={sparklingTotal} unit="ml" color="text-cyan-400" barColor="bg-cyan-500" emoji="🫧" />}
         {teaTotal > 0 && <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />}
+        {matchaTotal > 0 && <SummaryCard label="Matcha" value={matchaTotal} unit="ml" color="text-emerald-400" barColor="bg-emerald-500" emoji="🍃" />}
         {beerTotal > 0 && <SummaryCard label="Beer" value={beerTotal} unit="ml" color="text-yellow-400" barColor="bg-yellow-500" emoji="🍺" />}
         {wineTotal > 0 && <SummaryCard label="Wine" value={wineTotal} unit="ml" color="text-rose-400" barColor="bg-rose-700" emoji="🍷" />}
-        {alcoholTotal > 0 && <SummaryCard label="Alcohol" value={alcoholTotal} unit="ml" color="text-yellow-500" barColor="bg-yellow-600" emoji="🍷" />}
+        {spiritsTotal > 0 && <SummaryCard label="Spirits" value={spiritsTotal} unit="ml" color="text-purple-400" barColor="bg-purple-500" emoji="🥃" />}
+        {alcoholTotal > 0 && <SummaryCard label="Alcohol" value={alcoholTotal} unit="ml" color="text-yellow-500" barColor="bg-yellow-600" emoji="🍾" />}
       </div>
 
       {/* 7-day water trend */}
@@ -283,20 +350,82 @@ export default function IntakePage() {
 
       {/* quick add buttons */}
       {isToday && (
-        <div>
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Quick add</p>
-          <div className="flex flex-wrap gap-2">
-            {QUICK_ADD.map(q => {
-              const key = `${q.type}-${q.amount}`
-              const isAdding = adding === key
-              return (
-                <button key={key} onClick={() => addEntry(q.type, q.amount)} disabled={!!adding}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-card hover:bg-secondary transition-colors text-sm disabled:opacity-50">
-                  <span>{q.icon}</span>
-                  <span>{isAdding ? "…" : q.label}</span>
-                </button>
-              )
-            })}
+        <div className="space-y-3">
+          {QUICK_GROUPS.map(group => (
+            <div key={group.title}>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{group.title}</p>
+              <div className="flex flex-wrap gap-2">
+                {group.items.map(q => {
+                  const key = `${q.type}-${q.amount}-${q.note ?? ""}`
+                  const isAdding = adding === key
+                  return (
+                    <button key={key} onClick={() => addEntry(q.type, q.amount, q.note)} disabled={!!adding}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-card hover:bg-secondary transition-colors text-sm disabled:opacity-50">
+                      <span>{q.icon}</span>
+                      <span>{isAdding ? "…" : q.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+
+          {/* custom amount */}
+          <div>
+            <button onClick={() => setShowCustom(v => !v)}
+              className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 hover:text-foreground transition-colors">
+              <Plus className={cn("h-3.5 w-3.5 transition-transform", showCustom && "rotate-45")} />
+              Custom amount
+            </button>
+            {showCustom && (
+              <Card>
+                <CardContent className="pt-4 pb-4 space-y-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    {CUSTOM_TYPES.map(t => (
+                      <button key={t} onClick={() => setCustomType(t)}
+                        className={cn(
+                          "flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs transition-colors",
+                          customType === t
+                            ? "border-primary bg-primary/10 text-foreground font-medium"
+                            : "border-border text-muted-foreground hover:text-foreground"
+                        )}>
+                        <span>{CUSTOM_EMOJI[t]}</span>
+                        {TYPE_META[t]?.label ?? "Other"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <input type="number" inputMode="numeric" min={1} max={5000} value={customMl}
+                        onChange={e => setCustomMl(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && addCustom()}
+                        placeholder="ml"
+                        className="w-24 rounded-lg border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary" />
+                      <span className="text-xs text-muted-foreground">ml</span>
+                    </div>
+                    {STRENGTH_TYPES.has(customType) && (
+                      <input value={customStrength}
+                        onChange={e => setCustomStrength(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && addCustom()}
+                        placeholder="strength, e.g. 13° or 5.5%"
+                        className="w-44 rounded-lg border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary" />
+                    )}
+                    <div className="flex gap-1.5">
+                      {[100, 200, 330, 500].map(ml => (
+                        <button key={ml} onClick={() => setCustomMl(String(ml))}
+                          className="px-2 py-1 rounded-md border text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+                          {ml}
+                        </button>
+                      ))}
+                    </div>
+                    <Button size="sm" onClick={addCustom}
+                      disabled={!!adding || !customMl || parseInt(customMl) <= 0}>
+                      Add {CUSTOM_EMOJI[customType]}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         </div>
       )}

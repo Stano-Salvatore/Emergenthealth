@@ -77,6 +77,7 @@ interface GardenData {
   unlocked: string[]
   locked: { id: string; req: string; have: number; need: number }[]
   watered: { today: boolean; count: number }
+  fed: { today: boolean; count: number }
 }
 
 // ─── Emergy chat ─────────────────────────────────────────────────────────────
@@ -354,6 +355,9 @@ export default function GardenPage() {
   const [decorations, setDecorations]     = useState<string[]>([])
   const [placed, setPlaced]               = useState<Record<string, { x: number; y: number }>>({})
   const [watering, setWatering]           = useState(false)
+  const [feeding, setFeeding]             = useState(false)
+  const [feedSignal, setFeedSignal]       = useState(0)
+  const [moveMode, setMoveMode]           = useState(false)
   const [loadError, setLoadError]         = useState(false)
   const [sparkleSignal, setSparkleSignal] = useState(0)
 
@@ -413,6 +417,39 @@ export default function GardenPage() {
     }
   }
 
+  async function handleFeed() {
+    if (!data || data.fed.today || feeding) return
+    setFeeding(true)
+    try {
+      const res = await fetch("/api/garden", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ feed: true }),
+      })
+      if (res.ok) {
+        const d = await res.json()
+        setData(prev => prev ? {
+          ...prev,
+          fed: { today: true, count: d.count },
+          level: { ...prev.level, xp: prev.level.xp + 5 },
+        } : prev)
+        setFeedSignal(s => s + 1)
+      }
+    } finally {
+      setFeeding(false)
+    }
+  }
+
+  async function handlePlantMoved(habitId: string, cell: { x: number; y: number }) {
+    const next = { ...placed, [habitId]: cell }
+    setPlaced(next)
+    await fetch("/api/garden", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ layout: { placed: next } }),
+    })
+  }
+
   const [completing, setCompleting] = useState(false)
   async function handleCompleteHabit() {
     const habit = data?.habits.find(h => h.id === selectedHabitId)
@@ -465,6 +502,7 @@ export default function GardenPage() {
       level: data.level.level,
       weatherCode: data.weather?.code ?? null,
       placed,
+      fedToday: data.fed?.today ?? false,
     }
   }, [data, plantChoices, decorations, placed])
 
@@ -512,10 +550,24 @@ export default function GardenPage() {
             <Garden3DCanvas
               data={engineData}
               sparkleSignal={sparkleSignal}
+              feedSignal={feedSignal}
+              moveMode={moveMode}
               onPlantClick={id => {
                 setSelectedHabitId(id); setShowDecos(false); setShowEmergy(false)
               }}
+              onPlantMoved={handlePlantMoved}
             />
+          )}
+
+          {/* Move-mode hint */}
+          {moveMode && (
+            <div className="absolute z-50 left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5"
+              style={{ bottom: 14, background: "rgba(22,26,22,0.85)", backdropFilter: "blur(6px)",
+                border: "1px solid rgba(255,233,176,0.4)" }}>
+              <span className="font-semibold" style={{ color: "#ffe9b0", fontSize: 11.5 }}>
+                🖐 Tap a plant, then tap a tile to move it
+              </span>
+            </div>
           )}
 
           {/* Level chip */}
@@ -590,6 +642,19 @@ export default function GardenPage() {
                   {data.watered.today ? "✓" : "+5"}
                 </span>
               </button>
+              <button onClick={handleFeed} disabled={(data.fed?.today ?? false) || feeding}
+                className="relative shrink-0 flex flex-col items-center gap-1 rounded-xl px-1 pt-2 pb-1.5 transition-transform hover:scale-105 active:scale-95 disabled:hover:scale-100"
+                style={{ width: 72, background: "linear-gradient(180deg,#faf4e2,#efe6cc)",
+                  border: data.fed?.today ? "2px solid #d8c48f" : "2px solid #e8a94d",
+                  boxShadow: "0 3px 8px rgba(0,0,0,0.35)", opacity: data.fed?.today ? 0.75 : 1 }}>
+                <span style={{ fontSize: 24, lineHeight: 1 }}>🥣</span>
+                <span className="font-bold" style={{ color: "#4a3f2c", fontSize: 10 }}>
+                  {data.fed?.today ? "Fed" : feeding ? "…" : "Feed"}
+                </span>
+                <span className="absolute font-extrabold" style={{ right: 5, bottom: 3, color: "#7a6f56", fontSize: 9 }}>
+                  {data.fed?.today ? "✓" : "+5"}
+                </span>
+              </button>
               {data.habits.map(h => {
                 const plantKey = (plantChoices[h.id] ?? "sunflower") as PlantKey
                 const stage = getStage(h.streak, h.missedDays)
@@ -615,6 +680,18 @@ export default function GardenPage() {
               })}
             </div>
           )}
+
+          <button onClick={() => { setMoveMode(v => !v); setShowDecos(false); setShowEmergy(false); setSelectedHabitId(null) }}
+            className="shrink-0 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
+            style={{ width: 58, height: 58, borderRadius: "50%",
+              background: moveMode
+                ? "radial-gradient(circle at 35% 30%, #b0893f, #7d5c22)"
+                : "radial-gradient(circle at 35% 30%, #6f9c50, #46702f)",
+              border: moveMode ? "3px solid #ffe9b0" : "3px solid rgba(240,240,220,0.85)",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.5)" }}>
+            <span style={{ fontSize: 17 }}>🖐</span>
+            <span className="font-bold" style={{ color: "#f4f2e2", fontSize: 8 }}>{moveMode ? "Done" : "Move"}</span>
+          </button>
 
           <button onClick={() => { setShowDecos(v => !v); setShowEmergy(false); setSelectedHabitId(null) }}
             className="shrink-0 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
@@ -669,6 +746,8 @@ export default function GardenPage() {
               ["🌻 → ✨", "Blooming", "14+ day streak, glows!"],
               ["🥀", "Wilting", "3+ consecutive missed days"],
               ["💧", "Daily watering", "One tap a day, +5 XP each"],
+              ["🥣", "Feed the animals", "Fill the bowl daily — everyone gathers, +5 XP"],
+              ["🖐 ↔", "Move plants", "Move mode: tap a plant, then a tile"],
               ["🖐", "Orbit view", "Drag to spin the garden, pinch to zoom"],
               ["🏡 ⛲", "Level scenery", "Ponds, decks & trees unlock as you level"],
               ["🌧️ 🌙", "Weather & night", "Real weather + day/night lighting"],

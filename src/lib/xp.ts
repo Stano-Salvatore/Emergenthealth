@@ -96,12 +96,19 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
   `.catch(() => [{ n: BigInt(0) }])
   const checkinCount = Number(checkinRows[0]?.n ?? 0)
 
-  // Daily garden waterings (the garden page's once-a-day ritual)
-  const wateredRow = await prisma.userPreference.findUnique({
-    where: { userId_key: { userId, key: "garden:watered" } },
-  }).catch(() => null)
+  // Daily garden rituals (once-a-day watering and animal feeding)
+  const [wateredRow, fedRow] = await Promise.all([
+    prisma.userPreference.findUnique({
+      where: { userId_key: { userId, key: "garden:watered" } },
+    }).catch(() => null),
+    prisma.userPreference.findUnique({
+      where: { userId_key: { userId, key: "garden:fed" } },
+    }).catch(() => null),
+  ])
   let wateredCount = 0
   try { wateredCount = wateredRow ? (JSON.parse(wateredRow.value).count ?? 0) : 0 } catch { /* */ }
+  let fedCount = 0
+  try { fedCount = fedRow ? (JSON.parse(fedRow.value).count ?? 0) : 0 } catch { /* */ }
 
   const intakeDays   = new Set(intakeLogs.map(l => (l.loggedAt as Date).toISOString().slice(0, 10))).size
   const suppDays     = (ouraTagDays as { day: string }[]).length
@@ -116,7 +123,7 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
   const focus      = focusCount  * 10
   const reading    = bookCount   * 20
   const supplements = suppDays   * 5
-  const garden     = wateredCount * 5
+  const garden     = (wateredCount + fedCount) * 5
 
   return {
     habits, checkins, sleep, weight, mood, journal, intake, focus, reading, supplements, garden,
