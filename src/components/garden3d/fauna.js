@@ -63,6 +63,58 @@ export function buildFauna() {
   const root = group('fauna');
   const anims = [];
 
+  /* ── food bowl + daily feeding ritual ──────────────────────────────────── */
+  const FEED_DUR = 8;                        // seconds the critters gather for
+  let feedStart = -1, pendingFeed = false;
+  const bowl = group('feed_bowl', wx(6.3), 0.06, wz(7.1));
+  bowl.add(mk('feed_bowl_body', new THREE.CylinderGeometry(0.2, 0.14, 0.11, 14), M.terracotta, 0, 0.055, 0));
+  const bowlRim = mk('feed_bowl_rim', new THREE.TorusGeometry(0.19, 0.028, 8, 18), M.woodDark, 0, 0.11, 0);
+  bowlRim.rotation.x = Math.PI / 2;
+  bowl.add(bowlRim);
+  const kibble = group('feed_bowl_kibble');
+  for (let i = 0; i < 7; i++) {
+    const a = i * 0.9, r = 0.02 + (i % 3) * 0.045;
+    kibble.add(mk(`feed_kibble_${i}`, new THREE.SphereGeometry(0.03, 6, 5), M.wood, Math.cos(a) * r, 0.1, Math.sin(a) * r));
+  }
+  kibble.visible = false;                    // appears once today's feeding happened
+  bowl.add(kibble);
+  root.add(bowl);
+
+  // little hearts floating up from the bowl while everyone eats
+  const HEARTS = 8;
+  const heartPos = new Float32Array(HEARTS * 3);
+  const heartGeo = new THREE.BufferGeometry();
+  heartGeo.setAttribute('position', new THREE.BufferAttribute(heartPos, 3));
+  const hearts = new THREE.Points(heartGeo, new THREE.PointsMaterial({
+    color: 0xef7fa0, size: 0.09, transparent: true, opacity: 0, depthWrite: false,
+  }));
+  hearts.name = 'feed_hearts';
+  hearts.position.copy(bowl.position);
+  root.add(hearts);
+
+  const ease = x => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+  // 0 at rest → 1 while gathered at the bowl (with walk-in / walk-out ramps)
+  const feedPhase = t => {
+    if (feedStart < 0) return 0;
+    const el = t - feedStart;
+    if (el >= FEED_DUR) return 0;
+    return ease(el < 1.6 ? el / 1.6 : el > FEED_DUR - 1.6 ? (FEED_DUR - el) / 1.6 : 1);
+  };
+  anims.push(t => {
+    if (pendingFeed) { pendingFeed = false; feedStart = t; kibble.visible = true; }
+    const p = feedPhase(t);
+    hearts.material.opacity = p * 0.9;
+    if (p > 0) {
+      for (let i = 0; i < HEARTS; i++) {
+        const cyc = (t * 0.45 + i / HEARTS) % 1;
+        heartPos[i * 3] = Math.cos(i * 2.4) * 0.22;
+        heartPos[i * 3 + 1] = 0.25 + cyc * 0.75;
+        heartPos[i * 3 + 2] = Math.sin(i * 2.4) * 0.22;
+      }
+      heartGeo.attributes.position.needsUpdate = true;
+    }
+  });
+
   const flutter = [
     { name: 'butterfly_a', m: M.wing, cx: wx(4.5), cz: wz(4.5), r: 2.4, h: 0.95, sp: 0.32 },
     { name: 'butterfly_b', m: M.yellow, cx: wx(2.5), cz: wz(4), r: 1.5, h: 0.75, sp: -0.44 },
@@ -92,6 +144,20 @@ export function buildFauna() {
   const robin = bird('robin');
   root.add(robin.g);
   anims.push(t => {
+    const fp = feedPhase(t);
+    if (fp > 0.02) {
+      // hop over to the bowl and peck at the kibble
+      const perch = { x: wx(3.4) - 1.2, y: 0.75, z: wz(6.2) };
+      const spot = { x: bowl.position.x - 0.32, y: 0.1 + Math.abs(Math.sin(t * 7)) * 0.05 * fp, z: bowl.position.z + 0.22 };
+      robin.g.position.set(
+        perch.x + (spot.x - perch.x) * fp,
+        perch.y + (spot.y - perch.y) * fp,
+        perch.z + (spot.z - perch.z) * fp,
+      );
+      robin.g.rotation.y = 0.6 + fp * 0.5;
+      robin.wings.forEach(w => (w.pivot.rotation.x = w.s * (0.1 + (1 - fp) * Math.sin(t * 11) * 0.5)));
+      return;
+    }
     const cyc = (t * 0.16) % 1;                       // perch → fly → perch
     const flying = cyc > 0.55;
     if (!flying) {
@@ -108,13 +174,20 @@ export function buildFauna() {
   });
 
   const kitty = cat('cat');
-  kitty.g.position.set(wx(8.4), 0.28, wz(7.4));
-  kitty.g.rotation.y = -2.2;
+  const catHome = { x: wx(8.4), z: wz(7.4), rot: -2.2 };
+  const catSpot = { x: wx(6.3) + 0.42, z: wz(7.1) + 0.18, rot: -2.6 };   // beside the bowl
+  kitty.g.position.set(catHome.x, 0.28, catHome.z);
+  kitty.g.rotation.y = catHome.rot;
   root.add(kitty.g);
   anims.push(t => {
-    kitty.tail.rotation.x = Math.sin(t * 1.4) * 0.5;
+    const fp = feedPhase(t);
+    kitty.g.position.x = catHome.x + (catSpot.x - catHome.x) * fp;
+    kitty.g.position.z = catHome.z + (catSpot.z - catHome.z) * fp;
+    kitty.g.rotation.y = catHome.rot + (catSpot.rot - catHome.rot) * fp;
+    kitty.tail.rotation.x = Math.sin(t * (1.4 + fp * 2)) * (0.5 + fp * 0.2);
     kitty.tail.rotation.y = Math.sin(t * 0.9) * 0.3;
-    kitty.g.position.y = 0.28 + Math.sin(t * 1.1) * 0.012;   // breathing
+    // nibbling head-bob at the bowl, gentle breathing otherwise
+    kitty.g.position.y = 0.28 + Math.sin(t * 1.1) * 0.012 - (fp >= 0.98 ? Math.abs(Math.sin(t * 5)) * 0.03 : 0);
   });
 
   const fish = [0, 1].map(i => {
@@ -128,5 +201,10 @@ export function buildFauna() {
     k.tail.rotation.y = Math.sin(t * 6 + i) * 0.6;
   }));
 
-  return { root, update: t => anims.forEach(f => f(t)) };
+  return {
+    root,
+    update: t => anims.forEach(f => f(t)),
+    feed: () => { pendingFeed = true; },
+    setKibble: v => { kibble.visible = v; },
+  };
 }

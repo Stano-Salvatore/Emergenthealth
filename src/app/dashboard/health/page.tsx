@@ -153,6 +153,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   )
 
   const recent7 = logs.slice(0, 7)
+  const prior7  = logs.slice(7, 14)
   function avg(arr: (number | null)[]) {
     const vals = arr.filter((v): v is number => v != null)
     return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
@@ -168,6 +169,37 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   const avgSpo2         = avg(recent7.map(l => l.spo2))
   const avgActivityScore = avg(recent7.map(l => l.activityScore))
   const avgSleepScore   = avg(recent7.map(l => l.sleepScore))
+
+  // Week-over-week trend: "+0.4h", "-312", … next to each 7-day average.
+  // lowerIsBetter flips the good/bad coloring (resting HR, sedentary time).
+  function trend(cur: number | null, prev: number | null, opts: {
+    digits?: number; suffix?: string; lowerIsBetter?: boolean; minDelta?: number
+  } = {}): { text: string; good: boolean } | null {
+    if (cur == null || prev == null) return null
+    const d = cur - prev
+    if (Math.abs(d) < (opts.minDelta ?? 0)) return null
+    const num = (opts.digits ?? 0) > 0 ? Math.abs(d).toFixed(opts.digits) : Math.round(Math.abs(d)).toLocaleString()
+    return {
+      text: `${d >= 0 ? "▲" : "▼"} ${num}${opts.suffix ?? ""}`,
+      good: opts.lowerIsBetter ? d < 0 : d > 0,
+    }
+  }
+
+  const tSleepScore = trend(avgSleepScore, avg(prior7.map(l => l.sleepScore)), { minDelta: 1 })
+  const tSleep      = trend(
+    avgSleepMin != null ? avgSleepMin / 60 : null,
+    (() => { const p = avg(prior7.map(l => l.sleepDuration)); return p != null ? p / 60 : null })(),
+    { digits: 1, suffix: "h", minDelta: 0.1 })
+  const tSteps      = trend(avgSteps, avg(prior7.map(l => l.steps)), { minDelta: 100 })
+  const tHR         = trend(avgHR, avg(prior7.map(l => l.restingHR)), { lowerIsBetter: true, minDelta: 1 })
+  const tActive     = trend(avgActiveMins, avg(prior7.map(l => l.activeMinutes)), { suffix: "m", minDelta: 3 })
+  const tReadiness  = trend(avgReadiness, avg(prior7.map(l => l.readinessScore)), { minDelta: 1 })
+  const tHRV        = trend(avgHRV, avg(prior7.map(l => l.hrv)), { suffix: "ms", minDelta: 1 })
+  const tActivityScore = trend(avgActivityScore, avg(prior7.map(l => l.activityScore)), { minDelta: 1 })
+  const tWeight     = (() => {
+    const t = trend(avgWeight, avg(prior7.map(l => l.weight)), { digits: 1, suffix: "kg", minDelta: 0.1 })
+    return t ? { text: t.text, good: null } : null   // weight direction isn't inherently good or bad
+  })()
 
   // Sleep debt (7-day window)
   const sleepDebtDays = recent7.filter(l => l.sleepDuration != null)
@@ -256,34 +288,54 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
         </Card>
       ) : (
         <>
-          {/* ── 7-day summary ── */}
+          {/* ── today's scores hero ── */}
+          {latestLog && (latestLog.sleepScore != null || latestLog.readinessScore != null || latestLog.activityScore != null) && (
+            <Card>
+              <CardContent className="py-5">
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+                  <p className="text-sm font-medium">{format(latestLog.date, "EEEE, MMM d")}</p>
+                  <p className="text-xs text-muted-foreground">latest synced day</p>
+                </div>
+                <div className="flex items-center justify-around flex-wrap gap-4">
+                  <ScoreRing label="Sleep" score={latestLog.sleepScore}
+                    sub={latestLog.sleepDuration != null ? `${(latestLog.sleepDuration / 60).toFixed(1)}h` : undefined} />
+                  <ScoreRing label="Readiness" score={latestLog.readinessScore}
+                    sub={latestLog.hrv != null ? `${Math.round(latestLog.hrv)}ms HRV` : undefined} />
+                  <ScoreRing label="Activity" score={latestLog.activityScore}
+                    sub={latestLog.steps != null ? `${latestLog.steps.toLocaleString()} steps` : undefined} />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── 7-day summary (▲▼ vs the week before) ── */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-10 gap-3">
             <SummaryCard icon={<Moon className="h-4 w-4 text-primary" />} label="Sleep score"
               value={avgSleepScore != null ? `${Math.round(avgSleepScore)}` : "—"}
-              good={avgSleepScore != null && avgSleepScore >= 85} target="goal 85+" />
+              good={avgSleepScore != null && avgSleepScore >= 85} target="goal 85+" delta={tSleepScore} />
             <SummaryCard icon={<Moon className="h-4 w-4 text-primary" />} label="Avg sleep"
               value={avgSleepMin != null ? `${(avgSleepMin / 60).toFixed(1)}h` : "—"}
-              good={avgSleepMin != null && avgSleepMin / 60 >= SLEEP_GOAL_H} target={`goal ${SLEEP_GOAL_H}h`} />
+              good={avgSleepMin != null && avgSleepMin / 60 >= SLEEP_GOAL_H} target={`goal ${SLEEP_GOAL_H}h`} delta={tSleep} />
             <SummaryCard icon={<Footprints className="h-4 w-4 text-green-400" />} label="Avg steps"
               value={avgSteps != null ? Math.round(avgSteps).toLocaleString() : "—"}
-              good={avgSteps != null && avgSteps >= STEP_GOAL} target={`goal ${STEP_GOAL.toLocaleString()}`} />
+              good={avgSteps != null && avgSteps >= STEP_GOAL} target={`goal ${STEP_GOAL.toLocaleString()}`} delta={tSteps} />
             <SummaryCard icon={<Heart className="h-4 w-4 text-red-400" />} label="Avg resting HR"
-              value={avgHR != null ? `${Math.round(avgHR)} bpm` : "—"} />
+              value={avgHR != null ? `${Math.round(avgHR)} bpm` : "—"} delta={tHR} />
             <SummaryCard icon={<Scale className="h-4 w-4 text-blue-400" />} label="Latest weight"
-              value={avgWeight != null ? `${avgWeight.toFixed(1)} kg` : "—"} />
+              value={avgWeight != null ? `${avgWeight.toFixed(1)} kg` : "—"} delta={tWeight} />
             <SummaryCard icon={<Zap className="h-4 w-4 text-amber-400" />} label="Avg active"
-              value={avgActiveMins != null ? `${Math.round(avgActiveMins)} min` : "—"} />
+              value={avgActiveMins != null ? `${Math.round(avgActiveMins)} min` : "—"} delta={tActive} />
             <SummaryCard icon={<Shield className="h-4 w-4 text-emerald-400" />} label="Avg readiness"
               value={avgReadiness != null ? `${Math.round(avgReadiness)}` : "—"}
-              good={avgReadiness != null && avgReadiness >= 70} target="goal 70+" />
+              good={avgReadiness != null && avgReadiness >= 70} target="goal 70+" delta={tReadiness} />
             <SummaryCard icon={<Activity className="h-4 w-4 text-primary" />} label="Avg HRV"
-              value={avgHRV != null ? `${Math.round(avgHRV)} ms` : "—"} />
+              value={avgHRV != null ? `${Math.round(avgHRV)} ms` : "—"} delta={tHRV} />
             <SummaryCard icon={<Wind className="h-4 w-4 text-cyan-400" />} label="Avg SpO₂"
               value={avgSpo2 != null ? `${avgSpo2.toFixed(1)}%` : "—"}
               good={avgSpo2 != null && avgSpo2 >= 95} />
             <SummaryCard icon={<Zap className="h-4 w-4 text-amber-300" />} label="Avg activity"
               value={avgActivityScore != null ? `${Math.round(avgActivityScore)}` : "—"}
-              good={avgActivityScore != null && avgActivityScore >= 70} target="goal 70+" />
+              good={avgActivityScore != null && avgActivityScore >= 70} target="goal 70+" delta={tActivityScore} />
           </div>
 
           {/* ── sleep debt ── */}
@@ -770,17 +822,49 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   )
 }
 
-function SummaryCard({ icon, label, value, good, target }: {
+function SummaryCard({ icon, label, value, good, target, delta }: {
   icon: React.ReactNode; label: string; value: string; good?: boolean; target?: string
+  delta?: { text: string; good: boolean | null } | null
 }) {
   return (
     <Card className={good ? "border-green-500/30" : ""}>
       <CardContent className="pt-4 pb-3">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">{icon}{label}</div>
         <p className={`text-lg font-bold ${good ? "text-green-400" : ""}`}>{value}</p>
-        {target && <p className="text-[10px] text-muted-foreground mt-0.5">{target}</p>}
+        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+          {target && <p className="text-[10px] text-muted-foreground">{target}</p>}
+          {delta && (
+            <p className={`text-[10px] font-semibold ${
+              delta.good == null ? "text-muted-foreground" : delta.good ? "text-green-400" : "text-red-400"}`}>
+              {delta.text}
+            </p>
+          )}
+        </div>
       </CardContent>
     </Card>
+  )
+}
+
+// SVG progress ring for a 0–100 score; color follows the usual score bands.
+function ScoreRing({ label, score, sub }: { label: string; score: number | null; sub?: string }) {
+  const R = 34, C = 2 * Math.PI * R
+  const pct = score != null ? Math.max(0, Math.min(100, score)) : 0
+  const color = score == null ? "#3f3f46" : score >= 85 ? "#4ade80" : score >= 70 ? "#fbbf24" : "#f87171"
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="relative" style={{ width: 84, height: 84 }}>
+        <svg width={84} height={84} viewBox="0 0 84 84" className="-rotate-90">
+          <circle cx={42} cy={42} r={R} fill="none" strokeWidth={7} className="stroke-secondary" />
+          <circle cx={42} cy={42} r={R} fill="none" strokeWidth={7} stroke={color} strokeLinecap="round"
+            strokeDasharray={C} strokeDashoffset={C * (1 - pct / 100)} />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-xl font-black" style={{ color }}>{score != null ? Math.round(score) : "—"}</span>
+        </div>
+      </div>
+      <p className="text-xs font-medium">{label}</p>
+      {sub && <p className="text-[10px] text-muted-foreground -mt-1">{sub}</p>}
+    </div>
   )
 }
 

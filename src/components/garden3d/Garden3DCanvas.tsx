@@ -15,6 +15,8 @@ const GardenCanvas2D = lazy(() =>
 interface Scene {
   update(d: object): void
   sparkle(): void
+  feed(): void
+  setMoveMode(v: boolean): void
   setFaunaVisible(v: boolean): void
   resize(): void
   destroy(): void
@@ -69,7 +71,10 @@ const PLANT_KIND: Record<string, { kind: string; petal?: string }> = {
 // App stage (0 wilt, 1 seed, 2 sprout, 3 growing, 4 bloom, 5 max) → scene
 // stage (0 mound, 1 sprout, 2 seedling, 3 buds, 4 budding, 5 blooming).
 // Wilting renders its own drooping look via the wilted flag.
-const STAGE_MAP = [0, 0, 1, 3, 4, 5]
+// Seed used to map to the bare soil mound and sprout to a two-leaf nub, so a
+// young plant was nearly invisible — each app stage now shows one scene
+// stage further along.
+const STAGE_MAP = [0, 1, 2, 3, 4, 5]
 
 // ?gardenHour=23 previews any time of day (also used by tests)
 function hourOverride(): number | null {
@@ -85,6 +90,7 @@ function toSceneData(d: EngineData) {
     hour: hourOverride(),
     level: d.level,
     decorations: d.decorations,
+    fedToday: d.fedToday ?? false,
     habits: d.habits.map(h => {
       const map = PLANT_KIND[h.plantKey] ?? PLANT_KIND.sunflower
       return {
@@ -95,6 +101,7 @@ function toSceneData(d: EngineData) {
         wilted: h.stage === 0,
         kind: map.kind,
         petal: map.petal ?? null,
+        pos: d.placed?.[h.id] ?? null,
       }
     }),
   }
@@ -103,17 +110,20 @@ function toSceneData(d: EngineData) {
 export interface Garden3DCanvasProps {
   data: EngineData | null
   sparkleSignal: number
+  feedSignal?: number
+  moveMode?: boolean
   onPlantClick: (habitId: string) => void
+  onPlantMoved?: (habitId: string, cell: { x: number; y: number }) => void
 }
 
-export function Garden3DCanvas({ data, sparkleSignal, onPlantClick }: Garden3DCanvasProps) {
+export function Garden3DCanvas({ data, sparkleSignal, feedSignal = 0, moveMode = false, onPlantClick, onPlantMoved }: Garden3DCanvasProps) {
   const hostRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<Scene | null>(null)
-  const cbRef = useRef(onPlantClick)
+  const cbRef = useRef({ onPlantClick, onPlantMoved })
   const pending = useRef<EngineData | null>(null)
   const [fallback2D, setFallback2D] = useState(false)
   const [hour, setHour] = useState(() => hourOverride() ?? new Date().getHours() + new Date().getMinutes() / 60)
-  useEffect(() => { cbRef.current = onPlantClick }, [onPlantClick])
+  useEffect(() => { cbRef.current = { onPlantClick, onPlantMoved } }, [onPlantClick, onPlantMoved])
 
   // tick the local clock so the sky phase follows along
   useEffect(() => {
@@ -130,10 +140,14 @@ export function Garden3DCanvas({ data, sparkleSignal, onPlantClick }: Garden3DCa
     if (!host) return
     // dynamic import keeps three.js out of the initial bundle
     import("./scene").then(({ createGardenScene }) =>
-      createGardenScene(host, { onPlantClick: (id: string) => cbRef.current(id) })
+      createGardenScene(host, {
+        onPlantClick: (id: string) => cbRef.current.onPlantClick(id),
+        onPlantMoved: (id: string, cell: { x: number; y: number }) => cbRef.current.onPlantMoved?.(id, cell),
+      })
     ).then((scene: Scene) => {
       if (cancelled) { scene.destroy(); return }
       sceneRef.current = scene
+      scene.setMoveMode(moveModeRef.current)
       if (pending.current) scene.update(toSceneData(pending.current))
     }).catch(() => {
       // WebGL unavailable — use the 2D canvas instead of a blank box
@@ -160,11 +174,29 @@ export function Garden3DCanvas({ data, sparkleSignal, onPlantClick }: Garden3DCa
     }
   }, [sparkleSignal])
 
+  const lastFeed = useRef(0)
+  useEffect(() => {
+    if (feedSignal > 0 && feedSignal !== lastFeed.current) {
+      lastFeed.current = feedSignal
+      sceneRef.current?.feed()
+    }
+  }, [feedSignal])
+
+  // ref keeps the just-created scene in sync even before this effect runs
+  const moveModeRef = useRef(moveMode)
+  useEffect(() => {
+    moveModeRef.current = moveMode
+    sceneRef.current?.setMoveMode(moveMode)
+  }, [moveMode])
+
   if (fallback2D) {
     return (
       <Suspense fallback={null}>
-        <GardenCanvas2D data={data} editMode={false} sparkleSignal={sparkleSignal}
-          onPlantClick={onPlantClick} onPlaced={() => {}} />
+        <GardenCanvas2D data={data} editMode={moveMode} sparkleSignal={sparkleSignal}
+          onPlantClick={onPlantClick}
+          onPlaced={placed => {
+            for (const [id, cell] of Object.entries(placed)) cbRef.current.onPlantMoved?.(id, cell)
+          }} />
       </Suspense>
     )
   }

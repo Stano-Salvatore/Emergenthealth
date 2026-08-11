@@ -322,6 +322,7 @@ export interface EngineData {
   level: number
   weatherCode: number | null
   placed: Record<string, Cell>    // user-arranged object positions
+  fedToday?: boolean              // animals already fed today (3D scene shows kibble)
 }
 
 export interface EngineCallbacks {
