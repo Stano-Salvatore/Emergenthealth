@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react"
 import { usePathname } from "next/navigation"
 import { X, Send, Bell } from "lucide-react"
 import { EmergyAvatar, type EmergyState } from "./EmergyAvatar"
+import { ChatMarkdown } from "./ChatMarkdown"
 
 interface EmergyData {
   state: EmergyState
@@ -342,7 +343,15 @@ export function EmergyPanel() {
                       : "bg-secondary"
                   }`}
                 >
-                  {msg.content || <span className="animate-pulse">…</span>}
+                  {!msg.content ? (
+                    <span className="animate-pulse">…</span>
+                  ) : msg.role === "assistant" ? (
+                    // Emergy is told its replies render as markdown — the phone
+                    // chat page did, this panel showed the raw asterisks.
+                    <ChatMarkdown text={msg.content} />
+                  ) : (
+                    msg.content
+                  )}
                 </div>
               </div>
             ))}
