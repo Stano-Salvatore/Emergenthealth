@@ -1,0 +1,140 @@
+import { auth } from "@/auth"
+import { prisma } from "@/lib/prisma"
+import { estimateCaffeine } from "@/lib/caffeine"
+import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { normalizeSupplement } from "@/lib/supplement-normalize"
+import { NextResponse } from "next/server"
+import type { Prisma } from "@prisma/client"
+
+const DRINK_TYPES = new Set(["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "juice", "soda", "milk", "other"])
+
+export async function GET(req: Request) {
+  const session = await auth()
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const userId = session.user.id
+
+  const url = new URL(req.url)
+  const date = url.searchParams.get("date") ?? new Date().toISOString().split("T")[0]
+
+  // ?days=7 returns daily calorie totals for the last N days (for trend charts)
+  const days = parseInt(url.searchParams.get("days") ?? "0")
+  if (days > 0 && days <= 30) {
+    const end = new Date(date + "T23:59:59.999Z")
+    const start = new Date(end.getTime() - (days - 1) * 86400000)
+    start.setUTCHours(0, 0, 0, 0)
+    const logs = await prisma.foodLog.findMany({
+      where: { userId, loggedAt: { gte: start, lte: end } },
+      select: { calories: true, loggedAt: true },
+    })
+    const byDay: Record<string, number> = {}
+    for (const l of logs) {
+      const day = l.loggedAt.toISOString().split("T")[0]
+      byDay[day] = (byDay[day] ?? 0) + l.calories
+    }
+    return NextResponse.json(byDay)
+  }
+
+  const start = new Date(date + "T00:00:00.000Z")
+  const end = new Date(date + "T23:59:59.999Z")
+  const [logs, ouraTags] = await Promise.all([
+    prisma.foodLog.findMany({
+      where: { userId, loggedAt: { gte: start, lte: end } },
+      orderBy: { loggedAt: "asc" },
+    }),
+    // Supplements the user logged in the Oura app that day — shown alongside
+    // the food-derived vitamins so "took Vitamin D" and "got Vitamin D from
+    // food" land in one place.
+    prisma.$queryRaw<{ tagName: string | null; text: string | null }[]>`
+      SELECT "tagName","text" FROM "OuraTag"
+      WHERE "userId" = ${userId} AND "day" = ${date} ORDER BY "timestamp"
+    `.catch(() => []),
+  ])
+
+  const supplements: string[] = []
+  const seen = new Set<string>()
+  for (const t of ouraTags) {
+    const label = (t.tagName ?? t.text ?? "").trim()
+    if (!label || classifyOuraTag(label).kind !== "med") continue
+    const display = normalizeSupplement(label) ?? label
+    if (!seen.has(display.toLowerCase())) { seen.add(display.toLowerCase()); supplements.push(display) }
+  }
+
+  return NextResponse.json({ logs, supplements })
+}
+
+export async function POST(req: Request) {
+  const session = await auth()
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const userId = session.user.id
+
+  const body = await req.json().catch(() => null)
+  const name = typeof body?.name === "string" ? body.name.trim().slice(0, 120) : ""
+  const calories = Number(body?.calories)
+  if (!name || !Number.isFinite(calories) || calories < 0 || calories > 10000) {
+    return NextResponse.json({ error: "name and calories required" }, { status: 400 })
+  }
+
+  const num = (v: unknown) => {
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 0 && n <= 2000 ? Math.round(n * 10) / 10 : null
+  }
+  const MEAL_TYPES = new Set(["breakfast", "lunch", "dinner", "snack", "other"])
+
+  const log = await prisma.foodLog.create({
+    data: {
+      userId,
+      name,
+      mealType: MEAL_TYPES.has(body?.mealType) ? body.mealType : "other",
+      calories: Math.round(calories),
+      proteinG: num(body?.proteinG),
+      carbsG: num(body?.carbsG),
+      fatG: num(body?.fatG),
+      items: Array.isArray(body?.items) ? (body.items.slice(0, 20) as Prisma.InputJsonValue) : undefined,
+      micros: Array.isArray(body?.micros) ? (body.micros.slice(0, 8) as Prisma.InputJsonValue) : undefined,
+      note: typeof body?.note === "string" && body.note.trim() ? body.note.trim().slice(0, 500) : null,
+      photo: typeof body?.photo === "string" && body.photo.startsWith("data:image/") && body.photo.length < 100_000
+        ? body.photo
+        : null,
+    },
+  })
+
+  // Recognized drinks also feed the drinks tracker (and caffeine, via the same
+  // estimator the Intake tab uses). Shared id prefix ties them to this meal so
+  // deleting the meal removes them too.
+  const items = Array.isArray(body?.items) ? body.items.slice(0, 20) : []
+  let drinkIdx = 0
+  for (const it of items) {
+    const volumeMl = Math.round(Number(it?.volumeMl))
+    if (it?.kind !== "drink" || !DRINK_TYPES.has(it?.drinkType) || !Number.isFinite(volumeMl) || volumeMl <= 0 || volumeMl > 3000) continue
+    const itemName = typeof it?.name === "string" ? it.name.trim().slice(0, 80) : ""
+    const intakeId = `food_${log.id}_${drinkIdx++}`
+    await prisma.intakeLog.create({
+      data: { id: intakeId, userId, type: it.drinkType, amountMl: volumeMl, note: itemName || null },
+    }).catch(() => null)
+    const est = estimateCaffeine(it.drinkType, itemName, volumeMl)
+    if (est) {
+      await prisma.caffeineLog.create({
+        data: { id: `intake_${intakeId}`, userId, compound: est.compound, caffeineMg: est.mg },
+      }).catch(() => null)
+    }
+  }
+
+  return NextResponse.json(log, { status: 201 })
+}
+
+export async function DELETE(req: Request) {
+  const session = await auth()
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const userId = session.user.id
+
+  const { id } = await req.json()
+  const log = await prisma.foodLog.findUnique({ where: { id } })
+  if (!log || log.userId !== userId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+  await prisma.foodLog.delete({ where: { id } })
+  // remove the drink entries (and their caffeine) this meal mirrored into the tracker
+  await prisma.intakeLog.deleteMany({ where: { userId, id: { startsWith: `food_${id}_` } } }).catch(() => null)
+  await prisma.caffeineLog.deleteMany({ where: { userId, id: { startsWith: `intake_food_${id}_` } } }).catch(() => null)
+  return NextResponse.json({ ok: true })
+}

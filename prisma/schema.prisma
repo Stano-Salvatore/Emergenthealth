@@ -37,6 +37,7 @@ model User {
   savedPlaces  SavedPlace[]
   dailyNotes   DailyNote[]
   intakeLogs    IntakeLog[]
+  foodLogs      FoodLog[]
   focusSessions FocusSession[]
   driveImportLogs DriveImportLog[]
   books         Book[]
@@ -360,6 +361,28 @@ model IntakeLog {
   type     String   // "water" | "coffee" | "tea" | "alcohol" | "other"
   amountMl Int
   note     String?
+  loggedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, loggedAt])
+}
+
+// ─── Food Log (meals, photo-analyzed) ────────────────────────────────────────
+
+model FoodLog {
+  id       String   @id @default(cuid())
+  userId   String
+  name     String   // short meal name, e.g. "Chicken caesar salad"
+  mealType String   @default("other") // "breakfast" | "lunch" | "dinner" | "snack" | "other"
+  calories Int
+  proteinG Float?
+  carbsG   Float?
+  fatG     Float?
+  items    Json?    // [{ kind, name, portion, calories, proteinG, carbsG, fatG, drinkType, volumeMl }]
+  micros   Json?    // [{ name, amount, unit, dailyPct }] — notable vitamins & minerals
+  note     String?  // one-line health note from the photo analysis
+  photo    String?  @db.Text // small JPEG data-URL thumbnail for the log list
   loggedAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
