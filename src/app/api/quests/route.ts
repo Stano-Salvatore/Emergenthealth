@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getUserTimezone, localDateStr, zonedDayRange } from "@/lib/local-date"
 
 export interface Quest {
   id: string
@@ -18,9 +19,12 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const todayStr = today.toISOString().split("T")[0]
+  // The user's day, not the server's — on UTC hosting, server-midnight quests
+  // rolled over at 01:00/02:00 for a Bratislava user (the garden already does
+  // this correctly).
+  const timezone = await getUserTimezone(userId)
+  const todayStr = localDateStr(timezone)
+  const today = zonedDayRange(timezone, todayStr).start
 
   const [
     habits,

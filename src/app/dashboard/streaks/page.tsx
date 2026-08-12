@@ -29,7 +29,7 @@ interface StreaksData {
     byCategory: {
       habits: number; sleep: number; weight: number; mood: number
       journal: number; intake: number; focus: number; reading: number; supplements: number
-      github: number; checkin: number
+      garden: number; github: number; checkin: number
     }
   }
   level: number
@@ -63,6 +63,7 @@ const XP_COLORS: Record<string, string> = {
   focus:       "bg-red-500",
   reading:     "bg-pink-500",
   supplements: "bg-green-500",
+  garden:      "bg-lime-500",
   github:      "bg-slate-500",
   checkin:     "bg-amber-400",
 }
@@ -70,7 +71,7 @@ const XP_COLORS: Record<string, string> = {
 const XP_LABELS: Record<string, string> = {
   habits: "Habits", sleep: "Sleep", weight: "Weight", mood: "Mood",
   journal: "Journal", intake: "Intake", focus: "Focus", reading: "Reading",
-  supplements: "Supplements", github: "GitHub", checkin: "Check-in",
+  supplements: "Supplements", garden: "Garden", github: "GitHub", checkin: "Check-in",
 }
 
 function LevelBadge({ level }: { level: number }) {
