@@ -18,6 +18,7 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { isRouteEnabled } from "@/lib/features"
+import { EmergyAvatar, type EmergyState } from "@/components/emergy/EmergyAvatar"
 
 type NavItem = { href: string; label: string; emoji: string }
 
@@ -160,6 +161,21 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
   const [hidden,  setHidden]  = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState(false)
   const [bottomHovered, setBottomHovered] = useState(false)
+  const [emergyState, setEmergyState] = useState<EmergyState>("okay")
+
+  // The brand mark is Emergy himself — keep his colour in step with his
+  // actual state, same polling as the bottom nav.
+  useEffect(() => {
+    let cancelled = false
+    const load = () =>
+      fetch("/api/emergy")
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (d?.state && !cancelled) setEmergyState(d.state) })
+        .catch(() => {})
+    load()
+    const t = setInterval(load, 5 * 60 * 1000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -271,13 +287,10 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
           paddingBottom: "env(safe-area-inset-bottom)",
         }}
       >
-        {/* Logo icon */}
+        {/* Logo icon — the 3D Emergy mark */}
         <div className="flex items-center justify-center h-14 border-b border-border/60">
-          <div className="relative shrink-0">
-            <div className="absolute inset-0 bg-primary/50 rounded-lg blur-md" />
-            <div className="relative bg-gradient-to-br from-primary to-primary/60 rounded-lg p-1.5 text-sm leading-none flex items-center justify-center w-7 h-7">
-              💚
-            </div>
+          <div className="relative shrink-0 w-7 h-7 rounded-lg bg-card border border-border flex items-center justify-center">
+            <EmergyAvatar mood={emergyState} fit="icon" size={24} />
           </div>
         </div>
 
@@ -327,13 +340,10 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
         paddingBottom: "env(safe-area-inset-bottom)",
       }}
     >
-      {/* Logo */}
+      {/* Logo — the 3D Emergy mark, live to his state */}
       <div className="flex items-center gap-3 px-4 h-14 border-b border-border/60">
-        <div className="relative shrink-0">
-          <div className="absolute inset-0 bg-primary/50 rounded-lg blur-md" />
-          <div className="relative bg-gradient-to-br from-primary to-primary/60 rounded-lg p-1.5 text-sm leading-none flex items-center justify-center w-7 h-7">
-            💚
-          </div>
+        <div className="relative shrink-0 w-7 h-7 rounded-lg bg-card border border-border flex items-center justify-center">
+          <EmergyAvatar mood={emergyState} fit="icon" size={24} />
         </div>
         <span className="font-bold text-sm text-gradient flex-1">Emergenthealth</span>
         {onClose && (

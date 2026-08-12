@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation"
 import { Home, Sun, CheckSquare, DollarSign, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { isFeatureEnabled } from "@/lib/features"
-import { EmergySVG, type EmergyState } from "@/components/emergy/EmergySVG"
+import { EmergyAvatar, type EmergyState } from "@/components/emergy/EmergyAvatar"
 
 type Tab = {
   href: string
@@ -90,7 +90,7 @@ export function BottomNav() {
             "flex items-center justify-center h-14 w-14 rounded-full border bg-background shadow-lg transition-all duration-200",
             chatActive ? "border-primary/50 shadow-primary/20" : "border-border shadow-black/30"
           )}>
-            <EmergySVG state={emergyState} size={44} />
+            <EmergyAvatar mood={emergyState} fit="icon" size={46} />
             {needsAttention && !chatActive && (
               <span className="absolute top-0.5 right-2.5 w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
             )}

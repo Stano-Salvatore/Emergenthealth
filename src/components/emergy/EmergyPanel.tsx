@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { usePathname } from "next/navigation"
 import { X, Send, Bell } from "lucide-react"
-import { EmergySVG, EmergyState } from "./EmergySVG"
+import { EmergyAvatar, type EmergyState } from "./EmergyAvatar"
 
 interface EmergyData {
   state: EmergyState
@@ -258,7 +258,7 @@ export function EmergyPanel() {
           aria-label="Open Emergy"
           style={{ width: 80, height: 80 }}
         >
-          <EmergySVG state={state} size={72} />
+          <EmergyAvatar mood={state} fit="icon" size={72} />
           {isScreaming && (
             <span className="absolute top-1.5 right-1.5 w-3 h-3 rounded-full bg-red-500 animate-pulse" />
           )}
@@ -270,7 +270,7 @@ export function EmergyPanel() {
         <div className="fixed bottom-[148px] lg:bottom-[128px] right-6 z-50 w-80 h-[480px] flex flex-col rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-card shrink-0">
-            <EmergySVG state={state} size={40} />
+            <EmergyAvatar mood={state} fit="icon" size={40} />
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm">Emergy</p>
               <div className="flex items-center gap-1.5">
@@ -332,7 +332,7 @@ export function EmergyPanel() {
               >
                 {msg.role === "assistant" && (
                   <div className="shrink-0 mt-0.5">
-                    <EmergySVG state={state} size={20} />
+                    <EmergyAvatar mood={state} fit="icon" size={20} />
                   </div>
                 )}
                 <div
