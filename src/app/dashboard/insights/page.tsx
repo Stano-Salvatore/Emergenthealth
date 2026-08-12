@@ -8,7 +8,7 @@ import { WatchedPatterns } from "@/components/dashboard/WatchedPatterns"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags"
+type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements"
 
 interface InsightResult {
   id: string
@@ -34,16 +34,19 @@ interface CorrelationsData {
 // ─── Category metadata ────────────────────────────────────────────────────────
 
 const CATEGORY_META: Record<Category, { label: string; emoji: string; color: string }> = {
-  sleep:    { label: "Sleep",    emoji: "🌙", color: "text-indigo-400" },
-  stress:   { label: "Stress",   emoji: "😤", color: "text-orange-400" },
-  habits:   { label: "Habits",   emoji: "✅", color: "text-green-400" },
-  caffeine: { label: "Caffeine", emoji: "☕", color: "text-amber-400" },
-  recovery: { label: "Recovery", emoji: "❤️", color: "text-rose-400" },
-  screen:   { label: "Screen Time", emoji: "📱", color: "text-cyan-400" },
-  tags:     { label: "Tags",     emoji: "🏷️", color: "text-primary" },
+  sleep:       { label: "Sleep",    emoji: "🌙", color: "text-indigo-400" },
+  recovery:    { label: "Recovery", emoji: "❤️", color: "text-rose-400" },
+  stress:      { label: "Stress",   emoji: "😤", color: "text-orange-400" },
+  food:        { label: "Food & Hydration", emoji: "🍽️", color: "text-orange-400" },
+  supplements: { label: "Supplements", emoji: "💊", color: "text-violet-400" },
+  habits:      { label: "Habits",   emoji: "✅", color: "text-green-400" },
+  caffeine:    { label: "Caffeine", emoji: "☕", color: "text-amber-400" },
+  screen:      { label: "Screen Time", emoji: "📱", color: "text-cyan-400" },
+  calendar:    { label: "Calendar", emoji: "🗓️", color: "text-blue-400" },
+  tags:        { label: "Tags",     emoji: "🏷️", color: "text-primary" },
 }
 
-const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "stress", "habits", "caffeine", "screen", "tags"]
+const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "stress", "food", "supplements", "habits", "caffeine", "screen", "calendar", "tags"]
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 

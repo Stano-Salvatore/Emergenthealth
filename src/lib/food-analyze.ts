@@ -21,6 +21,7 @@ export interface FoodItem {
   proteinG: number
   carbsG: number
   fatG: number
+  sugarG: number
   drinkType: string    // one of DRINK_TYPES for drinks; "none" for food
   volumeMl: number     // estimated ml for drinks; 0 for food
   // filled in server-side after the USDA lookup
@@ -47,12 +48,13 @@ export interface FoodAnalysis {
   proteinG: number
   carbsG: number
   fatG: number
+  sugarG: number
 }
 
 const ITEM_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["kind", "name", "portion", "grams", "searchQuery", "calories", "proteinG", "carbsG", "fatG", "drinkType", "volumeMl"],
+  required: ["kind", "name", "portion", "grams", "searchQuery", "calories", "proteinG", "carbsG", "fatG", "sugarG", "drinkType", "volumeMl"],
   properties: {
     kind: { type: "string", enum: ["food", "drink"], description: "Whether this item is eaten or drunk" },
     name: { type: "string", description: "The item, e.g. 'Grilled chicken breast' or 'Fresh orange juice'" },
@@ -66,6 +68,7 @@ const ITEM_SCHEMA = {
     proteinG: { type: "number", description: "Estimated protein in grams" },
     carbsG: { type: "number", description: "Estimated carbohydrates in grams" },
     fatG: { type: "number", description: "Estimated fat in grams" },
+    sugarG: { type: "number", description: "Estimated sugars in grams (part of the carbohydrates)" },
     drinkType: {
       type: "string",
       enum: [...DRINK_TYPES, "none"],
@@ -191,7 +194,7 @@ export async function analyzeMealPhoto(imageDataUrl: string, opts: AnalyzeOption
   const text = response.content.find(b => b.type === "text")?.text
   if (!text) return null
 
-  let parsed: Omit<FoodAnalysis, "calories" | "proteinG" | "carbsG" | "fatG">
+  let parsed: Omit<FoodAnalysis, "calories" | "proteinG" | "carbsG" | "fatG" | "sugarG">
   try {
     parsed = JSON.parse(text)
   } catch {
@@ -207,7 +210,7 @@ export async function analyzeMealPhoto(imageDataUrl: string, opts: AnalyzeOption
  * measured per-100g values do the rest. Unmatched items keep the estimate,
  * and every item is marked "db" or "est" so the UI can say which is which.
  */
-export function reconcileWithDb(parsed: Omit<FoodAnalysis, "calories" | "proteinG" | "carbsG" | "fatG">): FoodAnalysis {
+export function reconcileWithDb(parsed: Omit<FoodAnalysis, "calories" | "proteinG" | "carbsG" | "fatG" | "sugarG">): FoodAnalysis {
   const round1 = (n: number) => Math.round(n * 10) / 10
   const dbTotals: Record<string, number> = {}
   let anyDb = false
@@ -227,6 +230,7 @@ export function reconcileWithDb(parsed: Omit<FoodAnalysis, "calories" | "protein
       proteinG: round1(n.protein),
       carbsG: round1(n.carb),
       fatG: round1(n.fat),
+      sugarG: round1(n.sugar),
     }
   })
 
@@ -248,5 +252,6 @@ export function reconcileWithDb(parsed: Omit<FoodAnalysis, "calories" | "protein
     proteinG: round1(items.reduce((s, i) => s + (i.proteinG || 0), 0)),
     carbsG: round1(items.reduce((s, i) => s + (i.carbsG || 0), 0)),
     fatG: round1(items.reduce((s, i) => s + (i.fatG || 0), 0)),
+    sugarG: round1(items.reduce((s, i) => s + (i.sugarG || 0), 0)),
   }
 }

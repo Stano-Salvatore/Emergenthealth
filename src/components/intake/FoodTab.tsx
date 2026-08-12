@@ -23,6 +23,7 @@ interface FoodItem {
   proteinG: number
   carbsG: number
   fatG: number
+  sugarG?: number
   drinkType?: string
   volumeMl?: number
   source?: "db" | "est"
@@ -62,6 +63,7 @@ interface Analysis {
   proteinG: number
   carbsG: number
   fatG: number
+  sugarG?: number
 }
 
 const MEAL_TYPES = [
@@ -228,6 +230,7 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
           proteinG: num(draft.proteinG),
           carbsG: num(draft.carbsG),
           fatG: num(draft.fatG),
+          sugarG: draft.analysis?.sugarG,
           items: draft.analysis?.items,
           micros: draft.analysis?.micros,
           note: draft.note.trim() || undefined,

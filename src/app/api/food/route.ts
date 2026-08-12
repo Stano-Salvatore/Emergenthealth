@@ -89,6 +89,7 @@ export async function POST(req: Request) {
       proteinG: num(body?.proteinG),
       carbsG: num(body?.carbsG),
       fatG: num(body?.fatG),
+      sugarG: num(body?.sugarG),
       items: Array.isArray(body?.items) ? (body.items.slice(0, 20) as Prisma.InputJsonValue) : undefined,
       micros: Array.isArray(body?.micros) ? (body.micros.slice(0, 8) as Prisma.InputJsonValue) : undefined,
       note: typeof body?.note === "string" && body.note.trim() ? body.note.trim().slice(0, 500) : null,
