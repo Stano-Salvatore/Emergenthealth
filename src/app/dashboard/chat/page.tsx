@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Send, User, Mic, MicOff, History, Plus, Trash2, X } from "lucide-react"
-import { EmergySVG, type EmergyState } from "@/components/emergy/EmergySVG"
+import { EmergyAvatar, type EmergyState } from "@/components/emergy/EmergyAvatar"
 import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
 import { isFeatureEnabled } from "@/lib/features"
 
@@ -35,7 +35,7 @@ function MessageBubble({ msg, emergyState }: { msg: Message; emergyState: Emergy
             <User className="h-3.5 w-3.5 text-white"/>
           </div>
         ) : (
-          <EmergySVG state={emergyState} size={28}/>
+          <EmergyAvatar mood={emergyState} fit="icon" size={28}/>
         )}
       </div>
       <div
@@ -312,7 +312,7 @@ export default function ChatPage() {
     // never end up underneath the bottom nav.
     <div className="flex flex-col h-[calc(100dvh_-_5.75rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] lg:h-[calc(100dvh_-_3rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))]">
       <div className="flex items-center gap-3 mb-4">
-        <EmergySVG state={emergyState} size={52}/>
+        <EmergyAvatar mood={emergyState} fit="icon" size={52}/>
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold">Emergy</h1>
           <p className="text-muted-foreground text-sm mt-0.5 truncate">{subtitle}</p>
@@ -382,7 +382,7 @@ export default function ChatPage() {
       >
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center space-y-3 py-12">
-            <EmergySVG state={emergyState} size={100}/>
+            <EmergyAvatar mood={emergyState} fit="full" size={100} height={125}/>
             <div>
               <p className="font-semibold text-base">Hi!! I&apos;m Emergy 🌱</p>
               <p className="text-sm text-muted-foreground mt-1 max-w-xs">{intro}</p>

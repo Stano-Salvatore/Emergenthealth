@@ -20,11 +20,55 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --font-sans: var(--font-geist-mono);
+  /* Identity palette — Tailwind classes like text-sleep, bg-fuel/10 */
+  --color-sleep: var(--domain-sleep);
+  --color-heart: var(--domain-heart);
+  --color-move: var(--domain-move);
+  --color-fuel: var(--domain-fuel);
+  --color-mind: var(--domain-mind);
+  --color-life: var(--domain-life);
+  --color-drink-water: var(--drink-water);
+  --color-drink-coffee: var(--drink-coffee);
+  --color-drink-tea: var(--drink-tea);
+  --color-drink-beer: var(--drink-beer);
+  --color-drink-wine: var(--drink-wine);
+  /* Status palette — text-status-on, bg-status-watch/15, … */
+  --color-status-on: var(--status-on);
+  --color-status-watch: var(--status-watch);
+  --color-status-off: var(--status-off);
+  /* Geist Sans for prose; mono is opt-in for figures (font-mono + tnum) */
+  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
+}
+
+/* ── The two palettes (see design/handoff/README.md) ──
+   Colour has exactly two jobs, and a screen may tint a number by one or the
+   other, never both.
+   Identity is locked per domain and theme-independent: a figure, its bar, its
+   icon and its sparkline all take the hue of what they measure, on every
+   screen. Status appears only on rings, chips, deltas and dots — never on a
+   metric's own glyph or figure. */
+:root {
+  /* Identity — locked per domain */
+  --domain-sleep: #818cf8;  /* hours, score, stages, debt, sleep bars */
+  --domain-heart: #fb7185;  /* RHR, HRV, SpO₂, breathing rate — never #ef4444 */
+  --domain-move:  #a3e635;  /* steps, active minutes, activity score */
+  --domain-fuel:  #22d3ee;  /* water, intake, medications */
+  --domain-mind:  #c084fc;  /* mood, focus, journal, screen time */
+  --domain-life:  #8d8da8;  /* calendar, habits, reminders, money — neutral by design */
+  /* Fuel sub-hues — drinks only; quantity is still carried by the bar */
+  --drink-water:  #22d3ee;
+  --drink-coffee: #c08552;
+  --drink-tea:    #8fbf6a;
+  --drink-beer:   #e0a83c;
+  --drink-wine:   #c15f7a;
+  /* Status — three steps, nothing else */
+  --status-on:    #34d399;  /* at or above goal, in range, done */
+  --status-watch: #fbbf24;  /* drifting, due today, near a limit */
+  --status-off:   #f87171;  /* missed, overdue, out of range, error */
 }
 
 /* ── Midnight (default dark) ── */
@@ -203,7 +247,7 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-mono), ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
@@ -235,19 +279,16 @@ body {
   background-clip: text;
 }
 
-/* ── Card gradient accents ── */
-.card-health    { background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 14%, transparent) 0%, var(--card) 55%); }
-.card-finances  { background: linear-gradient(135deg, rgba(52,211,153,0.14) 0%, var(--card) 55%); }
-.card-calendar  { background: linear-gradient(135deg, rgba(96,165,250,0.14) 0%, var(--card) 55%); }
-.card-habits    { background: linear-gradient(135deg, rgba(251,191,36,0.16) 0%, var(--card) 55%); }
-.card-reminders { background: linear-gradient(135deg, rgba(167,139,250,0.14) 0%, var(--card) 55%); }
-.card-gmail     { background: linear-gradient(135deg, rgba(251,113,133,0.14) 0%, var(--card) 55%); }
-
-/* Theme-aware card gradients */
-[data-theme="warm"] .card-health    { background: linear-gradient(135deg, rgba(245,158,11,0.14) 0%, var(--card) 55%); }
-[data-theme="warm"] .card-finances  { background: linear-gradient(135deg, rgba(251,146,60,0.14) 0%, var(--card) 55%); }
-[data-theme="forest"] .card-health  { background: linear-gradient(135deg, rgba(34,197,94,0.14) 0%, var(--card) 55%); }
-[data-theme="ocean"] .card-health   { background: linear-gradient(135deg, rgba(56,189,248,0.14) 0%, var(--card) 55%); }
+/* ── Card gradient accents ──
+   Derived from the domain hues so they survive a theme switch instead of
+   staying emerald in Forest and rose in Ocean. Calendar, habits, reminders,
+   finances and mail are Life — neutral by design. */
+.card-health    { background: linear-gradient(135deg, color-mix(in srgb, var(--domain-heart) 14%, transparent) 0%, var(--card) 55%); }
+.card-finances  { background: linear-gradient(135deg, color-mix(in srgb, var(--domain-life) 14%, transparent) 0%, var(--card) 55%); }
+.card-calendar  { background: linear-gradient(135deg, color-mix(in srgb, var(--domain-life) 14%, transparent) 0%, var(--card) 55%); }
+.card-habits    { background: linear-gradient(135deg, color-mix(in srgb, var(--domain-life) 16%, transparent) 0%, var(--card) 55%); }
+.card-reminders { background: linear-gradient(135deg, color-mix(in srgb, var(--domain-life) 14%, transparent) 0%, var(--card) 55%); }
+.card-gmail     { background: linear-gradient(135deg, color-mix(in srgb, var(--domain-life) 14%, transparent) 0%, var(--card) 55%); }
 
 /* ── Scrollbar ── */
 .scrollbar-thin::-webkit-scrollbar { width: 4px; }

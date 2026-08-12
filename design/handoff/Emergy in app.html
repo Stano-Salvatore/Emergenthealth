@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emergy in the app — web &amp; mobile</title>
+<script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.min.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+    "three/addons/controls/OrbitControls.js": "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js",
+    "three/addons/exporters/OBJExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js",
+    "three/addons/exporters/GLTFExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js"
+  },
+  "integrity": {
+    "https://unpkg.com/three@0.184.0/build/three.module.js": "sha384-8FCZ1eVO6it4+pbec2aDtnTrwjWXZLJRC+MAGCIPDgsYnUrl/E0A2YlF8ioMKI/J",
+    "https://unpkg.com/three@0.184.0/build/three.core.js": "sha384-dw2ooPewaEIrAgl6oFDBmmBWCE9oW9LxRGcfwZ0hLvEprzo202wXl7vCYHRlSnOT",
+    "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js": "sha384-4rziNxOBZKQ69i+w+f89KJ55TCYquwchVbByQwmaOeIOXdOU2PLDn3kOfXHwIJC9",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js": "sha384-nbwtoZENJD3Vq+ACK0CuGQdPMuDWHkamC2KJD70EV5nfg6jQjfppKOea07YJN+N3",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js": "sha384-VofkvpG6HERhFCYbsUOHeNXBCqID2nfqkQqnVzE1jc/oPcz+qJ13ADdXH08hE+cQ"
+  }
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="_ds/classical-c852420c-9113-4af6-a601-84d46bb891c5/styles.css">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500&family=Lora:ital@0;1&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root{ --ink:var(--color-text); --paper:var(--color-bg); --rule:var(--color-divider); --accent:var(--color-accent); }
+  html,body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body),'Lora',Georgia,serif}
+  h1,h2,h3{font-family:var(--font-heading),'Cormorant Garamond',serif;font-weight:500;margin:0}
+  .wrap{padding:40px 44px 80px;max-width:1560px}
+  .kicker{font-family:'Cormorant Garamond',serif;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--color-accent-700);margin:0 0 10px}
+  .lede{font-size:14.5px;line-height:1.7;max-width:88ch;margin:14px 0 26px;text-wrap:pretty}
+  .rule{height:1px;background:var(--rule);margin:34px 0}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 26px}
+  .controls span.lbl{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-neutral-700);margin-right:4px}
+  .controls button{font:500 12px/1 'Geist',system-ui,sans-serif;color:var(--ink);background:transparent;border:1px solid var(--rule);border-radius:4px;padding:8px 12px;cursor:pointer}
+  .controls button[aria-pressed="true"]{border-color:var(--accent);color:var(--color-accent-700)}
+  .controls button:hover{border-color:var(--accent)}
+  .moodgrid{display:flex;flex-wrap:wrap;gap:16px}
+  .moodcard{width:168px;border:1px solid var(--rule);border-radius:4px;background:#0b0a12;padding:10px 10px 12px;display:flex;flex-direction:column;align-items:center;gap:6px}
+  .moodcard canvas{display:block;width:146px;height:186px}
+  .moodcard .nm{font:600 11px/1 'Geist Mono',ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;color:#c9c9dd}
+  .moodcard .gs{font:400 10.5px/1.3 'Geist',system-ui,sans-serif;color:#7a7a96;text-align:center}
+  .frames{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start}
+  .cap{font:400 12.5px/1.6 var(--font-body),'Lora',Georgia,serif;color:var(--color-neutral-700);margin:10px 0 0}
+  .oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(32,31,29,.08);border-radius:5px;margin-right:8px}
+  /* app surfaces */
+  .app{font-family:'Geist',system-ui,sans-serif;color:#f2f2fa;background:#09090f;border:1px solid var(--rule);border-radius:14px;overflow:hidden}
+  .appcard{border:1px solid #201f32;background:#100f1a;border-radius:16px}
+  .brief{border:1px solid rgba(99,102,241,.22);background:rgba(99,102,241,.06);border-radius:16px}
+  .lab{font:700 10px/1 'Geist',system-ui,sans-serif;text-transform:uppercase;letter-spacing:.15em;color:#7a7a96;margin:0}
+  .mono{font-family:'Geist Mono',ui-monospace,monospace;font-feature-settings:'tnum'}
+  .navitem{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;font-size:13.5px;color:#a9a9c0}
+  .navitem.on{background:rgba(99,102,241,.14);border:1px solid rgba(99,102,241,.3);color:#c7c9ff;font-weight:600}
+  .navitem .em{width:20px;text-align:center;font-size:15px;line-height:1}
+  .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;color:#7a7a96}
+  .tab .pill{width:48px;height:30px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-size:19px}
+  .tab .pill svg{width:1em;height:1em;stroke-width:1.75}
+  .tab.on{color:#818cf8}
+  .tab.on .pill{background:rgba(99,102,241,.15)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="kicker">Round 6 · Emergy, live</p>
+  <h1 style="font-size:38px;line-height:1.1">Every colour, and where he actually sits</h1>
+  <p class="lede">One model, six states — the exact colour sets from <code style="font-family:ui-monospace,monospace;font-size:13px">EmergySVG.tsx</code>. He <em>waves</em> when he's green (thriving, happy), <em>bobs</em> when he's amber (okay), <em>sighs</em> when he's grey or dusty rose (tired, wilting) and <em>shakes</em> when he's red (screaming). Below, the same live model dropped into the mobile and web surfaces at the sizes he really appears — nav button, briefing avatar, sidebar mark, chat panel. Everything here is rendered geometry, not a sprite: arms are longer, and each state is one material swap.</p>
+
+  <div class="controls">
+    <span class="lbl">App frames show</span>
+    <button data-mood="thriving">thriving</button>
+    <button data-mood="happy">happy</button>
+    <button data-mood="okay" aria-pressed="true">okay</button>
+    <button data-mood="tired">tired</button>
+    <button data-mood="wilting">wilting</button>
+    <button data-mood="screaming">screaming</button>
+    <span style="width:14px"></span>
+    <button data-gesture="wave">make him wave</button>
+    <button data-gesture="sigh">make him sigh</button>
+  </div>
+
+  <div class="moodgrid" id="moodgrid"></div>
+
+  <div class="rule"></div>
+
+  <div class="frames">
+    <div>
+      <p style="margin:0 0 10px"><span class="oid">6a</span><span style="font-family:'Cormorant Garamond',serif;font-size:17px">Mobile · 390 wide</span></p>
+      <div class="app" style="width:390px">
+        <div style="padding:14px 16px 10px;display:flex;justify-content:space-between;align-items:flex-start">
+          <div>
+            <p style="margin:0;font-size:18px;font-weight:600">Good afternoon, Stanislav</p>
+            <p class="mono" style="margin:3px 0 0;font-size:11.5px;color:#7a7a96">Tue 11 Aug · synced 07:12</p>
+          </div>
+          <p class="mono" style="margin:0;font-size:20px;font-weight:700">18:23</p>
+        </div>
+        <div style="padding:0 12px 12px;display:flex;flex-direction:column;gap:12px">
+          <div class="brief" style="padding:14px">
+            <div style="display:flex;gap:11px;align-items:flex-start">
+              <div style="width:34px;height:34px;border-radius:99px;border:1px solid #201f32;background:#100f1a;flex:none;display:flex;align-items:center;justify-content:center">
+                <canvas data-emg data-app-mood data-fit="icon" style="width:30px;height:30px"></canvas>
+              </div>
+              <div style="flex:1;min-width:0">
+                <p style="margin:0;font-family:'Lora',Georgia,serif;font-style:italic;font-size:13px;line-height:1.55;color:#c9c9dd">Two short nights and your resting HR is up 3&nbsp;bpm — today is for protecting focus, not expanding it.</p>
+                <p style="margin:7px 0 0;font-size:10px;color:#5d5c78">Emergy · updated 07:14</p>
+              </div>
+            </div>
+          </div>
+          <div class="appcard" style="padding:16px;display:flex;gap:16px;align-items:center">
+            <div style="position:relative;width:88px;height:88px;flex:none">
+              <svg viewBox="0 0 84 84" style="width:88px;height:88px;transform:rotate(135deg)">
+                <circle cx="42" cy="42" r="34" fill="none" stroke="#1a192a" stroke-width="7" stroke-linecap="round" stroke-dasharray="160.2 213.6"></circle>
+                <circle cx="42" cy="42" r="34" fill="none" stroke="#34d399" stroke-width="7" stroke-linecap="round" stroke-dasharray="124.9 213.6"></circle>
+              </svg>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                <span class="mono" style="font-size:28px;font-weight:900;line-height:1">78</span>
+                <span style="font-size:6.5px;font-weight:700;letter-spacing:.1em;color:#34d399;margin-top:3px">ON TARGET</span>
+              </div>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:9px" id="mobPillars"></div>
+          </div>
+          <div class="appcard" style="padding:15px 16px">
+            <p class="lab" style="margin-bottom:10px">Ask Emergy</p>
+            <div style="display:flex;gap:10px;align-items:center">
+              <div style="width:44px;height:44px;border-radius:12px;background:#0d0c17;border:1px solid #201f32;flex:none;display:flex;align-items:center;justify-content:center">
+                <canvas data-emg data-app-mood data-fit="icon" style="width:40px;height:40px"></canvas>
+              </div>
+              <p style="margin:0;font-size:12.5px;color:#a9a9c0;line-height:1.45">“Why is my HR up?” · “How did I sleep?”</p>
+            </div>
+          </div>
+        </div>
+        <div style="border-top:1px solid #201f32;background:rgba(9,9,15,.95);padding:8px 4px 12px;display:flex;align-items:flex-end">
+          <div class="tab on"><div class="pill" style="color:#818cf8"><i data-lucide="sun"></i></div>Today</div>
+          <div class="tab"><div class="pill" style="color:#7a7a96"><i data-lucide="activity"></i></div>Body</div>
+          <div style="flex:1;display:flex;flex-direction:column;align-items:center;margin-top:-26px">
+            <div style="width:56px;height:56px;border-radius:99px;border:1px solid #201f32;background:#09090f;box-shadow:0 8px 20px rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center">
+              <canvas data-emg data-app-mood data-fit="icon" style="width:46px;height:46px"></canvas>
+            </div>
+            <span style="font-size:10px;color:#7a7a96;margin-top:3px">Emergy</span>
+          </div>
+          <div class="tab"><div class="pill" style="color:#7a7a96"><i data-lucide="plus-circle"></i></div>Log</div>
+          <div class="tab"><div class="pill" style="color:#7a7a96"><i data-lucide="trending-up"></i></div>Patterns</div>
+        </div>
+      </div>
+      <p class="cap" style="width:390px">At 46px in the tab bar he still reads — the pot gives him a stable silhouette, and the wave is visible even that small. The briefing avatar and the chat tile are the same model, whole figure and all, just framed square.</p>
+    </div>
+
+    <div>
+      <p style="margin:0 0 10px"><span class="oid">6b</span><span style="font-family:'Cormorant Garamond',serif;font-size:17px">Web · 1040 wide</span></p>
+      <div class="app" style="width:1040px;display:flex">
+        <aside style="width:224px;flex:none;border-right:1px solid #201f32;background:linear-gradient(180deg,#0e0d1a,#09090f);display:flex;flex-direction:column">
+          <div style="height:56px;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid rgba(32,31,50,.6)">
+            <div style="width:28px;height:28px;border-radius:8px;background:#100f1a;border:1px solid #2b2a45;display:flex;align-items:center;justify-content:center">
+              <canvas data-emg data-app-mood data-fit="icon" style="width:24px;height:24px"></canvas>
+            </div>
+            <span style="font-size:13.5px;font-weight:600">Emergenthealth</span>
+          </div>
+          <nav style="flex:1;padding:10px 8px;display:flex;flex-direction:column;gap:2px">
+            <div class="navitem on"><span class="em">🌅</span>Today</div>
+            <div class="navitem"><span class="em">❤️</span>Body</div>
+            <div class="navitem"><span class="em">🥤</span>Log</div>
+            <div class="navitem"><span class="em">💡</span>Patterns</div>
+            <div style="height:1px;background:#201f32;margin:10px 6px"></div>
+            <div class="navitem"><span class="em">🌱</span>Emergy</div>
+            <div class="navitem"><span class="em">🌻</span>Garden</div>
+            <div class="navitem"><span class="em">⚙️</span>Settings &amp; sources</div>
+          </nav>
+        </aside>
+        <main style="flex:1;min-width:0;padding:22px 24px;display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+              <h2 style="font-family:'Geist',system-ui,sans-serif;font-size:24px;font-weight:600;letter-spacing:-.015em">Good afternoon, Stanislav</h2>
+              <p style="margin:5px 0 0;font-size:13px;color:#7a7a96">Tuesday, 11 August · week 33 · 12-day streak</p>
+            </div>
+            <p class="mono" style="margin:0;font-size:24px;font-weight:700">18:23<span style="font-size:15px;color:#7a7a96">:52</span></p>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 300px;gap:16px;align-items:stretch">
+            <div class="brief" style="padding:16px 18px">
+              <div style="display:flex;gap:13px;align-items:flex-start">
+                <div style="width:40px;height:40px;border-radius:99px;border:1px solid #201f32;background:#100f1a;flex:none;display:flex;align-items:center;justify-content:center">
+                  <canvas data-emg data-app-mood data-fit="icon" style="width:34px;height:34px"></canvas>
+                </div>
+                <div style="flex:1;min-width:0">
+                  <p style="margin:0;font-family:'Lora',Georgia,serif;font-style:italic;font-size:14.5px;line-height:1.6;color:#c9c9dd">Two short nights and your resting HR is up 3&nbsp;bpm — today is for protecting focus rather than expanding it. It reaches 31°C by four, so keep water ahead of thirst.</p>
+                  <p style="margin:8px 0 0;font-size:11px;color:#5d5c78">Emergy · updated 07:14 · has your sleep, calendar and intake</p>
+                </div>
+              </div>
+              <div style="display:flex;gap:18px;margin-top:14px;padding-top:13px;border-top:1px solid rgba(99,102,241,.16)" id="webStrip"></div>
+            </div>
+            <div class="appcard" style="padding:16px;display:flex;flex-direction:column;align-items:center;gap:10px">
+              <canvas data-emg data-app-mood data-fit="full" style="width:132px;height:168px"></canvas>
+              <p style="margin:0;font-size:12.5px;line-height:1.5;color:#c9c9dd;text-align:center">He's <span id="stateWord" style="color:#fde68a;font-weight:600">okay</span> today.</p>
+              <div style="display:flex;align-items:center;gap:7px;padding:8px 14px;border-radius:10px;border:1px solid #2b2a45;font-size:12.5px;color:#c9c9dd">Chat with Emergy</div>
+            </div>
+          </div>
+          <div class="appcard" style="padding:16px 18px">
+            <p class="lab" style="margin-bottom:12px">Your day</p>
+            <div id="webDay" style="display:flex;flex-direction:column;gap:9px"></div>
+          </div>
+        </main>
+      </div>
+      <p class="cap" style="width:1040px">On web he gets room: a 24px sidebar mark, a 34px avatar speaking the briefing, and a 132px portrait in the panel where his state <em>is</em> the message — it names whichever mood is selected above, in words as well as colour. That panel is the one place a colour is allowed to mean something on its own, because it's <em>his</em> colour, not a metric's.</p>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { buildEmergy, setMood, poseEmergy, makeStudio, FITS, MOODS } from './emergy-model.js';
+
+// ── one renderer, blitted into every slot ──
+const off = document.createElement('canvas');
+const renderer = new THREE.WebGLRenderer({ canvas: off, antialias: true, alpha: true });
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const model = buildEmergy(THREE);
+const scene = makeStudio(THREE, model);
+const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 40);
+
+// mood cards
+const grid = document.getElementById('moodgrid');
+const GESTURE_WORD = { wave: 'waves', bob: 'breathes', sigh: 'sighs', shake: 'shakes' };
+for (const [name, m] of Object.entries(MOODS)) {
+  const card = document.createElement('div');
+  card.className = 'moodcard';
+  const cv = document.createElement('canvas');
+  cv.dataset.emg = '';
+  cv.dataset.mood = name;
+  cv.dataset.fit = 'full';
+  card.append(cv, Object.assign(document.createElement('p'), { className: 'nm', textContent: name }),
+    Object.assign(document.createElement('p'), { className: 'gs', textContent: `#${m.body.toString(16).padStart(6, '0')} · ${GESTURE_WORD[m.gesture]}` }));
+  grid.appendChild(card);
+}
+
+// small bits of app content
+const PILLARS = [['Sleep', '78%', '#818cf8', '7.4 h'], ['Heart', '64%', '#fb7185', '42 ms'], ['Move', '83%', '#a3e635', '9.1 k'], ['Fuel', '60%', '#22d3ee', '1.2 L']];
+document.getElementById('mobPillars').innerHTML = PILLARS.map(([l, p, c, v]) => `
+  <div style="display:flex;align-items:center;gap:8px">
+    <span style="width:3px;height:14px;border-radius:2px;background:${c}"></span>
+    <span style="font-size:11.5px;color:#a9a9c0;width:40px">${l}</span>
+    <div style="flex:1;height:6px;border-radius:99px;background:#1a192a;overflow:hidden"><div style="height:100%;width:${p};background:${c};border-radius:99px"></div></div>
+    <span class="mono" style="font-size:11px;font-weight:700;color:${c};width:44px;text-align:right">${v}</span>
+  </div>`).join('');
+document.getElementById('webStrip').innerHTML = [['7.4 h', 'slept', '#818cf8'], ['54', 'resting', '#fb7185'], ['9.1 k', 'steps', '#a3e635'], ['1.2 L', 'water', '#22d3ee']]
+  .map(([v, l, c]) => `<div style="display:flex;align-items:center;gap:7px"><span class="mono" style="font-size:13px;font-weight:700;color:${c}">${v}</span><span style="font-size:11.5px;color:#7a7a96">${l}</span></div>`).join('');
+document.getElementById('webDay').innerHTML = [['07:05', 'Checked in — 12-day streak', '#34d399'], ['10:20', 'Water 500 ml · coffee 250 ml', '#22d3ee'], ['16:30', 'Physio — Dr. Havel', '#8d8da8'], ['18:00', 'Renew insurance — 2 days late', '#f87171']]
+  .map(([t, txt, c]) => `<div style="display:flex;gap:12px;align-items:baseline"><span style="width:10px;height:10px;border-radius:2px;background:${c};flex:none"></span><span class="mono" style="font-size:12px;color:#7a7a96;width:44px">${t}</span><span style="font-size:13.5px">${txt}</span></div>`).join('');
+
+// ── slots ──
+const slots = [...document.querySelectorAll('canvas[data-emg]')].map(cv => {
+  const fit = ['full', 'icon', 'bust'].includes(cv.dataset.fit) ? cv.dataset.fit : 'full';
+  const rect = cv.getBoundingClientRect();
+  const cssW = rect.width || parseFloat(cv.style.width) || 140;
+  const cssH = rect.height || parseFloat(cv.style.height) || 180;
+  cv.width = Math.round(cssW * 2);
+  cv.height = Math.round(cssH * 2);
+  return { cv, ctx: cv.getContext('2d'), fit, appMood: cv.hasAttribute('data-app-mood'), mood: cv.dataset.mood || 'okay' };
+});
+
+let appMood = 'okay';
+let forced = null, forcedUntil = 0;
+
+for (const b of document.querySelectorAll('.controls button')) {
+  b.onclick = () => {
+    if (b.dataset.mood) {
+      appMood = b.dataset.mood;
+      for (const el of document.querySelectorAll('.controls button[data-mood]')) el.setAttribute('aria-pressed', String(el.dataset.mood === appMood));
+      const word = document.getElementById('stateWord');
+      word.textContent = appMood;
+      word.style.color = '#' + MOODS[appMood].body.toString(16).padStart(6, '0');
+    } else {
+      forced = b.dataset.gesture;
+      forcedUntil = performance.now() + 4200;
+    }
+  };
+}
+
+let lastFit = null;
+function renderSlot(slot, t) {
+  const f = FITS[slot.fit];
+  if (lastFit !== slot.fit) {
+    renderer.setSize(f.w, f.h, false);
+    camera.aspect = f.w / f.h;
+    camera.position.set(...f.cam);
+    camera.lookAt(...f.target);
+    camera.updateProjectionMatrix();
+    lastFit = slot.fit;
+  }
+  const mood = slot.appMood ? appMood : slot.mood;
+  setMood(model, mood);
+  poseEmergy(model, mood, t, slot.appMood && performance.now() < forcedUntil ? forced : null);
+  renderer.render(scene, camera);
+  slot.ctx.clearRect(0, 0, slot.cv.width, slot.cv.height);
+  const sc = Math.min(slot.cv.width / f.w, slot.cv.height / f.h);
+  const dw = f.w * sc, dh = f.h * sc;
+  slot.ctx.drawImage(off, 0, 0, f.w, f.h, (slot.cv.width - dw) / 2, (slot.cv.height - dh) / 2, dw, dh);
+}
+
+if (window.lucide) lucide.createIcons();
+
+const t0 = performance.now();
+let last = 0;
+(function tick(now) {
+  requestAnimationFrame(tick);
+  if (now - last < 33) return;      // ~30fps is plenty for a mascot
+  last = now;
+  const t = (now - t0) / 1000;
+  // render fit-by-fit so the renderer resizes a few times per frame, not per slot
+  for (const slot of slots) if (slot.fit === 'full') renderSlot(slot, t);
+  for (const slot of slots) if (slot.fit === 'icon') renderSlot(slot, t);
+  for (const slot of slots) if (slot.fit === 'bust') renderSlot(slot, t);
+})(performance.now());
+</script>
+</body>
+</html>

@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/classical-c852420c-9113-4af6-a601-84d46bb891c5/styles.css">
+<script src="_ds/classical-c852420c-9113-4af6-a601-84d46bb891c5/_ds_bundle.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Geist+Mono:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body),Lora,Georgia,serif}
+a{color:var(--color-accent-700);text-decoration:none;border-bottom:1px solid color-mix(in srgb,var(--color-accent) 40%,transparent)}
+a:hover{color:var(--color-accent);border-bottom-color:var(--color-accent)}
+</style>
+</helmet>
+
+<div style="max-width:1180px;margin:0 auto;padding:56px 40px 96px">
+
+  <header style="border-bottom:1px solid var(--color-divider);padding-bottom:28px;margin-bottom:44px">
+    <p style="font-family:var(--font-heading),serif;font-feature-settings:'tnum';letter-spacing:.22em;text-transform:uppercase;font-size:11px;color:var(--color-accent-700);margin:0 0 14px">Design review · 11 August 2026 · v3.0.0 · main @a466b30</p>
+    <h1 style="font-family:var(--font-heading),serif;font-weight:400;font-size:58px;line-height:1.02;margin:0 0 18px;letter-spacing:-.01em">Emergenthealth</h1>
+    <p style="font-size:17px;line-height:1.6;max-width:62ch;margin:0;text-wrap:pretty">A read of the app as it stands today — 26 routes, six themes, eight accents — and a proposal for the one change that fixes most of what feels off: <em>giving colour a job</em>. Nothing in the codebase has been touched. This is the plan, for your sign-off.</p>
+  </header>
+
+  <section style="display:grid;grid-template-columns:1fr 1fr;gap:0 44px;margin-bottom:56px">
+    <div>
+      <h2 style="font-family:var(--font-heading),serif;font-weight:500;font-size:15px;letter-spacing:.16em;text-transform:uppercase;margin:0 0 14px;color:var(--color-accent-700)">What I read</h2>
+      <p style="font-size:15px;line-height:1.7;text-align:justify;hyphens:auto;margin:0 0 12px">The token sheet (<code style="font-family:ui-monospace,monospace;font-size:13px">globals.css</code>), the app shell, sidebar, bottom nav, base card and button, the mobile Today view, Quick&nbsp;log, and a full scan of every hard-coded colour class across the 26 dashboard routes — 381 hits.</p>
+      <p style="font-size:15px;line-height:1.7;text-align:justify;hyphens:auto;margin:0">Your brief: it should stay colourful, but a thing should keep its colour. Agreed — and that turns out to be the root of the inconsistency, not a symptom of it.</p>
+    </div>
+    <div>
+      <h2 style="font-family:var(--font-heading),serif;font-weight:500;font-size:15px;letter-spacing:.16em;text-transform:uppercase;margin:0 0 14px;color:var(--color-accent-700)">What I assumed</h2>
+      <ul style="font-size:15px;line-height:1.7;margin:0;padding-left:1.1em">
+        <li>Phone first, Play&nbsp;Store audience; web is the same product at a wider viewport.</li>
+        <li>Emergy stays, and stays the centre button.</li>
+        <li>Your daily jobs are: sleep arrives on its own, you log intake, you glance.</li>
+        <li>IA may be restructured; the dark theme and the widget grid are fair game but I am not proposing to remove either.</li>
+      </ul>
+    </div>
+  </section>
+
+  <div style="height:1px;background:var(--color-divider);margin:0 0 48px"></div>
+
+  <section style="margin-bottom:64px">
+    <p style="font-family:var(--font-heading),serif;font-feature-settings:'tnum';letter-spacing:.2em;text-transform:uppercase;font-size:11px;color:var(--color-accent-700);margin:0 0 10px">Finding 01 — the big one</p>
+    <h2 style="font-family:var(--font-heading),serif;font-weight:400;font-size:40px;line-height:1.1;margin:0 0 20px">Colour is decoration, not language</h2>
+    <p style="font-size:16px;line-height:1.7;max-width:70ch;margin:0 0 28px;text-wrap:pretty">Every hue in the app is doing three or four unrelated jobs at once, and each metric is encoded differently depending on which screen you are standing on. Nothing here is a bug — each choice is locally sensible. Read together, they cancel out.</p>
+
+    <div style="border:1px solid var(--color-divider);border-radius:var(--radius-lg,4px);overflow:hidden;margin-bottom:20px">
+      <sc-for list="{{ hueRows }}" as="row" hint-placeholder-count="4">
+        <div style="display:grid;grid-template-columns:132px 1fr;gap:24px;padding:16px 20px;border-bottom:1px solid var(--color-divider);align-items:start">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="width:12px;height:12px;border-radius:50%;flex:none;background:{{ row.swatch }}"></span>
+            <span style="font-family:var(--font-heading),serif;font-size:17px">{{ row.hue }}</span>
+          </div>
+          <div style="font-size:14px;line-height:1.65">{{ row.jobs }}</div>
+        </div>
+      </sc-for>
+      <div style="padding:14px 20px;font-size:13px;color:var(--color-neutral-700,#5c5a56);font-style:italic">Line references are to the files as read on main; the full list runs to 381 colour literals across the dashboard.</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px">
+      <div class="card" style="padding:22px">
+        <p class="card-kicker" style="font-feature-settings:'tnum'">Worst single case · sleep</p>
+        <p style="font-size:15px;line-height:1.7;margin:8px 0 0">One metric, three encodings, two taps apart. On mobile Today the week's sleep bars are <strong>indigo</strong>. On Health, hours of sleep colour <strong>green / amber / red</strong> against a 7h goal, while the sleep <em>score</em> on the same card colours green / amber / red against 85 / 70. So a good night can read indigo, green and amber within one session — and nothing on screen says which scale is in play.</p>
+      </div>
+      <div class="card" style="padding:22px">
+        <p class="card-kicker" style="font-feature-settings:'tnum'">Second worst · heart</p>
+        <p style="font-size:15px;line-height:1.7;margin:8px 0 0">Resting HR is a <strong>red</strong> heart icon on Health and on the Overview metric box — but its sparkline on mobile Today is drawn <strong>indigo</strong> (<code style="font-family:ui-monospace,monospace;font-size:12.5px">#818cf8</code>), the same hue as the sleep bars, while HRV takes <strong>pink</strong>. Meanwhile red is also error, overdue, expense, Sunday, delete, and high blood pressure. Red is the most overloaded token in the app.</p>
+      </div>
+    </div>
+  </section>
+
+  <section style="margin-bottom:64px">
+    <p style="font-family:var(--font-heading),serif;font-feature-settings:'tnum';letter-spacing:.2em;text-transform:uppercase;font-size:11px;color:var(--color-accent-700);margin:0 0 10px">The proposal</p>
+    <h2 style="font-family:var(--font-heading),serif;font-weight:400;font-size:40px;line-height:1.1;margin:0 0 20px">Two palettes that never touch</h2>
+    <p style="font-size:16px;line-height:1.7;max-width:70ch;margin:0 0 32px;text-wrap:pretty">Split colour into <strong>identity</strong> (which domain am I looking at — fixed forever, theme-independent) and <strong>status</strong> (is this good — only ever three steps, and never a domain hue). Then one rule: <em>a screen may tint a number by status, or by identity, never by both.</em></p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start">
+      <div>
+        <h3 style="font-family:var(--font-heading),serif;font-weight:500;font-size:20px;margin:0 0 4px">Identity — locked per domain</h3>
+        <p style="font-size:14px;line-height:1.6;color:var(--color-neutral-700,#5c5a56);margin:0 0 16px">Sleep is this indigo on every screen, in every theme, forever. Charts, icons, dots, bars, timeline.</p>
+        <div style="border:1px solid var(--color-divider);border-radius:4px;overflow:hidden">
+          <sc-for list="{{ identityRows }}" as="row" hint-placeholder-count="6">
+            <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;border-bottom:1px solid var(--color-divider)">
+              <span style="width:34px;height:18px;border-radius:3px;flex:none;background:{{ row.swatch }}"></span>
+              <span style="font-family:var(--font-heading),serif;font-size:16px;width:104px;flex:none">{{ row.name }}</span>
+              <span style="font-family:ui-monospace,monospace;font-size:12px;color:var(--color-neutral-700,#5c5a56);flex:none">{{ row.hex }}</span>
+              <span style="font-size:13px;line-height:1.5;color:var(--color-neutral-700,#5c5a56)">{{ row.note }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div>
+        <h3 style="font-family:var(--font-heading),serif;font-weight:500;font-size:20px;margin:0 0 4px">Status — three steps, nothing else</h3>
+        <p style="font-size:14px;line-height:1.6;color:var(--color-neutral-700,#5c5a56);margin:0 0 16px">Applied to the goal ring, a chip, or a rule under a number — never to the metric's own glyph, so it can't be mistaken for identity.</p>
+        <div style="border:1px solid var(--color-divider);border-radius:4px;overflow:hidden;margin-bottom:22px">
+          <sc-for list="{{ statusRows }}" as="row" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;border-bottom:1px solid var(--color-divider)">
+              <span style="width:34px;height:18px;border-radius:3px;flex:none;background:{{ row.swatch }}"></span>
+              <span style="font-family:var(--font-heading),serif;font-size:16px;width:104px;flex:none">{{ row.name }}</span>
+              <span style="font-size:13px;line-height:1.5;color:var(--color-neutral-700,#5c5a56)">{{ row.note }}</span>
+            </div>
+          </sc-for>
+        </div>
+        <h3 style="font-family:var(--font-heading),serif;font-weight:500;font-size:20px;margin:0 0 10px">Consequences</h3>
+        <ul style="font-size:14.5px;line-height:1.7;margin:0;padding-left:1.1em">
+          <li>Money stops being green/red: amount stays neutral, direction is carried by the sign and the arrow. Income green + expense red currently collides with habit-done green and error red.</li>
+          <li>Intake's twelve drink hues collapse to one family — water is the domain hue, everything else is a tint or an outline of it, with the label doing the identifying.</li>
+          <li>Delete, error and overdue keep red, so red must stop being a metric colour: heart becomes rose, not red.</li>
+          <li>The nine <code style="font-family:ui-monospace,monospace;font-size:12.5px">.card-*</code> gradients in <code style="font-family:ui-monospace,monospace;font-size:12.5px">globals.css</code> get derived from the domain hue, so they survive a theme switch instead of staying emerald in Forest and rose in Ocean.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <div style="height:1px;background:var(--color-divider);margin:0 0 48px"></div>
+
+  <section style="margin-bottom:64px">
+    <p style="font-family:var(--font-heading),serif;font-feature-settings:'tnum';letter-spacing:.2em;text-transform:uppercase;font-size:11px;color:var(--color-accent-700);margin:0 0 10px">Findings 02–05</p>
+    <h2 style="font-family:var(--font-heading),serif;font-weight:400;font-size:40px;line-height:1.1;margin:0 0 28px">The rest, in priority order</h2>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:26px">
+      <sc-for list="{{ findings }}" as="f" hint-placeholder-count="4">
+        <div class="card" style="padding:24px">
+          <p style="font-family:var(--font-heading),serif;font-feature-settings:'tnum';letter-spacing:.2em;text-transform:uppercase;font-size:10.5px;color:var(--color-accent-700);margin:0 0 8px">{{ f.n }}</p>
+          <h3 style="font-family:var(--font-heading),serif;font-weight:500;font-size:23px;line-height:1.2;margin:0 0 12px">{{ f.title }}</h3>
+          <p style="font-size:14.5px;line-height:1.7;margin:0 0 12px;text-align:justify;hyphens:auto">{{ f.body }}</p>
+          <p style="font-size:14.5px;line-height:1.7;margin:0;padding-top:12px;border-top:1px solid var(--color-divider)"><span style="font-variant-caps:all-small-caps;letter-spacing:.1em;color:var(--color-accent-700)">Fix&nbsp;·&nbsp;</span>{{ f.fix }}</p>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <section style="margin-bottom:64px">
+    <p style="font-family:var(--font-heading),serif;font-feature-settings:'tnum';letter-spacing:.2em;text-transform:uppercase;font-size:11px;color:var(--color-accent-700);margin:0 0 10px">Information architecture</p>
+    <h2 style="font-family:var(--font-heading),serif;font-weight:400;font-size:40px;line-height:1.1;margin:0 0 20px">Twenty-six rooms, one hallway</h2>
+    <p style="font-size:16px;line-height:1.7;max-width:70ch;margin:0 0 30px;text-wrap:pretty">The drawer lists 26 destinations, eleven of them hidden by default; the bottom bar pins five, and only two of those five overlap with what a new user sees in the drawer. Nothing tells you that Medications lives inside Intake or that Body lives inside Health — that knowledge is in a code comment. For a Play&nbsp;Store audience I would restructure to four rooms plus settings, with integrations demoted from destinations to <em>sources</em>.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:36px">
+      <div>
+        <h3 style="font-family:var(--font-heading),serif;font-weight:500;font-size:18px;letter-spacing:.06em;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--color-divider)">Today — as it is</h3>
+        <ul style="font-size:14px;line-height:1.75;margin:0;padding-left:1.1em;color:var(--color-neutral-700,#5c5a56)">
+          <li>Drawer: Overview, Brief, Emergy, Check-in, Habits, Garden, Intake&nbsp;&amp;&nbsp;Meds, Health&nbsp;&amp;&nbsp;Body, Calendar, Reminders, Finances, Focus, Journal, Location, Settings — then eleven more behind Customize (This Week, Timeline, Trends, Streaks, Gmail, Reading, Strava, Last.fm, RescueTime, Subscriptions, Home).</li>
+          <li>Bottom bar: Home, Finances <em>or</em> Check-in, Emergy, Habits, Settings.</li>
+          <li>Six pages are one integration each; three are read-only report pages.</li>
+        </ul>
+      </div>
+      <div>
+        <h3 style="font-family:var(--font-heading),serif;font-weight:500;font-size:18px;letter-spacing:.06em;margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--color-divider)">Proposed — four rooms</h3>
+        <sc-for list="{{ iaRooms }}" as="r" hint-placeholder-count="5">
+          <div style="padding:10px 0;border-bottom:1px solid var(--color-divider)">
+            <p style="font-family:var(--font-heading),serif;font-size:18px;margin:0 0 3px">{{ r.name }}</p>
+            <p style="font-size:13.5px;line-height:1.6;margin:0;color:var(--color-neutral-700,#5c5a56)">{{ r.holds }}</p>
+          </div>
+        </sc-for>
+        <p style="font-size:13.5px;line-height:1.65;margin:14px 0 0;font-style:italic">Emergy keeps the centre button. Integrations (Oura, Strava, Gmail, Last.fm, RescueTime, YNAB, subscriptions) become sources listed under Settings that feed the four rooms — not rooms of their own.</p>
+      </div>
+    </div>
+  </section>
+
+  <div style="height:1px;background:var(--color-divider);margin:0 0 48px"></div>
+
+  <section style="margin-bottom:56px">
+    <p style="font-family:var(--font-heading),serif;font-feature-settings:'tnum';letter-spacing:.2em;text-transform:uppercase;font-size:11px;color:var(--color-accent-700);margin:0 0 10px">Worst offender, redrawn</p>
+    <h2 style="font-family:var(--font-heading),serif;font-weight:400;font-size:40px;line-height:1.1;margin:0 0 14px">Mobile Today</h2>
+    <p style="font-size:16px;line-height:1.7;max-width:70ch;margin:0 0 34px;text-wrap:pretty">Left: the screen as it renders today, rebuilt from <code style="font-family:ui-monospace,monospace;font-size:13px">MobileToday.tsx</code> — same gauge geometry, same hard-coded pillar hues, same emoji labels. Right: the same information under the two palettes, with the log action promoted. Same data, same components, no new features.</p>
+
+    <div style="display:flex;gap:44px;flex-wrap:wrap;align-items:flex-start">
+
+      <figure style="margin:0;flex:none">
+        <figcaption style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px">
+          <span style="font-family:ui-monospace,monospace;font-size:10.5px;padding:3px 7px;background:var(--color-neutral-200,#e3e1de);border-radius:4px">BEFORE</span>
+          <span style="font-size:13px;color:var(--color-neutral-700,#5c5a56)">recreated from source · 390&nbsp;×&nbsp;820</span>
+        </figcaption>
+        <div style="width:390px;background:#09090f;border:1px solid var(--color-divider);border-radius:10px;padding:12px;font-family:'Geist Mono',ui-monospace,monospace;color:#f2f2fa;display:flex;flex-direction:column;gap:12px">
+
+          <div style="border:1px solid #201f32;background:#100f1a;border-radius:16px;padding:16px">
+            <div style="display:flex;align-items:center;gap:16px">
+              <div style="position:relative;width:96px;height:96px;flex:none">
+                <svg viewBox="0 0 84 84" style="width:96px;height:96px;transform:rotate(135deg)">
+                  <circle cx="42" cy="42" r="34" fill="none" stroke="#1a192a" stroke-width="7" stroke-linecap="round" stroke-dasharray="160.2 213.6"></circle>
+                  <circle cx="42" cy="42" r="34" fill="none" stroke="#a3e635" stroke-width="7" stroke-linecap="round" stroke-dasharray="124.9 213.6"></circle>
+                </svg>
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                  <span style="font-size:30px;font-weight:900;line-height:1;font-feature-settings:'tnum'">78</span>
+                  <span style="font-size:8px;font-weight:700;letter-spacing:.15em;color:#7a7a96;margin-top:2px">TODAY</span>
+                </div>
+              </div>
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:8px">
+                <sc-for list="{{ beforePillars }}" as="p" hint-placeholder-count="4">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="font-size:11px;color:#7a7a96;width:64px;flex:none">{{ p.label }}</span>
+                    <div style="flex:1;height:6px;border-radius:99px;background:#1a192a;overflow:hidden">
+                      <div style="height:100%;border-radius:99px;width:{{ p.pct }};background:{{ p.color }}"></div>
+                    </div>
+                    <span style="font-size:11px;font-weight:700;font-feature-settings:'tnum';width:40px;text-align:right;flex:none;color:{{ p.color }}">{{ p.value }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div style="border:1px solid #201f32;background:#100f1a;border-radius:16px;padding:12px 14px">
+              <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#7a7a96;margin:0 0 4px">🌙 Sleep</p>
+              <p style="font-size:20px;font-weight:900;line-height:1;margin:0">7.4<span style="font-size:12px;font-weight:600;color:#7a7a96"> h</span><span style="font-size:10px;font-weight:600;color:#7a7a96"> · score 81</span></p>
+              <div style="display:flex;align-items:flex-end;gap:2px;height:28px;margin-top:8px">
+                <sc-for list="{{ sleepBars }}" as="b" hint-placeholder-count="7">
+                  <div style="flex:1;border-radius:2px;height:{{ b.h }};background:{{ b.color }}"></div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="border:1px solid #201f32;background:#100f1a;border-radius:16px;padding:12px 14px">
+              <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#7a7a96;margin:0 0 4px">❤️ Heart</p>
+              <div style="display:flex;justify-content:space-between;align-items:baseline">
+                <span style="font-size:10px;color:#7a7a96">HRV</span>
+                <span style="font-size:14px;font-weight:700;font-feature-settings:'tnum'">42<span style="font-size:9px;color:#7a7a96"> ms</span></span>
+              </div>
+              <svg viewBox="0 0 60 20" preserveAspectRatio="none" style="width:100%;height:20px"><polyline points="0,14 10,9 20,12 30,5 40,8 50,3 60,6" fill="none" stroke="#f472b6" stroke-width="1.5" stroke-linecap="round"></polyline></svg>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:6px">
+                <span style="font-size:10px;color:#7a7a96">RHR</span>
+                <span style="font-size:14px;font-weight:700;font-feature-settings:'tnum'">54<span style="font-size:9px;color:#7a7a96"> bpm</span></span>
+              </div>
+              <svg viewBox="0 0 60 20" preserveAspectRatio="none" style="width:100%;height:20px"><polyline points="0,6 10,8 20,5 30,10 40,7 50,12 60,9" fill="none" stroke="#818cf8" stroke-width="1.5" stroke-linecap="round"></polyline></svg>
+            </div>
+          </div>
+
+          <div style="border:1px solid #201f32;background:#100f1a;border-radius:16px;padding:14px 16px;display:flex;gap:16px">
+            <div style="flex:none">
+              <div style="display:grid;grid-template-columns:repeat(7,28px)">
+                <sc-for list="{{ dowCells }}" as="d" hint-placeholder-count="7">
+                  <div style="text-align:center;font-size:9px;font-weight:600;padding-bottom:4px;color:{{ d.color }}">{{ d.label }}</div>
+                </sc-for>
+                <sc-for list="{{ monthCells }}" as="c" hint-placeholder-count="35">
+                  <div style="width:28px;height:28px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative">
+                    <span style="font-size:11px;line-height:1;display:flex;align-items:center;justify-content:center;height:20px;width:20px;border-radius:99px;font-weight:{{ c.weight }};background:{{ c.bg }};color:{{ c.color }}">{{ c.day }}</span>
+                    <div style="position:absolute;bottom:0;display:flex;gap:2px">
+                      <sc-for list="{{ c.dots }}" as="dot" hint-placeholder-count="0">
+                        <div style="width:3px;height:3px;border-radius:99px;background:{{ dot }}"></div>
+                      </sc-for>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="flex:1;min-width:0;border-left:1px solid #201f32;padding-left:14px">
+              <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#7a7a96;margin:0 0 8px">Up next</p>
+              <sc-for list="{{ upNext }}" as="e" hint-placeholder-count="3">
+                <div style="display:flex;gap:6px;align-items:flex-start;margin-bottom:6px">
+                  <div style="width:6px;height:6px;border-radius:99px;margin-top:6px;flex:none;background:{{ e.color }}"></div>
+                  <div style="min-width:0">
+                    <p style="font-size:12px;font-weight:500;line-height:1.25;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ e.title }}</p>
+                    <p style="font-size:10px;color:#7a7a96;margin:1px 0 0">{{ e.when }}</p>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="border:1px solid #201f32;background:#100f1a;border-radius:16px;padding:16px">
+            <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#7a7a96;margin:0 0 12px">Your day</p>
+            <div style="position:relative">
+              <div style="position:absolute;left:9.5px;top:6px;bottom:6px;width:1px;background:#201f32"></div>
+              <sc-for list="{{ beforeTimeline }}" as="t" hint-placeholder-count="6">
+                <div style="position:relative;padding-left:24px;padding-bottom:12px;opacity:{{ t.opacity }}">
+                  <div style="position:absolute;left:5px;top:6px;width:10px;height:10px;border-radius:99px;background:{{ t.dot }}"></div>
+                  <p style="font-size:13px;line-height:1.35;margin:0;color:{{ t.color }}">{{ t.text }}</p>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        <div style="width:390px;margin-top:12px;font-size:13px;line-height:1.6;color:var(--color-neutral-700,#5c5a56)">
+          Nine hues in one viewport, none of them tied to a domain: the ring is lime because 78 falls in a band, sleep bars are indigo, RHR's spark is that same indigo, HRV is pink, the pillar values repeat four more hues, Sunday is red, the check-in dot is green because it happened. Six of the eight rows open with an emoji standing in for an icon.
+        </div>
+      </figure>
+
+      <figure style="margin:0;flex:none">
+        <figcaption style="display:flex;align-items:baseline;gap:10px;margin-bottom:12px">
+          <span style="font-family:ui-monospace,monospace;font-size:10.5px;padding:3px 7px;background:var(--color-accent);color:#fff;border-radius:4px">AFTER</span>
+          <span style="font-size:13px;color:var(--color-neutral-700,#5c5a56)">proposed · same data, two palettes</span>
+        </figcaption>
+        <div style="width:390px;background:#09090f;border:1px solid var(--color-divider);border-radius:10px;padding:12px;font-family:'Geist Mono',ui-monospace,monospace;color:#f2f2fa;display:flex;flex-direction:column;gap:12px">
+
+          <div style="display:flex;align-items:baseline;justify-content:space-between;padding:2px 4px">
+            <p style="margin:0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#7a7a96">Tue 11 Aug</p>
+            <p style="margin:0;font-size:12px;color:#7a7a96">synced 07:12</p>
+          </div>
+
+          <div style="border:1px solid #201f32;background:#100f1a;border-radius:16px;padding:16px">
+            <div style="display:flex;align-items:center;gap:16px">
+              <div style="position:relative;width:96px;height:96px;flex:none">
+                <svg viewBox="0 0 84 84" style="width:96px;height:96px;transform:rotate(135deg)">
+                  <circle cx="42" cy="42" r="34" fill="none" stroke="#1a192a" stroke-width="7" stroke-linecap="round" stroke-dasharray="160.2 213.6"></circle>
+                  <circle cx="42" cy="42" r="34" fill="none" stroke="#34d399" stroke-width="7" stroke-linecap="round" stroke-dasharray="124.9 213.6"></circle>
+                </svg>
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                  <span style="font-size:30px;font-weight:900;line-height:1;font-feature-settings:'tnum'">78</span>
+                  <span style="font-size:8px;font-weight:700;letter-spacing:.15em;color:#7a7a96;margin-top:2px">ON TARGET</span>
+                </div>
+              </div>
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:9px">
+                <sc-for list="{{ afterPillars }}" as="p" hint-placeholder-count="4">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <span style="width:3px;height:14px;border-radius:2px;flex:none;background:{{ p.color }}"></span>
+                    <span style="font-size:11px;color:#a9a9c0;width:56px;flex:none">{{ p.label }}</span>
+                    <div style="flex:1;height:6px;border-radius:99px;background:#1a192a;overflow:hidden">
+                      <div style="height:100%;border-radius:99px;width:{{ p.pct }};background:{{ p.color }}"></div>
+                    </div>
+                    <span style="font-size:11px;font-weight:700;font-feature-settings:'tnum';width:44px;text-align:right;flex:none;color:{{ p.color }}">{{ p.value }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+            <p style="margin:14px 0 0;font-size:12px;line-height:1.5;color:#a9a9c0;border-top:1px solid #201f32;padding-top:12px">Ring shows status against your goals. Bars <em>and figures</em> keep each domain's own colour.</p>
+          </div>
+
+          <div style="border:1px solid #201f32;background:#100f1a;border-radius:16px;padding:14px 16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#7a7a96;margin:0">Log now</p>
+              <span style="font-size:10px;font-feature-settings:'tnum';color:#22d3ee">1.2 L<span style="color:#7a7a96"> · 1 coffee today</span></span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <sc-for list="{{ logChips }}" as="c" hint-placeholder-count="4">
+                <div style="flex:1;text-align:center;padding:10px 0;border-radius:12px;border:1px solid {{ c.border }};background:{{ c.bg }};font-size:12px;font-weight:500;color:{{ c.fg }}">{{ c.label }}</div>
+              </sc-for>
+            </div>
+            <div style="height:6px;border-radius:99px;background:#1a192a;overflow:hidden;margin-top:12px">
+              <div style="height:100%;width:60%;background:#22d3ee;border-radius:99px"></div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div style="border:1px solid #201f32;background:#100f1a;border-radius:16px;padding:12px 14px">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                <span style="width:8px;height:8px;border-radius:2px;background:#818cf8;flex:none"></span>
+                <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#7a7a96;margin:0">Sleep</p>
+              </div>
+              <p style="font-size:20px;font-weight:900;line-height:1;margin:0;color:#818cf8">7.4<span style="font-size:12px;font-weight:600;color:#7a7a96"> h</span></p>
+              <p style="font-size:10px;color:#34d399;margin:3px 0 0">+0.6 h vs goal</p>
+              <div style="display:flex;align-items:flex-end;gap:2px;height:28px;margin-top:8px">
+                <sc-for list="{{ afterSleepBars }}" as="b" hint-placeholder-count="7">
+                  <div style="flex:1;border-radius:2px;height:{{ b.h }};background:{{ b.color }}"></div>
+                </sc-for>
+              </div>
+            </div>
+            <div style="border:1px solid #201f32;background:#100f1a;border-radius:16px;padding:12px 14px">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+                <span style="width:8px;height:8px;border-radius:2px;background:#fb7185;flex:none"></span>
+                <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#7a7a96;margin:0">Heart</p>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline">
+                <span style="font-size:10px;color:#7a7a96">HRV</span>
+                <span style="font-size:14px;font-weight:700;font-feature-settings:'tnum';color:#fb7185">42<span style="font-size:9px;color:#7a7a96"> ms</span></span>
+              </div>
+              <svg viewBox="0 0 60 20" preserveAspectRatio="none" style="width:100%;height:20px"><polyline points="0,14 10,9 20,12 30,5 40,8 50,3 60,6" fill="none" stroke="#fb7185" stroke-width="1.5" stroke-linecap="round"></polyline></svg>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:6px">
+                <span style="font-size:10px;color:#7a7a96">RHR</span>
+                <span style="font-size:14px;font-weight:700;font-feature-settings:'tnum';color:#fb7185">54<span style="font-size:9px;color:#7a7a96"> bpm</span></span>
+              </div>
+              <svg viewBox="0 0 60 20" preserveAspectRatio="none" style="width:100%;height:20px"><polyline points="0,6 10,8 20,5 30,10 40,7 50,12 60,9" fill="none" stroke="#fb7185" stroke-width="1.5" stroke-linecap="round" stroke-opacity="0.55"></polyline></svg>
+            </div>
+          </div>
+
+          <div style="border:1px solid #201f32;background:#100f1a;border-radius:16px;padding:16px">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px">
+              <p style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:#7a7a96;margin:0">Your day</p>
+              <span style="font-size:10px;color:#7a7a96">3 left</span>
+            </div>
+            <div style="position:relative">
+              <div style="position:absolute;left:9.5px;top:6px;bottom:6px;width:1px;background:#201f32"></div>
+              <sc-for list="{{ afterTimeline }}" as="t" hint-placeholder-count="6">
+                <div style="position:relative;padding-left:24px;padding-bottom:12px;opacity:{{ t.opacity }}">
+                  <div style="position:absolute;left:5px;top:6px;width:10px;height:10px;border-radius:2px;background:{{ t.dot }}"></div>
+                  <p style="font-size:13px;line-height:1.35;margin:0"><span style="font-feature-settings:'tnum';color:#7a7a96">{{ t.time }}</span>&nbsp; {{ t.text }}</p>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+        <div style="width:390px;margin-top:12px;font-size:13px;line-height:1.6;color:var(--color-neutral-700,#5c5a56)">
+          Four domain hues, one status hue, everything else neutral. The ring says <em>on target</em> rather than picking a colour from a band; sleep is indigo wherever it appears — the 7.4&nbsp;h figure itself, its pillar value and its week bars all in that one blue, so the hue teaches you what it means; heart is rose in both sparks, the fainter line the derived one. Log gets a card instead of living two taps away, and the emoji come out — icons are Lucide, already a dependency. Timeline dots are squares for domain, circles reserved for status.
+        </div>
+      </figure>
+    </div>
+  </section>
+
+  <div style="height:1px;background:var(--color-divider);margin:0 0 48px"></div>
+
+  <section>
+    <h2 style="font-family:var(--font-heading),serif;font-weight:400;font-size:34px;line-height:1.1;margin:0 0 8px">What I'd do next</h2>
+    <p style="font-size:15px;line-height:1.7;max-width:66ch;margin:0 0 26px">In this order, and only on your word — nothing has been changed yet.</p>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:24px">
+      <sc-for list="{{ nextSteps }}" as="s" hint-placeholder-count="4">
+        <div style="padding-top:14px;border-top:2px solid var(--color-accent)">
+          <p style="font-family:var(--font-heading),serif;font-feature-settings:'tnum';font-size:28px;margin:0 0 6px;color:var(--color-accent-700)">{{ s.n }}</p>
+          <p style="font-family:var(--font-heading),serif;font-size:19px;margin:0 0 8px">{{ s.title }}</p>
+          <p style="font-size:14px;line-height:1.65;margin:0;color:var(--color-neutral-700,#5c5a56)">{{ s.body }}</p>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1180,&quot;height&quot;:1400}}">
+class Component extends DCLogic {
+  renderVals() {
+    const hueRows = [
+      { hue: "Red / rose", swatch: "#f87171", jobs: "Resting heart rate · expenses and “total spent” · overdue reminders · every error and empty-state failure · the Sunday column in the mini month · high blood pressure · delete-on-hover · Gmail’s brand · a rising weight · “distracting” time · the Medications tag." },
+      { hue: "Green / emerald", swatch: "#34d399", jobs: "Steps · income · a completed habit · tea and matcha · in-range lab results · productive time · “saved” confirmations · sleep at or above goal · readiness · the Vitamins tag · a good delta on any metric." },
+      { hue: "Amber / yellow", swatch: "#fbbf24", jobs: "Every warning banner · a sleep score of 70–84 · activity score · coffee · beer and alcohol · streak trophies · vacation mode · normal-priority reminders · elevated blood pressure · star ratings · the Bills category." },
+      { hue: "Indigo (the primary)", swatch: "#818cf8", jobs: "Brand and every active nav state — but also the sleep bars on Today, the resting-HR sparkline, the pillar hue #1, and calendar events that carry no colour of their own. The one token that must stay neutral is also carrying data." },
+      { hue: "Blue vs cyan", swatch: "#38bdf8", jobs: "Water is blue, sparkling water is cyan, SpO₂ is cyan, screen time is cyan, weight is blue, Transport is blue, “moderate confidence” is blue. Two adjacent hues split across seven unrelated meanings." },
+    ]
+    const identityRows = [
+      { name: "Sleep", hex: "#818cf8", swatch: "#818cf8", note: "hours, score, stages, debt" },
+      { name: "Heart", hex: "#fb7185", swatch: "#fb7185", note: "RHR, HRV, SpO₂, breathing" },
+      { name: "Move", hex: "#a3e635", swatch: "#a3e635", note: "steps, active minutes, activity" },
+      { name: "Fuel", hex: "#22d3ee", swatch: "#22d3ee", note: "water, coffee, alcohol, meds" },
+      { name: "Mind", hex: "#c084fc", swatch: "#c084fc", note: "mood, focus, journal, screen time" },
+      { name: "Life", hex: "#f0f0f8", swatch: "#8d8da8", note: "calendar, habits, reminders, money — neutral" },
+    ]
+    const statusRows = [
+      { name: "On target", swatch: "#34d399", note: "at or above goal, in range, done" },
+      { name: "Watch", swatch: "#fbbf24", note: "drifting, due today, near a limit" },
+      { name: "Off target", swatch: "#f87171", note: "missed, overdue, out of range, error" },
+    ]
+    const findings = [
+      { n: "Finding 02", title: "Two icon languages", body: "The drawer labels 26 destinations with emoji; the bottom bar labels five of the same destinations with Lucide glyphs — so Habits is ✅ in one place and a check-square outline in the other. Timeline rows, intake types and finance categories are emoji too, which means those rows can’t inherit a domain colour, can’t be sized on a scale, and render differently on every Android skin.", fix: "Lucide everywhere (already a dependency, already used in half the app), tinted with the domain hue. Emoji survive in exactly one place: Emergy himself, who is illustration, not iconography." },
+      { n: "Finding 03", title: "Everything is set in monospace", body: "Geist Sans is loaded in the root layout and then never used: the theme maps --font-sans to --font-geist-mono, so body copy, labels, buttons and empty-state prose all set in a fixed-width face. It reads as a developer tool rather than a health app, and it costs about 8% of the line length on a 390px screen.", fix: "Keep mono where it earns its keep — figures, tabular columns, times, the score — and set prose and labels in Geist Sans. One line in the theme block, no markup changes." },
+      { n: "Finding 04", title: "Card density is per-screen, not per-system", body: "The shared Card component pads at p-6 (24px); mobile Today’s hand-rolled cards use 16px, its chart cards 14/12px, Quick log 16/12px. Radii run rounded-xl (12px) in the component and rounded-2xl (16px) in the mobile views. Nothing is wrong individually — together the gutters visibly step as you scroll.", fix: "Three densities as component props — comfortable (24px), compact (16px), tile (12px) — and one radius per density. Every hand-rolled card panel becomes the shared Card again, which also gets you hover and focus states for free." },
+      { n: "Finding 05", title: "The web layout wears its scaffolding", body: "In web mode the content panel is wrapped in a 3px solid primary border with a shadow, and both html and body carry overflow-x:hidden plus max-width:100vw as a defensive catch-all. Both were fixes for real bugs, but on a store-facing product the frame reads as debug chrome and the clamp hides the overflow rather than resolving it.", fix: "Replace the frame with a max-width column on a slightly recessed ground, and fix the two or three actual offenders with min-width:0 on the flex children so the global clamp can come off." },
+    ]
+    const iaRooms = [
+      { name: "Today", holds: "the glance: score, log, day timeline, up next, Brief. Absorbs Overview, Brief, Check-in, This Week." },
+      { name: "Body", holds: "sleep, heart, move, weight, labs, meds, cycle. Absorbs Health & Body, Intake’s medication tab, Trackers, Weight, Labs." },
+      { name: "Log", holds: "one sheet for everything you enter by hand — intake, mood, weight, meds, a note. This is the job you do most and it currently has no front door." },
+      { name: "Patterns", holds: "trends, streaks, correlations, timeline, week review, Garden as its reward layer. Absorbs Trends, Streaks, Timeline, Insights." },
+      { name: "Settings + sources", holds: "account, themes, notifications, and every integration as a connected source with its own last-sync state." },
+    ]
+    const beforePillars = [
+      { label: "Sleep", pct: "78%", value: "7.4h", color: "#818cf8" },
+      { label: "Heart", pct: "64%", value: "42", color: "#f472b6" },
+      { label: "Activity", pct: "83%", value: "9.1k", color: "#34d399" },
+      { label: "Habits", pct: "60%", value: "3/5", color: "#fbbf24" },
+    ]
+    const afterPillars = [
+      { label: "Sleep", pct: "78%", value: "7.4 h", color: "#818cf8" },
+      { label: "Heart", pct: "64%", value: "42 ms", color: "#fb7185" },
+      { label: "Move", pct: "83%", value: "9.1 k", color: "#a3e635" },
+      { label: "Fuel", pct: "60%", value: "1.2 L", color: "#22d3ee" },
+    ]
+    const hours = [6.2, 7.8, 8.1, 5.4, 7.4, 6.9, 7.4]
+    const sleepBars = hours.map(h => ({ h: Math.max(8, Math.min(100, (h / 10) * 100)) + "%", color: h >= 7 ? "#818cf8" : "rgba(129,140,248,0.35)" }))
+    const afterSleepBars = hours.map(h => ({ h: Math.max(8, Math.min(100, (h / 10) * 100)) + "%", color: h >= 7 ? "#818cf8" : "rgba(129,140,248,0.35)" }))
+    const dowCells = ["M", "T", "W", "T", "F", "S", "S"].map((label, i) => ({ label, color: i === 6 ? "rgba(248,113,113,0.7)" : "#7a7a96" }))
+    const dotSets = { 4: ["#60a5fa"], 6: ["#34d399", "#a78bfa"], 11: ["#60a5fa", "#fbbf24"], 14: ["#f472b6"], 19: ["#60a5fa"], 22: ["#34d399"], 27: ["#a78bfa", "#60a5fa", "#fbbf24"] }
+    const monthCells = []
+    for (let i = 0; i < 5; i++) monthCells.push({ day: "", weight: "400", bg: "transparent", color: "transparent", dots: [] })
+    for (let d = 1; d <= 31; d++) {
+      const idx = (4 + d) % 7
+      const isToday = d === 11
+      monthCells.push({
+        day: String(d),
+        weight: isToday ? "700" : "400",
+        bg: isToday ? "#f2f2fa" : "transparent",
+        color: isToday ? "#09090f" : idx === 6 ? "#f87171" : "rgba(242,242,250,0.8)",
+        dots: dotSets[d] ?? [],
+      })
+    }
+    while (monthCells.length % 7 !== 0) monthCells.push({ day: "", weight: "400", bg: "transparent", color: "transparent", dots: [] })
+    const upNext = [
+      { title: "Physio — Dr. Havel", when: "Tue 11 Aug · 16:30", color: "#60a5fa" },
+      { title: "Grocery delivery", when: "Wed 12 Aug · 18:00", color: "#34d399" },
+      { title: "Mum's birthday", when: "Thu 13 Aug", color: "#f472b6" },
+    ]
+    const beforeTimeline = [
+      { dot: "#34d399", text: "🌅 Checked in · 🔥 12 days", opacity: "1", color: "#f2f2fa" },
+      { dot: "rgba(99,102,241,0.7)", text: "09:00 Standup", opacity: "0.5", color: "#f2f2fa" },
+      { dot: "#60a5fa", text: "16:30 Physio — Dr. Havel", opacity: "1", color: "#f2f2fa" },
+      { dot: "#f87171", text: "🔔 2 overdue · 1 due today", opacity: "1", color: "#f87171" },
+      { dot: "rgba(99,102,241,0.7)", text: "✅ Habits 3/5 · next: stretch, read", opacity: "1", color: "#f2f2fa" },
+      { dot: "rgba(99,102,241,0.7)", text: "💧 1.2L · ☕ 250ml", opacity: "1", color: "#f2f2fa" },
+      { dot: "#34d399", text: "💊 Magnesium, D3", opacity: "1", color: "#f2f2fa" },
+    ]
+    const afterTimeline = [
+      { dot: "#34d399", time: "07:05", text: "Checked in — 12-day streak", opacity: "1" },
+      { dot: "#8d8da8", time: "09:00", text: "Standup", opacity: "0.45" },
+      { dot: "#22d3ee", time: "10:20", text: "Water 500 ml · coffee 250 ml", opacity: "1" },
+      { dot: "#22d3ee", time: "12:00", text: "Magnesium, D3", opacity: "1" },
+      { dot: "#8d8da8", time: "16:30", text: "Physio — Dr. Havel", opacity: "1" },
+      { dot: "#f87171", time: "18:00", text: "Renew insurance — 2 days late", opacity: "1" },
+      { dot: "#8d8da8", time: "21:00", text: "Habits 3 of 5 — stretch, read", opacity: "1" },
+    ]
+    const logChips = [
+      { label: "+250 ml", border: "rgba(34,211,238,0.45)", bg: "rgba(34,211,238,0.12)", fg: "#67e8f9" },
+      { label: "+500 ml", border: "rgba(34,211,238,0.45)", bg: "rgba(34,211,238,0.12)", fg: "#67e8f9" },
+      { label: "Coffee", border: "#201f32", bg: "transparent", fg: "#a9a9c0" },
+      { label: "More…", border: "#201f32", bg: "transparent", fg: "#a9a9c0" },
+    ]
+    const nextSteps = [
+      { n: "01", title: "Ratify the palettes", body: "You sign off the six identity hues and three status hues above. Half a day, and it is the decision everything else depends on." },
+      { n: "02", title: "Land them in tokens", body: "Domain and status hues become theme variables so the six themes and eight accents inherit them instead of each screen inventing hues. Every hard-coded literal maps to one." },
+      { n: "03", title: "Redraw the four rooms", body: "Today, Body, Log, Patterns as full mockups at 390px, with the drawer retired to Settings and integrations as sources. Yours to review before any code moves." },
+      { n: "04", title: "Sweep the 26 routes", body: "Screen by screen, in traffic order: cards to the shared component, emoji to Lucide, prose to Geist Sans. Mechanical once 01–03 are agreed." },
+    ]
+    return { hueRows, identityRows, statusRows, findings, iaRooms, beforePillars, afterPillars, sleepBars, afterSleepBars, dowCells, monthCells, upNext, beforeTimeline, afterTimeline, logChips, nextSteps }
+  }
+}
+</script>
+</body>
+</html>

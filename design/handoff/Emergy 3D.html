@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emergy — 3D</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+    "three/addons/controls/OrbitControls.js": "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js",
+    "three/addons/exporters/OBJExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js",
+    "three/addons/exporters/GLTFExporter.js": "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js"
+  },
+  "integrity": {
+    "https://unpkg.com/three@0.184.0/build/three.module.js": "sha384-8FCZ1eVO6it4+pbec2aDtnTrwjWXZLJRC+MAGCIPDgsYnUrl/E0A2YlF8ioMKI/J",
+    "https://unpkg.com/three@0.184.0/build/three.core.js": "sha384-dw2ooPewaEIrAgl6oFDBmmBWCE9oW9LxRGcfwZ0hLvEprzo202wXl7vCYHRlSnOT",
+    "https://unpkg.com/three@0.184.0/examples/jsm/controls/OrbitControls.js": "sha384-4rziNxOBZKQ69i+w+f89KJ55TCYquwchVbByQwmaOeIOXdOU2PLDn3kOfXHwIJC9",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/OBJExporter.js": "sha384-nbwtoZENJD3Vq+ACK0CuGQdPMuDWHkamC2KJD70EV5nfg6jQjfppKOea07YJN+N3",
+    "https://unpkg.com/three@0.184.0/examples/jsm/exporters/GLTFExporter.js": "sha384-VofkvpG6HERhFCYbsUOHeNXBCqID2nfqkQqnVzE1jc/oPcz+qJ13ADdXH08hE+cQ"
+  }
+}
+</script>
+<style>
+  html,body{margin:0;height:100%;background:#0b0a12}
+  three-d-stage:not(:defined){visibility:hidden}
+  three-d-stage{display:block;width:100vw;height:100vh}
+  .caption{position:fixed;left:20px;bottom:52px;z-index:5;font:400 12.5px/1.55 ui-sans-serif,system-ui,sans-serif;color:rgba(242,242,250,.6);max-width:44ch;pointer-events:none}
+  .caption b{color:#f2f2fa;font-weight:600}
+  .moods{position:fixed;right:20px;top:20px;z-index:5;display:flex;flex-direction:column;gap:6px}
+  .moods button{font:500 11.5px/1 ui-sans-serif,system-ui,sans-serif;color:#c9c9dd;background:rgba(16,15,26,.85);border:1px solid #2b2a45;border-radius:8px;padding:7px 11px;text-align:left;cursor:pointer}
+  .moods button[aria-pressed="true"]{border-color:#6366f1;color:#fff}
+  .moods button:hover{border-color:#4b4a6e}
+</style>
+</head>
+<body>
+<three-d-stage name="emergy" background="#0b0a12"></three-d-stage>
+<div class="moods" id="moods"></div>
+<p class="caption"><b>Emergy, modelled.</b> Real geometry, animated — he waves when he's green and sighs when he's grey or red. The toolbar downloads him as OBJ&nbsp;+&nbsp;MTL or GLB for Blender, so the same model can render the app's avatar, the store art and the widget.</p>
+<script src="./three-d-stage.js"></script>
+<script type="module">
+import { buildEmergy, setMood, poseEmergy, MOODS } from './emergy-model.js';
+
+const stage = document.querySelector('three-d-stage');
+const { THREE } = await stage.ready;
+const model = buildEmergy(THREE);
+let mood = 'okay';
+setMood(model, mood);
+poseEmergy(model, mood, 0);
+stage.setObject(model.group);
+
+const bar = document.getElementById('moods');
+for (const key of Object.keys(MOODS)) {
+  const b = document.createElement('button');
+  b.textContent = key;
+  b.setAttribute('aria-pressed', String(key === mood));
+  b.onclick = () => {
+    mood = key;
+    setMood(model, mood);
+    for (const el of bar.children) el.setAttribute('aria-pressed', String(el.textContent === mood));
+  };
+  bar.appendChild(b);
+}
+
+const t0 = performance.now();
+(function tick() {
+  poseEmergy(model, mood, (performance.now() - t0) / 1000);
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
