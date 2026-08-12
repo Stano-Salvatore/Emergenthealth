@@ -116,6 +116,14 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
     // Sync Oura tags (best-effort — table may not exist yet)
     let tagsSynced = 0
     let tagsError: string | undefined
+    // A token authorized before the "tag" scope joined the OAuth request keeps
+    // its old permissions forever: sleep syncs fine while every tag request
+    // 403s. Detect that up front and say so, instead of a cryptic API error.
+    const storedScope = ouraToken.scope?.trim()
+    if (storedScope && !storedScope.split(/[\s,]+/).includes("tag")) {
+      tagsError = "Your Oura connection predates tag permission — disconnect and reconnect Oura in Settings to sync tags"
+      return { ok: true, synced: results.length, tagsSynced, tagsError }
+    }
     try {
       await prisma.$executeRaw`
         CREATE TABLE IF NOT EXISTS "OuraTag" (

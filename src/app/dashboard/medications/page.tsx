@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { RefreshCw, Search, Pencil, CalendarDays, Tag } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
+import { supplementInfoFor, fractionRemaining, PHARMA_DISCLAIMER } from "@/lib/supplement-info"
 
 interface TagItem {
   id: string
@@ -99,6 +100,21 @@ function TypeCard({
   const preview = sorted.slice(0, expanded ? sorted.length : 3)
   const lastSeen = sorted[0]?.day
 
+  // Pharmacology info + decay estimate for short-half-life substances.
+  // "now" is frozen at first render — a decay percentage doesn't need to tick.
+  const [mountedAt] = useState(() => Date.now())
+  const info = group.name ? supplementInfoFor(group.name) : null
+  let activePct: number | null = null
+  let hoursAgo = 0
+  if (info?.halfLifeH != null && sorted[0]?.timestamp) {
+    const h = (mountedAt - new Date(sorted[0].timestamp).getTime()) / 3_600_000
+    const frac = fractionRemaining(info, h)
+    if (frac != null && h >= 0) {
+      activePct = Math.round(frac * 100)
+      hoursAgo = Math.round(h * 10) / 10
+    }
+  }
+
   return (
     <Card className={cn("border-border/50", !group.name && "border-amber-500/20 bg-amber-500/3")}>
       <CardContent className="pt-3 pb-3">
@@ -142,6 +158,20 @@ function TypeCard({
             {expanded ? "less" : "more"}
           </button>
         </div>
+
+        {/* Pharmacology: how long it stays, when to take it, what to watch */}
+        {info && (
+          <div className="mt-2 ml-12 rounded-lg bg-secondary/40 border border-border/50 px-2.5 py-2 space-y-1">
+            {activePct != null && activePct >= 3 && (
+              <p className="text-[11px] text-emerald-400">
+                ⚡ ≈{activePct}% of the last dose still circulating (taken {hoursAgo}h ago, half-life ≈{info.halfLifeH}h)
+              </p>
+            )}
+            <p className="text-[11px] text-muted-foreground">⏳ {info.duration}</p>
+            <p className="text-[11px] text-muted-foreground">🕐 {info.timing}</p>
+            {info.caution && <p className="text-[11px] text-amber-400/80">⚠️ {info.caution}</p>}
+          </div>
+        )}
 
         {/* Entry list */}
         <div className="mt-2 space-y-1 ml-12">
@@ -408,6 +438,7 @@ export default function MedicationsPage() {
               onRename={startRename}
             />
           ))}
+          <p className="text-[10px] text-muted-foreground/50 px-1 pt-1">{PHARMA_DISCLAIMER}</p>
         </div>
       )}
 
