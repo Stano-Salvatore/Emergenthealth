@@ -331,6 +331,10 @@ model SavedPlace {
   lat       Float
   lng       Float
   radiusM   Int      @default(100)
+  // the user's usual order here — one tap logs it when they arrive
+  usualType String?  // IntakeLog type, e.g. "coffee"
+  usualMl   Int?
+  usualNote String?  // e.g. "Flat white"
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

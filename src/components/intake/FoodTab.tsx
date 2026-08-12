@@ -12,6 +12,7 @@ import { Camera, Loader2, Pencil, Plus, Sparkles, Trash2, UtensilsCrossed, X } f
 import { cn } from "@/lib/utils"
 import { capturePhoto, downscaleDataUrl } from "@/lib/native/camera"
 import { getCurrentPosition } from "@/lib/native/geolocation"
+import { matchSavedPlace, type PlaceLike } from "@/lib/places"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 
 interface FoodItem {
@@ -56,15 +57,26 @@ interface FoodLog {
 
 type MealLocation = { lat: number; lng: number; place: string | null }
 
-/** Where the meal is being logged — coordinates plus a human label, best-effort. */
+/**
+ * Where the meal is being logged — coordinates plus a human label. A saved
+ * place wins ("Kaviareň Vták" beats "Staré Mesto, Bratislava"); otherwise
+ * reverse-geocode. Best-effort throughout.
+ */
 async function locateMeal(): Promise<MealLocation | null> {
   const pos = await getCurrentPosition()
   if (!pos) return null
   let place: string | null = null
   try {
-    const res = await fetch(`/api/geocode?lat=${pos.lat}&lon=${pos.lon}`)
-    if (res.ok) place = (await res.json()).place ?? null
-  } catch { /* coords alone are still useful */ }
+    const places: PlaceLike[] = await fetch("/api/saved-places").then(r => r.ok ? r.json() : [])
+    const m = matchSavedPlace(pos.lat, pos.lon, places, pos.accuracy ?? 0)
+    if (m) place = m.place.name
+  } catch { /* fall through to geocoding */ }
+  if (!place) {
+    try {
+      const res = await fetch(`/api/geocode?lat=${pos.lat}&lon=${pos.lon}`)
+      if (res.ok) place = (await res.json()).place ?? null
+    } catch { /* coords alone are still useful */ }
+  }
   return { lat: pos.lat, lng: pos.lon, place }
 }
 
