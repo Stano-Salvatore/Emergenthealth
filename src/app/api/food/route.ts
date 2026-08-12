@@ -1,6 +1,8 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { estimateCaffeine } from "@/lib/caffeine"
+import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { normalizeSupplement } from "@/lib/supplement-normalize"
 import { NextResponse } from "next/server"
 import type { Prisma } from "@prisma/client"
 
@@ -34,11 +36,30 @@ export async function GET(req: Request) {
 
   const start = new Date(date + "T00:00:00.000Z")
   const end = new Date(date + "T23:59:59.999Z")
-  const logs = await prisma.foodLog.findMany({
-    where: { userId, loggedAt: { gte: start, lte: end } },
-    orderBy: { loggedAt: "asc" },
-  })
-  return NextResponse.json(logs)
+  const [logs, ouraTags] = await Promise.all([
+    prisma.foodLog.findMany({
+      where: { userId, loggedAt: { gte: start, lte: end } },
+      orderBy: { loggedAt: "asc" },
+    }),
+    // Supplements the user logged in the Oura app that day — shown alongside
+    // the food-derived vitamins so "took Vitamin D" and "got Vitamin D from
+    // food" land in one place.
+    prisma.$queryRaw<{ tagName: string | null; text: string | null }[]>`
+      SELECT "tagName","text" FROM "OuraTag"
+      WHERE "userId" = ${userId} AND "day" = ${date} ORDER BY "timestamp"
+    `.catch(() => []),
+  ])
+
+  const supplements: string[] = []
+  const seen = new Set<string>()
+  for (const t of ouraTags) {
+    const label = (t.tagName ?? t.text ?? "").trim()
+    if (!label || classifyOuraTag(label).kind !== "med") continue
+    const display = normalizeSupplement(label) ?? label
+    if (!seen.has(display.toLowerCase())) { seen.add(display.toLowerCase()); supplements.push(display) }
+  }
+
+  return NextResponse.json({ logs, supplements })
 }
 
 export async function POST(req: Request) {

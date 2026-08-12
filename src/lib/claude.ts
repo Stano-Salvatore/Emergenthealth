@@ -409,9 +409,9 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: new Date(todayStr) } } }).catch(() => []),
       prisma.foodLog.findMany({
         where: { userId, loggedAt: { gte: new Date(todayStr) } },
-        select: { name: true, mealType: true, calories: true, proteinG: true },
+        select: { name: true, mealType: true, calories: true, proteinG: true, micros: true },
         orderBy: { loggedAt: "asc" },
-      }).catch(() => [] as { name: string; mealType: string; calories: number; proteinG: number | null }[]),
+      }).catch(() => [] as { name: string; mealType: string; calories: number; proteinG: number | null; micros: unknown }[]),
       prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
         SELECT "day","tagName","text" FROM "OuraTag"
         WHERE "userId" = ${userId} AND "day" >= ${since7Str} ORDER BY "timestamp"
@@ -492,6 +492,22 @@ async function buildSystemPrompt(userId: string): Promise<string> {
     .filter(d => d.loggedAt >= new Date(todayStr))
     .reduce((s, d) => s + d.caffeineMg, 0)
   const activeCaffeineMg = activeFromDoses(caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[])
+
+  // Meals logged today (photo-analyzed or manual), with the vitamins/minerals
+  // they carried so Emergy can connect food micros with Oura supplements
+  const foodRows = todayFood as { name: string; mealType: string; calories: number; proteinG: number | null; micros: unknown }[]
+  const microAgg = new Map<string, number>()
+  for (const f of foodRows) {
+    if (!Array.isArray(f.micros)) continue
+    for (const m of f.micros as { name?: string; dailyPct?: number }[]) {
+      if (m?.name && typeof m.dailyPct === "number") microAgg.set(m.name, (microAgg.get(m.name) ?? 0) + m.dailyPct)
+    }
+  }
+  const microsStr = [...microAgg.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+    .map(([n, p]) => `${n} ≈${Math.round(p)}% DV`).join(", ")
+  const foodLine = foodRows.length > 0
+    ? `- Food today: ≈${foodRows.reduce((s, f) => s + f.calories, 0)} kcal — ${foodRows.map(f => `${f.name} (${f.mealType}, ${f.calories} kcal)`).join(", ")}${microsStr ? ` | vitamins/minerals from food: ${microsStr} (combine with the Oura supplements below when asked about vitamin coverage)` : ""}`
+    : "- No meals logged today (the user can snap a meal or drink photo on the Intake → Food tab)"
 
   // Intake totals (IntakeLog — includes drinks mirrored from Oura tags)
   const waterToday = (todayIntake as any[]).filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
@@ -615,7 +631,7 @@ ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- 
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
 - Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml` : ""}
-${(todayFood as { name: string; mealType: string; calories: number; proteinG: number | null }[]).length > 0 ? `- Food today: ${(todayFood as { name: string; mealType: string; calories: number; proteinG: number | null }[]).reduce((s, f) => s + f.calories, 0)} kcal — ${(todayFood as { name: string; mealType: string; calories: number; proteinG: number | null }[]).map(f => `${f.name} (${f.mealType}, ${f.calories} kcal)`).join(", ")}` : "- No meals logged today (the user can snap a meal photo on the Intake → Food tab)"}
+${foodLine}
 ${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today, ≈${activeCaffeineMg}mg still active in their system (5h half-life — factor this into sleep/energy advice, e.g. discourage more coffee if a lot is still circulating late in the day)` : ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
 ${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}

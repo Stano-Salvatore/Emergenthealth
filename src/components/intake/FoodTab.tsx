@@ -11,6 +11,7 @@ import { format } from "date-fns"
 import { Camera, Loader2, Pencil, Plus, Trash2, UtensilsCrossed, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { capturePhoto, downscaleDataUrl } from "@/lib/native/camera"
+import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 
 interface FoodItem {
   kind?: "food" | "drink"
@@ -83,6 +84,7 @@ type Draft = {
 
 export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
   const [logs, setLogs] = useState<FoodLog[]>([])
+  const [supplements, setSupplements] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [analyzing, setAnalyzing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -93,7 +95,11 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
     setLoading(true)
     try {
       const res = await fetch(`/api/food?date=${date}`)
-      if (res.ok) setLogs(await res.json())
+      if (res.ok) {
+        const d = await res.json()
+        setLogs(d.logs ?? [])
+        setSupplements(d.supplements ?? [])
+      }
     } catch { /* keep whatever is on screen */ }
     finally { setLoading(false) }
   }, [date])
@@ -204,6 +210,38 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
     { calories: 0, proteinG: 0, carbsG: 0, fatG: 0 },
   )
 
+  // Vitamins & minerals across the day's meals, summed by % daily value…
+  const microTotals = new Map<string, { name: string; dailyPct: number }>()
+  for (const log of logs) {
+    for (const m of log.micros ?? []) {
+      const key = m.name.toLowerCase()
+      const acc = microTotals.get(key)
+      if (acc) acc.dailyPct += m.dailyPct
+      else microTotals.set(key, { name: m.name, dailyPct: m.dailyPct })
+    }
+  }
+  // …merged with supplements taken via the Oura ring (name-matched loosely,
+  // e.g. Oura "Vitamin D3 + K2" covers a food-derived "Vitamin D")
+  const isSupplemented = (microName: string) => {
+    const n = microName.toLowerCase()
+    return supplements.some(s => {
+      const sl = s.toLowerCase()
+      return sl.includes(n) || n.includes(sl)
+    })
+  }
+  const microChips = [...microTotals.values()].sort((a, b) => b.dailyPct - a.dailyPct)
+  const supplementOnly = supplements.filter(s => {
+    const sl = s.toLowerCase()
+    return ![...microTotals.values()].some(m => sl.includes(m.name.toLowerCase()) || m.name.toLowerCase().includes(sl))
+  })
+
+  // Caffeine this draft's drinks would add, and what's left of it at 23:00
+  const draftCaffeineMg = draft?.analysis?.items.reduce((s, it) => {
+    if (it.kind !== "drink" || !it.drinkType || !it.volumeMl) return s
+    return s + (estimateCaffeine(it.drinkType, it.name, it.volumeMl)?.mg ?? 0)
+  }, 0) ?? 0
+  const draftCaffeineAtBed = draftCaffeineMg > 0 ? decayed(draftCaffeineMg, hoursToBedtime()) : 0
+
   return (
     <div className="space-y-5">
       {/* day summary */}
@@ -213,6 +251,31 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
         <MacroCard label="Carbs" value={totals.carbsG.toFixed(0)} unit="g" color="text-amber-400" emoji="🍞" />
         <MacroCard label="Fat" value={totals.fatG.toFixed(0)} unit="g" color="text-yellow-400" emoji="🧈" />
       </div>
+
+      {/* vitamins & minerals today — food-derived %DV plus Oura-logged supplements */}
+      {(microChips.length > 0 || supplements.length > 0) && (
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Vitamins &amp; minerals today
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {microChips.map(m => (
+              <span key={m.name} className="px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-[11px] text-emerald-400">
+                {m.name} ≈{Math.round(m.dailyPct)}%{isSupplemented(m.name) && <span title="Also taken as a supplement (Oura)"> + 💊</span>}
+              </span>
+            ))}
+            {supplementOnly.map(s => (
+              <span key={s} title="Supplement logged via Oura"
+                className="px-2 py-0.5 rounded-full border border-violet-500/30 bg-violet-500/10 text-[11px] text-violet-400">
+                💊 {s}
+              </span>
+            ))}
+          </div>
+          {supplements.length > 0 && (
+            <p className="text-[10px] text-muted-foreground mt-1.5">💊 = logged as a supplement in the Oura app</p>
+          )}
+        </div>
+      )}
 
       {/* capture / manual entry */}
       {isToday && !draft && (
@@ -284,6 +347,17 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
             )}
             {draft.analysis?.items.some(it => it.kind === "drink") && (
               <p className="text-[10px] text-muted-foreground">🥤 Drinks are also added to your drinks tracker (volume &amp; caffeine).</p>
+            )}
+            {draftCaffeineMg > 0 && (
+              <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                <span className="text-sm shrink-0">☕</span>
+                <p className="text-[11px] text-amber-400">
+                  Adds ≈{draftCaffeineMg} mg caffeine
+                  {draftCaffeineAtBed > 5
+                    ? <> — ≈{draftCaffeineAtBed} mg will still be active at 23:00 (5h half-life)</>
+                    : <> — it'll have worn off by 23:00</>}
+                </p>
+              </div>
             )}
 
             {/* editable totals — all estimates, so nudge or type exact values */}
