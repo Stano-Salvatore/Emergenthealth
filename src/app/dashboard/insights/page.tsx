@@ -8,7 +8,7 @@ import { WatchedPatterns } from "@/components/dashboard/WatchedPatterns"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements"
+type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "fitness" | "music" | "money" | "focus" | "fasting"
 
 interface InsightResult {
   id: string
@@ -39,14 +39,19 @@ const CATEGORY_META: Record<Category, { label: string; emoji: string; color: str
   stress:      { label: "Stress",   emoji: "😤", color: "text-orange-400" },
   food:        { label: "Food & Hydration", emoji: "🍽️", color: "text-orange-400" },
   supplements: { label: "Supplements", emoji: "💊", color: "text-violet-400" },
+  fitness:     { label: "Workouts", emoji: "🏃", color: "text-emerald-400" },
+  fasting:     { label: "Fasting",  emoji: "⏳", color: "text-yellow-400" },
   habits:      { label: "Habits",   emoji: "✅", color: "text-green-400" },
+  focus:       { label: "Focus",    emoji: "🎯", color: "text-red-400" },
   caffeine:    { label: "Caffeine", emoji: "☕", color: "text-amber-400" },
   screen:      { label: "Screen Time", emoji: "📱", color: "text-cyan-400" },
+  music:       { label: "Music",    emoji: "🎵", color: "text-pink-400" },
+  money:       { label: "Money",    emoji: "💸", color: "text-teal-400" },
   calendar:    { label: "Calendar", emoji: "🗓️", color: "text-blue-400" },
   tags:        { label: "Tags",     emoji: "🏷️", color: "text-primary" },
 }
 
-const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "stress", "food", "supplements", "habits", "caffeine", "screen", "calendar", "tags"]
+const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "stress", "food", "supplements", "fitness", "fasting", "habits", "focus", "caffeine", "screen", "music", "money", "calendar", "tags"]
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
