@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 import CaffeinePage from "@/app/dashboard/caffeine/page"
 import MedicationsPage from "@/app/dashboard/medications/page"
+import { FoodTab } from "@/components/intake/FoodTab"
 
 interface IntakeLog {
   id: string
@@ -118,12 +119,13 @@ function localDateStr(d: Date = new Date()): string {
   ].join("-")
 }
 
-type Tab = "intake" | "caffeine" | "meds"
+type Tab = "intake" | "food" | "caffeine" | "meds"
 
 const TAB_META: Record<Tab, { title: string; subtitle: string; icon: string }> = {
-  intake:   { title: "Intake",      subtitle: "Water, coffee & more",     icon: "🥤" },
-  caffeine: { title: "Caffeine",    subtitle: "Intake and its half-life", icon: "☕" },
-  meds:     { title: "Medications", subtitle: "Meds & supplements",       icon: "💊" },
+  intake:   { title: "Intake",      subtitle: "Water, coffee & more",       icon: "🥤" },
+  food:     { title: "Food",        subtitle: "Meals, snapped & analyzed",  icon: "🍽️" },
+  caffeine: { title: "Caffeine",    subtitle: "Intake and its half-life",   icon: "☕" },
+  meds:     { title: "Medications", subtitle: "Meds & supplements",         icon: "💊" },
 }
 
 export default function IntakePage() {
@@ -132,7 +134,7 @@ export default function IntakePage() {
   // The tab is part of the address, so refreshing or pressing back keeps you
   // where you were instead of silently returning to Intake.
   const tabParam = searchParams.get("tab")
-  const activeTab: Tab = tabParam === "meds" || tabParam === "caffeine" ? tabParam : "intake"
+  const activeTab: Tab = tabParam === "meds" || tabParam === "caffeine" || tabParam === "food" ? tabParam : "intake"
 
   const setActiveTab = useCallback((tab: Tab) => {
     router.replace(tab === "intake" ? "/dashboard/intake" : `/dashboard/intake?tab=${tab}`, { scroll: false })
@@ -288,7 +290,7 @@ export default function IntakePage() {
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">{TAB_META[activeTab].subtitle}</p>
         </div>
-        {activeTab === "intake" && (
+        {(activeTab === "intake" || activeTab === "food") && (
           <div className="flex items-center gap-1">
             <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navDate(-1)}>
               <ChevronLeft className="h-4 w-4" />
@@ -301,10 +303,11 @@ export default function IntakePage() {
         )}
       </div>
 
-      {/* Tab bar */}
-      <div className="flex border-b border-border">
+      {/* Tab bar — four tabs now, so let it scroll rather than clip at 390px */}
+      <div className="flex border-b border-border overflow-x-auto scrollbar-thin">
         {([
           { key: "intake", label: "Intake", emoji: "🥤" },
+          { key: "food", label: "Food", emoji: "🍽️" },
           { key: "caffeine", label: "Caffeine", emoji: "☕" },
           { key: "meds", label: "Medications", emoji: "💊" },
         ] as const).map(t => (
@@ -312,7 +315,7 @@ export default function IntakePage() {
             key={t.key}
             onClick={() => setActiveTab(t.key)}
             className={cn(
-              "px-4 py-2 text-sm transition-colors",
+              "px-4 py-2 text-sm transition-colors whitespace-nowrap shrink-0",
               activeTab === t.key
                 ? "text-foreground border-b-2 border-primary font-medium"
                 : "text-muted-foreground hover:text-foreground"
@@ -323,7 +326,7 @@ export default function IntakePage() {
         ))}
       </div>
 
-      {activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : (<>
+      {activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : activeTab === "food" ? <FoodTab date={date} isToday={isToday} /> : (<>
 
       {/* gentle late-caffeine heads-up */}
       {lateCoffeeMg != null && (

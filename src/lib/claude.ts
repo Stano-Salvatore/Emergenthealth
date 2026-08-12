@@ -378,7 +378,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
 
   const since7Str = fmtDateISO.format(new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000))
 
-  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, recentOuraTags, recentCheckins, recentScreenTime, caffeineDoses24h] =
+  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, todayFood, recentOuraTags, recentCheckins, recentScreenTime, caffeineDoses24h] =
     await Promise.all([
       prisma.healthLog.findMany({
         where: { userId }, orderBy: { date: "desc" }, take: 14,
@@ -407,6 +407,11 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       ),
       prisma.moodLog.findFirst({ where: { userId, date: { gte: new Date(todayStr) } } }).catch(() => null),
       prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: new Date(todayStr) } } }).catch(() => []),
+      prisma.foodLog.findMany({
+        where: { userId, loggedAt: { gte: new Date(todayStr) } },
+        select: { name: true, mealType: true, calories: true, proteinG: true },
+        orderBy: { loggedAt: "asc" },
+      }).catch(() => [] as { name: string; mealType: string; calories: number; proteinG: number | null }[]),
       prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
         SELECT "day","tagName","text" FROM "OuraTag"
         WHERE "userId" = ${userId} AND "day" >= ${since7Str} ORDER BY "timestamp"
@@ -610,6 +615,7 @@ ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- 
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
 - Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml` : ""}
+${(todayFood as { name: string; mealType: string; calories: number; proteinG: number | null }[]).length > 0 ? `- Food today: ${(todayFood as { name: string; mealType: string; calories: number; proteinG: number | null }[]).reduce((s, f) => s + f.calories, 0)} kcal — ${(todayFood as { name: string; mealType: string; calories: number; proteinG: number | null }[]).map(f => `${f.name} (${f.mealType}, ${f.calories} kcal)`).join(", ")}` : "- No meals logged today (the user can snap a meal photo on the Intake → Food tab)"}
 ${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today, ≈${activeCaffeineMg}mg still active in their system (5h half-life — factor this into sleep/energy advice, e.g. discourage more coffee if a lot is still circulating late in the day)` : ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
 ${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}

@@ -6,12 +6,12 @@
 const MAX_DIM = 1024     // longest edge, px
 const QUALITY = 0.6      // JPEG quality
 
-/** Downscale + re-encode an image data URL to keep payloads small (~50-150KB). */
-function compress(dataUrl: string): Promise<string> {
+/** Downscale + re-encode an image data URL to a JPEG capped at maxDim px. */
+export function downscaleDataUrl(dataUrl: string, maxDim = MAX_DIM, quality = QUALITY): Promise<string> {
   return new Promise(resolve => {
     const img = new Image()
     img.onload = () => {
-      const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height))
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
       const w = Math.round(img.width * scale)
       const h = Math.round(img.height * scale)
       const canvas = document.createElement("canvas")
@@ -20,11 +20,16 @@ function compress(dataUrl: string): Promise<string> {
       const ctx = canvas.getContext("2d")
       if (!ctx) { resolve(dataUrl); return }
       ctx.drawImage(img, 0, 0, w, h)
-      resolve(canvas.toDataURL("image/jpeg", QUALITY))
+      resolve(canvas.toDataURL("image/jpeg", quality))
     }
     img.onerror = () => resolve(dataUrl)
     img.src = dataUrl
   })
+}
+
+/** Keep camera payloads small (~50-150KB). */
+function compress(dataUrl: string): Promise<string> {
+  return downscaleDataUrl(dataUrl)
 }
 
 function fileToDataUrl(file: File): Promise<string> {
