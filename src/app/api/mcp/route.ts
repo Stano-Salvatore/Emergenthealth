@@ -456,6 +456,39 @@ function buildMcpServer(userId: string): McpServer {
     },
   )
 
+  server.tool(
+    "get_food_log",
+    "Get photo-analyzed meals and drinks from the Food tab for a day: per-meal calories/macros, each recognized item with its portion and whether its nutrition came from the USDA database (db) or was model-estimated (est), plus notable vitamins/minerals",
+    { date: z.string().optional().describe("Day as YYYY-MM-DD, defaults to today") },
+    async ({ date }) => {
+      const day = date ?? today()
+      const logs = await prisma.foodLog.findMany({
+        where: { userId, loggedAt: { gte: startOfDay(day), lte: endOfDay(day) } },
+        orderBy: { loggedAt: "asc" },
+        select: {
+          name: true, mealType: true, calories: true, proteinG: true, carbsG: true,
+          fatG: true, sugarG: true, items: true, micros: true, note: true,
+          place: true, loggedAt: true,
+        },
+      })
+      return ok({
+        date: day,
+        meals: logs.map(l => ({
+          time: l.loggedAt.toISOString().slice(11, 16),
+          name: l.name,
+          meal_type: l.mealType,
+          calories: l.calories,
+          protein_g: l.proteinG, carbs_g: l.carbsG, fat_g: l.fatG, sugar_g: l.sugarG,
+          items: l.items,
+          micros: l.micros,
+          note: l.note,
+          place: l.place,
+        })),
+        total_calories: logs.reduce((s, l) => s + l.calories, 0),
+      })
+    },
+  )
+
   // ── READING ───────────────────────────────────────────────────────────────
 
   server.tool(
