@@ -249,8 +249,10 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
     if (!draft.name.trim() || !Number.isFinite(calories) || calories < 0) return
     setSaving(true)
     try {
-      // Store only a small thumbnail — the full capture stays on the device.
-      const thumb = draft.photo ? await downscaleDataUrl(draft.photo, 320, 0.55) : null
+      // Store a viewable copy (~900px, ≈100–250KB) — big enough to reopen
+      // full-screen from the meal list, small enough for a DB text column.
+      // (Earlier saves kept only a 320px thumb, so old photos reopen blurry.)
+      const thumb = draft.photo ? await downscaleDataUrl(draft.photo, 900, 0.62) : null
       // Location was requested when the draft started; give it a short grace
       // period but never hold the save hostage to a slow GPS fix.
       const loc = await Promise.race([
@@ -302,6 +304,8 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
 
   // Inline meal editing — fix a name or a number without re-snapping
   const [editing, setEditing] = useState<{ id: string; name: string; mealType: string; calories: string; proteinG: string; carbsG: string; fatG: string } | null>(null)
+  // Tap a saved meal's thumbnail to see the photo full-screen again
+  const [photoView, setPhotoView] = useState<{ src: string; name: string } | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
 
   function startEditLog(log: FoodLog) {
@@ -654,8 +658,11 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
               <div key={log.id}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-xl border bg-card hover:bg-secondary/30 transition-colors group">
                 {log.photo ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- stored data-URL thumbnail
-                  <img src={log.photo} alt="" className="w-11 h-11 rounded-lg object-cover shrink-0" />
+                  <button onClick={() => setPhotoView({ src: log.photo!, name: log.name })}
+                    aria-label={`View photo of ${log.name}`} className="shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- stored data-URL photo */}
+                    <img src={log.photo} alt="" className="w-11 h-11 rounded-lg object-cover" />
+                  </button>
                 ) : (
                   <div className="w-11 h-11 rounded-lg bg-secondary flex items-center justify-center text-lg shrink-0">
                     {MEAL_EMOJI[log.mealType] ?? "🥡"}
@@ -699,6 +706,28 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
           </div>
         )}
       </div>
+
+      {photoView && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setPhotoView(null)}
+          role="dialog" aria-label={`Photo of ${photoView.name}`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- stored data-URL photo */}
+          <img src={photoView.src} alt={photoView.name}
+            className="max-w-full max-h-[85vh] rounded-xl object-contain" />
+          <p className="absolute bottom-6 left-0 right-0 text-center text-sm text-white/80 px-6 truncate">
+            {photoView.name}
+          </p>
+          <button
+            onClick={() => setPhotoView(null)}
+            aria-label="Close photo"
+            className="absolute top-4 right-4 text-white/80 hover:text-white p-2"
+          >
+            <X className="h-6 w-6" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
