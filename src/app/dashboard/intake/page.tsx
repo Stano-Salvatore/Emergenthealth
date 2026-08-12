@@ -12,6 +12,7 @@ import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 import CaffeinePage from "@/app/dashboard/caffeine/page"
 import MedicationsPage from "@/app/dashboard/medications/page"
 import { FoodTab } from "@/components/intake/FoodTab"
+import { OverviewTab } from "@/components/intake/OverviewTab"
 
 interface IntakeLog {
   id: string
@@ -123,13 +124,14 @@ function localDateStr(d: Date = new Date()): string {
   ].join("-")
 }
 
-type Tab = "intake" | "food" | "caffeine" | "meds"
+type Tab = "overview" | "meds" | "intake" | "caffeine" | "food"
 
 const TAB_META: Record<Tab, { title: string; subtitle: string; icon: string }> = {
-  intake:   { title: "Intake",      subtitle: "Water, coffee & more",       icon: "🥤" },
-  food:     { title: "Food",        subtitle: "Meals, snapped & analyzed",  icon: "🍽️" },
-  caffeine: { title: "Caffeine",    subtitle: "Intake and its half-life",   icon: "☕" },
+  overview: { title: "Today",       subtitle: "Water, caffeine, food & vitamins at a glance", icon: "📊" },
   meds:     { title: "Medications", subtitle: "Meds & supplements",         icon: "💊" },
+  intake:   { title: "Intake",      subtitle: "Water, coffee & more",       icon: "🥤" },
+  caffeine: { title: "Caffeine",    subtitle: "Intake and its half-life",   icon: "☕" },
+  food:     { title: "Food",        subtitle: "Meals, snapped & analyzed",  icon: "🍽️" },
 }
 
 export default function IntakePage() {
@@ -138,10 +140,10 @@ export default function IntakePage() {
   // The tab is part of the address, so refreshing or pressing back keeps you
   // where you were instead of silently returning to Intake.
   const tabParam = searchParams.get("tab")
-  const activeTab: Tab = tabParam === "meds" || tabParam === "caffeine" || tabParam === "food" ? tabParam : "intake"
+  const activeTab: Tab = tabParam === "meds" || tabParam === "caffeine" || tabParam === "food" || tabParam === "intake" ? tabParam : "overview"
 
-  const setActiveTab = useCallback((tab: Tab) => {
-    router.replace(tab === "intake" ? "/dashboard/intake" : `/dashboard/intake?tab=${tab}`, { scroll: false })
+  const setActiveTab = useCallback((tab: string) => {
+    router.replace(tab === "overview" ? "/dashboard/intake" : `/dashboard/intake?tab=${tab}`, { scroll: false })
   }, [router])
 
   const [logs, setLogs] = useState<IntakeLog[]>([])
@@ -310,10 +312,11 @@ export default function IntakePage() {
       {/* Tab bar — four tabs now, so let it scroll rather than clip at 390px */}
       <div className="flex border-b border-border overflow-x-auto scrollbar-thin">
         {([
+          { key: "overview", label: "Today", emoji: "📊" },
+          { key: "meds", label: "Meds", emoji: "💊" },
           { key: "intake", label: "Intake", emoji: "🥤" },
-          { key: "food", label: "Food", emoji: "🍽️" },
           { key: "caffeine", label: "Caffeine", emoji: "☕" },
-          { key: "meds", label: "Medications", emoji: "💊" },
+          { key: "food", label: "Food", emoji: "🍽️" },
         ] as const).map(t => (
           <button
             key={t.key}
@@ -330,7 +333,7 @@ export default function IntakePage() {
         ))}
       </div>
 
-      {activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : activeTab === "food" ? <FoodTab date={date} isToday={isToday} /> : (<>
+      {activeTab === "overview" ? <OverviewTab onGoTo={setActiveTab} /> : activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : activeTab === "food" ? <FoodTab date={date} isToday={isToday} /> : (<>
 
       {/* gentle late-caffeine heads-up */}
       {lateCoffeeMg != null && (
