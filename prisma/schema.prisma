@@ -384,6 +384,9 @@ model FoodLog {
   micros   Json?    // [{ name, amount, unit, dailyPct }] — notable vitamins & minerals
   note     String?  // one-line health note from the photo analysis
   photo    String?  @db.Text // small JPEG data-URL thumbnail for the log list
+  lat      Float?   // where the meal was logged (best-effort)
+  lng      Float?
+  place    String?  // reverse-geocoded label, e.g. "Karlova Ves, Bratislava"
   loggedAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

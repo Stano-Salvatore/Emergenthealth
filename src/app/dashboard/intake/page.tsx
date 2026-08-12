@@ -196,6 +196,12 @@ export default function IntakePage() {
 
   useEffect(() => { load() }, [load])
 
+  // The drinks list goes stale while other tabs are open (a snapped meal can
+  // mirror drinks into it) — refetch whenever this tab becomes active again.
+  useEffect(() => {
+    if (activeTab === "intake") { load(); loadCaffeine() }
+  }, [activeTab, load, loadCaffeine])
+
   // Load 7-day water trend (batch single request)
   useEffect(() => {
     async function loadWeek() {
@@ -333,7 +339,7 @@ export default function IntakePage() {
         ))}
       </div>
 
-      {activeTab === "overview" ? <OverviewTab onGoTo={setActiveTab} /> : activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : activeTab === "food" ? <FoodTab date={date} isToday={isToday} /> : (<>
+      {activeTab === "overview" ? <OverviewTab onGoTo={setActiveTab} /> : activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : activeTab === "food" ? <FoodTab date={date} isToday={isToday} onSaved={() => { load(); loadCaffeine() }} /> : (<>
 
       {/* gentle late-caffeine heads-up */}
       {lateCoffeeMg != null && (

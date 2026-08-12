@@ -4,13 +4,14 @@
 // items, calories and macros, the user adjusts and saves. Manual entry works
 // too for meals without a photo.
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { format } from "date-fns"
 import { Camera, Loader2, Pencil, Plus, Sparkles, Trash2, UtensilsCrossed, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { capturePhoto, downscaleDataUrl } from "@/lib/native/camera"
+import { getCurrentPosition } from "@/lib/native/geolocation"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 
 interface FoodItem {
@@ -49,7 +50,22 @@ interface FoodLog {
   micros: Micronutrient[] | null
   note: string | null
   photo: string | null
+  place: string | null
   loggedAt: string
+}
+
+type MealLocation = { lat: number; lng: number; place: string | null }
+
+/** Where the meal is being logged — coordinates plus a human label, best-effort. */
+async function locateMeal(): Promise<MealLocation | null> {
+  const pos = await getCurrentPosition()
+  if (!pos) return null
+  let place: string | null = null
+  try {
+    const res = await fetch(`/api/geocode?lat=${pos.lat}&lon=${pos.lon}`)
+    if (res.ok) place = (await res.json()).place ?? null
+  } catch { /* coords alone are still useful */ }
+  return { lat: pos.lat, lng: pos.lon, place }
 }
 
 interface Analysis {
@@ -88,7 +104,7 @@ type Draft = {
   note: string
 }
 
-export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
+export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boolean; onSaved?: () => void }) {
   const [logs, setLogs] = useState<FoodLog[]>([])
   const [supplements, setSupplements] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -98,6 +114,8 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
+  // Kicked off when a draft starts so the fix is usually ready by save time.
+  const locRef = useRef<Promise<MealLocation | null> | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -118,6 +136,7 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
     setError(null)
     const photo = await capturePhoto()
     if (!photo) return
+    locRef.current = locateMeal().catch(() => null)
     setAnalyzing(true)
     setDraft(null)
     try {
@@ -204,6 +223,7 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
 
   function startManual() {
     setError(null)
+    locRef.current = locateMeal().catch(() => null)
     setDraft({
       photo: null, analysis: null,
       name: "", mealType: "other",
@@ -219,6 +239,12 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
     try {
       // Store only a small thumbnail — the full capture stays on the device.
       const thumb = draft.photo ? await downscaleDataUrl(draft.photo, 320, 0.55) : null
+      // Location was requested when the draft started; give it a short grace
+      // period but never hold the save hostage to a slow GPS fix.
+      const loc = await Promise.race([
+        locRef.current ?? Promise.resolve(null),
+        new Promise<null>(r => setTimeout(() => r(null), 1500)),
+      ])
       const num = (s: string) => { const n = parseFloat(s); return Number.isFinite(n) ? n : undefined }
       const res = await fetch("/api/food", {
         method: "POST",
@@ -235,11 +261,15 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
           micros: draft.analysis?.micros,
           note: draft.note.trim() || undefined,
           photo: thumb ?? undefined,
+          lat: loc?.lat,
+          lng: loc?.lng,
+          place: loc?.place ?? undefined,
         }),
       })
       if (res.ok) {
         setDraft(null)
         load()
+        onSaved?.() // mirrored drinks land in Intake/Caffeine — refresh them
       } else {
         setError("Couldn't save — try again.")
       }
@@ -553,6 +583,9 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
                       {[...log.micros].sort((a, b) => b.dailyPct - a.dailyPct).slice(0, 3)
                         .map(m => `${m.name} ${m.dailyPct}%`).join(" · ")}
                     </p>
+                  )}
+                  {log.place && (
+                    <p className="text-[10px] text-muted-foreground/70 truncate">📍 {log.place}</p>
                   )}
                 </div>
                 <span className="text-xs text-muted-foreground shrink-0">

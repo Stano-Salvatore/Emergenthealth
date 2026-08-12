@@ -3,10 +3,9 @@ import { prisma } from "@/lib/prisma"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement } from "@/lib/supplement-normalize"
+import { extractMirrorableDrinks } from "@/lib/drink-mirror"
 import { NextResponse } from "next/server"
 import type { Prisma } from "@prisma/client"
-
-const DRINK_TYPES = new Set(["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "juice", "soda", "milk", "other"])
 
 export async function GET(req: Request) {
   const session = await auth()
@@ -96,31 +95,34 @@ export async function POST(req: Request) {
       photo: typeof body?.photo === "string" && body.photo.startsWith("data:image/") && body.photo.length < 100_000
         ? body.photo
         : null,
+      lat: Number.isFinite(Number(body?.lat)) && Math.abs(Number(body.lat)) <= 90 ? Number(body.lat) : null,
+      lng: Number.isFinite(Number(body?.lng)) && Math.abs(Number(body.lng)) <= 180 ? Number(body.lng) : null,
+      place: typeof body?.place === "string" && body.place.trim() ? body.place.trim().slice(0, 120) : null,
     },
   })
 
   // Recognized drinks also feed the drinks tracker (and caffeine, via the same
   // estimator the Intake tab uses). Shared id prefix ties them to this meal so
-  // deleting the meal removes them too.
-  const items = Array.isArray(body?.items) ? body.items.slice(0, 20) : []
-  let drinkIdx = 0
-  for (const it of items) {
-    const volumeMl = Math.round(Number(it?.volumeMl))
-    if (it?.kind !== "drink" || !DRINK_TYPES.has(it?.drinkType) || !Number.isFinite(volumeMl) || volumeMl <= 0 || volumeMl > 3000) continue
-    const itemName = typeof it?.name === "string" ? it.name.trim().slice(0, 80) : ""
-    const intakeId = `food_${log.id}_${drinkIdx++}`
-    await prisma.intakeLog.create({
-      data: { id: intakeId, userId, type: it.drinkType, amountMl: volumeMl, note: itemName || null },
-    }).catch(() => null)
-    const est = estimateCaffeine(it.drinkType, itemName, volumeMl)
+  // deleting the meal removes them too. Failures are logged, never swallowed —
+  // a drink that silently doesn't mirror looks like data loss to the user.
+  let mirroredDrinks = 0
+  const drinks = extractMirrorableDrinks(body?.items)
+  for (const [i, d] of drinks.entries()) {
+    const intakeId = `food_${log.id}_${i}`
+    const created = await prisma.intakeLog.create({
+      data: { id: intakeId, userId, type: d.type, amountMl: d.volumeMl, note: d.name || null },
+    }).catch(e => { console.error("food→intake mirror failed", intakeId, e); return null })
+    if (!created) continue
+    mirroredDrinks++
+    const est = estimateCaffeine(d.type, d.name, d.volumeMl)
     if (est) {
       await prisma.caffeineLog.create({
         data: { id: `intake_${intakeId}`, userId, compound: est.compound, caffeineMg: est.mg },
-      }).catch(() => null)
+      }).catch(e => console.error("food→caffeine mirror failed", intakeId, e))
     }
   }
 
-  return NextResponse.json(log, { status: 201 })
+  return NextResponse.json({ ...log, mirroredDrinks }, { status: 201 })
 }
 
 export async function DELETE(req: Request) {
