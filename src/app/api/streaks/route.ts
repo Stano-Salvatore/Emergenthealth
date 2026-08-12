@@ -1,37 +1,7 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
-import { getLevel } from "@/lib/xp"
-
-interface GitHubProfileRow {
-  username: string
-  accessToken: string | null
-}
-
-interface PushEvent {
-  type: string
-  created_at: string
-  payload: {
-    commits?: { sha: string }[]
-    size?: number
-  }
-}
-
-function currentStreak(sortedDates: string[]): number {
-  if (!sortedDates.length) return 0
-  const today = new Date().toISOString().slice(0, 10)
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
-  const set = new Set(sortedDates)
-  const start = set.has(today) ? today : set.has(yesterday) ? yesterday : null
-  if (!start) return 0
-  let streak = 0
-  let cur = new Date(start)
-  while (set.has(cur.toISOString().slice(0, 10))) {
-    streak++
-    cur = new Date(cur.getTime() - 86400000)
-  }
-  return streak
-}
+import { getLevel, computeXp, getGithubStats, currentDayStreak } from "@/lib/xp"
 
 function longestStreak(sortedDates: string[]): number {
   if (!sortedDates.length) return 0
@@ -53,7 +23,7 @@ export async function GET() {
 
   const since = new Date(Date.now() - 365 * 86400000)
 
-  const [habits, completions, healthLogs, moodLogs, dailyNotes, intakeDays, focusSessions, finishedBooks, ouraTagDays, githubProfile, checkinRows] = await Promise.all([
+  const [habits, completions, healthLogs, moodLogs, dailyNotes, intakeDays, focusSessions, finishedBooks, ouraTagDays, xpBreakdown, github, checkinRows] = await Promise.all([
     prisma.habit.findMany({
       where: { userId, isArchived: false },
       select: { id: true, name: true, color: true, icon: true },
@@ -88,42 +58,18 @@ export async function GET() {
         AND "tagName" NOT ILIKE '%wine%'
         AND "tagName" NOT ILIKE '%ml%'
     `.catch(() => [] as { day: string }[]),
-    prisma.$queryRaw<GitHubProfileRow[]>`
-      SELECT "username", "accessToken" FROM "GitHubProfile" WHERE "userId" = ${userId} LIMIT 1
-    `.catch(() => [] as GitHubProfileRow[]),
+    // Canonical XP + GitHub commit stats — the same pair the garden uses, so
+    // both pages show the same level. The inline formula this replaced was
+    // missing garden XP (while computeXp was missing GitHub).
+    computeXp(userId),
+    getGithubStats(userId),
     prisma.$queryRaw<{ date: string }[]>`
       SELECT "date" FROM "MorningCheckIn" WHERE "userId" = ${userId} ORDER BY "date" ASC
     `.catch(() => [] as { date: string }[]),
   ])
 
-  // GitHub commit data
-  let githubCommitDays = 0
-  let githubStreak = 0
-  const profile = (githubProfile as GitHubProfileRow[])[0]
-  if (profile) {
-    const headers: Record<string, string> = {
-      "User-Agent": "emergenthealth/1.0",
-      Accept: "application/vnd.github+json",
-    }
-    if (profile.accessToken) headers["Authorization"] = `Bearer ${profile.accessToken}`
-    const eventsRes = await fetch(
-      `https://api.github.com/users/${profile.username}/events?per_page=100`,
-      { headers },
-    ).catch(() => null)
-    if (eventsRes?.ok) {
-      const events: PushEvent[] = await eventsRes.json().catch(() => [])
-      const commitsByDay: Record<string, number> = {}
-      for (const event of events) {
-        if (event.type !== "PushEvent") continue
-        const day = event.created_at.slice(0, 10)
-        const count = event.payload.commits?.length ?? event.payload.size ?? 0
-        commitsByDay[day] = (commitsByDay[day] ?? 0) + count
-      }
-      const commitDays = Object.keys(commitsByDay).filter(d => (commitsByDay[d] ?? 0) > 0)
-      githubCommitDays = commitDays.length
-      githubStreak = currentStreak(commitDays.sort())
-    }
-  }
+  const githubCommitDays = github.commitDays
+  const githubStreak = github.streak
 
   // per-habit streaks
   const byHabit = new Map<string, string[]>()
@@ -141,7 +87,7 @@ export async function GET() {
       name: h.name,
       color: h.color,
       icon: h.icon ?? null,
-      currentStreak: currentStreak(dates),
+      currentStreak: currentDayStreak(dates),
       longestStreak: longestStreak(dates),
       totalCompletions: dates.length,
     }
@@ -150,29 +96,17 @@ export async function GET() {
   const maxCurrentStreak = Math.max(0, ...habitStreaks.map(h => h.currentStreak))
   const maxLongestStreak = Math.max(0, ...habitStreaks.map(h => h.longestStreak))
 
-  // XP
-  const habitXp = completions.length * 10
-  const sleepXp = healthLogs * 5
+  // Counts the achievements below still need (XP itself comes from computeXp)
   const weightLogs = await prisma.healthLog.count({ where: { userId, weight: { not: null } } })
-  const weightXp = weightLogs * 3
-  const moodXp = moodLogs * 5
-  const journalXp = dailyNotes * 10
   const intakeDateSet = new Set(intakeDays.map(l => (l.loggedAt as Date).toISOString().slice(0, 10)))
-  const intakeXp = intakeDateSet.size * 5
-  const focusXp = focusSessions.length * 10
-  const readingXp = finishedBooks * 20
   const supplementDays = (ouraTagDays as { day: string }[]).length
-  const supplementXp = supplementDays * 5
-  const githubXp = githubCommitDays * 8
-  const checkinCount = (checkinRows as { date: string }[]).length
-  const checkinXp = checkinCount * 10
   const checkinDates = (checkinRows as { date: string }[]).map(r => r.date).sort()
-  const checkinStreak = currentStreak(checkinDates)
-  const totalXp = habitXp + sleepXp + weightXp + moodXp + journalXp + intakeXp + focusXp + readingXp + supplementXp + githubXp + checkinXp
+  const checkinStreak = currentDayStreak(checkinDates)
+
+  const totalXp = xpBreakdown.total + github.xp
   const levelInfo = getLevel(totalXp)
 
   // achievements
-  const allCompletionDates = [...new Set(completions.map(c => (c.date as Date).toISOString().slice(0, 10)))]
   const allHabitDone = habits.length >= 3
     ? (() => {
         const byDate = new Map<string, Set<string>>()
@@ -217,7 +151,12 @@ export async function GET() {
   return NextResponse.json({
     xp: {
       total: totalXp,
-      byCategory: { habits: habitXp, sleep: sleepXp, weight: weightXp, mood: moodXp, journal: journalXp, intake: intakeXp, focus: focusXp, reading: readingXp, supplements: supplementXp, github: githubXp, checkin: checkinXp },
+      byCategory: {
+        habits: xpBreakdown.habits, sleep: xpBreakdown.sleep, weight: xpBreakdown.weight,
+        mood: xpBreakdown.mood, journal: xpBreakdown.journal, intake: xpBreakdown.intake,
+        focus: xpBreakdown.focus, reading: xpBreakdown.reading, supplements: xpBreakdown.supplements,
+        garden: xpBreakdown.garden, workouts: xpBreakdown.workouts, github: github.xp, checkin: xpBreakdown.checkins,
+      },
     },
     ...levelInfo,
     habitStreaks,

@@ -35,11 +35,19 @@ type DayData = {
   sugarG?: number
   lastMealMin?: number     // minutes after local midnight of the day's last meal
   supplements?: string[]   // normalized supplement names taken (Oura tags)
+  deepSleepMin?: number    // sleep architecture (Oura)
+  remSleepMin?: number
+  workoutMin?: number      // Strava moving time that day
+  focusMin?: number        // completed focus-session minutes
+  listeningMin?: number    // Last.fm music listening
+  spendEur?: number        // card spending (outgoing, transfers excluded)
+  uvIndex?: number
+  fastH?: number           // longest completed fast ending this day
 }
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "fitness" | "music" | "money" | "focus" | "fasting"
   emoji: string
   title: string
   finding: string
@@ -152,6 +160,8 @@ export async function computeCorrelations(
         hrv: true,
         steps: true,
         activityScore: true,
+        deepSleep: true,
+        remSleep: true,
       },
     }),
 
@@ -197,8 +207,8 @@ export async function computeCorrelations(
 
     prisma.weatherLog.findMany({
       where: { userId, date: { gte: since60str } },
-      select: { date: true, precipMm: true, tempMaxC: true, weatherCode: true },
-    }).catch(() => [] as { date: string; precipMm: number | null; tempMaxC: number | null; weatherCode: number | null }[]),
+      select: { date: true, precipMm: true, tempMaxC: true, weatherCode: true, uvIndex: true },
+    }).catch(() => [] as { date: string; precipMm: number | null; tempMaxC: number | null; weatherCode: number | null; uvIndex: number | null }[]),
 
     prisma.screenTimeLog.findMany({
       where: { userId, date: { gte: since60str } },
@@ -236,6 +246,40 @@ export async function computeCorrelations(
     }).catch(() => null),
   ])
 
+  // Sources that used to live only in the /api/stats mini-engine (music, money,
+  // focus) or nowhere at all (standalone mood logs, Strava, fasting).
+  const [moodRows, stravaRows, focusRows, lastfmRows, txRows, fastPref] = await Promise.all([
+    prisma.moodLog.findMany({
+      where: { userId, date: { gte: since60 } },
+      select: { date: true, mood: true },
+    }).catch(() => [] as { date: Date; mood: number }[]),
+
+    prisma.stravaActivity.findMany({
+      where: { userId, day: { gte: since60str } },
+      select: { day: true, movingTimeSec: true },
+    }).catch(() => [] as { day: string; movingTimeSec: number }[]),
+
+    prisma.focusSession.findMany({
+      where: { userId, type: "focus", endedAt: { gte: since60 } },
+      select: { endedAt: true, durationMin: true },
+    }).catch(() => [] as { endedAt: Date; durationMin: number }[]),
+
+    // Last.fm lives in a raw-DDL table with no Prisma model
+    prisma.$queryRaw<{ date: string; listeningMin: number }[]>`
+      SELECT "date", "listeningMin" FROM "LastfmLog"
+      WHERE "userId" = ${userId} AND "date" >= ${since60str}
+    `.catch(() => [] as { date: string; listeningMin: number }[]),
+
+    prisma.transaction.findMany({
+      where: { userId, date: { gte: since60 }, isTransfer: false, amount: { lt: 0 } },
+      select: { date: true, amount: true },
+    }).catch(() => [] as { date: Date; amount: number }[]),
+
+    prisma.userPreference.findUnique({
+      where: { userId_key: { userId, key: "fast:history" } },
+    }).catch(() => null),
+  ])
+
   const dayMap = new Map<string, DayData>()
 
   function getOrCreate(dateStr: string): DayData {
@@ -254,12 +298,23 @@ export async function computeCorrelations(
     if (l.hrv != null) d.hrv = l.hrv
     if (l.steps != null) d.steps = l.steps
     if (l.activityScore != null) d.activityScore = l.activityScore
+    if (l.deepSleep != null) d.deepSleepMin = l.deepSleep
+    if (l.remSleep != null) d.remSleepMin = l.remSleep
   }
 
   for (const c of checkIns) {
     const d = getOrCreate(c.date)
     d.energy = c.energy
     d.mood = c.mood
+  }
+
+  // Standalone mood logs (the mood button, Emergy's log_mood tool). The engine
+  // only ever read morning-checkin mood, so these moods correlated with
+  // nothing. Check-in mood wins when both exist on a day.
+  for (const m of moodRows) {
+    const dateStr = m.date.toISOString().slice(0, 10)
+    const d = getOrCreate(dateStr)
+    if (d.mood == null) d.mood = m.mood
   }
 
   const habitCountByDay: Record<string, number> = {}
@@ -286,6 +341,7 @@ export async function computeCorrelations(
     if (w.precipMm != null) d.precipMm = w.precipMm
     if (w.tempMaxC != null) d.tempMaxC = w.tempMaxC
     if (w.weatherCode != null) d.weatherCode = w.weatherCode
+    if (w.uvIndex != null) d.uvIndex = w.uvIndex
   }
 
   for (const s of (screenRows as { date: string; totalMin: number; firstUnlockMin: number | null }[])) {
@@ -345,6 +401,42 @@ export async function computeCorrelations(
     d.supplements ??= []
     if (!d.supplements.includes(name)) d.supplements.push(name)
   }
+
+  for (const a of stravaRows) {
+    const d = getOrCreate(a.day)
+    d.workoutMin = (d.workoutMin ?? 0) + Math.round(a.movingTimeSec / 60)
+  }
+
+  for (const f of focusRows) {
+    const dateStr = f.endedAt.toISOString().slice(0, 10)
+    const d = getOrCreate(dateStr)
+    d.focusMin = (d.focusMin ?? 0) + f.durationMin
+  }
+
+  for (const l of lastfmRows) {
+    if (l.listeningMin != null) getOrCreate(l.date).listeningMin = Number(l.listeningMin)
+  }
+
+  for (const t of txRows) {
+    const dateStr = t.date.toISOString().slice(0, 10)
+    const d = getOrCreate(dateStr)
+    d.spendEur = (d.spendEur ?? 0) + Math.abs(t.amount) / 100
+  }
+
+  // Completed fasts (fasting page history — a JSON blob in UserPreference).
+  // Attributed to the day the fast ended.
+  try {
+    const fastHistory = JSON.parse(fastPref?.value ?? "[]") as { endedAt?: string; durationH?: number }[]
+    if (Array.isArray(fastHistory)) {
+      for (const rec of fastHistory) {
+        if (!rec?.endedAt || typeof rec.durationH !== "number") continue
+        const dateStr = rec.endedAt.slice(0, 10)
+        if (dateStr < since60str) continue
+        const d = getOrCreate(dateStr)
+        if (d.fastH == null || rec.durationH > d.fastH) d.fastH = rec.durationH
+      }
+    }
+  } catch { /* malformed blob — skip fasting */ }
 
   const days = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date))
   const totalDays = days.length
@@ -1093,6 +1185,262 @@ export async function computeCorrelations(
     })
     if (ins_supp_hrv) insights.push(ins_supp_hrv)
   }
+
+  // 16. Workouts (Strava) — the classic wearable questions: does training help
+  // you sleep, and what does it cost (or pay) in next-day recovery?
+  const workoutSleep: number[] = [], restSleep: number[] = []
+  const workoutReadiness: number[] = [], restReadiness: number[] = []
+  const workoutHrv: number[] = [], restHrv: number[] = []
+  for (const d of days) {
+    const trained = (d.workoutMin ?? 0) >= 20
+    if (d.sleepScore != null) { if (trained) workoutSleep.push(d.sleepScore); else restSleep.push(d.sleepScore) }
+    const next = byDate[nextDateStr(d.date)]
+    if (!next) continue
+    if (next.readiness != null) { if (trained) workoutReadiness.push(next.readiness); else restReadiness.push(next.readiness) }
+    if (next.hrv != null) { if (trained) workoutHrv.push(next.hrv); else restHrv.push(next.hrv) }
+  }
+  const ins_workout_sleep = compareGroups({
+    id: "workout_sleep", category: "fitness", emoji: "🏃", title: "Workouts & Sleep Quality",
+    highGroupLabel: "workout days (20min+)", lowGroupLabel: "rest days",
+    highValues: workoutSleep, lowValues: restSleep, higherIsBetter: true,
+    findingTemplate: (h, l) =>
+      h > l
+        ? `On workout days, your sleep score averages ${h} vs ${l} on rest days`
+        : `Workouts don't lift your sleep score — ${h} vs ${l} on rest days`,
+  })
+  if (ins_workout_sleep) insights.push(ins_workout_sleep)
+  const ins_workout_readiness = compareGroups({
+    id: "workout_readiness", category: "fitness", emoji: "🔋", title: "Workouts & Next-Day Readiness",
+    highGroupLabel: "workout days (20min+)", lowGroupLabel: "rest days",
+    highValues: workoutReadiness, lowValues: restReadiness, higherIsBetter: true,
+    findingTemplate: (h, l) =>
+      h >= l
+        ? `After workouts, next-day readiness averages ${h} vs ${l} after rest days`
+        : `Workouts cost you next-day readiness — ${h} vs ${l} after rest days`,
+  })
+  if (ins_workout_readiness) insights.push(ins_workout_readiness)
+  const ins_workout_hrv = compareGroups({
+    id: "workout_hrv", category: "fitness", emoji: "💓", title: "Workouts & Next-Day HRV",
+    highGroupLabel: "workout days (20min+)", lowGroupLabel: "rest days",
+    highValues: workoutHrv, lowValues: restHrv, higherIsBetter: true,
+    findingTemplate: (h, l) =>
+      h >= l
+        ? `Mornings after workouts, HRV averages ${h}ms vs ${l}ms after rest days`
+        : `Mornings after workouts, HRV dips to ${h}ms vs ${l}ms after rest days`,
+  })
+  if (ins_workout_hrv) insights.push(ins_workout_hrv)
+
+  // 17. Music (Last.fm) — ported from the /api/stats mini-engine so it reaches
+  // the Insights page and the watch cron
+  const listenVals = days.filter(d => d.listeningMin != null).map(d => d.listeningMin!)
+  if (listenVals.length >= 10) {
+    const listenMedian = median(listenVals)
+    const musicMoodHigh: number[] = [], musicMoodLow: number[] = []
+    const musicSleepHigh: number[] = [], musicSleepLow: number[] = []
+    const musicFocusHigh: number[] = [], musicFocusLow: number[] = []
+    for (const d of days) {
+      if (d.listeningMin == null) continue
+      const isHigh = d.listeningMin >= listenMedian
+      if (d.mood != null) { if (isHigh) musicMoodHigh.push(d.mood); else musicMoodLow.push(d.mood) }
+      if (d.sleepScore != null) { if (isHigh) musicSleepHigh.push(d.sleepScore); else musicSleepLow.push(d.sleepScore) }
+      if (d.focusMin != null) { if (isHigh) musicFocusHigh.push(d.focusMin); else musicFocusLow.push(d.focusMin) }
+    }
+    const fmtListen = listenMedian >= 60 ? `${(listenMedian / 60).toFixed(1)}h` : `${Math.round(listenMedian)}min`
+    const ins_music_mood = compareGroups({
+      id: "music_mood", category: "music", emoji: "🎵", title: "Music & Mood",
+      highGroupLabel: `heavy-listening days (${fmtListen}+)`, lowGroupLabel: "quieter days",
+      highValues: musicMoodHigh, lowValues: musicMoodLow,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On heavy-listening days (${fmtListen}+), mood averages ${h} vs ${l} on quieter days`
+          : `More music doesn't lift your mood — ${h} vs ${l} on quieter days`,
+    })
+    if (ins_music_mood) insights.push(ins_music_mood)
+    const ins_music_sleep = compareGroups({
+      id: "music_sleep", category: "music", emoji: "🎧", title: "Music & Sleep Quality",
+      highGroupLabel: `heavy-listening days (${fmtListen}+)`, lowGroupLabel: "quieter days",
+      highValues: musicSleepHigh, lowValues: musicSleepLow,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On heavy-listening days, sleep score averages ${h} vs ${l} on quieter days`
+          : `Heavy-listening days link to a sleep score of ${h} vs ${l} on quieter days`,
+    })
+    if (ins_music_sleep) insights.push(ins_music_sleep)
+    const ins_music_focus = compareGroups({
+      id: "music_focus", category: "music", emoji: "🎯", title: "Music & Focus Time",
+      highGroupLabel: `heavy-listening days (${fmtListen}+)`, lowGroupLabel: "quieter days",
+      highValues: musicFocusHigh, lowValues: musicFocusLow,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On heavy-listening days you log ${Math.round(h)}min of focus vs ${Math.round(l)}min on quieter days`
+          : `Music days aren't your most focused — ${Math.round(h)}min vs ${Math.round(l)}min of deep work`,
+    })
+    if (ins_music_focus) insights.push(ins_music_focus)
+  }
+
+  // 18. Spending — also ported from /api/stats. Only days with transactions
+  // count (a day with no synced card activity isn't a €0 day, just unknown).
+  const spendVals = days.filter(d => d.spendEur != null).map(d => d.spendEur!)
+  if (spendVals.length >= 10) {
+    const spendMedian = median(spendVals)
+    const spendMoodHigh: number[] = [], spendMoodLow: number[] = []
+    const spendMoodNextHigh: number[] = [], spendMoodNextLow: number[] = []
+    for (const d of days) {
+      if (d.spendEur == null) continue
+      const isHigh = d.spendEur >= spendMedian
+      if (d.mood != null) { if (isHigh) spendMoodHigh.push(d.mood); else spendMoodLow.push(d.mood) }
+      const next = byDate[nextDateStr(d.date)]
+      if (next?.mood != null) { if (isHigh) spendMoodNextHigh.push(next.mood); else spendMoodNextLow.push(next.mood) }
+    }
+    const ins_spend_mood = compareGroups({
+      id: "spend_mood", category: "money", emoji: "💸", title: "Spending & Mood",
+      highGroupLabel: `bigger-spend days (€${Math.round(spendMedian)}+)`, lowGroupLabel: "lighter-spend days",
+      highValues: spendMoodHigh, lowValues: spendMoodLow,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On bigger-spend days (€${Math.round(spendMedian)}+), mood averages ${h} vs ${l} on lighter days`
+          : `Spending more doesn't come with better mood — ${h} vs ${l} on lighter days`,
+    })
+    if (ins_spend_mood) insights.push(ins_spend_mood)
+    const ins_spend_mood_next = compareGroups({
+      id: "spend_mood_next", category: "money", emoji: "💳", title: "Spending & Next-Day Mood",
+      highGroupLabel: `bigger-spend days (€${Math.round(spendMedian)}+)`, lowGroupLabel: "lighter-spend days",
+      highValues: spendMoodNextHigh, lowValues: spendMoodNextLow,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `The morning after bigger-spend days, mood averages ${h} vs ${l} after lighter days`
+          : `Bigger-spend days don't dent the next morning's mood — ${h} vs ${l}`,
+    })
+    if (ins_spend_mood_next) insights.push(ins_spend_mood_next)
+  }
+
+  // 19. UV — the one weather column nothing consumed
+  const uvDays = days.filter(d => d.uvIndex != null)
+  if (uvDays.length >= 10) {
+    const uvHighReadiness: number[] = [], uvLowReadiness: number[] = []
+    for (const d of uvDays) {
+      if (d.readiness == null) continue
+      if (d.uvIndex! >= 5) uvHighReadiness.push(d.readiness)
+      else uvLowReadiness.push(d.readiness)
+    }
+    const ins_uv_readiness = compareGroups({
+      id: "uv_readiness", category: "tags", emoji: "☀️", title: "Sunny Days & Readiness",
+      highGroupLabel: "high-UV days (index 5+)", lowGroupLabel: "low-UV days",
+      highValues: uvHighReadiness, lowValues: uvLowReadiness,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On sunny high-UV days, readiness averages ${h} vs ${l} on grey days`
+          : `Sunny days don't show up in your readiness — ${h} vs ${l}`,
+    })
+    if (ins_uv_readiness) insights.push(ins_uv_readiness)
+  }
+
+  // 20. Focus sessions — do focus days feel better, and does sleep buy focus?
+  const focusDayCount = days.filter(d => (d.focusMin ?? 0) > 0).length
+  if (focusDayCount >= 5) {
+    const focusMood: number[] = [], noFocusMood: number[] = []
+    const goodSleepFocus: number[] = [], shortSleepFocus: number[] = []
+    for (const d of days) {
+      const focused = (d.focusMin ?? 0) > 0
+      if (d.mood != null) { if (focused) focusMood.push(d.mood); else noFocusMood.push(d.mood) }
+      // sleepDuration on day d is last night's sleep; no-session days are real
+      // 0-minute focus days for this question
+      if (d.sleepDuration != null) {
+        if (d.sleepDuration >= 7) goodSleepFocus.push(d.focusMin ?? 0)
+        else shortSleepFocus.push(d.focusMin ?? 0)
+      }
+    }
+    const ins_focus_mood = compareGroups({
+      id: "focus_mood", category: "focus", emoji: "🎯", title: "Focus Sessions & Mood",
+      highGroupLabel: "focus-session days", lowGroupLabel: "days without deep work",
+      highValues: focusMood, lowValues: noFocusMood,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On days with a focus session, mood averages ${h} vs ${l} on days without`
+          : `Focus-session days don't show a mood lift — ${h} vs ${l}`,
+    })
+    if (ins_focus_mood) insights.push(ins_focus_mood)
+    const ins_sleep_focus = compareGroups({
+      id: "sleep_focus", category: "focus", emoji: "🧠", title: "Sleep & Deep Work",
+      highGroupLabel: "after 7h+ sleep", lowGroupLabel: "after shorter nights",
+      highValues: goodSleepFocus, lowValues: shortSleepFocus,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `After 7h+ nights you log ${Math.round(h)}min of focus vs ${Math.round(l)}min after short sleep`
+          : `Short nights don't reduce your focus time — ${Math.round(h)}min vs ${Math.round(l)}min`,
+    })
+    if (ins_sleep_focus) insights.push(ins_sleep_focus)
+  }
+
+  // 21. Fasting — completed fasts vs ordinary days, next morning's readings
+  const fastDays = days.filter(d => d.fastH != null)
+  if (fastDays.length >= 5) {
+    const fastedSleep: number[] = [], fedSleep: number[] = []
+    const fastedEnergy: number[] = [], fedEnergy: number[] = []
+    for (const d of days) {
+      const fasted = (d.fastH ?? 0) >= 14
+      const next = byDate[nextDateStr(d.date)]
+      if (!next) continue
+      if (next.sleepScore != null) { if (fasted) fastedSleep.push(next.sleepScore); else fedSleep.push(next.sleepScore) }
+      if (next.energy != null) { if (fasted) fastedEnergy.push(next.energy); else fedEnergy.push(next.energy) }
+    }
+    const ins_fast_sleep = compareGroups({
+      id: "fasting_sleep", category: "fasting", emoji: "⏳", title: "Fasting & Sleep Quality",
+      highGroupLabel: "14h+ fast days", lowGroupLabel: "non-fasting days",
+      highValues: fastedSleep, lowValues: fedSleep,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `Nights after a 14h+ fast, sleep score averages ${h} vs ${l} on ordinary days`
+          : `Fasting days don't improve your sleep — ${h} vs ${l} on ordinary days`,
+    })
+    if (ins_fast_sleep) insights.push(ins_fast_sleep)
+    const ins_fast_energy = compareGroups({
+      id: "fasting_energy", category: "fasting", emoji: "⚡", title: "Fasting & Next-Day Energy",
+      highGroupLabel: "14h+ fast days", lowGroupLabel: "non-fasting days",
+      highValues: fastedEnergy, lowValues: fedEnergy,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `Mornings after a 14h+ fast, energy averages ${h} vs ${l} after ordinary days`
+          : `Fasting doesn't boost your next-morning energy — ${h} vs ${l}`,
+    })
+    if (ins_fast_energy) insights.push(ins_fast_energy)
+  }
+
+  // 22. Sleep architecture — deep/REM minutes were synced for months and never
+  // fed into a single insight
+  const caffeineDeepHigh: number[] = [], caffeineDeepLow: number[] = []
+  const alcoholRemDrink: number[] = [], alcoholRemSober: number[] = []
+  for (const d of days) {
+    if (d.caffeineMg != null && d.deepSleepMin != null) {
+      if (d.caffeineMg >= 200) caffeineDeepHigh.push(d.deepSleepMin)
+      else caffeineDeepLow.push(d.deepSleepMin)
+    }
+    const next = byDate[nextDateStr(d.date)]
+    if (next?.remSleepMin != null && (d.alcoholMl != null || d.caffeineMg != null)) {
+      if ((d.alcoholMl ?? 0) > 50) alcoholRemDrink.push(next.remSleepMin)
+      else alcoholRemSober.push(next.remSleepMin)
+    }
+  }
+  const ins_caffeine_deep = compareGroups({
+    id: "caffeine_deep_sleep", category: "recovery", emoji: "🌊", title: "Caffeine & Deep Sleep",
+    highGroupLabel: "200mg+ caffeine days", lowGroupLabel: "under 200mg days",
+    highValues: caffeineDeepHigh, lowValues: caffeineDeepLow,
+    findingTemplate: (h, l) =>
+      h < l
+        ? `On 200mg+ caffeine days you get ${Math.round(h)}min of deep sleep vs ${Math.round(l)}min on lighter days`
+        : `Caffeine isn't eating your deep sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
+  })
+  if (ins_caffeine_deep) insights.push(ins_caffeine_deep)
+  const ins_alcohol_rem = compareGroups({
+    id: "alcohol_rem_sleep", category: "recovery", emoji: "🌀", title: "Alcohol & REM Sleep",
+    highGroupLabel: "drinking days (50ml+)", lowGroupLabel: "non-drinking days",
+    highValues: alcoholRemDrink, lowValues: alcoholRemSober, higherIsBetter: false,
+    findingTemplate: (h, l) =>
+      h < l
+        ? `Nights after drinking you get ${Math.round(h)}min of REM vs ${Math.round(l)}min sober`
+        : `Drinking isn't cutting your REM sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
+  })
+  if (ins_alcohol_rem) insights.push(ins_alcohol_rem)
 
   insights.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
   return { insights, totalDays }

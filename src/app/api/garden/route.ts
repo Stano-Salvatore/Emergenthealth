@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getWeatherCoords } from "@/lib/weather-location"
-import { computeXp, getLevel } from "@/lib/xp"
+import { computeXp, getGithubStats, getLevel } from "@/lib/xp"
 import { getUserTimezone, localDateStr } from "@/lib/local-date"
 import { computeStreak, computeMissedDays, getVacationWindow, makeIsFrozen } from "@/lib/streak"
 
@@ -46,7 +46,7 @@ export async function GET() {
   // xp.habits by 10 to recover a completion count silently moved every
   // threshold whenever an XP rate changed, and only ever saw the last year.
   const [
-    habits, prefs, checkinRows, xp, timezone, vacation,
+    habits, prefs, checkinRows, xp, github, timezone, vacation,
     completionCount, journalCount, focusCount, intakeDayRows,
   ] = await Promise.all([
     prisma.habit.findMany({
@@ -67,6 +67,9 @@ export async function GET() {
       SELECT COUNT(*)::bigint AS n FROM "MorningCheckIn" WHERE "userId" = ${userId}
     `.catch(() => [{ n: BigInt(0) }]),
     computeXp(userId),
+    // Cached (6h) GitHub commit XP — the streaks page counts it, so the garden
+    // must too or the two pages show different levels for the same user.
+    getGithubStats(userId),
     getUserTimezone(userId),
     getVacationWindow(userId),
     prisma.habitCompletion.count({ where: { userId } }).catch(() => 0),
@@ -110,7 +113,8 @@ export async function GET() {
   }
 
   // Level + unlock evaluation
-  const level = getLevel(xp.total)
+  const totalXp = xp.total + github.xp
+  const level = getLevel(totalXp)
   const ctx: UnlockCtx = {
     level: level.level,
     completions: completionCount,
@@ -164,7 +168,7 @@ export async function GET() {
       name: level.levelName,
       emoji: level.levelEmoji,
       progress: level.progress,
-      xp: xp.total,
+      xp: totalXp,
       xpToNext: level.xpToNext,
     },
     unlocked: [...unlocked],

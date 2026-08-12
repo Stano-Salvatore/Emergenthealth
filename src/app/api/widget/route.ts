@@ -47,12 +47,13 @@ export async function GET(req: NextRequest) {
       where: { userId, isArchived: false },
     }).catch(() => 0),
 
-    prisma.$queryRaw<{ tempMax: number; weatherCode: number; precipSum: number }[]>`
-      SELECT "tempMax", "weatherCode", "precipSum"
-      FROM "WeatherLog"
-      WHERE "userId" = ${userId} AND date = ${todayStr}
-      LIMIT 1
-    `.catch(() => [] as { tempMax: number; weatherCode: number; precipSum: number }[]),
+    // Typed client, not raw SQL: this query used to select "tempMax"/"precipSum",
+    // columns that don't exist (they're tempMaxC/precipMm), and the .catch()
+    // swallowed the error — so the widget's weather was permanently null.
+    prisma.weatherLog.findFirst({
+      where: { userId, date: todayStr },
+      select: { tempMaxC: true, weatherCode: true, precipMm: true },
+    }).catch(() => null),
 
     prisma.$queryRaw<{ energy: number; mood: number; intention: string | null }[]>`
       SELECT energy, mood, intention
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
     `.catch(() => [] as { energy: number; mood: number; intention: string | null }[]),
   ])
 
-  const weatherRow = (weather as { tempMax: number; weatherCode: number; precipSum: number }[])[0] ?? null
+  const weatherRow = weather
   const checkinRow = (checkin as { energy: number; mood: number; intention: string | null }[])[0] ?? null
 
   const STEP_GOAL = 8000
@@ -95,11 +96,11 @@ export async function GET(req: NextRequest) {
     habitsCompleted,
     habitsTotal,
     habitsPercent: habitsTotal > 0 ? Math.round((habitsCompleted / habitsTotal) * 100) : null,
-    weather: weatherRow ? {
-      temp: Math.round(weatherRow.tempMax),
+    weather: weatherRow && weatherRow.tempMaxC != null && weatherRow.weatherCode != null ? {
+      temp: Math.round(weatherRow.tempMaxC),
       code: weatherRow.weatherCode,
       emoji: weatherEmoji(weatherRow.weatherCode),
-      rainy: weatherRow.precipSum > 1,
+      rainy: (weatherRow.precipMm ?? 0) > 1,
     } : null,
   })
 }

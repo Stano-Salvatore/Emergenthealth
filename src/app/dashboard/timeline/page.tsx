@@ -24,6 +24,7 @@ interface IntakeItem { type: string; amountMl: number; loggedAt: string; note: s
 interface FocusItem { label: string | null; durationMin: number; startedAt: string; endedAt: string; type: string }
 interface TagItem { tagName: string | null; text: string | null; timestamp: string }
 interface CustomEvent { id: string; emoji: string; label: string; note: string | null; imageData: string | null; occurredAt: string }
+interface WorkoutItem { type: string; name: string | null; distanceKm: number | null; durationMin: number; avgHR: number | null; startedAt: string }
 interface CheckInData { energy: number; mood: number; intention: string | null; waterGoalMl: number }
 interface DayData {
   date: string
@@ -36,6 +37,7 @@ interface DayData {
   checkin: CheckInData | null
   tags: TagItem[]
   customEvents: CustomEvent[]
+  workouts?: WorkoutItem[]
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -45,6 +47,11 @@ const MOOD_COLOR: Record<number, string> = { 1:"text-red-400", 2:"text-orange-40
 
 const INTAKE_EMOJI: Record<string, string> = {
   water:"💧", coffee:"☕", tea:"🍵", alcohol:"🍺", other:"🥤",
+}
+
+const WORKOUT_EMOJI: Record<string, string> = {
+  Run:"🏃", Ride:"🚴", Walk:"🚶", Hike:"🥾", Swim:"🏊", WeightTraining:"🏋️",
+  Workout:"💪", Yoga:"🧘", VirtualRide:"🚴", NordicSki:"⛷️", AlpineSki:"🎿",
 }
 
 function fmtSec(s: number | null): string {
@@ -239,6 +246,22 @@ function Timeline({ data, onDelete }: { data: DayData; onDelete?: (id: string) =
       color: "#10b981",
       emoji: "🏷️",
       label: name,
+    })
+  }
+
+  // Strava workouts
+  for (const w of data.workouts ?? []) {
+    const bits = [
+      w.distanceKm != null && w.distanceKm > 0 ? `${w.distanceKm}km` : null,
+      w.avgHR != null ? `♥ ${w.avgHR}` : null,
+    ].filter(Boolean)
+    events.push({
+      hour: isoToHour(w.startedAt),
+      color: "#fc4c02",
+      emoji: WORKOUT_EMOJI[w.type] ?? "🏃",
+      label: w.name ?? w.type,
+      pill: fmtMin(w.durationMin),
+      sub: bits.length ? bits.join(" · ") : undefined,
     })
   }
 

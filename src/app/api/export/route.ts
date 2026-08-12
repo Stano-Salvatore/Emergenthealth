@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
       checkIns, savedPlaces, notes, intake, books, screenTime, timeline, focus,
       chatMessages, ouraTags, morningCheckIns, weatherLogs, caffeineLogs,
       labResults, bodyMeasurements, habitRoutines, locationPoints, stravaActivities,
-      feedbacks,
+      feedbacks, bodyMeasurementLogs,
     ] = await Promise.all([
       prisma.user.findUnique({
         where: { id: userId },
@@ -84,6 +84,12 @@ export async function GET(req: NextRequest) {
       prisma.locationPoint.findMany({ where: { userId }, orderBy: { trackedAt: "asc" }, take: 50000 }),
       prisma.stravaActivity.findMany({ where: { userId }, orderBy: { startDate: "asc" } }),
       prisma.userFeedback.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
+      // The Body page's tape-measure entries live in a raw table (created with
+      // ad-hoc DDL, no Prisma model) — without this the backup silently missed
+      // everything that form ever saved. Absent table → empty list.
+      prisma.$queryRaw<Record<string, unknown>[]>`
+        SELECT * FROM "BodyMeasurementLog" WHERE "userId" = ${userId} ORDER BY "loggedAt" ASC
+      `.catch(() => [] as Record<string, unknown>[]),
     ])
 
     const payload = {
@@ -95,7 +101,7 @@ export async function GET(req: NextRequest) {
         health, transactions, habits, completions, reminders, mood, tags,
         checkIns, savedPlaces, notes, intake, books, screenTime, timeline, focus,
         chatMessages, ouraTags, morningCheckIns, weatherLogs, caffeineLogs,
-        labResults, bodyMeasurements, habitRoutines, locationPoints, stravaActivities,
+        labResults, bodyMeasurements, bodyMeasurementLogs, habitRoutines, locationPoints, stravaActivities,
         feedbacks,
       },
     }

@@ -5,6 +5,10 @@
       "schedule": "0 10 * * *"
     },
     {
+      "path": "/api/cron/strava",
+      "schedule": "30 9 * * *"
+    },
+    {
       "path": "/api/cron/ynab",
       "schedule": "0 8 * * *"
     },

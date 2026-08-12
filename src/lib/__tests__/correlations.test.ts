@@ -3,12 +3,16 @@ import { describe, it, expect, vi } from "vitest"
 // Synthetic 40-day history with planted effects, served through a mocked
 // Prisma client — the engine should rediscover every planted correlation.
 //
-// Even-index days: late dinner (21:30), high protein/calories/sugar, 2.5L water.
+// Even-index days: late dinner (21:30), high protein/calories/sugar, 2.5L
+// water, a 1h Strava workout.
 // Odd-index days:  early dinner (18:00), light eating, 1L water, magnesium.
 // Next-day recordings: energy 5 after even days / 2 after odd days;
-// sleep score 65 after late-meal days / 90 after early dinners (= magnesium days).
+// sleep score 65 after late-meal days / 90 after early dinners (= magnesium
+// days); readiness 85 after workout days / 65 after rest days.
+// Mood comes only from standalone MoodLog rows (check-ins carry none) to
+// prove the engine reads the mood table it used to ignore.
 
-const { DAYS, healthLogs, checkIns, foodLogs, waterLogs, ouraTags } = vi.hoisted(() => {
+const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows } = vi.hoisted(() => {
   const DAYS = 40
   const dates: string[] = []
   const now = new Date()
@@ -24,14 +28,24 @@ const { DAYS, healthLogs, checkIns, foodLogs, waterLogs, ouraTags } = vi.hoisted
       date: new Date(ds + "T00:00:00Z"),
       // day i records the night after day i-1's dinner
       sleepScore: i === 0 ? null : isEven(i - 1) ? 65 : 90,
-      sleepDuration: null, readinessScore: null, restingHR: null,
+      sleepDuration: null,
+      readinessScore: i === 0 ? null : isEven(i - 1) ? 85 : 65,
+      restingHR: null,
       stressHigh: null, hrv: i === 0 ? null : isEven(i - 1) ? 40 : 62,
-      steps: null, activityScore: null,
+      steps: null, activityScore: null, deepSleep: null, remSleep: null,
     })),
     checkIns: dates.map((ds, i) => ({
       date: ds,
       energy: i === 0 ? 3 : isEven(i - 1) ? 5 : 2,
-      mood: 3,
+      mood: null,
+    })),
+    // Standalone mood logs, same rhythm as energy
+    moodLogs: dates.map((ds, i) => ({
+      date: new Date(ds + "T00:00:00Z"),
+      mood: i === 0 ? 3 : isEven(i - 1) ? 5 : 2,
+    })),
+    stravaRows: dates.filter((_, i) => isEven(i)).map(ds => ({
+      day: ds, movingTimeSec: 3600,
     })),
     foodLogs: dates.map((ds, i) => ({
       loggedAt: new Date(ds + (isEven(i) ? "T21:30:00Z" : "T18:00:00Z")),
@@ -59,6 +73,12 @@ vi.mock("@/lib/prisma", () => ({
     intakeLog: { findMany: vi.fn().mockResolvedValue(waterLogs) },
     foodLog: { findMany: vi.fn().mockResolvedValue(foodLogs) },
     ouraTag: { findMany: vi.fn().mockResolvedValue(ouraTags) },
+    moodLog: { findMany: vi.fn().mockResolvedValue(moodLogs) },
+    stravaActivity: { findMany: vi.fn().mockResolvedValue(stravaRows) },
+    focusSession: { findMany: vi.fn().mockResolvedValue([]) },
+    transaction: { findMany: vi.fn().mockResolvedValue([]) },
+    // Serves both the timezone key and fast:history — "UTC" fails the
+    // history's JSON.parse, correctly exercising the malformed-blob guard.
     userPreference: { findUnique: vi.fn().mockResolvedValue({ value: "UTC" }) },
     // Tagged-template queries: route by the table named in the SQL.
     $queryRaw: vi.fn((strings: TemplateStringsArray) => {
@@ -105,6 +125,18 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     const mgHrv = byId["supplement_magnesium_hrv"]
     expect(mgHrv).toBeDefined()
     expect(mgHrv.highGroupAvg).toBeGreaterThan(mgHrv.lowGroupAvg) // 62 vs 40
+
+    // Workout days → better next-day readiness (planted 85 vs 65)
+    const workout = byId["workout_readiness"]
+    expect(workout).toBeDefined()
+    expect(workout.category).toBe("fitness")
+    expect(workout.highGroupAvg).toBeGreaterThan(workout.lowGroupAvg)
+
+    // Mood arrives only via standalone MoodLog rows here — if the engine still
+    // ignored that table, no mood-outcome insight could exist at all
+    const sugarMood = byId["food_sugar_mood"]
+    expect(sugarMood).toBeDefined()
+    expect(sugarMood.highGroupAvg).toBeGreaterThan(sugarMood.lowGroupAvg) // 5 vs 2
   })
 
   it("stays silent on food insights when there are too few food days", async () => {

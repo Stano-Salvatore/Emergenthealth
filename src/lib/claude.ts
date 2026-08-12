@@ -430,7 +430,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       }).catch(() => [] as { caffeineMg: number; loggedAt: Date }[]),
     ])
 
-  const [recentMoods, todayWeather, recentNotes] = await Promise.all([
+  const [recentMoods, todayWeather, recentNotes, recentLabs, latestBody, recentWorkouts, fastActivePref, fastHistoryPref] = await Promise.all([
     prisma.moodLog.findMany({ where: { userId, date: { gte: since14 } }, orderBy: { date: "desc" } }).catch(() => [] as { date: Date; mood: number }[]),
     prisma.weatherLog.findFirst({
       where: { userId, date: todayStr },
@@ -441,6 +441,19 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       orderBy: { date: "desc" }, take: 5,
       select: { date: true, content: true },
     }).catch(() => [] as { date: Date; content: string }[]),
+    // High-signal, low-volume context Emergy never saw before: blood work,
+    // body composition, workouts and fasting state.
+    prisma.labResult.findMany({
+      where: { userId }, orderBy: { date: "desc" }, take: 60,
+      select: { marker: true, value: true, unit: true, referenceMin: true, referenceMax: true, date: true },
+    }).catch(() => [] as { marker: string; value: number; unit: string; referenceMin: number | null; referenceMax: number | null; date: Date }[]),
+    prisma.bodyMeasurement.findFirst({ where: { userId }, orderBy: { date: "desc" } }).catch(() => null),
+    prisma.stravaActivity.findMany({
+      where: { userId }, orderBy: { startDate: "desc" }, take: 7,
+      select: { day: true, type: true, name: true, distanceM: true, movingTimeSec: true, avgHR: true },
+    }).catch(() => [] as { day: string; type: string; name: string | null; distanceM: number | null; movingTimeSec: number; avgHR: number | null }[]),
+    prisma.userPreference.findUnique({ where: { userId_key: { userId, key: "fast:active" } } }).catch(() => null),
+    prisma.userPreference.findUnique({ where: { userId_key: { userId, key: "fast:history" } } }).catch(() => null),
   ])
 
   // Long-term memory — facts Emergy has saved about the user across conversations
@@ -600,6 +613,59 @@ async function buildSystemPrompt(userId: string): Promise<string> {
         .map((s) => `- ${s.date}: ${fmtHm(s.totalMin)}${s.firstUnlockMin != null ? ` (first unlock ${fmtWake(s.firstUnlockMin)})` : ""}`)
         .join("\n")}`
 
+  // Blood work — latest value per marker, flagged against reference ranges
+  const latestLabByMarker = new Map<string, (typeof recentLabs)[number]>()
+  for (const l of recentLabs) if (!latestLabByMarker.has(l.marker)) latestLabByMarker.set(l.marker, l)
+  const labsStr = latestLabByMarker.size === 0
+    ? null
+    : [...latestLabByMarker.values()].slice(0, 20).map(l => {
+        const range = l.referenceMin != null && l.referenceMax != null ? ` (ref ${l.referenceMin}–${l.referenceMax})` : ""
+        const flag = l.referenceMin != null && l.value < l.referenceMin ? " ⚠️ LOW"
+          : l.referenceMax != null && l.value > l.referenceMax ? " ⚠️ HIGH" : ""
+        return `- ${l.marker}: ${l.value} ${l.unit}${range}${flag} — measured ${l.date.toISOString().slice(0, 10)}`
+      }).join("\n")
+
+  // Latest body composition measurement
+  const bodyBits = latestBody ? [
+    latestBody.weightKg != null ? `${latestBody.weightKg}kg` : null,
+    latestBody.bodyFatPct != null ? `${latestBody.bodyFatPct}% body fat` : null,
+    latestBody.musclePct != null ? `${latestBody.musclePct}% muscle` : null,
+    latestBody.bmi != null ? `BMI ${latestBody.bmi}` : null,
+    latestBody.waistCm != null ? `waist ${latestBody.waistCm}cm` : null,
+  ].filter(Boolean) : []
+  const bodyStr = latestBody && bodyBits.length > 0
+    ? `- ${latestBody.date.toISOString().slice(0, 10)}: ${bodyBits.join(", ")}`
+    : null
+
+  // Recent Strava workouts
+  const workoutsStr = recentWorkouts.length === 0
+    ? null
+    : recentWorkouts.map(w => {
+        const dist = w.distanceM != null && w.distanceM > 0 ? `, ${(w.distanceM / 1000).toFixed(1)}km` : ""
+        const hr = w.avgHR != null ? `, avg HR ${w.avgHR}` : ""
+        return `- ${w.day}: ${w.name ?? w.type} (${Math.round(w.movingTimeSec / 60)}min${dist}${hr})`
+      }).join("\n")
+
+  // Fasting — an active fast is live context ("don't suggest a snack");
+  // otherwise mention the most recent one
+  let fastingStr: string | null = null
+  try {
+    const active = fastActivePref ? JSON.parse(fastActivePref.value) as { startedAt?: string; targetH?: number } : null
+    if (active?.startedAt) {
+      const h = (Date.now() - new Date(active.startedAt).getTime()) / 3600000
+      fastingStr = `- Fasting RIGHT NOW: ${h.toFixed(1)}h into a ${active.targetH ?? 16}h fast (don't suggest food/snacks until it ends)`
+    }
+  } catch { /* malformed — skip */ }
+  if (!fastingStr) {
+    try {
+      const hist = fastHistoryPref ? JSON.parse(fastHistoryPref.value) as { endedAt?: string; durationH?: number; completed?: boolean }[] : []
+      const last = Array.isArray(hist) ? hist[0] : null
+      if (last?.endedAt && typeof last.durationH === "number") {
+        fastingStr = `- Last fast: ${last.durationH.toFixed(1)}h, ended ${last.endedAt.slice(0, 10)}${last.completed ? " (target reached)" : ""}`
+      }
+    } catch { /* malformed — skip */ }
+  }
+
   // Calendar — recent + upcoming (phone + Google), with location, so Emergy can
   // reason about activities and places (e.g. gardening days, where you spend time).
   const nowMs = today.getTime()
@@ -635,6 +701,7 @@ ${foodLine}
 ${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today, ≈${activeCaffeineMg}mg still active in their system (5h half-life — factor this into sleep/energy advice, e.g. discourage more coffee if a lot is still circulating late in the day)` : ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
 ${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}
+${fastingStr ?? ""}
 
 ## Today's weather
 ${weatherStr ?? "No weather data available."}
@@ -648,6 +715,9 @@ ${weatherStr ?? "No weather data available."}
 ## Health (last 7 days)
 ${recentHealth.slice(0, 7).length === 0 ? "No health data yet." : recentHealth.slice(0, 7).map((h) => `- ${h.date.toISOString().split("T")[0]}: sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"}${(h as any).sleepScore != null ? ` (score ${(h as any).sleepScore})` : ""}${h.readinessScore != null ? ` | readiness ${h.readinessScore}` : ""}${h.hrv != null ? ` | HRV ${Math.round(h.hrv)}ms` : ""} | ${h.steps ?? "?"}steps | HR ${h.restingHR ?? "?"}bpm${h.activityScore != null ? ` | activity ${h.activityScore}` : ""}${h.weight != null ? ` | ${h.weight}kg` : ""}`).join("\n")}
 
+${workoutsStr ? `## Workouts (Strava, most recent)\n${workoutsStr}\n` : ""}
+${bodyStr ? `## Body composition (latest measurement)\n${bodyStr}\n` : ""}
+${labsStr ? `## Blood work (latest value per marker — mention ⚠️ flags when health topics come up)\n${labsStr}\n` : ""}
 ## Oura tags (last 7 days — coffee, supplements, meds the user logs in the Oura app)
 ${ouraTagsStr ?? "None logged this week. (For longer history, call get_health_range — it includes tags.)"}
 

@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { place, emoji, note } = await req.json()
+  const { place, emoji, note, savedPlaceId, isAuto } = await req.json()
   if (!place?.trim()) return NextResponse.json({ error: "place required" }, { status: 400 })
 
   const checkIn = await prisma.checkIn.create({
@@ -35,6 +35,8 @@ export async function POST(req: NextRequest) {
       place: place.trim(),
       emoji: emoji ?? "📍",
       note: note ?? null,
+      savedPlaceId: typeof savedPlaceId === "string" ? savedPlaceId : null,
+      isAuto: isAuto === true,
     },
   })
 

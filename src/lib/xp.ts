@@ -40,6 +40,100 @@ export function getLevel(xp: number): LevelInfo {
   }
 }
 
+// ─── GitHub commit XP ─────────────────────────────────────────────────────────
+// This used to live only inside /api/streaks (its own inline XP formula), so
+// the garden and streaks pages disagreed on the user's level: streaks counted
+// GitHub but not garden rituals, computeXp counted garden but not GitHub.
+// Both surfaces now use computeXp() + getGithubStats(). The GitHub events API
+// is external and rate-limited, so results are cached for 6 hours; on fetch
+// failure the stale cache is served rather than dropping the level.
+
+export interface GithubStats {
+  commitDays: number
+  streak: number
+  xp: number
+}
+
+// Consecutive-day streak ending today or yesterday, over YYYY-MM-DD strings.
+export function currentDayStreak(sortedDates: string[]): number {
+  if (!sortedDates.length) return 0
+  const today = new Date().toISOString().slice(0, 10)
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+  const set = new Set(sortedDates)
+  const start = set.has(today) ? today : set.has(yesterday) ? yesterday : null
+  if (!start) return 0
+  let streak = 0
+  let cur = new Date(start)
+  while (set.has(cur.toISOString().slice(0, 10))) {
+    streak++
+    cur = new Date(cur.getTime() - 86400000)
+  }
+  return streak
+}
+
+const GITHUB_STATS_KEY = "github:stats"
+const GITHUB_STATS_TTL_MS = 6 * 60 * 60 * 1000
+
+export async function getGithubStats(userId: string): Promise<GithubStats> {
+  let stale: GithubStats | null = null
+
+  const cached = await prisma.userPreference.findUnique({
+    where: { userId_key: { userId, key: GITHUB_STATS_KEY } },
+  }).catch(() => null)
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached.value) as GithubStats & { at: number }
+      stale = { commitDays: parsed.commitDays ?? 0, streak: parsed.streak ?? 0, xp: parsed.xp ?? 0 }
+      if (Date.now() - (parsed.at ?? 0) < GITHUB_STATS_TTL_MS) return stale
+    } catch { /* refetch */ }
+  }
+
+  const profileRows = await prisma.$queryRaw<{ username: string; accessToken: string | null }[]>`
+    SELECT "username", "accessToken" FROM "GitHubProfile" WHERE "userId" = ${userId} LIMIT 1
+  `.catch(() => [] as { username: string; accessToken: string | null }[])
+  const profile = profileRows[0]
+  if (!profile) return { commitDays: 0, streak: 0, xp: 0 }
+
+  const headers: Record<string, string> = {
+    "User-Agent": "emergenthealth/1.0",
+    Accept: "application/vnd.github+json",
+  }
+  if (profile.accessToken) headers["Authorization"] = `Bearer ${profile.accessToken}`
+  const res = await fetch(
+    `https://api.github.com/users/${profile.username}/events?per_page=100`,
+    { headers },
+  ).catch(() => null)
+  if (!res?.ok) return stale ?? { commitDays: 0, streak: 0, xp: 0 }
+
+  interface PushEvent {
+    type: string
+    created_at: string
+    payload: { commits?: { sha: string }[]; size?: number }
+  }
+  const events: PushEvent[] = await res.json().catch(() => [])
+  const commitsByDay: Record<string, number> = {}
+  for (const event of events) {
+    if (event.type !== "PushEvent") continue
+    const day = event.created_at.slice(0, 10)
+    const count = event.payload.commits?.length ?? event.payload.size ?? 0
+    commitsByDay[day] = (commitsByDay[day] ?? 0) + count
+  }
+  const commitDays = Object.keys(commitsByDay).filter(d => (commitsByDay[d] ?? 0) > 0)
+  const statsValue: GithubStats = {
+    commitDays: commitDays.length,
+    streak: currentDayStreak(commitDays.sort()),
+    xp: commitDays.length * 8,
+  }
+
+  await prisma.userPreference.upsert({
+    where: { userId_key: { userId, key: GITHUB_STATS_KEY } },
+    create: { userId, key: GITHUB_STATS_KEY, value: JSON.stringify({ ...statsValue, at: Date.now() }) },
+    update: { value: JSON.stringify({ ...statsValue, at: Date.now() }) },
+  }).catch(() => null)
+
+  return statsValue
+}
+
 export interface XpBreakdown {
   habits: number
   checkins: number
@@ -52,6 +146,7 @@ export interface XpBreakdown {
   reading: number
   supplements: number
   garden: number
+  workouts: number
   total: number
 }
 
@@ -68,6 +163,7 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
     intakeLogs,
     focusCount,
     bookCount,
+    workoutCount,
     ouraTagDays,
   ] = await Promise.all([
     prisma.habitCompletion.count({ where: { userId, date: { gte: since } } }).catch(() => 0),
@@ -78,6 +174,7 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
     prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: since } }, select: { loggedAt: true } }).catch(() => [] as { loggedAt: Date }[]),
     prisma.focusSession.count({ where: { userId, type: "focus" } }).catch(() => 0),
     prisma.book.count({ where: { userId, status: "done" } }).catch(() => 0),
+    prisma.stravaActivity.count({ where: { userId, startDate: { gte: since } } }).catch(() => 0),
     prisma.$queryRaw<{ day: string }[]>`
       SELECT DISTINCT "day" FROM "OuraTag"
       WHERE "userId" = ${userId}
@@ -127,9 +224,10 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
   const reading    = bookCount   * 20
   const supplements = suppDays   * 5
   const garden     = (wateredCount + fedCount) * 5
+  const workouts   = workoutCount * 10
 
   return {
-    habits, checkins, sleep, weight, mood, journal, intake, focus, reading, supplements, garden,
-    total: habits + checkins + sleep + weight + mood + journal + intake + focus + reading + supplements + garden,
+    habits, checkins, sleep, weight, mood, journal, intake, focus, reading, supplements, garden, workouts,
+    total: habits + checkins + sleep + weight + mood + journal + intake + focus + reading + supplements + garden + workouts,
   }
 }
