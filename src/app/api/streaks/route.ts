@@ -155,7 +155,7 @@ export async function GET() {
         habits: xpBreakdown.habits, sleep: xpBreakdown.sleep, weight: xpBreakdown.weight,
         mood: xpBreakdown.mood, journal: xpBreakdown.journal, intake: xpBreakdown.intake,
         focus: xpBreakdown.focus, reading: xpBreakdown.reading, supplements: xpBreakdown.supplements,
-        garden: xpBreakdown.garden, github: github.xp, checkin: xpBreakdown.checkins,
+        garden: xpBreakdown.garden, workouts: xpBreakdown.workouts, github: github.xp, checkin: xpBreakdown.checkins,
       },
     },
     ...levelInfo,

@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const nextDay = new Date(dateStr + "T00:00:00.000Z")
   nextDay.setDate(nextDay.getDate() + 1)
 
-  const [healthLog, mood, habits, habitCompletions, intake, focusSessions, dailyNote, tags, checkinRows, customEvents] = await Promise.all([
+  const [healthLog, mood, habits, habitCompletions, intake, focusSessions, dailyNote, tags, checkinRows, customEvents, workouts] = await Promise.all([
     prisma.healthLog.findFirst({
       where: { userId, date: dateObj },
       select: {
@@ -63,6 +63,11 @@ export async function GET(req: Request) {
       select: { id: true, emoji: true, label: true, note: true, imageData: true, occurredAt: true },
       orderBy: { occurredAt: "asc" },
     }).catch(() => []),
+    prisma.stravaActivity.findMany({
+      where: { userId, day: dateStr },
+      select: { type: true, name: true, distanceM: true, movingTimeSec: true, avgHR: true, startDate: true },
+      orderBy: { startDate: "asc" },
+    }).catch(() => []),
   ])
 
   const checkin = (checkinRows as { energy: number; mood: number; intention: string | null; waterGoalMl: number }[])[0] ?? null
@@ -105,6 +110,14 @@ export async function GET(req: Request) {
       note: e.note,
       imageData: e.imageData,
       occurredAt: e.occurredAt.toISOString(),
+    })),
+    workouts: (workouts as { type: string; name: string | null; distanceM: number | null; movingTimeSec: number; avgHR: number | null; startDate: Date }[]).map(w => ({
+      type: w.type,
+      name: w.name,
+      distanceKm: w.distanceM != null ? Math.round(w.distanceM / 100) / 10 : null,
+      durationMin: Math.round(w.movingTimeSec / 60),
+      avgHR: w.avgHR,
+      startedAt: w.startDate.toISOString(),
     })),
   })
 }

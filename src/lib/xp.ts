@@ -146,6 +146,7 @@ export interface XpBreakdown {
   reading: number
   supplements: number
   garden: number
+  workouts: number
   total: number
 }
 
@@ -162,6 +163,7 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
     intakeLogs,
     focusCount,
     bookCount,
+    workoutCount,
     ouraTagDays,
   ] = await Promise.all([
     prisma.habitCompletion.count({ where: { userId, date: { gte: since } } }).catch(() => 0),
@@ -172,6 +174,7 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
     prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: since } }, select: { loggedAt: true } }).catch(() => [] as { loggedAt: Date }[]),
     prisma.focusSession.count({ where: { userId, type: "focus" } }).catch(() => 0),
     prisma.book.count({ where: { userId, status: "done" } }).catch(() => 0),
+    prisma.stravaActivity.count({ where: { userId, startDate: { gte: since } } }).catch(() => 0),
     prisma.$queryRaw<{ day: string }[]>`
       SELECT DISTINCT "day" FROM "OuraTag"
       WHERE "userId" = ${userId}
@@ -221,9 +224,10 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
   const reading    = bookCount   * 20
   const supplements = suppDays   * 5
   const garden     = (wateredCount + fedCount) * 5
+  const workouts   = workoutCount * 10
 
   return {
-    habits, checkins, sleep, weight, mood, journal, intake, focus, reading, supplements, garden,
-    total: habits + checkins + sleep + weight + mood + journal + intake + focus + reading + supplements + garden,
+    habits, checkins, sleep, weight, mood, journal, intake, focus, reading, supplements, garden, workouts,
+    total: habits + checkins + sleep + weight + mood + journal + intake + focus + reading + supplements + garden + workouts,
   }
 }
