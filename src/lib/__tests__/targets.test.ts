@@ -30,4 +30,24 @@ describe("computeTargets", () => {
     expect(t.waterMl).toBe(2000)
     expect(t.bmi).toBeNull()
   })
+
+  it("uses Mifflin-St Jeor when age and sex are known", () => {
+    const year = new Date().getFullYear()
+    // 80 kg, 180 cm, 30 years, male: BMR = 800 + 1125 - 150 + 5 = 1780 → ×1.4 = 2492 → 2500
+    const m = computeTargets({ weightKg: 80, heightCm: 180, birthYear: year - 30, sex: "male" })
+    expect(m.calorieBasis).toBe("bmr")
+    expect(m.calories).toBe(2500)
+    // same body, female: BMR = 1780 - 166 = 1614 → ×1.4 = 2259.6 → 2250
+    const f = computeTargets({ weightKg: 80, heightCm: 180, birthYear: year - 30, sex: "female" })
+    expect(f.calories).toBe(2250)
+    expect(f.sugarMaxG).toBe(Math.round(50 * (2250 / 2000)))
+  })
+
+  it("falls back to the rough estimate when age or sex is missing or absurd", () => {
+    const t = computeTargets({ weightKg: 80, heightCm: 180, birthYear: 1600, sex: "male" })
+    expect(t.calorieBasis).toBe("rough")
+    expect(t.calories).toBe(2400)
+    const noSex = computeTargets({ weightKg: 80, heightCm: 180, birthYear: 1995 })
+    expect(noSex.calorieBasis).toBe("rough")
+  })
 })

@@ -14,7 +14,7 @@ interface FoodLogLite {
   calories: number; proteinG: number | null; carbsG: number | null; fatG: number | null
   sugarG: number | null; micros: Micronutrient[] | null
 }
-interface Goals { waterMl?: number; weightKg?: number | null; heightCm?: number | null; [k: string]: unknown }
+interface Goals { waterMl?: number; weightKg?: number | null; heightCm?: number | null; birthYear?: number | null; sex?: "male" | "female" | null; [k: string]: unknown }
 
 export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
   const [loading, setLoading] = useState(true)
@@ -29,6 +29,8 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
   const [showPersonalize, setShowPersonalize] = useState(false)
   const [heightIn, setHeightIn] = useState("")
   const [weightIn, setWeightIn] = useState("")
+  const [birthYearIn, setBirthYearIn] = useState("")
+  const [sexIn, setSexIn] = useState<"" | "male" | "female">("")
   const [savingProfile, setSavingProfile] = useState(false)
 
   const load = useCallback(async () => {
@@ -65,7 +67,9 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
 
   const weightKg = latestWeight ?? (typeof goals.weightKg === "number" ? goals.weightKg : null)
   const heightCm = typeof goals.heightCm === "number" ? goals.heightCm : null
-  const t = computeTargets({ weightKg, heightCm })
+  const birthYear = typeof goals.birthYear === "number" ? goals.birthYear : null
+  const sex = goals.sex === "male" || goals.sex === "female" ? goals.sex : null
+  const t = computeTargets({ weightKg, heightCm, birthYear, sex })
   // an explicit check-in / goals water target wins over the formula
   const waterGoal = typeof goals.waterMl === "number" && goals.waterMl > 0 ? Math.max(goals.waterMl, t.personalized ? t.waterMl : 0) : t.waterMl
 
@@ -97,6 +101,9 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
       const next = { ...goals }
       if (Number.isFinite(h) && h > 0) next.heightCm = h
       if (Number.isFinite(w) && w > 0) next.weightKg = w
+      const by = parseInt(birthYearIn)
+      if (Number.isFinite(by) && by >= 1900 && by <= new Date().getFullYear() - 10) next.birthYear = by
+      if (sexIn) next.sex = sexIn
       const res = await fetch("/api/goals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -189,12 +196,14 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
         <div className="flex items-center justify-between gap-2">
           <p className="text-[11px] text-muted-foreground">
             {t.personalized
-              ? <>Targets scaled to your {weightKg} kg{heightCm ? ` · ${heightCm} cm (BMI ${t.bmi})` : ""} — water 35 ml/kg, caffeine 5.7 mg/kg (max 400), protein 1.2 g/kg, ≈{t.calories} kcal rough maintenance.</>
+              ? <>Targets scaled to your {weightKg} kg{heightCm ? ` · ${heightCm} cm (BMI ${t.bmi})` : ""} — water 35 ml/kg, caffeine 5.7 mg/kg (max 400), protein 1.2 g/kg, ≈{t.calories} kcal {t.calorieBasis === "bmr" ? "maintenance (Mifflin-St Jeor × light activity)" : "rough maintenance — add birth year & sex for a real BMR"}.</>
               : <>Standard targets. Add your height &amp; weight and they scale to your body.</>}
           </p>
           <Button size="sm" variant="ghost" className="gap-1.5 shrink-0 h-7 text-xs" onClick={() => {
             setHeightIn(heightCm ? String(heightCm) : "")
             setWeightIn(weightKg ? String(weightKg) : "")
+            setBirthYearIn(birthYear ? String(birthYear) : "")
+            setSexIn(sex ?? "")
             setShowPersonalize(v => !v)
           }}>
             <Ruler className="h-3.5 w-3.5" /> {t.personalized ? "Edit" : "Personalize"}
@@ -208,6 +217,17 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
             <input type="number" inputMode="decimal" placeholder="weight kg" value={weightIn}
               onChange={e => setWeightIn(e.target.value)}
               className="w-24 rounded-lg border bg-background px-3 py-1.5 text-xs outline-none focus:border-primary" />
+            <input type="number" inputMode="numeric" placeholder="birth year" value={birthYearIn}
+              onChange={e => setBirthYearIn(e.target.value)}
+              className="w-24 rounded-lg border bg-background px-3 py-1.5 text-xs outline-none focus:border-primary" />
+            <div className="flex rounded-lg border overflow-hidden">
+              {(["male", "female"] as const).map(s => (
+                <button key={s} onClick={() => setSexIn(v => v === s ? "" : s)}
+                  className={`px-3 py-1.5 text-xs transition-colors ${sexIn === s ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground"}`}>
+                  {s === "male" ? "♂ male" : "♀ female"}
+                </button>
+              ))}
+            </div>
             <Button size="sm" className="h-7 text-xs" onClick={savePersonalize} disabled={savingProfile}>
               {savingProfile ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
             </Button>
