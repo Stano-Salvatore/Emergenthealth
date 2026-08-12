@@ -4,13 +4,14 @@
 // items, calories and macros, the user adjusts and saves. Manual entry works
 // too for meals without a photo.
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { format } from "date-fns"
 import { Camera, Loader2, Pencil, Plus, Sparkles, Trash2, UtensilsCrossed, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { capturePhoto, downscaleDataUrl } from "@/lib/native/camera"
+import { getCurrentPosition } from "@/lib/native/geolocation"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 
 interface FoodItem {
@@ -23,6 +24,7 @@ interface FoodItem {
   proteinG: number
   carbsG: number
   fatG: number
+  sugarG?: number
   drinkType?: string
   volumeMl?: number
   source?: "db" | "est"
@@ -48,7 +50,22 @@ interface FoodLog {
   micros: Micronutrient[] | null
   note: string | null
   photo: string | null
+  place: string | null
   loggedAt: string
+}
+
+type MealLocation = { lat: number; lng: number; place: string | null }
+
+/** Where the meal is being logged — coordinates plus a human label, best-effort. */
+async function locateMeal(): Promise<MealLocation | null> {
+  const pos = await getCurrentPosition()
+  if (!pos) return null
+  let place: string | null = null
+  try {
+    const res = await fetch(`/api/geocode?lat=${pos.lat}&lon=${pos.lon}`)
+    if (res.ok) place = (await res.json()).place ?? null
+  } catch { /* coords alone are still useful */ }
+  return { lat: pos.lat, lng: pos.lon, place }
 }
 
 interface Analysis {
@@ -62,6 +79,7 @@ interface Analysis {
   proteinG: number
   carbsG: number
   fatG: number
+  sugarG?: number
 }
 
 const MEAL_TYPES = [
@@ -86,7 +104,7 @@ type Draft = {
   note: string
 }
 
-export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
+export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boolean; onSaved?: () => void }) {
   const [logs, setLogs] = useState<FoodLog[]>([])
   const [supplements, setSupplements] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -96,6 +114,8 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
+  // Kicked off when a draft starts so the fix is usually ready by save time.
+  const locRef = useRef<Promise<MealLocation | null> | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -116,6 +136,7 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
     setError(null)
     const photo = await capturePhoto()
     if (!photo) return
+    locRef.current = locateMeal().catch(() => null)
     setAnalyzing(true)
     setDraft(null)
     try {
@@ -202,6 +223,7 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
 
   function startManual() {
     setError(null)
+    locRef.current = locateMeal().catch(() => null)
     setDraft({
       photo: null, analysis: null,
       name: "", mealType: "other",
@@ -217,6 +239,12 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
     try {
       // Store only a small thumbnail — the full capture stays on the device.
       const thumb = draft.photo ? await downscaleDataUrl(draft.photo, 320, 0.55) : null
+      // Location was requested when the draft started; give it a short grace
+      // period but never hold the save hostage to a slow GPS fix.
+      const loc = await Promise.race([
+        locRef.current ?? Promise.resolve(null),
+        new Promise<null>(r => setTimeout(() => r(null), 1500)),
+      ])
       const num = (s: string) => { const n = parseFloat(s); return Number.isFinite(n) ? n : undefined }
       const res = await fetch("/api/food", {
         method: "POST",
@@ -228,15 +256,20 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
           proteinG: num(draft.proteinG),
           carbsG: num(draft.carbsG),
           fatG: num(draft.fatG),
+          sugarG: draft.analysis?.sugarG,
           items: draft.analysis?.items,
           micros: draft.analysis?.micros,
           note: draft.note.trim() || undefined,
           photo: thumb ?? undefined,
+          lat: loc?.lat,
+          lng: loc?.lng,
+          place: loc?.place ?? undefined,
         }),
       })
       if (res.ok) {
         setDraft(null)
         load()
+        onSaved?.() // mirrored drinks land in Intake/Caffeine — refresh them
       } else {
         setError("Couldn't save — try again.")
       }
@@ -252,6 +285,50 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
       body: JSON.stringify({ id }),
     })
     load()
+    onSaved?.() // mirrored drinks were removed too
+  }
+
+  // Inline meal editing — fix a name or a number without re-snapping
+  const [editing, setEditing] = useState<{ id: string; name: string; mealType: string; calories: string; proteinG: string; carbsG: string; fatG: string } | null>(null)
+  const [savingEdit, setSavingEdit] = useState(false)
+
+  function startEditLog(log: FoodLog) {
+    setEditing({
+      id: log.id,
+      name: log.name,
+      mealType: log.mealType,
+      calories: String(log.calories),
+      proteinG: log.proteinG != null ? String(log.proteinG) : "",
+      carbsG: log.carbsG != null ? String(log.carbsG) : "",
+      fatG: log.fatG != null ? String(log.fatG) : "",
+    })
+  }
+
+  async function saveEditLog() {
+    if (!editing) return
+    const calories = parseInt(editing.calories)
+    if (!editing.name.trim() || !Number.isFinite(calories) || calories < 0) return
+    setSavingEdit(true)
+    try {
+      const num = (s: string) => { const n = parseFloat(s); return Number.isFinite(n) ? n : undefined }
+      const res = await fetch("/api/food", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: editing.id,
+          name: editing.name.trim(),
+          mealType: editing.mealType,
+          calories,
+          proteinG: num(editing.proteinG),
+          carbsG: num(editing.carbsG),
+          fatG: num(editing.fatG),
+        }),
+      })
+      if (res.ok) {
+        setEditing(null)
+        load()
+      }
+    } finally { setSavingEdit(false) }
   }
 
   // day totals
@@ -526,7 +603,42 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
           </Card>
         ) : (
           <div className="space-y-1.5">
-            {[...logs].reverse().map(log => (
+            {[...logs].reverse().map(log => log.id === editing?.id ? (
+              <div key={log.id} className="px-3 py-3 rounded-xl border border-primary/40 bg-card space-y-2.5">
+                <input value={editing.name} onChange={e => setEditing({ ...editing, name: e.target.value })}
+                  className="w-full rounded-lg border bg-background px-3 py-1.5 text-sm font-medium outline-none focus:border-primary" />
+                <div className="flex flex-wrap gap-1.5">
+                  {MEAL_TYPES.map(m => (
+                    <button key={m.key} onClick={() => setEditing({ ...editing, mealType: m.key })}
+                      className={cn(
+                        "flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs transition-colors",
+                        editing.mealType === m.key
+                          ? "border-primary bg-primary/10 text-foreground font-medium"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      )}>
+                      <span>{m.emoji}</span>{m.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {([["calories", "kcal"], ["proteinG", "protein g"], ["carbsG", "carbs g"], ["fatG", "fat g"]] as const).map(([key, label]) => (
+                    <label key={key} className="space-y-1">
+                      <input type="number" inputMode="decimal" min={0} value={editing[key]}
+                        onChange={e => setEditing({ ...editing, [key]: e.target.value })}
+                        className="w-full rounded-lg border bg-background px-2 py-1.5 text-sm text-center outline-none focus:border-primary" />
+                      <span className="block text-[10px] text-muted-foreground text-center">{label}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex gap-1.5 justify-end">
+                  <Button size="sm" variant="ghost" onClick={() => setEditing(null)} disabled={savingEdit}>Cancel</Button>
+                  <Button size="sm" onClick={saveEditLog}
+                    disabled={savingEdit || !editing.name.trim() || !Number.isFinite(parseInt(editing.calories))}>
+                    {savingEdit ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
               <div key={log.id}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-xl border bg-card hover:bg-secondary/30 transition-colors group">
                 {log.photo ? (
@@ -551,15 +663,25 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
                         .map(m => `${m.name} ${m.dailyPct}%`).join(" · ")}
                     </p>
                   )}
+                  {log.place && (
+                    <p className="text-[10px] text-muted-foreground/70 truncate">📍 {log.place}</p>
+                  )}
                 </div>
                 <span className="text-xs text-muted-foreground shrink-0">
                   {format(new Date(log.loggedAt), "HH:mm")}
                 </span>
-                <button onClick={() => deleteEntry(log.id)}
-                  aria-label={`Delete ${log.name}`}
-                  className="text-muted-foreground/60 hover:text-destructive transition-colors p-1 shrink-0">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex items-center shrink-0">
+                  <button onClick={() => startEditLog(log)}
+                    aria-label={`Edit ${log.name}`}
+                    className="text-muted-foreground/60 hover:text-foreground transition-colors p-1">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button onClick={() => deleteEntry(log.id)}
+                    aria-label={`Delete ${log.name}`}
+                    className="text-muted-foreground/60 hover:text-destructive transition-colors p-1">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

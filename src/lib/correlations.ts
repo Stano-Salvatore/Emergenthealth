@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { subDays, format } from "date-fns"
+import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { normalizeSupplement } from "@/lib/supplement-normalize"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
 // (interactive dashboard) and the correlation-watch cron (pin & watch alerts).
@@ -27,11 +29,17 @@ type DayData = {
   weatherCode?: number
   eventCount?: number      // calendar events on this day
   eventTitles?: string[]   // their titles (for per-activity discovery)
+  waterMl?: number         // water + sparkling logged
+  calories?: number        // meals logged on the Food tab
+  proteinG?: number
+  sugarG?: number
+  lastMealMin?: number     // minutes after local midnight of the day's last meal
+  supplements?: string[]   // normalized supplement names taken (Oura tags)
 }
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements"
   emoji: string
   title: string
   finding: string
@@ -205,6 +213,29 @@ export async function computeCorrelations(
     }).catch(() => [] as { title: string; start: Date }[]),
   ])
 
+  const [waterRows, foodRows, ouraTagRows, tzRow] = await Promise.all([
+    prisma.intakeLog.findMany({
+      where: { userId, type: { in: ["water", "sparkling"] }, loggedAt: { gte: since60 } },
+      select: { loggedAt: true, amountMl: true },
+    }).catch(() => [] as { loggedAt: Date; amountMl: number }[]),
+
+    prisma.foodLog.findMany({
+      where: { userId, loggedAt: { gte: since60 } },
+      select: { loggedAt: true, calories: true, proteinG: true, sugarG: true },
+    }).catch(() => [] as { loggedAt: Date; calories: number; proteinG: number | null; sugarG: number | null }[]),
+
+    // Supplements the user logs in the Oura app (drinks are mirrored into
+    // IntakeLog by the sync; med-kind tags are the supplement signal)
+    prisma.ouraTag.findMany({
+      where: { userId, day: { gte: since60str } },
+      select: { day: true, tagName: true, text: true },
+    }).catch(() => [] as { day: string; tagName: string | null; text: string | null }[]),
+
+    prisma.userPreference.findUnique({
+      where: { userId_key: { userId, key: "timezone" } },
+    }).catch(() => null),
+  ])
+
   const dayMap = new Map<string, DayData>()
 
   function getOrCreate(dateStr: string): DayData {
@@ -280,6 +311,39 @@ export async function computeCorrelations(
     const d = getOrCreate(dateStr)
     d.eventCount = (d.eventCount ?? 0) + 1
     ;(d.eventTitles ??= []).push((ev.title ?? "").trim())
+  }
+
+  for (const w of waterRows) {
+    const dateStr = w.loggedAt.toISOString().slice(0, 10)
+    const d = getOrCreate(dateStr)
+    d.waterMl = (d.waterMl ?? 0) + w.amountMl
+  }
+
+  // Food-tab meals: day totals, plus the local clock time of the day's last
+  // meal (meal *timing* is a sleep lever the timestamps give us for free)
+  const tz = tzRow?.value || "UTC"
+  const timeFmt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false })
+  const localMinutes = (date: Date): number => {
+    const [h, m] = timeFmt.format(date).split(":").map(Number)
+    return (h % 24) * 60 + m
+  }
+  for (const f of foodRows) {
+    const dateStr = f.loggedAt.toISOString().slice(0, 10)
+    const d = getOrCreate(dateStr)
+    d.calories = (d.calories ?? 0) + f.calories
+    if (f.proteinG != null) d.proteinG = (d.proteinG ?? 0) + f.proteinG
+    if (f.sugarG != null) d.sugarG = (d.sugarG ?? 0) + f.sugarG
+    const min = localMinutes(f.loggedAt)
+    if (d.lastMealMin == null || min > d.lastMealMin) d.lastMealMin = min
+  }
+
+  for (const t of ouraTagRows) {
+    const label = ((t.tagName ?? t.text) ?? "").trim()
+    if (!label || classifyOuraTag(label).kind !== "med") continue
+    const name = normalizeSupplement(label) ?? label
+    const d = getOrCreate(t.day)
+    d.supplements ??= []
+    if (!d.supplements.includes(name)) d.supplements.push(name)
   }
 
   const days = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date))
@@ -844,6 +908,190 @@ export async function computeCorrelations(
           : `"${title}" days don't lift your next-day energy — ${h} vs ${l}`,
     })
     if (ins_act_energy) insights.push(ins_act_energy)
+  }
+
+  // 13. Food (photo-logged meals) — timing, protein, calories, sugar
+  const foodDays = days.filter(d => d.calories != null)
+  if (foodDays.length >= 10) {
+    // 13a. Late eating → that night's sleep
+    const LATE_MEAL_MIN = 20 * 60
+    const lateSleep: number[] = [], earlySleep: number[] = []
+    for (const d of foodDays) {
+      if (d.lastMealMin == null) continue
+      const night = byDate[nextDateStr(d.date)]
+      if (night?.sleepScore == null) continue
+      if (d.lastMealMin >= LATE_MEAL_MIN) lateSleep.push(night.sleepScore)
+      else earlySleep.push(night.sleepScore)
+    }
+    const ins_late_meal = compareGroups({
+      id: "food_late_meal_sleep", category: "food", emoji: "🌙", title: "Late Meals & Sleep Quality",
+      highGroupLabel: "last meal after 20:00", lowGroupLabel: "earlier dinners",
+      highValues: lateSleep, lowValues: earlySleep, higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `When your last meal is after 20:00, that night's sleep score averages ${h} vs ${l} after earlier dinners`
+          : `Late dinners don't hurt your sleep — score ${h} vs ${l} after earlier meals`,
+    })
+    if (ins_late_meal) insights.push(ins_late_meal)
+
+    // 13b. Protein → next-day energy
+    const proteinVals = foodDays.filter(d => d.proteinG != null).map(d => d.proteinG!)
+    if (proteinVals.length >= 10) {
+      const proteinMedian = median(proteinVals)
+      const highProtEnergy: number[] = [], lowProtEnergy: number[] = []
+      for (const d of foodDays) {
+        if (d.proteinG == null) continue
+        const next = byDate[nextDateStr(d.date)]
+        if (next?.energy == null) continue
+        if (d.proteinG >= proteinMedian) highProtEnergy.push(next.energy)
+        else lowProtEnergy.push(next.energy)
+      }
+      const ins_protein_energy = compareGroups({
+        id: "food_protein_energy", category: "food", emoji: "🥩", title: "Protein & Next-Day Energy",
+        highGroupLabel: `${Math.round(proteinMedian)}g+ protein days`, lowGroupLabel: "lower-protein days",
+        highValues: highProtEnergy, lowValues: lowProtEnergy,
+        findingTemplate: (h, l) =>
+          h > l
+            ? `After higher-protein days (${Math.round(proteinMedian)}g+), morning energy averages ${h} vs ${l}`
+            : `More protein doesn't move your morning energy — ${h} vs ${l}`,
+      })
+      if (ins_protein_energy) insights.push(ins_protein_energy)
+    }
+
+    // 13c. Calories → that night's sleep
+    const calMedian = median(foodDays.map(d => d.calories!))
+    const highCalSleep: number[] = [], lowCalSleep: number[] = []
+    for (const d of foodDays) {
+      const night = byDate[nextDateStr(d.date)]
+      if (night?.sleepScore == null) continue
+      if (d.calories! >= calMedian) highCalSleep.push(night.sleepScore)
+      else lowCalSleep.push(night.sleepScore)
+    }
+    const ins_cal_sleep = compareGroups({
+      id: "food_calories_sleep", category: "food", emoji: "🔥", title: "Calorie Load & Sleep Quality",
+      highGroupLabel: `${Math.round(calMedian)}+ kcal days`, lowGroupLabel: "lighter days",
+      highValues: highCalSleep, lowValues: lowCalSleep, higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `After heavier days (${Math.round(calMedian)}+ kcal), sleep score averages ${h} vs ${l} after lighter days`
+          : `Bigger eating days don't hurt your sleep — ${h} vs ${l}`,
+    })
+    if (ins_cal_sleep) insights.push(ins_cal_sleep)
+
+    // 13d. Sugar → next-day energy & mood
+    const sugarVals = foodDays.filter(d => d.sugarG != null).map(d => d.sugarG!)
+    if (sugarVals.length >= 10) {
+      const sugarMedian = median(sugarVals)
+      const highSugarEnergy: number[] = [], lowSugarEnergy: number[] = []
+      const highSugarMood: number[] = [], lowSugarMood: number[] = []
+      for (const d of foodDays) {
+        if (d.sugarG == null) continue
+        const next = byDate[nextDateStr(d.date)]
+        if (!next) continue
+        const isHigh = d.sugarG >= sugarMedian
+        if (next.energy != null) { if (isHigh) highSugarEnergy.push(next.energy); else lowSugarEnergy.push(next.energy) }
+        if (next.mood != null) { if (isHigh) highSugarMood.push(next.mood); else lowSugarMood.push(next.mood) }
+      }
+      const ins_sugar_energy = compareGroups({
+        id: "food_sugar_energy", category: "food", emoji: "🍬", title: "Sugar & Next-Day Energy",
+        highGroupLabel: `${Math.round(sugarMedian)}g+ sugar days`, lowGroupLabel: "lower-sugar days",
+        highValues: highSugarEnergy, lowValues: lowSugarEnergy,
+        findingTemplate: (h, l) =>
+          h < l
+            ? `After higher-sugar days (${Math.round(sugarMedian)}g+), morning energy averages ${h} vs ${l}`
+            : `Sugar days don't dent your next-day energy — ${h} vs ${l}`,
+      })
+      if (ins_sugar_energy) insights.push(ins_sugar_energy)
+      const ins_sugar_mood = compareGroups({
+        id: "food_sugar_mood", category: "food", emoji: "🍭", title: "Sugar & Next-Day Mood",
+        highGroupLabel: `${Math.round(sugarMedian)}g+ sugar days`, lowGroupLabel: "lower-sugar days",
+        highValues: highSugarMood, lowValues: lowSugarMood,
+        findingTemplate: (h, l) =>
+          h < l
+            ? `After higher-sugar days (${Math.round(sugarMedian)}g+), morning mood averages ${h} vs ${l}`
+            : `Sugar days don't dent your next-day mood — ${h} vs ${l}`,
+      })
+      if (ins_sugar_mood) insights.push(ins_sugar_mood)
+    }
+  }
+
+  // 14. Hydration → next-day energy & readiness (the app has always tracked
+  // water; this is the first time it checks whether it matters)
+  const WATER_GOAL = 2000
+  const hydratedEnergy: number[] = [], dryEnergy: number[] = []
+  const hydratedReadiness: number[] = [], dryReadiness: number[] = []
+  for (const d of days) {
+    if (d.waterMl == null) continue
+    const next = byDate[nextDateStr(d.date)]
+    if (!next) continue
+    const hydrated = d.waterMl >= WATER_GOAL
+    if (next.energy != null) { if (hydrated) hydratedEnergy.push(next.energy); else dryEnergy.push(next.energy) }
+    if (next.readiness != null) { if (hydrated) hydratedReadiness.push(next.readiness); else dryReadiness.push(next.readiness) }
+  }
+  const ins_water_energy = compareGroups({
+    id: "water_energy", category: "food", emoji: "💧", title: "Hydration & Next-Day Energy",
+    highGroupLabel: "2L+ water days", lowGroupLabel: "under 2L days",
+    highValues: hydratedEnergy, lowValues: dryEnergy,
+    findingTemplate: (h, l) =>
+      h > l
+        ? `After 2L+ water days, morning energy averages ${h} vs ${l} after drier days`
+        : `Hitting 2L doesn't move your morning energy — ${h} vs ${l}`,
+  })
+  if (ins_water_energy) insights.push(ins_water_energy)
+  const ins_water_readiness = compareGroups({
+    id: "water_readiness", category: "food", emoji: "🚰", title: "Hydration & Next-Day Readiness",
+    highGroupLabel: "2L+ water days", lowGroupLabel: "under 2L days",
+    highValues: hydratedReadiness, lowValues: dryReadiness,
+    findingTemplate: (h, l) =>
+      h > l
+        ? `After 2L+ water days, next-day readiness averages ${h} vs ${l}`
+        : `Hydration doesn't show up in your readiness — ${h} vs ${l}`,
+  })
+  if (ins_water_readiness) insights.push(ins_water_readiness)
+
+  // 15. Supplements (Oura tags) → next-morning sleep score & HRV. Evening
+  // supplements affect the night that follows, so both use the next day's
+  // recordings. Auto-discovers whatever the user actually takes.
+  const suppDayCount = new Map<string, number>()
+  for (const d of days) {
+    for (const s of d.supplements ?? []) suppDayCount.set(s, (suppDayCount.get(s) ?? 0) + 1)
+  }
+  const topSupps = [...suppDayCount.entries()]
+    .filter(([, n]) => n >= 5)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([s]) => s)
+  const suppSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 24) || "x"
+  for (const supp of topSupps) {
+    const withSleep: number[] = [], withoutSleep: number[] = []
+    const withHrv: number[] = [], withoutHrv: number[] = []
+    for (const d of days) {
+      const took = (d.supplements ?? []).includes(supp)
+      const next = byDate[nextDateStr(d.date)]
+      if (!next) continue
+      if (next.sleepScore != null) { if (took) withSleep.push(next.sleepScore); else withoutSleep.push(next.sleepScore) }
+      if (next.hrv != null) { if (took) withHrv.push(next.hrv); else withoutHrv.push(next.hrv) }
+    }
+    const ins_supp_sleep = compareGroups({
+      id: `supplement_${suppSlug(supp)}_sleep`, category: "supplements", emoji: "💊", title: `${supp} & Sleep Quality`,
+      highGroupLabel: `${supp} days`, lowGroupLabel: `days without ${supp}`,
+      highValues: withSleep, lowValues: withoutSleep,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On nights after taking ${supp}, sleep score averages ${h} vs ${l} without it`
+          : `${supp} doesn't show a sleep benefit yet — ${h} vs ${l} without it`,
+    })
+    if (ins_supp_sleep) insights.push(ins_supp_sleep)
+    const ins_supp_hrv = compareGroups({
+      id: `supplement_${suppSlug(supp)}_hrv`, category: "supplements", emoji: "💓", title: `${supp} & HRV`,
+      highGroupLabel: `${supp} days`, lowGroupLabel: `days without ${supp}`,
+      highValues: withHrv, lowValues: withoutHrv,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `Mornings after ${supp}, HRV averages ${h}ms vs ${l}ms without it`
+          : `${supp} doesn't move your HRV — ${h}ms vs ${l}ms without it`,
+    })
+    if (ins_supp_hrv) insights.push(ins_supp_hrv)
   }
 
   insights.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))

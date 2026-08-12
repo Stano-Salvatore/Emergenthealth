@@ -23,6 +23,7 @@ const item = (over: Partial<FoodItem>): FoodItem => ({
   proteinG: 0,
   carbsG: 0,
   fatG: 0,
+  sugarG: 0,
   drinkType: "none",
   volumeMl: 0,
   ...over,
