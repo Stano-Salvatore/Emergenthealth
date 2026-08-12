@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { format, subDays } from "date-fns"
-import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight, X } from "lucide-react"
+import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight, Pencil, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 import CaffeinePage from "@/app/dashboard/caffeine/page"
@@ -263,6 +263,36 @@ export default function IntakePage() {
     loadCaffeine()
   }
 
+  // Inline entry editing — wrong quick-add taps shouldn't need delete + redo
+  const [editingId, setEditingId]       = useState<string | null>(null)
+  const [editType, setEditType]         = useState("water")
+  const [editMl, setEditMl]             = useState("")
+  const [editNote, setEditNote]         = useState("")
+  const [savingEdit, setSavingEdit]     = useState(false)
+
+  function startEdit(log: IntakeLog) {
+    setEditingId(log.id)
+    setEditType(log.type)
+    setEditMl(String(log.amountMl))
+    setEditNote(log.note ?? "")
+  }
+
+  async function saveEdit() {
+    const ml = parseInt(editMl)
+    if (!editingId || !Number.isFinite(ml) || ml <= 0) return
+    setSavingEdit(true)
+    try {
+      await fetch("/api/intake", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: editingId, type: editType, amountMl: ml, note: editNote.trim() || null }),
+      })
+      setEditingId(null)
+      load()
+      loadCaffeine()
+    } finally { setSavingEdit(false) }
+  }
+
   function navDate(delta: number) {
     const d = new Date(date + "T12:00:00")
     d.setDate(d.getDate() + delta)
@@ -509,6 +539,42 @@ export default function IntakePage() {
           <div className="space-y-1.5">
             {[...logs].reverse().map(log => {
               const meta = TYPE_META[log.type] ?? TYPE_META.other
+              if (log.id === editingId) {
+                return (
+                  <div key={log.id} className="px-4 py-3 rounded-xl border border-primary/40 bg-card space-y-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {CUSTOM_TYPES.map(t => (
+                        <button key={t} onClick={() => setEditType(t)}
+                          className={cn(
+                            "flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs transition-colors",
+                            editType === t
+                              ? "border-primary bg-primary/10 text-foreground font-medium"
+                              : "border-border text-muted-foreground hover:text-foreground"
+                          )}>
+                          <span>{CUSTOM_EMOJI[t]}</span>
+                          {TYPE_META[t]?.label ?? "Other"}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input type="number" inputMode="numeric" min={1} max={10000} value={editMl}
+                        onChange={e => setEditMl(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && saveEdit()}
+                        className="w-24 rounded-lg border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary" />
+                      <span className="text-xs text-muted-foreground">ml</span>
+                      <input value={editNote}
+                        onChange={e => setEditNote(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && saveEdit()}
+                        placeholder={STRENGTH_TYPES.has(editType) ? "strength, e.g. 12°" : "note (optional)"}
+                        className="w-40 rounded-lg border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary" />
+                      <div className="flex gap-1.5 ml-auto">
+                        <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} disabled={savingEdit}>Cancel</Button>
+                        <Button size="sm" onClick={saveEdit} disabled={savingEdit || !editMl || parseInt(editMl) <= 0}>Save</Button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              }
               return (
                 <div key={log.id}
                   className="flex items-center gap-3 px-4 py-2.5 rounded-xl border bg-card hover:bg-secondary/30 transition-colors group">
@@ -521,16 +587,23 @@ export default function IntakePage() {
                   <span className="text-xs text-muted-foreground shrink-0">
                     {format(new Date(log.loggedAt), "HH:mm")}
                   </span>
-                  {/* Entries mirrored from Oura can't be deleted here — the next
+                  {/* Entries mirrored from Oura can't be edited here — the next
                       sync would simply put them back. Fix them in the Oura app. */}
                   {log.id.startsWith("oura_") ? (
                     <span className="text-[10px] text-muted-foreground/60 shrink-0">Oura</span>
                   ) : (
-                    <button onClick={() => deleteEntry(log.id)}
-                      aria-label={`Delete ${TYPE_META[log.type]?.label ?? "entry"} entry`}
-                      className="text-muted-foreground/60 hover:text-destructive transition-colors p-1 shrink-0">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <div className="flex items-center shrink-0">
+                      <button onClick={() => startEdit(log)}
+                        aria-label={`Edit ${TYPE_META[log.type]?.label ?? "entry"} entry`}
+                        className="text-muted-foreground/60 hover:text-foreground transition-colors p-1">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => deleteEntry(log.id)}
+                        aria-label={`Delete ${TYPE_META[log.type]?.label ?? "entry"} entry`}
+                        className="text-muted-foreground/60 hover:text-destructive transition-colors p-1">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   )}
                 </div>
               )

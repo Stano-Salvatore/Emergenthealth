@@ -67,6 +67,48 @@ export async function POST(req: Request) {
   return NextResponse.json(log, { status: 201 })
 }
 
+const EDIT_TYPES = new Set(["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "juice", "soda", "milk", "other"])
+
+export async function PATCH(req: Request) {
+  const session = await auth()
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const userId = session.user.id
+
+  const { id, type, amountMl, note } = await req.json()
+  const log = await prisma.intakeLog.findUnique({ where: { id } })
+  if (!log || log.userId !== userId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+  // Oura-mirrored entries revert on the next sync — they're edited in the Oura app.
+  if (id.startsWith("oura_")) {
+    return NextResponse.json({ error: "Edit this entry in the Oura app" }, { status: 400 })
+  }
+
+  const data: { type?: string; amountMl?: number; note?: string | null } = {}
+  if (typeof type === "string" && EDIT_TYPES.has(type)) data.type = type
+  const ml = Math.round(Number(amountMl))
+  if (Number.isFinite(ml) && ml > 0 && ml <= 10000) data.amountMl = ml
+  if (note !== undefined) data.note = typeof note === "string" && note.trim() ? note.trim().slice(0, 80) : null
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json({ error: "nothing to update" }, { status: 400 })
+  }
+
+  const updated = await prisma.intakeLog.update({ where: { id }, data })
+
+  // Re-sync the linked caffeine entry: the type or amount may have changed
+  // what (if any) caffeine this drink carries. Keep the original time so the
+  // decay curve stays honest.
+  await prisma.caffeineLog.deleteMany({ where: { id: `intake_${id}`, userId } }).catch(() => null)
+  const est = estimateCaffeine(updated.type, updated.note ?? "", updated.amountMl)
+  if (est) {
+    await prisma.caffeineLog.create({
+      data: { id: `intake_${id}`, userId, compound: est.compound, caffeineMg: est.mg, loggedAt: updated.loggedAt },
+    }).catch(() => null)
+  }
+
+  return NextResponse.json(updated)
+}
+
 export async function DELETE(req: Request) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

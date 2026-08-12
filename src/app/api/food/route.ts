@@ -125,6 +125,41 @@ export async function POST(req: Request) {
   return NextResponse.json({ ...log, mirroredDrinks }, { status: 201 })
 }
 
+export async function PATCH(req: Request) {
+  const session = await auth()
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const userId = session.user.id
+
+  const body = await req.json().catch(() => null)
+  const id = body?.id
+  const log = await prisma.foodLog.findUnique({ where: { id: typeof id === "string" ? id : "" } })
+  if (!log || log.userId !== userId) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
+
+  const num = (v: unknown, max: number) => {
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 0 && n <= max ? Math.round(n * 10) / 10 : undefined
+  }
+  const MEAL_TYPES = new Set(["breakfast", "lunch", "dinner", "snack", "other"])
+  const data: Record<string, unknown> = {}
+  if (typeof body?.name === "string" && body.name.trim()) data.name = body.name.trim().slice(0, 120)
+  if (MEAL_TYPES.has(body?.mealType)) data.mealType = body.mealType
+  const cal = num(body?.calories, 10000)
+  if (cal !== undefined) data.calories = Math.round(cal)
+  for (const k of ["proteinG", "carbsG", "fatG", "sugarG"] as const) {
+    const v = num(body?.[k], 2000)
+    if (v !== undefined) data[k] = v
+  }
+  if (body?.note !== undefined) data.note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 500) : null
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json({ error: "nothing to update" }, { status: 400 })
+  }
+
+  const updated = await prisma.foodLog.update({ where: { id }, data })
+  return NextResponse.json(updated)
+}
+
 export async function DELETE(req: Request) {
   const session = await auth()
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
