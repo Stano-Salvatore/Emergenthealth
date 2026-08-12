@@ -17,12 +17,16 @@ interface FoodItem {
   kind?: "food" | "drink"
   name: string
   portion: string
+  grams?: number
+  searchQuery?: string
   calories: number
   proteinG: number
   carbsG: number
   fatG: number
   drinkType?: string
   volumeMl?: number
+  source?: "db" | "est"
+  dbName?: string
 }
 
 interface Micronutrient {
@@ -389,12 +393,20 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
                     <span className="flex-1 min-w-0 truncate">
                       {it.kind === "drink" && <span className="mr-1" title="Also logged as a drink">🥤</span>}
                       {it.name}
+                      <span className="ml-1.5 cursor-help" title={it.source === "db" ? `USDA database: ${it.dbName}` : "Estimated by Emergy"}>
+                        {it.source === "db" ? "📖" : "≈"}
+                      </span>
                     </span>
                     <span className="text-muted-foreground shrink-0">{it.portion}</span>
                     <span className="font-medium text-orange-400 shrink-0 w-14 text-right">{it.calories} kcal</span>
                   </div>
                 ))}
               </div>
+            )}
+            {draft.analysis && draft.analysis.items.length > 0 && (
+              <p className="text-[10px] text-muted-foreground">
+                📖 = USDA database values for the estimated portion · ≈ = Emergy&apos;s estimate
+              </p>
             )}
             {draft.analysis?.items.some(it => it.kind === "drink") && (
               <p className="text-[10px] text-muted-foreground">🥤 Drinks are also added to your drinks tracker (volume &amp; caffeine).</p>

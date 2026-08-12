@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "store-assets": "node .ci/generate-store-assets.mjs",
-    "screenshots": "node .ci/capture-screenshots.mjs"
+    "screenshots": "node .ci/capture-screenshots.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@actual-app/api": "^26.4.0",
@@ -82,6 +83,7 @@
     "playwright-core": "^1.62.1",
     "sharp": "^0.35.2",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

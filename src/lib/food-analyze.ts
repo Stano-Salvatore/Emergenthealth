@@ -3,6 +3,7 @@
 // response parses; totals are summed in code, not by the model.
 
 import Anthropic from "@anthropic-ai/sdk"
+import { searchFood, nutrientsForGrams, notableMicros, type DbNutrients } from "@/lib/nutrient-db"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -14,12 +15,17 @@ export interface FoodItem {
   kind: "food" | "drink"
   name: string
   portion: string      // e.g. "1 cup", "150 g", "2 slices", "330 ml can"
+  grams: number        // estimated edible weight in grams (≈ ml for drinks)
+  searchQuery: string  // plain US-English lookup phrase for the nutrient database
   calories: number
   proteinG: number
   carbsG: number
   fatG: number
   drinkType: string    // one of DRINK_TYPES for drinks; "none" for food
   volumeMl: number     // estimated ml for drinks; 0 for food
+  // filled in server-side after the USDA lookup
+  source?: "db" | "est"
+  dbName?: string      // matched USDA description when source === "db"
 }
 
 export interface Micronutrient {
@@ -46,11 +52,16 @@ export interface FoodAnalysis {
 const ITEM_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["kind", "name", "portion", "calories", "proteinG", "carbsG", "fatG", "drinkType", "volumeMl"],
+  required: ["kind", "name", "portion", "grams", "searchQuery", "calories", "proteinG", "carbsG", "fatG", "drinkType", "volumeMl"],
   properties: {
     kind: { type: "string", enum: ["food", "drink"], description: "Whether this item is eaten or drunk" },
     name: { type: "string", description: "The item, e.g. 'Grilled chicken breast' or 'Fresh orange juice'" },
     portion: { type: "string", description: "Estimated portion as seen, e.g. '150 g', '1 cup', '330 ml can'" },
+    grams: { type: "integer", description: "Estimated edible weight of this portion in grams (for drinks: ≈ the ml volume). Judge from plate/glass size." },
+    searchQuery: {
+      type: "string",
+      description: "A plain US-English phrase to look this item up in the USDA food-composition database: base food plus preparation, no brands or quantities — e.g. 'chicken breast meat only roasted', 'orange juice raw', 'rice white long-grain cooked', 'tomatoes red ripe raw'.",
+    },
     calories: { type: "integer", description: "Estimated kcal for this portion" },
     proteinG: { type: "number", description: "Estimated protein in grams" },
     carbsG: { type: "number", description: "Estimated carbohydrates in grams" },
@@ -187,13 +198,55 @@ export async function analyzeMealPhoto(imageDataUrl: string, opts: AnalyzeOption
     return null
   }
 
+  return reconcileWithDb(parsed)
+}
+
+/**
+ * Swap model-estimated nutrition for USDA facts wherever an item matches the
+ * database: the model's job is identifying the food and the portion; the
+ * measured per-100g values do the rest. Unmatched items keep the estimate,
+ * and every item is marked "db" or "est" so the UI can say which is which.
+ */
+export function reconcileWithDb(parsed: Omit<FoodAnalysis, "calories" | "proteinG" | "carbsG" | "fatG">): FoodAnalysis {
   const round1 = (n: number) => Math.round(n * 10) / 10
+  const dbTotals: Record<string, number> = {}
+  let anyDb = false
+
+  const items = (parsed.items ?? []).map(it => {
+    const grams = it.grams > 0 ? it.grams : it.kind === "drink" && it.volumeMl > 0 ? it.volumeMl : 0
+    const match = grams > 0 ? searchFood(it.searchQuery || it.name) : null
+    if (!match) return { ...it, source: "est" as const }
+    const n = nutrientsForGrams(match.per100, grams)
+    anyDb = true
+    for (const [k, v] of Object.entries(n)) dbTotals[k] = (dbTotals[k] ?? 0) + v
+    return {
+      ...it,
+      source: "db" as const,
+      dbName: match.desc,
+      calories: Math.round(n.kcal),
+      proteinG: round1(n.protein),
+      carbsG: round1(n.carb),
+      fatG: round1(n.fat),
+    }
+  })
+
+  // Micros: measured values for matched items, plus the model's estimates for
+  // nutrients only the unmatched items would carry.
+  const dbMicros = anyDb ? notableMicros(dbTotals as unknown as DbNutrients) : []
+  const dbNames = new Set(dbMicros.map(m => m.name.toLowerCase()))
+  const hasEstItems = items.some(i => i.source === "est")
+  const estMicros = hasEstItems
+    ? (parsed.micros ?? []).filter(m => m?.name && !dbNames.has(m.name.toLowerCase()))
+    : []
+  const micros = [...dbMicros, ...estMicros].slice(0, 8)
+
   return {
     ...parsed,
-    micros: (parsed.micros ?? []).slice(0, 8),
-    calories: Math.round(parsed.items.reduce((s, i) => s + (i.calories || 0), 0)),
-    proteinG: round1(parsed.items.reduce((s, i) => s + (i.proteinG || 0), 0)),
-    carbsG: round1(parsed.items.reduce((s, i) => s + (i.carbsG || 0), 0)),
-    fatG: round1(parsed.items.reduce((s, i) => s + (i.fatG || 0), 0)),
+    items,
+    micros,
+    calories: Math.round(items.reduce((s, i) => s + (i.calories || 0), 0)),
+    proteinG: round1(items.reduce((s, i) => s + (i.proteinG || 0), 0)),
+    carbsG: round1(items.reduce((s, i) => s + (i.carbsG || 0), 0)),
+    fatG: round1(items.reduce((s, i) => s + (i.fatG || 0), 0)),
   }
 }
