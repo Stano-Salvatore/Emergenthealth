@@ -76,6 +76,10 @@ const TYPE_META: Record<string, { label: string; color: string; goal?: number; i
   beer:      { label: "Beer",      color: "bg-yellow-500",             icon: <span className="text-sm">🍺</span> },
   wine:      { label: "Wine",      color: "bg-rose-700",               icon: <span className="text-sm">🍷</span> },
   spirits:   { label: "Spirits",   color: "bg-purple-500",             icon: <span className="text-sm">🥃</span> },
+  // drink types recognized from meal photos (Food tab)
+  juice:     { label: "Juice",     color: "bg-orange-500",             icon: <span className="text-sm">🧃</span> },
+  soda:      { label: "Soda",      color: "bg-red-500",                icon: <span className="text-sm">🥤</span> },
+  milk:      { label: "Milk",      color: "bg-slate-300",              icon: <span className="text-sm">🥛</span> },
   other:     { label: "Other",     color: "bg-slate-500",              icon: <Plus className="h-4 w-4 text-slate-400" /> },
 }
 

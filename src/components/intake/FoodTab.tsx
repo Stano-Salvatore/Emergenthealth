@@ -13,12 +13,22 @@ import { cn } from "@/lib/utils"
 import { capturePhoto, downscaleDataUrl } from "@/lib/native/camera"
 
 interface FoodItem {
+  kind?: "food" | "drink"
   name: string
   portion: string
   calories: number
   proteinG: number
   carbsG: number
   fatG: number
+  drinkType?: string
+  volumeMl?: number
+}
+
+interface Micronutrient {
+  name: string
+  amount: number
+  unit: string
+  dailyPct: number
 }
 
 interface FoodLog {
@@ -30,6 +40,7 @@ interface FoodLog {
   carbsG: number | null
   fatG: number | null
   items: FoodItem[] | null
+  micros: Micronutrient[] | null
   note: string | null
   photo: string | null
   loggedAt: string
@@ -40,6 +51,7 @@ interface Analysis {
   name: string
   mealType: string
   items: FoodItem[]
+  micros: Micronutrient[]
   healthNote: string
   calories: number
   proteinG: number
@@ -106,7 +118,7 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
       }
       const a: Analysis = await res.json()
       if (!a.isFood || a.items.length === 0) {
-        setError("That doesn't look like food — try another photo, or add the meal manually.")
+        setError("That doesn't look like food or drink — try another photo, or add it manually.")
         return
       }
       setDraft({
@@ -156,6 +168,7 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
           carbsG: num(draft.carbsG),
           fatG: num(draft.fatG),
           items: draft.analysis?.items,
+          micros: draft.analysis?.micros,
           note: draft.note.trim() || undefined,
           photo: thumb ?? undefined,
         }),
@@ -206,7 +219,7 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
         <div className="flex flex-wrap gap-2">
           <Button onClick={snapMeal} disabled={analyzing} className="gap-2">
             {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-            {analyzing ? "Analyzing your meal…" : "Snap a meal"}
+            {analyzing ? "Analyzing…" : "Snap a meal or drink"}
           </Button>
           <Button variant="outline" onClick={startManual} disabled={analyzing} className="gap-2">
             <Pencil className="h-4 w-4" /> Add manually
@@ -259,15 +272,21 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
               <div className="rounded-lg border bg-secondary/30 divide-y divide-border/50">
                 {draft.analysis.items.map((it, i) => (
                   <div key={i} className="flex items-baseline gap-2 px-3 py-1.5 text-xs">
-                    <span className="flex-1 min-w-0 truncate">{it.name}</span>
+                    <span className="flex-1 min-w-0 truncate">
+                      {it.kind === "drink" && <span className="mr-1" title="Also logged as a drink">🥤</span>}
+                      {it.name}
+                    </span>
                     <span className="text-muted-foreground shrink-0">{it.portion}</span>
                     <span className="font-medium text-orange-400 shrink-0 w-14 text-right">{it.calories} kcal</span>
                   </div>
                 ))}
               </div>
             )}
+            {draft.analysis?.items.some(it => it.kind === "drink") && (
+              <p className="text-[10px] text-muted-foreground">🥤 Drinks are also added to your drinks tracker (volume &amp; caffeine).</p>
+            )}
 
-            {/* editable totals */}
+            {/* editable totals — all estimates, so nudge or type exact values */}
             <div className="grid grid-cols-4 gap-2">
               {([
                 ["calories", "kcal", draft.calories],
@@ -279,10 +298,34 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
                   <input type="number" inputMode="decimal" min={0} value={value}
                     onChange={e => setDraft({ ...draft, [key]: e.target.value })}
                     className="w-full rounded-lg border bg-background px-2 py-1.5 text-sm text-center outline-none focus:border-primary" />
-                  <span className="block text-[10px] text-muted-foreground text-center">{label}</span>
+                  <span className="block text-[10px] text-muted-foreground text-center">≈ {label}</span>
                 </label>
               ))}
             </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground mr-1">Adjust kcal:</span>
+              {[-50, -25, +25, +50].map(d => (
+                <button key={d}
+                  onClick={() => setDraft({ ...draft, calories: String(Math.max(0, (parseInt(draft.calories) || 0) + d)) })}
+                  className="px-2 py-0.5 rounded-md border text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+                  {d > 0 ? `+${d}` : d}
+                </button>
+              ))}
+            </div>
+
+            {/* notable vitamins & minerals */}
+            {draft.analysis && draft.analysis.micros.length > 0 && (
+              <div>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Vitamins &amp; minerals (est.)</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {draft.analysis.micros.map((m, i) => (
+                    <span key={i} className="px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-[10px] text-emerald-400">
+                      {m.name} {m.dailyPct > 0 ? `${m.dailyPct}%` : `${m.amount}${m.unit}`}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {draft.analysis?.healthNote && (
               <p className="text-xs text-muted-foreground italic">🌱 {draft.analysis.healthNote}</p>
@@ -316,7 +359,7 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
             <CardContent className="py-10 text-center">
               <UtensilsCrossed className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">No meals logged {isToday ? "today" : "this day"}</p>
-              {isToday && <p className="text-xs text-muted-foreground mt-1">Snap a photo and let Emergy figure out the rest</p>}
+              {isToday && <p className="text-xs text-muted-foreground mt-1">Snap a photo of a meal or drink and let Emergy figure out the rest</p>}
             </CardContent>
           </Card>
         ) : (
@@ -335,11 +378,17 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{log.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {log.calories} kcal
+                    ≈{log.calories} kcal
                     {log.proteinG != null && ` · P ${Math.round(log.proteinG)}g`}
                     {log.carbsG != null && ` · C ${Math.round(log.carbsG)}g`}
                     {log.fatG != null && ` · F ${Math.round(log.fatG)}g`}
                   </p>
+                  {log.micros && log.micros.length > 0 && (
+                    <p className="text-[10px] text-emerald-400/80 truncate">
+                      {[...log.micros].sort((a, b) => b.dailyPct - a.dailyPct).slice(0, 3)
+                        .map(m => `${m.name} ${m.dailyPct}%`).join(" · ")}
+                    </p>
+                  )}
                 </div>
                 <span className="text-xs text-muted-foreground shrink-0">
                   {format(new Date(log.loggedAt), "HH:mm")}

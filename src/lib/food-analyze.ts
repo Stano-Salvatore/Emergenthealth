@@ -6,13 +6,27 @@ import Anthropic from "@anthropic-ai/sdk"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
+// Drink types mirror IntakeLog.type so recognized drinks can feed the
+// drinks/caffeine tracker directly.
+export const DRINK_TYPES = ["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "juice", "soda", "milk", "other"] as const
+
 export interface FoodItem {
+  kind: "food" | "drink"
   name: string
-  portion: string      // e.g. "1 cup", "150 g", "2 slices"
+  portion: string      // e.g. "1 cup", "150 g", "2 slices", "330 ml can"
   calories: number
   proteinG: number
   carbsG: number
   fatG: number
+  drinkType: string    // one of DRINK_TYPES for drinks; "none" for food
+  volumeMl: number     // estimated ml for drinks; 0 for food
+}
+
+export interface Micronutrient {
+  name: string         // e.g. "Vitamin C", "Iron", "Calcium"
+  amount: number
+  unit: "mg" | "µg" | "g" | "IU"
+  dailyPct: number     // % of an adult's daily value, rough estimate
 }
 
 export interface FoodAnalysis {
@@ -20,6 +34,7 @@ export interface FoodAnalysis {
   name: string
   mealType: "breakfast" | "lunch" | "dinner" | "snack" | "other"
   items: FoodItem[]
+  micros: Micronutrient[]
   healthNote: string
   // computed in code from items
   calories: number
@@ -31,33 +46,57 @@ export interface FoodAnalysis {
 const ITEM_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["name", "portion", "calories", "proteinG", "carbsG", "fatG"],
+  required: ["kind", "name", "portion", "calories", "proteinG", "carbsG", "fatG", "drinkType", "volumeMl"],
   properties: {
-    name: { type: "string", description: "The food item, e.g. 'Grilled chicken breast'" },
-    portion: { type: "string", description: "Estimated portion as seen, e.g. '150 g', '1 cup', '2 slices'" },
+    kind: { type: "string", enum: ["food", "drink"], description: "Whether this item is eaten or drunk" },
+    name: { type: "string", description: "The item, e.g. 'Grilled chicken breast' or 'Fresh orange juice'" },
+    portion: { type: "string", description: "Estimated portion as seen, e.g. '150 g', '1 cup', '330 ml can'" },
     calories: { type: "integer", description: "Estimated kcal for this portion" },
     proteinG: { type: "number", description: "Estimated protein in grams" },
     carbsG: { type: "number", description: "Estimated carbohydrates in grams" },
     fatG: { type: "number", description: "Estimated fat in grams" },
+    drinkType: {
+      type: "string",
+      enum: [...DRINK_TYPES, "none"],
+      description: "For drinks: the closest category (plain/mineral water → water, cola/energy drinks → soda, cocktails → alcohol). 'none' for food.",
+    },
+    volumeMl: { type: "integer", description: "For drinks: estimated volume in ml (e.g. 250, 330, 500). 0 for food." },
+  },
+} as const
+
+const MICRO_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name", "amount", "unit", "dailyPct"],
+  properties: {
+    name: { type: "string", description: "Micronutrient name, e.g. 'Vitamin C', 'Iron', 'Calcium', 'Potassium'" },
+    amount: { type: "number", description: "Estimated amount in the whole meal/drink" },
+    unit: { type: "string", enum: ["mg", "µg", "g", "IU"] },
+    dailyPct: { type: "integer", description: "Rough % of an adult's recommended daily value" },
   },
 } as const
 
 const ANALYSIS_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["isFood", "name", "mealType", "items", "healthNote"],
+  required: ["isFood", "name", "mealType", "items", "micros", "healthNote"],
   properties: {
-    isFood: { type: "boolean", description: "false when the photo does not show food or drink" },
-    name: { type: "string", description: "Short name for the whole meal, e.g. 'Chicken caesar salad'. Empty string if not food." },
+    isFood: { type: "boolean", description: "false when the photo shows neither food nor drink" },
+    name: { type: "string", description: "Short name for the whole meal or drink, e.g. 'Chicken caesar salad', 'Fresh orange juice'. Empty string if not food." },
     mealType: {
       type: "string",
       enum: ["breakfast", "lunch", "dinner", "snack", "other"],
-      description: "Best guess from the food itself (not the time of day)",
+      description: "Best guess from the food itself (not the time of day). Use 'other' for a standalone drink.",
     },
-    items: { type: "array", description: "Each distinct food on the plate. Empty if not food.", items: ITEM_SCHEMA },
+    items: { type: "array", description: "Each distinct food or drink in the photo. Empty if none.", items: ITEM_SCHEMA },
+    micros: {
+      type: "array",
+      description: "Up to 8 NOTABLE vitamins and minerals across everything in the photo — only ones present in meaningful amounts (roughly ≥8% of daily value). Empty when nothing notable.",
+      items: MICRO_SCHEMA,
+    },
     healthNote: {
       type: "string",
-      description: "One friendly, non-preachy sentence about the meal's nutrition — what's good, or a gentle heads-up. Empty string if not food.",
+      description: "One friendly, non-preachy sentence about the nutrition — what's good, or a gentle heads-up. Empty string if not food.",
     },
   },
 } as const
@@ -81,9 +120,10 @@ export async function analyzeMealPhoto(imageDataUrl: string, hint?: string): Pro
   if (!img) return null
 
   const prompt =
-    "Identify the food in this photo and estimate its nutrition. " +
-    "List each distinct food as its own item with the portion you can actually see — when unsure, estimate conservatively rather than guessing high. " +
-    "Use the visual context (plate size, cutlery) to judge portions." +
+    "Identify the food and drinks in this photo and estimate their nutrition. " +
+    "List each distinct food or drink as its own item with the portion you can actually see — when unsure, estimate conservatively rather than guessing high. " +
+    "Use the visual context (plate size, glass/cup/bottle size, cutlery) to judge portions and drink volumes. " +
+    "Also estimate the notable vitamins and minerals — read labels when visible (juice cartons, cans, bottles)." +
     (hint?.trim() ? `\n\nThe user adds: "${hint.trim().slice(0, 300)}"` : "")
 
   const response = await anthropic.messages.create({
@@ -121,6 +161,7 @@ export async function analyzeMealPhoto(imageDataUrl: string, hint?: string): Pro
   const round1 = (n: number) => Math.round(n * 10) / 10
   return {
     ...parsed,
+    micros: (parsed.micros ?? []).slice(0, 8),
     calories: Math.round(parsed.items.reduce((s, i) => s + (i.calories || 0), 0)),
     proteinG: round1(parsed.items.reduce((s, i) => s + (i.proteinG || 0), 0)),
     carbsG: round1(parsed.items.reduce((s, i) => s + (i.carbsG || 0), 0)),

@@ -1,7 +1,10 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { estimateCaffeine } from "@/lib/caffeine"
 import { NextResponse } from "next/server"
 import type { Prisma } from "@prisma/client"
+
+const DRINK_TYPES = new Set(["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "juice", "soda", "milk", "other"])
 
 export async function GET(req: Request) {
   const session = await auth()
@@ -66,12 +69,35 @@ export async function POST(req: Request) {
       carbsG: num(body?.carbsG),
       fatG: num(body?.fatG),
       items: Array.isArray(body?.items) ? (body.items.slice(0, 20) as Prisma.InputJsonValue) : undefined,
+      micros: Array.isArray(body?.micros) ? (body.micros.slice(0, 8) as Prisma.InputJsonValue) : undefined,
       note: typeof body?.note === "string" && body.note.trim() ? body.note.trim().slice(0, 500) : null,
       photo: typeof body?.photo === "string" && body.photo.startsWith("data:image/") && body.photo.length < 100_000
         ? body.photo
         : null,
     },
   })
+
+  // Recognized drinks also feed the drinks tracker (and caffeine, via the same
+  // estimator the Intake tab uses). Shared id prefix ties them to this meal so
+  // deleting the meal removes them too.
+  const items = Array.isArray(body?.items) ? body.items.slice(0, 20) : []
+  let drinkIdx = 0
+  for (const it of items) {
+    const volumeMl = Math.round(Number(it?.volumeMl))
+    if (it?.kind !== "drink" || !DRINK_TYPES.has(it?.drinkType) || !Number.isFinite(volumeMl) || volumeMl <= 0 || volumeMl > 3000) continue
+    const itemName = typeof it?.name === "string" ? it.name.trim().slice(0, 80) : ""
+    const intakeId = `food_${log.id}_${drinkIdx++}`
+    await prisma.intakeLog.create({
+      data: { id: intakeId, userId, type: it.drinkType, amountMl: volumeMl, note: itemName || null },
+    }).catch(() => null)
+    const est = estimateCaffeine(it.drinkType, itemName, volumeMl)
+    if (est) {
+      await prisma.caffeineLog.create({
+        data: { id: `intake_${intakeId}`, userId, compound: est.compound, caffeineMg: est.mg },
+      }).catch(() => null)
+    }
+  }
+
   return NextResponse.json(log, { status: 201 })
 }
 
@@ -86,5 +112,8 @@ export async function DELETE(req: Request) {
     return NextResponse.json({ error: "Not found" }, { status: 404 })
   }
   await prisma.foodLog.delete({ where: { id } })
+  // remove the drink entries (and their caffeine) this meal mirrored into the tracker
+  await prisma.intakeLog.deleteMany({ where: { userId, id: { startsWith: `food_${id}_` } } }).catch(() => null)
+  await prisma.caffeineLog.deleteMany({ where: { userId, id: { startsWith: `intake_food_${id}_` } } }).catch(() => null)
   return NextResponse.json({ ok: true })
 }
