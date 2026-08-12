@@ -110,37 +110,66 @@ function parseDataUrl(dataUrl: string): { mediaType: string; data: string } | nu
   return { mediaType: m[1], data: m[2] }
 }
 
+export interface AnalyzeOptions {
+  /** The user's note, e.g. "the sauce is low-fat yoghurt", "oat milk, 500 ml glass". */
+  hint?: string
+  /** Second photo of the packaging's nutrition label — exact values beat visual guessing. */
+  labelImageDataUrl?: string
+  /** The previous analysis when the user asks for a re-run with corrections. */
+  previous?: unknown
+}
+
 /**
  * Analyze a meal photo. Returns null when the request can't be served
  * (bad image, model refusal) — the caller turns that into a 4xx/5xx.
- * `hint` is the user's optional note, e.g. "the sauce is low-fat yoghurt".
+ * A refine pass (hint/label/previous present) runs at higher effort: the
+ * user explicitly asked for precision, so a longer wait is fine.
  */
-export async function analyzeMealPhoto(imageDataUrl: string, hint?: string): Promise<FoodAnalysis | null> {
+export async function analyzeMealPhoto(imageDataUrl: string, opts: AnalyzeOptions = {}): Promise<FoodAnalysis | null> {
   const img = parseDataUrl(imageDataUrl)
   if (!img) return null
+  const label = opts.labelImageDataUrl ? parseDataUrl(opts.labelImageDataUrl) : null
+  const refining = Boolean(label || opts.previous || opts.hint?.trim())
 
-  const prompt =
-    "Identify the food and drinks in this photo and estimate their nutrition. " +
+  let prompt =
+    "Identify the food and drinks in the photo and estimate their nutrition. " +
     "List each distinct food or drink as its own item with the portion you can actually see — when unsure, estimate conservatively rather than guessing high. " +
     "Use the visual context (plate size, glass/cup/bottle size, cutlery) to judge portions and drink volumes. " +
-    "Also estimate the notable vitamins and minerals — read labels when visible (juice cartons, cans, bottles)." +
-    (hint?.trim() ? `\n\nThe user adds: "${hint.trim().slice(0, 300)}"` : "")
+    "Also estimate the notable vitamins and minerals — read labels when visible (juice cartons, cans, bottles)."
+  if (label) {
+    prompt +=
+      "\n\nThe second photo is the product's nutrition label. Read its exact per-100g/per-serving values and scale them to the portion visible in the first photo — label numbers override visual estimates, including vitamins and minerals."
+  }
+  if (opts.previous) {
+    prompt +=
+      `\n\nYour previous estimate was:\n${JSON.stringify(opts.previous).slice(0, 4000)}\n` +
+      "Re-estimate with the user's correction below applied. Keep what the correction doesn't touch."
+  }
+  if (opts.hint?.trim()) {
+    prompt += `\n\nThe user says: "${opts.hint.trim().slice(0, 300)}"`
+  }
+
+  type ImageBlock = { type: "image"; source: { type: "base64"; media_type: "image/jpeg"; data: string } }
+  const imageBlock = (i: { mediaType: string; data: string }): ImageBlock => ({
+    type: "image",
+    source: { type: "base64", media_type: i.mediaType as "image/jpeg", data: i.data },
+  })
 
   const response = await anthropic.messages.create({
     model: "claude-opus-5",
-    max_tokens: 4096,
+    max_tokens: 8192,
     output_config: {
-      effort: "low", // portion estimation is quick work; keeps the camera-to-result wait short
+      // First pass optimizes the camera-to-result wait; a refine pass trades
+      // a longer wait for accuracy since the user asked for it.
+      effort: refining ? "high" : "low",
       format: { type: "json_schema", schema: ANALYSIS_SCHEMA },
     },
     messages: [
       {
         role: "user",
         content: [
-          {
-            type: "image",
-            source: { type: "base64", media_type: img.mediaType as "image/jpeg", data: img.data },
-          },
+          imageBlock(img),
+          ...(label ? [imageBlock(label)] : []),
           { type: "text", text: prompt },
         ],
       },

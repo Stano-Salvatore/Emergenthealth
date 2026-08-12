@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { format } from "date-fns"
-import { Camera, Loader2, Pencil, Plus, Trash2, UtensilsCrossed, X } from "lucide-react"
+import { Camera, Loader2, Pencil, Plus, Sparkles, Trash2, UtensilsCrossed, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { capturePhoto, downscaleDataUrl } from "@/lib/native/camera"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
@@ -87,6 +87,8 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
   const [supplements, setSupplements] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [analyzing, setAnalyzing] = useState(false)
+  const [refining, setRefining] = useState(false)
+  const [refineText, setRefineText] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -143,6 +145,55 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
     } finally {
       setAnalyzing(false)
     }
+  }
+
+  /** Re-run the analysis with a user correction and/or a nutrition-label photo. */
+  async function refine(opts: { hint?: string; label?: string }) {
+    if (!draft?.photo) return
+    setRefining(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/food/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image: draft.photo,
+          hint: opts.hint,
+          label: opts.label,
+          previous: draft.analysis ?? undefined,
+        }),
+      })
+      if (!res.ok) {
+        setError("Re-analysis failed — your current numbers are unchanged.")
+        return
+      }
+      const a: Analysis = await res.json()
+      if (!a.isFood || a.items.length === 0) {
+        setError("Re-analysis came back empty — your current numbers are unchanged.")
+        return
+      }
+      setDraft({
+        ...draft,
+        analysis: a,
+        name: a.name || draft.name,
+        mealType: a.mealType,
+        calories: String(a.calories),
+        proteinG: String(a.proteinG),
+        carbsG: String(a.carbsG),
+        fatG: String(a.fatG),
+        note: a.healthNote,
+      })
+      setRefineText("")
+    } catch {
+      setError("Re-analysis failed — your current numbers are unchanged.")
+    } finally {
+      setRefining(false)
+    }
+  }
+
+  async function snapLabel() {
+    const label = await capturePhoto()
+    if (label) await refine({ hint: refineText.trim() || undefined, label })
   }
 
   function startManual() {
@@ -355,7 +406,7 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
                   Adds ≈{draftCaffeineMg} mg caffeine
                   {draftCaffeineAtBed > 5
                     ? <> — ≈{draftCaffeineAtBed} mg will still be active at 23:00 (5h half-life)</>
-                    : <> — it'll have worn off by 23:00</>}
+                    : <> — it&apos;ll have worn off by 23:00</>}
                 </p>
               </div>
             )}
@@ -405,10 +456,35 @@ export function FoodTab({ date, isToday }: { date: string; isToday: boolean }) {
               <p className="text-xs text-muted-foreground italic">🌱 {draft.analysis.healthNote}</p>
             )}
 
+            {/* accuracy tools — only for photo-based drafts */}
+            {draft.photo && (
+              <div className="rounded-lg border border-border/60 bg-secondary/20 p-2.5 space-y-2">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Not quite right?</p>
+                <div className="flex gap-1.5">
+                  <input value={refineText}
+                    onChange={e => setRefineText(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && refineText.trim() && !refining && refine({ hint: refineText.trim() })}
+                    placeholder="Tell Emergy what&apos;s off — oat milk, 500 ml glass, half eaten…"
+                    className="flex-1 min-w-0 rounded-lg border bg-background px-3 py-1.5 text-xs outline-none focus:border-primary" />
+                  <Button size="sm" variant="outline" className="gap-1.5 shrink-0"
+                    onClick={() => refine({ hint: refineText.trim() })}
+                    disabled={refining || !refineText.trim()}>
+                    {refining ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                    Re-analyze
+                  </Button>
+                </div>
+                <button onClick={snapLabel} disabled={refining}
+                  className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50">
+                  <Camera className="h-3 w-3" />
+                  Packaged food? Snap the nutrition label for exact values
+                </button>
+              </div>
+            )}
+
             <div className="flex gap-2 justify-end">
               <Button variant="ghost" size="sm" onClick={() => setDraft(null)} disabled={saving}>Cancel</Button>
               <Button size="sm" onClick={saveDraft} className="gap-1.5"
-                disabled={saving || !draft.name.trim() || !Number.isFinite(parseInt(draft.calories))}>
+                disabled={saving || refining || !draft.name.trim() || !Number.isFinite(parseInt(draft.calories))}>
                 {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
                 Log meal
               </Button>
