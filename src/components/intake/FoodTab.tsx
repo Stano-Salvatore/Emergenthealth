@@ -8,9 +8,10 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { format } from "date-fns"
-import { Camera, Loader2, Pencil, Plus, Sparkles, Trash2, UtensilsCrossed, X } from "lucide-react"
+import { Camera, Loader2, Pencil, Plus, ScanLine, Sparkles, Trash2, UtensilsCrossed, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { capturePhoto, downscaleDataUrl } from "@/lib/native/camera"
+import { barcodeSupported, detectBarcode } from "@/lib/barcode"
 import { getCurrentPosition } from "@/lib/native/geolocation"
 import { matchSavedPlace, type PlaceLike } from "@/lib/places"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
@@ -124,6 +125,7 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
   const [refining, setRefining] = useState(false)
   const [refineText, setRefineText] = useState("")
   const [saving, setSaving] = useState(false)
+  const [scanning, setScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   // Kicked off when a draft starts so the fix is usually ready by save time.
@@ -241,6 +243,65 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
       name: "", mealType: "other",
       calories: "", proteinG: "", carbsG: "", fatG: "", note: "",
     })
+  }
+
+  /** Scan a product barcode → exact label nutrition from Open Food Facts. */
+  async function scanBarcode() {
+    setError(null)
+    const photo = await capturePhoto()
+    if (!photo) return
+    setScanning(true)
+    try {
+      const code = await detectBarcode(photo)
+      if (!code) {
+        setError(barcodeSupported()
+          ? "No barcode found — get closer so it fills the frame."
+          : "Barcode reading isn't supported in this browser — snap the meal instead.")
+        return
+      }
+      const res = await fetch(`/api/food/barcode?code=${code}`)
+      if (!res.ok) {
+        setError(res.status === 404
+          ? "Product isn't in Open Food Facts — snap the label instead."
+          : "Barcode lookup failed — try again.")
+        return
+      }
+      const prod: {
+        name: string; servingG: number | null
+        per100: { kcal: number; proteinG: number | null; carbsG: number | null; fatG: number | null; sugarG: number | null }
+      } = await res.json()
+      locRef.current = locateMeal().catch(() => null)
+      const grams = prod.servingG ?? 100
+      const scale = (v: number | null) => v != null ? Math.round(v * grams / 10) / 10 : 0
+      const kcal = Math.round(prod.per100.kcal * grams / 100)
+      const analysis: Analysis = {
+        isFood: true, name: prod.name, mealType: "snack",
+        items: [{
+          kind: "food", name: prod.name, portion: `${grams} g`, grams,
+          searchQuery: "", calories: kcal,
+          proteinG: scale(prod.per100.proteinG), carbsG: scale(prod.per100.carbsG),
+          fatG: scale(prod.per100.fatG), sugarG: scale(prod.per100.sugarG),
+          drinkType: "none", volumeMl: 0, source: "db", dbName: "Open Food Facts (label)",
+        }],
+        micros: [], healthNote: "",
+        calories: kcal, proteinG: scale(prod.per100.proteinG),
+        carbsG: scale(prod.per100.carbsG), fatG: scale(prod.per100.fatG),
+        sugarG: scale(prod.per100.sugarG),
+      }
+      setDraft({
+        photo: null,
+        analysis,
+        name: prod.name,
+        mealType: "snack",
+        calories: String(kcal),
+        proteinG: String(analysis.proteinG),
+        carbsG: String(analysis.carbsG),
+        fatG: String(analysis.fatG),
+        note: prod.servingG ? `1 serving (${grams} g) — label data` : "per 100 g — label data, adjust to your portion",
+      })
+    } finally {
+      setScanning(false)
+    }
   }
 
   async function saveDraft() {
@@ -431,6 +492,10 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
           <Button onClick={snapMeal} disabled={analyzing} className="gap-2">
             {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
             {analyzing ? "Analyzing…" : "Snap a meal or drink"}
+          </Button>
+          <Button variant="outline" onClick={scanBarcode} disabled={analyzing || scanning} className="gap-2">
+            {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+            {scanning ? "Looking up…" : "Scan barcode"}
           </Button>
           <Button variant="outline" onClick={startManual} disabled={analyzing} className="gap-2">
             <Pencil className="h-4 w-4" /> Add manually

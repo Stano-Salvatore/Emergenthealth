@@ -4,6 +4,7 @@
 
 import Anthropic from "@anthropic-ai/sdk"
 import { searchFood, nutrientsForGrams, notableMicros, type DbNutrients } from "@/lib/nutrient-db"
+import { applyPortionPriors } from "@/lib/portion-priors"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -16,6 +17,8 @@ export interface FoodItem {
   name: string
   portion: string      // e.g. "1 cup", "150 g", "2 slices", "330 ml can"
   grams: number        // estimated edible weight in grams (≈ ml for drinks)
+  count: number        // number of discrete units for countable foods; 0 otherwise
+  unitName: string     // the countable unit ("large egg", "slice of bread"); "" otherwise
   searchQuery: string  // plain US-English lookup phrase for the nutrient database
   calories: number
   proteinG: number
@@ -24,9 +27,10 @@ export interface FoodItem {
   sugarG: number
   drinkType: string    // one of DRINK_TYPES for drinks; "none" for food
   volumeMl: number     // estimated ml for drinks; 0 for food
-  // filled in server-side after the USDA lookup
+  // filled in server-side after the USDA lookup / portion priors
   source?: "db" | "est"
   dbName?: string      // matched USDA description when source === "db"
+  portionAdjusted?: "count" | "cap" // grams overridden by count×unit weight or clamped to a serving ceiling
 }
 
 export interface Micronutrient {
@@ -54,12 +58,14 @@ export interface FoodAnalysis {
 const ITEM_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["kind", "name", "portion", "grams", "searchQuery", "calories", "proteinG", "carbsG", "fatG", "sugarG", "drinkType", "volumeMl"],
+  required: ["kind", "name", "portion", "grams", "count", "unitName", "searchQuery", "calories", "proteinG", "carbsG", "fatG", "sugarG", "drinkType", "volumeMl"],
   properties: {
     kind: { type: "string", enum: ["food", "drink"], description: "Whether this item is eaten or drunk" },
     name: { type: "string", description: "The item, e.g. 'Grilled chicken breast' or 'Fresh orange juice'" },
     portion: { type: "string", description: "Estimated portion as seen, e.g. '150 g', '1 cup', '330 ml can'" },
-    grams: { type: "integer", description: "Estimated edible weight of this portion in grams (for drinks: ≈ the ml volume). Judge from plate/glass size." },
+    grams: { type: "integer", description: "Estimated edible weight of this portion in grams (for drinks: ≈ the ml volume). Judge from plate/glass size. Estimate conservatively unless scale cues (hands, cutlery, plate rim) are visible." },
+    count: { type: "integer", description: "For countable foods (eggs, slices, pieces, dumplings, pancakes, whole fruit): how many units are visible or stated. 0 when the item isn't countable." },
+    unitName: { type: "string", description: "The countable unit when count > 0, e.g. 'large egg', 'slice of bread', 'pancake', 'dumpling'. Empty string otherwise." },
     searchQuery: {
       type: "string",
       description: "A plain US-English phrase to look this item up in the USDA food-composition database: base food plus preparation, no brands or quantities — e.g. 'chicken breast meat only roasted', 'orange juice raw', 'rice white long-grain cooked', 'tomatoes red ripe raw'.",
@@ -148,7 +154,8 @@ export async function analyzeMealPhoto(imageDataUrl: string, opts: AnalyzeOption
   let prompt =
     "Identify the food and drinks in the photo and estimate their nutrition. " +
     "List each distinct food or drink as its own item with the portion you can actually see — when unsure, estimate conservatively rather than guessing high. " +
-    "Use the visual context (plate size, glass/cup/bottle size, cutlery) to judge portions and drink volumes. " +
+    "For countable foods (eggs, slices, pieces, dumplings, pancakes, whole fruit) report the count and unit — counting is far more reliable than judging a pile's weight, and the count will be converted to grams using measured unit weights. " +
+    "Use the visual context (plate size, glass/cup/bottle size, cutlery, hands) to judge portions and drink volumes. " +
     "Also estimate the notable vitamins and minerals — read labels when visible (juice cartons, cans, bottles)."
   if (label) {
     prompt +=
@@ -216,14 +223,36 @@ export function reconcileWithDb(parsed: Omit<FoodAnalysis, "calories" | "protein
   let anyDb = false
 
   const items = (parsed.items ?? []).map(it => {
-    const grams = it.grams > 0 ? it.grams : it.kind === "drink" && it.volumeMl > 0 ? it.volumeMl : 0
+    const rawGrams = it.grams > 0 ? it.grams : it.kind === "drink" && it.volumeMl > 0 ? it.volumeMl : 0
+    // Portion priors: countable items become count × measured unit weight;
+    // single-serving dishes claimed above any plausible portion get clamped.
+    const prior = applyPortionPriors({ ...it, grams: rawGrams })
+    const grams = prior.grams
+    const adjusted = prior.adjusted ? { portionAdjusted: prior.adjusted } : {}
     const match = grams > 0 ? searchFood(it.searchQuery || it.name) : null
-    if (!match) return { ...it, source: "est" as const }
+    if (!match) {
+      // No DB match — keep the model's estimate, but rescale it when the
+      // priors changed the weight (the estimate was for the old grams).
+      if (prior.adjusted && rawGrams > 0 && grams !== rawGrams) {
+        const ratio = grams / rawGrams
+        return {
+          ...it, ...adjusted, grams, source: "est" as const,
+          calories: Math.round((it.calories || 0) * ratio),
+          proteinG: round1((it.proteinG || 0) * ratio),
+          carbsG: round1((it.carbsG || 0) * ratio),
+          fatG: round1((it.fatG || 0) * ratio),
+          sugarG: round1((it.sugarG || 0) * ratio),
+        }
+      }
+      return { ...it, ...adjusted, grams: grams || it.grams, source: "est" as const }
+    }
     const n = nutrientsForGrams(match.per100, grams)
     anyDb = true
     for (const [k, v] of Object.entries(n)) dbTotals[k] = (dbTotals[k] ?? 0) + v
     return {
       ...it,
+      ...adjusted,
+      grams,
       source: "db" as const,
       dbName: match.desc,
       calories: Math.round(n.kcal),
