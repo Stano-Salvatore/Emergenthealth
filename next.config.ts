@@ -31,7 +31,11 @@ const nextConfig: NextConfig = {
     ]
   },
   typescript: {
-    ignoreBuildErrors: true, // TODO: resolve remaining type errors and set to false
+    // Was true with a TODO. The last offender (a duplicate @auth/core copy)
+    // is resolved, so builds now typecheck — a wrong column name or a bad
+    // prop fails the deploy instead of shipping and failing silently at
+    // runtime, which is exactly how the widget lost its weather for months.
+    ignoreBuildErrors: false,
   },
   serverExternalPackages: ["@actual-app/api", "@actual-app/core"],
   turbopack: {},

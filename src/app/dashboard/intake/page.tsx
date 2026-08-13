@@ -13,6 +13,7 @@ import CaffeinePage from "@/app/dashboard/caffeine/page"
 import MedicationsPage from "@/app/dashboard/medications/page"
 import { FoodTab } from "@/components/intake/FoodTab"
 import { OverviewTab } from "@/components/intake/OverviewTab"
+import { BodyLoadTab } from "@/components/intake/BodyLoadTab"
 
 interface IntakeLog {
   id: string
@@ -124,10 +125,11 @@ function localDateStr(d: Date = new Date()): string {
   ].join("-")
 }
 
-type Tab = "overview" | "meds" | "intake" | "caffeine" | "food"
+type Tab = "overview" | "body" | "meds" | "intake" | "caffeine" | "food"
 
 const TAB_META: Record<Tab, { title: string; subtitle: string; icon: string }> = {
   overview: { title: "Today",       subtitle: "Water, caffeine, food & vitamins at a glance", icon: "📊" },
+  body:     { title: "In my body",  subtitle: "What's still circulating right now", icon: "🫀" },
   meds:     { title: "Medications", subtitle: "Meds & supplements",         icon: "💊" },
   intake:   { title: "Intake",      subtitle: "Water, coffee & more",       icon: "🥤" },
   caffeine: { title: "Caffeine",    subtitle: "Intake and its half-life",   icon: "☕" },
@@ -140,7 +142,7 @@ export default function IntakePage() {
   // The tab is part of the address, so refreshing or pressing back keeps you
   // where you were instead of silently returning to Intake.
   const tabParam = searchParams.get("tab")
-  const activeTab: Tab = tabParam === "meds" || tabParam === "caffeine" || tabParam === "food" || tabParam === "intake" ? tabParam : "overview"
+  const activeTab: Tab = tabParam === "meds" || tabParam === "caffeine" || tabParam === "food" || tabParam === "intake" || tabParam === "body" ? tabParam : "overview"
 
   const setActiveTab = useCallback((tab: string) => {
     router.replace(tab === "overview" ? "/dashboard/intake" : `/dashboard/intake?tab=${tab}`, { scroll: false })
@@ -349,6 +351,7 @@ export default function IntakePage() {
       <div className="flex border-b border-border overflow-x-auto scrollbar-thin">
         {([
           { key: "overview", label: "Today", emoji: "📊" },
+          { key: "body", label: "In my body", emoji: "🫀" },
           { key: "meds", label: "Meds", emoji: "💊" },
           { key: "intake", label: "Intake", emoji: "🥤" },
           { key: "caffeine", label: "Caffeine", emoji: "☕" },
@@ -369,7 +372,7 @@ export default function IntakePage() {
         ))}
       </div>
 
-      {activeTab === "overview" ? <OverviewTab onGoTo={setActiveTab} /> : activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : activeTab === "food" ? <FoodTab date={date} isToday={isToday} onSaved={() => { load(); loadCaffeine() }} /> : (<>
+      {activeTab === "overview" ? <OverviewTab onGoTo={setActiveTab} /> : activeTab === "body" ? <BodyLoadTab /> : activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : activeTab === "food" ? <FoodTab date={date} isToday={isToday} onSaved={() => { load(); loadCaffeine() }} /> : (<>
 
       {/* gentle late-caffeine heads-up */}
       {lateCoffeeMg != null && (

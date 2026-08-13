@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { getEventsInRange } from "@/lib/google-calendar"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { estimateCaffeine, activeFromDoses } from "@/lib/caffeine"
-import { normalizeSupplement } from "@/lib/supplement-normalize"
+import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -551,7 +551,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
     if (classifyOuraTag(label).kind !== "med") continue
     // canonical substance names ("vitamín D" → Vitamin D) so Emergy talks
     // about one thing per supplement, not one per spelling
-    const display = normalizeSupplement(label) ?? label
+    const display = normalizeSupplement(label) ?? cleanLabel(label)
     if (!seenMedNames.has(display.toLowerCase())) { seenMedNames.add(display.toLowerCase()); ouraMeds.push(display) }
   }
 

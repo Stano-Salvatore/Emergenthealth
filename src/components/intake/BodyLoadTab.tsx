@@ -1,0 +1,165 @@
+"use client"
+
+// "In my body" — one list of everything still circulating: caffeine at the
+// user's own half-life, alcohol on its flat-rate clock, and any med or
+// supplement whose half-life the app knows.
+
+import { useCallback, useEffect, useState } from "react"
+import { Card, CardContent } from "@/components/ui/card"
+import { Loader2, RefreshCw } from "lucide-react"
+import { hoursToBedtime } from "@/lib/caffeine"
+import { PHARMA_DISCLAIMER } from "@/lib/supplement-info"
+
+interface ActiveSubstance {
+  kind: "caffeine" | "alcohol" | "med"
+  name: string
+  emoji: string
+  amount: number
+  unit: "mg" | "g" | "%"
+  fraction?: number
+  takenAt: string
+  clearsAt: string | null
+  detail?: string
+}
+
+const KIND_COLOR: Record<ActiveSubstance["kind"], string> = {
+  caffeine: "bg-amber-500",
+  alcohol: "bg-violet-500",
+  med: "bg-rose-500",
+}
+
+function clock(iso: string) {
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+}
+
+function agoLabel(iso: string) {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000))
+  if (mins < 60) return `${mins}m ago`
+  const h = Math.floor(mins / 60)
+  const m = mins % 60
+  return m === 0 ? `${h}h ago` : `${h}h ${m}m ago`
+}
+
+/** How far through its stay a substance is, for the progress bar. */
+function progress(s: ActiveSubstance): number {
+  if (s.fraction != null) return Math.min(100, Math.max(4, s.fraction * 100))
+  if (!s.clearsAt) return 50
+  const total = new Date(s.clearsAt).getTime() - new Date(s.takenAt).getTime()
+  const left = new Date(s.clearsAt).getTime() - Date.now()
+  if (total <= 0) return 4
+  return Math.min(100, Math.max(4, (left / total) * 100))
+}
+
+export function BodyLoadTab() {
+  const [substances, setSubstances] = useState<ActiveSubstance[]>([])
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true)
+    try {
+      const res = await fetch("/api/body-load")
+      if (res.ok) {
+        const d = await res.json()
+        setSubstances(d.substances ?? [])
+      }
+    } catch { /* keep what's on screen */ }
+    finally { setLoading(false); setRefreshing(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const bedH = hoursToBedtime()
+  // What's still on board at 23:00 — the question that actually changes a decision
+  const atBedtime = substances.filter(s => {
+    if (!s.clearsAt) return false
+    return (new Date(s.clearsAt).getTime() - Date.now()) / 3_600_000 > bedH
+  })
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          {substances.length === 0
+            ? "Nothing measurable circulating right now."
+            : `${substances.length} substance${substances.length === 1 ? "" : "s"} still working through you.`}
+        </p>
+        <button
+          onClick={() => load(true)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} /> Refresh
+        </button>
+      </div>
+
+      {substances.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="pt-8 pb-8 text-center space-y-2">
+            <p className="text-4xl">🫀</p>
+            <p className="text-sm text-muted-foreground">Clear right now.</p>
+            <p className="text-xs text-muted-foreground/60">
+              Log a coffee, a drink or a dose and it&apos;ll appear here with how long it stays.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-2.5">
+          {substances.map(s => (
+            <Card key={`${s.kind}:${s.name}`} className="border-border">
+              <CardContent className="pt-3 pb-3">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-sm font-semibold">
+                    <span className="mr-1.5">{s.emoji}</span>{s.name}
+                  </p>
+                  <p className="text-sm font-black">
+                    {s.unit === "%" ? `${s.amount}%` : s.unit === "g" ? `${s.amount} drinks` : `${s.amount} mg`}
+                    <span className="text-[10px] font-medium text-muted-foreground ml-1">left</span>
+                  </p>
+                </div>
+
+                <div className="h-1.5 bg-secondary rounded-full overflow-hidden mt-2">
+                  <div
+                    className={`h-full rounded-full transition-all ${KIND_COLOR[s.kind]}`}
+                    style={{ width: `${progress(s)}%` }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-2 mt-1.5">
+                  <p className="text-[10px] text-muted-foreground">taken {agoLabel(s.takenAt)}</p>
+                  {s.clearsAt && (
+                    <p className="text-[10px] text-muted-foreground">
+                      {s.kind === "alcohol" ? "clear by" : "negligible by"} {clock(s.clearsAt)}
+                    </p>
+                  )}
+                </div>
+                {s.detail && <p className="text-[10px] text-muted-foreground/60 mt-1">{s.detail}</p>}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {atBedtime.length > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3.5 py-2.5">
+          <p className="text-xs text-amber-400">
+            🌙 Still with you at 23:00: {atBedtime.map(s => s.name).join(", ")}
+            {atBedtime.length > 1 && " — sedating substances stack, and so do their effects on sleep stages"}
+          </p>
+        </div>
+      )}
+
+      <p className="text-[10px] text-muted-foreground/50">
+        Population-average models applied to one body — useful for planning, not measurement.
+        Alcohol here is an estimate of what&apos;s left to process, never a fitness-to-drive check. {PHARMA_DISCLAIMER}
+      </p>
+    </div>
+  )
+}

@@ -1,0 +1,61 @@
+name: CI
+
+# Until now nothing ran the checks. The only workflow built the Android APK,
+# `next build` has typescript.ignoreBuildErrors on, and the test suite only ever
+# ran when someone remembered to run it locally — so a type error or a broken
+# test could reach production unnoticed. This runs them on every push and PR.
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "src/**"
+      - "prisma/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "vitest.config.ts"
+      - ".github/workflows/ci.yml"
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        # Same retry as the Android workflow: the registry occasionally drops
+        # the connection mid-install, which says nothing about the code.
+        run: |
+          for attempt in 1 2 3; do
+            if npm install --ignore-scripts; then exit 0; fi
+            echo "::warning::npm install failed (attempt $attempt/3) — retrying in $((attempt * 10))s"
+            sleep $((attempt * 10))
+          done
+          exit 1
+
+      - name: Generate Prisma client
+        # Skipped by --ignore-scripts above, and the types it emits are what
+        # most of the app is typed against.
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npm test
+
+      - name: Lint
+        # Report-only for now: the repo carries ~90 pre-existing violations,
+        # mostly from newer react-hooks rules. Making this blocking is a
+        # separate cleanup, and failing every build until then would just
+        # train everyone to ignore CI.
+        continue-on-error: true
+        run: npx eslint src

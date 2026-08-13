@@ -17,8 +17,13 @@ export const dynamic = "force-dynamic"
 const WINDOW_DAYS = 90 // watch against the most-evidenced "overall" window
 const BIG_CHANGE = 10  // percentage-point shift that counts as "changed"
 
-type WatchState = Record<string, { delta: number; confident: boolean }>
+type WatchState = Record<string, { delta: number; confident: boolean; tier?: string }>
 type Change = { finding: string; reason: string }
+
+// A pattern only "graduates" once: from anything weaker to Solid, meaning it
+// survived the permutation test and the false-discovery correction across the
+// whole run. That's the moment worth interrupting someone for.
+const GRADUATION_LIMIT = 3
 
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
@@ -35,11 +40,11 @@ function buildEmail(name: string | null, changes: Change[], appUrl: string): str
     .map(c => `<li style="margin-bottom:10px"><strong>${cap(c.reason)}</strong> — ${escapeHtml(c.finding)}</li>`)
     .join("")
   return `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;color:#0f0f1a">
-    <h2 style="font-size:18px;margin:0 0 4px">📊 Your watched patterns changed</h2>
-    <p style="color:#555;font-size:14px;margin:0 0 16px">Hi ${escapeHtml(name ?? "there")}, here's an update on the correlations you're watching:</p>
+    <h2 style="font-size:18px;margin:0 0 4px">📊 Your patterns moved</h2>
+    <p style="color:#555;font-size:14px;margin:0 0 16px">Hi ${escapeHtml(name ?? "there")}, here's what changed in your correlations — including any that just became statistically solid:</p>
     <ul style="padding-left:18px;font-size:14px;color:#333;line-height:1.5">${rows}</ul>
     <p style="margin-top:20px"><a href="${appUrl}/dashboard/insights" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 16px;border-radius:8px">View on your dashboard →</a></p>
-    <p style="color:#999;font-size:11px;margin-top:24px">You're receiving this because you pinned these patterns to watch. Un-star them on the Insights page to stop.</p>
+    <p style="color:#999;font-size:11px;margin-top:24px">You're receiving this because you pinned patterns to watch, or because one of your patterns reached the solid threshold. Un-star them on the Insights page to stop.</p>
   </div>`
 }
 
@@ -67,9 +72,6 @@ export async function GET(req: NextRequest) {
     } catch { /* skip malformed */ }
   }
 
-  const userIds = [...pinnedByUser.entries()].filter(([, arr]) => arr.length > 0).map(([id]) => id)
-  if (userIds.length === 0) return NextResponse.json({ ok: true, checked: 0, pushed: 0, emailed: 0 })
-
   // ── Channels ──
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
   const privateKey = process.env.VAPID_PRIVATE_KEY
@@ -88,6 +90,16 @@ export async function GET(req: NextRequest) {
     : []
   const subByUser = new Map(subs.map(s => [s.userId, s]))
 
+  // Pinning is opt-in per pattern, but a pattern reaching Solid is news even
+  // for someone who never pinned anything — so anyone reachable (pinned list,
+  // push subscription, or a state baseline from a previous run) is checked.
+  const userIds = [...new Set([
+    ...[...pinnedByUser.entries()].filter(([, arr]) => arr.length > 0).map(([id]) => id),
+    ...subs.map(s => s.userId),
+    ...stateByUser.keys(),
+  ])]
+  if (userIds.length === 0) return NextResponse.json({ ok: true, checked: 0, pushed: 0, emailed: 0 })
+
   const users = await prisma.user
     .findMany({ where: { id: { in: userIds } }, select: { id: true, email: true, name: true } })
     .catch(() => [] as { id: string; email: string | null; name: string | null }[])
@@ -103,7 +115,6 @@ export async function GET(req: NextRequest) {
 
   for (const userId of userIds) {
     const pinned = pinnedByUser.get(userId) ?? []
-    if (pinned.length === 0) continue
     checked++
 
     let insights
@@ -117,14 +128,33 @@ export async function GET(req: NextRequest) {
     const nextState: WatchState = { ...prevState }
 
     const changes: Change[] = []
+
+    // Newly Solid patterns, pinned or not. Recorded for every insight so the
+    // baseline covers the whole board; only a move up to Solid is announced,
+    // and never on the first run for an insight (no baseline = no news).
+    const graduated = insights
+      .filter(ins => {
+        const prevTier = prevState[ins.id]?.tier
+        return prevTier != null && prevTier !== "strong" && ins.tier === "strong"
+      })
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+      .slice(0, GRADUATION_LIMIT)
+    for (const ins of graduated) {
+      changes.push({ finding: ins.finding, reason: "is now a solid pattern" })
+    }
+    for (const ins of insights) {
+      nextState[ins.id] = { delta: ins.delta, confident: ins.confident, tier: ins.tier }
+    }
+
     for (const id of pinned) {
       const ins = byId.get(id)
       if (!ins) continue // not enough data this window
-      const cur = { delta: ins.delta, confident: ins.confident }
+      const cur = { delta: ins.delta, confident: ins.confident, tier: ins.tier }
       const prev = prevState[id]
       nextState[id] = cur
 
       if (!prev) continue // first observation — set baseline, don't alert
+      if (graduated.some(g => g.id === id)) continue // already announced above
 
       const flipped = Math.sign(prev.delta) !== Math.sign(cur.delta) && Math.abs(cur.delta) >= 5
       const nowConfident = !prev.confident && cur.confident
@@ -147,8 +177,8 @@ export async function GET(req: NextRequest) {
 
     const first = changes[0]
     const body = changes.length === 1
-      ? `A pattern you're watching ${first.reason}: ${first.finding}`
-      : `${changes.length} patterns you're watching changed — tap to see.`
+      ? `${first.reason === "is now a solid pattern" ? "New solid pattern" : "A pattern you're watching " + first.reason}: ${first.finding}`
+      : `${changes.length} patterns changed — tap to see.`
 
     // ── Push ──
     const sub = subByUser.get(userId)
@@ -179,7 +209,7 @@ export async function GET(req: NextRequest) {
         await resend.emails.send({
           from: "Emergenthealth <onboarding@resend.dev>",
           to: u.email,
-          subject: `📊 ${changes.length} watched pattern${changes.length === 1 ? "" : "s"} changed`,
+          subject: `📊 ${changes.length} pattern${changes.length === 1 ? "" : "s"} changed`,
           html: buildEmail(u.name, changes, appUrl),
         })
         emailed++

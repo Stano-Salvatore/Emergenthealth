@@ -19,7 +19,12 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      // Resolve to our own declaration instead of the package's raw TS source,
+      // which doesn't compile under `strict` and would otherwise drag the whole
+      // build's typechecking down with it. Runtime resolution is unaffected —
+      // this only redirects the types.
+      "@actual-app/api": ["./src/types/actual-app-api.d.ts"]
     }
   },
   "include": [

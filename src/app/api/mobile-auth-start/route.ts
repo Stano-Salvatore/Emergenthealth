@@ -36,5 +36,12 @@ export async function GET(request: Request) {
     body: new URLSearchParams({ callbackUrl }),
   })
 
-  return Auth(signinReq, { ...authConfig, skipCSRFCheck })
+  // next-auth bundles its own copy of @auth/core (0.41.0) while the Prisma
+  // adapter pulls 0.41.1 to the top level. The two copies are structurally
+  // identical but nominally distinct types, so handing our config to the
+  // top-level Auth() doesn't typecheck even though the runtime objects match.
+  // This cast is the seam between the duplicate copies — deduplicating the
+  // dependency would remove the need for it.
+  const config = { ...authConfig, skipCSRFCheck } as unknown as Parameters<typeof Auth>[1]
+  return Auth(signinReq, config)
 }

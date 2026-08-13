@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { subDays, format } from "date-fns"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
-import { normalizeSupplement } from "@/lib/supplement-normalize"
+import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
 // (interactive dashboard) and the correlation-watch cron (pin & watch alerts).
@@ -47,7 +47,7 @@ type DayData = {
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "fitness" | "music" | "money" | "focus" | "fasting"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "fitness" | "music" | "money" | "focus" | "fasting"
   emoji: string
   title: string
   finding: string
@@ -483,7 +483,10 @@ export async function computeCorrelations(
   for (const t of ouraTagRows) {
     const label = ((t.tagName ?? t.text) ?? "").trim()
     if (!label || classifyOuraTag(label).kind !== "med") continue
-    const name = normalizeSupplement(label) ?? label
+    // cleanLabel, not the raw text: "Frontin 0,5 mg" and "Frontin" have to be
+    // one substance or each half sits below the 5-day threshold and neither
+    // ever produces an insight.
+    const name = normalizeSupplement(label) ?? cleanLabel(label)
     const d = getOrCreate(t.day)
     d.supplements ??= []
     if (!d.supplements.includes(name)) d.supplements.push(name)
@@ -1247,12 +1250,16 @@ export async function computeCorrelations(
   for (const supp of topSupps) {
     const withSleep: number[] = [], withoutSleep: number[] = []
     const withHrv: number[] = [], withoutHrv: number[] = []
+    const withDeep: number[] = [], withoutDeep: number[] = []
+    const withRem: number[] = [], withoutRem: number[] = []
     for (const d of days) {
       const took = (d.supplements ?? []).includes(supp)
       const next = byDate[nextDateStr(d.date)]
       if (!next) continue
       if (next.sleepScore != null) { if (took) withSleep.push(next.sleepScore); else withoutSleep.push(next.sleepScore) }
       if (next.hrv != null) { if (took) withHrv.push(next.hrv); else withoutHrv.push(next.hrv) }
+      if (next.deepSleepMin != null) { if (took) withDeep.push(next.deepSleepMin); else withoutDeep.push(next.deepSleepMin) }
+      if (next.remSleepMin != null) { if (took) withRem.push(next.remSleepMin); else withoutRem.push(next.remSleepMin) }
     }
     const ins_supp_sleep = compareGroups({
       id: `supplement_${suppSlug(supp)}_sleep`, category: "supplements", emoji: "💊", title: `${supp} & Sleep Quality`,
@@ -1274,6 +1281,80 @@ export async function computeCorrelations(
           : `${supp} doesn't move your HRV — ${h}ms vs ${l}ms without it`,
     })
     if (ins_supp_hrv) insights.push(ins_supp_hrv)
+
+    // Sleep architecture, not just the score. Sedatives are the reason this
+    // matters: several of them buy sleep *time* while cutting deep and REM,
+    // so a night can feel fine, score fine, and still leave the restorative
+    // stages short. The stage minutes are the only place that shows up.
+    const ins_supp_deep = compareGroups({
+      id: `supplement_${suppSlug(supp)}_deep`, category: "supplements", emoji: "🌊", title: `${supp} & Deep Sleep`,
+      highGroupLabel: `${supp} days`, lowGroupLabel: `days without ${supp}`,
+      highValues: withDeep, lowValues: withoutDeep,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `Nights after ${supp}, deep sleep averages ${Math.round(h)}min vs ${Math.round(l)}min without it`
+          : `Nights after ${supp}, deep sleep drops to ${Math.round(h)}min vs ${Math.round(l)}min without it`,
+    })
+    if (ins_supp_deep) insights.push(ins_supp_deep)
+    const ins_supp_rem = compareGroups({
+      id: `supplement_${suppSlug(supp)}_rem`, category: "supplements", emoji: "🌀", title: `${supp} & REM Sleep`,
+      highGroupLabel: `${supp} days`, lowGroupLabel: `days without ${supp}`,
+      highValues: withRem, lowValues: withoutRem,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `Nights after ${supp}, REM averages ${Math.round(h)}min vs ${Math.round(l)}min without it`
+          : `Nights after ${supp}, REM drops to ${Math.round(h)}min vs ${Math.round(l)}min without it`,
+    })
+    if (ins_supp_rem) insights.push(ins_supp_rem)
+  }
+
+  // 15b. Interactions — the same substance on a drinking day vs a sober one.
+  // Every other section compares "did X vs didn't"; this asks whether X lands
+  // differently depending on what else was on board. Sedatives and alcohol are
+  // the case that matters: both suppress the restorative stages, and the
+  // pharmacology text can warn about it but only the user's own nights can
+  // show it. Restricted to the three most-logged substances, and every cell
+  // still has to clear the 5-day minimum, so it stays quiet until there's
+  // genuinely enough overlap.
+  const MODIFIERS: { key: string; label: string; test: (d: DayData) => boolean }[] = [
+    { key: "alcohol",  label: "alcohol",          test: d => (d.alcoholMl ?? 0) > 50 },
+    { key: "caffeine", label: "200mg+ caffeine",  test: d => (d.caffeineMg ?? 0) >= 200 },
+  ]
+  for (const supp of topSupps.slice(0, 3)) {
+    for (const mod of MODIFIERS) {
+      const bothSleep: number[] = [], soloSleep: number[] = []
+      const bothDeep: number[] = [], soloDeep: number[] = []
+      for (const d of days) {
+        if (!(d.supplements ?? []).includes(supp)) continue // only that substance's days
+        const next = byDate[nextDateStr(d.date)]
+        if (!next) continue
+        const alsoHad = mod.test(d)
+        if (next.sleepScore != null) { (alsoHad ? bothSleep : soloSleep).push(next.sleepScore) }
+        if (next.deepSleepMin != null) { (alsoHad ? bothDeep : soloDeep).push(next.deepSleepMin) }
+      }
+      const ins_int_sleep = compareGroups({
+        id: `interaction_${suppSlug(supp)}_${mod.key}_sleep`, category: "interactions", emoji: "🔀",
+        title: `${supp} + ${mod.label} & Sleep`,
+        highGroupLabel: `${supp} + ${mod.label}`, lowGroupLabel: `${supp} alone`,
+        highValues: bothSleep, lowValues: soloSleep,
+        findingTemplate: (h, l) =>
+          h < l
+            ? `On ${supp} nights that also involved ${mod.label}, sleep score averages ${h} vs ${l} on ${supp} nights without it`
+            : `${mod.label} on top of ${supp} doesn't cost you sleep score — ${h} vs ${l}`,
+      })
+      if (ins_int_sleep) insights.push(ins_int_sleep)
+      const ins_int_deep = compareGroups({
+        id: `interaction_${suppSlug(supp)}_${mod.key}_deep`, category: "interactions", emoji: "🌊",
+        title: `${supp} + ${mod.label} & Deep Sleep`,
+        highGroupLabel: `${supp} + ${mod.label}`, lowGroupLabel: `${supp} alone`,
+        highValues: bothDeep, lowValues: soloDeep,
+        findingTemplate: (h, l) =>
+          h < l
+            ? `${supp} plus ${mod.label} leaves ${Math.round(h)}min of deep sleep vs ${Math.round(l)}min on ${supp} alone`
+            : `Adding ${mod.label} to ${supp} doesn't cut your deep sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
+      })
+      if (ins_int_deep) insights.push(ins_int_deep)
+    }
   }
 
   // 16. Workouts (Strava) — the classic wearable questions: does training help
