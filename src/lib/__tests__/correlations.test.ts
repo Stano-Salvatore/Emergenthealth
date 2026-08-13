@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from "vitest"
 // Mood comes only from standalone MoodLog rows (check-ins carry none) to
 // prove the engine reads the mood table it used to ignore.
 
-const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows } = vi.hoisted(() => {
+const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows, alcoholRows } = vi.hoisted(() => {
   const DAYS = 40
   const dates: string[] = []
   const now = new Date()
@@ -21,13 +21,16 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
     dates.push(d.toISOString().slice(0, 10))
   }
   const isEven = (i: number) => i % 2 === 0
+  // Magnesium days are the odd ones; on every other magnesium day there was
+  // also alcohol, and those nights sleep worse (70) than magnesium alone (90).
+  const drankOn = (i: number) => !isEven(i) && i % 4 === 1
 
   return {
     DAYS,
     healthLogs: dates.map((ds, i) => ({
       date: new Date(ds + "T00:00:00Z"),
       // day i records the night after day i-1's dinner
-      sleepScore: i === 0 ? null : isEven(i - 1) ? 65 : 90,
+      sleepScore: i === 0 ? null : drankOn(i - 1) ? 70 : isEven(i - 1) ? 65 : 90,
       sleepDuration: null,
       readinessScore: i === 0 ? null : isEven(i - 1) ? 85 : 65,
       restingHR: null,
@@ -47,6 +50,7 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
     stravaRows: dates.filter((_, i) => isEven(i)).map(ds => ({
       day: ds, movingTimeSec: 3600,
     })),
+    alcoholRows: dates.filter((_, i) => drankOn(i)).map(ds => ({ date: ds, totalMl: 200 })),
     foodLogs: dates.map((ds, i) => ({
       loggedAt: new Date(ds + (isEven(i) ? "T21:30:00Z" : "T18:00:00Z")),
       calories: isEven(i) ? 2200 : 1400,
@@ -84,6 +88,7 @@ vi.mock("@/lib/prisma", () => ({
     $queryRaw: vi.fn((strings: TemplateStringsArray) => {
       const sql = strings.join("?")
       if (sql.includes("MorningCheckIn")) return Promise.resolve(checkIns)
+      if (sql.includes("alcohol")) return Promise.resolve(alcoholRows)
       return Promise.resolve([])
     }),
   },
@@ -137,6 +142,14 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     const sugarMood = byId["food_sugar_mood"]
     expect(sugarMood).toBeDefined()
     expect(sugarMood.highGroupAvg).toBeGreaterThan(sugarMood.lowGroupAvg) // 5 vs 2
+
+    // Interaction: the same supplement lands worse on nights that also had
+    // alcohol (70) than on nights with the supplement alone (90)
+    const interaction = byId["interaction_magnesium_alcohol_sleep"]
+    expect(interaction).toBeDefined()
+    expect(interaction.category).toBe("interactions")
+    expect(interaction.highGroupAvg).toBe(70)
+    expect(interaction.lowGroupAvg).toBe(90)
 
     // Statistics: cleanly planted separations beat chance and survive
     // false-discovery control...

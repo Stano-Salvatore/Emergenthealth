@@ -206,6 +206,10 @@ export default function MedicationsPage() {
   const [renaming, setRenaming] = useState<{ uuids: string[]; current: string } | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const [renameSaving, setRenameSaving] = useState(false)
+  // Manual dose logging — no ring required
+  const [doseName, setDoseName] = useState("")
+  const [doseMinutesAgo, setDoseMinutesAgo] = useState(0)
+  const [logging, setLogging] = useState<string | null>(null)
 
   const load = useCallback(async (q = filter, cat = activeCategory) => {
     setLoading(true)
@@ -226,6 +230,30 @@ export default function MedicationsPage() {
   }, [filter, activeCategory])
 
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function logDose(name: string) {
+    const clean = name.trim()
+    if (!clean) return
+    setLogging(clean)
+    try {
+      const res = await fetch("/api/medications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: clean, minutesAgo: doseMinutesAgo }),
+      })
+      if (res.ok) {
+        setDoseName("")
+        setDoseMinutesAgo(0)
+        await load()
+      } else {
+        setError("Couldn't log that dose — try again.")
+      }
+    } catch {
+      setError("Couldn't log that dose — try again.")
+    } finally {
+      setLogging(null)
+    }
+  }
 
   async function handleSync() {
     setSyncing(true)
@@ -287,6 +315,14 @@ export default function MedicationsPage() {
 
   // By-type grouping
   const groups = buildGroups(items)
+
+  // Quick-log chips: the meds and supplements this user actually takes, most
+  // recently logged first. Drinks are excluded — those belong to Intake.
+  const recentNames = [...new Set(
+    items
+      .filter(i => i.tagName && i.category !== "Drinks")
+      .map(i => i.tagName as string)
+  )].slice(0, 8)
 
   return (
     <div className="space-y-6">
@@ -379,6 +415,64 @@ export default function MedicationsPage() {
           </button>
         </div>
       </div>
+
+      {/* Log a dose — the app no longer depends on the ring to know about meds */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardContent className="pt-3 pb-3 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold">💊 Log a dose</p>
+            <div className="flex gap-1">
+              {[[0, "now"], [30, "30m ago"], [60, "1h ago"], [180, "3h ago"]].map(([mins, label]) => (
+                <button
+                  key={mins}
+                  onClick={() => setDoseMinutesAgo(mins as number)}
+                  className={cn(
+                    "px-2 py-0.5 rounded-md text-[10px] transition-colors",
+                    doseMinutesAgo === mins
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* One tap for anything already logged before */}
+          {recentNames.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {recentNames.map(name => (
+                <button
+                  key={name}
+                  onClick={() => logDose(name)}
+                  disabled={logging !== null}
+                  className="px-2.5 py-1 rounded-lg border border-border bg-card text-xs hover:border-primary/50 hover:bg-secondary/50 transition-colors disabled:opacity-50"
+                >
+                  {logging === name ? "…" : `+ ${name}`}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-1.5">
+            <input
+              value={doseName}
+              onChange={e => setDoseName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") logDose(doseName) }}
+              placeholder="Anything else — e.g. Frontin"
+              className="flex-1 rounded-lg border bg-background px-3 py-1.5 text-xs outline-none focus:border-primary"
+            />
+            <button
+              onClick={() => logDose(doseName)}
+              disabled={!doseName.trim() || logging !== null}
+              className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40"
+            >
+              Log
+            </button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Unnamed tags prompt */}
       {unnamedTypeCount > 0 && (

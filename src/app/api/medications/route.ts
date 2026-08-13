@@ -2,6 +2,8 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { normalizeSupplement, cleanLabel, fold } from "@/lib/supplement-normalize"
+import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { randomUUID } from "crypto"
 
 async function ensureTable() {
   await prisma.$executeRaw`
@@ -55,7 +57,8 @@ function categorize(label: string): { category: string; emoji: string } {
     // common drug name suffixes
     "zepam", "prazole", "mycin", "cillin", "azole", "tidine", "vastatin", "sartan", "pril",
     "olol", "triptan", "setron", "gliptin", "gliflozin", "oxetine", "zepine", "razine",
-    "atarax", "elicea", "mirzatem"]
+    "atarax", "hydroxyzin", "elicea", "escitalopram", "mirzaten", "mirzatem", "mirtazapin",
+    "frontin", "alprazolam", "xanax", "neurol", "ibalgin", "paralen", "zodac", "nolpaza"]
 
   if (drinkKeywords.some(k => l.includes(k))) return { category: "Drinks", emoji: "🥤" }
   if (vitaminKeywords.some(k => l.includes(k))) return { category: "Vitamins", emoji: "🌿" }
@@ -142,4 +145,61 @@ export async function GET(req: Request) {
     console.error("[medications] GET error:", e)
     return NextResponse.json({ items: [], error: "Failed to load tags" })
   }
+}
+
+// ── Manual dose logging ──────────────────────────────────────────────────────
+//
+// Until now a medication could only exist in this app by being tagged in the
+// Oura app: /api/medications was read-only and the sync was the sole writer.
+// That makes the whole pharmacology and correlation layer hostage to a ring
+// and its OAuth scope. Manual doses are written into the same OuraTag table so
+// they flow through every existing consumer — this page, the supplement
+// correlations, Emergy's context, XP — with a "manual" marker and an id prefix
+// that can't collide with Oura's own ids (the sync only ever upserts by its
+// own id, so these are never touched).
+
+const MAX_MINUTES_AGO = 48 * 60
+
+export async function POST(req: Request) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const userId = session.user.id
+
+  const body = await req.json().catch(() => null) as { name?: unknown; minutesAgo?: unknown; note?: unknown } | null
+  const name = typeof body?.name === "string" ? body.name.trim().slice(0, 60) : ""
+  if (!name) return NextResponse.json({ error: "name required" }, { status: 400 })
+
+  const rawMinutes = Number(body?.minutesAgo ?? 0)
+  const minutesAgo = Number.isFinite(rawMinutes) ? Math.min(MAX_MINUTES_AGO, Math.max(0, Math.round(rawMinutes))) : 0
+  const note = typeof body?.note === "string" && body.note.trim() ? body.note.trim().slice(0, 200) : null
+
+  const timestamp = new Date(Date.now() - minutesAgo * 60_000)
+  // The day this belongs to is the user's day, not the server's — a 00:30 dose
+  // in Bratislava is still "today" for them and yesterday for UTC.
+  const tz = await getUserTimezone(userId)
+  const day = localDateStr(tz, timestamp)
+
+  await ensureTable()
+  const id = `manual_${randomUUID()}`
+  await prisma.$executeRaw`
+    INSERT INTO "OuraTag" ("id","userId","day","timestamp","tagName","text","tags")
+    VALUES (${id}, ${userId}, ${day}, ${timestamp}, ${name}, ${note}, ARRAY['manual']::text[])
+  `
+
+  return NextResponse.json({ ok: true, id, name, day, timestamp: timestamp.toISOString() })
+}
+
+export async function DELETE(req: Request) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const id = new URL(req.url).searchParams.get("id") ?? ""
+  // Only manually logged doses are deletable: an Oura-sourced tag would simply
+  // come back on the next sync, so removing it here would be a lie.
+  if (!id.startsWith("manual_")) {
+    return NextResponse.json({ error: "Only manually logged doses can be deleted" }, { status: 400 })
+  }
+
+  await prisma.$executeRaw`DELETE FROM "OuraTag" WHERE "id" = ${id} AND "userId" = ${session.user.id}`
+  return NextResponse.json({ ok: true })
 }

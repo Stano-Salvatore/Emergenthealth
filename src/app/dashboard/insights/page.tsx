@@ -8,7 +8,7 @@ import { WatchedPatterns } from "@/components/dashboard/WatchedPatterns"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "fitness" | "music" | "money" | "focus" | "fasting"
+type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "fitness" | "music" | "money" | "focus" | "fasting"
 
 interface InsightResult {
   id: string
@@ -42,6 +42,7 @@ const CATEGORY_META: Record<Category, { label: string; emoji: string; color: str
   stress:      { label: "Stress",   emoji: "😤", color: "text-orange-400" },
   food:        { label: "Food & Hydration", emoji: "🍽️", color: "text-orange-400" },
   supplements: { label: "Supplements", emoji: "💊", color: "text-violet-400" },
+  interactions:{ label: "Combinations", emoji: "🔀", color: "text-fuchsia-400" },
   fitness:     { label: "Workouts", emoji: "🏃", color: "text-emerald-400" },
   fasting:     { label: "Fasting",  emoji: "⏳", color: "text-yellow-400" },
   habits:      { label: "Habits",   emoji: "✅", color: "text-green-400" },
@@ -54,7 +55,7 @@ const CATEGORY_META: Record<Category, { label: string; emoji: string; color: str
   tags:        { label: "Tags",     emoji: "🏷️", color: "text-primary" },
 }
 
-const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "stress", "food", "supplements", "fitness", "fasting", "habits", "focus", "caffeine", "screen", "music", "money", "calendar", "tags"]
+const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "stress", "food", "supplements", "interactions", "fitness", "fasting", "habits", "focus", "caffeine", "screen", "music", "money", "calendar", "tags"]
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
