@@ -3,6 +3,9 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import Anthropic from "@anthropic-ai/sdk"
 import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
+import { supplementInfoFor } from "@/lib/supplement-info"
 
 const anthropic = new Anthropic()
 
@@ -48,7 +51,9 @@ export async function GET(req: NextRequest) {
   const todayStart = new Date(todayStr + "T00:00:00.000Z")
   const todayEnd = new Date(todayStr + "T23:59:59.999Z")
 
-  const [checkinRows, latestHealth, habitRows, intakeRows] = await Promise.all([
+  const yesterdayStart = new Date(todayStart.getTime() - 24 * 3_600_000)
+
+  const [checkinRows, latestHealth, habitRows, intakeRows, foodRows, workoutRows, insightsRow, medTagRows] = await Promise.all([
     prisma.$queryRaw<{ energy: number; mood: number; intention: string | null }[]>`
       SELECT "energy", "mood", "intention" FROM "MorningCheckIn"
       WHERE "userId" = ${userId} AND "date" = ${todayStr}
@@ -74,6 +79,30 @@ export async function GET(req: NextRequest) {
       where: { userId, type: "water", loggedAt: { gte: todayStart, lte: todayEnd } },
       select: { amountMl: true },
     }).catch(() => [] as { amountMl: number }[]),
+
+    // Yesterday's eating — the brief happens in the morning, so today's food
+    // hasn't happened yet and yesterday's is what the night was built on.
+    prisma.foodLog.findMany({
+      where: { userId, loggedAt: { gte: yesterdayStart, lt: todayStart } },
+      select: { calories: true, proteinG: true, loggedAt: true },
+    }).catch(() => [] as { calories: number; proteinG: number | null; loggedAt: Date }[]),
+
+    prisma.stravaActivity.findMany({
+      where: { userId, day: { in: [todayStr, localDateStr(timezone, yesterdayStart)] } },
+      select: { type: true, movingTimeSec: true, day: true },
+    }).catch(() => [] as { type: string; movingTimeSec: number; day: string }[]),
+
+    // Whatever the correlation engine last concluded — no recompute here, the
+    // brief should be fast and the cache is refreshed daily anyway.
+    prisma.userPreference.findUnique({
+      where: { userId_key: { userId, key: "insights_cache:overall" } },
+    }).catch(() => null),
+
+    prisma.$queryRaw<{ tagName: string | null; text: string | null; timestamp: Date }[]>`
+      SELECT "tagName", "text", "timestamp" FROM "OuraTag"
+      WHERE "userId" = ${userId} AND "timestamp" >= ${yesterdayStart}
+      ORDER BY "timestamp" DESC
+    `.catch(() => [] as { tagName: string | null; text: string | null; timestamp: Date }[]),
   ])
 
   // Get weather from /api/today (best-effort)
@@ -123,15 +152,77 @@ export async function GET(req: NextRequest) {
     lines.push(`Weather: ${weatherSnippet}.`)
   }
 
+  // Yesterday's eating, including how late it ended — meal timing is one of
+  // the few things that plausibly explains the night that just happened.
+  if (foodRows.length > 0) {
+    const kcal = foodRows.reduce((s, f) => s + f.calories, 0)
+    const protein = Math.round(foodRows.reduce((s, f) => s + (f.proteinG ?? 0), 0))
+    const lastMeal = foodRows.reduce((latest, f) => f.loggedAt > latest ? f.loggedAt : latest, foodRows[0].loggedAt)
+    const lastMealTime = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(lastMeal)
+    lines.push(`Yesterday's food: ≈${kcal} kcal, ${protein}g protein, last meal ${lastMealTime}.`)
+  }
+
+  if (workoutRows.length > 0) {
+    const mins = Math.round(workoutRows.reduce((s, w) => s + w.movingTimeSec, 0) / 60)
+    lines.push(`Recent training: ${workoutRows.map(w => w.type).join(", ")} (${mins} min total).`)
+  }
+
+  // Meds and supplements taken since yesterday, and anything with a long
+  // half-life that's still working — grogginess usually has a reason.
+  const medNames: string[] = []
+  const stillOnBoard: string[] = []
+  const seenMeds = new Set<string>()
+  for (const t of medTagRows) {
+    const label = ((t.tagName ?? t.text) ?? "").trim()
+    if (!label || classifyOuraTag(label).kind !== "med") continue
+    const name = normalizeSupplement(label) ?? cleanLabel(label)
+    if (seenMeds.has(name.toLowerCase())) continue
+    seenMeds.add(name.toLowerCase())
+    medNames.push(name)
+    const info = supplementInfoFor(label)
+    if (info?.halfLifeH) {
+      const hours = (Date.now() - t.timestamp.getTime()) / 3_600_000
+      const pct = Math.round(Math.pow(0.5, hours / info.halfLifeH) * 100)
+      if (pct >= 25) stillOnBoard.push(`${name} ≈${pct}%`)
+    }
+  }
+  if (medNames.length > 0) {
+    lines.push(`Meds/supplements since yesterday: ${medNames.slice(0, 6).join(", ")}.`)
+  }
+  if (stillOnBoard.length > 0) {
+    lines.push(`Still circulating this morning: ${stillOnBoard.slice(0, 3).join(", ")} of the last dose.`)
+  }
+
+  // The strongest thing the correlation engine currently believes, so the
+  // brief can connect this morning to a pattern rather than just narrate it.
+  try {
+    const cached = insightsRow ? JSON.parse(insightsRow.value) : null
+    const solid = (cached?.payload?.insights ?? [])
+      .filter((i: { tier?: string }) => i.tier === "strong")
+      .slice(0, 2)
+      .map((i: { finding: string }) => i.finding)
+    if (solid.length > 0) {
+      lines.push(`Established patterns for this user: ${solid.join(" | ")}.`)
+    }
+  } catch { /* no insights yet */ }
+
   const context = lines.join(" ")
 
   const response = await anthropic.messages.create({
     model: "claude-haiku-4-5-20251001",
-    max_tokens: 120,
+    max_tokens: 200,
     messages: [
       {
         role: "user",
-        content: `You are a warm, perceptive AI assistant writing a personal morning briefing. Based on the user's data, write exactly 2 sentences. Be specific to their numbers — mention sleep quality, energy, or intentions. Sound like a smart friend who noticed the details, not a generic wellness bot. No greeting phrase, no "I", start directly with an observation.\n\n${context}`,
+        content: `You are a warm, perceptive AI assistant writing a personal morning briefing. Based on the user's data, write 2-3 sentences.
+
+Pick the two or three things that actually matter this morning rather than listing everything — a late dinner before a bad night, a med still circulating that explains feeling foggy, a workout that earned the tiredness, an established pattern this morning is repeating. Prefer a connection between two facts over two separate observations. If something contradicts an established pattern, that's worth saying too.
+
+Be specific with their numbers. Sound like a smart friend who noticed, not a wellness bot. Never give medical advice or suggest changing a medication. No greeting, no "I", start directly with the observation.
+
+${context}`,
       },
     ],
   })

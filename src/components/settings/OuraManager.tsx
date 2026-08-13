@@ -111,7 +111,7 @@ export function OuraManager({ isConnected, hasOauthConfig = false }: { isConnect
               ) : (
                 <p className="text-xs text-green-400">
                   ✓ Synced {syncResult.synced} days · {syncResult.tagsSynced} tags
-                  {syncResult.tagsSynced === 0 && <span className="text-muted-foreground"> (no tags in the last 30 days — log coffee/meds in the Oura app and they'll appear here)</span>}
+                  {syncResult.tagsSynced === 0 && <span className="text-muted-foreground"> (no tags in the last 30 days — log coffee/meds in the Oura app and they&apos;ll appear here)</span>}
                 </p>
               )
             )}

@@ -147,6 +147,51 @@ export function BodyLoadTab() {
         </div>
       )}
 
+      {/* When each of them leaves, on one shared 24h axis */}
+      {substances.some(s => s.clearsAt) && (
+        <Card className="border-border">
+          <CardContent className="pt-3 pb-3">
+            <p className="text-xs font-semibold mb-2.5">Next 24 hours</p>
+            <div className="space-y-1.5">
+              {substances.filter(s => s.clearsAt).map(s => {
+                const hoursLeft = Math.max(0, (new Date(s.clearsAt!).getTime() - Date.now()) / 3_600_000)
+                const width = Math.min(100, (hoursLeft / 24) * 100)
+                return (
+                  <div key={`bar:${s.kind}:${s.name}`} className="flex items-center gap-2">
+                    <span className="w-6 text-xs shrink-0" aria-hidden>{s.emoji}</span>
+                    <div className="flex-1 h-4 rounded bg-secondary/60 relative overflow-hidden">
+                      <div
+                        className={`h-full rounded ${KIND_COLOR[s.kind]} opacity-80`}
+                        style={{ width: `${Math.max(2, width)}%` }}
+                      />
+                      <span className="absolute inset-y-0 left-1.5 flex items-center text-[9px] text-white/90 font-medium">
+                        {hoursLeft >= 24 ? "24h+" : hoursLeft >= 1 ? `${Math.round(hoursLeft)}h` : "<1h"}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Bedtime marker on the same scale */}
+            <div className="relative mt-1.5 ml-8 h-4">
+              {bedH <= 24 && (
+                <div
+                  className="absolute top-0 -translate-x-1/2 flex flex-col items-center"
+                  style={{ left: `${(bedH / 24) * 100}%` }}
+                >
+                  <div className="w-px h-2 bg-muted-foreground/40" />
+                  <span className="text-[9px] text-muted-foreground/70 whitespace-nowrap">🌙 23:00</span>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-between text-[9px] text-muted-foreground/50 ml-8 mt-0.5">
+              <span>now</span><span>+12h</span><span>+24h</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {atBedtime.length > 0 && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3.5 py-2.5">
           <p className="text-xs text-amber-400">

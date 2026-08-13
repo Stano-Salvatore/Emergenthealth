@@ -48,7 +48,7 @@ export default function TermsPage() {
             </p>
             <p className="mt-3">
               You are responsible for ensuring that connecting third-party accounts (Oura, YNAB,
-              Strava, etc.) complies with those services' own terms. Emergenthealth is not
+              Strava, etc.) complies with those services&apos; own terms. Emergenthealth is not
               affiliated with or endorsed by any of the third-party services it integrates with.
             </p>
           </section>
@@ -90,7 +90,7 @@ export default function TermsPage() {
           <section>
             <h2 className="text-lg font-semibold text-foreground mb-3">Disclaimer and liability</h2>
             <p>
-              Emergenthealth is provided "as is" without warranties of any kind, express or implied.
+              Emergenthealth is provided &quot;as is&quot; without warranties of any kind, express or implied.
               We do not guarantee uptime, data accuracy, or that the service will meet your specific
               needs.
             </p>

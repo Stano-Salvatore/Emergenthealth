@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
     const accountIds: string[] = reqData.accounts ?? []
 
     // Auto-select first account and fetch its name
-    let accountId: string | null = accountIds[0] ?? null
+    const accountId: string | null = accountIds[0] ?? null
     let accountName: string | null = null
     let currency: string | null = null
 
