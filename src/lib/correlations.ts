@@ -1250,12 +1250,16 @@ export async function computeCorrelations(
   for (const supp of topSupps) {
     const withSleep: number[] = [], withoutSleep: number[] = []
     const withHrv: number[] = [], withoutHrv: number[] = []
+    const withDeep: number[] = [], withoutDeep: number[] = []
+    const withRem: number[] = [], withoutRem: number[] = []
     for (const d of days) {
       const took = (d.supplements ?? []).includes(supp)
       const next = byDate[nextDateStr(d.date)]
       if (!next) continue
       if (next.sleepScore != null) { if (took) withSleep.push(next.sleepScore); else withoutSleep.push(next.sleepScore) }
       if (next.hrv != null) { if (took) withHrv.push(next.hrv); else withoutHrv.push(next.hrv) }
+      if (next.deepSleepMin != null) { if (took) withDeep.push(next.deepSleepMin); else withoutDeep.push(next.deepSleepMin) }
+      if (next.remSleepMin != null) { if (took) withRem.push(next.remSleepMin); else withoutRem.push(next.remSleepMin) }
     }
     const ins_supp_sleep = compareGroups({
       id: `supplement_${suppSlug(supp)}_sleep`, category: "supplements", emoji: "💊", title: `${supp} & Sleep Quality`,
@@ -1277,6 +1281,31 @@ export async function computeCorrelations(
           : `${supp} doesn't move your HRV — ${h}ms vs ${l}ms without it`,
     })
     if (ins_supp_hrv) insights.push(ins_supp_hrv)
+
+    // Sleep architecture, not just the score. Sedatives are the reason this
+    // matters: several of them buy sleep *time* while cutting deep and REM,
+    // so a night can feel fine, score fine, and still leave the restorative
+    // stages short. The stage minutes are the only place that shows up.
+    const ins_supp_deep = compareGroups({
+      id: `supplement_${suppSlug(supp)}_deep`, category: "supplements", emoji: "🌊", title: `${supp} & Deep Sleep`,
+      highGroupLabel: `${supp} days`, lowGroupLabel: `days without ${supp}`,
+      highValues: withDeep, lowValues: withoutDeep,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `Nights after ${supp}, deep sleep averages ${Math.round(h)}min vs ${Math.round(l)}min without it`
+          : `Nights after ${supp}, deep sleep drops to ${Math.round(h)}min vs ${Math.round(l)}min without it`,
+    })
+    if (ins_supp_deep) insights.push(ins_supp_deep)
+    const ins_supp_rem = compareGroups({
+      id: `supplement_${suppSlug(supp)}_rem`, category: "supplements", emoji: "🌀", title: `${supp} & REM Sleep`,
+      highGroupLabel: `${supp} days`, lowGroupLabel: `days without ${supp}`,
+      highValues: withRem, lowValues: withoutRem,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `Nights after ${supp}, REM averages ${Math.round(h)}min vs ${Math.round(l)}min without it`
+          : `Nights after ${supp}, REM drops to ${Math.round(h)}min vs ${Math.round(l)}min without it`,
+    })
+    if (ins_supp_rem) insights.push(ins_supp_rem)
   }
 
   // 16. Workouts (Strava) — the classic wearable questions: does training help
