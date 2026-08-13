@@ -39,6 +39,7 @@ const NAV_ITEMS: NavItem[] = [
   // Health — one nav entry each instead of two.
   { href: "/dashboard/intake",      label: "Intake & Meds",   emoji: "🥤", section: "Body" },
   { href: "/dashboard/health",      label: "Health & Body",   emoji: "❤️", section: "Body" },
+  { href: "/dashboard/symptoms",    label: "Symptoms",        emoji: "🩹", section: "Body" },
   { href: "/dashboard/fasting",     label: "Fasting",         emoji: "⏳", section: "Body" },
   { href: "/dashboard/strava",      label: "Strava",          emoji: "🏃", section: "Body" },
 
@@ -104,7 +105,7 @@ const GARDEN_HREF = "/dashboard/garden"
 // saved stay hidden forever, because the old defaults were persisted as if
 // they were choices. Strip these from stored prefs once — re-hiding sticks.
 const LS_LAUNCH_MIGRATED = "sidebar-launch-unhidden-v1"
-const NEWLY_LAUNCHED = ["/dashboard/insights", "/dashboard/fasting", "/dashboard/strava"]
+const NEWLY_LAUNCHED = ["/dashboard/insights", "/dashboard/fasting", "/dashboard/strava", "/dashboard/symptoms"]
 
 function SortableItem({
   item, active, isHidden, editing, onToggleHidden, onClose,

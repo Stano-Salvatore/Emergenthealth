@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from "vitest"
 // Mood comes only from standalone MoodLog rows (check-ins carry none) to
 // prove the engine reads the mood table it used to ignore.
 
-const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows, alcoholRows } = vi.hoisted(() => {
+const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows, alcoholRows, symptomRows } = vi.hoisted(() => {
   const DAYS = 40
   const dates: string[] = []
   const now = new Date()
@@ -54,6 +54,12 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
       day: ds, movingTimeSec: 3600,
     })),
     alcoholRows: dates.filter((_, i) => drankOn(i)).map(ds => ({ date: ds, totalMl: 200 })),
+    // A headache the morning after every drinking day, and nothing otherwise —
+    // days with no entry have to count as severity 0 for this to be findable.
+    symptomRows: dates
+      .map((ds, i) => ({ ds, i }))
+      .filter(({ i }) => i > 0 && drankOn(i - 1))
+      .map(({ ds }) => ({ day: ds, name: "Headache", severity: 4 })),
     foodLogs: dates.map((ds, i) => ({
       loggedAt: new Date(ds + (isEven(i) ? "T21:30:00Z" : "T18:00:00Z")),
       calories: isEven(i) ? 2200 : 1400,
@@ -89,6 +95,7 @@ vi.mock("@/lib/prisma", () => ({
     ouraTag: { findMany: vi.fn().mockResolvedValue(ouraTags) },
     moodLog: { findMany: vi.fn().mockResolvedValue(moodLogs) },
     stravaActivity: { findMany: vi.fn().mockResolvedValue(stravaRows) },
+    symptomLog: { findMany: vi.fn().mockResolvedValue(symptomRows) },
     focusSession: { findMany: vi.fn().mockResolvedValue([]) },
     transaction: { findMany: vi.fn().mockResolvedValue([]) },
     // Serves both the timezone key and fast:history — "UTC" fails the
@@ -166,6 +173,17 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     // Magnesium has no single honest half-life, so it keeps the binary
     // took-it-or-didn't comparison and its plain label
     expect(byId["supplement_magnesium_sleep"].highGroupLabel).toBe("Magnesium days")
+
+    // Symptoms run the other way round: the symptom is the outcome and the
+    // factors are suspects. Days without a headache count as 0, so "the day
+    // after drinking" separates cleanly from every other day.
+    const headache = byId["symptom_headache_alcohol"]
+    expect(headache).toBeDefined()
+    expect(headache.category).toBe("symptoms")
+    expect(headache.highGroupAvg).toBe(4)
+    expect(headache.lowGroupAvg).toBe(0)
+    // more symptom is worse, so the delta must read as negative
+    expect(headache.delta).toBeLessThan(0)
 
     // Interaction: the same supplement lands worse on nights that also had
     // alcohol (70) than on nights with the supplement alone (90)

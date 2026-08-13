@@ -485,7 +485,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       }).catch(() => [] as { caffeineMg: number; loggedAt: Date }[]),
     ])
 
-  const [recentMoods, todayWeather, recentNotes, recentLabs, latestBody, recentWorkouts, fastActivePref, fastHistoryPref] = await Promise.all([
+  const [recentMoods, todayWeather, recentNotes, recentLabs, latestBody, recentWorkouts, recentSymptoms, fastActivePref, fastHistoryPref] = await Promise.all([
     prisma.moodLog.findMany({ where: { userId, date: { gte: since14 } }, orderBy: { date: "desc" } }).catch(() => [] as { date: Date; mood: number }[]),
     prisma.weatherLog.findFirst({
       where: { userId, date: todayStr },
@@ -507,6 +507,11 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       where: { userId }, orderBy: { startDate: "desc" }, take: 7,
       select: { day: true, type: true, name: true, distanceM: true, movingTimeSec: true, avgHR: true },
     }).catch(() => [] as { day: string; type: string; name: string | null; distanceM: number | null; movingTimeSec: number; avgHR: number | null }[]),
+    prisma.symptomLog.findMany({
+      where: { userId, loggedAt: { gte: since14 } },
+      orderBy: { loggedAt: "desc" }, take: 40,
+      select: { name: true, severity: true, day: true, note: true },
+    }).catch(() => [] as { name: string; severity: number; day: string; note: string | null }[]),
     prisma.userPreference.findUnique({ where: { userId_key: { userId, key: "fast:active" } } }).catch(() => null),
     prisma.userPreference.findUnique({ where: { userId_key: { userId, key: "fast:history" } } }).catch(() => null),
   ])
@@ -721,6 +726,19 @@ async function buildSystemPrompt(userId: string): Promise<string> {
     } catch { /* malformed — skip */ }
   }
 
+  // Symptoms — how the user actually felt, which until now Emergy could only
+  // infer from mood scores.
+  const symptomByDay = new Map<string, string[]>()
+  for (const sy of recentSymptoms) {
+    const list = symptomByDay.get(sy.day) ?? []
+    list.push(`${sy.name} ${sy.severity}/5${sy.note ? ` (${sy.note})` : ""}`)
+    symptomByDay.set(sy.day, list)
+  }
+  const symptomsStr = symptomByDay.size === 0
+    ? null
+    : [...symptomByDay.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 10)
+        .map(([day, items]) => `- ${day}: ${items.join(", ")}`).join("\n")
+
   // Calendar — recent + upcoming (phone + Google), with location, so Emergy can
   // reason about activities and places (e.g. gardening days, where you spend time).
   const nowMs = today.getTime()
@@ -770,6 +788,7 @@ ${weatherStr ?? "No weather data available."}
 ## Health (last 7 days)
 ${recentHealth.slice(0, 7).length === 0 ? "No health data yet." : recentHealth.slice(0, 7).map((h) => `- ${h.date.toISOString().split("T")[0]}: sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"}${(h as any).sleepScore != null ? ` (score ${(h as any).sleepScore})` : ""}${h.readinessScore != null ? ` | readiness ${h.readinessScore}` : ""}${h.hrv != null ? ` | HRV ${Math.round(h.hrv)}ms` : ""} | ${h.steps ?? "?"}steps | HR ${h.restingHR ?? "?"}bpm${h.activityScore != null ? ` | activity ${h.activityScore}` : ""}${h.weight != null ? ` | ${h.weight}kg` : ""}`).join("\n")}
 
+${symptomsStr ? `## Symptoms logged (last 14 days — how they actually felt)\n${symptomsStr}\n` : ""}
 ${workoutsStr ? `## Workouts (Strava, most recent)\n${workoutsStr}\n` : ""}
 ${bodyStr ? `## Body composition (latest measurement)\n${bodyStr}\n` : ""}
 ${labsStr ? `## Blood work (latest value per marker — mention ⚠️ flags when health topics come up)\n${labsStr}\n` : ""}

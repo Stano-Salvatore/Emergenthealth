@@ -38,6 +38,7 @@ model User {
   dailyNotes   DailyNote[]
   intakeLogs    IntakeLog[]
   foodLogs      FoodLog[]
+  symptomLogs   SymptomLog[]
   focusSessions FocusSession[]
   driveImportLogs DriveImportLog[]
   books         Book[]
@@ -724,6 +725,30 @@ model Passkey {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// ─── Symptoms ────────────────────────────────────────────────────────────────
+
+// How the user *feels*, as opposed to how their body performs. Everything else
+// in this schema is a metric or an intake; nothing recorded whether the day
+// involved a headache, nausea or brain fog — which is exactly the surface a
+// medication's side effects show up on. Severity is 1-5; a day with no entry
+// for a symptom counts as 0 in the correlation engine, so absence is data too.
+model SymptomLog {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String   // canonical-ish label, e.g. "Headache"
+  severity  Int      // 1-5: 1=barely there, 5=severe
+  bodyPart  String?  // optional location, for a future body map
+  note      String?
+  loggedAt  DateTime @default(now())
+  day       String   // YYYY-MM-DD in the user's timezone
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, day])
+  @@index([userId, name])
 }
 
 // ─── Strava ───────────────────────────────────────────────────────────────────
