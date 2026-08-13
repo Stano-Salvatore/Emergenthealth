@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { subDays, format } from "date-fns"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
-import { normalizeSupplement } from "@/lib/supplement-normalize"
+import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
 // (interactive dashboard) and the correlation-watch cron (pin & watch alerts).
@@ -483,7 +483,10 @@ export async function computeCorrelations(
   for (const t of ouraTagRows) {
     const label = ((t.tagName ?? t.text) ?? "").trim()
     if (!label || classifyOuraTag(label).kind !== "med") continue
-    const name = normalizeSupplement(label) ?? label
+    // cleanLabel, not the raw text: "Frontin 0,5 mg" and "Frontin" have to be
+    // one substance or each half sits below the 5-day threshold and neither
+    // ever produces an insight.
+    const name = normalizeSupplement(label) ?? cleanLabel(label)
     const d = getOrCreate(t.day)
     d.supplements ??= []
     if (!d.supplements.includes(name)) d.supplements.push(name)

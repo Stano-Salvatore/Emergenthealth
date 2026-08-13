@@ -47,7 +47,12 @@ export async function GET(req: NextRequest) {
   if (!session?.user?.email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const ownerEmail = process.env.FEEDBACK_NOTIFY_EMAIL ?? process.env.OWNER_EMAIL
-  if (!ownerEmail || session.user.email !== ownerEmail) {
+  if (!ownerEmail) {
+    return NextResponse.json(
+      { error: "No owner configured — set OWNER_EMAIL to your account's email address to use admin endpoints." },
+      { status: 403 })
+  }
+  if (session.user.email !== ownerEmail) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
 

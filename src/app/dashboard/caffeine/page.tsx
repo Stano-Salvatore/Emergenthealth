@@ -8,6 +8,7 @@ import { Trash2 } from "lucide-react"
 import { format } from "date-fns"
 
 import { COMPOUNDS, COMPOUND_LABELS, LIMIT_MG, decayed, hoursToBedtime } from "@/lib/caffeine"
+import { cutoffHoursBeforeBed } from "@/lib/caffeine-personal"
 
 // Entries created automatically from intake drinks / Oura tags carry a
 // deterministic id prefix; the log marks them so manual ones stand apart.
@@ -48,6 +49,15 @@ function progressColor(mg: number): string {
 function ActiveNowCard({ activeMg, halfLifeH, personal }: { activeMg: number; halfLifeH: number; personal?: PersonalHalfLife }) {
   const bedH = hoursToBedtime()
   const atBed = decayed(activeMg, bedH, halfLifeH)
+  // When today's load falls under a sleep-irrelevant 30 mg, at whichever
+  // half-life applies to this user — the actionable half of the estimate.
+  // "now" frozen at first render — a clearing time doesn't need to tick
+  const [renderedAt] = useState(() => Date.now())
+  const hoursToClear = cutoffHoursBeforeBed(activeMg, halfLifeH)
+  const clearAt = hoursToClear > 0
+    ? new Date(renderedAt + hoursToClear * 3_600_000)
+        .toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+    : null
   // decay curve over the next 12h, 30-min steps, in a 100×32 viewBox
   const points = Array.from({ length: 25 }, (_, i) => {
     const h = i * 0.5
@@ -68,6 +78,11 @@ function ActiveNowCard({ activeMg, halfLifeH, personal }: { activeMg: number; ha
             <p className={`text-xs mt-1 ${atBed > 50 ? "text-amber-400" : "text-muted-foreground"}`}>
               ≈{atBed} mg at 23:00 {atBed > 50 ? "— may affect sleep" : "— sleep-safe"}
             </p>
+            {clearAt && (
+              <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                Below 30 mg around {clearAt}
+              </p>
+            )}
           </div>
           <div className="flex-1 max-w-[220px] pt-1">
             <svg viewBox="0 0 100 32" className="w-full h-12" preserveAspectRatio="none">
