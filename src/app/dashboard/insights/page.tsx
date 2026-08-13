@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -32,6 +32,8 @@ interface InsightResult {
 interface CorrelationsData {
   insights: InsightResult[]
   dataRange: { days: number }
+  computedAt?: string
+  cached?: boolean
 }
 
 // ─── Category metadata ────────────────────────────────────────────────────────
@@ -180,21 +182,41 @@ function EmptyState() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function InsightsPage() {
-  const [data, setData] = useState<CorrelationsData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+const PERIODS = [
+  { key: "week", label: "7 days" },
+  { key: "month", label: "30 days" },
+  { key: "overall", label: "90 days" },
+] as const
+type Period = (typeof PERIODS)[number]["key"]
 
-  useEffect(() => {
-    fetch("/api/insights/correlations")
+export default function InsightsPage() {
+  // The result is stored together with the period it belongs to, so "loading"
+  // is derived rather than a second piece of state the effect has to set
+  // synchronously (which cascades a render before the fetch even starts).
+  const [entry, setEntry] = useState<{ period: Period; data: CorrelationsData } | null>(null)
+  const [recomputing, setRecomputing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // The engine has always supported three windows; nothing ever offered them.
+  const [period, setPeriod] = useState<Period>("overall")
+
+  const load = useCallback((p: Period, refresh = false) => {
+    return fetch(`/api/insights/correlations?period=${p}${refresh ? "&refresh=1" : ""}`)
       .then(r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.json() as Promise<CorrelationsData>
       })
-      .then(setData)
+      .then(d => { setEntry({ period: p, data: d }); setError(null) })
       .catch(e => setError(String(e)))
-      .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    load(period).then(() => { if (cancelled) return })
+    return () => { cancelled = true }
+  }, [load, period])
+
+  const data = entry?.period === period ? entry.data : null
+  const loading = data == null && error == null
 
   // Group insights by category (preserving sort order within each group)
   const grouped: Partial<Record<Category, InsightResult[]>> = {}
@@ -213,6 +235,39 @@ export default function InsightsPage() {
         <p className="text-muted-foreground text-sm mt-0.5">
           {data ? `Patterns found in your last ${data.dataRange.days} days of data` : "Patterns found in your last 60 days"}
         </p>
+
+        <div className="flex items-center justify-between gap-2 mt-3 flex-wrap">
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            {PERIODS.map(p => (
+              <button
+                key={p.key}
+                onClick={() => setPeriod(p.key)}
+                className={cn(
+                  "px-3 py-1.5 text-xs transition-colors",
+                  period === p.key
+                    ? "bg-primary text-primary-foreground font-medium"
+                    : "bg-background text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            {data?.computedAt && (
+              <span className="text-[10px] text-muted-foreground/60">
+                computed {new Date(data.computedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+              </span>
+            )}
+            <button
+              onClick={() => { setRecomputing(true); load(period, true).finally(() => setRecomputing(false)) }}
+              disabled={recomputing || loading}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              {recomputing ? "Recomputing…" : "Recompute"}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* ── Watched (pinned) patterns ── */}
