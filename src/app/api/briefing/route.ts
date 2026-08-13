@@ -7,6 +7,7 @@ import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { supplementInfoFor } from "@/lib/supplement-info"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
+import { loadLabTrends } from "@/lib/lab-trends-load"
 
 const anthropic = new Anthropic()
 
@@ -219,6 +220,18 @@ export async function GET(req: NextRequest) {
     }
   } catch { /* not enough history */ }
 
+  // Blood work, but only while it's news. A marker that has been out of range
+  // since March shouldn't reappear in the brief every morning until December —
+  // so this goes quiet a month after the draw.
+  try {
+    const { notable } = await loadLabTrends(userId)
+    const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+    const recent = notable.filter(t => t.latest.date >= cutoff).slice(0, 2)
+    if (recent.length > 0) {
+      lines.push(`Recent blood work worth knowing about: ${recent.map(t => t.summary).join(" ")}`)
+    }
+  } catch { /* no labs */ }
+
   const context = lines.join(" ")
 
   const response = await anthropic.messages.create({
@@ -231,7 +244,7 @@ export async function GET(req: NextRequest) {
 
 Pick the two or three things that actually matter this morning rather than listing everything — a late dinner before a bad night, a med still circulating that explains feeling foggy, a workout that earned the tiredness, an established pattern this morning is repeating. Prefer a connection between two facts over two separate observations. If something contradicts an established pattern, that's worth saying too.
 
-Be specific with their numbers. Sound like a smart friend who noticed, not a wellness bot. Never give medical advice or suggest changing a medication. No greeting, no "I", start directly with the observation.
+Be specific with their numbers. Sound like a smart friend who noticed, not a wellness bot. Never give medical advice or suggest changing a medication. If blood work appears above, you may repeat what it says, but never interpret what a result means, never say what caused it, and never suggest what to do about it — that belongs to the doctor who ordered the test. No greeting, no "I", start directly with the observation.
 
 ${context}`,
       },
