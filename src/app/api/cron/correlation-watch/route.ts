@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import webpush from "web-push"
 import { Resend } from "resend"
 import { prisma } from "@/lib/prisma"
+import { configurePush, loadSubscriptionsByUser, sendToUser, type PushSub } from "@/lib/push"
 import { computeCorrelations } from "@/lib/correlations"
 
 export const runtime = "nodejs"
@@ -73,29 +73,17 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Channels ──
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-  const privateKey = process.env.VAPID_PRIVATE_KEY
-  const pushReady = !!(publicKey && privateKey)
-  if (pushReady) {
-    webpush.setVapidDetails(process.env.VAPID_EMAIL ?? "mailto:admin@emergenthealth.app", publicKey!, privateKey!)
-  }
-
-  type SubRow = { userId: string; endpoint: string; p256dh: string; auth: string }
-  const subs = pushReady
-    ? await prisma.$queryRaw<SubRow[]>`
-        SELECT DISTINCT ON ("userId") "userId", endpoint, p256dh, auth
-        FROM "PushSubscription"
-        ORDER BY "userId", "createdAt" DESC
-      `.catch(() => [] as SubRow[])
-    : []
-  const subByUser = new Map(subs.map(s => [s.userId, s]))
+  const pushReady = configurePush()
+  const subsByUser: Map<string, PushSub[]> = pushReady
+    ? await loadSubscriptionsByUser()
+    : new Map()
 
   // Pinning is opt-in per pattern, but a pattern reaching Solid is news even
   // for someone who never pinned anything — so anyone reachable (pinned list,
   // push subscription, or a state baseline from a previous run) is checked.
   const userIds = [...new Set([
     ...[...pinnedByUser.entries()].filter(([, arr]) => arr.length > 0).map(([id]) => id),
-    ...subs.map(s => s.userId),
+    ...subsByUser.keys(),
     ...stateByUser.keys(),
   ])]
   if (userIds.length === 0) return NextResponse.json({ ok: true, checked: 0, pushed: 0, emailed: 0 })
@@ -181,25 +169,15 @@ export async function GET(req: NextRequest) {
       : `${changes.length} patterns changed — tap to see.`
 
     // ── Push ──
-    const sub = subByUser.get(userId)
-    if (sub) {
-      try {
-        await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          JSON.stringify({
-            title: "Pattern update 📊",
-            body,
-            url: "/dashboard/insights",
-            tag: "correlation-watch",
-            requireInteraction: false,
-          }),
-        )
-        pushed++
-      } catch (err: unknown) {
-        if (err && typeof err === "object" && "statusCode" in err && (err as { statusCode: number }).statusCode === 410) {
-          await prisma.$executeRaw`DELETE FROM "PushSubscription" WHERE endpoint = ${sub.endpoint}`.catch(() => {})
-        }
-      }
+    const userSubs = subsByUser.get(userId)
+    if (userSubs && await sendToUser(userSubs, {
+      title: "Pattern update 📊",
+      body,
+      url: "/dashboard/insights",
+      tag: "correlation-watch",
+      requireInteraction: false,
+    })) {
+      pushed++
     }
 
     // ── Email ──

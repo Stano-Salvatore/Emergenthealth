@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import webpush from "web-push"
+import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -17,19 +17,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-  const privateKey = process.env.VAPID_PRIVATE_KEY
-  const email = process.env.VAPID_EMAIL ?? "mailto:admin@emergenthealth.app"
-  if (!publicKey || !privateKey) {
+  if (!configurePush()) {
     return NextResponse.json({ error: "VAPID not configured" }, { status: 503 })
   }
-  webpush.setVapidDetails(email, publicKey, privateKey)
 
   // Find users who have push subscriptions but haven't checked in for 3+ days
   const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
 
-  const inactiveUsers = await prisma.$queryRaw<{ userId: string; endpoint: string; p256dh: string; auth: string }[]>`
-    SELECT DISTINCT ON (ps."userId") ps."userId", ps.endpoint, ps.p256dh, ps.auth
+  const inactiveUsers = await prisma.$queryRaw<{ userId: string }[]>`
+    SELECT DISTINCT ps."userId"
     FROM "PushSubscription" ps
     WHERE NOT EXISTS (
       SELECT 1 FROM "MorningCheckIn" mc
@@ -43,29 +39,22 @@ export async function GET(req: NextRequest) {
       SELECT 1 FROM "MoodLog" ml
       WHERE ml."userId" = ps."userId" AND ml."date" >= ${threeDaysAgo}
     )
-    ORDER BY ps."userId", ps."createdAt" DESC
     LIMIT 200
-  `.catch(() => [] as { userId: string; endpoint: string; p256dh: string; auth: string }[])
+  `.catch(() => [] as { userId: string }[])
 
   if (!inactiveUsers.length) return NextResponse.json({ ok: true, sent: 0 })
 
   const msgIndex = Math.floor(Date.now() / 86400000) % MESSAGES.length
   const { title, body } = MESSAGES[msgIndex]
 
-  const results = await Promise.allSettled(
-    inactiveUsers.map(sub =>
-      webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        JSON.stringify({ title, body, url: "/dashboard/checkin", tag: "re-engagement" })
-      ).catch(async (err: unknown) => {
-        if (err && typeof err === "object" && "statusCode" in err && (err as { statusCode: number }).statusCode === 410) {
-          await prisma.$executeRaw`DELETE FROM "PushSubscription" WHERE endpoint = ${sub.endpoint}`.catch(() => {})
-        }
-        throw err
-      })
-    )
+  const subsByUser = await loadSubscriptionsByUser(inactiveUsers.map(u => u.userId))
+
+  const results = await Promise.all(
+    [...subsByUser.values()].map(subs =>
+      sendToUser(subs, { title, body, url: "/dashboard/checkin", tag: "re-engagement" }),
+    ),
   )
 
-  const sent = results.filter(r => r.status === "fulfilled").length
+  const sent = results.filter(Boolean).length
   return NextResponse.json({ ok: true, sent, total: inactiveUsers.length })
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import webpush from "web-push"
 import { prisma } from "@/lib/prisma"
+import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import { getUserTimezone, localDateStr, localTimeStr } from "@/lib/local-date"
 import { activeOn, matchKey, minutesOfDay, sortedTimes, type ScheduleLike } from "@/lib/med-schedule"
 
@@ -31,12 +31,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-  const privateKey = process.env.VAPID_PRIVATE_KEY
-  if (!publicKey || !privateKey) {
+  if (!configurePush()) {
     return NextResponse.json({ ok: true, skipped: "push not configured" })
   }
-  webpush.setVapidDetails(process.env.VAPID_EMAIL ?? "mailto:admin@emergenthealth.app", publicKey, privateKey)
 
   const schedules = await prisma.medSchedule.findMany({
     where: { active: true, remind: true },
@@ -49,15 +46,8 @@ export async function GET(req: NextRequest) {
 
   const userIds = [...new Set(schedules.map(s => s.userId))]
 
-  type SubRow = { userId: string; endpoint: string; p256dh: string; auth: string }
-  const subs = await prisma.$queryRaw<SubRow[]>`
-    SELECT DISTINCT ON ("userId") "userId", endpoint, p256dh, auth
-    FROM "PushSubscription"
-    WHERE "userId" = ANY(${userIds}::text[])
-    ORDER BY "userId", "createdAt" DESC
-  `.catch(() => [] as SubRow[])
-  const subByUser = new Map(subs.map(s => [s.userId, s]))
-  if (subByUser.size === 0) return NextResponse.json({ ok: true, checked: 0, pushed: 0 })
+  const subsByUser = await loadSubscriptionsByUser(userIds)
+  if (subsByUser.size === 0) return NextResponse.json({ ok: true, checked: 0, pushed: 0 })
 
   const stateRows = await prisma.$queryRaw<{ userId: string; value: string }[]>`
     SELECT "userId","value" FROM "UserPreference" WHERE "key" = 'med_reminder_state'
@@ -71,8 +61,8 @@ export async function GET(req: NextRequest) {
   let pushed = 0
 
   for (const userId of userIds) {
-    const sub = subByUser.get(userId)
-    if (!sub) continue
+    const subs = subsByUser.get(userId)
+    if (!subs) continue
     checked++
 
     const tz = await getUserTimezone(userId)
@@ -131,23 +121,14 @@ export async function GET(req: NextRequest) {
     const listed = due.slice(0, MAX_LISTED).join(", ")
     const body = due.length > MAX_LISTED ? `${listed} +${due.length - MAX_LISTED} more` : listed
 
-    try {
-      await webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        JSON.stringify({
-          title: "💊 Time for your dose",
-          body,
-          url: "/dashboard/medications",
-          tag: "med-reminder",
-          requireInteraction: false,
-        }),
-      )
-      pushed++
-    } catch (err: unknown) {
-      if (err && typeof err === "object" && "statusCode" in err && (err as { statusCode: number }).statusCode === 410) {
-        await prisma.$executeRaw`DELETE FROM "PushSubscription" WHERE endpoint = ${sub.endpoint}`.catch(() => {})
-      }
-    }
+    const delivered = await sendToUser(subs, {
+      title: "💊 Time for your dose",
+      body,
+      url: "/dashboard/medications",
+      tag: "med-reminder",
+      requireInteraction: false,
+    })
+    if (delivered) pushed++
   }
 
   return NextResponse.json({ ok: true, checked, pushed })
