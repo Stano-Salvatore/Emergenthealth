@@ -171,7 +171,7 @@ const MED_PATTERNS: [RegExp, SupplementInfo][] = [
     halfLifeH: 20,
     duration: "You feel it for ~4–6 h, but the half-life is ≈20 h — after a bedtime dose roughly 70% is still on board at 8:00, which is why the next morning can feel foggy",
     timing: "1–2 h before bed when used for evening anxiety or sleep; a daytime dose will sedate",
-    caution: "Adds to alcohol, sleeping pills and painkiller sedation; anticholinergic (dry mouth, blurry vision). Clears more slowly with age and in liver problems — prescription med, follow your doctor's dosing",
+    caution: "Adds to alcohol, benzodiazepines (Frontin/Xanax), mirtazapine and sleeping pills — the sedation stacks; anticholinergic (dry mouth, blurry vision). Clears more slowly with age and in liver problems — prescription med, follow your doctor's dosing",
   }],
   [/diphenhydramin|benadryl|sominex/, {
     halfLifeH: 8,
@@ -223,7 +223,25 @@ const MED_PATTERNS: [RegExp, SupplementInfo][] = [
     timing: "Evening — that's when it's been studied",
     caution: "Report any mood or sleep changes to your doctor; it's a known if uncommon side effect",
   }],
-  [/sertralin|zoloft|escitalopram|cipralex|citalopram|fluoxetin|prozac|ssri/, {
+  [/escitalopram|elicea|cipralex|lexapro|esram/, {
+    halfLifeH: 30,
+    duration: "Half-life ≈30 h, so it barely dips between daily doses — blood levels plateau after ~1 week and the mood effect builds over 4–6 weeks",
+    timing: "Same time every day; morning if it disturbs your sleep, evening if it makes you drowsy",
+    caution: "Never stop or change the dose abruptly — taper with your prescriber. Often combined with mirtazapine on purpose, but the serotonin load adds up: sudden agitation, fever, tremor or confusion needs urgent medical advice",
+  }],
+  [/mirtazapin|mirzaten|mirzatem|remeron|esprital|calixta/, {
+    halfLifeH: 26,
+    duration: "Half-life ≈26 h (longer in women and with age) — the sedation is front-loaded in the first hours, but the drug is still largely present the next day and reaches steady state after ~5 days",
+    timing: "At bedtime — the sedating antihistamine effect peaks early. Counter-intuitively, low doses (7.5–15 mg) are often MORE sedating than higher ones, where the activating effect starts to balance it",
+    caution: "Increased appetite and weight gain are common — worth watching in your food log. Adds heavily to alcohol, Atarax and benzodiazepine sedation. Never stop abruptly; taper with your prescriber",
+  }],
+  [/alprazolam|frontin|xanax|neurol|helex/, {
+    halfLifeH: 12,
+    duration: "The calm lasts ~4–6 h but the half-life is ≈12 h — the effect fades long before the drug does, which is why regular dosing accumulates",
+    timing: "As prescribed, and short-term: benzodiazepines are built for occasional use, not maintenance",
+    caution: "Tolerance and physical dependence develop within weeks of daily use, and stopping abruptly after regular use can be dangerous — any reduction belongs on a prescriber-planned taper. Strongly additive with alcohol, Atarax and mirtazapine (sedation and breathing). Impairs driving; also suppresses deep and REM sleep, so a 'good' night on it can still score poorly on your ring",
+  }],
+  [/sertralin|zoloft|citalopram|fluoxetin|prozac|paroxetin|venlafaxin|ssri/, {
     duration: "Long half-life (roughly a day, fluoxetine much longer) — steady state after 1–2 weeks, and effects build over 4–6 weeks",
     timing: "Same time daily; morning if it energizes you, evening if it makes you sleepy",
     caution: "Never start, stop or change the dose without your doctor — stopping abruptly causes discontinuation symptoms",
@@ -236,14 +254,19 @@ const MED_PATTERNS: [RegExp, SupplementInfo][] = [
   }],
 ]
 
-/** Look up pharmacology info for a supplement/med label. Null when unknown. */
+/**
+ * Look up pharmacology info for a supplement/med label. Null when unknown.
+ * Named medications are checked first: they're exact brand/generic matches,
+ * while the supplement normalizer includes loose element heuristics that a
+ * prescription label should never fall into.
+ */
 export function supplementInfoFor(label: string): SupplementInfo | null {
-  const canonical = normalizeSupplement(label)
-  if (canonical && BY_CANONICAL[canonical]) return BY_CANONICAL[canonical]
   const folded = fold(label)
   for (const [re, info] of MED_PATTERNS) {
     if (re.test(folded)) return info
   }
+  const canonical = normalizeSupplement(label)
+  if (canonical && BY_CANONICAL[canonical]) return BY_CANONICAL[canonical]
   return null
 }
 
