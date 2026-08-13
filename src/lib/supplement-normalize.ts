@@ -36,9 +36,13 @@ const CANON: [RegExp, string][] = [
   [/multivitamin|multivit\b|centrum/,                      "Multivitamin"],
 ]
 
+// Dosage text is noise for matching — and worse than noise for magnesium,
+// whose "Mg" element rule otherwise fires on the unit in "Mirzaten 15 mg".
+const DOSE_TEXT = /\b\d+([.,]\d+)?\s*(mg|mcg|µg|ug|iu|g|ml|tbl|caps?|tablet\w*|kvapk\w*|drops?)\b\.?/g
+
 /** Canonical substance name for a raw tag label, or null when unrecognized. */
 export function normalizeSupplement(rawLabel: string): string | null {
-  const label = fold(rawLabel)
+  const label = fold(rawLabel).replace(DOSE_TEXT, " ")
   for (const [re, name] of CANON) {
     if (re.test(label)) return name
   }

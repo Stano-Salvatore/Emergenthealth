@@ -21,12 +21,22 @@ interface CaffeineLog {
   loggedAt: string
 }
 
+interface PersonalHalfLife {
+  halfLifeH: number
+  nights: number
+  usedDefault: boolean
+  confidence: "none" | "low" | "medium" | "high"
+  range: { low: number; high: number } | null
+  summary: string
+}
+
 interface CaffeineData {
   logs: CaffeineLog[]
   totalMg: number
   activeMg?: number
   halfLifeH?: number
   limitMg: number
+  personal?: PersonalHalfLife
 }
 
 function progressColor(mg: number): string {
@@ -35,7 +45,7 @@ function progressColor(mg: number): string {
   return "bg-red-500"
 }
 
-function ActiveNowCard({ activeMg, halfLifeH }: { activeMg: number; halfLifeH: number }) {
+function ActiveNowCard({ activeMg, halfLifeH, personal }: { activeMg: number; halfLifeH: number; personal?: PersonalHalfLife }) {
   const bedH = hoursToBedtime()
   const atBed = decayed(activeMg, bedH, halfLifeH)
   // decay curve over the next 12h, 30-min steps, in a 100×32 viewBox
@@ -75,6 +85,19 @@ function ActiveNowCard({ activeMg, halfLifeH }: { activeMg: number; halfLifeH: n
             </div>
           </div>
         </div>
+
+        {/* Whose half-life this curve is drawn with */}
+        {personal && (
+          <p className="text-[10px] text-muted-foreground/70 mt-2 pt-2 border-t border-border/50">
+            {personal.usedDefault ? "⏱️ " : "🧬 "}
+            {personal.usedDefault
+              ? personal.summary
+              : <>Your own caffeine half-life: <span className="text-primary font-semibold">{personal.summary}</span>
+                  {personal.range && personal.range.low !== personal.range.high &&
+                    <> Plausible range {personal.range.low}–{personal.range.high} h.</>}
+                </>}
+          </p>
+        )}
       </CardContent>
     </Card>
   )
@@ -161,7 +184,7 @@ export default function CaffeinePage() {
 
       {/* Active caffeine + decay projection */}
       {(data.activeMg ?? 0) > 0 && (
-        <ActiveNowCard activeMg={data.activeMg!} halfLifeH={data.halfLifeH ?? 5} />
+        <ActiveNowCard activeMg={data.activeMg!} halfLifeH={data.halfLifeH ?? 5} personal={data.personal} />
       )}
 
       {/* Progress bar */}

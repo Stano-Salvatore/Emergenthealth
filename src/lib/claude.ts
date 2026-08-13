@@ -72,6 +72,17 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "log_usual",
+    description: "Log the user's usual order at one of their saved places — e.g. 'log my usual' or 'log my usual at Vták' logs the drink they've stored for that café, feeding the intake and caffeine trackers. Without a place name it uses the place they most recently checked in at that has a usual set.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        placeName: { type: "string", description: "Saved place name or a part of it (optional)" },
+      },
+      required: [],
+    },
+  },
+  {
     name: "log_mood",
     description: "Log the user's mood for today (1=awful, 2=bad, 3=ok, 4=good, 5=great)",
     input_schema: {
@@ -195,6 +206,50 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       }
     }
     return `Logged ${amountMl}ml of coffee.`
+  }
+
+  if (name === "log_usual") {
+    const places = await prisma.savedPlace.findMany({ where: { userId } })
+    const withUsual = places.filter(p => p.usualType && p.usualMl)
+    if (withUsual.length === 0) {
+      return "No saved place has a usual order yet — one can be set from the place banner on the dashboard (⭐ Save place → pick the usual)."
+    }
+    let place: (typeof withUsual)[number] | null = null
+    const q = (input.placeName ?? "").trim().toLowerCase()
+    if (q) {
+      place = withUsual.find(p => p.name.toLowerCase().includes(q)) ?? null
+      if (!place) {
+        return `No saved place matching "${input.placeName}" has a usual order. Places with a usual: ${withUsual.map(p => p.name).join(", ")}.`
+      }
+    } else {
+      // default to where they last checked in; unambiguous single place also works
+      const lastCheckin = await prisma.checkIn.findFirst({
+        where: { userId, savedPlaceId: { in: withUsual.map(p => p.id) } },
+        orderBy: { checkedAt: "desc" },
+      }).catch(() => null)
+      place = withUsual.find(p => p.id === lastCheckin?.savedPlaceId)
+        ?? (withUsual.length === 1 ? withUsual[0] : null)
+      if (!place) {
+        return `Which place? Usuals are set at: ${withUsual.map(p => p.name).join(", ")}. Ask the user, then call log_usual with the placeName.`
+      }
+    }
+    const log = await prisma.intakeLog.create({
+      data: {
+        userId,
+        type: place.usualType!,
+        amountMl: place.usualMl!,
+        note: `${place.usualNote || "the usual"} @ ${place.name}`,
+        loggedAt: new Date(),
+      },
+    })
+    // same mirroring the intake API does, same deterministic id convention
+    const est = estimateCaffeine(place.usualType!, place.usualNote ?? "", place.usualMl!)
+    if (est) {
+      await prisma.caffeineLog.create({
+        data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg },
+      }).catch(() => null)
+    }
+    return `Logged the usual at ${place.name}: ${place.usualNote || place.usualType}, ${place.usualMl} ml.${est ? ` Tracked ${est.mg} mg caffeine.` : ""}`
   }
 
   if (name === "log_mood") {
@@ -692,7 +747,7 @@ Keep responses concise. Reference actual numbers from the data. Use tools when t
 
 FORMATTING: your replies render as markdown. Use **bold** to highlight times, numbers and key words (bold shows in green — that's your accent colour), "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
-You have tools to CREATE habits/reminders, COMPLETE habits, LOG water/coffee/mood/weight/journal, READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
+You have tools to CREATE habits/reminders, COMPLETE habits, LOG water/coffee/mood/weight/journal and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}

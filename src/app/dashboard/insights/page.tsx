@@ -24,6 +24,9 @@ interface InsightResult {
   highGroupN: number
   lowGroupN: number
   confident: boolean
+  pValue?: number
+  tier?: "strong" | "suggestive" | "noise"
+  weekendDriven?: boolean
 }
 
 interface CorrelationsData {
@@ -109,15 +112,27 @@ function InsightCard({ insight }: { insight: InsightResult }) {
           <span className="font-semibold text-sm flex-1 min-w-0 leading-snug pt-0.5">{insight.title}</span>
           <div className="flex items-center gap-1.5 shrink-0">
             <DeltaPill delta={insight.delta} />
+            {/* Trust tier: permutation test + false-discovery control, not just sample size */}
             <Badge
               variant="secondary"
               className={cn(
                 "text-[10px] font-semibold px-1.5",
-                insight.confident ? "text-primary" : "text-muted-foreground",
+                insight.tier === "strong" ? "text-emerald-400"
+                  : insight.tier === "suggestive" ? "text-amber-400"
+                  : insight.tier === "noise" ? "text-muted-foreground"
+                  : insight.confident ? "text-primary" : "text-muted-foreground",
               )}
             >
-              {insight.confident ? "Strong" : "Early"}
+              {insight.tier === "strong" ? "Solid"
+                : insight.tier === "suggestive" ? "Suggestive"
+                : insight.tier === "noise" ? "Could be chance"
+                : insight.confident ? "Strong" : "Early"}
             </Badge>
+            {insight.weekendDriven && (
+              <Badge variant="secondary" className="text-[10px] font-semibold px-1.5 text-sky-400">
+                Weekend pattern?
+              </Badge>
+            )}
           </div>
         </div>
 

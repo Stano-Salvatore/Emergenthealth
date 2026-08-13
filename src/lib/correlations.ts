@@ -59,6 +59,17 @@ export type InsightResult = {
   highGroupN: number
   lowGroupN: number
   confident: boolean
+  /** Permutation-test p-value: how often random group shuffles produce a difference this large. */
+  pValue: number
+  /**
+   * Trust tier after Benjamini-Hochberg false-discovery control across the
+   * whole run: "strong" survives FDR at q=0.10, "suggestive" has raw p ≤ 0.10,
+   * "noise" is indistinguishable from chance. With ~70 candidate insights,
+   * several will always look interesting by luck — this is what separates them.
+   */
+  tier: "strong" | "suggestive" | "noise"
+  /** True when the effect collapses or flips once weekends are excluded — the classic confounder. */
+  weekendDriven?: boolean
 }
 
 export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall: 90 }
@@ -81,6 +92,80 @@ function median(arr: number[]): number {
   const sorted = [...arr].sort((a, b) => a - b)
   const mid = Math.floor(sorted.length / 2)
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
+// Deterministic RNG (mulberry32) so permutation p-values are reproducible in
+// tests and stable across the two engine passes (all days / weekdays only).
+function seededRng(seed: number): () => number {
+  let a = seed >>> 0
+  return () => {
+    a += 0x6d2b79f5
+    let t = a
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function hashString(s: string): number {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+const PERMUTATIONS = 1000
+
+/**
+ * Permutation test: shuffle the values between the two groups PERMUTATIONS
+ * times and count how often chance alone produces a mean difference at least
+ * as large as the observed one. Distribution-free — no normality assumptions,
+ * works at the small n this engine deals in.
+ */
+function permutationP(high: number[], low: number[], seedKey: string): number {
+  const observed = Math.abs(avg(high) - avg(low))
+  const pool = [...high, ...low]
+  const nHigh = high.length
+  const rng = seededRng(hashString(seedKey))
+  let atLeast = 0
+  for (let p = 0; p < PERMUTATIONS; p++) {
+    // Fisher-Yates shuffle
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1))
+      ;[pool[i], pool[j]] = [pool[j], pool[i]]
+    }
+    let sumHigh = 0
+    for (let i = 0; i < nHigh; i++) sumHigh += pool[i]
+    let sumLow = 0
+    for (let i = nHigh; i < pool.length; i++) sumLow += pool[i]
+    const diff = Math.abs(sumHigh / nHigh - sumLow / (pool.length - nHigh))
+    if (diff >= observed - 1e-12) atLeast++
+  }
+  // +1 correction: a permutation p-value is never exactly 0
+  return (atLeast + 1) / (PERMUTATIONS + 1)
+}
+
+/**
+ * Benjamini-Hochberg false-discovery control at q=0.10 over a whole run's
+ * insights, assigning each its trust tier in place.
+ */
+export function assignTiers(insights: InsightResult[]): void {
+  const sorted = [...insights].sort((a, b) => a.pValue - b.pValue)
+  const m = sorted.length
+  let cutoffIdx = -1
+  for (let i = 0; i < m; i++) {
+    if (sorted[i].pValue <= ((i + 1) / m) * 0.10) cutoffIdx = i
+  }
+  sorted.forEach((ins, idx) => {
+    ins.tier = idx <= cutoffIdx ? "strong" : ins.pValue <= 0.10 ? "suggestive" : "noise"
+  })
+}
+
+function isWeekendDate(dateStr: string): boolean {
+  const dow = new Date(dateStr + "T12:00:00Z").getUTCDay()
+  return dow === 0 || dow === 6
 }
 
 /**
@@ -132,6 +217,8 @@ function compareGroups(opts: {
     highGroupN: highValues.length,
     lowGroupN: lowValues.length,
     confident: highValues.length >= 10 && lowValues.length >= 10,
+    pValue: permutationP(highValues, lowValues, id),
+    tier: "noise", // provisional — assignTiers() sets the real tier per run
   }
 }
 
@@ -438,9 +525,12 @@ export async function computeCorrelations(
     }
   } catch { /* malformed blob — skip fasting */ }
 
-  const days = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date))
-  const totalDays = days.length
+  const allDays = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date))
+  const totalDays = allDays.length
 
+  // The whole insight battery, runnable on any subset of days — it runs twice:
+  // once on everything, once on weekdays only (the weekend confounder guard).
+  const deriveInsights = (days: DayData[]): InsightResult[] => {
   const insights: InsightResult[] = []
   const byDate = Object.fromEntries(days.map(d => [d.date, d]))
 
@@ -1441,6 +1531,25 @@ export async function computeCorrelations(
         : `Drinking isn't cutting your REM sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
   })
   if (ins_alcohol_rem) insights.push(ins_alcohol_rem)
+
+  return insights
+  } // end deriveInsights
+
+  const insights = deriveInsights(allDays)
+  assignTiers(insights)
+
+  // Weekend guard: alcohol, late meals, spending, music and screen time all
+  // cluster on weekends — and so does sleeping in. An effect that collapses or
+  // flips once weekends are excluded is probably the weekend, not the habit.
+  const weekdayVersions = new Map(
+    deriveInsights(allDays.filter(d => !isWeekendDate(d.date))).map(i => [i.id, i]),
+  )
+  for (const ins of insights) {
+    const wk = weekdayVersions.get(ins.id)
+    if (wk && (Math.sign(wk.delta) !== Math.sign(ins.delta) || Math.abs(wk.delta) < Math.abs(ins.delta) * 0.35)) {
+      ins.weekendDriven = true
+    }
+  }
 
   insights.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
   return { insights, totalDays }

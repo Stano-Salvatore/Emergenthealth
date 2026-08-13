@@ -35,9 +35,13 @@ export const decayed = (mg: number, hours: number, halfLifeH = HALF_LIFE_H) =>
   Math.round(mg * Math.pow(0.5, hours / halfLifeH))
 
 /** Sum a set of doses down to what is active at `now`. */
-export function activeFromDoses(doses: { caffeineMg: number; loggedAt: Date }[], now = Date.now()): number {
+export function activeFromDoses(
+  doses: { caffeineMg: number; loggedAt: Date }[],
+  now = Date.now(),
+  halfLifeH = HALF_LIFE_H,
+): number {
   return Math.round(doses.reduce(
-    (sum, d) => sum + d.caffeineMg * Math.pow(0.5, (now - d.loggedAt.getTime()) / 3600_000 / HALF_LIFE_H), 0))
+    (sum, d) => sum + d.caffeineMg * Math.pow(0.5, (now - d.loggedAt.getTime()) / 3600_000 / halfLifeH), 0))
 }
 
 /** Hours until the next 23:00 \u2014 the "will it bother my sleep" reference point. */

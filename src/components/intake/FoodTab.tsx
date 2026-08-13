@@ -8,9 +8,10 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { format } from "date-fns"
-import { Camera, Loader2, Pencil, Plus, Sparkles, Trash2, UtensilsCrossed, X } from "lucide-react"
+import { Camera, Loader2, Pencil, Plus, ScanLine, Sparkles, Trash2, UtensilsCrossed, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { capturePhoto, downscaleDataUrl } from "@/lib/native/camera"
+import { barcodeSupported, detectBarcode } from "@/lib/barcode"
 import { getCurrentPosition } from "@/lib/native/geolocation"
 import { matchSavedPlace, type PlaceLike } from "@/lib/places"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
@@ -124,6 +125,7 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
   const [refining, setRefining] = useState(false)
   const [refineText, setRefineText] = useState("")
   const [saving, setSaving] = useState(false)
+  const [scanning, setScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   // Kicked off when a draft starts so the fix is usually ready by save time.
@@ -243,14 +245,75 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
     })
   }
 
+  /** Scan a product barcode → exact label nutrition from Open Food Facts. */
+  async function scanBarcode() {
+    setError(null)
+    const photo = await capturePhoto()
+    if (!photo) return
+    setScanning(true)
+    try {
+      const code = await detectBarcode(photo)
+      if (!code) {
+        setError(barcodeSupported()
+          ? "No barcode found — get closer so it fills the frame."
+          : "Barcode reading isn't supported in this browser — snap the meal instead.")
+        return
+      }
+      const res = await fetch(`/api/food/barcode?code=${code}`)
+      if (!res.ok) {
+        setError(res.status === 404
+          ? "Product isn't in Open Food Facts — snap the label instead."
+          : "Barcode lookup failed — try again.")
+        return
+      }
+      const prod: {
+        name: string; servingG: number | null
+        per100: { kcal: number; proteinG: number | null; carbsG: number | null; fatG: number | null; sugarG: number | null }
+      } = await res.json()
+      locRef.current = locateMeal().catch(() => null)
+      const grams = prod.servingG ?? 100
+      const scale = (v: number | null) => v != null ? Math.round(v * grams / 10) / 10 : 0
+      const kcal = Math.round(prod.per100.kcal * grams / 100)
+      const analysis: Analysis = {
+        isFood: true, name: prod.name, mealType: "snack",
+        items: [{
+          kind: "food", name: prod.name, portion: `${grams} g`, grams,
+          searchQuery: "", calories: kcal,
+          proteinG: scale(prod.per100.proteinG), carbsG: scale(prod.per100.carbsG),
+          fatG: scale(prod.per100.fatG), sugarG: scale(prod.per100.sugarG),
+          drinkType: "none", volumeMl: 0, source: "db", dbName: "Open Food Facts (label)",
+        }],
+        micros: [], healthNote: "",
+        calories: kcal, proteinG: scale(prod.per100.proteinG),
+        carbsG: scale(prod.per100.carbsG), fatG: scale(prod.per100.fatG),
+        sugarG: scale(prod.per100.sugarG),
+      }
+      setDraft({
+        photo: null,
+        analysis,
+        name: prod.name,
+        mealType: "snack",
+        calories: String(kcal),
+        proteinG: String(analysis.proteinG),
+        carbsG: String(analysis.carbsG),
+        fatG: String(analysis.fatG),
+        note: prod.servingG ? `1 serving (${grams} g) — label data` : "per 100 g — label data, adjust to your portion",
+      })
+    } finally {
+      setScanning(false)
+    }
+  }
+
   async function saveDraft() {
     if (!draft) return
     const calories = parseInt(draft.calories)
     if (!draft.name.trim() || !Number.isFinite(calories) || calories < 0) return
     setSaving(true)
     try {
-      // Store only a small thumbnail — the full capture stays on the device.
-      const thumb = draft.photo ? await downscaleDataUrl(draft.photo, 320, 0.55) : null
+      // Store a viewable copy (~900px, ≈100–250KB) — big enough to reopen
+      // full-screen from the meal list, small enough for a DB text column.
+      // (Earlier saves kept only a 320px thumb, so old photos reopen blurry.)
+      const thumb = draft.photo ? await downscaleDataUrl(draft.photo, 900, 0.62) : null
       // Location was requested when the draft started; give it a short grace
       // period but never hold the save hostage to a slow GPS fix.
       const loc = await Promise.race([
@@ -302,6 +365,8 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
 
   // Inline meal editing — fix a name or a number without re-snapping
   const [editing, setEditing] = useState<{ id: string; name: string; mealType: string; calories: string; proteinG: string; carbsG: string; fatG: string } | null>(null)
+  // Tap a saved meal's thumbnail to see the photo full-screen again
+  const [photoView, setPhotoView] = useState<{ src: string; name: string } | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
 
   function startEditLog(log: FoodLog) {
@@ -427,6 +492,10 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
           <Button onClick={snapMeal} disabled={analyzing} className="gap-2">
             {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
             {analyzing ? "Analyzing…" : "Snap a meal or drink"}
+          </Button>
+          <Button variant="outline" onClick={scanBarcode} disabled={analyzing || scanning} className="gap-2">
+            {scanning ? <Loader2 className="h-4 w-4 animate-spin" /> : <ScanLine className="h-4 w-4" />}
+            {scanning ? "Looking up…" : "Scan barcode"}
           </Button>
           <Button variant="outline" onClick={startManual} disabled={analyzing} className="gap-2">
             <Pencil className="h-4 w-4" /> Add manually
@@ -654,8 +723,11 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
               <div key={log.id}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-xl border bg-card hover:bg-secondary/30 transition-colors group">
                 {log.photo ? (
-                  // eslint-disable-next-line @next/next/no-img-element -- stored data-URL thumbnail
-                  <img src={log.photo} alt="" className="w-11 h-11 rounded-lg object-cover shrink-0" />
+                  <button onClick={() => setPhotoView({ src: log.photo!, name: log.name })}
+                    aria-label={`View photo of ${log.name}`} className="shrink-0">
+                    {/* eslint-disable-next-line @next/next/no-img-element -- stored data-URL photo */}
+                    <img src={log.photo} alt="" className="w-11 h-11 rounded-lg object-cover" />
+                  </button>
                 ) : (
                   <div className="w-11 h-11 rounded-lg bg-secondary flex items-center justify-center text-lg shrink-0">
                     {MEAL_EMOJI[log.mealType] ?? "🥡"}
@@ -699,6 +771,28 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
           </div>
         )}
       </div>
+
+      {photoView && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setPhotoView(null)}
+          role="dialog" aria-label={`Photo of ${photoView.name}`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- stored data-URL photo */}
+          <img src={photoView.src} alt={photoView.name}
+            className="max-w-full max-h-[85vh] rounded-xl object-contain" />
+          <p className="absolute bottom-6 left-0 right-0 text-center text-sm text-white/80 px-6 truncate">
+            {photoView.name}
+          </p>
+          <button
+            onClick={() => setPhotoView(null)}
+            aria-label="Close photo"
+            className="absolute top-4 right-4 text-white/80 hover:text-white p-2"
+          >
+            <X className="h-6 w-6" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

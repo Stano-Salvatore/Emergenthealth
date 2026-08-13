@@ -89,7 +89,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
-import { computeCorrelations } from "@/lib/correlations"
+import { computeCorrelations, assignTiers, type InsightResult } from "@/lib/correlations"
 
 describe("computeCorrelations — food, hydration, supplements", () => {
   it("rediscovers every planted effect with the right direction", async () => {
@@ -137,6 +137,30 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     const sugarMood = byId["food_sugar_mood"]
     expect(sugarMood).toBeDefined()
     expect(sugarMood.highGroupAvg).toBeGreaterThan(sugarMood.lowGroupAvg) // 5 vs 2
+
+    // Statistics: cleanly planted separations beat chance and survive
+    // false-discovery control...
+    for (const ins of [late, protein, water, mgSleep, workout]) {
+      expect(ins.pValue).toBeLessThan(0.05)
+      expect(ins.tier).toBe("strong")
+    }
+    // ...and an every-other-day pattern is not a weekend artifact
+    expect(late.weekendDriven).toBeUndefined()
+    expect(workout.weekendDriven).toBeUndefined()
+  })
+
+  it("assignTiers separates real p-values from chance-level ones", () => {
+    const mk = (id: string, pValue: number): InsightResult => ({
+      id, category: "sleep", emoji: "x", title: id, finding: "", delta: 10,
+      highGroupLabel: "", lowGroupLabel: "", highGroupAvg: 1, lowGroupAvg: 0,
+      highGroupN: 10, lowGroupN: 10, confident: true, pValue, tier: "noise",
+    })
+    const insights = [mk("real1", 0.001), mk("real2", 0.004), mk("meh", 0.09), mk("chance", 0.6)]
+    assignTiers(insights)
+    expect(insights.find(i => i.id === "real1")!.tier).toBe("strong")
+    expect(insights.find(i => i.id === "real2")!.tier).toBe("strong")
+    expect(insights.find(i => i.id === "meh")!.tier).toBe("suggestive")
+    expect(insights.find(i => i.id === "chance")!.tier).toBe("noise")
   })
 
   it("stays silent on food insights when there are too few food days", async () => {

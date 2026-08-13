@@ -18,6 +18,8 @@ const item = (over: Partial<FoodItem>): FoodItem => ({
   name: "Item",
   portion: "1 piece",
   grams: 100,
+  count: 0,
+  unitName: "",
   searchQuery: "",
   calories: 0,
   proteinG: 0,
@@ -124,6 +126,49 @@ describe("reconcileWithDb", () => {
     expect(a.items[0].calories).toBeGreaterThan(100)
     expect(a.items[0].calories).toBeLessThan(125)
     expect(a.micros.some(m => m.name === "Vitamin C")).toBe(true)
+  })
+
+  it("trusts the count over an inflated eyeballed weight — the 4-egg case", () => {
+    // The model sees 4 eggs but calls the pile 600 g (a 10-egg plate).
+    const a = reconcileWithDb({
+      isFood: true,
+      name: "Scrambled eggs",
+      mealType: "dinner",
+      items: [item({
+        name: "Scrambled eggs", searchQuery: "egg whole cooked scrambled",
+        grams: 600, count: 4, unitName: "large egg",
+        calories: 900, proteinG: 60, carbsG: 6, fatG: 66,
+      })],
+      micros: [],
+      healthNote: "",
+    })
+    const eggs = a.items[0]
+    expect(eggs.grams).toBe(200) // 4 × 50 g, not 600
+    expect(eggs.portionAdjusted).toBe("count")
+    expect(eggs.source).toBe("db")
+    // USDA scrambled eggs ≈ 149 kcal/100g → ~300 kcal, not 900
+    expect(eggs.calories).toBeGreaterThan(250)
+    expect(eggs.calories).toBeLessThan(350)
+  })
+
+  it("clamps an implausible single serving and rescales an unmatched estimate", () => {
+    const a = reconcileWithDb({
+      isFood: true,
+      name: "Fried pastry",
+      mealType: "snack",
+      items: [item({
+        name: "Fried tvorog-filled pastry", searchQuery: "zzblorp no match",
+        grams: 400, // one hand-held pastry is not 400 g
+        calories: 960, proteinG: 33, carbsG: 99, fatG: 48,
+      })],
+      micros: [],
+      healthNote: "",
+    })
+    const pastry = a.items[0]
+    expect(pastry.source).toBe("est")
+    expect(pastry.portionAdjusted).toBe("cap")
+    expect(pastry.grams).toBe(250) // pastry ceiling
+    expect(pastry.calories).toBe(600) // 960 × 250/400 — estimate rescaled with the weight
   })
 
   it("merges model micros only for nutrients the database didn't cover", () => {
