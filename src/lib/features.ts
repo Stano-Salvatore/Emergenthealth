@@ -29,18 +29,19 @@ export const FEATURE_ROUTES: Record<FeatureKey, string[]> = {
   fasting:    ["/dashboard/fasting"],
 }
 
+// Launched: strava, lastfm, rescuetime, labs, screentime and fasting are all
+// self-contained — they need nothing but their own connection, and they now
+// feed the correlation engine, Emergy's context and (for Strava) the daily
+// sync cron, so hiding their pages only hid the data's home.
+//
+// Still held back, each for a concrete reason rather than caution:
+//   finances  — four bank aggregators, only two on a cron; needs a pruning pass
+//   smarthome — depends on a self-hosted UDP bridge, not multi-tenant
+//   gmail     — separate OAuth surface, and Bills depends on it
 const HELD_BACK: FeatureKey[] = [
   "finances",
   "smarthome",
   "gmail",
-  "strava",
-  "lastfm",
-  "rescuetime",
-  "labs",
-  "screentime",
-  // Built and working, but never linked from anywhere — holding it as a
-  // proper future release instead of leaving it an accidental orphan.
-  "fasting",
 ]
 
 function envOverrides(): Set<string> {

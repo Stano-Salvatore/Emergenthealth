@@ -8,6 +8,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.widget.RemoteViews;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -29,6 +31,7 @@ public class QuickLogWidget extends AppWidgetProvider {
     public static final String ACTION_LOG_COFFEE    = "app.emergenthealth.LOG_COFFEE";
     public static final String ACTION_LOG_BEER      = "app.emergenthealth.LOG_BEER";
     public static final String ACTION_LOG_WINE      = "app.emergenthealth.LOG_WINE";
+    public static final String ACTION_LOG_USUAL     = "app.emergenthealth.LOG_USUAL";
 
     private static final String PREFS_WIDGET = "EmergenthealthWidget";
     private static final String PREFS_CAP    = "CapacitorStorage";
@@ -64,6 +67,7 @@ public class QuickLogWidget extends AppWidgetProvider {
             case ACTION_LOG_COFFEE:    logAndUpdate(context, "coffee", 240); break;
             case ACTION_LOG_BEER:      logAndUpdate(context, "beer", 330); break;
             case ACTION_LOG_WINE:      logAndUpdate(context, "wine", 150); break;
+            case ACTION_LOG_USUAL:     logUsual(context); break;
             default: break;
         }
     }
@@ -115,6 +119,7 @@ public class QuickLogWidget extends AppWidgetProvider {
         views.setOnClickPendingIntent(R.id.btn_coffee, buildActionPendingIntent(context, ACTION_LOG_COFFEE, 3));
         views.setOnClickPendingIntent(R.id.btn_beer, buildActionPendingIntent(context, ACTION_LOG_BEER, 4));
         views.setOnClickPendingIntent(R.id.btn_wine, buildActionPendingIntent(context, ACTION_LOG_WINE, 5));
+        views.setOnClickPendingIntent(R.id.btn_usual, buildActionPendingIntent(context, ACTION_LOG_USUAL, 6));
 
         appWidgetManager.updateAppWidget(appWidgetId, views);
     }
@@ -131,55 +136,116 @@ public class QuickLogWidget extends AppWidgetProvider {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                try {
-                    SharedPreferences capPrefs = context.getSharedPreferences(PREFS_CAP, Context.MODE_PRIVATE);
-                    String apiKey = capPrefs.getString(CAP_API_KEY, null);
-                    String appUrl = capPrefs.getString(CAP_APP_URL, null);
-                    if (apiKey == null || appUrl == null) {
-                        refreshAll(context);
-                        return;
-                    }
+                String body = postLog(context, "{\"type\":\"" + type + "\",\"amountMl\":" + amountMl + "}");
+                if (body != null) bumpLocalTotals(context, type, amountMl);
+                refreshAll(context);
+            }
+        }).start();
+    }
 
-                    String base = appUrl;
-                    while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
-                    String endpoint = base + "/api/widget/log";
-                    String json = "{\"type\":\"" + type + "\",\"amountMl\":" + amountMl + "}";
-
-                    HttpURLConnection conn = (HttpURLConnection) new URL(endpoint).openConnection();
-                    conn.setRequestMethod("POST");
-                    conn.setConnectTimeout(8000);
-                    conn.setReadTimeout(8000);
-                    conn.setDoOutput(true);
-                    conn.setRequestProperty("Content-Type", "application/json");
-                    conn.setRequestProperty("x-widget-key", apiKey);
-
-                    OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream(), "UTF-8");
-                    writer.write(json);
-                    writer.flush();
-                    writer.close();
-
-                    int responseCode = conn.getResponseCode();
-                    conn.disconnect();
-
-                    if (responseCode >= 200 && responseCode < 300) {
-                        maybeResetDay(context);
-                        SharedPreferences widgetPrefs = context.getSharedPreferences(PREFS_WIDGET, Context.MODE_PRIVATE);
-                        SharedPreferences.Editor editor = widgetPrefs.edit();
-                        switch (type) {
-                            case "water":  editor.putInt(KEY_WATER_ML, widgetPrefs.getInt(KEY_WATER_ML, 0) + amountMl); break;
-                            case "coffee": editor.putInt(KEY_COFFEE_ML, widgetPrefs.getInt(KEY_COFFEE_ML, 0) + amountMl); break;
-                            case "beer":   editor.putInt(KEY_BEER_COUNT, widgetPrefs.getInt(KEY_BEER_COUNT, 0) + 1); break;
-                            case "wine":   editor.putInt(KEY_WINE_COUNT, widgetPrefs.getInt(KEY_WINE_COUNT, 0) + 1); break;
-                            default: break;
-                        }
-                        editor.apply();
-                    }
-                } catch (Exception e) {
-                    // Never crash the widget — silently fail.
+    /**
+     * One tap logs the usual order of the saved place — the server picks the
+     * place (last checked in at) and the drink, so the widget doesn't need to
+     * know either. The response says what was logged, which is what keeps the
+     * local daily totals honest.
+     */
+    static void logUsual(final Context context) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String body = postLog(context, "{\"usual\":true}");
+                if (body != null) {
+                    String type = extractString(body, "type");
+                    int ml = extractInt(body, "amountMl");
+                    if (type != null && ml > 0) bumpLocalTotals(context, type, ml);
                 }
                 refreshAll(context);
             }
         }).start();
+    }
+
+    /** POST a JSON body to /api/widget/log. Returns the response body, or null on any failure. */
+    private static String postLog(Context context, String json) {
+        try {
+            SharedPreferences capPrefs = context.getSharedPreferences(PREFS_CAP, Context.MODE_PRIVATE);
+            String apiKey = capPrefs.getString(CAP_API_KEY, null);
+            String appUrl = capPrefs.getString(CAP_APP_URL, null);
+            if (apiKey == null || appUrl == null) return null;
+
+            String base = appUrl;
+            while (base.endsWith("/")) base = base.substring(0, base.length() - 1);
+
+            HttpURLConnection conn = (HttpURLConnection) new URL(base + "/api/widget/log").openConnection();
+            conn.setRequestMethod("POST");
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("x-widget-key", apiKey);
+
+            OutputStreamWriter writer = new OutputStreamWriter(conn.getOutputStream(), "UTF-8");
+            writer.write(json);
+            writer.flush();
+            writer.close();
+
+            int responseCode = conn.getResponseCode();
+            String body = null;
+            if (responseCode >= 200 && responseCode < 300) {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line);
+                reader.close();
+                body = sb.toString();
+            }
+            conn.disconnect();
+            return body;
+        } catch (Exception e) {
+            // Never crash the widget — silently fail.
+            return null;
+        }
+    }
+
+    private static void bumpLocalTotals(Context context, String type, int amountMl) {
+        maybeResetDay(context);
+        SharedPreferences widgetPrefs = context.getSharedPreferences(PREFS_WIDGET, Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = widgetPrefs.edit();
+        switch (type) {
+            case "water":
+            case "sparkling": editor.putInt(KEY_WATER_ML, widgetPrefs.getInt(KEY_WATER_ML, 0) + amountMl); break;
+            case "coffee":
+            case "tea":
+            case "matcha":    editor.putInt(KEY_COFFEE_ML, widgetPrefs.getInt(KEY_COFFEE_ML, 0) + amountMl); break;
+            case "beer":      editor.putInt(KEY_BEER_COUNT, widgetPrefs.getInt(KEY_BEER_COUNT, 0) + 1); break;
+            case "wine":      editor.putInt(KEY_WINE_COUNT, widgetPrefs.getInt(KEY_WINE_COUNT, 0) + 1); break;
+            default: break;
+        }
+        editor.apply();
+    }
+
+    /** Minimal JSON field readers — a widget shouldn't pull in a parser dependency. */
+    private static String extractString(String json, String key) {
+        String needle = "\"" + key + "\":\"";
+        int start = json.indexOf(needle);
+        if (start < 0) return null;
+        start += needle.length();
+        int end = json.indexOf('"', start);
+        return end > start ? json.substring(start, end) : null;
+    }
+
+    private static int extractInt(String json, String key) {
+        String needle = "\"" + key + "\":";
+        int start = json.indexOf(needle);
+        if (start < 0) return -1;
+        start += needle.length();
+        int end = start;
+        while (end < json.length() && Character.isDigit(json.charAt(end))) end++;
+        if (end == start) return -1;
+        try {
+            return Integer.parseInt(json.substring(start, end));
+        } catch (NumberFormatException e) {
+            return -1;
+        }
     }
 
     private static void refreshAll(Context context) {

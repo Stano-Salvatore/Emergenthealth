@@ -29,11 +29,53 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid API key" }, { status: 401 })
   }
 
-  let body: { type?: unknown; amountMl?: unknown }
+  let body: { type?: unknown; amountMl?: unknown; usual?: unknown }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
+
+  // { usual: true } — one home-screen tap logs the usual order of the saved
+  // place. The widget can't ask which place, so it never errors on ambiguity:
+  // last place checked in at → the only one with a usual → most recent.
+  if (body.usual === true) {
+    const places = await prisma.savedPlace.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+    })
+    const withUsual = places.filter(p => p.usualType && p.usualMl)
+    if (withUsual.length === 0) {
+      return NextResponse.json({ error: "No saved place has a usual order yet" }, { status: 400 })
+    }
+    const lastCheckin = await prisma.checkIn.findFirst({
+      where: { userId, savedPlaceId: { in: withUsual.map(p => p.id) } },
+      orderBy: { checkedAt: "desc" },
+      select: { savedPlaceId: true },
+    }).catch(() => null)
+    const place = withUsual.find(p => p.id === lastCheckin?.savedPlaceId) ?? withUsual[0]
+
+    const log = await prisma.intakeLog.create({
+      data: {
+        userId,
+        type: place.usualType!,
+        amountMl: place.usualMl!,
+        note: `${place.usualNote || "the usual"} @ ${place.name}`,
+      },
+    })
+    const usualEst = estimateCaffeine(place.usualType!, place.usualNote ?? "", place.usualMl!)
+    if (usualEst) {
+      await prisma.caffeineLog.create({
+        data: { id: `intake_${log.id}`, userId, compound: usualEst.compound, caffeineMg: usualEst.mg },
+      }).catch(() => null)
+    }
+    return NextResponse.json({
+      ok: true,
+      type: place.usualType,
+      amountMl: place.usualMl,
+      place: place.name,
+      label: place.usualNote || place.usualType,
+    })
   }
 
   const { type, amountMl } = body
