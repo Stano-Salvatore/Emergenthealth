@@ -161,7 +161,7 @@ export async function GET(req: NextRequest) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           {d.intention ? (
             <div style={{ fontSize: "12px", color: "#a0a0c0", fontStyle: "italic" }}>
-              "{d.intention.slice(0, 80)}{d.intention.length > 80 ? "…" : ""}"
+              {`“${d.intention.slice(0, 80)}${d.intention.length > 80 ? "…" : ""}”`}
             </div>
           ) : (
             <div />

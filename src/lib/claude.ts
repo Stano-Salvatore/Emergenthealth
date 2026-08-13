@@ -630,17 +630,17 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const weekBoundary = new Date(today.getTime() - 7 * 86400000)
   const thisWeekMoods = (recentMoods as { date: Date; mood: number }[]).filter(m => new Date(m.date) >= weekBoundary)
   const lastWeekMoods = (recentMoods as { date: Date; mood: number }[]).filter(m => new Date(m.date) < weekBoundary)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const avgSleepThis = avg(thisWeekHealth.map((h: any) => h.sleepScore as number | null))
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const avgSleepLast = avg(lastWeekHealth.map((h: any) => h.sleepScore as number | null))
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const avgStepsThis = avg(thisWeekHealth.map((h: any) => h.steps as number | null))
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const avgStepsLast = avg(lastWeekHealth.map((h: any) => h.steps as number | null))
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const avgReadinessThis = avg(thisWeekHealth.map((h: any) => h.readinessScore as number | null))
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const avgReadinessLast = avg(lastWeekHealth.map((h: any) => h.readinessScore as number | null))
   const avgMoodThis = avg(thisWeekMoods.map(m => m.mood))
   const avgMoodLast = avg(lastWeekMoods.map(m => m.mood))

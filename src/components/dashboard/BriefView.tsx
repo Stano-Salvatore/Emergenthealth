@@ -54,6 +54,9 @@ function isUpcoming(e: { start: string; end: string }, now: number): boolean {
 }
 
 export function BriefView({ name }: { name: string }) {
+  // Snapshot of "now" for filtering out events that have already finished —
+  // it only needs to be right at render, not tick.
+  const [renderedAt] = useState(() => Date.now())
   const [period, setPeriod] = useState<Period>("morning")
   const [today, setToday] = useState<TodayData | null>(null)
   const [briefing, setBriefing] = useState<string | null>(null)
@@ -103,7 +106,7 @@ export function BriefView({ name }: { name: string }) {
   // The evening card used to show calendar[0] — the day's *first* event — and
   // label it "still on your calendar", so at 21:00 it announced the 09:00
   // standup. Only events that haven't finished yet qualify.
-  const nextEvent = today?.calendar?.find(e => isUpcoming(e, Date.now())) ?? null
+  const nextEvent = today?.calendar?.find(e => isUpcoming(e, renderedAt)) ?? null
 
   return (
     <div className="space-y-5 max-w-2xl">

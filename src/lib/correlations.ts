@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { subDays, format } from "date-fns"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
+import { supplementInfoFor } from "@/lib/supplement-info"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
 // (interactive dashboard) and the correlation-watch cron (pin & watch alerts).
@@ -1247,13 +1248,66 @@ export async function computeCorrelations(
     .slice(0, 5)
     .map(([s]) => s)
   const suppSlug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "").slice(0, 24) || "x"
+
+  // Presence isn't binary for anything with a long half-life. Elicea sits at
+  // ~30 h and Mirzaten ~26 h, so the night after one missed dose still has
+  // most of the drug on board — calling that an "off" day compares a
+  // three-quarters-medicated night against a fully-medicated one and finds
+  // nothing. Where the half-life is known, days are scored by how much is
+  // estimated to still be circulating (a dose decayed across the preceding
+  // days) and split at the median, which turns a real multi-day gap into a
+  // genuine off-period and leaves single misses where they belong: mostly on.
+  // Substances without a meaningful single half-life — vitamin D, omega-3,
+  // anything stored — keep the honest binary comparison.
+  const RESIDUAL_LOOKBACK_DAYS = 10
+  const NEGLIGIBLE_LEVEL = 0.15 // in dose-units; below this it's effectively gone
+
+  function residualLevels(supp: string, halfLifeH: number): number[] {
+    return days.map((_, i) => {
+      let level = 0
+      for (let back = 0; back <= RESIDUAL_LOOKBACK_DAYS && i - back >= 0; back++) {
+        if ((days[i - back].supplements ?? []).includes(supp)) {
+          level += Math.pow(0.5, (back * 24) / halfLifeH)
+        }
+      }
+      return level
+    })
+  }
+
   for (const supp of topSupps) {
+    const halfLifeH = supplementInfoFor(supp)?.halfLifeH
+    let onBoard: (dayIndex: number) => boolean = () => false
+    let highLabel = `${supp} days`
+    let lowLabel = `days without ${supp}`
+    let levelBased = false
+
+    if (halfLifeH) {
+      const levels = residualLevels(supp, halfLifeH)
+      const sorted = [...levels].sort((a, b) => a - b)
+      const lowQ = sorted[Math.floor(sorted.length * 0.25)]
+      const highQ = sorted[Math.floor(sorted.length * 0.75)]
+      // Only worth doing when the level actually varies — someone with perfect
+      // adherence has no off-period to compare against, and splitting a flat
+      // line at its median just manufactures two identical groups.
+      if (highQ > Math.max(lowQ * 1.5, NEGLIGIBLE_LEVEL)) {
+        const cut = Math.max(median(levels), NEGLIGIBLE_LEVEL)
+        onBoard = i => levels[i] >= cut
+        highLabel = `${supp} still on board`
+        lowLabel = `after it cleared`
+        levelBased = true
+      }
+    }
+    if (!levelBased) {
+      onBoard = i => (days[i].supplements ?? []).includes(supp)
+    }
+
     const withSleep: number[] = [], withoutSleep: number[] = []
     const withHrv: number[] = [], withoutHrv: number[] = []
     const withDeep: number[] = [], withoutDeep: number[] = []
     const withRem: number[] = [], withoutRem: number[] = []
-    for (const d of days) {
-      const took = (d.supplements ?? []).includes(supp)
+    for (let i = 0; i < days.length; i++) {
+      const d = days[i]
+      const took = onBoard(i)
       const next = byDate[nextDateStr(d.date)]
       if (!next) continue
       if (next.sleepScore != null) { if (took) withSleep.push(next.sleepScore); else withoutSleep.push(next.sleepScore) }
@@ -1263,17 +1317,17 @@ export async function computeCorrelations(
     }
     const ins_supp_sleep = compareGroups({
       id: `supplement_${suppSlug(supp)}_sleep`, category: "supplements", emoji: "💊", title: `${supp} & Sleep Quality`,
-      highGroupLabel: `${supp} days`, lowGroupLabel: `days without ${supp}`,
+      highGroupLabel: highLabel, lowGroupLabel: lowLabel,
       highValues: withSleep, lowValues: withoutSleep,
       findingTemplate: (h, l) =>
         h > l
-          ? `On nights after taking ${supp}, sleep score averages ${h} vs ${l} without it`
-          : `${supp} doesn't show a sleep benefit yet — ${h} vs ${l} without it`,
+          ? `${levelBased ? `While ${supp} was still circulating` : `On nights after taking ${supp}`}, sleep score averages ${h} vs ${l} ${levelBased ? "once it cleared" : "without it"}`
+          : `${supp} doesn't show a sleep benefit yet — ${h} vs ${l} ${levelBased ? "once it cleared" : "without it"}`,
     })
     if (ins_supp_sleep) insights.push(ins_supp_sleep)
     const ins_supp_hrv = compareGroups({
       id: `supplement_${suppSlug(supp)}_hrv`, category: "supplements", emoji: "💓", title: `${supp} & HRV`,
-      highGroupLabel: `${supp} days`, lowGroupLabel: `days without ${supp}`,
+      highGroupLabel: highLabel, lowGroupLabel: lowLabel,
       highValues: withHrv, lowValues: withoutHrv,
       findingTemplate: (h, l) =>
         h > l
@@ -1288,7 +1342,7 @@ export async function computeCorrelations(
     // stages short. The stage minutes are the only place that shows up.
     const ins_supp_deep = compareGroups({
       id: `supplement_${suppSlug(supp)}_deep`, category: "supplements", emoji: "🌊", title: `${supp} & Deep Sleep`,
-      highGroupLabel: `${supp} days`, lowGroupLabel: `days without ${supp}`,
+      highGroupLabel: highLabel, lowGroupLabel: lowLabel,
       highValues: withDeep, lowValues: withoutDeep,
       findingTemplate: (h, l) =>
         h > l
@@ -1298,7 +1352,7 @@ export async function computeCorrelations(
     if (ins_supp_deep) insights.push(ins_supp_deep)
     const ins_supp_rem = compareGroups({
       id: `supplement_${suppSlug(supp)}_rem`, category: "supplements", emoji: "🌀", title: `${supp} & REM Sleep`,
-      highGroupLabel: `${supp} days`, lowGroupLabel: `days without ${supp}`,
+      highGroupLabel: highLabel, lowGroupLabel: lowLabel,
       highValues: withRem, lowValues: withoutRem,
       findingTemplate: (h, l) =>
         h > l

@@ -35,8 +35,49 @@ const WATER_OPTIONS = [1500, 2000, 2500, 3000]
 
 const STEP_LABELS = ["Energy", "Mood", "Focus", "Water"]
 
+type Step = 0 | 1 | 2 | 3 | "done"
+
+function BackButton({ to, onBack }: { to: 0 | 1 | 2; onBack: (s: 0 | 1 | 2) => void }) {
+  return (
+    <button
+      onClick={() => onBack(to)}
+      className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      aria-label="Back to previous step"
+    >
+      <ArrowLeft className="h-3.5 w-3.5" /> Back
+    </button>
+  )
+}
+
+function ProgressBar({ step }: { step: Step }) {
+  const current = step === "done" ? 4 : (step as number)
+  const pct = (current / 4) * 100
+  return (
+    <div className="mb-8">
+      <div className="flex justify-between mb-2">
+        {STEP_LABELS.map((label, i) => (
+          <span
+            key={label}
+            className={`text-[10px] font-medium transition-colors ${
+              i < current ? "text-primary" : i === current ? "text-foreground" : "text-muted-foreground/50"
+            }`}
+          >
+            {label}
+          </span>
+        ))}
+      </div>
+      <div className="h-1 rounded-full bg-border overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all duration-500 ease-out"
+          style={{ width: `${pct}%`, background: "var(--primary)" }}
+        />
+      </div>
+    </div>
+  )
+}
+
 export default function CheckInPage() {
-  const [step, setStep] = useState<0 | 1 | 2 | 3 | "done">(0)
+  const [step, setStep] = useState<Step>(0)
   const [energy, setEnergy] = useState<number | null>(null)
   const [mood, setMood] = useState<number | null>(null)
   const [intention, setIntention] = useState("")
@@ -133,45 +174,6 @@ export default function CheckInPage() {
   }
 
   // Steps 1-3 can go back; step 0 is the start and "done" is terminal.
-  function BackButton({ to }: { to: 0 | 1 | 2 }) {
-    return (
-      <button
-        onClick={() => setStep(to)}
-        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        aria-label="Back to previous step"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Back
-      </button>
-    )
-  }
-
-  function ProgressBar() {
-    const current = step === "done" ? 4 : (step as number)
-    const pct = (current / 4) * 100
-    return (
-      <div className="mb-8">
-        <div className="flex justify-between mb-2">
-          {STEP_LABELS.map((label, i) => (
-            <span
-              key={label}
-              className={`text-[10px] font-medium transition-colors ${
-                i < current ? "text-primary" : i === current ? "text-foreground" : "text-muted-foreground/50"
-              }`}
-            >
-              {label}
-            </span>
-          ))}
-        </div>
-        <div className="h-1 rounded-full bg-border overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-500 ease-out"
-            style={{ width: `${pct}%`, background: "var(--primary)" }}
-          />
-        </div>
-      </div>
-    )
-  }
-
   if (loading) {
     return (
       <div className="flex flex-col items-center px-4 pt-6 pb-10" style={{ paddingBottom: "calc(2.5rem + env(safe-area-inset-bottom))" }}>
@@ -201,7 +203,7 @@ export default function CheckInPage() {
       style={{ paddingBottom: "calc(2.5rem + env(safe-area-inset-bottom))" }}
     >
       <div className="w-full max-w-sm">
-        {step !== "done" && <ProgressBar />}
+        {step !== "done" && <ProgressBar step={step} />}
 
         {step === 0 && (
           <Card>
@@ -230,7 +232,7 @@ export default function CheckInPage() {
         {step === 1 && (
           <Card>
             <CardContent className="pt-8 pb-6 px-6">
-              <div className="mb-4"><BackButton to={0} /></div>
+              <div className="mb-4"><BackButton to={0} onBack={setStep} /></div>
               <p className="text-center text-xl font-semibold mb-6">How&apos;s your mood?</p>
               <div className="grid grid-cols-5 gap-2">
                 {MOOD_OPTIONS.map(opt => (
@@ -255,7 +257,7 @@ export default function CheckInPage() {
         {step === 2 && (
           <Card>
             <CardContent className="pt-8 pb-6 px-6">
-              <div className="mb-4"><BackButton to={1} /></div>
+              <div className="mb-4"><BackButton to={1} onBack={setStep} /></div>
               <p className="text-center text-xl font-semibold mb-2">What&apos;s your focus today?</p>
               <p className="text-center text-sm text-muted-foreground mb-5">Optional — skip if you prefer</p>
               <Textarea
@@ -284,7 +286,7 @@ export default function CheckInPage() {
         {step === 3 && (
           <Card>
             <CardContent className="pt-8 pb-6 px-6">
-              <div className="mb-4"><BackButton to={2} /></div>
+              <div className="mb-4"><BackButton to={2} onBack={setStep} /></div>
               <p className="text-center text-xl font-semibold mb-2">Daily water goal?</p>
               <p className="text-center text-sm text-muted-foreground mb-6">Tap to save and finish</p>
               <div className="grid grid-cols-2 gap-3">

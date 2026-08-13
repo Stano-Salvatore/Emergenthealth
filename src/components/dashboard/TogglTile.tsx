@@ -19,21 +19,22 @@ function fmt(seconds: number) {
 
 export function TogglTile() {
   const [state, setState] = useState<TogglState | null>(null)
-  const [tick, setTick] = useState(0)
+  // The ticker drives the live timer; holding 'now' in state keeps render pure
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
     fetch("/api/toggl/state").then(r => r.json()).then(setState).catch(() => {})
     const poll = setInterval(() => {
       fetch("/api/toggl/state").then(r => r.json()).then(setState).catch(() => {})
     }, 30_000)
-    const ticker = setInterval(() => setTick(t => t + 1), 1000)
+    const ticker = setInterval(() => setNow(Date.now()), 1000)
     return () => { clearInterval(poll); clearInterval(ticker) }
   }, [])
 
   if (!state?.connected) return null
 
   const liveSeconds = state.current
-    ? Math.floor((Date.now() - new Date(state.current.start).getTime()) / 1000)
+    ? Math.floor((now - new Date(state.current.start).getTime()) / 1000)
     : 0
   const totalSeconds = state.totalSecondsToday + (state.current ? liveSeconds : 0)
   const isRunning = !!state.current

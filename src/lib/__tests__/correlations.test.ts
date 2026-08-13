@@ -35,7 +35,10 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
       readinessScore: i === 0 ? null : isEven(i - 1) ? 85 : 65,
       restingHR: null,
       stressHigh: null, hrv: i === 0 ? null : isEven(i - 1) ? 40 : 62,
-      steps: null, activityScore: null, deepSleep: null, remSleep: null,
+      steps: null, activityScore: null,
+      // Deep sleep is suppressed on the nights following a Frontin day
+      deepSleep: i === 0 ? null : i - 1 < 20 ? 40 : 80,
+      remSleep: null,
     })),
     checkIns: dates.map((ds, i) => ({
       date: ds,
@@ -61,9 +64,16 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
       loggedAt: new Date(ds + "T12:00:00Z"),
       amountMl: isEven(i) ? 2500 : 1000,
     })),
-    ouraTags: dates.filter((_, i) => !isEven(i)).map(ds => ({
-      day: ds, tagName: "Magnesium", text: null,
-    })),
+    ouraTags: [
+      ...dates.filter((_, i) => !isEven(i)).map(ds => ({
+        day: ds, tagName: "Magnesium", text: null,
+      })),
+      // A prescription med taken every day for the first 20 days, then a real
+      // gap — the adherence pattern the residual model exists for. Frontin's
+      // 12 h half-life means it's genuinely washed out a day or two into the
+      // gap, so the two halves are a clean on/off contrast.
+      ...dates.slice(0, 20).map(ds => ({ day: ds, tagName: "Frontin", text: null })),
+    ],
   }
 })
 
@@ -142,6 +152,20 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     const sugarMood = byId["food_sugar_mood"]
     expect(sugarMood).toBeDefined()
     expect(sugarMood.highGroupAvg).toBeGreaterThan(sugarMood.lowGroupAvg) // 5 vs 2
+
+    // A med with a known half-life is compared by how much is still
+    // circulating, not by whether a tag exists that day — so the 20-day
+    // on-period reads as on, the gap reads as off, and the planted deep-sleep
+    // suppression (40 vs 80 min) comes out.
+    const frontinDeep = byId["supplement_frontin_deep"]
+    expect(frontinDeep).toBeDefined()
+    expect(frontinDeep.highGroupAvg).toBe(40)
+    expect(frontinDeep.lowGroupAvg).toBe(80)
+    expect(frontinDeep.highGroupLabel).toContain("still on board")
+
+    // Magnesium has no single honest half-life, so it keeps the binary
+    // took-it-or-didn't comparison and its plain label
+    expect(byId["supplement_magnesium_sleep"].highGroupLabel).toBe("Magnesium days")
 
     // Interaction: the same supplement lands worse on nights that also had
     // alcohol (70) than on nights with the supplement alone (90)

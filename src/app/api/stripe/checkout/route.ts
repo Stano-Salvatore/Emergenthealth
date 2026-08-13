@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://emergenthealth.vercel.app"
 
   // Get or create Stripe customer
-  let sub = await prisma.subscription.findUnique({ where: { userId } })
+  const sub = await prisma.subscription.findUnique({ where: { userId } })
   let customerId = sub?.stripeCustomerId
 
   if (!customerId) {

@@ -149,7 +149,7 @@ export async function syncTruelayerForUser(userId: string): Promise<SyncResult> 
 
   const { results }: { results: TLTransaction[] } = await res.json()
   let synced = 0
-  let deleted = 0
+  const deleted = 0
 
   for (const t of results) {
     const amountCents = Math.round(t.amount * 100)
