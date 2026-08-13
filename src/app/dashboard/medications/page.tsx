@@ -6,6 +6,7 @@ import { RefreshCw, Search, Pencil, CalendarDays, Tag } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { supplementInfoFor, fractionRemaining, PHARMA_DISCLAIMER } from "@/lib/supplement-info"
+import { MedScheduleCard } from "@/components/medications/MedScheduleCard"
 
 interface TagItem {
   id: string
@@ -415,6 +416,9 @@ export default function MedicationsPage() {
           </button>
         </div>
       </div>
+
+      {/* What you're meant to take today, and whether it happened */}
+      <MedScheduleCard onDoseLogged={() => load()} />
 
       {/* Log a dose — the app no longer depends on the ring to know about meds */}
       <Card className="border-primary/20 bg-primary/5">
