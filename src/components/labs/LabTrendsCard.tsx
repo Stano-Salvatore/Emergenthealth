@@ -12,7 +12,13 @@ import { ChevronDown, TrendingUp, TrendingDown, Minus } from "lucide-react"
 // honest version of that sentence is the useful one anyway — it's what you
 // take to the appointment.
 
-interface Habit { name: string; daysTaken: number; coverage: number; newSince: boolean }
+interface Habit {
+  name: string
+  daysTaken: number
+  coverage: number
+  cadenceLabel: string
+  newSince: boolean
+}
 
 interface Trend {
   marker: string
@@ -22,10 +28,13 @@ interface Trend {
   status: "in-range" | "below" | "above" | "unknown"
   changePct: number | null
   direction: "up" | "down" | "flat" | null
+  significant: boolean | null
+  rcvPct: number | null
   crossed: "into range" | "out of range" | null
   intervalDays: number | null
   taken: Habit[]
   summary: string
+  converted: { from: string; to: string; previousAs: number } | null
   unitMismatch: boolean
 }
 
@@ -94,7 +103,7 @@ export function LabTrendsCard() {
                           : "border-border bg-secondary/40 text-muted-foreground",
                       )}
                     >
-                      {h.newSince && "new · "}{h.name} {Math.round(h.coverage * 100)}%
+                      {h.newSince && "new · "}{h.name} · {h.cadenceLabel}
                     </span>
                   ))}
                 </div>
@@ -115,7 +124,9 @@ export function LabTrendsCard() {
         <p className="text-[10px] text-muted-foreground/70 leading-snug">
           Two facts side by side, not a cause: one person without a control group can&apos;t show
           that a supplement moved a marker. Reference ranges are the ones printed on your own
-          reports. Take anything here to the doctor who ordered the test.
+          reports. Whether a change counts is judged against how much that marker naturally
+          varies between draws — a published population estimate, not yours. Take anything here
+          to the doctor who ordered the test.
         </p>
       </CardContent>
     </Card>

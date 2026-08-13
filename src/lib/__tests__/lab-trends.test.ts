@@ -46,17 +46,68 @@ describe("computeLabTrends", () => {
       reading({ value: 43, date: "2026-08-01" }),
     ])
     expect(t.direction).toBe("flat")
-    expect(t.summary).toContain("steady")
+    expect(t.summary).toContain("holding steady")
   })
 
-  it("refuses to compare readings printed in different units", () => {
+  it("judges each marker against its own natural variation, not one flat number", () => {
+    // CRP up 60% is unremarkable — it swings more than that on its own
+    const [crp] = computeLabTrends([
+      { marker: "CRP", value: 2.0, unit: "mg/L", date: "2026-03-01", referenceMin: 0, referenceMax: 5 },
+      { marker: "CRP", value: 3.2, unit: "mg/L", date: "2026-08-01", referenceMin: 0, referenceMax: 5 },
+    ])
+    expect(Math.round(crp.changePct!)).toBe(60)
+    expect(crp.significant).toBe(false)
+    expect(crp.direction).toBe("flat")
+
+    // Sodium up 6% is a genuine move — it is held far tighter than that
+    const [na] = computeLabTrends([
+      { marker: "Sodium", value: 140, unit: "mmol/L", date: "2026-03-01", referenceMin: 136, referenceMax: 145 },
+      { marker: "Sodium", value: 148, unit: "mmol/L", date: "2026-08-01", referenceMin: 136, referenceMax: 145 },
+    ])
+    expect(na.significant).toBe(true)
+    expect(na.direction).toBe("up")
+    expect(na.summary).toContain("real move")
+
+    // The old flat 5% rule would have called both of those the other way round
+    expect(crp.changePct!).toBeGreaterThan(5)
+    expect(Math.abs(na.changePct!)).toBeGreaterThan(5)
+  })
+
+  it("admits when it doesn't know how much a marker varies", () => {
     const [t] = computeLabTrends([
-      reading({ marker: "Cholesterol", value: 200, unit: "mg/dL", date: "2026-03-01" }),
-      reading({ marker: "Cholesterol", value: 5.2, unit: "mmol/l", date: "2026-08-01" }),
+      { marker: "NT-proBNP", value: 100, unit: "pg/mL", date: "2026-03-01", referenceMin: null, referenceMax: null },
+      { marker: "NT-proBNP", value: 160, unit: "pg/mL", date: "2026-08-01", referenceMin: null, referenceMax: null },
+    ])
+    expect(t.rcvPct).toBeNull()
+    expect(t.significant).toBeNull()
+    expect(t.direction).toBe("up") // direction still stands
+    expect(t.summary).toContain("treat the size with caution")
+  })
+
+  it("converts between units instead of giving up on the comparison", () => {
+    // 200 mg/dL and 5.2 mmol/L are the same cholesterol. Reported raw, the
+    // naive percentage reads as a 97% collapse.
+    const [t] = computeLabTrends([
+      reading({ marker: "Cholesterol", value: 200, unit: "mg/dL", referenceMax: 200, date: "2026-03-01" }),
+      reading({ marker: "Cholesterol", value: 5.2, unit: "mmol/l", referenceMax: 5.2, date: "2026-08-01" }),
+    ])
+    expect(t.unitMismatch).toBe(false)
+    expect(t.converted).not.toBeNull()
+    expect(t.converted!.from).toBe("mg/dL")
+    expect(t.converted!.previousAs).toBeCloseTo(5.172, 2)
+    expect(Math.abs(t.changePct!)).toBeLessThan(1) // essentially unchanged
+    expect(t.direction).toBe("flat")
+    expect(t.summary).toContain("converted to mmol/l")
+  })
+
+  it("still refuses when the units genuinely can't be reconciled", () => {
+    const [t] = computeLabTrends([
+      reading({ marker: "NT-proBNP", value: 120, unit: "pg/mL", date: "2026-03-01" }),
+      reading({ marker: "NT-proBNP", value: 14, unit: "pmol/L", date: "2026-08-01" }),
     ])
     expect(t.unitMismatch).toBe(true)
     expect(t.changePct).toBeNull()
-    expect(t.summary).toContain("different units")
+    expect(t.summary).toContain("can't be reconciled")
   })
 
   it("says when a marker crossed into the printed range", () => {
@@ -101,6 +152,40 @@ describe("computeLabTrends", () => {
     )
     expect(t.taken[0].newSince).toBe(false)
     expect(t.summary).toContain("Through that window you logged")
+  })
+
+  it("counts a weekly dose that a share-of-days rule would have discarded", () => {
+    // 21 weekly doses across 153 days is 14% coverage — and obviously the
+    // thing to mention next to a vitamin D result
+    const weekly: DayTags[] = []
+    const d = new Date("2026-03-02T00:00:00Z")
+    for (let i = 0; i < 21; i++) {
+      weekly.push({ day: d.toISOString().slice(0, 10), name: "Vitamin D3 20000 IU" })
+      d.setUTCDate(d.getUTCDate() + 7)
+    }
+    const [t] = computeLabTrends(
+      [reading({ value: 42, date: "2026-03-01" }), reading({ value: 68, date: "2026-08-01" })],
+      weekly,
+    )
+    expect(t.taken).toHaveLength(1)
+    expect(t.taken[0].cadence).toBe("weekly")
+    expect(t.taken[0].coverage).toBeLessThan(0.2)
+    expect(t.summary).toContain("(weekly)")
+  })
+
+  it("leaves out a short course that didn't run the window", () => {
+    // Two solid weeks of ibuprofen in the middle — high local density, no
+    // relationship to a five-month interval
+    const course = Array.from({ length: 14 }, (_, i) => {
+      const d = new Date("2026-05-01T00:00:00Z")
+      d.setUTCDate(d.getUTCDate() + i)
+      return { day: d.toISOString().slice(0, 10), name: "Ibalgin" }
+    })
+    const [t] = computeLabTrends(
+      [reading({ value: 42, date: "2026-03-01" }), reading({ value: 68, date: "2026-08-01" })],
+      course,
+    )
+    expect(t.taken).toHaveLength(0)
   })
 
   it("ignores something taken only occasionally", () => {

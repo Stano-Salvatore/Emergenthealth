@@ -1,19 +1,20 @@
 // What moved between two blood draws, and what you were doing in between.
 //
-// Lab results are the one dataset the app records and then ignores. They don't
-// belong in the day-level correlation engine: that machinery rests on a
-// permutation test over dozens of days, and a marker with three readings a year
-// would get a p-value computed from three points — a number that looks like
-// evidence and isn't. Labs are sparse and slow, so they get their own,
-// deliberately more modest treatment.
+// Lab results are sparse and slow, so they don't go through the day-level
+// correlation engine: that machinery rests on a permutation test over dozens
+// of days, and a marker with three readings a year would get a p-value
+// computed from three points — a number that looks like evidence and isn't.
 //
 // Everything here is DESCRIPTIVE. "Your vitamin D went from 42 to 68, and you
-// logged D3 on 84% of the days in between" is a true statement about two facts
-// sitting next to each other. "D3 raised your vitamin D" is a causal claim this
-// data cannot support — one person, no control, no randomisation — and nothing
-// in this file makes it.
+// logged D3 weekly through the window in between" is a true statement about
+// two facts sitting next to each other. "D3 raised your vitamin D" is a causal
+// claim this data cannot support — one person, no control, no randomisation —
+// and nothing in this file makes it.
 
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
+import { convertLabValue, normalizeUnit } from "@/lib/lab-units"
+import { referenceChangeValue } from "@/lib/lab-variation"
+import { cadenceLabel, describeCadence, type Cadence } from "@/lib/dose-cadence"
 
 export interface LabReading {
   marker: string
@@ -37,8 +38,10 @@ export type RangeStatus = "in-range" | "below" | "above" | "unknown"
 export interface IntervalHabit {
   name: string
   daysTaken: number
-  /** Share of days in the interval this was logged on, 0-1. */
   coverage: number
+  cadence: Cadence
+  /** Human-readable rhythm: "daily", "weekly", "every ~4 days"… */
+  cadenceLabel: string
   /** True when it was barely present in the run-up to the previous draw. */
   newSince: boolean
 }
@@ -53,23 +56,29 @@ export interface MarkerTrend {
   /** Signed percentage change, or null when it can't honestly be computed. */
   changePct: number | null
   direction: "up" | "down" | "flat" | null
+  /**
+   * Bigger than this marker's own natural variation between draws?
+   * Null when the marker's variability isn't known — an honest "can't say",
+   * not a guess in either direction.
+   */
+  significant: boolean | null
+  /** The change this marker has to beat to count, in %. Null if unknown. */
+  rcvPct: number | null
   crossed: "into range" | "out of range" | null
   intervalDays: number | null
-  /** What was taken consistently between the draws. Context, not cause. */
+  /** What was taken through the interval. Context, not cause. */
   taken: IntervalHabit[]
   summary: string
-  /** The two readings are in different units, so no change was computed. */
+  /**
+   * The previous reading was printed in a different unit and was converted to
+   * this one for the comparison. The stored result is untouched.
+   */
+  converted: { from: string; to: string; previousAs: number } | null
+  /** Units genuinely can't be reconciled, so no change was computed. */
   unitMismatch: boolean
 }
 
-/**
- * Assay noise. Repeat the same sample twice and you can see a few percent of
- * movement, so anything under this is reported as flat rather than as a change.
- */
-const FLAT_PCT = 5
-/** Logged on at least this share of the interval to count as "taken". */
-const CONSISTENT = 0.5
-/** Below this in the prior window, it counts as newly started. */
+/** Share of the prior window below which a substance counts as newly started. */
 const WAS_ABSENT = 0.2
 const MAX_HABITS = 4
 
@@ -98,7 +107,7 @@ function substance(name: string): string {
 }
 
 /** Distinct days each substance was logged on, within [from, to). */
-function daysBySubstance(tags: DayTags[], from: string, to: string): Map<string, Set<string>> {
+function daysBySubstance(tags: DayTags[], from: string, to: string): Map<string, string[]> {
   const out = new Map<string, Set<string>>()
   for (const t of tags) {
     if (t.day < from || t.day >= to) continue
@@ -108,7 +117,7 @@ function daysBySubstance(tags: DayTags[], from: string, to: string): Map<string,
     if (!set) { set = new Set(); out.set(key, set) }
     set.add(t.day)
   }
-  return out
+  return new Map([...out].map(([k, v]) => [k, [...v]]))
 }
 
 function intervalHabits(tags: DayTags[], from: string, to: string): IntervalHabit[] {
@@ -119,16 +128,28 @@ function intervalHabits(tags: DayTags[], from: string, to: string): IntervalHabi
 
   const habits: IntervalHabit[] = []
   for (const [name, days] of during) {
-    const coverage = days.size / span
-    if (coverage < CONSISTENT) continue
-    const priorCoverage = (before.get(name)?.size ?? 0) / span
+    const pattern = describeCadence(days, span)
+    // Either a recognisable rhythm that ran the window, or simply frequent.
+    // A handful of scattered doses is neither and doesn't belong beside a
+    // blood result.
+    if (!pattern.consistent) continue
+
+    const priorDays = before.get(name) ?? []
+    const priorPattern = describeCadence(priorDays, span)
+    // "New" has to be judged on the same footing: a weekly dose that was also
+    // weekly before is not new, even though its coverage is only 14%.
+    const wasThere = priorPattern.consistent || priorDays.length / span >= WAS_ABSENT
+
     habits.push({
       name,
-      daysTaken: days.size,
-      coverage: Math.round(coverage * 100) / 100,
-      newSince: priorCoverage < WAS_ABSENT,
+      daysTaken: pattern.daysTaken,
+      coverage: pattern.coverage,
+      cadence: pattern.cadence,
+      cadenceLabel: cadenceLabel(pattern),
+      newSince: !wasThere,
     })
   }
+
   // Newly started things first — those are what actually changed.
   return habits
     .sort((a, b) => (Number(b.newSince) - Number(a.newSince)) || (b.coverage - a.coverage))
@@ -151,19 +172,31 @@ function buildSummary(t: Omit<MarkerTrend, "summary">): string {
   }
 
   if (t.unitMismatch) {
-    return `${t.marker} ${now}, but the previous result was reported in ${t.previous.unit} — different units, so the two can't be compared directly.`
+    return `${t.marker} ${now}, but the previous result was reported in ${t.previous.unit} and the two units can't be reconciled for this marker — so no change is shown.`
   }
 
-  const was = `${r1(t.previous.value)}${u}`
+  const wasValue = t.converted ? t.converted.previousAs : t.previous.value
+  const was = `${r1(wasValue)}${u}`
   const months = t.intervalDays != null ? Math.round(t.intervalDays / 30) : null
   const gap = months != null && months >= 1 ? ` over ${months} month${months === 1 ? "" : "s"}` : ""
 
   let line: string
   if (t.direction === "flat") {
-    line = `${t.marker} is steady at ${now} (was ${was}${gap}).`
+    line = t.rcvPct != null
+      ? `${t.marker} is holding steady at ${now} (was ${was}${gap}) — the ${Math.abs(Math.round(t.changePct!))}% difference is inside the ~${t.rcvPct}% this marker moves on its own.`
+      : `${t.marker} is steady at ${now} (was ${was}${gap}).`
   } else {
     const word = t.direction === "up" ? "up" : "down"
     line = `${t.marker} ${word} from ${was} to ${now}${gap} (${t.changePct! > 0 ? "+" : ""}${Math.round(t.changePct!)}%).`
+    if (t.significant === true && t.rcvPct != null) {
+      line += ` That's a real move — bigger than the ~${t.rcvPct}% this marker varies between draws.`
+    } else if (t.significant === null) {
+      line += " How much this marker naturally varies isn't something we hold, so treat the size with caution."
+    }
+  }
+
+  if (t.converted) {
+    line += ` (The earlier result was printed in ${t.converted.from}; converted to ${t.converted.to} to compare.)`
   }
 
   if (t.crossed === "into range") line += " That brings it inside the report's reference range."
@@ -175,7 +208,7 @@ function buildSummary(t: Omit<MarkerTrend, "summary">): string {
   const started = t.taken.filter(h => h.newSince)
   const context = started.length > 0 ? started : t.taken
   if (context.length > 0) {
-    const list = context.slice(0, 2).map(h => `${h.name} (${Math.round(h.coverage * 100)}% of days)`).join(" and ")
+    const list = context.slice(0, 2).map(h => `${h.name} (${h.cadenceLabel})`).join(" and ")
     line += started.length > 0
       ? ` You started logging ${list} in that window.`
       : ` Through that window you logged ${list}.`
@@ -204,16 +237,36 @@ export function computeLabTrends(readings: LabReading[], tags: DayTags[] = []): 
     const previous = sorted.length > 1 ? sorted[sorted.length - 2] : null
 
     // Units are stored exactly as the lab printed them, so two readings can
-    // legitimately disagree. A percentage across mmol/L and mg/dL would be
-    // pure fiction, so it isn't computed at all.
-    const unitMismatch = previous != null
-      && latest.unit.trim().toLowerCase() !== previous.unit.trim().toLowerCase()
-      && Boolean(latest.unit.trim() && previous.unit.trim())
+    // legitimately disagree. Reconcile them where the conversion is defined,
+    // and only give up where it genuinely isn't.
+    let previousValue: number | null = previous ? previous.value : null
+    let converted: MarkerTrend["converted"] = null
+    let unitMismatch = false
 
-    const comparable = previous != null && !unitMismatch && previous.value !== 0
-    const changePct = comparable ? ((latest.value - previous.value) / Math.abs(previous.value)) * 100 : null
+    if (previous) {
+      const sameUnit = normalizeUnit(previous.unit) === normalizeUnit(latest.unit)
+      if (!sameUnit) {
+        const asLatest = convertLabValue(previous.value, previous.unit, latest.unit, marker)
+        if (asLatest == null) {
+          previousValue = null
+          unitMismatch = true
+        } else {
+          previousValue = asLatest
+          converted = { from: previous.unit, to: latest.unit, previousAs: Math.round(asLatest * 1000) / 1000 }
+        }
+      }
+    }
+
+    const comparable = previousValue != null && previousValue !== 0
+    const changePct = comparable ? ((latest.value - previousValue!) / Math.abs(previousValue!)) * 100 : null
+
+    const rcvPct = referenceChangeValue(marker)
+    // Below the marker's own noise floor is "steady", not a small change. With
+    // no published variation for the marker we can't call it either way, so
+    // the direction stands and `significant` says we don't know.
+    const significant = changePct == null ? null : rcvPct == null ? null : Math.abs(changePct) >= rcvPct
     const direction = changePct == null ? null
-      : Math.abs(changePct) < FLAT_PCT ? "flat" as const
+      : significant === false ? "flat" as const
         : changePct > 0 ? "up" as const : "down" as const
 
     const status = rangeStatus(latest)
@@ -231,7 +284,8 @@ export function computeLabTrends(readings: LabReading[], tags: DayTags[] = []): 
 
     const base = {
       marker, unit: latest.unit, latest, previous, status, previousStatus,
-      changePct, direction, crossed, intervalDays, taken, unitMismatch,
+      changePct, direction, significant, rcvPct, crossed, intervalDays, taken,
+      converted, unitMismatch,
     }
     trends.push({ ...base, summary: buildSummary(base) })
   }
@@ -239,9 +293,14 @@ export function computeLabTrends(readings: LabReading[], tags: DayTags[] = []): 
   return trends.sort((a, b) => b.latest.date.localeCompare(a.latest.date) || a.marker.localeCompare(b.marker))
 }
 
-/** The markers worth putting in front of someone: out of range, or newly so. */
+/**
+ * The markers worth putting in front of someone: outside the printed range,
+ * newly crossed it, or moved further than the marker naturally moves.
+ */
 export function notableTrends(trends: MarkerTrend[]): MarkerTrend[] {
   return trends
-    .filter(t => t.status === "above" || t.status === "below" || t.crossed != null)
-    .sort((a, b) => (Number(b.crossed != null) - Number(a.crossed != null)))
+    .filter(t => t.status === "above" || t.status === "below" || t.crossed != null || t.significant === true)
+    .sort((a, b) =>
+      (Number(b.crossed != null) - Number(a.crossed != null)) ||
+      (Number(b.significant === true) - Number(a.significant === true)))
 }
