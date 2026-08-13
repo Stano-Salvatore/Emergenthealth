@@ -164,9 +164,22 @@ const BY_CANONICAL: Record<string, SupplementInfo> = {
   },
 }
 
-// Common OTC meds arrive as free-text tags, not via normalizeSupplement.
+// Medications arrive as free-text tags, not via normalizeSupplement. Slovak
+// brand names are matched alongside the international generic names.
 const MED_PATTERNS: [RegExp, SupplementInfo][] = [
-  [/ibuprofen|brufen|nurofen/, {
+  [/hydroxyzin|atarax/, {
+    halfLifeH: 20,
+    duration: "You feel it for ~4–6 h, but the half-life is ≈20 h — after a bedtime dose roughly 70% is still on board at 8:00, which is why the next morning can feel foggy",
+    timing: "1–2 h before bed when used for evening anxiety or sleep; a daytime dose will sedate",
+    caution: "Adds to alcohol, sleeping pills and painkiller sedation; anticholinergic (dry mouth, blurry vision). Clears more slowly with age and in liver problems — prescription med, follow your doctor's dosing",
+  }],
+  [/diphenhydramin|benadryl|sominex/, {
+    halfLifeH: 8,
+    duration: "Half-life ≈8 h — a midnight dose is still ~50% present at 8:00",
+    timing: "Right before bed if used for sleep",
+    caution: "Tolerance to the sedative effect builds within days; strongly anticholinergic — not a good long-term sleep aid",
+  }],
+  [/ibuprofen|brufen|nurofen|ibalgin/, {
     halfLifeH: 2,
     duration: "Half-life ≈ 2 h; pain relief lasts ~4–6 h",
     timing: "With food or milk — never on an empty stomach",
@@ -192,6 +205,28 @@ const MED_PATTERNS: [RegExp, SupplementInfo][] = [
     halfLifeH: 8,
     duration: "With its active metabolite, one dose covers ~24 h",
     timing: "Any time — non-drowsy for most",
+  }],
+  [/naproxen|nalgesin|aleve/, {
+    halfLifeH: 14,
+    duration: "Half-life ≈14 h — one dose covers ~12 h, much longer than ibuprofen",
+    timing: "With food",
+    caution: "Same stomach cautions as ibuprofen; don't stack two NSAIDs",
+  }],
+  [/omeprazol|pantoprazol|esomeprazol|helicid|controloc|nolpaza/, {
+    duration: "Plasma half-life is only ~1 h, but it disables acid pumps for 24–72 h — the effect long outlives the drug",
+    timing: "30–60 min BEFORE the first meal of the day (it needs active pumps to work)",
+    caution: "Long-term use can lower B12, magnesium and calcium absorption — worth checking if you take it for months",
+  }],
+  [/montelukast|singulair/, {
+    halfLifeH: 5,
+    duration: "Half-life ≈5 h, dosed once daily",
+    timing: "Evening — that's when it's been studied",
+    caution: "Report any mood or sleep changes to your doctor; it's a known if uncommon side effect",
+  }],
+  [/sertralin|zoloft|escitalopram|cipralex|citalopram|fluoxetin|prozac|ssri/, {
+    duration: "Long half-life (roughly a day, fluoxetine much longer) — steady state after 1–2 weeks, and effects build over 4–6 weeks",
+    timing: "Same time daily; morning if it energizes you, evening if it makes you sleepy",
+    caution: "Never start, stop or change the dose without your doctor — stopping abruptly causes discontinuation symptoms",
   }],
   [/caffeine|kofein/, {
     halfLifeH: 5,

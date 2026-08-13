@@ -1,22 +1,28 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { COMPOUNDS, LIMIT_MG, HALF_LIFE_H, activeFromDoses } from "@/lib/caffeine"
+import { COMPOUNDS, LIMIT_MG, activeFromDoses } from "@/lib/caffeine"
+import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 
 // Today's log list + total, plus the caffeine still active right now. Active
-// looks back 24h (not just midnight) so a late espresso still counts at 7am.
+// looks back 24h (not just midnight) so a late espresso still counts at 7am,
+// and decays at the user's own estimated half-life when their data supports
+// one (cached daily) rather than the textbook 5 h for everybody.
 async function caffeineState(userId: string) {
   const now = Date.now()
-  const logs24 = await prisma.caffeineLog.findMany({
-    where: { userId, loggedAt: { gte: new Date(now - 24 * 3600_000) } },
-    orderBy: { loggedAt: "desc" },
-  })
+  const [logs24, personal] = await Promise.all([
+    prisma.caffeineLog.findMany({
+      where: { userId, loggedAt: { gte: new Date(now - 24 * 3600_000) } },
+      orderBy: { loggedAt: "desc" },
+    }),
+    getPersonalCaffeineProfile(userId),
+  ])
   const startOfDay = new Date()
   startOfDay.setHours(0, 0, 0, 0)
   const logs = logs24.filter(l => l.loggedAt >= startOfDay)
   const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
-  const activeMg = activeFromDoses(logs24, now)
-  return { logs, totalMg, activeMg, halfLifeH: HALF_LIFE_H, limitMg: LIMIT_MG }
+  const activeMg = activeFromDoses(logs24, now, personal.halfLifeH)
+  return { logs, totalMg, activeMg, halfLifeH: personal.halfLifeH, limitMg: LIMIT_MG, personal }
 }
 
 export async function GET() {
