@@ -6,6 +6,7 @@ import { getUserTimezone, localDateStr } from "@/lib/local-date"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { supplementInfoFor } from "@/lib/supplement-info"
+import { scanUserAnomalies } from "@/lib/anomaly-scan"
 
 const anthropic = new Anthropic()
 
@@ -207,6 +208,16 @@ export async function GET(req: NextRequest) {
       lines.push(`Established patterns for this user: ${solid.join(" | ")}.`)
     }
   } catch { /* no insights yet */ }
+
+  // Anything genuinely unusual for this person today. Population norms are
+  // useless here — the point is the deviation from their own median.
+  try {
+    const { anomalies } = await scanUserAnomalies(userId)
+    const notable = anomalies.filter(a => a.concerning).slice(0, 2).map(a => a.summary)
+    if (notable.length > 0) {
+      lines.push(`Off their own baseline today: ${notable.join(" | ")}.`)
+    }
+  } catch { /* not enough history */ }
 
   const context = lines.join(" ")
 

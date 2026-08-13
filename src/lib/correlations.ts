@@ -36,6 +36,7 @@ type DayData = {
   sugarG?: number
   lastMealMin?: number     // minutes after local midnight of the day's last meal
   supplements?: string[]   // normalized supplement names taken (Oura tags)
+  symptoms?: Record<string, number> // symptom name -> worst severity that day (1-5)
   deepSleepMin?: number    // sleep architecture (Oura)
   remSleepMin?: number
   workoutMin?: number      // Strava moving time that day
@@ -48,7 +49,7 @@ type DayData = {
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "fitness" | "music" | "money" | "focus" | "fasting"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting"
   emoji: string
   title: string
   finding: string
@@ -199,9 +200,16 @@ function compareGroups(opts: {
   const highAvg = r1(avg(highValues))
   const lowAvg = r1(avg(lowValues))
 
-  if (lowAvg === 0) return null
+  // A zero baseline used to abort the comparison, because the percentage
+  // change is undefined. For scores that never reach zero this never came up,
+  // but symptoms live there: "headache 4/5 the day after drinking, 0 the rest
+  // of the time" is the single most useful thing this engine can say, and it
+  // was being discarded. Measuring against whichever side is non-zero makes
+  // "only ever happens in this group" a clean 100%.
+  if (highAvg === 0 && lowAvg === 0) return null
+  const base = Math.abs(lowAvg) || Math.abs(highAvg)
 
-  const rawDelta = ((highAvg - lowAvg) / Math.abs(lowAvg)) * 100
+  const rawDelta = ((highAvg - lowAvg) / base) * 100
   const delta = higherIsBetter ? rawDelta : -rawDelta
 
   return {
@@ -336,7 +344,7 @@ export async function computeCorrelations(
 
   // Sources that used to live only in the /api/stats mini-engine (music, money,
   // focus) or nowhere at all (standalone mood logs, Strava, fasting).
-  const [moodRows, stravaRows, focusRows, lastfmRows, txRows, fastPref] = await Promise.all([
+  const [moodRows, stravaRows, focusRows, lastfmRows, txRows, fastPref, symptomRows] = await Promise.all([
     prisma.moodLog.findMany({
       where: { userId, date: { gte: since60 } },
       select: { date: true, mood: true },
@@ -366,6 +374,11 @@ export async function computeCorrelations(
     prisma.userPreference.findUnique({
       where: { userId_key: { userId, key: "fast:history" } },
     }).catch(() => null),
+
+    prisma.symptomLog.findMany({
+      where: { userId, day: { gte: since60str } },
+      select: { day: true, name: true, severity: true },
+    }).catch(() => [] as { day: string; name: string; severity: number }[]),
   ])
 
   const dayMap = new Map<string, DayData>()
@@ -491,6 +504,12 @@ export async function computeCorrelations(
     const d = getOrCreate(t.day)
     d.supplements ??= []
     if (!d.supplements.includes(name)) d.supplements.push(name)
+  }
+
+  for (const sy of symptomRows) {
+    const d = getOrCreate(sy.day)
+    d.symptoms ??= {}
+    if ((d.symptoms[sy.name] ?? 0) < sy.severity) d.symptoms[sy.name] = sy.severity
   }
 
   for (const a of stravaRows) {
@@ -1408,6 +1427,94 @@ export async function computeCorrelations(
             : `Adding ${mod.label} to ${supp} doesn't cut your deep sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
       })
       if (ins_int_deep) insights.push(ins_int_deep)
+    }
+  }
+
+  // 15c. Symptoms — the only section where the thing being explained is how the
+  // user *felt* rather than what their body scored. Runs the other way round to
+  // everything above: each symptom is the outcome, and the factors are the
+  // suspects. A day with no entry for a symptom is a genuine zero, not missing
+  // data — that's what makes "headache severity on drinking days vs sober days"
+  // a fair comparison rather than one computed only over days it hurt.
+  const symptomDayCount = new Map<string, number>()
+  for (const d of days) {
+    for (const name of Object.keys(d.symptoms ?? {})) {
+      symptomDayCount.set(name, (symptomDayCount.get(name) ?? 0) + 1)
+    }
+  }
+  const topSymptoms = [...symptomDayCount.entries()]
+    .filter(([, n]) => n >= 4)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([s]) => s)
+
+  if (topSymptoms.length > 0) {
+    // Suspects worth testing. Sleep and alcohol look at the *previous* day —
+    // a hangover headache belongs to last night's drinking, not this morning's.
+    const SUSPECTS: { key: string; label: string; test: (d: DayData, prev?: DayData) => boolean | null }[] = [
+      { key: "alcohol", label: "the day after drinking", test: (_d, prev) => prev ? (prev.alcoholMl ?? 0) > 50 : null },
+      { key: "caffeine", label: "200mg+ caffeine days", test: d => d.caffeineMg != null ? d.caffeineMg >= 200 : null },
+      { key: "short_sleep", label: "after under 7h sleep", test: d => d.sleepDuration != null ? d.sleepDuration < 7 : null },
+      { key: "poor_sleep", label: "after a sub-70 sleep score", test: d => d.sleepScore != null ? d.sleepScore < 70 : null },
+      { key: "late_meal", label: "the day after a late dinner", test: (_d, prev) => prev?.lastMealMin != null ? prev.lastMealMin >= 20 * 60 : null },
+      { key: "high_screen", label: "the day after heavy screen time", test: (_d, prev) => prev?.screenTimeMin != null ? prev.screenTimeMin >= 300 : null },
+      { key: "workout", label: "the day after training", test: (_d, prev) => prev ? (prev.workoutMin ?? 0) >= 20 : null },
+      { key: "low_water", label: "the day after under 1.5L water", test: (_d, prev) => prev?.waterMl != null ? prev.waterMl < 1500 : null },
+    ]
+
+    const prevDateStr = (dateStr: string): string => {
+      const dt = new Date(dateStr + "T12:00:00Z")
+      dt.setUTCDate(dt.getUTCDate() - 1)
+      return dt.toISOString().slice(0, 10)
+    }
+
+    for (const symptom of topSymptoms) {
+      const symSlug = suppSlug(symptom)
+      for (const suspect of SUSPECTS) {
+        const exposed: number[] = [], notExposed: number[] = []
+        for (const d of days) {
+          const prev = byDate[prevDateStr(d.date)]
+          const verdict = suspect.test(d, prev)
+          if (verdict == null) continue // that factor wasn't recorded — not a zero
+          const severity = d.symptoms?.[symptom] ?? 0
+          if (verdict) exposed.push(severity); else notExposed.push(severity)
+        }
+        const ins_symptom = compareGroups({
+          id: `symptom_${symSlug}_${suspect.key}`, category: "symptoms", emoji: "🩹",
+          title: `${symptom} & ${suspect.label.replace(/^(the day )?after /, "").replace(/ days$/, "")}`,
+          highGroupLabel: suspect.label, lowGroupLabel: "other days",
+          highValues: exposed, lowValues: notExposed,
+          higherIsBetter: false, // more symptom is worse, so a rise reads as negative
+          findingTemplate: (h, l) =>
+            h > l
+              ? `${symptom} runs at ${h}/5 ${suspect.label}, vs ${l}/5 otherwise`
+              : `${suspect.label.charAt(0).toUpperCase() + suspect.label.slice(1)} don't bring more ${symptom.toLowerCase()} — ${h}/5 vs ${l}/5`,
+        })
+        if (ins_symptom) insights.push(ins_symptom)
+      }
+
+      // Meds are suspects too — this is the side-effect question, and it's the
+      // reason symptom tracking earns its place next to the pharmacology work.
+      for (const supp of topSupps.slice(0, 3)) {
+        const onDays: number[] = [], offDays: number[] = []
+        for (const d of days) {
+          const took = (d.supplements ?? []).includes(supp)
+          const severity = d.symptoms?.[symptom] ?? 0
+          if (took) onDays.push(severity); else offDays.push(severity)
+        }
+        const ins_symptom_med = compareGroups({
+          id: `symptom_${symSlug}_med_${suppSlug(supp)}`, category: "symptoms", emoji: "💊",
+          title: `${symptom} & ${supp}`,
+          highGroupLabel: `${supp} days`, lowGroupLabel: `days without it`,
+          highValues: onDays, lowValues: offDays,
+          higherIsBetter: false,
+          findingTemplate: (h, l) =>
+            h > l
+              ? `On ${supp} days, ${symptom.toLowerCase()} averages ${h}/5 vs ${l}/5 without it`
+              : `${symptom} is no worse on ${supp} days — ${h}/5 vs ${l}/5`,
+        })
+        if (ins_symptom_med) insights.push(ins_symptom_med)
+      }
     }
   }
 

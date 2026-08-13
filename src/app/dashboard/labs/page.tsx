@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { Trash2, Plus, ChevronDown, ChevronUp } from "lucide-react"
 import { format } from "date-fns"
+import { LabImportCard } from "@/components/labs/LabImportCard"
+import { canonicalMarker, CANONICAL_MARKERS } from "@/lib/lab-markers"
 
 interface LabResult {
   id: string
@@ -193,7 +195,11 @@ export default function LabsPage() {
     setMarker(v)
     if (UNIT_DEFAULTS[v]) setUnit(UNIT_DEFAULTS[v])
     if (v.length > 0) {
-      setSuggestions(COMMON_MARKERS.filter(m => m.toLowerCase().includes(v.toLowerCase()) && m !== v))
+      // Suggest across everything the importer knows how to name, so a typed
+      // entry lands on the same marker as an imported one rather than starting
+      // a parallel series next to it.
+      const pool = [...new Set([...COMMON_MARKERS, ...CANONICAL_MARKERS])]
+      setSuggestions(pool.filter(m => m.toLowerCase().includes(v.toLowerCase()) && m !== v))
     } else {
       setSuggestions([])
     }
@@ -214,7 +220,9 @@ export default function LabsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          marker,
+          // "cholesterol celkový" typed here has to become the same marker the
+          // importer would have produced, or the trend splits in two.
+          marker: canonicalMarker(marker),
           value: numVal,
           unit,
           date,
@@ -255,6 +263,9 @@ export default function LabsPage() {
         <h1 className="text-2xl font-bold text-foreground">Lab Results</h1>
         <p className="text-muted-foreground text-sm mt-1">Track your blood work and biomarkers over time.</p>
       </div>
+
+      {/* The whole page in one shot, instead of a row at a time */}
+      <LabImportCard onSaved={load} />
 
       <Card className="bg-card/60 border-border/50">
         <CardHeader className="pb-3">

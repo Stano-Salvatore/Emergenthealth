@@ -19,44 +19,46 @@ model User {
   digestDay     Int       @default(1)
   digestHour    Int       @default(8)
 
-  accounts     Account[]
-  sessions     Session[]
-  healthLogs   HealthLog[]
-  transactions Transaction[]
-  habits       Habit[]
-  reminders    Reminder[]
-  chatMessages ChatMessage[]
-  chatConversations ChatConversation[]
-  mcpApiKeys   McpApiKey[]
-  fitToken     FitToken?
-  ouraToken    OuraToken? @relation("OuraToken")
-  ouraTags     OuraTag[]
-  moodLogs     MoodLog[]
-  tags         Tag[]
-  checkIns     CheckIn[]
-  savedPlaces  SavedPlace[]
-  dailyNotes   DailyNote[]
-  intakeLogs    IntakeLog[]
-  foodLogs      FoodLog[]
-  focusSessions FocusSession[]
-  driveImportLogs DriveImportLog[]
-  books         Book[]
-  morningCheckIns  MorningCheckIn[]
-  weatherLogs      WeatherLog[]
-  userPreferences  UserPreference[]
-  labResults       LabResult[]
-  bodyMeasurements BodyMeasurement[]
-  habitRoutines    HabitRoutine[]
-  subscription     Subscription?
-  passkeys         Passkey[]
-  locationPoints   LocationPoint[]
-  caffeineLog      CaffeineLog[]
-  stravaToken      StravaToken?
-  stravaActivities StravaActivity[]
-  ynabToken        YnabToken?
-  feedbacks        UserFeedback[]
-  timelineEvents   TimelineEvent[]
-  screenTimeLogs   ScreenTimeLog[]
+  accounts             Account[]
+  sessions             Session[]
+  healthLogs           HealthLog[]
+  transactions         Transaction[]
+  habits               Habit[]
+  reminders            Reminder[]
+  chatMessages         ChatMessage[]
+  chatConversations    ChatConversation[]
+  mcpApiKeys           McpApiKey[]
+  fitToken             FitToken?
+  ouraToken            OuraToken?            @relation("OuraToken")
+  ouraTags             OuraTag[]
+  moodLogs             MoodLog[]
+  tags                 Tag[]
+  checkIns             CheckIn[]
+  savedPlaces          SavedPlace[]
+  dailyNotes           DailyNote[]
+  intakeLogs           IntakeLog[]
+  foodLogs             FoodLog[]
+  symptomLogs          SymptomLog[]
+  medSchedules         MedSchedule[]
+  focusSessions        FocusSession[]
+  driveImportLogs      DriveImportLog[]
+  books                Book[]
+  morningCheckIns      MorningCheckIn[]
+  weatherLogs          WeatherLog[]
+  userPreferences      UserPreference[]
+  labResults           LabResult[]
+  bodyMeasurements     BodyMeasurement[]
+  habitRoutines        HabitRoutine[]
+  subscription         Subscription?
+  passkeys             Passkey[]
+  locationPoints       LocationPoint[]
+  caffeineLog          CaffeineLog[]
+  stravaToken          StravaToken?
+  stravaActivities     StravaActivity[]
+  ynabToken            YnabToken?
+  feedbacks            UserFeedback[]
+  timelineEvents       TimelineEvent[]
+  screenTimeLogs       ScreenTimeLog[]
   deviceCalendarEvents DeviceCalendarEvent[]
 }
 
@@ -107,9 +109,9 @@ model VerificationToken {
 // ─── Health ──────────────────────────────────────────────────────────────────
 
 model HealthLog {
-  id            String   @id @default(cuid())
-  userId        String
-  date          DateTime @db.Date
+  id     String   @id @default(cuid())
+  userId String
+  date   DateTime @db.Date
 
   sleepStart    DateTime?
   sleepEnd      DateTime?
@@ -199,12 +201,12 @@ model DriveImportLog {
 model DeviceCalendarEvent {
   id          String    @id @default(cuid())
   userId      String
-  externalId  String    // event id from the device Calendar Provider
-  calendarId  String?   // owning device calendar (account) id
+  externalId  String // event id from the device Calendar Provider
+  calendarId  String? // owning device calendar (account) id
   title       String
   description String?   @db.Text
   location    String?
-  color       String?   // hex, from the event's or its calendar's color
+  color       String? // hex, from the event's or its calendar's color
   start       DateTime
   end         DateTime?
   isAllDay    Boolean   @default(false)
@@ -278,7 +280,7 @@ model MoodLog {
   id        String   @id @default(cuid())
   userId    String
   date      DateTime @db.Date
-  mood      Int      // 1–5: 1=awful, 2=bad, 3=ok, 4=good, 5=great
+  mood      Int // 1–5: 1=awful, 2=bad, 3=ok, 4=good, 5=great
   note      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -306,13 +308,13 @@ model Tag {
 // ─── Check-ins ───────────────────────────────────────────────────────────────
 
 model CheckIn {
-  id           String    @id @default(cuid())
+  id           String   @id @default(cuid())
   userId       String
   place        String
-  emoji        String    @default("📍")
+  emoji        String   @default("📍")
   note         String?
-  checkedAt    DateTime  @default(now())
-  isAuto       Boolean   @default(false)
+  checkedAt    DateTime @default(now())
+  isAuto       Boolean  @default(false)
   savedPlaceId String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -332,9 +334,9 @@ model SavedPlace {
   lng       Float
   radiusM   Int      @default(100)
   // the user's usual order here — one tap logs it when they arrive
-  usualType String?  // IntakeLog type, e.g. "coffee"
+  usualType String? // IntakeLog type, e.g. "coffee"
   usualMl   Int?
-  usualNote String?  // e.g. "Flat white"
+  usualNote String? // e.g. "Flat white"
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -362,7 +364,7 @@ model DailyNote {
 model IntakeLog {
   id       String   @id @default(cuid())
   userId   String
-  type     String   // "water" | "coffee" | "tea" | "alcohol" | "other"
+  type     String // "water" | "coffee" | "tea" | "alcohol" | "other"
   amountMl Int
   note     String?
   loggedAt DateTime @default(now())
@@ -377,20 +379,20 @@ model IntakeLog {
 model FoodLog {
   id       String   @id @default(cuid())
   userId   String
-  name     String   // short meal name, e.g. "Chicken caesar salad"
+  name     String // short meal name, e.g. "Chicken caesar salad"
   mealType String   @default("other") // "breakfast" | "lunch" | "dinner" | "snack" | "other"
   calories Int
   proteinG Float?
   carbsG   Float?
   fatG     Float?
   sugarG   Float?
-  items    Json?    // [{ kind, name, portion, calories, proteinG, carbsG, fatG, drinkType, volumeMl }]
-  micros   Json?    // [{ name, amount, unit, dailyPct }] — notable vitamins & minerals
-  note     String?  // one-line health note from the photo analysis
+  items    Json? // [{ kind, name, portion, calories, proteinG, carbsG, fatG, drinkType, volumeMl }]
+  micros   Json? // [{ name, amount, unit, dailyPct }] — notable vitamins & minerals
+  note     String? // one-line health note from the photo analysis
   photo    String?  @db.Text // small JPEG data-URL thumbnail for the log list
-  lat      Float?   // where the meal was logged (best-effort)
+  lat      Float? // where the meal was logged (best-effort)
   lng      Float?
-  place    String?  // reverse-geocoded label, e.g. "Karlova Ves, Bratislava"
+  place    String? // reverse-geocoded label, e.g. "Karlova Ves, Bratislava"
   loggedAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -401,19 +403,19 @@ model FoodLog {
 // ─── Reading Tracker ─────────────────────────────────────────────────────────
 
 model Book {
-  id          String    @id @default(cuid())
-  userId      String
-  title       String
-  author      String?
-  pages       Int?
-  status      String    @default("reading") // "reading" | "done" | "wishlist"
-  rating      Int?      // 1-5
-  startedAt   DateTime?
-  finishedAt  DateTime?
-  notes       String?
-  coverColor  String    @default("#6366f1")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String    @id @default(cuid())
+  userId     String
+  title      String
+  author     String?
+  pages      Int?
+  status     String    @default("reading") // "reading" | "done" | "wishlist"
+  rating     Int? // 1-5
+  startedAt  DateTime?
+  finishedAt DateTime?
+  notes      String?
+  coverColor String    @default("#6366f1")
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -425,9 +427,9 @@ model Book {
 model ScreenTimeLog {
   id             String   @id @default(cuid())
   userId         String
-  date           String   // local "YYYY-MM-DD"
-  totalMin       Int      // total foreground screen time that day
-  firstUnlockMin Int?     // minutes after local midnight of first phone unlock (wake proxy)
+  date           String // local "YYYY-MM-DD"
+  totalMin       Int // total foreground screen time that day
+  firstUnlockMin Int? // minutes after local midnight of first phone unlock (wake proxy)
   updatedAt      DateTime @updatedAt
   createdAt      DateTime @default(now())
 
@@ -563,12 +565,13 @@ model MorningCheckIn {
   waterGoalMl Int      @default(2000)
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([userId, date])
   @@index([userId])
 }
 
 model WeatherLog {
-  id          String  @id
+  id          String @id
   userId      String
   date        String
   tempMaxC    Float?
@@ -578,7 +581,8 @@ model WeatherLog {
   weatherCode Int?
   lat         Float?
   lon         Float?
-  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([userId, date])
   @@index([userId])
 }
@@ -588,6 +592,7 @@ model UserPreference {
   key    String
   value  String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@id([userId, key])
 }
 
@@ -598,7 +603,8 @@ model CaffeineLog {
   caffeineMg Int
   servings   Float    @default(1)
   loggedAt   DateTime @default(now()) @db.Timestamptz
-  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@index([userId, loggedAt(sort: Desc)])
 }
 
@@ -606,6 +612,7 @@ model TagAlias {
   userId      String
   tagTypeUuid String
   name        String
+
   @@id([userId, tagTypeUuid])
 }
 
@@ -726,6 +733,30 @@ model Passkey {
   @@index([userId])
 }
 
+// ─── Symptoms ────────────────────────────────────────────────────────────────
+
+// How the user *feels*, as opposed to how their body performs. Everything else
+// in this schema is a metric or an intake; nothing recorded whether the day
+// involved a headache, nausea or brain fog — which is exactly the surface a
+// medication's side effects show up on. Severity is 1-5; a day with no entry
+// for a symptom counts as 0 in the correlation engine, so absence is data too.
+model SymptomLog {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String // canonical-ish label, e.g. "Headache"
+  severity  Int // 1-5: 1=barely there, 5=severe
+  bodyPart  String? // optional location, for a future body map
+  note      String?
+  loggedAt  DateTime @default(now())
+  day       String // YYYY-MM-DD in the user's timezone
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, day])
+  @@index([userId, name])
+}
+
 // ─── Strava ───────────────────────────────────────────────────────────────────
 
 model StravaToken {
@@ -786,4 +817,29 @@ model UserFeedback {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+// A recurring dose the user intends to take. Adherence is never stored here —
+// it's derived from the dose log (OuraTag), which is the single place a dose
+// exists whether it came from the ring, a manual tap, or a reminder.
+model MedSchedule {
+  id         String   @id @default(cuid())
+  userId     String
+  name       String // display name, e.g. "Elicea 10 mg"
+  dose       String? // free text, e.g. "1 tablet"
+  /// Local times of day in HH:mm, e.g. ["08:00", "21:00"]
+  times      String[]
+  /// Days of the week (0 = Sunday). Empty means every day.
+  daysOfWeek Int[]    @default([])
+  active     Boolean  @default(true)
+  remind     Boolean  @default(true)
+  note       String?
+  startDate  String? // YYYY-MM-DD, optional
+  endDate    String? // YYYY-MM-DD, optional
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, active])
 }

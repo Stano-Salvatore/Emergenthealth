@@ -1,9 +1,10 @@
 name: Reminder delivery
 
-# Habit reminders and to-do reminders are set to a wall-clock time, so the
-# checker has to run often enough to notice one falling due. Vercel's Hobby
-# plan only allows daily crons — which meant a reminder set for anything other
-# than the single daily run time was never delivered at all.
+# Habit reminders, to-do reminders and scheduled medication doses are all set
+# to a wall-clock time, so the checker has to run often enough to notice one
+# falling due. Vercel's Hobby plan only allows daily crons — which meant a
+# reminder set for anything other than the single daily run time was never
+# delivered at all.
 #
 # GitHub Actions minutes are free and unmetered on public repositories, so this
 # runs every 10 minutes. The endpoint keeps a per-day record of what it has
@@ -37,20 +38,26 @@ jobs:
             exit 1
           fi
 
-          code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
-            -H "Authorization: Bearer ${CRON_SECRET}" \
-            "${APP_URL}/api/cron/habit-reminders") || true
-          echo "HTTP $code"; cat /tmp/out.txt || true; echo
+          failed=0
+          # Both endpoints are wall-clock driven and both keep their own
+          # per-day sent record, so running them on the same tick is safe.
+          for endpoint in habit-reminders med-reminders; do
+            code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${APP_URL}/api/cron/${endpoint}") || true
+            echo "== ${endpoint}: HTTP $code"; cat /tmp/out.txt || true; echo
 
-          case "$code" in
-            200) ;;
-            401|403)
-              echo "::error::habit-reminders rejected the CRON_SECRET (HTTP $code) — it does not match Vercel's."
-              exit 1 ;;
-            503)
-              # VAPID keys missing — push cannot work until they are configured
-              echo "::warning::push notifications are not configured (HTTP 503)" ;;
-            *)
-              # Cold starts and network blips shouldn't turn the run red
-              echo "::warning::habit-reminders returned $code" ;;
-          esac
+            case "$code" in
+              200) ;;
+              401|403)
+                echo "::error::${endpoint} rejected the CRON_SECRET (HTTP $code) — it does not match Vercel's."
+                failed=1 ;;
+              503)
+                # VAPID keys missing — push cannot work until they are configured
+                echo "::warning::push notifications are not configured (HTTP 503)" ;;
+              *)
+                # Cold starts and network blips shouldn't turn the run red
+                echo "::warning::${endpoint} returned $code" ;;
+            esac
+          done
+          exit $failed
