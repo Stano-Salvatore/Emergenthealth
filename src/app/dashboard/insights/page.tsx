@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { WatchedPatterns } from "@/components/dashboard/WatchedPatterns"
+import { BaselineAlerts } from "@/components/dashboard/BaselineAlerts"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -270,6 +271,9 @@ export default function InsightsPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Today vs your own baseline ── */}
+      <BaselineAlerts />
 
       {/* ── Watched (pinned) patterns ── */}
       <WatchedPatterns />
