@@ -24,7 +24,9 @@ const FIELDS: { key: keyof Goals; label: string; unit: string; min: number; step
   { key: "waterMl",     label: "Water goal",         unit: "ml",       min: 500,  step: 100 },
   { key: "focusMin",    label: "Focus goal",         unit: "min/day",  min: 15,   step: 15 },
   { key: "readinessMin",label: "Readiness min",      unit: "score",    min: 50,   step: 5 },
-  { key: "coffeeMax",   label: "Coffee max",         unit: "ml/day",   min: 0,    step: 50 },
+  // Milligrams of caffeine, not millilitres of coffee — it feeds the caffeine
+  // tracker's limit line, which counts mg.
+  { key: "coffeeMax",   label: "Caffeine max",       unit: "mg/day",   min: 0,    step: 50 },
 ]
 
 export function GoalsEditor() {

@@ -235,10 +235,11 @@ export default async function DashboardPage() {
   ])
 
   // ── goals + check-in (parsed from the batch above)
-  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number; waterMl?: number } : {}
+  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number; waterMl?: number; focusMin?: number } : {}
   const STEP_GOAL = userGoals.steps ?? DEFAULT_STEP_GOAL
   const SLEEP_GOAL_H = userGoals.sleepH ?? DEFAULT_SLEEP_GOAL_H
   const WATER_GOAL_ML = userGoals.waterMl ?? 2000
+  const FOCUS_GOAL_MIN = userGoals.focusMin ?? 90
   const hasCheckedInToday = todayCheckin.length > 0
   // Compute consecutive check-in streak
   const checkinDates = new Set((checkinStreakRows as {date: string}[]).map(r => r.date))
@@ -782,7 +783,9 @@ export default async function DashboardPage() {
         </Link>
         <Link href="/dashboard/focus">
           <StatTile label="Focus today" value={focusMinToday >= 60 ? `${(focusMinToday/60).toFixed(1)}h` : `${focusMinToday}m`}
-            sub="deep work" icon={<Timer className="h-4 w-4 text-primary"/>} />
+            sub={focusMinToday >= FOCUS_GOAL_MIN ? "Goal reached ✓" : `goal ${FOCUS_GOAL_MIN}m`}
+            icon={<Timer className="h-4 w-4 text-primary"/>} ok={focusMinToday >= FOCUS_GOAL_MIN}
+            progress={Math.min(100, (focusMinToday / FOCUS_GOAL_MIN) * 100)} />
         </Link>
         <Link href="/dashboard/habits">
           <StatTile label="Habits today" value={`${doneToday}/${habits.length}`} icon={<CheckSquare className="h-4 w-4 text-amber-400"/>}
