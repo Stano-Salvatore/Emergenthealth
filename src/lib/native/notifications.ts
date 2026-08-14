@@ -360,6 +360,39 @@ export async function getNotificationPermission(): Promise<"granted" | "denied" 
   }
 }
 
+/**
+ * What is actually laid down on this phone right now. This is the ground truth
+ * the Settings card shows: `syncNotifications` swallows every failure and
+ * returns 0, so without this the difference between "everything scheduled" and
+ * "nothing will ever fire" was invisible — the exact shape of the "no
+ * notifications, no idea why" bug report.
+ */
+export interface ScheduledStatus {
+  /** False when not in the native app, or the plugin is missing from this APK. */
+  available: boolean
+  pending: number
+  /** Soonest one-shot, ISO. Null when only repeating nudges are scheduled. */
+  nextAt: string | null
+}
+
+export async function getScheduledStatus(): Promise<ScheduledStatus> {
+  const ln = await getPlugin()
+  if (!ln) return { available: false, pending: 0, nextAt: null }
+  try {
+    const res = await withTimeout<any>(ln.getPending(), 6000, null)
+    if (!res) return { available: false, pending: 0, nextAt: null }
+    const list: any[] = res.notifications ?? []
+    let next: number | null = null
+    for (const n of list) {
+      const at = n?.schedule?.at ? new Date(n.schedule.at).getTime() : NaN
+      if (Number.isFinite(at) && (next === null || at < next)) next = at
+    }
+    return { available: true, pending: list.length, nextAt: next !== null ? new Date(next).toISOString() : null }
+  } catch {
+    return { available: false, pending: 0, nextAt: null }
+  }
+}
+
 // If a native bridge call doesn't respond within `ms`, treat it as unavailable
 // rather than hanging forever. On an APK built without the notifications plugin
 // registered natively, the bridge call never resolves — this is what made the
