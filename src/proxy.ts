@@ -6,14 +6,28 @@ import { isRouteEnabled } from "@/lib/features"
 // the parent imports them as components — so without this they stayed reachable
 // on their own, rendering bare with no tab bar and no way back. Old bookmarks,
 // deep links and the command palette all land in the right tab instead.
+//
+// Insights is deliberately NOT in here. Folding it in meant the sidebar's own
+// "Insights" entry bounced into Health & Body, which then highlighted Health &
+// Body in the sidebar — so the page you asked for by name appeared under a
+// heading you didn't pick, and the nav disagreed with itself about where you
+// were. It also filed the correlation engine under the narrowest category it
+// draws from: it spans sleep, mood, focus, spending, location and weather, not
+// just the body. It stands on its own route now.
 const MERGED_ROUTES: Record<string, string> = {
   "/dashboard/medications": "/dashboard/intake?tab=meds",
   "/dashboard/caffeine":    "/dashboard/intake?tab=caffeine",
   "/dashboard/weight":      "/dashboard/health?tab=weight",
   "/dashboard/body":        "/dashboard/health?tab=body",
-  "/dashboard/insights":    "/dashboard/health?tab=correlations",
   "/dashboard/labs":        "/dashboard/health?tab=labs",
 }
+
+// The reverse of the above: the tab is gone, so anything still pointing at it —
+// an old bookmark, a shared link — goes to the page rather than to a tab bar
+// with nothing behind it.
+const RETIRED_TABS: { path: string; tab: string; to: string }[] = [
+  { path: "/dashboard/health", tab: "correlations", to: "/dashboard/insights" },
+]
 
 // Held-back V3 features redirect to the dashboard until they launch (see lib/features.ts).
 export const proxy = auth((req) => {
@@ -26,6 +40,13 @@ export const proxy = auth((req) => {
   const merged = MERGED_ROUTES[pathname]
   if (merged) {
     return NextResponse.redirect(new URL(merged, req.nextUrl))
+  }
+
+  const retired = RETIRED_TABS.find(
+    r => r.path === pathname && req.nextUrl.searchParams.get("tab") === r.tab,
+  )
+  if (retired) {
+    return NextResponse.redirect(new URL(retired.to, req.nextUrl))
   }
 })
 

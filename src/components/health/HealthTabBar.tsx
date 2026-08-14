@@ -8,7 +8,6 @@ const TABS = [
   { key: "metrics", label: "Metrics", emoji: "❤️" },
   { key: "weight",  label: "Weight",  emoji: "⚖️" },
   { key: "body",    label: "Body",    emoji: "📏" },
-  { key: "correlations", label: "Correlations", emoji: "✨" },
   { key: "labs",    label: "Lab Results", emoji: "🩸" },
 ].filter(t => t.key !== "labs" || isFeatureEnabled("labs"))
 
