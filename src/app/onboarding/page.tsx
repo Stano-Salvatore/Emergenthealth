@@ -133,11 +133,36 @@ export default function OnboardingPage() {
     setFinishing(true)
     try {
       const ref = typeof window !== "undefined" ? localStorage.getItem("eh_referral_code") : null
-      await fetch("/api/onboarding", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ completed: true, ref: ref ?? undefined }),
-      })
+      const goal = customGoal.trim() || selectedGoal || undefined
+
+      // The preset goals map onto real, dashboard-driving goal fields — this
+      // is what makes the wizard's "goals appear on your dashboard" true.
+      const goalPatch: Record<string, number> = {}
+      if (selectedGoal === PRESET_GOALS[0] && !customGoal.trim()) goalPatch.sleepH = 7
+      if (selectedGoal === PRESET_GOALS[1] && !customGoal.trim()) goalPatch.steps = 8000
+      if (selectedGoal === PRESET_GOALS[2] && !customGoal.trim()) goalPatch.habitsTarget = 80
+
+      await Promise.all([
+        fetch("/api/onboarding", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            completed: true,
+            ref: ref ?? undefined,
+            categories: [...selectedCategories],
+            goal,
+          }),
+        }),
+        (async () => {
+          if (Object.keys(goalPatch).length === 0) return
+          const existing = await fetch("/api/goals").then(r => (r.ok ? r.json() : {})).catch(() => ({}))
+          await fetch("/api/goals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...existing, ...goalPatch }),
+          })
+        })(),
+      ])
       if (ref) localStorage.removeItem("eh_referral_code")
     } catch {
       // non-fatal — still redirect
