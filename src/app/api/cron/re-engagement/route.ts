@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
+import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { readSentLog, writeSentLog } from "@/lib/sent-log"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -49,12 +51,21 @@ export async function GET(req: NextRequest) {
 
   const subsByUser = await loadSubscriptionsByUser(inactiveUsers.map(u => u.userId))
 
-  const results = await Promise.all(
-    [...subsByUser.values()].map(subs =>
-      sendToUser(subs, { title, body, url: "/dashboard/checkin", tag: "re-engagement" }),
-    ),
-  )
+  // At most one nudge per user per day, whatever schedule this ends up on —
+  // without the guard, anything more frequent than daily would ping the same
+  // inactive users on every single run.
+  let sent = 0
+  for (const [userId, subs] of subsByUser) {
+    const localDate = localDateStr(await getUserTimezone(userId))
+    const alreadySent = await readSentLog(userId, "re_engagement_sent", localDate)
+    if (alreadySent.has("re-engagement")) continue
 
-  const sent = results.filter(Boolean).length
+    const delivered = await sendToUser(subs, { title, body, url: "/dashboard/checkin", tag: "re-engagement" })
+    if (delivered) sent++
+
+    alreadySent.add("re-engagement")
+    await writeSentLog(userId, "re_engagement_sent", localDate, alreadySent)
+  }
+
   return NextResponse.json({ ok: true, sent, total: inactiveUsers.length })
 }

@@ -1,30 +1,18 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import webpush from "web-push"
+import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
+import { getUserTimezone, localDateStr, localTimeStr } from "@/lib/local-date"
+import { readSentLog, writeSentLog } from "@/lib/sent-log"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-function getLocalHour(timezone: string): number {
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      hour: "numeric",
-      hour12: false,
-    }).formatToParts(new Date())
-    return parseInt(parts.find(p => p.type === "hour")?.value ?? "0", 10)
-  } catch {
-    return new Date().getUTCHours()
-  }
-}
+// Midday intention echo for web-push devices: if the morning check-in set an
+// intention, reflect it back around noon. Ticked every ten minutes by the
+// Actions cron; the per-day sent log keeps that to one delivery, and the noon
+// hour plus one of grace absorbs a late tick.
 
-function getLocalDateStr(timezone: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date())
-  } catch {
-    return new Date().toISOString().split("T")[0]
-  }
-}
+const SENT_KEY = "daily_nudges_sent"
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET
@@ -32,73 +20,53 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-  const privateKey = process.env.VAPID_PRIVATE_KEY
-  const email = process.env.VAPID_EMAIL ?? "mailto:admin@emergenthealth.app"
-  if (!publicKey || !privateKey) {
+  if (!configurePush()) {
     return NextResponse.json({ error: "VAPID keys not configured" }, { status: 503 })
   }
 
-  webpush.setVapidDetails(email, publicKey, privateKey)
-
-  const subs = await prisma.$queryRaw<{ endpoint: string; p256dh: string; auth: string; userId: string }[]>`
-    SELECT ps."endpoint", ps."p256dh", ps."auth", ps."userId"
-    FROM "PushSubscription" ps
-    LIMIT 1000
-  `.catch(() => [] as { endpoint: string; p256dh: string; auth: string; userId: string }[])
-
-  if (!subs.length) return NextResponse.json({ ok: true, sent: 0 })
+  const byUser = await loadSubscriptionsByUser()
+  if (byUser.size === 0) return NextResponse.json({ ok: true, sent: 0 })
 
   let sent = 0
 
-  for (const sub of subs) {
-    const prefRows = await prisma.$queryRaw<{ key: string; value: string }[]>`
-      SELECT "key", "value" FROM "UserPreference"
-      WHERE "userId" = ${sub.userId} AND "key" IN ('timezone', 'noon_reminder_enabled')
-    `.catch(() => [] as { key: string; value: string }[])
-    const prefMap = Object.fromEntries(prefRows.map(r => [r.key, r.value]))
-    const timezone = prefMap["timezone"] ?? "UTC"
-    if (prefMap["noon_reminder_enabled"] === "false") continue
+  for (const [userId, subs] of byUser) {
+    const enabledRow = await prisma.userPreference.findUnique({
+      where: { userId_key: { userId, key: "noon_reminder_enabled" } },
+      select: { value: true },
+    }).catch(() => null)
+    if (enabledRow?.value === "false") continue
 
-    const localHour = getLocalHour(timezone)
-    if (localHour !== 12) continue // Only send at noon local time
+    const timezone = await getUserTimezone(userId)
+    const localHour = parseInt(localTimeStr(timezone).slice(0, 2), 10)
+    if (localHour !== 12 && localHour !== 13) continue
 
-    const localDate = getLocalDateStr(timezone)
+    const localDate = localDateStr(timezone)
 
-    // Only send if user has a morning check-in with an intention today
+    const alreadySent = await readSentLog(userId, SENT_KEY, localDate)
+    if (alreadySent.has("noon")) continue
+
+    // Only meaningful when this morning's check-in actually set an intention.
     const checkinRows = await prisma.$queryRaw<{ intention: string | null; energy: number }[]>`
       SELECT "intention", "energy" FROM "MorningCheckIn"
-      WHERE "userId" = ${sub.userId} AND "date"::date = ${localDate}::date
+      WHERE "userId" = ${userId} AND "date" = ${localDate}
       LIMIT 1
     `.catch(() => [] as { intention: string | null; energy: number }[])
+    const intention = checkinRows[0]?.intention?.trim()
+    if (!intention) continue
 
-    if (checkinRows.length === 0) continue // No check-in today
+    const energyHigh = (checkinRows[0]?.energy ?? 0) >= 4
 
-    const checkin = checkinRows[0]
-    if (!checkin.intention?.trim()) continue // No intention set
-
-    const intention = checkin.intention.trim()
-    const energyHigh = checkin.energy >= 4
-
-    const payload = JSON.stringify({
+    const delivered = await sendToUser(subs, {
       title: energyHigh ? "⚡ Midday check-in" : "🌤️ Midday check-in",
       body: `Your intention for today: "${intention}" — staying on track?`,
       url: "/dashboard/chat",
       tag: "noon-intention",
     })
+    if (delivered) sent++
 
-    try {
-      await webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        payload
-      )
-      sent++
-    } catch (err: unknown) {
-      if (err && typeof err === "object" && "statusCode" in err && (err as { statusCode: number }).statusCode === 410) {
-        await prisma.$executeRaw`DELETE FROM "PushSubscription" WHERE endpoint = ${sub.endpoint}`.catch(() => {})
-      }
-    }
+    alreadySent.add("noon")
+    await writeSentLog(userId, SENT_KEY, localDate, alreadySent)
   }
 
-  return NextResponse.json({ ok: true, sent, total: subs.length })
+  return NextResponse.json({ ok: true, sent, total: byUser.size })
 }

@@ -39,9 +39,12 @@ jobs:
           fi
 
           failed=0
-          # Both endpoints are wall-clock driven and both keep their own
-          # per-day sent record, so running them on the same tick is safe.
-          for endpoint in habit-reminders med-reminders; do
+          # Every endpoint is wall-clock driven and keeps its own per-day
+          # sent record, so running them all on the same tick is safe. The
+          # morning/noon/evening nudges serve web-push devices (browsers,
+          # PWAs) — the phone app schedules its own copies locally and is
+          # not subscribed to web push, so there is no double delivery.
+          for endpoint in habit-reminders med-reminders morning-reminder noon-reminder evening-reminder; do
             code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${endpoint}") || true

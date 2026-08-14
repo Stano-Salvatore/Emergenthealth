@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { localCoversNow, parseCoverage } from "@/lib/local-notifications"
+import { readSentLog, writeSentLog } from "@/lib/sent-log"
 import webpush from "web-push"
 
 export const runtime = "nodejs"
@@ -45,30 +46,8 @@ function minutesBefore(hhmm: string, minutes: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
 }
 
-// Per-user, per-day record of what has already gone out, so a job that runs
-// every few minutes doesn't re-send the same reminder on every pass.
-interface SentLog { date: string; ids: string[] }
-
-async function readSentLog(userId: string, localDate: string): Promise<Set<string>> {
-  const row = await prisma.userPreference.findUnique({
-    where: { userId_key: { userId, key: "reminders_sent" } },
-    select: { value: true },
-  }).catch(() => null)
-  try {
-    const parsed = JSON.parse(row?.value ?? "{}") as SentLog
-    if (parsed.date === localDate && Array.isArray(parsed.ids)) return new Set(parsed.ids)
-  } catch { /* corrupt or first run — start clean */ }
-  return new Set()
-}
-
-async function writeSentLog(userId: string, localDate: string, ids: Set<string>): Promise<void> {
-  const value = JSON.stringify({ date: localDate, ids: [...ids] } satisfies SentLog)
-  await prisma.userPreference.upsert({
-    where:  { userId_key: { userId, key: "reminders_sent" } },
-    create: { userId, key: "reminders_sent", value },
-    update: { value },
-  }).catch(() => {})
-}
+// The per-user, per-day sent record lives in @/lib/sent-log under this key.
+const SENT_KEY = "reminders_sent"
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET
@@ -123,7 +102,7 @@ export async function GET(req: NextRequest) {
     const localDate = getLocalDateStr(timezone)
     const windowStart = minutesBefore(localTime, CATCHUP_MINUTES)
 
-    const alreadySent = await readSentLog(userId, localDate)
+    const alreadySent = await readSentLog(userId, SENT_KEY, localDate)
 
     // Incomplete habits whose reminder fell due in the catch-up window
     const habitReminders = phoneCovers ? [] : (await prisma.$queryRaw<{ id: string; name: string; reminderTime: string }[]>`
@@ -157,12 +136,13 @@ export async function GET(req: NextRequest) {
     // Streak protection: from 21:00 local, warn about habits with streaks at risk
     let streakProtectionNotif: { title: string; body: string; url: string; tag: string; requireInteraction: boolean } | null = null
     if (localTime >= "21:00" && localTime < "23:30" && !alreadySent.has("streak")) {
-      const atRiskHabits = await prisma.$queryRaw<{ id: string; name: string; streak: number }[]>`
-        SELECT h.id, h.name,
-          (SELECT COUNT(*) FROM "HabitCompletion" hc2
-           WHERE hc2."habitId" = h.id
-             AND hc2."date"::date >= (CURRENT_DATE - INTERVAL '30 days')
-             AND hc2."date"::date < CURRENT_DATE) AS streak
+      // The recent-completions threshold lives in WHERE, not HAVING: HAVING
+      // without GROUP BY makes this an aggregate query, at which point
+      // selecting bare h.id is invalid PostgreSQL — the query errored on
+      // every run and the catch below quietly turned that into "no habits at
+      // risk", so this warning never fired for anyone.
+      const atRiskHabits = await prisma.$queryRaw<{ id: string; name: string }[]>`
+        SELECT h.id, h.name
         FROM "Habit" h
         WHERE h."userId" = ${userId}
           AND h."isArchived" = false
@@ -170,20 +150,19 @@ export async function GET(req: NextRequest) {
             SELECT 1 FROM "HabitCompletion" hc
             WHERE hc."habitId" = h.id AND hc."date"::date = ${localDate}::date
           )
-        HAVING (SELECT COUNT(*) FROM "HabitCompletion" hc2
-                WHERE hc2."habitId" = h.id
-                  AND hc2."date"::date >= (CURRENT_DATE - INTERVAL '30 days')
-                  AND hc2."date"::date < CURRENT_DATE) > 2
+          AND (SELECT COUNT(*) FROM "HabitCompletion" hc2
+               WHERE hc2."habitId" = h.id
+                 AND hc2."date"::date >= (CURRENT_DATE - INTERVAL '30 days')
+                 AND hc2."date"::date < CURRENT_DATE) > 2
         LIMIT 3
-      `.catch(() => [] as { id: string; name: string; streak: number }[])
+      `.catch(() => [] as { id: string; name: string }[])
 
       if (atRiskHabits.length > 0) {
-        const names = atRiskHabits.map(h => h.name).join(", ")
         streakProtectionNotif = {
           title: "🔥 Streak at risk!",
           body: atRiskHabits.length === 1
             ? `Complete "${atRiskHabits[0].name}" before midnight!`
-            : `${atRiskHabits.length} habits still need completing tonight`,
+            : `${atRiskHabits.map(h => h.name).join(", ")} still need completing tonight`,
           url: "/dashboard/habits",
           tag: "streak-protection",
           requireInteraction: true,
@@ -238,7 +217,7 @@ export async function GET(req: NextRequest) {
     if (streakProtectionNotif) alreadySent.add("streak")
     for (const h of habitReminders)  alreadySent.add(`habit:${h.id}`)
     for (const r of reminderAlerts)  alreadySent.add(`reminder:${r.id}`)
-    await writeSentLog(userId, localDate, alreadySent)
+    await writeSentLog(userId, SENT_KEY, localDate, alreadySent)
   }
 
   return NextResponse.json({ ok: true, sent: totalSent })
