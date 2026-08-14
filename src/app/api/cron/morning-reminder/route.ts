@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
-import { getUserTimezone, localDateStr, localTimeStr } from "@/lib/local-date"
+import { localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 
 export const runtime = "nodejs"
@@ -29,19 +29,32 @@ export async function GET(req: NextRequest) {
   const byUser = await loadSubscriptionsByUser()
   if (byUser.size === 0) return NextResponse.json({ ok: true, sent: 0 })
 
+  // One query for every user's prefs, not two per user per tick — this runs
+  // every ten minutes against mostly out-of-window users.
+  const userIds = [...byUser.keys()]
+  const prefRows = await prisma.userPreference.findMany({
+    where: { userId: { in: userIds }, key: { in: ["timezone", "reminder_hour"] } },
+    select: { userId: true, key: true, value: true },
+  }).catch(() => [])
+  const prefs = new Map<string, Record<string, string>>()
+  for (const r of prefRows) {
+    const m = prefs.get(r.userId) ?? {}
+    m[r.key] = r.value
+    prefs.set(r.userId, m)
+  }
+
   let sent = 0
 
   for (const [userId, subs] of byUser) {
-    const timezone = await getUserTimezone(userId)
+    const timezone = prefs.get(userId)?.["timezone"]?.trim() || "UTC"
+    const hourPref = prefs.get(userId)?.["reminder_hour"]
+    const reminderHour = hourPref ? parseInt(hourPref, 10) : 7
 
-    const hourRow = await prisma.userPreference.findUnique({
-      where: { userId_key: { userId, key: "reminder_hour" } },
-      select: { value: true },
-    }).catch(() => null)
-    const reminderHour = hourRow ? parseInt(hourRow.value, 10) : 7
-
+    // The grace hour never crosses midnight: for an hour-23 nudge it would
+    // land on the next local date, marking tomorrow's log and eating
+    // tomorrow's nudge, so 23 simply gets no grace.
     const localHour = parseInt(localTimeStr(timezone).slice(0, 2), 10)
-    if (localHour !== reminderHour && localHour !== reminderHour + 1) continue
+    if (localHour !== reminderHour && localHour !== Math.min(reminderHour + 1, 23)) continue
 
     const localDate = localDateStr(timezone)
 

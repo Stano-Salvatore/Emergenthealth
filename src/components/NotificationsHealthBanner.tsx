@@ -16,7 +16,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { BellOff, X } from "lucide-react"
 import { isNativeApp } from "@/lib/native/geolocation"
-import { getNotificationPermission, getScheduledStatus } from "@/lib/native/notifications"
+import { getNotificationPermission, getScheduledStatus, nudgesEnabled } from "@/lib/native/notifications"
 
 const SNOOZE_KEY = "notif_banner_snoozed_until"
 const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000
@@ -51,21 +51,34 @@ export function NotificationsHealthBanner() {
         // prompt for permission and lay notifications down, so a fresh app
         // open isn't misread as a broken one.
         await new Promise(r => setTimeout(r, 8000))
+        if (cancelled) return
         const perm = await getNotificationPermission()
         let found: Problem | null = null
         if (perm === "unavailable") found = "unavailable"
         else if (perm === "denied" || perm === "prompt") found = "permission"
-        else {
+        else if (nudgesEnabled()) {
+          // With nudges on, at least the repeating dailies must be queued —
+          // an empty queue means scheduling is broken. With nudges off, an
+          // empty queue is exactly what the user asked for: say nothing.
+          // Only a definite answer counts; a timed-out getPending isn't
+          // evidence of a problem.
           const status = await getScheduledStatus()
-          if (!status.available || status.pending === 0) found = "none-scheduled"
+          if (status.available && status.pending === 0) found = "none-scheduled"
         }
-        if (!cancelled && found) setProblem(found)
+        // Also clears an earlier banner once the user has fixed the cause —
+        // e.g. granted the permission prompt after this ran, then tabbed back.
+        if (!cancelled) setProblem(found)
       } catch {
         // Diagnostics must never break the dashboard.
       }
     }
     check()
-    return () => { cancelled = true }
+    const recheck = () => { if (document.visibilityState === "visible") check() }
+    document.addEventListener("visibilitychange", recheck)
+    return () => {
+      cancelled = true
+      document.removeEventListener("visibilitychange", recheck)
+    }
   }, [])
 
   if (!problem) return null

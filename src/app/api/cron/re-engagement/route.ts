@@ -23,8 +23,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "VAPID not configured" }, { status: 503 })
   }
 
-  // Find users who have push subscriptions but haven't checked in for 3+ days
-  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+  // Find users who have push subscriptions but haven't checked in for 3+ days.
+  // Bound as a YYYY-MM-DD string: MorningCheckIn.date is a text column, and
+  // comparing it against a bound timestamp has no operator in Postgres — the
+  // old Date parameter made this whole query error on every run, silently
+  // returning nobody. The date-typed columns get an explicit ::date cast.
+  const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   const inactiveUsers = await prisma.$queryRaw<{ userId: string }[]>`
     SELECT DISTINCT ps."userId"
@@ -35,11 +39,11 @@ export async function GET(req: NextRequest) {
     )
     AND NOT EXISTS (
       SELECT 1 FROM "HabitCompletion" hc
-      WHERE hc."userId" = ps."userId" AND hc."date" >= ${threeDaysAgo}
+      WHERE hc."userId" = ps."userId" AND hc."date" >= ${threeDaysAgo}::date
     )
     AND NOT EXISTS (
       SELECT 1 FROM "MoodLog" ml
-      WHERE ml."userId" = ps."userId" AND ml."date" >= ${threeDaysAgo}
+      WHERE ml."userId" = ps."userId" AND ml."date" >= ${threeDaysAgo}::date
     )
     LIMIT 200
   `.catch(() => [] as { userId: string }[])

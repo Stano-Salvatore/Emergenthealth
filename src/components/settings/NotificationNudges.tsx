@@ -107,9 +107,11 @@ export function NotificationNudges() {
           <p className="text-xs text-muted-foreground">
             This build doesn&apos;t support notifications yet — it may need updating from the Play Store.
           </p>
-        ) : status && status.pending === 0 ? (
-          // Permission is granted yet nothing is laid down — the state that
-          // used to be indistinguishable from everything working.
+        ) : on && status?.available && status.pending === 0 ? (
+          // Permission granted, nudges on, yet nothing is laid down — the
+          // state that used to be indistinguishable from everything working.
+          // With nudges off an empty queue is intended, and a timed-out
+          // getPending is no evidence, so neither triggers the warning.
           <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2.5 space-y-1.5">
             <p className="text-xs font-medium text-amber-400">
               Notifications are allowed, but nothing is scheduled on this phone
@@ -125,7 +127,7 @@ export function NotificationNudges() {
         ) : (
           <p className="text-xs text-green-400">
             ✓ Notifications are on
-            {status ? ` — ${status.pending} scheduled on this phone` : " for this phone"}
+            {status?.available ? ` — ${status.pending} scheduled on this phone` : " for this phone"}
             {status?.nextAt ? ` (next: ${new Date(status.nextAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })})` : ""}.
           </p>
         )}

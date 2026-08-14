@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
-import { getUserTimezone, localDateStr, localTimeStr } from "@/lib/local-date"
+import { localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 
 export const runtime = "nodejs"
@@ -27,16 +27,26 @@ export async function GET(req: NextRequest) {
   const byUser = await loadSubscriptionsByUser()
   if (byUser.size === 0) return NextResponse.json({ ok: true, sent: 0 })
 
+  // One query for every user's prefs, not two per user per tick — this runs
+  // every ten minutes against mostly out-of-window users.
+  const userIds = [...byUser.keys()]
+  const prefRows = await prisma.userPreference.findMany({
+    where: { userId: { in: userIds }, key: { in: ["timezone", "noon_reminder_enabled"] } },
+    select: { userId: true, key: true, value: true },
+  }).catch(() => [])
+  const prefs = new Map<string, Record<string, string>>()
+  for (const r of prefRows) {
+    const m = prefs.get(r.userId) ?? {}
+    m[r.key] = r.value
+    prefs.set(r.userId, m)
+  }
+
   let sent = 0
 
   for (const [userId, subs] of byUser) {
-    const enabledRow = await prisma.userPreference.findUnique({
-      where: { userId_key: { userId, key: "noon_reminder_enabled" } },
-      select: { value: true },
-    }).catch(() => null)
-    if (enabledRow?.value === "false") continue
+    if (prefs.get(userId)?.["noon_reminder_enabled"] === "false") continue
 
-    const timezone = await getUserTimezone(userId)
+    const timezone = prefs.get(userId)?.["timezone"]?.trim() || "UTC"
     const localHour = parseInt(localTimeStr(timezone).slice(0, 2), 10)
     if (localHour !== 12 && localHour !== 13) continue
 
