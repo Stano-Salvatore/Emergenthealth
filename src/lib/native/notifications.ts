@@ -1,7 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Local notification helper — schedules reminders + daily nudges as native
-// Android notifications via the Capacitor Local Notifications plugin.
-// No-ops on the web.
+// Local notification helper — schedules reminders, habits, medication doses and
+// the daily nudges as native Android notifications via the Capacitor Local
+// Notifications plugin. No-ops on the web.
+//
+// Anything whose time is knowable in advance belongs here rather than in a
+// server cron. A local notification fires at the exact minute, with no network,
+// with the app closed, and survives a reboot; a pushed one needs a cron to come
+// round, the network to be up and the app to be alive. The server keeps the
+// notifications it alone can decide — Emergy's water check, anomaly and
+// correlation watches, digests — because those depend on data the phone
+// doesn't have.
+
+import { activeOn } from "@/lib/med-schedule"
 
 type Reminder = {
   id: string
@@ -19,6 +29,28 @@ type HabitReminder = {
   completedToday?: boolean
 }
 
+type MedReminder = {
+  id: string
+  name: string
+  dose?: string | null
+  times: string[]                // "HH:mm", local
+  daysOfWeek: number[]           // 0 = Sunday; empty means every day
+  active: boolean
+  remind?: boolean
+  startDate?: string | null      // YYYY-MM-DD
+  endDate?: string | null
+  takenToday?: number
+}
+
+/** Daily nudge times, from Settings. Noon and evening are on/off only. */
+export type NudgePrefs = {
+  morningHour: number
+  noon: boolean
+  evening: boolean
+}
+
+const DEFAULT_NUDGE_PREFS: NudgePrefs = { morningHour: 8, noon: true, evening: true }
+
 // How many days ahead each habit's daily reminder is scheduled. A repeating
 // alarm can't be cancelled for a single day, so instead of one repeating alarm
 // per habit we lay down a short rolling window of one-shots and refresh it
@@ -26,18 +58,18 @@ type HabitReminder = {
 // doesn't buzz anyway.
 const HABIT_WINDOW_DAYS = 7
 
+// Same reasoning for medication: a dose already logged today shouldn't buzz,
+// which a repeating alarm can't express.
+const MED_WINDOW_DAYS = 7
+
+/** Cap per schedule, so one medication can't consume the whole id block. */
+const MAX_MED_TIMES = 7
+
 // Android will accept far more than this, but a runaway loop shouldn't be able
 // to flood the notification tray.
 const MAX_SCHEDULED = 400
 
 const NUDGES_KEY = "notif_nudges" // localStorage: "off" disables daily nudges
-
-// Fixed daily nudges (ids in a high range so they never collide with reminders).
-const NUDGES = [
-  { id: 910001, title: "🌅 Morning check-in", body: "Log your energy, mood & focus — takes 10 seconds.", hour: 8, minute: 0 },
-  { id: 910002, title: "💧 Hydration check", body: "How's your water intake looking today?", hour: 13, minute: 0 },
-  { id: 910003, title: "✅ Habits", body: "Any habits left to close out before bed?", hour: 20, minute: 0 },
-]
 
 async function getPlugin(): Promise<any | null> {
   if (typeof window === "undefined") return null
@@ -66,22 +98,28 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 }
 
 // Local notification ids must be 32-bit ints, so cuids are hashed into one.
-// The space is partitioned so the three kinds can never collide:
-//   0 – 399,999    to-do reminders
-//   400,000 – 889,999  habit reminders (hash × 7 + day offset)
-//   910,001+       the fixed daily nudges
+// The space is partitioned so the kinds can never collide:
+//   0 – 399,999          to-do reminders
+//   400,000 – 889,999    habit reminders (hash × 7 + day offset)
+//   910,001+             the daily nudges
+//   1,000,000 – 1,999,999  medication doses (hash × 50 + day × 7 + time index)
 function hashId(id: string): number {
   let h = 0
   for (let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0
   return Math.abs(h)
 }
 
-function reminderNotifId(id: string): number {
+export function reminderNotifId(id: string): number {
   return hashId(id) % 400_000
 }
 
-function habitNotifId(habitId: string, dayOffset: number): number {
+export function habitNotifId(habitId: string, dayOffset: number): number {
   return 400_000 + (hashId(habitId) % 70_000) * 7 + dayOffset
+}
+
+// 50 slots per schedule = 7 days × 7 times, with room to spare.
+export function medNotifId(scheduleId: string, dayOffset: number, timeIndex: number): number {
+  return 1_000_000 + (hashId(scheduleId) % 20_000) * 50 + dayOffset * MAX_MED_TIMES + timeIndex
 }
 
 // A local Date for a given day offset at "HH:MM" in the phone's own timezone.
@@ -92,6 +130,14 @@ function localTimeOn(dayOffset: number, hhmm: string): Date | null {
   d.setDate(d.getDate() + dayOffset)
   d.setHours(h, m, 0, 0)
   return d
+}
+
+/** YYYY-MM-DD for a day offset, in the phone's own timezone. */
+function localDateOn(dayOffset: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + dayOffset)
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 /** Whether daily nudges are enabled (default on). */
@@ -112,6 +158,32 @@ export function setNudgesEnabled(on: boolean): void {
 }
 
 /**
+ * The three daily nudges, built from the user's Settings.
+ *
+ * These used to be hard-coded at 08:00, 13:00 and 20:00 with no way to change
+ * them — while Settings showed a morning-hour picker and noon/evening toggles
+ * that drove three server crons nothing ever scheduled. So the controls you
+ * could see did nothing and the notifications you actually got couldn't be
+ * configured. Same preferences, now driving the notifications that really fire.
+ */
+export function buildNudges(prefs: NudgePrefs): { id: number; title: string; body: string; hour: number; minute: number }[] {
+  const out = [{
+    id: 910001,
+    title: "🌅 Morning check-in",
+    body: "Log your energy, mood & focus — takes 10 seconds.",
+    hour: Math.max(0, Math.min(23, prefs.morningHour)),
+    minute: 0,
+  }]
+  if (prefs.noon) {
+    out.push({ id: 910002, title: "💧 Hydration check", body: "How's your water intake looking today?", hour: 13, minute: 0 })
+  }
+  if (prefs.evening) {
+    out.push({ id: 910003, title: "✅ Habits", body: "Any habits left to close out before bed?", hour: 20, minute: 0 })
+  }
+  return out
+}
+
+/**
  * Cancel everything we scheduled and re-schedule from scratch: upcoming
  * reminders (one-shot) + daily nudges (repeating), unless nudges are off.
  * Returns the number of notifications scheduled.
@@ -119,6 +191,8 @@ export function setNudgesEnabled(on: boolean): void {
 export async function syncNotifications(
   reminders: Reminder[],
   habits: HabitReminder[] = [],
+  meds: MedReminder[] = [],
+  nudgePrefs: NudgePrefs = DEFAULT_NUDGE_PREFS,
 ): Promise<number> {
   const ln = await getPlugin()
   if (!ln) return 0
@@ -179,8 +253,43 @@ export async function syncNotifications(
       }
     }
 
+    // ── Medication doses ─────────────────────────────────────────────────
+    // Previously server-push only, which made the one thing that most needs
+    // an exact time the least reliably delivered thing in the app: a 21:00
+    // dose depended on a ten-minute poll reaching a live app. Scheduled on
+    // the device it fires at 21:00, offline, with the app closed.
+    for (const med of meds) {
+      if (med.active === false || med.remind === false) continue
+      const times = [...(med.times ?? [])].sort().slice(0, MAX_MED_TIMES)
+      if (times.length === 0) continue
+
+      for (let day = 0; day < MED_WINDOW_DAYS; day++) {
+        // daysOfWeek / startDate / endDate are interpreted by exactly the same
+        // function the server cron and the medications page use, so the phone
+        // can't disagree with either about which days a course runs.
+        if (!activeOn({
+          id: med.id, name: med.name, times, daysOfWeek: med.daysOfWeek ?? [],
+          active: med.active, startDate: med.startDate, endDate: med.endDate,
+        }, localDateOn(day))) continue
+
+        times.forEach((time, i) => {
+          // Doses cover times in order, so today's first `takenToday` slots are
+          // already dealt with — the same rule the page and the cron apply.
+          if (day === 0 && i < (med.takenToday ?? 0)) return
+          const at = localTimeOn(day, time)
+          if (!at || at.getTime() <= now) return
+          toSchedule.push({
+            id: medNotifId(med.id, day, i),
+            title: "💊 Time for your dose",
+            body: med.dose ? `${med.name} (${med.dose})` : med.name,
+            schedule: { at, allowWhileIdle: true },
+          })
+        })
+      }
+    }
+
     if (nudgesEnabled()) {
-      for (const n of NUDGES) {
+      for (const n of buildNudges(nudgePrefs)) {
         toSchedule.push({
           id: n.id,
           title: n.title,
@@ -293,19 +402,52 @@ export async function scheduleTestNotification(): Promise<"scheduled" | "denied"
   }
 }
 
-/** Fetch reminders + habits from the server and (re)schedule everything. */
+async function json<T>(url: string, fallback: T): Promise<T> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return fallback
+    return (await res.json()) as T
+  } catch {
+    return fallback
+  }
+}
+
+/** Fetch everything schedulable and (re)schedule from scratch. */
 export async function resyncNotifications(): Promise<number> {
   try {
-    const [rRes, hRes] = await Promise.all([
-      fetch("/api/reminders").catch(() => null),
-      fetch("/api/habits").catch(() => null),
+    const [reminders, habits, medPayload, morning, noon, evening] = await Promise.all([
+      json<Reminder[]>("/api/reminders", []),
+      json<HabitReminder[]>("/api/habits", []),
+      json<{ items?: MedReminder[] }>("/api/med-schedule", {}),
+      json<{ hour?: number }>("/api/preferences/reminder-time", {}),
+      json<{ enabled?: boolean }>("/api/preferences/noon-reminder", {}),
+      json<{ enabled?: boolean }>("/api/preferences/evening-reminder", {}),
     ])
-    const reminders = rRes?.ok ? await rRes.json() : []
-    const habits = hRes?.ok ? await hRes.json() : []
-    return await syncNotifications(
+
+    const count = await syncNotifications(
       Array.isArray(reminders) ? reminders : [],
       Array.isArray(habits) ? habits : [],
+      Array.isArray(medPayload?.items) ? medPayload.items : [],
+      {
+        morningHour: typeof morning?.hour === "number" ? morning.hour : DEFAULT_NUDGE_PREFS.morningHour,
+        noon: noon?.enabled !== false,
+        evening: evening?.enabled !== false,
+      },
     )
+
+    // Tell the server the phone has these laid down locally, so its own
+    // habit-reminder push stands down rather than buzzing a second time for
+    // the same thing. The timestamp expires on the server side, so if the app
+    // stops being opened the push quietly takes over again as the backstop.
+    if (count > 0) {
+      fetch("/api/preferences/local-notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ windowDays: HABIT_WINDOW_DAYS }),
+      }).catch(() => {})
+    }
+
+    return count
   } catch {
     return 0
   }

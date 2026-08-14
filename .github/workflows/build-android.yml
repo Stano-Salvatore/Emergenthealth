@@ -58,6 +58,10 @@ jobs:
           npx cap add android
           mkdir -p android/app/src/main/assets
 
+      # cap add regenerates the manifest each build, so this can't be committed.
+      - name: Declare SCHEDULE_EXACT_ALARM
+        run: node .ci/patch-android-manifest.mjs
+
       - name: Generate Android launcher icon
         run: node .ci/generate-android-icons.mjs
 

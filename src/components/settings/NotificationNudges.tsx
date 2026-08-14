@@ -130,7 +130,8 @@ export function NotificationNudges() {
         {/* Daily nudges toggle */}
         <div className="flex items-center justify-between gap-4 border-t border-border/40 pt-3">
           <p className="text-sm text-muted-foreground">
-            Daily nudges — morning check-in (08:00), hydration (13:00), and habits (20:00).
+            Daily nudges — morning check-in, hydration (13:00), and habits (20:00).
+            The morning time and which of the three you get are set above.
           </p>
           <button
             onClick={toggle}
