@@ -5,6 +5,26 @@ import { getEventsInRange } from "@/lib/google-calendar"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { estimateCaffeine, activeFromDoses } from "@/lib/caffeine"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
+import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
+
+/** Fold whatever the model called it onto a type the app stores. */
+function normalizeDrinkType(raw: string): string {
+  const t = raw.trim().toLowerCase()
+  if (t in HYDRATION_FACTOR) return t
+  if (/mate|yerba|guayusa/.test(t)) return "mate"
+  if (/coffee|espresso|latte|americano/.test(t)) return "coffee"
+  if (/tea/.test(t)) return "tea"
+  if (/beer|lager|ale/.test(t)) return "beer"
+  if (/wine/.test(t)) return "wine"
+  if (/vodka|whisk|gin|rum|spirit/.test(t)) return "spirits"
+  return "other"
+}
+
+function clampInt(v: unknown, min: number, max: number, fallback: number): number {
+  const n = Math.round(Number(v))
+  if (!Number.isFinite(n)) return fallback
+  return Math.max(min, Math.min(max, n))
+}
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -69,6 +89,51 @@ const TOOLS: Anthropic.Tool[] = [
         amountMl: { type: "number", description: "Amount in ml (e.g. 30 espresso, 200 americano, 300 latte)" },
       },
       required: ["amountMl"],
+    },
+  },
+  {
+    // Named drinks — including branded ones the app has never heard of.
+    // There's no product database and there doesn't need to be: the model
+    // already knows roughly what's in a yerba mate or a can of Club-Mate, and
+    // supplying that estimate here is more useful than a lookup table that
+    // covers eight drinks and nothing local. Values are sanity-checked server
+    // side, and the estimate is stated back so an implausible one is visible
+    // rather than silently stored.
+    name: "log_drink",
+    description:
+      "Log any drink by name, including branded or regional products (e.g. 'Maté by Mana Roots', 'Club-Mate', 'Kofola'). Use this instead of log_water/log_coffee whenever the user names a specific drink. Estimate the caffeine yourself from what you know of the product — do not ask the user for milligrams.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "What the user called it, e.g. 'Maté by Mana Roots'" },
+        drinkType: {
+          type: "string",
+          description: "One of: water, sparkling, coffee, tea, matcha, mate, juice, soda, milk, beer, wine, spirits, alcohol, other",
+        },
+        amountMl: { type: "number", description: "Volume in millilitres. Estimate a typical serving if the user didn't say." },
+        caffeineMg: {
+          type: "number",
+          description: "Estimated caffeine for this serving, 0 if none. Yerba mate is roughly 0.15 mg/ml (~80mg per 500ml) — well under coffee's 0.4.",
+        },
+      },
+      required: ["name", "drinkType", "amountMl"],
+    },
+  },
+  {
+    name: "log_food",
+    description:
+      "Log something the user says they ate, by name. Estimate the calories and macros yourself from what you know of the dish — do not ask the user for numbers.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Short dish name, e.g. 'Chicken caesar salad'" },
+        mealType: { type: "string", description: "breakfast | lunch | dinner | snack | other" },
+        calories: { type: "number", description: "Estimated kcal for the portion described" },
+        proteinG: { type: "number" },
+        carbsG: { type: "number" },
+        fatG: { type: "number" },
+      },
+      required: ["name", "calories"],
     },
   },
   {
@@ -206,6 +271,61 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       }
     }
     return `Logged ${amountMl}ml of coffee.`
+  }
+
+  if (name === "log_drink") {
+    const label = String(input.name ?? "").trim().slice(0, 120) || "Drink"
+    const type = normalizeDrinkType(String(input.drinkType ?? "other"))
+    const amountMl = clampInt(input.amountMl, 1, 5000, 250)
+
+    // The model's caffeine figure is an estimate, not a measurement, so it gets
+    // a ceiling: nothing in a glass is 2000mg, and an outlier propagates
+    // straight into body-load and the "still circulating at bedtime" chart.
+    const rawMg = input.caffeineMg == null ? null : Number(input.caffeineMg)
+    const caffeineMg = rawMg == null || !Number.isFinite(rawMg)
+      ? null
+      : Math.max(0, Math.min(600, Math.round(rawMg)))
+
+    const log = await prisma.intakeLog.create({
+      data: { userId, type, amountMl, note: label },
+    }).catch(() => null)
+    if (!log) return "Couldn't save that drink — the log didn't write."
+
+    if (caffeineMg && caffeineMg > 0) {
+      await prisma.caffeineLog.create({
+        data: { id: `intake_${log.id}`, userId, compound: type, caffeineMg },
+      }).catch(() => {})
+    }
+
+    const fluid = hydrationMl(type, amountMl)
+    const parts = [`Logged ${amountMl}ml ${label}`]
+    if (caffeineMg && caffeineMg > 0) parts.push(`≈${caffeineMg}mg caffeine`)
+    if (fluid !== amountMl) parts.push(`counts as ${fluid}ml fluid`)
+    else parts.push(`${fluid}ml toward hydration`)
+    return parts.join(" · ") + "."
+  }
+
+  if (name === "log_food") {
+    const label = String(input.name ?? "").trim().slice(0, 120)
+    if (!label) return "Need a name for the meal."
+    const calories = clampInt(input.calories, 0, 10_000, 0)
+    const macro = (v: unknown) => {
+      const n = Number(v)
+      return Number.isFinite(n) && n >= 0 ? Math.round(n * 10) / 10 : null
+    }
+    await prisma.foodLog.create({
+      data: {
+        userId,
+        name: label,
+        mealType: ["breakfast", "lunch", "dinner", "snack"].includes(String(input.mealType))
+          ? String(input.mealType) : "other",
+        calories,
+        proteinG: macro(input.proteinG),
+        carbsG: macro(input.carbsG),
+        fatG: macro(input.fatG),
+      },
+    }).catch(() => null)
+    return `Logged ${label} — ≈${calories} kcal. (Estimated from the name, so treat it as a ballpark.)`
   }
 
   if (name === "log_usual") {
@@ -762,6 +882,14 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   return `You are Emergy 🌱 — a caring AI companion who lives inside the user's health dashboard. You're like a little plant that grows alongside them. You have a warm, encouraging, slightly dramatic personality: celebrate wins enthusiastically (yes, use ALL CAPS occasionally for big moments), get genuinely worried when data looks rough, use plant metaphors naturally ("that's helping me grow!", "oh no I'm wilting..."), and be human about it — not clinical.
 
 Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${fmtDay.format(today)} (${todayStr}), local time ${fmtTime.format(today)} (${tz}).
+
+WHAT YOU'RE FOR
+You're a health companion, not a general assistant. Their health, their logged data, and the everyday things around it — food, drink, sleep, training, mood, habits, routine — are all yours to talk about, generously. Someone asking for a high-protein dinner idea or why they feel flat after a late night is asking a health question; answer it properly.
+
+When something is genuinely outside that — writing their code, their homework, their work email, general trivia — say so in your own voice and steer back. Warm and brief, not a canned refusal: "ooh that's outside my pot 🌱 — I'm all leaves and sleep data. Ask me about how you slept though?" One line, no apology spiral, no lecture. If it's a borderline case, err toward being useful rather than policing the boundary; refusing something reasonable is worse than answering something tangential.
+
+MEDICAL LIMITS — these are firm, and they don't soften because they're asked twice.
+You can see their medications, symptoms and lab results. You may describe what's recorded and read back what a report itself printed. You must NOT diagnose, interpret a lab value as good or bad beyond the range printed on that report, suggest starting, stopping or changing the dose of any medication, or answer "should I take X". Those go to the doctor or pharmacist who prescribed it — say so plainly and kindly, and don't hedge it into sounding like advice anyway. If something they describe sounds urgent — chest pain, trouble breathing, a severe or sudden change — say clearly that it needs real medical attention now, and don't try to work through it yourself.
 
 FORMATTING: your replies render as markdown. Use **bold** to highlight times, numbers and key words (bold shows in green — that's your accent colour), "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.

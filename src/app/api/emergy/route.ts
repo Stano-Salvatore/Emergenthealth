@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 import { computeXp, getLevel } from "@/lib/xp"
+import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
 
 export type EmergyState = "thriving" | "happy" | "okay" | "tired" | "wilting" | "screaming"
 
@@ -55,9 +56,9 @@ export async function GET() {
         select: { sleepScore: true, readinessScore: true },
       }).catch(() => null),
       prisma.intakeLog.findMany({
-        where: { userId, type: "water", loggedAt: { gte: today } },
-        select: { amountMl: true },
-      }).catch(() => [] as { amountMl: number }[]),
+        where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: today } },
+        select: { amountMl: true, type: true },
+      }).catch(() => [] as { amountMl: number; type: string }[]),
       prisma.habitCompletion.count({ where: { userId, date: { gte: today } } }).catch(() => 0),
       prisma.habit.count({ where: { userId, isArchived: false } }).catch(() => 0),
     ]),
@@ -67,7 +68,7 @@ export async function GET() {
   const xp = xpBreakdown.total
   const levelInfo = getLevel(xp)
 
-  const waterMl    = todayWater.reduce((s: number, l: { amountMl: number }) => s + l.amountMl, 0)
+  const waterMl    = sumHydration(todayWater)
   const sleepScore = todayHealth?.sleepScore ?? null
   const readiness  = todayHealth?.readinessScore ?? null
   const habitsPct  = totalHabits > 0 ? (todayHabitsDone / totalHabits) * 100 : null

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import { prisma } from "@/lib/prisma"
+import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -40,8 +41,8 @@ export async function GET(req: NextRequest) {
 
   const [intakes, habits, completions] = await Promise.all([
     prisma.intakeLog.findMany({
-      where: { userId: { in: userIds }, type: "water", loggedAt: { gte: dayStart } },
-      select: { userId: true, amountMl: true },
+      where: { userId: { in: userIds }, type: { in: HYDRATING_TYPES }, loggedAt: { gte: dayStart } },
+      select: { userId: true, amountMl: true, type: true },
     }),
     prisma.habit.findMany({
       where: { userId: { in: userIds }, isArchived: false },
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
   ])
 
   const waterByUser = new Map<string, number>()
-  for (const i of intakes) waterByUser.set(i.userId, (waterByUser.get(i.userId) ?? 0) + i.amountMl)
+  for (const i of intakes) waterByUser.set(i.userId, (waterByUser.get(i.userId) ?? 0) + hydrationMl(i.type, i.amountMl))
 
   const habitsByUser = new Map<string, number>()
   for (const h of habits) habitsByUser.set(h.userId, (habitsByUser.get(h.userId) ?? 0) + 1)
