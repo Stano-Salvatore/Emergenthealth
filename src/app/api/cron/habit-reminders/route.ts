@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { localCoversNow, parseCoverage } from "@/lib/local-notifications"
 import webpush from "web-push"
 
 export const runtime = "nodejs"
@@ -97,9 +98,21 @@ export async function GET(req: NextRequest) {
     byUser.get(s.userId)!.push({ endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth })
   }
 
+  // Which users' phones have already scheduled these locally. Those get no
+  // habit or reminder push — the device will fire at the exact time, and two
+  // notifications for one habit is worse than either alone. Streak protection
+  // below is unaffected: it depends on server-side streak maths the phone has
+  // no way to schedule for itself.
+  const coverageRows = await prisma.$queryRaw<{ userId: string; value: string }[]>`
+    SELECT "userId", "value" FROM "UserPreference" WHERE "key" = 'local_notifications_synced'
+  `.catch(() => [] as { userId: string; value: string }[])
+  const coverageByUser = new Map(coverageRows.map(r => [r.userId, parseCoverage(r.value)]))
+
   let totalSent = 0
 
   for (const [userId, subs] of byUser) {
+    const phoneCovers = localCoversNow(coverageByUser.get(userId) ?? { syncedAt: null, windowDays: null })
+
     // Get user timezone
     const tzRows = await prisma.$queryRaw<{ value: string }[]>`
       SELECT value FROM "UserPreference" WHERE "userId" = ${userId} AND key = 'timezone' LIMIT 1
@@ -113,7 +126,7 @@ export async function GET(req: NextRequest) {
     const alreadySent = await readSentLog(userId, localDate)
 
     // Incomplete habits whose reminder fell due in the catch-up window
-    const habitReminders = (await prisma.$queryRaw<{ id: string; name: string; reminderTime: string }[]>`
+    const habitReminders = phoneCovers ? [] : (await prisma.$queryRaw<{ id: string; name: string; reminderTime: string }[]>`
       SELECT h.id, h.name, h."reminderTime"
       FROM "Habit" h
       WHERE h."userId" = ${userId}
@@ -129,7 +142,7 @@ export async function GET(req: NextRequest) {
       .filter(h => !alreadySent.has(`habit:${h.id}`))
 
     // Reminders due today or overdue, same window, not yet ticked off
-    const reminderAlerts = (await prisma.$queryRaw<{ id: string; title: string; reminderTime: string }[]>`
+    const reminderAlerts = phoneCovers ? [] : (await prisma.$queryRaw<{ id: string; title: string; reminderTime: string }[]>`
       SELECT id, title, "reminderTime"
       FROM "Reminder"
       WHERE "userId" = ${userId}

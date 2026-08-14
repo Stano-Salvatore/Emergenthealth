@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { Trash2, Plus, ChevronDown, ChevronUp } from "lucide-react"
 import { format } from "date-fns"
 import { LabImportCard } from "@/components/labs/LabImportCard"
+import { LabTrendsCard } from "@/components/labs/LabTrendsCard"
 import { canonicalMarker, CANONICAL_MARKERS } from "@/lib/lab-markers"
 
 interface LabResult {
@@ -263,6 +264,9 @@ export default function LabsPage() {
         <h1 className="text-2xl font-bold text-foreground">Lab Results</h1>
         <p className="text-muted-foreground text-sm mt-1">Track your blood work and biomarkers over time.</p>
       </div>
+
+      {/* What moved since the last draw, and what was going on in between */}
+      <LabTrendsCard />
 
       {/* The whole page in one shot, instead of a row at a time */}
       <LabImportCard onSaved={load} />

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { Bell, BellOff, Send, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { resyncNotifications } from "@/lib/native/notifications"
 
 function formatHour(h: number) {
   if (h === 0) return "12:00 AM"
@@ -124,6 +125,7 @@ export function PushNotifications() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: next }),
     }).catch(() => {})
+    await resyncNotifications().catch(() => {})
     setSavingNoon(false)
   }
 
@@ -136,6 +138,7 @@ export function PushNotifications() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled: next }),
     }).catch(() => {})
+    await resyncNotifications().catch(() => {})
     setSavingEvening(false)
   }
 
@@ -147,6 +150,9 @@ export function PushNotifications() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hour: h }),
     }).catch(() => {})
+    // Reschedule straight away — otherwise the new time only takes effect the
+    // next time the app happens to be opened, and the setting looks broken.
+    await resyncNotifications().catch(() => {})
     setSavingHour(false)
     setHourSaved(true)
     setTimeout(() => setHourSaved(false), 2000)

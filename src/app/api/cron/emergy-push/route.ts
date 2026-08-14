@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import webpush from "web-push"
+import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
@@ -28,26 +28,15 @@ export async function GET(req: NextRequest) {
   const hour = new Date().getUTCHours()
   if (hour !== 15) return NextResponse.json({ ok: true, skipped: true, hour })
 
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-  const privateKey = process.env.VAPID_PRIVATE_KEY
-  const email = process.env.VAPID_EMAIL ?? "mailto:admin@emergenthealth.app"
-  if (!publicKey || !privateKey) return NextResponse.json({ error: "VAPID keys not configured" }, { status: 500 })
-
-  webpush.setVapidDetails(email, publicKey, privateKey)
+  if (!configurePush()) return NextResponse.json({ error: "VAPID keys not configured" }, { status: 500 })
 
   const today = new Date()
   const dayStart = new Date(today.toISOString().split("T")[0] + "T00:00:00Z")
 
-  type SubRow = { userId: string; endpoint: string; p256dh: string; auth: string }
-  const subs = await prisma.$queryRaw<SubRow[]>`
-    SELECT DISTINCT ON ("userId") "userId", endpoint, p256dh, auth
-    FROM "PushSubscription"
-    ORDER BY "userId", "createdAt" DESC
-  `.catch(() => [] as SubRow[])
+  const subsByUser = await loadSubscriptionsByUser()
+  if (subsByUser.size === 0) return NextResponse.json({ ok: true, sent: 0 })
 
-  if (!subs.length) return NextResponse.json({ ok: true, sent: 0 })
-
-  const userIds = subs.map(s => s.userId)
+  const userIds = [...subsByUser.keys()]
 
   const [intakes, habits, completions] = await Promise.all([
     prisma.intakeLog.findMany({
@@ -74,10 +63,10 @@ export async function GET(req: NextRequest) {
   for (const c of completions) completionsByUser.set(c.userId, (completionsByUser.get(c.userId) ?? 0) + 1)
 
   let sent = 0
-  await Promise.allSettled(subs.map(async sub => {
-    const water = waterByUser.get(sub.userId) ?? 0
-    const totalHabits = habitsByUser.get(sub.userId) ?? 0
-    const doneHabits = completionsByUser.get(sub.userId) ?? 0
+  await Promise.allSettled([...subsByUser].map(async ([userId, subs]) => {
+    const water = waterByUser.get(userId) ?? 0
+    const totalHabits = habitsByUser.get(userId) ?? 0
+    const doneHabits = completionsByUser.get(userId) ?? 0
     const habitPct = totalHabits > 0 ? (doneHabits / totalHabits) * 100 : 100
 
     let message: string | null = null
@@ -92,24 +81,15 @@ export async function GET(req: NextRequest) {
     }
     if (!message) return
 
-    try {
-      await webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        JSON.stringify({
-          title: "Emergy 🌱",
-          body: message,
-          url,
-          tag,
-          requireInteraction: habitPct < 50,
-        })
-      )
-      sent++
-    } catch (err: unknown) {
-      if (err && typeof err === "object" && "statusCode" in err && (err as { statusCode: number }).statusCode === 410) {
-        await prisma.$executeRaw`DELETE FROM "PushSubscription" WHERE endpoint = ${sub.endpoint}`.catch(() => {})
-      }
-    }
+    const delivered = await sendToUser(subs, {
+      title: "Emergy 🌱",
+      body: message,
+      url,
+      tag,
+      requireInteraction: habitPct < 50,
+    })
+    if (delivered) sent++
   }))
 
-  return NextResponse.json({ ok: true, sent, total: subs.length })
+  return NextResponse.json({ ok: true, sent, total: subsByUser.size })
 }

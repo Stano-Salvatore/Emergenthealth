@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import webpush from "web-push"
 import { prisma } from "@/lib/prisma"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
+import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import type { Anomaly } from "@/lib/anomalies"
 
 export const runtime = "nodejs"
@@ -41,20 +41,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-  const privateKey = process.env.VAPID_PRIVATE_KEY
-  if (!publicKey || !privateKey) {
+  if (!configurePush()) {
     return NextResponse.json({ ok: true, skipped: "push not configured" })
   }
-  webpush.setVapidDetails(process.env.VAPID_EMAIL ?? "mailto:admin@emergenthealth.app", publicKey, privateKey)
 
-  type SubRow = { userId: string; endpoint: string; p256dh: string; auth: string }
-  const subs = await prisma.$queryRaw<SubRow[]>`
-    SELECT DISTINCT ON ("userId") "userId", endpoint, p256dh, auth
-    FROM "PushSubscription"
-    ORDER BY "userId", "createdAt" DESC
-  `.catch(() => [] as SubRow[])
-  if (subs.length === 0) return NextResponse.json({ ok: true, checked: 0, pushed: 0 })
+  const subsByUser = await loadSubscriptionsByUser()
+  if (subsByUser.size === 0) return NextResponse.json({ ok: true, checked: 0, pushed: 0 })
 
   const prefs = await prisma.$queryRaw<{ userId: string; value: string }[]>`
     SELECT "userId", "value" FROM "UserPreference" WHERE "key" = 'anomaly_watch_state'
@@ -67,19 +59,19 @@ export async function GET(req: NextRequest) {
   let checked = 0
   let pushed = 0
 
-  for (const sub of subs) {
+  for (const [userId, subs] of subsByUser) {
     checked++
 
     let anomalies: Anomaly[]
     let latestDate: string | null
     try {
-      ({ anomalies, latestDate } = await scanUserAnomalies(sub.userId))
+      ({ anomalies, latestDate } = await scanUserAnomalies(userId))
     } catch {
       continue
     }
     if (!latestDate) continue
 
-    const prev = stateByUser.get(sub.userId) ?? {}
+    const prev = stateByUser.get(userId) ?? {}
     const next: WatchState = { ...prev }
 
     const worth: Anomaly[] = []
@@ -104,7 +96,7 @@ export async function GET(req: NextRequest) {
 
     const stateJson = JSON.stringify(next)
     await prisma.$executeRaw`
-      INSERT INTO "UserPreference" ("userId","key","value") VALUES (${sub.userId},'anomaly_watch_state',${stateJson})
+      INSERT INTO "UserPreference" ("userId","key","value") VALUES (${userId},'anomaly_watch_state',${stateJson})
       ON CONFLICT ("userId","key") DO UPDATE SET "value"=${stateJson}
     `.catch(() => {})
 
@@ -114,23 +106,14 @@ export async function GET(req: NextRequest) {
     const body = top.map(a => a.summary).join(" · ")
       + (worth.length > top.length ? ` · +${worth.length - top.length} more` : "")
 
-    try {
-      await webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        JSON.stringify({
-          title: `${top[0].emoji} Off your baseline`,
-          body,
-          url: "/dashboard/insights",
-          tag: "anomaly-watch",
-          requireInteraction: false,
-        }),
-      )
-      pushed++
-    } catch (err: unknown) {
-      if (err && typeof err === "object" && "statusCode" in err && (err as { statusCode: number }).statusCode === 410) {
-        await prisma.$executeRaw`DELETE FROM "PushSubscription" WHERE endpoint = ${sub.endpoint}`.catch(() => {})
-      }
-    }
+    const delivered = await sendToUser(subs, {
+      title: `${top[0].emoji} Off your baseline`,
+      body,
+      url: "/dashboard/insights",
+      tag: "anomaly-watch",
+      requireInteraction: false,
+    })
+    if (delivered) pushed++
   }
 
   return NextResponse.json({ ok: true, checked, pushed })
