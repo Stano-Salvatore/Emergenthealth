@@ -71,6 +71,20 @@ const MAX_SCHEDULED = 400
 
 const NUDGES_KEY = "notif_nudges" // localStorage: "off" disables daily nudges
 
+// Action buttons on the notifications themselves, so ticking off a habit or
+// logging a dose doesn't require opening the app. Each type's buttons are
+// registered with Android once per sync; the ids come back verbatim in the
+// localNotificationActionPerformed event handled below.
+const ACTION_TYPES = [
+  { id: "HABIT_REMINDER", actions: [{ id: "done", title: "✓ Done" }, { id: "snooze", title: "Snooze 30 min" }] },
+  { id: "TODO_REMINDER",  actions: [{ id: "done", title: "✓ Done" }, { id: "snooze", title: "Snooze 30 min" }] },
+  { id: "MED_REMINDER",   actions: [{ id: "taken", title: "✓ Took it" }, { id: "snooze", title: "Snooze 30 min" }] },
+]
+
+const SNOOZE_MINUTES = 30
+const SNOOZE_ID_BASE = 950_000
+const SNOOZE_ID_SPAN = 10_000
+
 async function getPlugin(): Promise<any | null> {
   if (typeof window === "undefined") return null
   try {
@@ -102,6 +116,7 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 //   0 – 399,999          to-do reminders
 //   400,000 – 889,999    habit reminders (hash × 7 + day offset)
 //   910,001+             the daily nudges
+//   950,000 – 959,999    snoozed copies (random slot at snooze time)
 //   1,000,000 – 1,999,999  medication doses (hash × 50 + day × 7 + time index)
 function hashId(id: string): number {
   let h = 0
@@ -201,10 +216,19 @@ export async function syncNotifications(
   if (!granted) return 0
 
   try {
+    // Android tolerates re-registering the same types on every sync.
+    await ln.registerActionTypes?.({ types: ACTION_TYPES }).catch(() => {})
+
     // Clear previously scheduled notifications so we don't pile up duplicates.
+    // Snoozed copies survive: the user explicitly asked for those, and this
+    // rebuild would otherwise eat a snooze whenever the app gets opened
+    // before it fires.
     const pending = await ln.getPending()
-    if (pending?.notifications?.length) {
-      await ln.cancel({ notifications: pending.notifications.map((n: { id: number }) => ({ id: n.id })) })
+    const cancellable = (pending?.notifications ?? []).filter(
+      (n: { id: number }) => !(n.id >= SNOOZE_ID_BASE && n.id < SNOOZE_ID_BASE + SNOOZE_ID_SPAN),
+    )
+    if (cancellable.length) {
+      await ln.cancel({ notifications: cancellable.map((n: { id: number }) => ({ id: n.id })) })
     }
 
     const now = Date.now()
@@ -229,6 +253,8 @@ export async function syncNotifications(
         title: r.title,
         body: r.description?.trim() || "Reminder",
         schedule: { at, allowWhileIdle: true },
+        actionTypeId: "TODO_REMINDER",
+        extra: { kind: "reminder", id: r.id },
       })
     }
 
@@ -249,6 +275,8 @@ export async function syncNotifications(
           title: "Habit reminder 🔔",
           body: `Don't forget: ${habit.name}`,
           schedule: { at, allowWhileIdle: true },
+          actionTypeId: "HABIT_REMINDER",
+          extra: { kind: "habit", id: habit.id },
         })
       }
     }
@@ -283,6 +311,9 @@ export async function syncNotifications(
             title: "💊 Time for your dose",
             body: med.dose ? `${med.name} (${med.dose})` : med.name,
             schedule: { at, allowWhileIdle: true },
+            actionTypeId: "MED_REMINDER",
+            // The dose log keys on the medication's name, same as the page.
+            extra: { kind: "med", name: med.name },
           })
         })
       }
@@ -357,6 +388,74 @@ export async function getNotificationPermission(): Promise<"granted" | "denied" 
     return "prompt"
   } catch {
     return "unavailable"
+  }
+}
+
+// Registered once per app session; the plugin queues events that arrive while
+// the app is closed and replays them once a listener exists, so registering
+// early in the app's lifetime is what makes closed-app button taps count.
+let actionHandlerRegistered = false
+
+/**
+ * Handle the notification action buttons: complete the habit, log the dose,
+ * tick off the to-do, or snooze the notification half an hour — all without
+ * the app being opened first. A plain body tap has actionId "tap" and is left
+ * alone: it opens the app, which is already the right thing.
+ */
+export async function registerNotificationActionHandler(): Promise<void> {
+  if (actionHandlerRegistered) return
+  const ln = await getPlugin()
+  if (!ln) return
+  actionHandlerRegistered = true
+
+  try {
+    await ln.addListener("localNotificationActionPerformed", async (event: any) => {
+      try {
+        const actionId: string = event?.actionId ?? ""
+        const notif = event?.notification
+        const extra = notif?.extra ?? {}
+
+        if (actionId === "snooze") {
+          await ln.schedule({
+            notifications: [{
+              id: SNOOZE_ID_BASE + Math.floor(Math.random() * SNOOZE_ID_SPAN),
+              title: notif?.title ?? "Reminder",
+              body: notif?.body ?? "",
+              schedule: { at: new Date(Date.now() + SNOOZE_MINUTES * 60_000), allowWhileIdle: true },
+              actionTypeId: notif?.actionTypeId,
+              extra,
+            }],
+          })
+          return
+        }
+
+        const json = { "Content-Type": "application/json" }
+        if (actionId === "done" && extra.kind === "habit" && extra.id) {
+          // The phone's date, not the server's — same rule as the habits page.
+          await fetch(`/api/habits/${extra.id}/complete`, {
+            method: "POST", headers: json, body: JSON.stringify({ date: localDateOn(0) }),
+          })
+        } else if (actionId === "done" && extra.kind === "reminder" && extra.id) {
+          await fetch(`/api/reminders/${extra.id}`, {
+            method: "PATCH", headers: json, body: JSON.stringify({ isCompleted: true }),
+          })
+        } else if (actionId === "taken" && extra.kind === "med" && extra.name) {
+          await fetch("/api/medications", {
+            method: "POST", headers: json, body: JSON.stringify({ name: extra.name }),
+          })
+        } else {
+          return
+        }
+
+        // The completion just logged makes some of today's still-pending
+        // copies stale (a later dose slot, tomorrow's habit window) — rebuild.
+        await resyncNotifications()
+      } catch {
+        // A failed action tap must never take the app down with it.
+      }
+    })
+  } catch {
+    actionHandlerRegistered = false
   }
 }
 

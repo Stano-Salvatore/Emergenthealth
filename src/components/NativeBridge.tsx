@@ -10,7 +10,7 @@
  */
 
 import { useEffect } from "react"
-import { resyncNotifications } from "@/lib/native/notifications"
+import { registerNotificationActionHandler, resyncNotifications } from "@/lib/native/notifications"
 import { syncScreenTime } from "@/lib/native/screen-time"
 
 const THROTTLE_MS = 30 * 60 * 1000
@@ -34,6 +34,10 @@ export function NativeBridge() {
         // Non-critical — ignore
       }
     }
+
+    // Not throttled with the sync below: the listener must exist every app
+    // session, or button taps made while the app was closed are lost.
+    registerNotificationActionHandler().catch(() => {})
 
     sync()
     document.addEventListener("visibilitychange", sync)
