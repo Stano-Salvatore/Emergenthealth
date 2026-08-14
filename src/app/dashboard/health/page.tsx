@@ -18,7 +18,6 @@ import {
 import { Moon, Footprints, Heart, Scale, Zap, Activity, Thermometer, Wind, Shield, TrendingDown, TrendingUp, Minus } from "lucide-react"
 import { format, subDays } from "date-fns"
 import WeightPage from "@/app/dashboard/weight/page"
-import InsightsPage from "@/app/dashboard/insights/page"
 import LabsPage from "@/app/dashboard/labs/page"
 import BodyPage from "@/app/dashboard/body/page"
 import { isFeatureEnabled } from "@/lib/features"
@@ -65,14 +64,6 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
       <div className="space-y-6">
         <HealthTabBar activeTab={activeTab} />
         <BodyPage />
-      </div>
-    )
-  }
-  if (activeTab === "correlations") {
-    return (
-      <div className="space-y-6">
-        <HealthTabBar activeTab={activeTab} />
-        <InsightsPage />
       </div>
     )
   }
