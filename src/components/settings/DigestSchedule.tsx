@@ -17,6 +17,7 @@ export function DigestSchedule() {
   const [hour, setHour] = useState(8)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState(false)
 
   useEffect(() => {
     fetch("/api/digest/schedule")
@@ -25,17 +26,26 @@ export function DigestSchedule() {
       .catch(() => {})
   }, [])
 
+  // "✓ Saved" only after the server said yes — this used to show it even when
+  // the request failed, so a schedule could look set without being stored.
   async function save() {
     setSaving(true)
     setSaved(false)
-    await fetch("/api/digest/schedule", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ digestDay: day, digestHour: hour }),
-    }).catch(() => {})
-    setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setSaveError(false)
+    try {
+      const res = await fetch("/api/digest/schedule", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ digestDay: day, digestHour: hour }),
+      })
+      if (!res.ok) throw new Error()
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch {
+      setSaveError(true)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -72,8 +82,11 @@ export function DigestSchedule() {
         </select>
       </div>
       <Button size="sm" onClick={save} disabled={saving}>
-        {saving ? "Saving…" : saved ? "Saved! ✓" : "Save schedule"}
+        {saving ? "Saving…" : saved ? "Saved! ✓" : saveError ? "Retry" : "Save schedule"}
       </Button>
+      {saveError && (
+        <p className="text-xs text-red-400">Couldn&apos;t save the schedule — try again.</p>
+      )}
       <p className="text-xs text-muted-foreground">
         Digest emails will be sent automatically on your chosen schedule.
       </p>

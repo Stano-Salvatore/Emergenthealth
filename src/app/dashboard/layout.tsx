@@ -7,6 +7,7 @@ import { HealthConnectAutoSync } from "@/components/HealthConnectAutoSync"
 import { DeviceCalendarAutoSync } from "@/components/DeviceCalendarAutoSync"
 import { NativeBridge } from "@/components/NativeBridge"
 import { NotificationsHealthBanner } from "@/components/NotificationsHealthBanner"
+import { FeedbackButton } from "@/components/dashboard/FeedbackButton"
 import { TimezoneSync } from "@/components/TimezoneSync"
 import { MorningBriefPopup } from "@/components/dashboard/MorningBriefPopup"
 import { prisma } from "@/lib/prisma"
@@ -48,6 +49,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <DeviceCalendarAutoSync />
       <NativeBridge />
       <NotificationsHealthBanner />
+      {/* The whole compose → /api/feedback → owner-notification pipeline
+          existed but nothing rendered this button, so the only way to send
+          feedback was the mailto link in Settings. */}
+      <FeedbackButton />
     </>
   )
 }

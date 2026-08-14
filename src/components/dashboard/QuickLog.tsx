@@ -6,11 +6,12 @@ import { Droplets, Smile, Scale } from "lucide-react"
 const MOOD_EMOJIS = ["😴", "😕", "😐", "🙂", "😄"]
 const WATER_PRESETS = [250, 500, 1000]
 
-export function QuickLog({ todayWaterMl, todayFocusMin, todayMood, latestWeight }: {
+export function QuickLog({ todayWaterMl, todayFocusMin, todayMood, latestWeight, waterGoalMl = 2000 }: {
   todayWaterMl: number
   todayFocusMin: number
   todayMood: number | null
   latestWeight?: number | null
+  waterGoalMl?: number
 }) {
   const [waterMl, setWaterMl] = useState(todayWaterMl)
   const [mood, setMood] = useState<number | null>(todayMood)
@@ -18,48 +19,76 @@ export function QuickLog({ todayWaterMl, todayFocusMin, todayMood, latestWeight 
   const [addingMood, setAddingMood] = useState(false)
   const [weightInput, setWeightInput] = useState(latestWeight ? String(latestWeight) : "")
   const [weightSaved, setWeightSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
+  // Each write updates the UI only after the server accepted it. The old
+  // handlers assumed success: a 500 still filled the water bar, and a network
+  // error left the buttons disabled until reload.
   async function addWater(ml: number) {
     setAddingWater(ml)
-    await fetch("/api/intake", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "water", amountMl: ml }),
-    })
-    setWaterMl(w => w + ml)
-    setAddingWater(null)
+    setError(null)
+    try {
+      const res = await fetch("/api/intake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "water", amountMl: ml }),
+      })
+      if (!res.ok) throw new Error()
+      setWaterMl(w => w + ml)
+    } catch {
+      setError("Couldn't log water — try again.")
+    } finally {
+      setAddingWater(null)
+    }
   }
 
   async function logMood(value: number) {
     setAddingMood(true)
-    await fetch("/api/mood", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mood: value }),
-    })
-    setMood(value)
-    setAddingMood(false)
+    setError(null)
+    try {
+      const res = await fetch("/api/mood", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mood: value }),
+      })
+      if (!res.ok) throw new Error()
+      setMood(value)
+    } catch {
+      setError("Couldn't log mood — try again.")
+    } finally {
+      setAddingMood(false)
+    }
   }
 
   async function logWeight(e: React.FormEvent) {
     e.preventDefault()
     const kg = parseFloat(weightInput)
     if (!kg || isNaN(kg)) return
-    await fetch("/api/weight", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ weight: kg }),
-    })
-    setWeightSaved(true)
-    setTimeout(() => setWeightSaved(false), 2000)
+    setError(null)
+    try {
+      const res = await fetch("/api/weight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ weight: kg }),
+      })
+      if (!res.ok) throw new Error()
+      setWeightSaved(true)
+      setTimeout(() => setWeightSaved(false), 2000)
+    } catch {
+      setError("Couldn't log weight — try again.")
+    }
   }
 
-  const waterPct = Math.min(100, (waterMl / 2000) * 100)
+  const waterPct = Math.min(100, (waterMl / waterGoalMl) * 100)
   const waterDisplay = waterMl >= 1000 ? `${(waterMl/1000).toFixed(1)}L` : `${waterMl}ml`
+  const goalDisplay = waterGoalMl % 1000 === 0 ? `${waterGoalMl / 1000}L` : `${(waterGoalMl / 1000).toFixed(1)}L`
 
   return (
     <div className="rounded-xl border bg-card px-4 py-3">
       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Quick log</p>
+      {error && (
+        <p className="text-xs text-red-400 bg-red-500/10 rounded-md px-3 py-1.5 mb-3">{error}</p>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
         {/* water */}
@@ -69,8 +98,8 @@ export function QuickLog({ todayWaterMl, todayFocusMin, todayMood, latestWeight 
               <Droplets className="h-3.5 w-3.5 text-blue-400" />
               <span className="text-xs text-muted-foreground">Water</span>
             </div>
-            <span className={`text-xs font-semibold ${waterMl >= 2000 ? "text-green-400" : "text-blue-400"}`}>
-              {waterDisplay} / 2L
+            <span className={`text-xs font-semibold ${waterMl >= waterGoalMl ? "text-green-400" : "text-blue-400"}`}>
+              {waterDisplay} / {goalDisplay}
             </span>
           </div>
           <div className="h-1 bg-secondary rounded-full overflow-hidden">

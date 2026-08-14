@@ -44,7 +44,9 @@ jobs:
           # morning/noon/evening nudges serve web-push devices (browsers,
           # PWAs) — the phone app schedules its own copies locally and is
           # not subscribed to web push, so there is no double delivery.
-          for endpoint in habit-reminders med-reminders morning-reminder noon-reminder evening-reminder; do
+          # re-engagement caps itself at one nudge per user per day, so the
+          # 10-minute tick is safe for it too.
+          for endpoint in habit-reminders med-reminders morning-reminder noon-reminder evening-reminder re-engagement; do
             code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${endpoint}") || true

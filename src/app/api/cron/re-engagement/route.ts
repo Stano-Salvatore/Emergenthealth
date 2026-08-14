@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
-import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { getUserTimezone, localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 
 export const runtime = "nodejs"
@@ -60,7 +60,15 @@ export async function GET(req: NextRequest) {
   // inactive users on every single run.
   let sent = 0
   for (const [userId, subs] of subsByUser) {
-    const localDate = localDateStr(await getUserTimezone(userId))
+    const timezone = await getUserTimezone(userId)
+
+    // The sent log resets at local midnight, so without an hour gate the
+    // first tick after 00:00 would deliver "Miss you!" in the middle of the
+    // night. Daytime only.
+    const localHour = parseInt(localTimeStr(timezone).slice(0, 2), 10)
+    if (localHour < 10 || localHour >= 20) continue
+
+    const localDate = localDateStr(timezone)
     const alreadySent = await readSentLog(userId, "re_engagement_sent", localDate)
     if (alreadySent.has("re-engagement")) continue
 
