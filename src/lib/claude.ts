@@ -3,7 +3,8 @@ import Anthropic from "@anthropic-ai/sdk"
 import { prisma } from "@/lib/prisma"
 import { getEventsInRange } from "@/lib/google-calendar"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
-import { estimateCaffeine, activeFromDoses } from "@/lib/caffeine"
+import { estimateCaffeine, activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
+import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
 
@@ -680,11 +681,24 @@ async function buildSystemPrompt(userId: string): Promise<string> {
     if (!seenMedNames.has(display.toLowerCase())) { seenMedNames.add(display.toLowerCase()); ouraMeds.push(display) }
   }
 
-  // Caffeine currently circulating (5h half-life over the last 24h of doses)
+  // Caffeine still circulating. The app fits the user's own half-life from how
+  // their bedtime residual tracks against sleep score, and /api/caffeine and
+  // /api/body-load both use it — but this didn't, so Emergy reasoned on the 5h
+  // population default and then stated "5h half-life" as if it were the user's.
+  // Someone who clears caffeine in 7h was being told their evening coffee had
+  // largely gone when it hadn't.
+  const caffeineProfile = await getPersonalCaffeineProfile(userId).catch(() => null)
+  const halfLifeH = caffeineProfile?.halfLifeH ?? HALF_LIFE_H
+  const halfLifeIsPersonal = !!caffeineProfile && !caffeineProfile.usedDefault
+
   const todayCaffeineMg = (caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[])
     .filter(d => d.loggedAt >= new Date(todayStr))
     .reduce((s, d) => s + d.caffeineMg, 0)
-  const activeCaffeineMg = activeFromDoses(caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[])
+  const activeCaffeineMg = activeFromDoses(
+    caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[],
+    Date.now(),
+    halfLifeH,
+  )
 
   // Meals logged today (photo-analyzed or manual), with the vitamins/minerals
   // they carried so Emergy can connect food micros with Oura supplements
@@ -899,7 +913,7 @@ ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- 
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
 - Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml` : ""}
 ${foodLine}
-${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today, ≈${activeCaffeineMg}mg still active in their system (5h half-life — factor this into sleep/energy advice, e.g. discourage more coffee if a lot is still circulating late in the day)` : ""}
+${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today, ≈${activeCaffeineMg}mg still active in their system (${halfLifeIsPersonal ? `${halfLifeH}h half-life, fitted from their own sleep data` : `${halfLifeH}h half-life — the population default, not yet fitted to them, so don't state it as their personal figure`} — factor this into sleep/energy advice, e.g. discourage more coffee if a lot is still circulating late in the day)` : ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
 ${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}
 ${fastingStr ?? ""}

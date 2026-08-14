@@ -201,6 +201,13 @@ export default function InsightsPage() {
   const [error, setError] = useState<string | null>(null)
   // The engine has always supported three windows; nothing ever offered them.
   const [period, setPeriod] = useState<Period>("overall")
+  // Weak patterns are hidden by default. The engine already tiers them with a
+  // permutation test and false-discovery control, but listing a "Could be
+  // chance" card between two solid ones lets a five-day fluke read as a
+  // finding — "your morning mood averages 3 vs 3" is not news. They stay one
+  // tap away rather than being deleted, because "nothing found" and "nothing
+  // survived the filter" are different answers and the user deserves both.
+  const [showWeak, setShowWeak] = useState(false)
 
   const load = useCallback((p: Period, refresh = false) => {
     return fetch(`/api/insights/correlations?period=${p}${refresh ? "&refresh=1" : ""}`)
@@ -221,14 +228,18 @@ export default function InsightsPage() {
   const data = entry?.period === period ? entry.data : null
   const loading = data == null && error == null
 
+  const allInsights = data?.insights ?? []
+  const weakCount = allInsights.filter(i => i.tier === "noise").length
+  const visible = showWeak ? allInsights : allInsights.filter(i => i.tier !== "noise")
+
   // Group insights by category (preserving sort order within each group)
   const grouped: Partial<Record<Category, InsightResult[]>> = {}
-  for (const insight of data?.insights ?? []) {
+  for (const insight of visible) {
     if (!grouped[insight.category]) grouped[insight.category] = []
     grouped[insight.category]!.push(insight)
   }
 
-  const hasAnyInsights = (data?.insights.length ?? 0) > 0
+  const hasAnyInsights = visible.length > 0
 
   return (
     <div className="space-y-6">
@@ -262,6 +273,14 @@ export default function InsightsPage() {
                 computed {new Date(data.computedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
               </span>
             )}
+            {weakCount > 0 && (
+              <button
+                onClick={() => setShowWeak(v => !v)}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showWeak ? `Hide ${weakCount} weak` : `Show ${weakCount} weak`}
+              </button>
+            )}
             <button
               onClick={() => { setRecomputing(true); load(period, true).finally(() => setRecomputing(false)) }}
               disabled={recomputing || loading}
@@ -290,7 +309,24 @@ export default function InsightsPage() {
           </CardContent>
         </Card>
       ) : !hasAnyInsights ? (
-        <EmptyState />
+        weakCount > 0 ? (
+          // Not the same as having no data: patterns were found, none of them
+          // beat their own null distribution. Saying so is more useful — and
+          // more honest — than an empty page implying nothing happened.
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center justify-center py-10 text-center gap-2">
+              <p className="text-sm text-muted-foreground">
+                Nothing solid this period. {weakCount} pattern{weakCount === 1 ? "" : "s"} turned up
+                that could just as easily be chance.
+              </p>
+              <button onClick={() => setShowWeak(true)} className="text-xs text-primary hover:underline">
+                Show them anyway
+              </button>
+            </CardContent>
+          </Card>
+        ) : (
+          <EmptyState />
+        )
       ) : (
         <div className="space-y-8">
           {CATEGORY_ORDER.map(category => {
