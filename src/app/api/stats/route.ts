@@ -93,7 +93,7 @@ export async function GET() {
       SELECT "date","tempMaxC","precipMm","uvIndex"
       FROM "WeatherLog"
       WHERE "userId" = ${userId}
-        AND "date" >= (CURRENT_DATE - INTERVAL '90 days')::text
+        AND "date" >= to_char(CURRENT_DATE - INTERVAL '90 days', 'YYYY-MM-DD')
       ORDER BY "date" ASC
     `.catch(() => []),
     prisma.$queryRaw<{date: string, listeningMin: number, tracksPlayed: number}[]>`

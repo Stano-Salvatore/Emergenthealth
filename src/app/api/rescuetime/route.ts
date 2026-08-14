@@ -31,7 +31,7 @@ export async function GET() {
     SELECT "id", "userId", "date", "productivityScore", "totalActiveH", "productiveH", "neutralH", "distractingH", "topCategory"
     FROM "RescuetimeLog"
     WHERE "userId" = ${userId}
-      AND "date" >= (NOW() - INTERVAL '30 days')::TEXT::DATE::TEXT
+      AND "date" >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')
     ORDER BY "date" DESC
   `.catch(() => [] as RescuetimeLogRow[])
 
