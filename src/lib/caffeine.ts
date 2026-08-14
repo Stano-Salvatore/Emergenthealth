@@ -11,6 +11,7 @@ export const COMPOUNDS: Record<string, { label: string; mg: number; emoji: strin
   green_tea:     { label: "Green tea",     mg: 30,  emoji: "🍵" },
   black_tea:     { label: "Black tea",     mg: 50,  emoji: "🍵" },
   matcha:        { label: "Matcha",        mg: 70,  emoji: "🍵" },
+  mate:          { label: "Yerba mate",    mg: 80,  emoji: "🧉" },
   energy_drink:  { label: "Energy drink",  mg: 80,  emoji: "⚡" },
   pre_workout:   { label: "Pre-workout",   mg: 200, emoji: "💪" },
   cola:          { label: "Cola (330ml)",  mg: 35,  emoji: "🥤" },
@@ -67,6 +68,14 @@ export function estimateCaffeine(type: string, label: string, amountMl: number):
 
   if (type === "matcha") return { compound: "matcha", mg: Math.round(ml * 0.28) || 70 }
   if (type === "tea")    return { compound: "tea",    mg: Math.round(ml * 0.2)  || 50 }
+  if (type === "mate")   return { compound: "mate",   mg: Math.round(ml * 0.15) || 80 }
+  // Checked before the coffee-only guard below, because nobody logging
+  // "Maté by Mana Roots" picks "coffee" from a dropdown first. Without this it
+  // fell through to the generic coffee default at 0.4 mg/ml — a 500ml gourd
+  // logged as ~200mg instead of ~80, and that inflated figure fed body-load,
+  // the bedtime-clearance chart and every caffeine pattern downstream.
+  if (/yerba|mat[eé]\b|guayusa/.test(l)) return { compound: "mate", mg: Math.round(ml * 0.15) || 80 }
+
   if (type !== "coffee") return null
 
   if (/espresso|macchiato/.test(l))       return { compound: "espresso",   mg: 63 * espressoShots(ml || 30) }

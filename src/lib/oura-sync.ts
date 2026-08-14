@@ -118,12 +118,16 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
     let tagsError: string | undefined
     // A token authorized before the "tag" scope joined the OAuth request keeps
     // its old permissions forever: sleep syncs fine while every tag request
-    // 403s. Detect that up front and say so, instead of a cryptic API error.
+    // 403s. That's worth explaining rather than surfacing a bare API error —
+    // but it's a diagnosis for a failure, not a reason to skip the attempt.
+    //
+    // Refusing up front on a string comparison meant a freshly reconnected
+    // account with `tag` granted was told its connection "predates tag
+    // permission" and never tried, because the scope Oura echoes back doesn't
+    // have to match the wording we asked for. The API is the authority on what
+    // the token can do; the stored scope is a hint used to phrase the error.
     const storedScope = ouraToken.scope?.trim()
-    if (storedScope && !storedScope.split(/[\s,]+/).includes("tag")) {
-      tagsError = "Your Oura connection predates tag permission — disconnect and reconnect Oura in Settings to sync tags"
-      return { ok: true, synced: results.length, tagsSynced, tagsError }
-    }
+    const scopeLooksMissingTag = !!storedScope && !storedScope.split(/[\s,]+/).includes("tag")
     try {
       await prisma.$executeRaw`
         CREATE TABLE IF NOT EXISTS "OuraTag" (
@@ -223,7 +227,13 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
       // Surface instead of silently skipping — an Oura connection made before
       // the "tag" scope was requested can sync sleep fine while every tag
       // fetch 403s, which looks like the user's tags are being ignored.
-      tagsError = tagErr instanceof Error ? tagErr.message : "Tag sync failed"
+      const raw = tagErr instanceof Error ? tagErr.message : "Tag sync failed"
+      const denied = /\b(401|403)\b|unauthor|forbidden|scope/i.test(raw)
+      tagsError = denied
+        ? (scopeLooksMissingTag
+            ? `Oura refused the tag request and this connection's stored permissions don't include "tag" — disconnect and reconnect Oura below to grant it. (${raw})`
+            : `Oura refused the tag request: ${raw}. If reconnecting doesn't help, check the Tag scope is enabled on the app at cloud.ouraring.com.`)
+        : raw
     }
 
     return { ok: true, synced: results.length, tagsSynced, tagsError }

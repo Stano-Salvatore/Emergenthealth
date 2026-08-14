@@ -119,6 +119,8 @@ type CorrelationItem = {
   finding: string
   delta: number
   confident?: boolean
+  /** Trust tier from the engine's permutation test + false-discovery control. */
+  tier?: "strong" | "suggestive" | "noise"
   highGroupN?: number
   lowGroupN?: number
 }
@@ -353,7 +355,13 @@ export function InsightsPanel() {
 
     periodData.current[period] = {
       insight: insightRes.status === "fulfilled" ? insightRes.value : null,
-      correlations: corrRes.status === "fulfilled" ? (corrRes.value.insights ?? []) : [],
+      // Noise-tier patterns are dropped here rather than rendered. The full
+      // Insights page can show them behind a toggle because it also renders
+      // the trust badge — this panel has no badge and no room for one, so a
+      // "could be chance" card would be indistinguishable from a solid one.
+      correlations: corrRes.status === "fulfilled"
+        ? ((corrRes.value.insights ?? []) as CorrelationItem[]).filter(i => i.tier !== "noise")
+        : [],
       locationPatterns: locRes.status === "fulfilled" && Array.isArray(locRes.value) ? locRes.value : [],
       loaded: true,
     }

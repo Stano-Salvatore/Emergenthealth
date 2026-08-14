@@ -3,6 +3,7 @@ import { subDays, format } from "date-fns"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { supplementInfoFor } from "@/lib/supplement-info"
+import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
 // (interactive dashboard) and the correlation-watch cron (pin & watch alerts).
@@ -30,7 +31,7 @@ type DayData = {
   weatherCode?: number
   eventCount?: number      // calendar events on this day
   eventTitles?: string[]   // their titles (for per-activity discovery)
-  waterMl?: number         // water + sparkling logged
+  waterMl?: number         // total fluid, weighted by type (see lib/hydration)
   calories?: number        // meals logged on the Food tab
   proteinG?: number
   sugarG?: number
@@ -321,9 +322,9 @@ export async function computeCorrelations(
 
   const [waterRows, foodRows, ouraTagRows, tzRow] = await Promise.all([
     prisma.intakeLog.findMany({
-      where: { userId, type: { in: ["water", "sparkling"] }, loggedAt: { gte: since60 } },
-      select: { loggedAt: true, amountMl: true },
-    }).catch(() => [] as { loggedAt: Date; amountMl: number }[]),
+      where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: since60 } },
+      select: { loggedAt: true, amountMl: true, type: true },
+    }).catch(() => [] as { loggedAt: Date; amountMl: number; type: string }[]),
 
     prisma.foodLog.findMany({
       where: { userId, loggedAt: { gte: since60 } },
@@ -473,7 +474,7 @@ export async function computeCorrelations(
   for (const w of waterRows) {
     const dateStr = w.loggedAt.toISOString().slice(0, 10)
     const d = getOrCreate(dateStr)
-    d.waterMl = (d.waterMl ?? 0) + w.amountMl
+    d.waterMl = (d.waterMl ?? 0) + hydrationMl(w.type, w.amountMl)
   }
 
   // Food-tab meals: day totals, plus the local clock time of the day's last

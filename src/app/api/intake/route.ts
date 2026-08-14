@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { NextResponse } from "next/server"
+import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
 
 export async function GET(req: Request) {
   const session = await auth()
@@ -18,14 +19,14 @@ export async function GET(req: Request) {
     const start = new Date(end.getTime() - (days - 1) * 86400000)
     start.setUTCHours(0, 0, 0, 0)
     const logs = await prisma.intakeLog.findMany({
-      where: { userId, type: "water", loggedAt: { gte: start, lte: end } },
-      select: { amountMl: true, loggedAt: true },
+      where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: start, lte: end } },
+      select: { amountMl: true, loggedAt: true, type: true },
     })
     // Group by day
     const byDay: Record<string, number> = {}
     for (const l of logs) {
       const day = l.loggedAt.toISOString().split("T")[0]
-      byDay[day] = (byDay[day] ?? 0) + l.amountMl
+      byDay[day] = (byDay[day] ?? 0) + hydrationMl(l.type, l.amountMl)
     }
     return NextResponse.json(byDay)
   }

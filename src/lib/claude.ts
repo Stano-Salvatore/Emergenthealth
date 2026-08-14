@@ -3,8 +3,29 @@ import Anthropic from "@anthropic-ai/sdk"
 import { prisma } from "@/lib/prisma"
 import { getEventsInRange } from "@/lib/google-calendar"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
-import { estimateCaffeine, activeFromDoses } from "@/lib/caffeine"
+import { estimateCaffeine, activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
+import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
+import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
+
+/** Fold whatever the model called it onto a type the app stores. */
+function normalizeDrinkType(raw: string): string {
+  const t = raw.trim().toLowerCase()
+  if (t in HYDRATION_FACTOR) return t
+  if (/mate|yerba|guayusa/.test(t)) return "mate"
+  if (/coffee|espresso|latte|americano/.test(t)) return "coffee"
+  if (/tea/.test(t)) return "tea"
+  if (/beer|lager|ale/.test(t)) return "beer"
+  if (/wine/.test(t)) return "wine"
+  if (/vodka|whisk|gin|rum|spirit/.test(t)) return "spirits"
+  return "other"
+}
+
+function clampInt(v: unknown, min: number, max: number, fallback: number): number {
+  const n = Math.round(Number(v))
+  if (!Number.isFinite(n)) return fallback
+  return Math.max(min, Math.min(max, n))
+}
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -69,6 +90,51 @@ const TOOLS: Anthropic.Tool[] = [
         amountMl: { type: "number", description: "Amount in ml (e.g. 30 espresso, 200 americano, 300 latte)" },
       },
       required: ["amountMl"],
+    },
+  },
+  {
+    // Named drinks — including branded ones the app has never heard of.
+    // There's no product database and there doesn't need to be: the model
+    // already knows roughly what's in a yerba mate or a can of Club-Mate, and
+    // supplying that estimate here is more useful than a lookup table that
+    // covers eight drinks and nothing local. Values are sanity-checked server
+    // side, and the estimate is stated back so an implausible one is visible
+    // rather than silently stored.
+    name: "log_drink",
+    description:
+      "Log any drink by name, including branded or regional products (e.g. 'Maté by Mana Roots', 'Club-Mate', 'Kofola'). Use this instead of log_water/log_coffee whenever the user names a specific drink. Estimate the caffeine yourself from what you know of the product — do not ask the user for milligrams.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "What the user called it, e.g. 'Maté by Mana Roots'" },
+        drinkType: {
+          type: "string",
+          description: "One of: water, sparkling, coffee, tea, matcha, mate, juice, soda, milk, beer, wine, spirits, alcohol, other",
+        },
+        amountMl: { type: "number", description: "Volume in millilitres. Estimate a typical serving if the user didn't say." },
+        caffeineMg: {
+          type: "number",
+          description: "Estimated caffeine for this serving, 0 if none. Yerba mate is roughly 0.15 mg/ml (~80mg per 500ml) — well under coffee's 0.4.",
+        },
+      },
+      required: ["name", "drinkType", "amountMl"],
+    },
+  },
+  {
+    name: "log_food",
+    description:
+      "Log something the user says they ate, by name. Estimate the calories and macros yourself from what you know of the dish — do not ask the user for numbers.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Short dish name, e.g. 'Chicken caesar salad'" },
+        mealType: { type: "string", description: "breakfast | lunch | dinner | snack | other" },
+        calories: { type: "number", description: "Estimated kcal for the portion described" },
+        proteinG: { type: "number" },
+        carbsG: { type: "number" },
+        fatG: { type: "number" },
+      },
+      required: ["name", "calories"],
     },
   },
   {
@@ -206,6 +272,61 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       }
     }
     return `Logged ${amountMl}ml of coffee.`
+  }
+
+  if (name === "log_drink") {
+    const label = String(input.name ?? "").trim().slice(0, 120) || "Drink"
+    const type = normalizeDrinkType(String(input.drinkType ?? "other"))
+    const amountMl = clampInt(input.amountMl, 1, 5000, 250)
+
+    // The model's caffeine figure is an estimate, not a measurement, so it gets
+    // a ceiling: nothing in a glass is 2000mg, and an outlier propagates
+    // straight into body-load and the "still circulating at bedtime" chart.
+    const rawMg = input.caffeineMg == null ? null : Number(input.caffeineMg)
+    const caffeineMg = rawMg == null || !Number.isFinite(rawMg)
+      ? null
+      : Math.max(0, Math.min(600, Math.round(rawMg)))
+
+    const log = await prisma.intakeLog.create({
+      data: { userId, type, amountMl, note: label },
+    }).catch(() => null)
+    if (!log) return "Couldn't save that drink — the log didn't write."
+
+    if (caffeineMg && caffeineMg > 0) {
+      await prisma.caffeineLog.create({
+        data: { id: `intake_${log.id}`, userId, compound: type, caffeineMg },
+      }).catch(() => {})
+    }
+
+    const fluid = hydrationMl(type, amountMl)
+    const parts = [`Logged ${amountMl}ml ${label}`]
+    if (caffeineMg && caffeineMg > 0) parts.push(`≈${caffeineMg}mg caffeine`)
+    if (fluid !== amountMl) parts.push(`counts as ${fluid}ml fluid`)
+    else parts.push(`${fluid}ml toward hydration`)
+    return parts.join(" · ") + "."
+  }
+
+  if (name === "log_food") {
+    const label = String(input.name ?? "").trim().slice(0, 120)
+    if (!label) return "Need a name for the meal."
+    const calories = clampInt(input.calories, 0, 10_000, 0)
+    const macro = (v: unknown) => {
+      const n = Number(v)
+      return Number.isFinite(n) && n >= 0 ? Math.round(n * 10) / 10 : null
+    }
+    await prisma.foodLog.create({
+      data: {
+        userId,
+        name: label,
+        mealType: ["breakfast", "lunch", "dinner", "snack"].includes(String(input.mealType))
+          ? String(input.mealType) : "other",
+        calories,
+        proteinG: macro(input.proteinG),
+        carbsG: macro(input.carbsG),
+        fatG: macro(input.fatG),
+      },
+    }).catch(() => null)
+    return `Logged ${label} — ≈${calories} kcal. (Estimated from the name, so treat it as a ballpark.)`
   }
 
   if (name === "log_usual") {
@@ -560,11 +681,24 @@ async function buildSystemPrompt(userId: string): Promise<string> {
     if (!seenMedNames.has(display.toLowerCase())) { seenMedNames.add(display.toLowerCase()); ouraMeds.push(display) }
   }
 
-  // Caffeine currently circulating (5h half-life over the last 24h of doses)
+  // Caffeine still circulating. The app fits the user's own half-life from how
+  // their bedtime residual tracks against sleep score, and /api/caffeine and
+  // /api/body-load both use it — but this didn't, so Emergy reasoned on the 5h
+  // population default and then stated "5h half-life" as if it were the user's.
+  // Someone who clears caffeine in 7h was being told their evening coffee had
+  // largely gone when it hadn't.
+  const caffeineProfile = await getPersonalCaffeineProfile(userId).catch(() => null)
+  const halfLifeH = caffeineProfile?.halfLifeH ?? HALF_LIFE_H
+  const halfLifeIsPersonal = !!caffeineProfile && !caffeineProfile.usedDefault
+
   const todayCaffeineMg = (caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[])
     .filter(d => d.loggedAt >= new Date(todayStr))
     .reduce((s, d) => s + d.caffeineMg, 0)
-  const activeCaffeineMg = activeFromDoses(caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[])
+  const activeCaffeineMg = activeFromDoses(
+    caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[],
+    Date.now(),
+    halfLifeH,
+  )
 
   // Meals logged today (photo-analyzed or manual), with the vitamins/minerals
   // they carried so Emergy can connect food micros with Oura supplements
@@ -763,6 +897,14 @@ async function buildSystemPrompt(userId: string): Promise<string> {
 
 Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${fmtDay.format(today)} (${todayStr}), local time ${fmtTime.format(today)} (${tz}).
 
+WHAT YOU'RE FOR
+You're a health companion, not a general assistant. Their health, their logged data, and the everyday things around it — food, drink, sleep, training, mood, habits, routine — are all yours to talk about, generously. Someone asking for a high-protein dinner idea or why they feel flat after a late night is asking a health question; answer it properly.
+
+When something is genuinely outside that — writing their code, their homework, their work email, general trivia — say so in your own voice and steer back. Warm and brief, not a canned refusal: "ooh that's outside my pot 🌱 — I'm all leaves and sleep data. Ask me about how you slept though?" One line, no apology spiral, no lecture. If it's a borderline case, err toward being useful rather than policing the boundary; refusing something reasonable is worse than answering something tangential.
+
+MEDICAL LIMITS — these are firm, and they don't soften because they're asked twice.
+You can see their medications, symptoms and lab results. You may describe what's recorded and read back what a report itself printed. You must NOT diagnose, interpret a lab value as good or bad beyond the range printed on that report, suggest starting, stopping or changing the dose of any medication, or answer "should I take X". Those go to the doctor or pharmacist who prescribed it — say so plainly and kindly, and don't hedge it into sounding like advice anyway. If something they describe sounds urgent — chest pain, trouble breathing, a severe or sudden change — say clearly that it needs real medical attention now, and don't try to work through it yourself.
+
 FORMATTING: your replies render as markdown. Use **bold** to highlight times, numbers and key words (bold shows in green — that's your accent colour), "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
 You have tools to CREATE habits/reminders, COMPLETE habits, LOG water/coffee/mood/weight/journal and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
@@ -771,7 +913,7 @@ ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- 
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
 - Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml` : ""}
 ${foodLine}
-${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today, ≈${activeCaffeineMg}mg still active in their system (5h half-life — factor this into sleep/energy advice, e.g. discourage more coffee if a lot is still circulating late in the day)` : ""}
+${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today, ≈${activeCaffeineMg}mg still active in their system (${halfLifeIsPersonal ? `${halfLifeH}h half-life, fitted from their own sleep data` : `${halfLifeH}h half-life — the population default, not yet fitted to them, so don't state it as their personal figure`} — factor this into sleep/energy advice, e.g. discourage more coffee if a lot is still circulating late in the day)` : ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
 ${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}
 ${fastingStr ?? ""}

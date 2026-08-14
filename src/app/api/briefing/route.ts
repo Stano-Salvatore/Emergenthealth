@@ -8,6 +8,7 @@ import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { supplementInfoFor } from "@/lib/supplement-info"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { loadLabTrends } from "@/lib/lab-trends-load"
+import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
 
 const anthropic = new Anthropic()
 
@@ -78,9 +79,9 @@ export async function GET(req: NextRequest) {
     `.catch(() => [] as { name: string }[]),
 
     prisma.intakeLog.findMany({
-      where: { userId, type: "water", loggedAt: { gte: todayStart, lte: todayEnd } },
-      select: { amountMl: true },
-    }).catch(() => [] as { amountMl: number }[]),
+      where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: todayStart, lte: todayEnd } },
+      select: { amountMl: true, type: true },
+    }).catch(() => [] as { amountMl: number; type: string }[]),
 
     // Yesterday's eating — the brief happens in the morning, so today's food
     // hasn't happened yet and yesterday's is what the night was built on.
@@ -128,7 +129,7 @@ export async function GET(req: NextRequest) {
 
   // Build compact context
   const checkin = checkinRows[0] ?? null
-  const waterMl = intakeRows.reduce((s, l) => s + l.amountMl, 0)
+  const waterMl = sumHydration(intakeRows)
 
   const lines: string[] = [`User: ${firstName}. Today: ${todayStr}.`]
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone, localDateStr, zonedDayRange } from "@/lib/local-date"
+import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
 
 export interface Quest {
   id: string
@@ -39,7 +40,7 @@ export async function GET() {
   ] = await Promise.all([
     prisma.habit.findMany({ where: { userId, isArchived: false }, select: { id: true, name: true, icon: true }, orderBy: { createdAt: "asc" }, take: 5 }),
     prisma.habitCompletion.findMany({ where: { userId, date: { gte: today } }, select: { habitId: true } }),
-    prisma.intakeLog.aggregate({ where: { userId, type: "water", loggedAt: { gte: today } }, _sum: { amountMl: true } }),
+    prisma.intakeLog.findMany({ where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: today } }, select: { amountMl: true, type: true } }),
     prisma.moodLog.findFirst({ where: { userId, date: { gte: today } }, select: { id: true } }),
     prisma.healthLog.findFirst({ where: { userId, date: { gte: today } }, select: { id: true } }),
     // DailyNote.date is a Date column: passing the "YYYY-MM-DD" string threw
@@ -52,7 +53,7 @@ export async function GET() {
   ])
 
   const completedHabitIds = new Set(completionsToday.map(c => c.habitId))
-  const waterMl = waterToday._sum.amountMl ?? 0
+  const waterMl = sumHydration(waterToday)
   const daysSinceWeight = recentWeight
     ? Math.floor((Date.now() - new Date(recentWeight.date).getTime()) / 86400000)
     : 999

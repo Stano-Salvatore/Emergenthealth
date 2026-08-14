@@ -15,6 +15,7 @@ import { barcodeSupported, detectBarcode } from "@/lib/barcode"
 import { getCurrentPosition } from "@/lib/native/geolocation"
 import { matchSavedPlace, type PlaceLike } from "@/lib/places"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
+import { NutrientGapsCard } from "@/components/intake/NutrientGapsCard"
 
 interface FoodItem {
   kind?: "food" | "drink"
@@ -460,6 +461,10 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
         <MacroCard label="Carbs" value={totals.carbsG.toFixed(0)} unit="g" color="text-amber-400" emoji="🍞" />
         <MacroCard label="Fat" value={totals.fatG.toFixed(0)} unit="g" color="text-yellow-400" emoji="🧈" />
       </div>
+
+      {/* Micronutrients were extracted from every meal and never added up —
+          this is the fortnight view, against reference values. */}
+      <NutrientGapsCard />
 
       {/* vitamins & minerals today — food-derived %DV plus Oura-logged supplements */}
       {(microChips.length > 0 || supplements.length > 0) && (
