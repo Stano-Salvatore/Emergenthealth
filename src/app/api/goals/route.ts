@@ -1,52 +1,26 @@
 import { auth } from "@/auth"
-import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
+import { getGoals, saveGoals } from "@/lib/goals"
 
-// Goals are stored as a JSON blob in a simple table row per user
-// We use DailyNote with date='0001-01-01' as a workaround until a proper Goals table is added
-const GOALS_KEY = "0001-01-01"
+// Goals live in the UserGoals table; @/lib/goals owns reading, validating and
+// migrating them. This route is just the HTTP end of it.
 
 export async function GET() {
   const session = await auth()
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const userId = session.user.id
-
-  try {
-    const row = await prisma.dailyNote.findUnique({
-      where: { userId_date: { userId, date: new Date(GOALS_KEY) } },
-    })
-    if (!row) return NextResponse.json(defaultGoals())
-    return NextResponse.json(JSON.parse(row.content))
-  } catch {
-    return NextResponse.json(defaultGoals())
-  }
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  return NextResponse.json(await getGoals(session.user.id))
 }
 
 export async function POST(req: Request) {
   const session = await auth()
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  const userId = session.user.id
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const goals = await req.json()
-
-  await prisma.dailyNote.upsert({
-    where: { userId_date: { userId, date: new Date(GOALS_KEY) } },
-    create: { userId, date: new Date(GOALS_KEY), content: JSON.stringify(goals) },
-    update: { content: JSON.stringify(goals) },
-  })
-
-  return NextResponse.json({ ok: true })
-}
-
-function defaultGoals() {
-  return {
-    sleepH: 7.5,
-    steps: 8000,
-    waterMl: 2000,
-    focusMin: 90,
-    habitsTarget: 100,
-    weightKg: null,
-    readinessMin: 70,
-    coffeeMax: 400,
+  const patch = await req.json().catch(() => null)
+  if (!patch || typeof patch !== "object") {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 })
   }
+
+  // The saved goals come back, so a client that sent something out of range
+  // sees what was actually stored rather than assuming it took.
+  return NextResponse.json(await saveGoals(session.user.id, patch))
 }

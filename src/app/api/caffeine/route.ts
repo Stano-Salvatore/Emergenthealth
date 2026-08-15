@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { COMPOUNDS, LIMIT_MG, activeFromDoses } from "@/lib/caffeine"
+import { COMPOUNDS, activeFromDoses } from "@/lib/caffeine"
+import { getGoals } from "@/lib/goals"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 
 // Today's log list + total, plus the caffeine still active right now. Active
@@ -10,25 +11,18 @@ import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 // one (cached daily) rather than the textbook 5 h for everybody.
 async function caffeineState(userId: string) {
   const now = Date.now()
-  const [logs24, personal, goalsRow] = await Promise.all([
+  const [logs24, personal, goals] = await Promise.all([
     prisma.caffeineLog.findMany({
       where: { userId, loggedAt: { gte: new Date(now - 24 * 3600_000) } },
       orderBy: { loggedAt: "desc" },
     }),
     getPersonalCaffeineProfile(userId),
-    // Same sentinel row /api/goals uses. The Settings "Caffeine max" goal was
-    // saved there and then read by nothing — the limit shown here was always
-    // the hardcoded 400 regardless of what the user set.
-    prisma.dailyNote.findUnique({
-      where: { userId_date: { userId, date: new Date("0001-01-01") } },
-    }).catch(() => null),
+    // The Settings "Caffeine max" goal — the limit here used to be the
+    // hardcoded 400 regardless of what the user set.
+    getGoals(userId),
   ])
 
-  let limitMg = LIMIT_MG
-  try {
-    const goals = goalsRow ? JSON.parse(goalsRow.content) as { coffeeMax?: number } : {}
-    if (typeof goals.coffeeMax === "number" && goals.coffeeMax > 0) limitMg = goals.coffeeMax
-  } catch { /* malformed goals blob — keep the default */ }
+  const limitMg = goals.coffeeMax
 
   const startOfDay = new Date()
   startOfDay.setHours(0, 0, 0, 0)

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getGoals } from "@/lib/goals"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { supplementInfoFor } from "@/lib/supplement-info"
@@ -27,7 +28,7 @@ export async function GET() {
   const since24 = new Date(now.getTime() - 24 * 3_600_000)
   const since72 = new Date(now.getTime() - 72 * 3_600_000)
 
-  const [caffeineDoses, drinks, medTags, profile, goalsRow, weightRow] = await Promise.all([
+  const [caffeineDoses, drinks, medTags, profile, goals, weightRow] = await Promise.all([
     prisma.caffeineLog.findMany({
       where: { userId, loggedAt: { gte: since24 } },
       select: { caffeineMg: true, loggedAt: true, compound: true },
@@ -48,12 +49,8 @@ export async function GET() {
 
     getPersonalCaffeineProfile(userId),
 
-    // Weight and sex live in the goals blob, which is stored as a DailyNote
-    // row at a sentinel date (see /api/goals).
-    prisma.dailyNote.findUnique({
-      where: { userId_date: { userId, date: new Date("0001-01-01") } },
-      select: { content: true },
-    }).catch(() => null),
+    // Weight and sex are goals (see @/lib/goals).
+    getGoals(userId),
 
     prisma.healthLog.findFirst({
       where: { userId, weight: { not: null } },
@@ -93,14 +90,8 @@ export async function GET() {
   }
 
   // ── Alcohol (zero-order — a flat rate, and a real finishing time) ──
-  let goalWeight: number | null = null
-  let sex: string | null = null
-  try {
-    const goals = goalsRow ? JSON.parse(goalsRow.content) as { weightKg?: number; sex?: string } : null
-    goalWeight = typeof goals?.weightKg === "number" ? goals.weightKg : null
-    sex = goals?.sex ?? null
-  } catch { /* defaults below */ }
-  const weightKg = weightRow?.weight ?? goalWeight
+  const sex = goals.sex
+  const weightKg = weightRow?.weight ?? goals.weightKg
   const clearance = alcoholClearanceGPerHour(weightKg, sex)
 
   const alcoholDoses = drinks
