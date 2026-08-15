@@ -10,6 +10,7 @@ import { trackToSvgPath } from "@/lib/gpx"
 import { cn } from "@/lib/utils"
 import LocationInsightsClient from "../location-insights/LocationInsightsClient"
 import { TimelineImport } from "@/components/location/TimelineImport"
+import { SuggestedPlaces } from "@/components/location/SuggestedPlaces"
 
 interface CheckIn {
   id: string
@@ -635,6 +636,10 @@ export default function LocationPage() {
   const [track, setTrack]         = useState<TrackData | null>(null)
   const [loading, setLoading]     = useState(true)
   const [availDates, setAvailDates] = useState<string[]>([])
+  // Bumped after a timeline import (fresh suggestion mining) and after a
+  // suggestion is saved (PlacesSection remounts and refetches).
+  const [suggestKey, setSuggestKey] = useState(0)
+  const [placesKey, setPlacesKey]   = useState(0)
 
   const load = useCallback(async (d: string) => {
     setLoading(true)
@@ -770,11 +775,13 @@ export default function LocationPage() {
         </div>
       )}
 
-      <PlacesSection autoTagged={track?.autoTagged ?? []}/>
+      <SuggestedPlaces refreshKey={suggestKey} onSaved={() => setPlacesKey(k => k + 1)} />
+      <PlacesSection key={placesKey} autoTagged={track?.autoTagged ?? []}/>
       <PlaceHealthImpact />
       <TimelineImport onImported={() => {
         load(date)
         fetch("/api/location?list=1").then(r => r.json()).then(setAvailDates).catch(() => {})
+        setSuggestKey(k => k + 1)
       }} />
       </>)}
     </div>
