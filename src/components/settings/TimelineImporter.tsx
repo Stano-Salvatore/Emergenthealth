@@ -4,72 +4,62 @@ import { useState, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Upload, CheckCircle2, XCircle, MapPin } from "lucide-react"
+import { extractVisits, matchVisitsToTargets, haversineM, type VisitTarget } from "@/lib/timeline-visits"
 
-const TARGETS = {
-  home:       { lat: 48.175421976678,  lng: 17.126068557003457 },
-  cafe:       { lat: 48.1490416,        lng: 17.1171726 },
-  rudo_janka: { lat: 48.395534,         lng: 17.3090072 },
-  parents:    { lat: 48.3965142,        lng: 17.3227352 },
-  krstna:     { lat: 48.1594238,        lng: 17.1607528 },
-  zahrada:    { lat: 48.1829391,        lng: 17.3486593 },
-} as const
+// The six places this matched against used to be six coordinates written into
+// this file, so the import understood exactly the places someone thought to
+// hardcode and nothing else — not a new home, not a place the app itself
+// detected. It matches the user's saved places now, with those six kept as a
+// fallback so an account that never saved them still gets its history.
+
+const LEGACY_TARGETS: Record<string, VisitTarget> = {
+  home:       { lat: 48.175421976678, lng: 17.126068557003457, label: "Home",        emoji: "🏠" },
+  cafe:       { lat: 48.1490416,      lng: 17.1171726,         label: "Café",        emoji: "☕" },
+  rudo_janka: { lat: 48.395534,       lng: 17.3090072,         label: "Rudo & Janka", emoji: "👨‍👩‍👧" },
+  parents:    { lat: 48.3965142,      lng: 17.3227352,         label: "Parents",     emoji: "👪" },
+  krstna:     { lat: 48.1594238,      lng: 17.1607528,         label: "Krstná",      emoji: "🏡" },
+  zahrada:    { lat: 48.1829391,      lng: 17.3486593,         label: "Záhrada",     emoji: "🌿" },
+}
 
 const RADIUS_M = 150
 
-function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6_371_000
-  const φ1 = (lat1 * Math.PI) / 180, φ2 = (lat2 * Math.PI) / 180
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180
-  const Δλ = ((lng2 - lng1) * Math.PI) / 180
-  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+interface SavedPlace {
+  id: string
+  name: string
+  emoji: string
+  lat: number
+  lng: number
+  radiusM: number
 }
 
-function parseLatLng(s: string): { lat: number; lng: number } | null {
-  const m = s.match(/([\d.+-]+)°,\s*([\d.+-]+)°/)
-  if (!m) return null
-  return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) }
-}
-
-function parseTimeline(raw: string): { visits: Record<string, { start: string; end: string }[]>; summary: Record<string, number> } | null {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let json: any
-  try { json = JSON.parse(raw) } catch { return null }
-
-  const segments: unknown[] = json?.semanticSegments ?? []
-  const visits: Record<string, { start: string; end: string }[]> = {
-    home: [], cafe: [], rudo_janka: [], parents: [], krstna: [], zahrada: [],
+/**
+ * Saved places, plus any legacy target that isn't one of them already. Merging
+ * rather than replacing means an existing import keeps every series it had —
+ * the correlations are keyed by these keys — while newly saved places (including
+ * the ones the app detects for you) start being matched straight away.
+ */
+export function buildTargets(places: SavedPlace[]): Record<string, VisitTarget> {
+  const targets: Record<string, VisitTarget> = {}
+  for (const p of places) {
+    targets[`place_${p.id}`] = { lat: p.lat, lng: p.lng, label: p.name, emoji: p.emoji || "📍" }
   }
-
-  for (const seg of segments) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = seg as any
-    if (!s?.visit?.topCandidate?.placeLocation?.latLng) continue
-    const coords = parseLatLng(s.visit.topCandidate.placeLocation.latLng)
-    if (!coords) continue
-
-    let bestKey: string | null = null
-    let bestDist = Infinity
-    for (const [key, target] of Object.entries(TARGETS)) {
-      const d = haversineM(coords.lat, coords.lng, target.lat, target.lng)
-      if (d < RADIUS_M && d < bestDist) { bestDist = d; bestKey = key }
-    }
-    if (!bestKey) continue
-
-    visits[bestKey].push({ start: s.startTime, end: s.endTime })
+  for (const [key, t] of Object.entries(LEGACY_TARGETS)) {
+    const covered = places.some(p => haversineM(p.lat, p.lng, t.lat, t.lng) <= Math.max(p.radiusM, RADIUS_M))
+    if (!covered) targets[key] = t
   }
-
-  const summary: Record<string, number> = {}
-  for (const [k, v] of Object.entries(visits)) summary[k] = v.length
-
-  return { visits, summary }
+  return targets
 }
 
 type State = "idle" | "parsing" | "uploading" | "done" | "error"
 
 export function TimelineImporter({ hasData }: { hasData?: boolean }) {
   const [state, setState] = useState<State>("idle")
-  const [result, setResult] = useState<{ total: number; summary: Record<string, number> } | null>(null)
+  const [result, setResult] = useState<{
+    total: number
+    summary: Record<string, number>
+    targets: Record<string, VisitTarget>
+    unmatched: number
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const ref = useRef<HTMLInputElement>(null)
 
@@ -78,33 +68,47 @@ export function TimelineImporter({ hasData }: { hasData?: boolean }) {
     setError(null)
     try {
       const raw = await file.text()
-      const parsed = parseTimeline(raw)
-      if (!parsed) throw new Error("Could not parse Timeline.json — make sure you exported from Google Maps → Timeline → Download")
+      let doc: unknown
+      try {
+        doc = JSON.parse(raw)
+      } catch {
+        throw new Error("Could not parse that file — make sure it's the Timeline.json from Google Maps → Timeline → Download.")
+      }
 
-      const total = Object.values(parsed.summary).reduce((a, b) => a + b, 0)
-      if (total === 0) throw new Error("No matching visits found for your 6 saved locations.")
+      const visits = extractVisits(doc)
+      if (visits.length === 0) {
+        throw new Error("No visits found in that export. Expected a Timeline.json (phone export) or a Takeout Timeline file.")
+      }
+
+      const places: SavedPlace[] = await fetch("/api/saved-places")
+        .then(r => (r.ok ? r.json() : []))
+        .catch(() => [])
+      const targets = buildTargets(Array.isArray(places) ? places : [])
+      const matched = matchVisitsToTargets(visits, targets, RADIUS_M)
+
+      const total = Object.values(matched.summary).reduce((a, b) => a + b, 0)
+      if (total === 0) {
+        throw new Error(
+          `Found ${visits.length} visits, but none within ${RADIUS_M}m of your saved places. Save the places you care about first — the Location page can detect them for you.`,
+        )
+      }
 
       setState("uploading")
       const res = await fetch("/api/import/timeline-visits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsed),
+        body: JSON.stringify({ visits: matched.visits, summary: matched.summary, targets }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.error ?? `HTTP ${res.status}`)
       }
-      setResult({ total, summary: parsed.summary })
+      setResult({ total, summary: matched.summary, targets, unmatched: visits.length - total })
       setState("done")
     } catch (e) {
       setError(e instanceof Error ? e.message : "Import failed")
       setState("error")
     }
-  }
-
-  const LABELS: Record<string, string> = {
-    home: "🏠 Home", cafe: "☕ Café", rudo_janka: "👨‍👩‍👧 Rudo & Janka",
-    parents: "👪 Parents", krstna: "🏡 Krstná", zahrada: "🌿 Záhrada",
   }
 
   return (
@@ -123,7 +127,7 @@ export function TimelineImporter({ hasData }: { hasData?: boolean }) {
           Import your Google Timeline to see how each location correlates with your health. In Google Maps → your profile → Your Timeline → ⋮ → Download data. Select <strong>Timeline.json</strong>.
         </p>
         <p className="text-xs text-muted-foreground">
-          The file is parsed locally in your browser — only the matched visits (~37KB) are sent to the server.
+          The file is parsed locally in your browser — only visits matching your saved places are sent to the server.
         </p>
 
         {state === "done" && result && (
@@ -132,10 +136,20 @@ export function TimelineImporter({ hasData }: { hasData?: boolean }) {
               <CheckCircle2 className="h-3.5 w-3.5" /> {result.total} visits imported
             </p>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-              {Object.entries(result.summary).map(([k, n]) => (
-                <span key={k} className="text-[11px] text-muted-foreground">{LABELS[k] ?? k}: {n}</span>
-              ))}
+              {Object.entries(result.summary)
+                .filter(([, n]) => n > 0)
+                .sort((a, b) => b[1] - a[1])
+                .map(([k, n]) => (
+                  <span key={k} className="text-[11px] text-muted-foreground">
+                    {result.targets[k]?.emoji ?? "📍"} {result.targets[k]?.label ?? k}: {n}
+                  </span>
+                ))}
             </div>
+            {result.unmatched > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                {result.unmatched} more visits were somewhere you haven&apos;t saved as a place.
+              </p>
+            )}
           </div>
         )}
 

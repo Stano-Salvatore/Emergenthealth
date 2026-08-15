@@ -3,6 +3,7 @@
 import { useRef, useState } from "react"
 import { Upload, CheckCircle2, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { extractVisits, parseLatLngString } from "@/lib/timeline-visits"
 
 // Import a Google Takeout of Timeline / Location History.
 //
@@ -28,17 +29,6 @@ interface ParsedPoint {
 }
 
 const BATCH = 500
-
-function parseLatLngString(s: unknown): { lat: number; lng: number } | null {
-  // "48.1234567°, 17.1234567°" — the phone export's coordinate encoding.
-  if (typeof s !== "string") return null
-  const m = s.match(/(-?\d+(?:\.\d+)?)\s*°?\s*,\s*(-?\d+(?:\.\d+)?)/)
-  if (!m) return null
-  const lat = Number(m[1])
-  const lng = Number(m[2])
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
-  return { lat, lng }
-}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function extractPoints(doc: any): ParsedPoint[] {
@@ -92,6 +82,16 @@ export function extractPoints(doc: any): ParsedPoint[] {
         out.push({ lat: ll.lat, lng: ll.lng, trackedAt: ts })
       }
     }
+  }
+
+  // Visits are dwells Google already worked out — "at this place from 14:02 to
+  // 16:31". Two points per visit (arrival and departure at the place) is a
+  // faithful rendering of one, and it's what makes an import of a
+  // visit-heavy export show up on the map and in the frequent-place mining
+  // rather than being thrown away.
+  for (const v of extractVisits(doc)) {
+    out.push({ lat: v.lat, lng: v.lng, trackedAt: v.start, speedKmh: 0 })
+    if (v.end !== v.start) out.push({ lat: v.lat, lng: v.lng, trackedAt: v.end, speedKmh: 0 })
   }
 
   // One row per (time, place): takeouts repeat points across sections, and
