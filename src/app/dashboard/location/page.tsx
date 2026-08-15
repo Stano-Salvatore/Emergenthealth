@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input"
 import { trackToSvgPath } from "@/lib/gpx"
 import { cn } from "@/lib/utils"
 import LocationInsightsClient from "../location-insights/LocationInsightsClient"
+import { TimelineImport } from "@/components/location/TimelineImport"
 
 interface CheckIn {
   id: string
@@ -771,6 +772,10 @@ export default function LocationPage() {
 
       <PlacesSection autoTagged={track?.autoTagged ?? []}/>
       <PlaceHealthImpact />
+      <TimelineImport onImported={() => {
+        load(date)
+        fetch("/api/location?list=1").then(r => r.json()).then(setAvailDates).catch(() => {})
+      }} />
       </>)}
     </div>
   )
