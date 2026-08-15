@@ -66,8 +66,19 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
 
   if (searchParams.get("list") === "1") {
-    const dates = await listGpxDates(session.user.id)
-    return NextResponse.json(dates)
+    // GPX days from Drive plus days with stored points (OwnTracks live
+    // tracking or a Timeline import) — without the latter, imported history
+    // existed but nothing on the page revealed which days had it.
+    const gpxDates = await listGpxDates(session.user.id)
+    const pointDays = await prisma.$queryRaw<{ day: string }[]>`
+      SELECT DISTINCT to_char("trackedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day
+      FROM "LocationPoint" WHERE "userId" = ${session.user.id}
+    `.catch(() => [] as { day: string }[])
+    const merged = [...new Set([...gpxDates, ...pointDays.map(r => r.day)])]
+      .sort()
+      .reverse()
+      .slice(0, 30)
+    return NextResponse.json(merged)
   }
 
   const date = searchParams.get("date") ?? new Date().toISOString().split("T")[0]
