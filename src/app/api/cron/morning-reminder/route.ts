@@ -1,30 +1,20 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import webpush from "web-push"
+import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
+import { localDateStr, localTimeStr } from "@/lib/local-date"
+import { readSentLog, writeSentLog } from "@/lib/sent-log"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-function getLocalHour(timezone: string): number {
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      hour: "numeric",
-      hour12: false,
-    }).formatToParts(new Date())
-    return parseInt(parts.find(p => p.type === "hour")?.value ?? "0", 10)
-  } catch {
-    return new Date().getUTCHours()
-  }
-}
+// The morning check-in nudge for web-push devices — browsers and PWAs, which
+// can't lay down local notifications the way the phone app does. Ticked every
+// ten minutes by the Actions cron alongside the other reminder jobs; the
+// per-day sent log makes extra ticks free, and one hour of grace after the
+// user's chosen hour means a delayed tick still delivers rather than skipping
+// the day.
 
-function getLocalDateStr(timezone: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date())
-  } catch {
-    return new Date().toISOString().split("T")[0]
-  }
-}
+const SENT_KEY = "daily_nudges_sent"
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET
@@ -32,52 +22,57 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-  const privateKey = process.env.VAPID_PRIVATE_KEY
-  const email = process.env.VAPID_EMAIL ?? "mailto:admin@emergenthealth.app"
-  if (!publicKey || !privateKey) {
+  if (!configurePush()) {
     return NextResponse.json({ error: "VAPID keys not configured" }, { status: 503 })
   }
 
-  webpush.setVapidDetails(email, publicKey, privateKey)
+  const byUser = await loadSubscriptionsByUser()
+  if (byUser.size === 0) return NextResponse.json({ ok: true, sent: 0 })
 
-  const subs = await prisma.$queryRaw<{ endpoint: string; p256dh: string; auth: string; userId: string }[]>`
-    SELECT ps."endpoint", ps."p256dh", ps."auth", ps."userId"
-    FROM "PushSubscription" ps
-    LIMIT 1000
-  `.catch(() => [] as { endpoint: string; p256dh: string; auth: string; userId: string }[])
-
-  if (!subs.length) return NextResponse.json({ ok: true, sent: 0 })
+  // One query for every user's prefs, not two per user per tick — this runs
+  // every ten minutes against mostly out-of-window users.
+  const userIds = [...byUser.keys()]
+  const prefRows = await prisma.userPreference.findMany({
+    where: { userId: { in: userIds }, key: { in: ["timezone", "reminder_hour"] } },
+    select: { userId: true, key: true, value: true },
+  }).catch(() => [])
+  const prefs = new Map<string, Record<string, string>>()
+  for (const r of prefRows) {
+    const m = prefs.get(r.userId) ?? {}
+    m[r.key] = r.value
+    prefs.set(r.userId, m)
+  }
 
   let sent = 0
 
-  for (const sub of subs) {
-    // Get user timezone and preferred reminder hour
-    const prefRows = await prisma.$queryRaw<{ key: string; value: string }[]>`
-      SELECT "key", "value" FROM "UserPreference"
-      WHERE "userId" = ${sub.userId} AND "key" IN ('timezone', 'reminder_hour')
-    `.catch(() => [] as { key: string; value: string }[])
-    const prefMap = Object.fromEntries(prefRows.map(r => [r.key, r.value]))
-    const timezone = prefMap["timezone"] ?? "UTC"
-    const reminderHour = prefMap["reminder_hour"] ? parseInt(prefMap["reminder_hour"], 10) : 7
+  for (const [userId, subs] of byUser) {
+    const timezone = prefs.get(userId)?.["timezone"]?.trim() || "UTC"
+    const hourPref = prefs.get(userId)?.["reminder_hour"]
+    const reminderHour = hourPref ? parseInt(hourPref, 10) : 7
 
-    const localHour = getLocalHour(timezone)
-    if (localHour !== reminderHour) continue
+    // The grace hour never crosses midnight: for an hour-23 nudge it would
+    // land on the next local date, marking tomorrow's log and eating
+    // tomorrow's nudge, so 23 simply gets no grace.
+    const localHour = parseInt(localTimeStr(timezone).slice(0, 2), 10)
+    if (localHour !== reminderHour && localHour !== Math.min(reminderHour + 1, 23)) continue
 
-    const localDate = getLocalDateStr(timezone)
+    const localDate = localDateStr(timezone)
 
-    // Skip if already checked in today
+    const alreadySent = await readSentLog(userId, SENT_KEY, localDate)
+    if (alreadySent.has("morning")) continue
+
+    // Already checked in — the nudge has nothing left to ask for.
     const checkedIn = await prisma.$queryRaw<{ id: string }[]>`
       SELECT id FROM "MorningCheckIn"
-      WHERE "userId" = ${sub.userId} AND "date"::date = ${localDate}::date
+      WHERE "userId" = ${userId} AND "date" = ${localDate}
       LIMIT 1
     `.catch(() => [] as { id: string }[])
     if (checkedIn.length > 0) continue
 
-    // Get streak for personalised message
+    // Streak of consecutive days ending yesterday, for the personalised copy.
     const recentCheckins = await prisma.$queryRaw<{ date: string }[]>`
       SELECT "date" FROM "MorningCheckIn"
-      WHERE "userId" = ${sub.userId} AND "date" < ${localDate}
+      WHERE "userId" = ${userId} AND "date" < ${localDate}
       ORDER BY "date" DESC LIMIT 30
     `.catch(() => [] as { date: string }[])
     const dateSet = new Set(recentCheckins.map(r => r.date))
@@ -89,7 +84,7 @@ export async function GET(req: NextRequest) {
       cur.setDate(cur.getDate() - 1)
     }
 
-    const personalPayload = JSON.stringify({
+    const delivered = await sendToUser(subs, {
       title: streak >= 3 ? `🔥 ${streak}-day streak!` : "Good morning! 🌅",
       body: streak >= 3
         ? `Don't break your ${streak}-day check-in streak! Log your energy & mood now.`
@@ -99,19 +94,11 @@ export async function GET(req: NextRequest) {
       url: "/dashboard/checkin",
       tag: "morning-checkin",
     })
+    if (delivered) sent++
 
-    try {
-      await webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        personalPayload
-      )
-      sent++
-    } catch (err: unknown) {
-      if (err && typeof err === "object" && "statusCode" in err && (err as { statusCode: number }).statusCode === 410) {
-        await prisma.$executeRaw`DELETE FROM "PushSubscription" WHERE endpoint = ${sub.endpoint}`.catch(() => {})
-      }
-    }
+    alreadySent.add("morning")
+    await writeSentLog(userId, SENT_KEY, localDate, alreadySent)
   }
 
-  return NextResponse.json({ ok: true, sent, total: subs.length })
+  return NextResponse.json({ ok: true, sent, total: byUser.size })
 }

@@ -47,9 +47,10 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   const goalsRow = await prisma.dailyNote.findUnique({
     where: { userId_date: { userId, date: new Date("0001-01-01") } },
   }).catch(() => null)
-  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number } : {}
+  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number; readinessMin?: number } : {}
   const STEP_GOAL = userGoals.steps ?? DEFAULT_STEP_GOAL
   const SLEEP_GOAL_H = userGoals.sleepH ?? DEFAULT_SLEEP_GOAL_H
+  const READINESS_GOAL = userGoals.readinessMin ?? 70
 
   if (activeTab === "weight") {
     return (
@@ -318,7 +319,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
               value={avgActiveMins != null ? `${Math.round(avgActiveMins)} min` : "—"} delta={tActive} />
             <SummaryCard icon={<Shield className="h-4 w-4 text-emerald-400" />} label="Avg readiness"
               value={avgReadiness != null ? `${Math.round(avgReadiness)}` : "—"}
-              good={avgReadiness != null && avgReadiness >= 70} target="goal 70+" delta={tReadiness} />
+              good={avgReadiness != null && avgReadiness >= READINESS_GOAL} target={`goal ${READINESS_GOAL}+`} delta={tReadiness} />
             <SummaryCard icon={<Activity className="h-4 w-4 text-primary" />} label="Avg HRV"
               value={avgHRV != null ? `${Math.round(avgHRV)} ms` : "—"} delta={tHRV} />
             <SummaryCard icon={<Wind className="h-4 w-4 text-cyan-400" />} label="Avg SpO₂"

@@ -32,17 +32,21 @@ async function getWidgetData(key: string) {
     }).catch(() => null),
     prisma.habitCompletion.count({ where: { userId, date: { gte: today } } }).catch(() => 0),
     prisma.habit.count({ where: { userId, isArchived: false } }).catch(() => 0),
-    prisma.$queryRaw<{ tempMax: number; weatherCode: number }[]>`
-      SELECT "tempMax","weatherCode" FROM "WeatherLog"
-      WHERE "userId" = ${userId} AND date = ${todayStr} LIMIT 1
-    `.catch(() => []),
+    // Typed client, not raw SQL: like the widget API route before it, this
+    // selected "tempMax" — a column that doesn't exist (it's tempMaxC) — and
+    // the .catch() swallowed the error, so this view's weather was
+    // permanently null.
+    prisma.weatherLog.findFirst({
+      where: { userId, date: todayStr },
+      select: { tempMaxC: true, weatherCode: true },
+    }).catch(() => null),
     prisma.$queryRaw<{ energy: number; intention: string | null }[]>`
       SELECT energy, intention FROM "MorningCheckIn"
       WHERE "userId" = ${userId} AND date = ${todayStr} LIMIT 1
     `.catch(() => []),
   ])
 
-  const w = (weather as { tempMax: number; weatherCode: number }[])[0] ?? null
+  const w = weather ?? null
   const c = (checkin as { energy: number; intention: string | null }[])[0] ?? null
   const sleepH = healthYesterday?.sleepDuration ? (healthYesterday.sleepDuration / 60).toFixed(1) : null
 
@@ -81,7 +85,9 @@ async function getWidgetData(key: string) {
     habitsCompleted, habitsTotal,
     energy: c?.energy ?? null,
     intention: c?.intention ?? null,
-    weather: w ? { temp: Math.round(w.tempMax), emoji: weatherEmoji(w.weatherCode) } : null,
+    weather: w?.tempMaxC != null && w.weatherCode != null
+      ? { temp: Math.round(w.tempMaxC), emoji: weatherEmoji(w.weatherCode) }
+      : null,
     updatedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   }
 }

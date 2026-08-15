@@ -69,7 +69,7 @@ export async function GET() {
     SELECT "id","date","tempMaxC","tempMinC","precipMm","uvIndex","weatherCode","lat","lon"
     FROM "WeatherLog"
     WHERE "userId" = ${userId}
-      AND "date" >= (CURRENT_DATE - INTERVAL '30 days')::text
+      AND "date" >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')
     ORDER BY "date" DESC
   `
 

@@ -34,15 +34,16 @@ export function RateAppPrompt() {
   }
 
   function openStore() {
-    // Try Play Store deep link first, fall back to feedback form
     const ua = navigator.userAgent
     if (/android/i.test(ua)) {
       window.open("market://details?id=app.emergenthealth", "_blank")
+      // The store actually opened — reasonable to stop asking for good.
+      dismiss()
     } else {
-      // iOS App Store (placeholder) or feedback form
-      window.open("https://emergenthealth.app", "_blank")
+      // There's no non-Android store to open yet. Hide for this session, but
+      // don't burn the permanent dismissal on a click that did nothing.
+      setShow(false)
     }
-    dismiss()
   }
 
   if (!show) return null

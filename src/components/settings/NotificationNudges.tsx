@@ -14,6 +14,8 @@ import {
   ensureNotificationPermission,
   getExactAlarmPermission,
   requestExactAlarmPermission,
+  getScheduledStatus,
+  type ScheduledStatus,
 } from "@/lib/native/notifications"
 
 type Perm = "granted" | "denied" | "prompt" | "unavailable" | "loading"
@@ -25,6 +27,8 @@ export function NotificationNudges() {
   const [perm, setPerm] = useState<Perm>("loading")
   const [exact, setExact] = useState<Exact>("loading")
   const [test, setTest] = useState<"idle" | "sending" | "scheduled" | "denied" | "unavailable">("idle")
+  const [status, setStatus] = useState<ScheduledStatus | null>(null)
+  const [resyncing, setResyncing] = useState(false)
 
   useEffect(() => {
     isNativeApp().then(async native => {
@@ -33,6 +37,7 @@ export function NotificationNudges() {
         setOn(nudgesEnabled())
         setPerm(await getNotificationPermission())
         setExact(await getExactAlarmPermission())
+        setStatus(await getScheduledStatus())
       }
     })
   }, [])
@@ -45,6 +50,7 @@ export function NotificationNudges() {
     const granted = await ensureNotificationPermission()
     setPerm(granted ? "granted" : "denied")
     if (granted) await resyncNotifications()
+    setStatus(await getScheduledStatus())
   }
 
   async function toggle() {
@@ -56,6 +62,14 @@ export function NotificationNudges() {
       setPerm(granted ? "granted" : "denied")
     }
     await resyncNotifications()
+    setStatus(await getScheduledStatus())
+  }
+
+  async function resync() {
+    setResyncing(true)
+    await resyncNotifications()
+    setStatus(await getScheduledStatus())
+    setResyncing(false)
   }
 
   async function sendTest() {
@@ -93,8 +107,29 @@ export function NotificationNudges() {
           <p className="text-xs text-muted-foreground">
             This build doesn&apos;t support notifications yet — it may need updating from the Play Store.
           </p>
+        ) : on && status?.available && status.pending === 0 ? (
+          // Permission granted, nudges on, yet nothing is laid down — the
+          // state that used to be indistinguishable from everything working.
+          // With nudges off an empty queue is intended, and a timed-out
+          // getPending is no evidence, so neither triggers the warning.
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-2.5 space-y-1.5">
+            <p className="text-xs font-medium text-amber-400">
+              Notifications are allowed, but nothing is scheduled on this phone
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              So nothing will buzz. Resync should fix it — if the count stays at zero afterwards,
+              this build can&apos;t schedule notifications and the app needs updating.
+            </p>
+            <Button size="sm" variant="outline" className="h-7 text-xs" disabled={resyncing} onClick={resync}>
+              {resyncing ? "Resyncing…" : "Resync now"}
+            </Button>
+          </div>
         ) : (
-          <p className="text-xs text-green-400">✓ Notifications are on for this phone.</p>
+          <p className="text-xs text-green-400">
+            ✓ Notifications are on
+            {status?.available ? ` — ${status.pending} scheduled on this phone` : " for this phone"}
+            {status?.nextAt ? ` (next: ${new Date(status.nextAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })})` : ""}.
+          </p>
         )}
 
         {/* Exact timing. Only worth showing once notifications actually work,
@@ -115,6 +150,7 @@ export function NotificationNudges() {
                 setExact("loading")
                 setExact(await requestExactAlarmPermission())
                 await resyncNotifications()
+                setStatus(await getScheduledStatus())
               }}
             >
               Allow

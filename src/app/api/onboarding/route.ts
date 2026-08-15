@@ -55,6 +55,30 @@ export async function POST(req: Request) {
       `.catch(() => {})
     }
 
+    // The wizard's tracking categories and goal used to be collected and then
+    // thrown away — the wizard only ever sent {completed}. Kept as
+    // preferences so they survive the wizard.
+    const categories = Array.isArray(body.categories)
+      ? (body.categories as unknown[]).filter((c): c is string => typeof c === "string").slice(0, 20)
+      : null
+    if (categories && categories.length > 0) {
+      const value = JSON.stringify(categories)
+      await prisma.$executeRaw`
+        INSERT INTO "UserPreference" ("userId", "key", "value")
+        VALUES (${userId}, 'onboarding_categories', ${value})
+        ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${value}
+      `.catch(() => {})
+    }
+
+    const goal = typeof body.goal === "string" && body.goal.trim() ? body.goal.trim().slice(0, 200) : null
+    if (goal) {
+      await prisma.$executeRaw`
+        INSERT INTO "UserPreference" ("userId", "key", "value")
+        VALUES (${userId}, 'onboarding_goal', ${goal})
+        ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${goal}
+      `.catch(() => {})
+    }
+
     return NextResponse.json({ ok: true })
   } catch {
     return NextResponse.json({ error: "Failed to save" }, { status: 500 })

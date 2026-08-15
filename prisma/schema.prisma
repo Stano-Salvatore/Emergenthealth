@@ -843,3 +843,25 @@ model MedSchedule {
 
   @@index([userId, active])
 }
+
+// ─── Push notifications ──────────────────────────────────────────────────────
+
+// A device's web-push registration. /api/push/subscribe used to create this
+// table lazily with raw SQL, which meant every cron that pushes errored with
+// `relation "PushSubscription" does not exist` until someone's first successful
+// subscribe — which never happened. The build runs `prisma db push`, so
+// declaring it here guarantees the table exists.
+//
+// Deliberately no relation to User: the raw SQL that reads and writes this
+// table predates the model, and a lazily created copy of the table in an
+// existing database has no foreign key for db push to reconcile.
+model PushSubscription {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  @@index([userId])
+}

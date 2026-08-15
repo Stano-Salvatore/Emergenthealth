@@ -2,18 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "PushSubscription" (
-      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-      "userId" TEXT NOT NULL,
-      endpoint TEXT NOT NULL UNIQUE,
-      p256dh TEXT NOT NULL,
-      auth TEXT NOT NULL,
-      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `
-}
+// The PushSubscription table is declared in prisma/schema.prisma and created
+// by the build's `prisma db push` — it used to be created lazily here, which
+// meant every push cron errored on the table's absence until the first
+// successful subscribe.
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -24,8 +16,6 @@ export async function POST(req: NextRequest) {
   if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
     return NextResponse.json({ error: "Invalid subscription" }, { status: 400 })
   }
-
-  await ensureTable()
 
   await prisma.$executeRaw`
     INSERT INTO "PushSubscription" ("userId", endpoint, p256dh, auth)
