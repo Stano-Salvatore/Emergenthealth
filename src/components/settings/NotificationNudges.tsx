@@ -74,9 +74,13 @@ export function NotificationNudges() {
 
   async function sendTest() {
     setTest("sending")
+    // Every step is now bounded, but the button's state is set from the test's
+    // own result first: reading the permission afterwards used to be what left
+    // it on "Sending…" forever when the native side never answered.
     const res = await scheduleTestNotification()
-    setPerm(await getNotificationPermission())
     setTest(res === "scheduled" ? "scheduled" : res)
+    setPerm(await getNotificationPermission())
+    setStatus(await getScheduledStatus())
     if (res === "scheduled") setTimeout(() => setTest("idle"), 5000)
   }
 
@@ -104,9 +108,13 @@ export function NotificationNudges() {
             </Button>
           </div>
         ) : perm === "unavailable" ? (
-          <p className="text-xs text-muted-foreground">
-            This build doesn&apos;t support notifications yet — it may need updating from the Play Store.
-          </p>
+          <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2.5 space-y-1">
+            <p className="text-xs font-medium text-red-400">This app version can&apos;t send notifications</p>
+            <p className="text-[11px] text-muted-foreground">
+              The installed app is missing the notifications component, so nothing can be scheduled on this
+              phone — no reminders, habits or doses, however they&apos;re configured. Updating the app fixes it.
+            </p>
+          </div>
         ) : on && status?.available && status.pending === 0 ? (
           // Permission granted, nudges on, yet nothing is laid down — the
           // state that used to be indistinguishable from everything working.
