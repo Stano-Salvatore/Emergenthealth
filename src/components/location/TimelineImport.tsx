@@ -115,7 +115,7 @@ type Phase =
   | { kind: "idle" }
   | { kind: "parsing" }
   | { kind: "uploading"; done: number; total: number }
-  | { kind: "done"; imported: number; total: number; from: string; to: string }
+  | { kind: "done"; imported: number; total: number; from: string; to: string; checkIns: number }
   | { kind: "error"; message: string }
 
 export function TimelineImport({ onImported }: { onImported?: () => void }) {
@@ -139,6 +139,7 @@ export function TimelineImport({ onImported }: { onImported?: () => void }) {
       }
 
       let imported = 0
+      let checkIns = 0
       for (let i = 0; i < points.length; i += BATCH) {
         setPhase({ kind: "uploading", done: i, total: points.length })
         const res = await fetch("/api/import/timeline", {
@@ -149,11 +150,13 @@ export function TimelineImport({ onImported }: { onImported?: () => void }) {
         if (!res.ok) throw new Error(`Upload failed at point ${i} (HTTP ${res.status}) — try again; already-uploaded points won't duplicate.`)
         const data = await res.json()
         imported += data.inserted ?? 0
+        checkIns += data.checkIns ?? 0
       }
 
       setPhase({
         kind: "done",
         imported,
+        checkIns,
         total: points.length,
         from: points[0].trackedAt.slice(0, 10),
         to: points[points.length - 1].trackedAt.slice(0, 10),
@@ -212,8 +215,9 @@ export function TimelineImport({ onImported }: { onImported?: () => void }) {
         <p className="text-xs text-green-400 mt-2 flex items-center gap-1.5">
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
           {phase.imported > 0
-            ? `Imported ${phase.imported.toLocaleString()} GPS points (${phase.from} → ${phase.to}). Pick any of those days above to see the route.`
-            : `All ${phase.total.toLocaleString()} points were already imported (${phase.from} → ${phase.to}).`}
+            ? `Imported ${phase.imported.toLocaleString()} GPS points (${phase.from} → ${phase.to})`
+            : `All ${phase.total.toLocaleString()} points were already imported (${phase.from} → ${phase.to})`}
+          {phase.checkIns > 0 ? ` · ${phase.checkIns} visits to your saved places logged.` : "."}
         </p>
       )}
       {phase.kind === "error" && (
