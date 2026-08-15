@@ -36,7 +36,7 @@ describe("mergeGoals", () => {
   })
 
   it("ignores keys that aren't goals", () => {
-    const out = mergeGoals(DEFAULT_GOALS, { userId: "someone-else", nope: 1 }) as Record<string, unknown>
+    const out = mergeGoals(DEFAULT_GOALS, { userId: "someone-else", nope: 1 }) as unknown as Record<string, unknown>
     expect(out.userId).toBeUndefined()
     expect(out.nope).toBeUndefined()
   })

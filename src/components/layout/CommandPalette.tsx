@@ -29,6 +29,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/health?tab=body", label: "Body & Trackers", emoji: "📏", group: "Health" },
   { href: "/dashboard/intake",        label: "Intake",           emoji: "🥤", group: "Health" },
   { href: "/dashboard/focus",         label: "Focus",            emoji: "🎯", group: "Health" },
+  { href: "/dashboard/toggl",         label: "Toggl",            emoji: "⏱️", group: "Health" },
   { href: "/dashboard/custom",        label: "Trackers",         emoji: "📐", group: "Health" },
   { href: "/dashboard/reading",       label: "Reading",          emoji: "📚", group: "Health" },
   { href: "/dashboard/journal",       label: "Journal",          emoji: "📝", group: "Health" },
