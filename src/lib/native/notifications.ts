@@ -695,6 +695,23 @@ export async function runNotificationSelfTest(): Promise<SelfTestStep[]> {
   const steps: SelfTestStep[] = []
   const t0 = Date.now()
   try {
+    // Timers first: every timeout below assumes setTimeout fires roughly on
+    // schedule, and on a phone in battery saver the WebView's timers can be
+    // throttled to a crawl — which reads as "everything hangs forever" while
+    // taps still respond. A 1s timer that reports firing after 60s is that
+    // diagnosis in one line.
+    const tTimer = Date.now()
+    await new Promise(r => setTimeout(r, 1000))
+    const timerMs = Date.now() - tTimer
+    steps.push({
+      step: "timers",
+      ok: timerMs < 3000,
+      ms: timerMs,
+      detail: timerMs < 3000
+        ? `1s setTimeout fired after ${timerMs}ms`
+        : `1s setTimeout took ${timerMs}ms — battery saver is throttling this WebView; timeouts can't work`,
+    })
+
     const core: any = await import("@capacitor/core")
     const Cap = core?.Capacitor
     const native = Cap?.isNativePlatform?.() === true

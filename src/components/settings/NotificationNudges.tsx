@@ -43,20 +43,28 @@ export function NotificationNudges() {
       setInApp(native)
       if (native) {
         setOn(nudgesEnabled())
-        // In parallel: on a broken build each of these burns its full bridge
-        // timeout, and run one after another they held the diagnosis line —
-        // the one thing worth reading on a broken build — back by half a
-        // minute. It was reachable but never seen.
-        const [perm, exact, status, diag] = await Promise.all([
-          getNotificationPermission(),
-          getExactAlarmPermission(),
-          getScheduledStatus(),
-          diagnoseNotifications(),
-        ])
-        setPerm(perm)
-        setExact(exact)
-        setStatus(status)
-        setDiag(diag)
+        try {
+          // In parallel: on a broken build each of these burns its full bridge
+          // timeout, and run one after another they held the diagnosis line —
+          // the one thing worth reading on a broken build — back by half a
+          // minute. It was reachable but never seen.
+          const [perm, exact, status, diag] = await Promise.all([
+            getNotificationPermission(),
+            getExactAlarmPermission(),
+            getScheduledStatus(),
+            diagnoseNotifications(),
+          ])
+          setPerm(perm)
+          setExact(exact)
+          setStatus(status)
+          setDiag(diag)
+        } catch (err) {
+          // Nothing in that batch is supposed to reject — but a card stuck on
+          // "loading" forever is how this bug hid the last time something
+          // unexpected happened, so never leave the state stranded.
+          setPerm("unavailable")
+          setDiag({ reason: "bridge-silent", detail: `status check threw: ${err instanceof Error ? err.message : String(err)}` })
+        }
       }
     })
   }, [])
@@ -93,28 +101,39 @@ export function NotificationNudges() {
 
   async function sendTest() {
     setTest("sending")
-    // Every step is now bounded, but the button's state is set from the test's
-    // own result first: reading the permission afterwards used to be what left
-    // it on "Sending…" forever when the native side never answered.
-    const res = await scheduleTestNotification()
-    setTest(res.status)
-    setTestDetail(res.detail ?? null)
-    // Same parallelism as on mount — after a failed test is exactly when the
-    // diagnosis line is being stared at, so it can't trail by three timeouts.
-    const [perm, status, diag] = await Promise.all([
-      getNotificationPermission(),
-      getScheduledStatus(),
-      diagnoseNotifications(),
-    ])
-    setPerm(perm)
-    setStatus(status)
-    setDiag(diag)
-    if (res.status === "scheduled") setTimeout(() => setTest("idle"), 5000)
+    try {
+      // Every step is now bounded, but the button's state is set from the
+      // test's own result first: reading the permission afterwards used to be
+      // what left it on "Sending…" forever when the native side never
+      // answered.
+      const res = await scheduleTestNotification()
+      setTest(res.status)
+      setTestDetail(res.detail ?? null)
+      // Same parallelism as on mount — after a failed test is exactly when
+      // the diagnosis line is being stared at, so it can't trail by three
+      // timeouts.
+      const [perm, status, diag] = await Promise.all([
+        getNotificationPermission(),
+        getScheduledStatus(),
+        diagnoseNotifications(),
+      ])
+      setPerm(perm)
+      setStatus(status)
+      setDiag(diag)
+      if (res.status === "scheduled") setTimeout(() => setTest("idle"), 5000)
+    } catch (err) {
+      setTest("unavailable")
+      setTestDetail(err instanceof Error ? err.message : String(err))
+    }
   }
 
   async function runSelfTest() {
     setSelfTesting(true)
-    setSelfTest(await runNotificationSelfTest())
+    try {
+      setSelfTest(await runNotificationSelfTest())
+    } catch (err) {
+      setSelfTest([{ step: "self-test", ok: false, ms: 0, detail: err instanceof Error ? err.message : String(err) }])
+    }
     setSelfTesting(false)
   }
 
