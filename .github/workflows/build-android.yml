@@ -92,6 +92,22 @@ jobs:
           mkdir -p out
           NEXT_PUBLIC_APP_URL=https://emergenthealth.vercel.app npx cap sync android
 
+      # cap sync writes the list of plugins the app will instantiate at runtime
+      # into capacitor.plugins.json — a class merely present in the dex but
+      # absent here is never registered, and every bridge call to it goes
+      # unanswered. That failure builds and installs fine, so it must fail
+      # here instead of on someone's phone.
+      - name: Verify native plugin registration
+        run: |
+          PLUGINS=android/app/src/main/assets/capacitor.plugins.json
+          echo "Registered Capacitor plugins:" && cat "$PLUGINS"
+          for pkg in "@capacitor/local-notifications" "@capacitor/geolocation" "@capacitor/preferences"; do
+            if ! grep -q "\"$pkg\"" "$PLUGINS"; then
+              echo "::error::$pkg missing from $PLUGINS — the APK would build without it"
+              exit 1
+            fi
+          done
+
       - name: Patch kiwi-health Kotlin JVM target
         run: python3 .ci/patch-kiwi-health.py
 

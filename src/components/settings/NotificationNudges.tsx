@@ -221,6 +221,15 @@ export function NotificationNudges() {
             {test === "sending" ? "Sending…" : "Send test"}
           </Button>
         </div>
+
+        {/* Which web build this phone is actually running. The shell loads its
+            code from the server, so "the app is up to date" says nothing about
+            the code on screen — and a stale build looks exactly like broken
+            notifications. This line answers it from the phone itself, no USB
+            debugging needed: compare against the latest deploy's commit. */}
+        <p className="text-[10px] font-mono text-muted-foreground/60 border-t border-border/40 pt-2">
+          web build {(process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ?? "").slice(0, 7) || "sha unavailable"}
+        </p>
       </CardContent>
     </Card>
   )
