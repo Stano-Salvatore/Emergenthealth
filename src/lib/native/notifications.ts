@@ -588,13 +588,15 @@ export async function getScheduledStatus(): Promise<ScheduledStatus> {
  * notifications actually arrive on this phone. Returns what happened:
  *  - "scheduled": on its way (check in ~3s)
  *  - "denied": permission not granted
- *  - "unavailable": not running in the native app / plugin missing (APK too old)
+ *  - "unavailable": the plugin didn't load or the schedule call failed —
+ *    `detail` carries the real reason, because "unavailable" alone has already
+ *    proven itself a diagnostic dead end.
  */
-export async function scheduleTestNotification(): Promise<"scheduled" | "denied" | "unavailable"> {
+export async function scheduleTestNotification(): Promise<{ status: "scheduled" | "denied" | "unavailable"; detail?: string }> {
   const ln = await getPlugin()
-  if (!ln) return "unavailable"
+  if (!ln) return { status: "unavailable", detail: "plugin didn't load" }
   const granted = await withTimeout(ensureNotificationPermission(), 6000, false)
-  if (!granted) return "denied"
+  if (!granted) return { status: "denied" }
   try {
     await withTimeout(
       ln.schedule({
@@ -607,11 +609,115 @@ export async function scheduleTestNotification(): Promise<"scheduled" | "denied"
       }),
       6000,
       "timeout",
-    ).then(r => { if (r === "timeout") throw new Error("bridge timeout") })
-    return "scheduled"
-  } catch {
-    return "unavailable"
+    ).then(r => { if (r === "timeout") throw new Error(`schedule(): no answer after 6000ms`) })
+    return { status: "scheduled" }
+  } catch (err) {
+    return { status: "unavailable", detail: err instanceof Error ? err.message : String(err) }
   }
+}
+
+// ── Self-test ───────────────────────────────────────────────────────────────
+// A phone showed `ok · permission granted` rendered inside the red box that
+// only exists because the same call answered nothing moments earlier: the
+// bridge on that device is nondeterministic, and any summary that averages
+// nondeterminism into one word will keep contradicting itself. This makes no
+// summary. It runs each raw call, times it, repeats the one that flakes, and
+// reports what actually came back — including the real exception text the
+// production code swallows.
+
+export interface SelfTestStep {
+  step: string
+  ok: boolean
+  ms: number
+  detail: string
+}
+
+async function timedStep<T>(
+  label: string,
+  call: () => Promise<T>,
+  describe: (v: T) => string,
+): Promise<SelfTestStep> {
+  const t0 = Date.now()
+  try {
+    const r = await withTimeout<{ v: T } | "timeout">(call().then(v => ({ v })), BRIDGE_TIMEOUT_MS, "timeout")
+    if (r === "timeout") {
+      return { step: label, ok: false, ms: Date.now() - t0, detail: `no answer after ${BRIDGE_TIMEOUT_MS}ms` }
+    }
+    return { step: label, ok: true, ms: Date.now() - t0, detail: describe(r.v) }
+  } catch (err) {
+    const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    return { step: label, ok: false, ms: Date.now() - t0, detail: msg }
+  }
+}
+
+export async function runNotificationSelfTest(): Promise<SelfTestStep[]> {
+  const steps: SelfTestStep[] = []
+  const t0 = Date.now()
+  try {
+    const core: any = await import("@capacitor/core")
+    const Cap = core?.Capacitor
+    const native = Cap?.isNativePlatform?.() === true
+    const headers = Array.isArray(Cap?.PluginHeaders)
+      ? Cap.PluginHeaders.map((h: any) => h?.name).filter(Boolean)
+      : null
+    // System WebView versions carry their own bridge bugs, so name it.
+    const webview = /Chrome\/([\d.]+)/.exec(navigator.userAgent)?.[1] ?? "unknown"
+    steps.push({
+      step: "bridge",
+      ok: native,
+      ms: Date.now() - t0,
+      detail: native
+        ? `${Cap.getPlatform?.() ?? "?"}, WebView ${webview}, native side carries [${headers?.join(", ") ?? "unknown"}]`
+        : "not running in the native app",
+    })
+    if (!native) return steps
+
+    const t1 = Date.now()
+    let ln: any = null
+    try {
+      const mod: any = await import("@capacitor/local-notifications")
+      ln = mod?.LocalNotifications ?? null
+      steps.push({ step: "plugin JS", ok: !!ln, ms: Date.now() - t1, detail: ln ? "module loaded" : "module has no LocalNotifications export" })
+    } catch (err) {
+      steps.push({ step: "plugin JS", ok: false, ms: Date.now() - t1, detail: err instanceof Error ? err.message : String(err) })
+    }
+    if (!ln) return steps
+
+    // Three times over, sequentially: one dropped call renders as a missing
+    // feature, and only repetition tells flaky from absent.
+    for (let i = 1; i <= 3; i++) {
+      steps.push(await timedStep(`checkPermissions #${i}`, () => ln.checkPermissions(), (v: any) => `display ${v?.display}`))
+    }
+
+    steps.push(await timedStep("getPending", () => ln.getPending(), (v: any) => `${v?.notifications?.length ?? 0} queued`))
+
+    steps.push(await timedStep(
+      "schedule probe",
+      () => ln.schedule({
+        notifications: [{
+          id: 999_002,
+          title: "🔎 Diagnostic probe",
+          body: "If you can read this in your tray, scheduling works.",
+          schedule: { at: new Date(Date.now() + 5000), allowWhileIdle: true },
+        }],
+      }),
+      () => "accepted — should appear in ~5s",
+    ))
+
+    steps.push(await timedStep(
+      "exact alarms",
+      () => (ln.checkExactNotificationSetting ? ln.checkExactNotificationSetting() : Promise.resolve(null)),
+      (v: any) => (v ? `exact_alarm ${v.exact_alarm}` : "not supported by this plugin version"),
+    ))
+  } catch (err) {
+    steps.push({
+      step: "self-test",
+      ok: false,
+      ms: Date.now() - t0,
+      detail: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+    })
+  }
+  return steps
 }
 
 async function json<T>(url: string, fallback: T): Promise<T> {
