@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Bell, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -17,6 +17,7 @@ import {
   getScheduledStatus,
   diagnoseNotifications,
   runNotificationSelfTest,
+  deadline,
   type ScheduledStatus,
   type NotifDiagnosis,
   type SelfTestStep,
@@ -109,6 +110,13 @@ export function NotificationNudges() {
     }
   }, [inApp])
 
+  // Elapsed seconds while a test runs. Screenshots of "Sending…" have been
+  // impossible to read all evening because nothing on screen said how long it
+  // had been sending — five seconds and five minutes looked identical, and the
+  // difference decides whether a timeout failed or was never reached.
+  const [elapsed, setElapsed] = useState<number | null>(null)
+  const lastStepRef = useRef("nothing started")
+
   // Native-only — the web build can't fire local notifications.
   if (!inApp) return null
 
@@ -141,12 +149,25 @@ export function NotificationNudges() {
 
   async function sendTest() {
     setTest("sending")
+    const started = Date.now()
+    setElapsed(0)
+    const ticker = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000)
     try {
       // Every step is now bounded, but the button's state is set from the
       // test's own result first: reading the permission afterwards used to be
       // what left it on "Sending…" forever when the native side never
       // answered.
-      const res = await scheduleTestNotification(step => setTestDetail(step))
+      // The outer watchdog. Everything inside scheduleTestNotification is
+      // already bounded and the button still hung past those bounds, so the
+      // screen keeps its own deadline out here where nothing in that module
+      // can hold it.
+      const res = await Promise.race([
+        scheduleTestNotification(step => { lastStepRef.current = step; setTestDetail(step) }),
+        deadline(12_000).then(() => ({
+          status: "unavailable" as const,
+          detail: `no verdict after 12s — the call never came back (stuck at: ${lastStepRef.current})`,
+        })),
+      ])
       setTest(res.status)
       setTestDetail(res.detail ?? null)
       // Same parallelism as on mount — after a failed test is exactly when
@@ -164,13 +185,25 @@ export function NotificationNudges() {
     } catch (err) {
       setTest("unavailable")
       setTestDetail(err instanceof Error ? err.message : String(err))
+    } finally {
+      clearInterval(ticker)
     }
   }
 
   async function runSelfTest() {
     setSelfTesting(true)
     try {
-      setSelfTest(await runNotificationSelfTest())
+      setSelfTest(await Promise.race([
+        runNotificationSelfTest(),
+        // Same reasoning as the test's watchdog: the diagnostics have sat on
+        // "Running…" past every bound they set for themselves.
+        deadline(25_000).then(() => [{
+          step: "self-test",
+          ok: false,
+          ms: 25_000,
+          detail: "no verdict after 25s — the steps never came back. The page's own clocks still run (see heartbeat), so the stall is inside a native call or a module fetch.",
+        }]),
+      ]))
     } catch (err) {
       setSelfTest([{ step: "self-test", ok: false, ms: 0, detail: err instanceof Error ? err.message : String(err) }])
     }
@@ -341,7 +374,7 @@ export function NotificationNudges() {
           </p>
           <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5 shrink-0" disabled={test === "sending"} onClick={sendTest}>
             <Send className="h-3 w-3" />
-            {test === "sending" ? "Sending…" : "Send test"}
+            {test === "sending" ? `Sending… ${elapsed ?? 0}s` : "Send test"}
           </Button>
         </div>
         {testDetail && test !== "idle" && test !== "scheduled" && (

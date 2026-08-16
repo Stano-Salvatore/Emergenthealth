@@ -135,6 +135,18 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   return Promise.race([p, timeoutSignal(ms).then(() => fallback)])
 }
 
+/**
+ * A deadline the UI can hold independently of the work it is waiting on.
+ *
+ * Every bounded call in this module still produced a button stuck on
+ * "Sending…" past its own timeout, so the screen must be able to give a
+ * verdict without trusting anything in here to resolve — a watchdog inside
+ * the machinery under suspicion is no watchdog at all.
+ */
+export function deadline(ms: number): Promise<void> {
+  return timeoutSignal(ms)
+}
+
 const BRIDGE_TIMEOUT_MS = 6000
 
 /** Await a bridge call, resolving to `fallback` if it never answers or throws. */
