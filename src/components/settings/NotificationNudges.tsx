@@ -16,8 +16,10 @@ import {
   requestExactAlarmPermission,
   getScheduledStatus,
   diagnoseNotifications,
+  runNotificationSelfTest,
   type ScheduledStatus,
   type NotifDiagnosis,
+  type SelfTestStep,
 } from "@/lib/native/notifications"
 
 type Perm = "granted" | "denied" | "prompt" | "unavailable" | "loading"
@@ -29,9 +31,12 @@ export function NotificationNudges() {
   const [perm, setPerm] = useState<Perm>("loading")
   const [exact, setExact] = useState<Exact>("loading")
   const [test, setTest] = useState<"idle" | "sending" | "scheduled" | "denied" | "unavailable">("idle")
+  const [testDetail, setTestDetail] = useState<string | null>(null)
   const [status, setStatus] = useState<ScheduledStatus | null>(null)
   const [resyncing, setResyncing] = useState(false)
   const [diag, setDiag] = useState<{ reason: NotifDiagnosis; detail: string } | null>(null)
+  const [selfTest, setSelfTest] = useState<SelfTestStep[] | null>(null)
+  const [selfTesting, setSelfTesting] = useState(false)
 
   useEffect(() => {
     isNativeApp().then(async native => {
@@ -92,7 +97,8 @@ export function NotificationNudges() {
     // own result first: reading the permission afterwards used to be what left
     // it on "Sending…" forever when the native side never answered.
     const res = await scheduleTestNotification()
-    setTest(res === "scheduled" ? "scheduled" : res)
+    setTest(res.status)
+    setTestDetail(res.detail ?? null)
     // Same parallelism as on mount — after a failed test is exactly when the
     // diagnosis line is being stared at, so it can't trail by three timeouts.
     const [perm, status, diag] = await Promise.all([
@@ -103,7 +109,13 @@ export function NotificationNudges() {
     setPerm(perm)
     setStatus(status)
     setDiag(diag)
-    if (res === "scheduled") setTimeout(() => setTest("idle"), 5000)
+    if (res.status === "scheduled") setTimeout(() => setTest("idle"), 5000)
+  }
+
+  async function runSelfTest() {
+    setSelfTesting(true)
+    setSelfTest(await runNotificationSelfTest())
+    setSelfTesting(false)
   }
 
   return (
@@ -132,14 +144,22 @@ export function NotificationNudges() {
         ) : perm === "unavailable" ? (
           <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2.5 space-y-1">
             <p className="text-xs font-medium text-red-400">
-              {diag?.reason === "js-module-missing"
+              {diag?.reason === "ok"
+                ? "The app is answering inconsistently"
+                : diag?.reason === "js-module-missing"
                 ? "This web build is missing the notifications code"
                 : diag?.reason === "bridge-silent"
                 ? "The app isn't answering notification requests"
                 : "This app version can't send notifications"}
             </p>
             <p className="text-[11px] text-muted-foreground">
-              {diag?.reason === "js-module-missing"
+              {diag?.reason === "ok"
+                // The state that proved every one-word summary a liar: the
+                // diagnosis got an answer while the permission read, made at
+                // the same moment, got none. Don't pretend to know — point at
+                // the instrument that shows each raw call.
+                ? "One check says notifications are fine while an identical one gets no answer. Run diagnostics below — it shows every call's real result."
+                : diag?.reason === "js-module-missing"
                 ? "The app itself is fine — the site failed to load the notifications module. A force-close and reopen usually clears it."
                 : diag?.reason === "bridge-silent"
                 ? "The notifications component is installed but not responding. A force-close and reopen usually clears it; if not, reinstall the app."
@@ -249,6 +269,32 @@ export function NotificationNudges() {
             <Send className="h-3 w-3" />
             {test === "sending" ? "Sending…" : "Send test"}
           </Button>
+        </div>
+        {test === "unavailable" && testDetail && (
+          <p className="text-[10px] font-mono text-red-400/80">{testDetail}</p>
+        )}
+
+        {/* Per-call diagnostics. Summaries of this machinery have contradicted
+            each other on a real phone, so the escape hatch is no summary at
+            all: every raw call, its timing, and what actually came back —
+            including a probe notification whose arrival (or not) is the only
+            ground truth that matters. */}
+        <div className="border-t border-border/40 pt-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">Something off? Test every call this phone makes.</p>
+            <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" disabled={selfTesting} onClick={runSelfTest}>
+              {selfTesting ? "Running…" : "Run diagnostics"}
+            </Button>
+          </div>
+          {selfTest && (
+            <div className="rounded-lg bg-secondary/40 px-3 py-2 space-y-1 overflow-x-auto">
+              {selfTest.map((s, i) => (
+                <p key={i} className={`text-[10px] font-mono whitespace-nowrap ${s.ok ? "text-muted-foreground" : "text-red-400"}`}>
+                  {s.ok ? "✓" : "✗"} {s.step} ({s.ms}ms) — {s.detail}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Which web build this phone is actually running. The shell loads its
