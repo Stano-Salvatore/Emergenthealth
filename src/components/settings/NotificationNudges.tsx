@@ -38,10 +38,20 @@ export function NotificationNudges() {
       setInApp(native)
       if (native) {
         setOn(nudgesEnabled())
-        setPerm(await getNotificationPermission())
-        setExact(await getExactAlarmPermission())
-        setStatus(await getScheduledStatus())
-        setDiag(await diagnoseNotifications())
+        // In parallel: on a broken build each of these burns its full bridge
+        // timeout, and run one after another they held the diagnosis line —
+        // the one thing worth reading on a broken build — back by half a
+        // minute. It was reachable but never seen.
+        const [perm, exact, status, diag] = await Promise.all([
+          getNotificationPermission(),
+          getExactAlarmPermission(),
+          getScheduledStatus(),
+          diagnoseNotifications(),
+        ])
+        setPerm(perm)
+        setExact(exact)
+        setStatus(status)
+        setDiag(diag)
       }
     })
   }, [])
@@ -83,9 +93,16 @@ export function NotificationNudges() {
     // it on "Sending…" forever when the native side never answered.
     const res = await scheduleTestNotification()
     setTest(res === "scheduled" ? "scheduled" : res)
-    setPerm(await getNotificationPermission())
-    setStatus(await getScheduledStatus())
-    setDiag(await diagnoseNotifications())
+    // Same parallelism as on mount — after a failed test is exactly when the
+    // diagnosis line is being stared at, so it can't trail by three timeouts.
+    const [perm, status, diag] = await Promise.all([
+      getNotificationPermission(),
+      getScheduledStatus(),
+      diagnoseNotifications(),
+    ])
+    setPerm(perm)
+    setStatus(status)
+    setDiag(diag)
     if (res === "scheduled") setTimeout(() => setTest("idle"), 5000)
   }
 
@@ -128,6 +145,18 @@ export function NotificationNudges() {
                 ? "The notifications component is installed but not responding. A force-close and reopen usually clears it; if not, reinstall the app."
                 : "The installed app is missing the notifications component, so nothing can be scheduled on this phone — no reminders, habits or doses, however they're configured. Updating the app fixes it."}
             </p>
+            {(diag == null || diag.reason === "plugin-missing-in-app") && (
+              // The app never went through Play, so "update the app" has no
+              // store button behind it — hand over the actual APK. Opens in
+              // the system browser (github.com isn't in allowNavigation),
+              // which is where Android wants installs started from anyway.
+              <a
+                href="https://github.com/Stano-Salvatore/Emergenthealth/releases/latest/download/emergenthealth.apk"
+                className="inline-block text-[11px] font-medium text-red-400 underline underline-offset-2"
+              >
+                Download the current APK
+              </a>
+            )}
             {diag && (
               <p className="text-[10px] font-mono text-muted-foreground/70 pt-0.5">
                 {diag.reason} · {diag.detail}

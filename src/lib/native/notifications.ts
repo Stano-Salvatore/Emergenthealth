@@ -449,6 +449,23 @@ export async function diagnoseNotifications(): Promise<{ reason: NotifDiagnosis;
 
   const platform = Cap.getPlatform?.() ?? "unknown"
 
+  // The injected bridge carries the definitive registry of what the installed
+  // APK's native side registered — synchronous, no bridge round-trip, so it
+  // can neither time out nor lose a race. This is what tells an out-of-date
+  // *installed* APK apart from every check done on the *published* one: the
+  // notifications plugin only entered the app on 2026-08-04 (#167), the app
+  // never went through Play, and a shell sideloaded before then loads today's
+  // web code against last month's native side. Naming what the phone actually
+  // has makes that visible from the Settings screen.
+  const headers = (Cap as any).PluginHeaders as { name?: string }[] | undefined
+  const native = Array.isArray(headers) ? headers.map(h => h?.name).filter(Boolean) : null
+  if (native && !native.includes("LocalNotifications")) {
+    return {
+      reason: "plugin-missing-in-app",
+      detail: `${platform}: installed APK carries [${native.join(", ") || "no plugins"}] — no LocalNotifications. Sideload the current APK.`,
+    }
+  }
+
   // The bridge's own register of what the native side actually carries.
   if (Cap.isPluginAvailable?.("LocalNotifications") === false) {
     return { reason: "plugin-missing-in-app", detail: `${platform}: native plugin not registered` }
@@ -460,7 +477,12 @@ export async function diagnoseNotifications(): Promise<{ reason: NotifDiagnosis;
   }
 
   const perms = await bridge<any>(() => mod.LocalNotifications.checkPermissions(), null)
-  if (!perms) return { reason: "bridge-silent", detail: `${platform}: no answer from the native side` }
+  if (!perms) {
+    // Silence with the plugin in the registry is a different animal from
+    // silence because it was never there — say which one this is.
+    const registered = native ? ` (native side carries [${native.join(", ")}])` : ""
+    return { reason: "bridge-silent", detail: `${platform}: no answer from the native side${registered}` }
+  }
 
   return { reason: "ok", detail: `${platform}: permission ${perms.display}` }
 }
