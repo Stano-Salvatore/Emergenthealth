@@ -11,8 +11,20 @@
 // correlation watches, digests — because those depend on data the phone
 // doesn't have.
 
+// Statically imported, deliberately. These were loaded with dynamic import()
+// so the plugin's code stayed out of the web bundle — and on one phone that
+// chunk request simply never came back: "no verdict after 12s — the call
+// never came back (stuck at: loading plugin…)", on a page whose own clocks
+// were provably ticking the whole time. Every notification feature waits
+// behind that fetch, so the outage was total and permanent while the page
+// itself worked fine. A static import rides in the bundle the page has
+// already loaded — the card cannot render without it — so there is no
+// request left to hang. Both modules are safe to evaluate without a browser
+// (verified under plain Node), which keeps server rendering working.
+import { Capacitor } from "@capacitor/core"
+import { LocalNotifications } from "@capacitor/local-notifications"
+
 import { activeOn } from "@/lib/med-schedule"
-import { looksLikeStaleChunk, reloadForFreshBuild } from "@/lib/stale-chunk"
 
 type Reminder = {
   id: string
@@ -168,87 +180,37 @@ async function bridge<T>(call: () => Promise<T>, fallback: T): Promise<T> {
 let cachedPlugin: any | null = null
 let lastPluginFailure = "not attempted yet"
 
-// The imports start once, at module evaluation — the moment the page loads.
-// A phone spent an evening hanging forever inside on-demand imports of these
-// same modules ("loading plugin…" with a live heartbeat right under it),
-// while page loads kept working every single time: if this module is
-// running, the chunk machinery just worked, so that is when to fetch the
-// plugin — never later, from mid-session, where it demonstrably wedges.
-const capacitorModules: Promise<{ Cap: any; LN: any } | null> | null =
-  typeof window === "undefined"
-    ? null
-    : Promise.all([import("@capacitor/core"), import("@capacitor/local-notifications")])
-        .then(([core, ln]) => ({
-          Cap: (core as any).Capacitor ?? (core as any).default?.Capacitor,
-          LN: (ln as any).LocalNotifications ?? (ln as any).default?.LocalNotifications,
-        }))
-        .catch(err => {
-          lastPluginFailure = `import threw at page load: ${err instanceof Error ? err.message : String(err)}`
-          return null
-        })
-
 /** Why the most recent getPlugin() returned null. For diagnostics display. */
 export function getLastPluginFailure(): string {
   return lastPluginFailure
 }
 
-async function getPlugin(): Promise<any | null> {
+// No awaiting, no fetching, no timeout — the modules are already here by the
+// time anything can call this. What is left is the only question that was
+// ever worth asking: is this the native app, and did the APK register the
+// plugin.
+function getPlugin(): any | null {
   if (cachedPlugin) return cachedPlugin
   if (typeof window === "undefined") {
     lastPluginFailure = "server render"
     return null
   }
-  try {
-    const loaded = await withTimeout<{ ln: any | null } | "timeout">((async () => {
-      // The page-load import if it is available, an on-demand one otherwise —
-      // and still bounded, because a page-load import that wedged would
-      // otherwise wedge every caller awaiting it for the life of the session.
-      const mods = capacitorModules
-        ? await capacitorModules
-        : await (async () => {
-            const core: any = await import("@capacitor/core")
-            const ln: any = await import("@capacitor/local-notifications")
-            // `?? default` on both: if a bundler ever serves the CJS build
-            // through dynamic import, the exports sit one level down — and
-            // this wrapper failing while identical-looking direct imports
-            // succeed is exactly the bug being chased.
-            return {
-              Cap: core?.Capacitor ?? core?.default?.Capacitor,
-              LN: ln?.LocalNotifications ?? ln?.default?.LocalNotifications,
-            }
-          })()
-      if (!mods) return { ln: null }
-      if (mods.Cap?.isNativePlatform?.() !== true) {
-        lastPluginFailure = `isNativePlatform() returned ${String(mods.Cap?.isNativePlatform?.())}`
-        return { ln: null }
-      }
-      if (!mods.LN) lastPluginFailure = "module loaded but has no LocalNotifications export"
-      return { ln: mods.LN ?? null }
-    })(), BRIDGE_TIMEOUT_MS, "timeout")
-    if (loaded === "timeout") {
-      lastPluginFailure = `import didn't settle within ${BRIDGE_TIMEOUT_MS}ms`
-      return null
-    }
-    if (loaded.ln) {
-      cachedPlugin = loaded.ln
-      lastPluginFailure = "loaded"
-    }
-    return loaded.ln
-  } catch (err) {
-    // A page left running long enough for its build to be replaced can no
-    // longer fetch the plugin's chunk. That reads as "notifications don't
-    // work on this phone" when the truth is the tab is out of date, so take
-    // the fresh build rather than reporting a fault that isn't there.
-    const message = err instanceof Error ? err.message : String(err)
-    lastPluginFailure = `threw: ${message}`
-    if (looksLikeStaleChunk(message)) reloadForFreshBuild()
+  if (Capacitor?.isNativePlatform?.() !== true) {
+    lastPluginFailure = `isNativePlatform() returned ${String(Capacitor?.isNativePlatform?.())}`
     return null
   }
+  if (!LocalNotifications) {
+    lastPluginFailure = "@capacitor/local-notifications has no LocalNotifications export"
+    return null
+  }
+  cachedPlugin = LocalNotifications
+  lastPluginFailure = "loaded"
+  return cachedPlugin
 }
 
 /** Request notification permission. Returns true if granted (or already granted). */
 export async function ensureNotificationPermission(): Promise<boolean> {
-  const ln = await getPlugin()
+  const ln = getPlugin()
   if (!ln) return false
   const check = await bridge<any>(() => ln.checkPermissions(), null)
   if (check?.display === "granted") return true
@@ -355,7 +317,7 @@ export async function syncNotifications(
   meds: MedReminder[] = [],
   nudgePrefs: NudgePrefs = DEFAULT_NUDGE_PREFS,
 ): Promise<number> {
-  const ln = await getPlugin()
+  const ln = getPlugin()
   if (!ln) return 0
 
   const granted = await ensureNotificationPermission()
@@ -499,7 +461,7 @@ export async function syncNotifications(
  * wants 07:30 to mean 07:30 — hence the opt-in.
  */
 export async function getExactAlarmPermission(): Promise<"granted" | "denied" | "unavailable"> {
-  const ln = await getPlugin()
+  const ln = getPlugin()
   if (!ln?.checkExactNotificationSetting) return "unavailable"
   const res = await bridge<any>(() => ln.checkExactNotificationSetting(), null)
   if (!res) return "unavailable"
@@ -512,7 +474,7 @@ export async function getExactAlarmPermission(): Promise<"granted" | "denied" | 
  * to grant it. Returns the state after they come back.
  */
 export async function requestExactAlarmPermission(): Promise<"granted" | "denied" | "unavailable"> {
-  const ln = await getPlugin()
+  const ln = getPlugin()
   if (!ln?.changeExactNotificationSetting) return "unavailable"
   try {
     const res = await ln.changeExactNotificationSetting()
@@ -524,7 +486,7 @@ export async function requestExactAlarmPermission(): Promise<"granted" | "denied
 
 /** Current notification permission state (native only). */
 export async function getNotificationPermission(): Promise<"granted" | "denied" | "prompt" | "unavailable"> {
-  const ln = await getPlugin()
+  const ln = getPlugin()
   if (!ln) return "unavailable"
   const c = await bridge<any>(() => ln.checkPermissions(), null)
   // No answer from the bridge is not "prompt" — it means this build cannot
@@ -559,8 +521,7 @@ export type NotifDiagnosis =
 export async function diagnoseNotifications(): Promise<{ reason: NotifDiagnosis; detail: string }> {
   if (typeof window === "undefined") return { reason: "not-native", detail: "server" }
 
-  const core = await bridge<any>(() => import("@capacitor/core"), null)
-  const Cap = core?.Capacitor
+  const Cap = Capacitor
   if (!Cap?.isNativePlatform?.()) return { reason: "not-native", detail: "web browser" }
 
   const platform = Cap.getPlatform?.() ?? "unknown"
@@ -587,12 +548,11 @@ export async function diagnoseNotifications(): Promise<{ reason: NotifDiagnosis;
     return { reason: "plugin-missing-in-app", detail: `${platform}: native plugin not registered` }
   }
 
-  const mod = await bridge<any>(() => import("@capacitor/local-notifications"), null)
-  if (!mod?.LocalNotifications) {
+  if (!LocalNotifications) {
     return { reason: "js-module-missing", detail: `${platform}: plugin JS not in this web build` }
   }
 
-  const perms = await bridge<any>(() => mod.LocalNotifications.checkPermissions(), null)
+  const perms = await bridge<any>(() => LocalNotifications.checkPermissions(), null)
   if (!perms) {
     // Silence with the plugin in the registry is a different animal from
     // silence because it was never there — say which one this is.
@@ -611,7 +571,7 @@ export async function diagnoseNotifications(): Promise<{ reason: NotifDiagnosis;
  */
 export async function registerNotificationActionHandler(): Promise<void> {
   if (actionHandlerRegistered) return
-  const ln = await getPlugin()
+  const ln = getPlugin()
   if (!ln) return
   actionHandlerRegistered = true
 
@@ -682,7 +642,7 @@ export interface ScheduledStatus {
 }
 
 export async function getScheduledStatus(): Promise<ScheduledStatus> {
-  const ln = await getPlugin()
+  const ln = getPlugin()
   if (!ln) return { available: false, pending: 0, nextAt: null }
   try {
     const res = await bridge<any>(() => ln.getPending(), null)
@@ -718,7 +678,7 @@ export async function scheduleTestNotification(
   onStep?: (step: string) => void,
 ): Promise<{ status: "scheduled" | "denied" | "unavailable"; detail?: string }> {
   onStep?.("loading plugin…")
-  const ln = await getPlugin()
+  const ln = getPlugin()
   if (!ln) return { status: "unavailable", detail: `plugin didn't load — ${getLastPluginFailure()}` }
   onStep?.("checking permission…")
   const check = await bridge<any>(() => ln.checkPermissions(), null)
@@ -815,15 +775,11 @@ export async function runNotificationSelfTest(): Promise<SelfTestStep[]> {
         : "1s setTimeout hadn't fired after 4s — power saving mode is freezing this WebView's timers. Charge the phone and turn off battery saver.",
     })
 
-    const core: any = await withTimeout<any>(import("@capacitor/core"), BRIDGE_TIMEOUT_MS, null)
-    if (!core) {
-      steps.push({ step: "bridge", ok: false, ms: BRIDGE_TIMEOUT_MS, detail: "import of @capacitor/core didn't settle — chunk fetch hung" })
-      return steps
-    }
-    const Cap = core?.Capacitor
+    const Cap = Capacitor
     const native = Cap?.isNativePlatform?.() === true
-    const headers = Array.isArray(Cap?.PluginHeaders)
-      ? Cap.PluginHeaders.map((h: any) => h?.name).filter(Boolean)
+    const rawHeaders = (Cap as any)?.PluginHeaders
+    const headers = Array.isArray(rawHeaders)
+      ? rawHeaders.map((h: any) => h?.name).filter(Boolean)
       : null
     // System WebView versions carry their own bridge bugs, so name it.
     const webview = /Chrome\/([\d.]+)/.exec(navigator.userAgent)?.[1] ?? "unknown"
@@ -840,13 +796,12 @@ export async function runNotificationSelfTest(): Promise<SelfTestStep[]> {
     const t1 = Date.now()
     let ln: any = null
     try {
-      const mod: any = await withTimeout<any>(import("@capacitor/local-notifications"), BRIDGE_TIMEOUT_MS, null)
-      ln = mod?.LocalNotifications ?? mod?.default?.LocalNotifications ?? null
+      ln = LocalNotifications ?? null
       steps.push({
         step: "plugin JS",
         ok: !!ln,
         ms: Date.now() - t1,
-        detail: ln ? "module loaded" : mod ? "module has no LocalNotifications export" : "import didn't settle — chunk fetch hung",
+        detail: ln ? "bundled with the page — no chunk fetch" : "no LocalNotifications export",
       })
     } catch (err) {
       steps.push({ step: "plugin JS", ok: false, ms: Date.now() - t1, detail: err instanceof Error ? err.message : String(err) })
@@ -858,7 +813,7 @@ export async function runNotificationSelfTest(): Promise<SelfTestStep[]> {
     // this line is the difference between "the phone is broken" and "one
     // function in this web app is broken".
     const t2 = Date.now()
-    const viaWrapper = await getPlugin()
+    const viaWrapper = getPlugin()
     steps.push({
       step: "getPlugin (app path)",
       ok: !!viaWrapper,
