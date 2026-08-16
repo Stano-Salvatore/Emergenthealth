@@ -92,11 +92,47 @@ const SNOOZE_ID_SPAN = 10_000
 // isn't listening. Every bridge call below is wrapped, because one unwrapped
 // call is enough to strand the UI: "Send test" sat on "Sending…" forever not
 // because the test hung, but because reading the permission afterwards did.
+//
+// The deadline is kept by two clocks. Samsung's power saving mode throttles a
+// WebView's timer queue to a crawl, which froze every setTimeout-based
+// timeout together with the calls it was guarding — "Sending…" for five
+// minutes on a phone where the same call answers in 8ms with the saver off.
+// A MessageChannel pump is a chain of macrotasks, not timers, and is exempt
+// from that clamping (it is how React's scheduler dodges the same throttle),
+// so the fallback fires on schedule even when setTimeout cannot.
+function timeoutSignal(ms: number): Promise<void> {
+  return new Promise(resolve => {
+    const deadline = Date.now() + ms
+    let settled = false
+    const done = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (mc) {
+        mc.port1.onmessage = null
+        mc.port1.close()
+        mc.port2.close()
+      }
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    let mc: MessageChannel | null = null
+    try {
+      mc = new MessageChannel()
+      mc.port1.onmessage = () => {
+        if (settled) return
+        if (Date.now() >= deadline) done()
+        else mc!.port2.postMessage(0)
+      }
+      mc.port2.postMessage(0)
+    } catch {
+      // No MessageChannel — the plain timer stays as the only clock.
+    }
+  })
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>(resolve => setTimeout(() => resolve(fallback), ms)),
-  ])
+  return Promise.race([p, timeoutSignal(ms).then(() => fallback)])
 }
 
 const BRIDGE_TIMEOUT_MS = 6000
@@ -696,23 +732,32 @@ export async function runNotificationSelfTest(): Promise<SelfTestStep[]> {
   const t0 = Date.now()
   try {
     // Timers first: every timeout below assumes setTimeout fires roughly on
-    // schedule, and on a phone in battery saver the WebView's timers can be
-    // throttled to a crawl — which reads as "everything hangs forever" while
-    // taps still respond. A 1s timer that reports firing after 60s is that
-    // diagnosis in one line.
+    // schedule, and Samsung's power saving mode throttles a WebView's timer
+    // queue to a crawl — which reads as "everything hangs forever" while taps
+    // still respond. The probe races a 1s setTimeout against the untrottled
+    // MessageChannel clock, so it reports the freeze instead of joining it —
+    // its first version awaited the setTimeout directly and hung with
+    // everything else, a probe made of the thing it was probing.
     const tTimer = Date.now()
-    await new Promise(r => setTimeout(r, 1000))
+    const timerFired = await Promise.race([
+      new Promise<boolean>(r => setTimeout(() => r(true), 1000)),
+      timeoutSignal(4000).then(() => false),
+    ])
     const timerMs = Date.now() - tTimer
     steps.push({
       step: "timers",
-      ok: timerMs < 3000,
+      ok: timerFired && timerMs < 3000,
       ms: timerMs,
-      detail: timerMs < 3000
-        ? `1s setTimeout fired after ${timerMs}ms`
-        : `1s setTimeout took ${timerMs}ms — battery saver is throttling this WebView; timeouts can't work`,
+      detail: timerFired
+        ? `1s setTimeout fired after ${timerMs}ms${timerMs < 3000 ? "" : " — badly delayed, power saving is throttling this WebView"}`
+        : "1s setTimeout hadn't fired after 4s — power saving mode is freezing this WebView's timers. Charge the phone and turn off battery saver.",
     })
 
-    const core: any = await import("@capacitor/core")
+    const core: any = await withTimeout<any>(import("@capacitor/core"), BRIDGE_TIMEOUT_MS, null)
+    if (!core) {
+      steps.push({ step: "bridge", ok: false, ms: BRIDGE_TIMEOUT_MS, detail: "import of @capacitor/core didn't settle — chunk fetch hung" })
+      return steps
+    }
     const Cap = core?.Capacitor
     const native = Cap?.isNativePlatform?.() === true
     const headers = Array.isArray(Cap?.PluginHeaders)
@@ -733,9 +778,14 @@ export async function runNotificationSelfTest(): Promise<SelfTestStep[]> {
     const t1 = Date.now()
     let ln: any = null
     try {
-      const mod: any = await import("@capacitor/local-notifications")
-      ln = mod?.LocalNotifications ?? null
-      steps.push({ step: "plugin JS", ok: !!ln, ms: Date.now() - t1, detail: ln ? "module loaded" : "module has no LocalNotifications export" })
+      const mod: any = await withTimeout<any>(import("@capacitor/local-notifications"), BRIDGE_TIMEOUT_MS, null)
+      ln = mod?.LocalNotifications ?? mod?.default?.LocalNotifications ?? null
+      steps.push({
+        step: "plugin JS",
+        ok: !!ln,
+        ms: Date.now() - t1,
+        detail: ln ? "module loaded" : mod ? "module has no LocalNotifications export" : "import didn't settle — chunk fetch hung",
+      })
     } catch (err) {
       steps.push({ step: "plugin JS", ok: false, ms: Date.now() - t1, detail: err instanceof Error ? err.message : String(err) })
     }
