@@ -668,12 +668,35 @@ export async function getScheduledStatus(): Promise<ScheduledStatus> {
  *  - "unavailable": the plugin didn't load or the schedule call failed —
  *    `detail` carries the real reason, because "unavailable" alone has already
  *    proven itself a diagnostic dead end.
+ *
+ * `onStep` narrates each stage as it starts, because a test that says only
+ * "Sending…" while it waits for an OS permission dialog is indistinguishable
+ * from one that hung — which is precisely how a revoked permission spent an
+ * evening masquerading as a broken bridge. The dialog wait gets a full
+ * minute, not a race against a 6-second watchdog: a human is answering it.
  */
-export async function scheduleTestNotification(): Promise<{ status: "scheduled" | "denied" | "unavailable"; detail?: string }> {
+export async function scheduleTestNotification(
+  onStep?: (step: string) => void,
+): Promise<{ status: "scheduled" | "denied" | "unavailable"; detail?: string }> {
+  onStep?.("loading plugin…")
   const ln = await getPlugin()
   if (!ln) return { status: "unavailable", detail: `plugin didn't load — ${getLastPluginFailure()}` }
-  const granted = await withTimeout(ensureNotificationPermission(), 6000, false)
-  if (!granted) return { status: "denied" }
+  onStep?.("checking permission…")
+  const check = await bridge<any>(() => ln.checkPermissions(), null)
+  if (!check) return { status: "unavailable", detail: "checkPermissions(): no answer from the native side" }
+  if (check.display !== "granted") {
+    // Android 13 stops showing this dialog after it has been dismissed
+    // twice — the request then reports denied without anything appearing.
+    onStep?.("asking Android for permission — answer the dialog…")
+    const req = await withTimeout<any>(ln.requestPermissions().catch(() => null), 60_000, null)
+    if (req?.display !== "granted") {
+      return {
+        status: "denied",
+        detail: "If no dialog appeared, Android has stopped asking: grant it in Settings → Apps → Emergenthealth → Notifications.",
+      }
+    }
+  }
+  onStep?.("scheduling…")
   try {
     await withTimeout(
       ln.schedule({
