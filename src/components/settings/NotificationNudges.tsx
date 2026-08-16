@@ -146,7 +146,7 @@ export function NotificationNudges() {
       // test's own result first: reading the permission afterwards used to be
       // what left it on "Sending…" forever when the native side never
       // answered.
-      const res = await scheduleTestNotification()
+      const res = await scheduleTestNotification(step => setTestDetail(step))
       setTest(res.status)
       setTestDetail(res.detail ?? null)
       // Same parallelism as on mount — after a failed test is exactly when
@@ -330,8 +330,8 @@ export function NotificationNudges() {
             {test === "sending" ? "Sending…" : "Send test"}
           </Button>
         </div>
-        {test === "unavailable" && testDetail && (
-          <p className="text-[10px] font-mono text-red-400/80">{testDetail}</p>
+        {testDetail && test !== "idle" && test !== "scheduled" && (
+          <p className={`text-[10px] font-mono ${test === "sending" ? "text-muted-foreground" : "text-red-400/80"}`}>{testDetail}</p>
         )}
 
         {/* Per-call diagnostics. Summaries of this machinery have contradicted
