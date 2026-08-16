@@ -6,6 +6,7 @@ import { SessionProvider } from "next-auth/react"
 import { ThemeProvider } from "next-themes"
 import Link from "next/link"
 import { ServiceWorkerRegistration } from "@/components/layout/ServiceWorkerRegistration"
+import { StaleChunkRecovery } from "@/components/layout/StaleChunkRecovery"
 import { DeviceWidthCapture } from "@/components/layout/DeviceWidthCapture"
 import { StatusBarController } from "@/components/layout/StatusBarController"
 import { Analytics } from "@vercel/analytics/next"
@@ -91,6 +92,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <SessionProvider>{children}</SessionProvider>
         </ThemeProvider>
         <ServiceWorkerRegistration />
+        <StaleChunkRecovery />
         <DeviceWidthCapture />
         <StatusBarController />
         <Analytics />
