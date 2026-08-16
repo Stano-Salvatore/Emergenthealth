@@ -28,7 +28,12 @@ const config: CapacitorConfig = {
   android: {
     allowMixedContent: false,
     captureInput: true,
-    webContentsDebuggingEnabled: false,
+    // chrome://inspect over USB is the only window into the WebView's console,
+    // and with this off the WebView refuses to be inspected at all — which is
+    // how "notifications don't work" stayed undiagnosable for weeks. The app
+    // is sideloaded onto our own phones and inspection still requires USB
+    // debugging to be enabled on the device, so the exposure is acceptable.
+    webContentsDebuggingEnabled: true,
     appendUserAgent: 'Emergenthealth-Capacitor',
   },
 }
