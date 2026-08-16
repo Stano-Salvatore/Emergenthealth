@@ -15,7 +15,9 @@ import {
   getExactAlarmPermission,
   requestExactAlarmPermission,
   getScheduledStatus,
+  diagnoseNotifications,
   type ScheduledStatus,
+  type NotifDiagnosis,
 } from "@/lib/native/notifications"
 
 type Perm = "granted" | "denied" | "prompt" | "unavailable" | "loading"
@@ -29,6 +31,7 @@ export function NotificationNudges() {
   const [test, setTest] = useState<"idle" | "sending" | "scheduled" | "denied" | "unavailable">("idle")
   const [status, setStatus] = useState<ScheduledStatus | null>(null)
   const [resyncing, setResyncing] = useState(false)
+  const [diag, setDiag] = useState<{ reason: NotifDiagnosis; detail: string } | null>(null)
 
   useEffect(() => {
     isNativeApp().then(async native => {
@@ -38,6 +41,7 @@ export function NotificationNudges() {
         setPerm(await getNotificationPermission())
         setExact(await getExactAlarmPermission())
         setStatus(await getScheduledStatus())
+        setDiag(await diagnoseNotifications())
       }
     })
   }, [])
@@ -81,6 +85,7 @@ export function NotificationNudges() {
     setTest(res === "scheduled" ? "scheduled" : res)
     setPerm(await getNotificationPermission())
     setStatus(await getScheduledStatus())
+    setDiag(await diagnoseNotifications())
     if (res === "scheduled") setTimeout(() => setTest("idle"), 5000)
   }
 
@@ -109,11 +114,25 @@ export function NotificationNudges() {
           </div>
         ) : perm === "unavailable" ? (
           <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2.5 space-y-1">
-            <p className="text-xs font-medium text-red-400">This app version can&apos;t send notifications</p>
-            <p className="text-[11px] text-muted-foreground">
-              The installed app is missing the notifications component, so nothing can be scheduled on this
-              phone — no reminders, habits or doses, however they&apos;re configured. Updating the app fixes it.
+            <p className="text-xs font-medium text-red-400">
+              {diag?.reason === "js-module-missing"
+                ? "This web build is missing the notifications code"
+                : diag?.reason === "bridge-silent"
+                ? "The app isn't answering notification requests"
+                : "This app version can't send notifications"}
             </p>
+            <p className="text-[11px] text-muted-foreground">
+              {diag?.reason === "js-module-missing"
+                ? "The app itself is fine — the site failed to load the notifications module. A force-close and reopen usually clears it."
+                : diag?.reason === "bridge-silent"
+                ? "The notifications component is installed but not responding. A force-close and reopen usually clears it; if not, reinstall the app."
+                : "The installed app is missing the notifications component, so nothing can be scheduled on this phone — no reminders, habits or doses, however they're configured. Updating the app fixes it."}
+            </p>
+            {diag && (
+              <p className="text-[10px] font-mono text-muted-foreground/70 pt-0.5">
+                {diag.reason} · {diag.detail}
+              </p>
+            )}
           </div>
         ) : on && status?.available && status.pending === 0 ? (
           // Permission granted, nudges on, yet nothing is laid down — the
