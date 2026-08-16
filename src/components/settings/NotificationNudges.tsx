@@ -37,6 +37,14 @@ export function NotificationNudges() {
   const [diag, setDiag] = useState<{ reason: NotifDiagnosis; detail: string } | null>(null)
   const [selfTest, setSelfTest] = useState<SelfTestStep[] | null>(null)
   const [selfTesting, setSelfTesting] = useState(false)
+  // Two live clocks + one CSS animation = a freeze detector that needs no tap.
+  // The pulsing dot is drawn by the compositor and keeps pulsing when JS is
+  // dead; the timer counter needs setTimeout; the pump counter needs
+  // MessageChannel. A screenshot of this row alone says which layers a phone
+  // has frozen — on a device that hung every bounded call twice, with two
+  // different clock implementations, nothing that depends on a tap can be
+  // trusted to run.
+  const [beat, setBeat] = useState({ timer: 0, pump: 0 })
 
   useEffect(() => {
     isNativeApp().then(async native => {
@@ -68,6 +76,38 @@ export function NotificationNudges() {
       }
     })
   }, [])
+
+  useEffect(() => {
+    if (!inApp) return
+    const t0 = Date.now()
+    const id = setInterval(() => {
+      setBeat(b => ({ ...b, timer: Math.round((Date.now() - t0) / 1000) }))
+    }, 1000)
+    // The pump is a continuous macrotask chain, so it burns CPU while it
+    // runs — 90 seconds is plenty to screenshot and costs nothing after.
+    let stop = false
+    let mc: MessageChannel | null = null
+    try {
+      mc = new MessageChannel()
+      let last = t0
+      mc.port1.onmessage = () => {
+        if (stop) return
+        const now = Date.now()
+        if (now - t0 > 90_000) { stop = true; return }
+        if (now - last >= 1000) {
+          last = now
+          setBeat(b => ({ ...b, pump: Math.round((now - t0) / 1000) }))
+        }
+        mc!.port2.postMessage(0)
+      }
+      mc.port2.postMessage(0)
+    } catch { /* no MessageChannel — the timer clock stands alone */ }
+    return () => {
+      stop = true
+      clearInterval(id)
+      if (mc) { mc.port1.onmessage = null; mc.port1.close(); mc.port2.close() }
+    }
+  }, [inApp])
 
   // Native-only — the web build can't fire local notifications.
   if (!inApp) return null
@@ -136,6 +176,7 @@ export function NotificationNudges() {
     }
     setSelfTesting(false)
   }
+
 
   return (
     <Card>
@@ -323,6 +364,15 @@ export function NotificationNudges() {
             debugging needed: compare against the latest deploy's commit. */}
         <p className="text-[10px] font-mono text-muted-foreground/60 border-t border-border/40 pt-2">
           web build {(process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ?? "").slice(0, 7) || "sha unavailable"}
+        </p>
+        {/* The dot pulses from the compositor even with JS frozen; each
+            counter ticks only while its clock lives. Dot pulsing + counters
+            stuck = the WebView froze this page's task queues, and nothing any
+            web code does will run until the phone unfreezes it. */}
+        <p className="text-[10px] font-mono text-muted-foreground/60">
+          <span className="inline-block animate-pulse text-green-400">●</span>{" "}
+          heartbeat — timer {beat.timer}s · pump {beat.pump}s · WebView{" "}
+          {typeof navigator !== "undefined" ? (/Chrome\/([\d.]+)/.exec(navigator.userAgent)?.[1] ?? "?") : "?"}
         </p>
       </CardContent>
     </Card>
