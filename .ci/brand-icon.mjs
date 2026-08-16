@@ -22,14 +22,14 @@ const STROKE = 36
 // `scale` shrinks the pulse about the centre of the canvas. 1 is edge-to-edge;
 // adaptive-icon foregrounds need it smaller so nothing important sits in the
 // 18dp that launchers are free to crop.
-function pulse(scale, stroke = `url(#pulse)`) {
+function pulse(scale, stroke = `url(#pulse)`, width = STROKE) {
   const g = scale === 1
     ? ""
     : ` transform="translate(256,256) scale(${scale}) translate(-256,-256)"`
   return (
     `<g${g}>` +
     `<polyline points="${POINTS}" fill="none" stroke="${stroke}" ` +
-    `stroke-width="${STROKE}" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round"/>` +
     `</g>`
   )
 }
@@ -82,4 +82,35 @@ export function adaptiveForeground(scale = 0.75) {
 // flat silhouette — a gradient here would be flattened to mud.
 export function monochromeForeground(scale = 0.75) {
   return svg(pulse(scale, "#ffffff"), "")
+}
+
+// Notification small icon. Android keeps only this image's alpha channel and
+// paints the result white, so anything with colour in it arrives as a solid
+// blob — and given no usable icon at all the system substitutes its own
+// generic "!" glyph, which is what the app's notifications were showing.
+//
+// The launcher mark can't be reused as-is. It is a wide, thin line, and the
+// notification slot is a small square: dropped into it whole, the pulse
+// occupies about a third of the height and reads as a smudge at 24dp. So this
+// keeps the part that carries the identity — the spike cluster — trims the
+// long flat leads to stubs, and frames it tightly.
+//
+// The stroke stays at the mark's own weight. Against this closer frame that
+// already lands near 3px at 24dp; heavier weights were tried and the spikes
+// merge into a blob at the size this is actually seen.
+const NOTIFICATION_POINTS = "120,256 148,256 178,160 208,352 238,210 262,302 286,256 314,256"
+const NOTIFICATION_STROKE = STROKE
+
+// Framed on the trimmed mark (x 120→314, y 160→352) plus half the stroke,
+// with ~8% padding — the margin Android's own notification icons keep.
+const NOTIFICATION_VIEW = "72 111 290 290"
+
+export function notificationIcon() {
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${NOTIFICATION_VIEW}" ` +
+    `width="${VIEW}" height="${VIEW}">` +
+    `<polyline points="${NOTIFICATION_POINTS}" fill="none" stroke="#ffffff" ` +
+    `stroke-width="${NOTIFICATION_STROKE}" stroke-linecap="round" stroke-linejoin="round"/>` +
+    `</svg>`
+  )
 }

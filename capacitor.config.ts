@@ -15,6 +15,16 @@ const config: CapacitorConfig = {
     ],
   },
   plugins: {
+    LocalNotifications: {
+      // Without this Android has no small icon to draw and falls back to its
+      // generic "!" glyph, which is what every reminder was arriving with.
+      // Generated into drawable-* by .ci/generate-android-icons.mjs: the
+      // brand pulse as a flat white silhouette, the only form Android accepts
+      // here — it keeps the alpha channel and discards the colour.
+      smallIcon: 'ic_stat_notify',
+      // Tints the icon in the shade. The brand indigo, matching the launcher.
+      iconColor: '#4f46e5',
+    },
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
     },

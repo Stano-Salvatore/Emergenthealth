@@ -20,6 +20,7 @@ import {
   adaptiveBackground,
   adaptiveForeground,
   monochromeForeground,
+  notificationIcon,
 } from "./brand-icon.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -32,6 +33,16 @@ const DENSITIES = {
   "mipmap-xhdpi": 2,
   "mipmap-xxhdpi": 3,
   "mipmap-xxxhdpi": 4,
+}
+
+// The notification small icon is 24dp and belongs in drawable-*, which is
+// where capacitor.config.ts's LocalNotifications.smallIcon resolves it from.
+const NOTIFICATION_DENSITIES = {
+  "drawable-mdpi": 24,
+  "drawable-hdpi": 36,
+  "drawable-xhdpi": 48,
+  "drawable-xxhdpi": 72,
+  "drawable-xxxhdpi": 96,
 }
 
 async function render(svgMarkup, size, out) {
@@ -83,6 +94,14 @@ async function main() {
     writeFileSync(join(anydpi, name), ADAPTIVE_XML)
   }
   console.log("✓ mipmap-anydpi-v26 — adaptive icon (background + foreground + monochrome)")
+
+  const notification = notificationIcon()
+  for (const [dir, size] of Object.entries(NOTIFICATION_DENSITIES)) {
+    const outDir = join(resDir, dir)
+    mkdirSync(outDir, { recursive: true })
+    await render(notification, size, join(outDir, "ic_stat_notify.png"))
+  }
+  console.log("✓ drawable-* — ic_stat_notify (white silhouette, 24dp)")
 
   console.log("Android launcher icon rebuilt from the brand mark.")
 }
