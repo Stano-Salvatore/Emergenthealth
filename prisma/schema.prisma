@@ -52,6 +52,7 @@ model User {
   subscription         Subscription?
   passkeys             Passkey[]
   locationPoints       LocationPoint[]
+  goals                UserGoals?
   caffeineLog          CaffeineLog[]
   stravaToken          StravaToken?
   stravaActivities     StravaActivity[]
@@ -864,4 +865,33 @@ model PushSubscription {
   createdAt DateTime @default(now()) @db.Timestamptz
 
   @@index([userId])
+}
+
+// ─── Goals ────────────────────────────────────────────────────────────────────
+
+// The targets the dashboard measures a day against.
+//
+// These used to be a JSON blob in a DailyNote row dated 0001-01-01 — a
+// sentinel the /api/goals comment itself called "a workaround until a proper
+// Goals table is added". Five different files parsed that blob with their own
+// defaults, so a goal could mean one thing on the dashboard and another on the
+// health page, and any feature iterating DailyNote met a JSON blob wearing a
+// journal entry's clothes. Existing blobs migrate on first read.
+model UserGoals {
+  userId       String   @id
+  sleepH       Float    @default(7.5)
+  steps        Int      @default(8000)
+  waterMl      Int      @default(2000)
+  focusMin     Int      @default(90)
+  habitsTarget Int      @default(100)
+  readinessMin Int      @default(70)
+  /// Caffeine, in milligrams per day — not millilitres of coffee.
+  coffeeMax    Int      @default(400)
+  weightKg     Float?
+  heightCm     Float?
+  birthYear    Int?
+  sex          String?
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

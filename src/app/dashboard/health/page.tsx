@@ -21,6 +21,7 @@ import WeightPage from "@/app/dashboard/weight/page"
 import LabsPage from "@/app/dashboard/labs/page"
 import BodyPage from "@/app/dashboard/body/page"
 import { isFeatureEnabled } from "@/lib/features"
+import { getGoals } from "@/lib/goals"
 import { getUserTimezone, localDateStr, addDaysISO } from "@/lib/local-date"
 
 interface StravaActivityRow {
@@ -44,13 +45,10 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   if (!session?.user?.id) return null
   const userId = session.user.id
 
-  const goalsRow = await prisma.dailyNote.findUnique({
-    where: { userId_date: { userId, date: new Date("0001-01-01") } },
-  }).catch(() => null)
-  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number; readinessMin?: number } : {}
-  const STEP_GOAL = userGoals.steps ?? DEFAULT_STEP_GOAL
-  const SLEEP_GOAL_H = userGoals.sleepH ?? DEFAULT_SLEEP_GOAL_H
-  const READINESS_GOAL = userGoals.readinessMin ?? 70
+  const userGoals = await getGoals(userId)
+  const STEP_GOAL = userGoals.steps
+  const SLEEP_GOAL_H = userGoals.sleepH
+  const READINESS_GOAL = userGoals.readinessMin
 
   if (activeTab === "weight") {
     return (

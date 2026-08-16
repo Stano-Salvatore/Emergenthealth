@@ -33,6 +33,7 @@ import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
 import { NotesWidget } from "@/components/dashboard/NotesWidget"
 import { ScreenTimeCard } from "@/components/dashboard/ScreenTimeCard"
 import { isFeatureEnabled } from "@/lib/features"
+import { getGoals } from "@/lib/goals"
 import { MobileToday } from "@/components/dashboard/MobileToday"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 
@@ -169,14 +170,12 @@ export default async function DashboardPage() {
   // Single parallel batch — goals, check-in, and all dashboard data in one
   // round-trip group instead of three sequential awaits.
   const [
-    goalsRow,
+    userGoals,
     todayCheckin,
     checkinStreakRows,
     healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData, todayIntake, todayFocus, todayOuraTags,
   ] = await Promise.all([
-    prisma.dailyNote.findUnique({
-      where: { userId_date: { userId, date: new Date("0001-01-01") } },
-    }).catch(() => null),
+    getGoals(userId),
     prisma.$queryRaw<{id: string}[]>`
       SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId}
       AND "date" = ${todayStr} LIMIT 1
@@ -235,11 +234,10 @@ export default async function DashboardPage() {
   ])
 
   // ── goals + check-in (parsed from the batch above)
-  const userGoals = goalsRow ? JSON.parse(goalsRow.content) as { sleepH?: number; steps?: number; waterMl?: number; focusMin?: number } : {}
-  const STEP_GOAL = userGoals.steps ?? DEFAULT_STEP_GOAL
-  const SLEEP_GOAL_H = userGoals.sleepH ?? DEFAULT_SLEEP_GOAL_H
-  const WATER_GOAL_ML = userGoals.waterMl ?? 2000
-  const FOCUS_GOAL_MIN = userGoals.focusMin ?? 90
+  const STEP_GOAL = userGoals.steps
+  const SLEEP_GOAL_H = userGoals.sleepH
+  const WATER_GOAL_ML = userGoals.waterMl
+  const FOCUS_GOAL_MIN = userGoals.focusMin
   const hasCheckedInToday = todayCheckin.length > 0
   // Compute consecutive check-in streak
   const checkinDates = new Set((checkinStreakRows as {date: string}[]).map(r => r.date))

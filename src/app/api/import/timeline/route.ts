@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { recordPlaceVisits } from "@/lib/place-visits"
 
 export const runtime = "nodejs"
 export const maxDuration = 30
@@ -63,5 +64,18 @@ export async function POST(req: NextRequest) {
   if (data.length === 0) return NextResponse.json({ ok: true, inserted: 0, received: raw.length })
 
   const res = await prisma.locationPoint.createMany({ data, skipDuplicates: true })
-  return NextResponse.json({ ok: true, inserted: res.count, received: raw.length })
+
+  // Back-fill check-ins for the span this batch covers, so imported history
+  // shows up as visits straight away rather than waiting for a cron whose
+  // look-back only reaches the last few hours.
+  let checkIns = 0
+  if (res.count > 0) {
+    const times = data.map(d => d.trackedAt.getTime())
+    const from = new Date(Math.min(...times))
+    const to = new Date(Math.max(...times))
+    const visits = await recordPlaceVisits(userId, from, to).catch(() => ({ created: 0 }))
+    checkIns = visits.created
+  }
+
+  return NextResponse.json({ ok: true, inserted: res.count, received: raw.length, checkIns })
 }

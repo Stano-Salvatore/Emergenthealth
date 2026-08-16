@@ -85,30 +85,49 @@ const SNOOZE_MINUTES = 30
 const SNOOZE_ID_BASE = 950_000
 const SNOOZE_ID_SPAN = 10_000
 
+// If a native bridge call doesn't respond within `ms`, treat it as unavailable
+// rather than hanging forever. On an APK built without the notifications plugin
+// registered natively, the call never resolves — it goes to a native side that
+// isn't listening. Every bridge call below is wrapped, because one unwrapped
+// call is enough to strand the UI: "Send test" sat on "Sending…" forever not
+// because the test hung, but because reading the permission afterwards did.
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>(resolve => setTimeout(() => resolve(fallback), ms)),
+  ])
+}
+
+const BRIDGE_TIMEOUT_MS = 6000
+
+/** Await a bridge call, resolving to `fallback` if it never answers or throws. */
+async function bridge<T>(call: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await withTimeout(call(), BRIDGE_TIMEOUT_MS, fallback)
+  } catch {
+    return fallback
+  }
+}
+
 async function getPlugin(): Promise<any | null> {
   if (typeof window === "undefined") return null
-  try {
+  return bridge(async () => {
     const core = await import("@capacitor/core")
     if ((core as any).Capacitor?.isNativePlatform?.() !== true) return null
     const mod = await import("@capacitor/local-notifications")
     return (mod as any).LocalNotifications ?? null
-  } catch {
-    return null
-  }
+  }, null)
 }
 
 /** Request notification permission. Returns true if granted (or already granted). */
 export async function ensureNotificationPermission(): Promise<boolean> {
   const ln = await getPlugin()
   if (!ln) return false
-  try {
-    const check = await ln.checkPermissions()
-    if (check.display === "granted") return true
-    const req = await ln.requestPermissions()
-    return req.display === "granted"
-  } catch {
-    return false
-  }
+  const check = await bridge<any>(() => ln.checkPermissions(), null)
+  if (check?.display === "granted") return true
+  // The OS prompt is user-driven, so it gets longer than a plain bridge call.
+  const req = await withTimeout<any>(ln.requestPermissions().catch(() => null), 60_000, null)
+  return req?.display === "granted"
 }
 
 // Local notification ids must be 32-bit ints, so cuids are hashed into one.
@@ -223,12 +242,12 @@ export async function syncNotifications(
     // Snoozed copies survive: the user explicitly asked for those, and this
     // rebuild would otherwise eat a snooze whenever the app gets opened
     // before it fires.
-    const pending = await ln.getPending()
+    const pending = await bridge<any>(() => ln.getPending(), null)
     const cancellable = (pending?.notifications ?? []).filter(
       (n: { id: number }) => !(n.id >= SNOOZE_ID_BASE && n.id < SNOOZE_ID_BASE + SNOOZE_ID_SPAN),
     )
     if (cancellable.length) {
-      await ln.cancel({ notifications: cancellable.map((n: { id: number }) => ({ id: n.id })) })
+      await bridge<any>(() => ln.cancel({ notifications: cancellable.map((n: { id: number }) => ({ id: n.id })) }), null)
     }
 
     const now = Date.now()
@@ -332,8 +351,10 @@ export async function syncNotifications(
 
     if (toSchedule.length === 0) return 0
     const capped = toSchedule.slice(0, MAX_SCHEDULED)
-    await ln.schedule({ notifications: capped })
-    return capped.length
+    // A schedule call that never answers means nothing was laid down, so it
+    // must not be reported as success.
+    const ok = await bridge(async () => { await ln.schedule({ notifications: capped }); return true }, false)
+    return ok ? capped.length : 0
   } catch {
     return 0
   }
@@ -353,12 +374,9 @@ export async function syncNotifications(
 export async function getExactAlarmPermission(): Promise<"granted" | "denied" | "unavailable"> {
   const ln = await getPlugin()
   if (!ln?.checkExactNotificationSetting) return "unavailable"
-  try {
-    const res = await ln.checkExactNotificationSetting()
-    return res?.exact_alarm === "granted" ? "granted" : "denied"
-  } catch {
-    return "unavailable"
-  }
+  const res = await bridge<any>(() => ln.checkExactNotificationSetting(), null)
+  if (!res) return "unavailable"
+  return res.exact_alarm === "granted" ? "granted" : "denied"
 }
 
 /**
@@ -381,14 +399,13 @@ export async function requestExactAlarmPermission(): Promise<"granted" | "denied
 export async function getNotificationPermission(): Promise<"granted" | "denied" | "prompt" | "unavailable"> {
   const ln = await getPlugin()
   if (!ln) return "unavailable"
-  try {
-    const c = await ln.checkPermissions()
-    if (c.display === "granted") return "granted"
-    if (c.display === "denied") return "denied"
-    return "prompt"
-  } catch {
-    return "unavailable"
-  }
+  const c = await bridge<any>(() => ln.checkPermissions(), null)
+  // No answer from the bridge is not "prompt" — it means this build cannot
+  // schedule anything, which is what the card needs to say.
+  if (!c) return "unavailable"
+  if (c.display === "granted") return "granted"
+  if (c.display === "denied") return "denied"
+  return "prompt"
 }
 
 // Registered once per app session; the plugin queues events that arrive while
@@ -478,7 +495,7 @@ export async function getScheduledStatus(): Promise<ScheduledStatus> {
   const ln = await getPlugin()
   if (!ln) return { available: false, pending: 0, nextAt: null }
   try {
-    const res = await withTimeout<any>(ln.getPending(), 6000, null)
+    const res = await bridge<any>(() => ln.getPending(), null)
     if (!res) return { available: false, pending: 0, nextAt: null }
     const list: any[] = res.notifications ?? []
     let next: number | null = null
@@ -490,17 +507,6 @@ export async function getScheduledStatus(): Promise<ScheduledStatus> {
   } catch {
     return { available: false, pending: 0, nextAt: null }
   }
-}
-
-// If a native bridge call doesn't respond within `ms`, treat it as unavailable
-// rather than hanging forever. On an APK built without the notifications plugin
-// registered natively, the bridge call never resolves — this is what made the
-// "Send test" button stick on "Sending…" indefinitely.
-function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>(resolve => setTimeout(() => resolve(fallback), ms)),
-  ])
 }
 
 /**

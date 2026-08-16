@@ -46,7 +46,10 @@ jobs:
           # not subscribed to web push, so there is no double delivery.
           # re-engagement caps itself at one nudge per user per day, so the
           # 10-minute tick is safe for it too.
-          for endpoint in habit-reminders med-reminders morning-reminder noon-reminder evening-reminder re-engagement; do
+          # place-checkins isn't a reminder, but it wants the same cadence for
+          # the same reason: Hobby crons run once a day, and a daily pass would
+          # notice yesterday's coffee. It is idempotent per visit.
+          for endpoint in habit-reminders med-reminders morning-reminder noon-reminder evening-reminder re-engagement place-checkins; do
             code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${endpoint}") || true
