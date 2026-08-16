@@ -114,3 +114,98 @@ export function notificationIcon() {
     `</svg>`
   )
 }
+
+// ── Emergy ────────────────────────────────────────────────────────────────
+//
+// The mascot is a WebGL model built at runtime, so there is no bitmap of him
+// to ship. This is a deliberately flat 2D reading of that model — pot, rim,
+// body, sprout, eyes — kept here beside the pulse so both marks stay in one
+// place. Coordinates are on the same 512 canvas.
+
+const EMERGY = {
+  body:   "#fde68a",
+  band:   "#f59e0b",
+  gleam:  "#fef3c7",
+  leaf:   "#2fb45c",
+  stem:   "#1d8a45",
+  clay:   "#be6d3d",
+  clayDark: "#a25a30",
+  soil:   "#9c6836",
+  white:  "#fffdf6",
+  dark:   "#1e2530",
+  rose:   "#fb7185",
+}
+
+// One sprout, one body, one pot — written once so the silhouette and the
+// colour icon can never drift apart.
+//
+// Emergy is drawn stockier here than he is on screen: a short stem, leaves
+// tucked close, a shallow pot. At full size the tall version is charming, but
+// a notification icon is a 24dp square, and a tall figure in a square frame
+// has to shrink until nothing is legible. This one is near enough to square
+// to fill it.
+//
+// Extents, which the viewBox below depends on: x 104→408, y 78→450.
+const EMERGY_PARTS = {
+  stem:   `<path d="M256 160 L256 112" stroke-width="16" stroke-linecap="round" fill="none"/>`,
+  leafL:  `<ellipse cx="202" cy="112" rx="42" ry="23" transform="rotate(-26 202 112)"/>`,
+  leafR:  `<ellipse cx="312" cy="100" rx="40" ry="22" transform="rotate(22 312 100)"/>`,
+  body:   `<rect x="140" y="150" width="232" height="200" rx="90"/>`,
+  potRim: `<rect x="104" y="344" width="304" height="48" rx="24"/>`,
+  pot:    `<path d="M124 392 L388 392 L350 442 Q346 450 336 450 L176 450 Q166 450 162 442 Z"/>`,
+  eyeL:   `<circle cx="214" cy="238" r="29"/>`,
+  eyeR:   `<circle cx="298" cy="238" r="29"/>`,
+}
+
+// Square, centred on those extents, with a little air: the mark measures
+// 304 x 372, so 390 leaves ~8% top and bottom — the margin Android keeps
+// around its own notification icons — and pillarboxes the rest.
+const EMERGY_VIEW = "61 69 390 390"
+
+// Notification small icon. Only the alpha survives, so this is built as a
+// mask: white is kept, black is punched out. The eyes have to be holes rather
+// than dark shapes — painted white like everything else they would vanish and
+// leave a blank blob, which is the usual reason a mascot makes an
+// unrecognisable notification icon.
+export function emergySilhouette() {
+  const P = EMERGY_PARTS
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${EMERGY_VIEW}" ` +
+    `width="${VIEW}" height="${VIEW}">` +
+    `<mask id="emergy" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">` +
+    `<rect width="512" height="512" fill="black"/>` +
+    `<g fill="white" stroke="white">${P.stem}${P.leafL}${P.leafR}${P.body}${P.potRim}${P.pot}</g>` +
+    `<rect x="104" y="336" width="304" height="10" fill="black"/>` +
+    `<g fill="black" stroke="none">${P.eyeL}${P.eyeR}</g>` +
+    `</mask>` +
+    `<rect width="512" height="512" fill="white" mask="url(#emergy)"/>` +
+    `</svg>`
+  )
+}
+
+// Notification large icon — the picture Android shows at full colour in the
+// shade, where a silhouette would waste a 64dp slot.
+export function emergyColorIcon() {
+  const P = EMERGY_PARTS
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${EMERGY_VIEW}" ` +
+    `width="${VIEW}" height="${VIEW}">` +
+    `<g stroke="${EMERGY.stem}">${P.stem}</g>` +
+    `<g fill="${EMERGY.leaf}">${P.leafL}</g>` +
+    `<g fill="${EMERGY.stem}">${P.leafR}</g>` +
+    `<g fill="${EMERGY.body}">${P.body}</g>` +
+    `<rect x="140" y="150" width="232" height="44" rx="22" fill="${EMERGY.band}"/>` +
+    `<rect x="166" y="166" width="58" height="18" rx="9" fill="${EMERGY.gleam}" opacity="0.75"/>` +
+    `<g fill="${EMERGY.rose}" opacity="0.5">` +
+    `<ellipse cx="172" cy="280" rx="25" ry="15"/><ellipse cx="340" cy="280" rx="25" ry="15"/></g>` +
+    `<g fill="${EMERGY.white}">${P.eyeL}${P.eyeR}</g>` +
+    `<g fill="${EMERGY.dark}"><circle cx="217" cy="242" r="17"/><circle cx="301" cy="242" r="17"/></g>` +
+    `<g fill="${EMERGY.white}"><circle cx="224" cy="234" r="6"/><circle cx="308" cy="234" r="6"/></g>` +
+    `<path d="M230 292 Q256 314 282 292" stroke="${EMERGY.dark}" stroke-width="12" ` +
+    `fill="none" stroke-linecap="round"/>` +
+    `<g fill="${EMERGY.soil}"><rect x="126" y="344" width="260" height="22" rx="11"/></g>` +
+    `<g fill="${EMERGY.clay}">${P.potRim}</g>` +
+    `<g fill="${EMERGY.clayDark}">${P.pot}</g>` +
+    `</svg>`
+  )
+}

@@ -21,6 +21,8 @@ import {
   adaptiveForeground,
   monochromeForeground,
   notificationIcon,
+  emergySilhouette,
+  emergyColorIcon,
 } from "./brand-icon.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -37,6 +39,15 @@ const DENSITIES = {
 
 // The notification small icon is 24dp and belongs in drawable-*, which is
 // where capacitor.config.ts's LocalNotifications.smallIcon resolves it from.
+// The large icon is the full-colour picture in the notification shade, 64dp.
+const LARGE_ICON_DENSITIES = {
+  "drawable-mdpi": 64,
+  "drawable-hdpi": 96,
+  "drawable-xhdpi": 128,
+  "drawable-xxhdpi": 192,
+  "drawable-xxxhdpi": 256,
+}
+
 const NOTIFICATION_DENSITIES = {
   "drawable-mdpi": 24,
   "drawable-hdpi": 36,
@@ -95,13 +106,25 @@ async function main() {
   }
   console.log("✓ mipmap-anydpi-v26 — adaptive icon (background + foreground + monochrome)")
 
+  // Two small icons ship: Emergy, who fronts the notifications, and the pulse,
+  // kept because a mark that has been the app's face is worth one file.
   const notification = notificationIcon()
+  const emergyStat = emergySilhouette()
   for (const [dir, size] of Object.entries(NOTIFICATION_DENSITIES)) {
     const outDir = join(resDir, dir)
     mkdirSync(outDir, { recursive: true })
     await render(notification, size, join(outDir, "ic_stat_notify.png"))
+    await render(emergyStat, size, join(outDir, "ic_stat_emergy.png"))
   }
-  console.log("✓ drawable-* — ic_stat_notify (white silhouette, 24dp)")
+  console.log("✓ drawable-* — ic_stat_emergy + ic_stat_notify (white silhouettes, 24dp)")
+
+  const emergyLarge = emergyColorIcon()
+  for (const [dir, size] of Object.entries(LARGE_ICON_DENSITIES)) {
+    const outDir = join(resDir, dir)
+    mkdirSync(outDir, { recursive: true })
+    await render(emergyLarge, size, join(outDir, "ic_emergy_large.png"))
+  }
+  console.log("✓ drawable-* — ic_emergy_large (full colour, 64dp)")
 
   console.log("Android launcher icon rebuilt from the brand mark.")
 }

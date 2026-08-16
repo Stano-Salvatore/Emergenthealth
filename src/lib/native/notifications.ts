@@ -94,6 +94,16 @@ const ACTION_TYPES = [
   { id: "MED_REMINDER",   actions: [{ id: "taken", title: "✓ Took it" }, { id: "snooze", title: "Snooze 30 min" }] },
 ]
 
+// Emergy fronts every notification: his silhouette is the status-bar icon
+// (capacitor.config.ts), and this is the full-colour picture Android shows
+// beside the text. Applied at the schedule boundary rather than at each of the
+// places a notification is built, so none of them can forget him.
+const EMERGY_LARGE_ICON = "ic_emergy_large"
+
+function fromEmergy<T extends Record<string, any>>(notifications: T[]): T[] {
+  return notifications.map(n => ({ largeIcon: EMERGY_LARGE_ICON, ...n }))
+}
+
 const SNOOZE_MINUTES = 30
 const SNOOZE_ID_BASE = 950_000
 const SNOOZE_ID_SPAN = 10_000
@@ -442,7 +452,7 @@ export async function syncNotifications(
     const capped = toSchedule.slice(0, MAX_SCHEDULED)
     // A schedule call that never answers means nothing was laid down, so it
     // must not be reported as success.
-    const ok = await bridge(async () => { await ln.schedule({ notifications: capped }); return true }, false)
+    const ok = await bridge(async () => { await ln.schedule({ notifications: fromEmergy(capped) }); return true }, false)
     return ok ? capped.length : 0
   } catch {
     return 0
@@ -584,14 +594,14 @@ export async function registerNotificationActionHandler(): Promise<void> {
 
         if (actionId === "snooze") {
           await ln.schedule({
-            notifications: [{
+            notifications: fromEmergy([{
               id: SNOOZE_ID_BASE + Math.floor(Math.random() * SNOOZE_ID_SPAN),
               title: notif?.title ?? "Reminder",
               body: notif?.body ?? "",
               schedule: { at: new Date(Date.now() + SNOOZE_MINUTES * 60_000), allowWhileIdle: true },
               actionTypeId: notif?.actionTypeId,
               extra,
-            }],
+            }]),
           })
           return
         }
@@ -699,12 +709,12 @@ export async function scheduleTestNotification(
   try {
     await withTimeout(
       ln.schedule({
-        notifications: [{
+        notifications: fromEmergy([{
           id: 999_001,
           title: "🔔 Test notification",
           body: "Nice — notifications work on this phone!",
           schedule: { at: new Date(Date.now() + 3000), allowWhileIdle: true },
-        }],
+        }]),
       }),
       6000,
       "timeout",
@@ -832,12 +842,12 @@ export async function runNotificationSelfTest(): Promise<SelfTestStep[]> {
     steps.push(await timedStep(
       "schedule probe",
       () => ln.schedule({
-        notifications: [{
+        notifications: fromEmergy([{
           id: 999_002,
           title: "🔎 Diagnostic probe",
           body: "If you can read this in your tray, scheduling works.",
           schedule: { at: new Date(Date.now() + 5000), allowWhileIdle: true },
-        }],
+        }]),
       }),
       () => "accepted — should appear in ~5s",
     ))

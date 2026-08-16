@@ -21,9 +21,14 @@ const config: CapacitorConfig = {
       // Generated into drawable-* by .ci/generate-android-icons.mjs: the
       // brand pulse as a flat white silhouette, the only form Android accepts
       // here — it keeps the alpha channel and discards the colour.
-      smallIcon: 'ic_stat_notify',
-      // Tints the icon in the shade. The brand indigo, matching the launcher.
-      iconColor: '#4f46e5',
+      // Emergy, as a flat silhouette with his eyes punched out — the only
+      // form Android accepts here, since it keeps the alpha and discards the
+      // colour. He appears in full colour as each notification's large icon;
+      // see largeIcon in src/lib/native/notifications.ts.
+      smallIcon: 'ic_stat_emergy',
+      // Tints the icon in the shade — Emergy's own amber rather than the
+      // app's indigo, so the two icons read as one character.
+      iconColor: '#f59e0b',
     },
     PushNotifications: {
       presentationOptions: ['badge', 'sound', 'alert'],
