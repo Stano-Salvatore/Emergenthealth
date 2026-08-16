@@ -14,7 +14,20 @@
 // navigation is forbidden — the browser fails the load with net::ERR_FAILED.
 // Redirected responses are never cached or served to navigations now, and
 // only the redirect-free /offline page is precached.
-const VERSION = "v7"
+// v8 exists to reach a device that is already stuck. A long-lived WebView page
+// can keep running a build whose lazily-loaded chunks no longer exist on the
+// server: the app shell comes from cache, the chunk 404s, and the feature it
+// belonged to silently isn't there. That is what made a phone insist for a day
+// that it couldn't send notifications while the plugin sat installed and
+// working. Nothing the page could load would fix it, because loading was the
+// broken part.
+//
+// A service worker is the one thing that still updates in that state — the
+// page re-registers on every load and the browser re-fetches this file — so
+// activating a new version drops every cache and sends the open pages back to
+// the network for a fresh build. It self-heals without anyone clearing storage
+// by hand (which, in an installed app, also signs them out).
+const VERSION = "v8"
 const STATIC_CACHE = `emergenthealth-static-${VERSION}`
 const PAGES_CACHE = `emergenthealth-pages-${VERSION}`
 
@@ -34,16 +47,22 @@ self.addEventListener("install", (e) => {
 })
 
 self.addEventListener("activate", (e) => {
-  e.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((k) => k !== STATIC_CACHE && k !== PAGES_CACHE)
-          .map((k) => caches.delete(k))
-      )
-    )
-  )
-  self.clients.claim()
+  e.waitUntil((async () => {
+    // Everything, not just the caches this version doesn't recognise: a shell
+    // cached under the current names is exactly what pins a page to a build
+    // that no longer exists.
+    const keys = await caches.keys()
+    await Promise.all(keys.map((k) => caches.delete(k)))
+    await self.clients.claim()
+
+    // Activation happens once per version, so this can't loop. Pages already
+    // open are the ones stuck on the old build, and they will not pick up a
+    // new one on their own.
+    const clients = await self.clients.matchAll({ type: "window" })
+    for (const client of clients) {
+      try { client.navigate(client.url) } catch { /* not navigable — next open will do */ }
+    }
+  })())
 })
 
 async function cacheFirst(request) {
