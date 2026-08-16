@@ -12,6 +12,7 @@
 // doesn't have.
 
 import { activeOn } from "@/lib/med-schedule"
+import { looksLikeStaleChunk, reloadForFreshBuild } from "@/lib/stale-chunk"
 
 type Reminder = {
   id: string
@@ -111,12 +112,22 @@ async function bridge<T>(call: () => Promise<T>, fallback: T): Promise<T> {
 
 async function getPlugin(): Promise<any | null> {
   if (typeof window === "undefined") return null
-  return bridge(async () => {
-    const core = await import("@capacitor/core")
-    if ((core as any).Capacitor?.isNativePlatform?.() !== true) return null
-    const mod = await import("@capacitor/local-notifications")
-    return (mod as any).LocalNotifications ?? null
-  }, null)
+  try {
+    return await withTimeout((async () => {
+      const core = await import("@capacitor/core")
+      if ((core as any).Capacitor?.isNativePlatform?.() !== true) return null
+      const mod = await import("@capacitor/local-notifications")
+      return (mod as any).LocalNotifications ?? null
+    })(), BRIDGE_TIMEOUT_MS, null)
+  } catch (err) {
+    // A page left running long enough for its build to be replaced can no
+    // longer fetch the plugin's chunk. That reads as "notifications don't
+    // work on this phone" when the truth is the tab is out of date, so take
+    // the fresh build rather than reporting a fault that isn't there.
+    const message = err instanceof Error ? err.message : String(err)
+    if (looksLikeStaleChunk(message)) reloadForFreshBuild()
+    return null
+  }
 }
 
 /** Request notification permission. Returns true if granted (or already granted). */
