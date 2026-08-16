@@ -195,11 +195,25 @@ export function NotificationNudges() {
             </p>
           </div>
         ) : perm === "prompt" || perm === "loading" ? (
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">Allow Emergenthealth to send you notifications.</p>
-            <Button size="sm" className="shrink-0" disabled={perm === "loading"} onClick={enable}>
-              <Bell className="h-3.5 w-3.5 mr-1.5" /> Enable
-            </Button>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                {perm === "loading" ? "Checking with Android…" : "Allow Emergenthealth to send you notifications."}
+              </p>
+              <Button size="sm" className="shrink-0" disabled={perm === "loading"} onClick={enable}>
+                <Bell className="h-3.5 w-3.5 mr-1.5" /> Enable
+              </Button>
+            </div>
+            {/* Android's own Notifications screen said "Allowed" while this row
+                asked to enable them. Whichever of the two is wrong, the raw
+                answer decides it — and "still checking" must not look like a
+                settled state, which is how a stalled read passed for a needed
+                tap for an entire evening. */}
+            {diag && (
+              <p className="text-[10px] font-mono text-muted-foreground/70">
+                {diag.reason} · {diag.detail}
+              </p>
+            )}
           </div>
         ) : perm === "unavailable" ? (
           <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2.5 space-y-1">

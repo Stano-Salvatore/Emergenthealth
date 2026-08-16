@@ -156,6 +156,25 @@ async function bridge<T>(call: () => Promise<T>, fallback: T): Promise<T> {
 let cachedPlugin: any | null = null
 let lastPluginFailure = "not attempted yet"
 
+// The imports start once, at module evaluation — the moment the page loads.
+// A phone spent an evening hanging forever inside on-demand imports of these
+// same modules ("loading plugin…" with a live heartbeat right under it),
+// while page loads kept working every single time: if this module is
+// running, the chunk machinery just worked, so that is when to fetch the
+// plugin — never later, from mid-session, where it demonstrably wedges.
+const capacitorModules: Promise<{ Cap: any; LN: any } | null> | null =
+  typeof window === "undefined"
+    ? null
+    : Promise.all([import("@capacitor/core"), import("@capacitor/local-notifications")])
+        .then(([core, ln]) => ({
+          Cap: (core as any).Capacitor ?? (core as any).default?.Capacitor,
+          LN: (ln as any).LocalNotifications ?? (ln as any).default?.LocalNotifications,
+        }))
+        .catch(err => {
+          lastPluginFailure = `import threw at page load: ${err instanceof Error ? err.message : String(err)}`
+          return null
+        })
+
 /** Why the most recent getPlugin() returned null. For diagnostics display. */
 export function getLastPluginFailure(): string {
   return lastPluginFailure
@@ -169,22 +188,30 @@ async function getPlugin(): Promise<any | null> {
   }
   try {
     const loaded = await withTimeout<{ ln: any | null } | "timeout">((async () => {
-      const core: any = await import("@capacitor/core")
-      // `?? default` on both: if a bundler ever serves the CJS build through
-      // dynamic import, the exports sit one level down — and this wrapper
-      // failing while identical-looking direct imports succeed is exactly the
-      // bug being chased.
-      const Cap = core?.Capacitor ?? core?.default?.Capacitor
-      if (Cap?.isNativePlatform?.() !== true) {
-        lastPluginFailure = `isNativePlatform() returned ${String(Cap?.isNativePlatform?.())}`
+      // The page-load import if it is available, an on-demand one otherwise —
+      // and still bounded, because a page-load import that wedged would
+      // otherwise wedge every caller awaiting it for the life of the session.
+      const mods = capacitorModules
+        ? await capacitorModules
+        : await (async () => {
+            const core: any = await import("@capacitor/core")
+            const ln: any = await import("@capacitor/local-notifications")
+            // `?? default` on both: if a bundler ever serves the CJS build
+            // through dynamic import, the exports sit one level down — and
+            // this wrapper failing while identical-looking direct imports
+            // succeed is exactly the bug being chased.
+            return {
+              Cap: core?.Capacitor ?? core?.default?.Capacitor,
+              LN: ln?.LocalNotifications ?? ln?.default?.LocalNotifications,
+            }
+          })()
+      if (!mods) return { ln: null }
+      if (mods.Cap?.isNativePlatform?.() !== true) {
+        lastPluginFailure = `isNativePlatform() returned ${String(mods.Cap?.isNativePlatform?.())}`
         return { ln: null }
       }
-      const mod: any = await import("@capacitor/local-notifications")
-      const ln = mod?.LocalNotifications ?? mod?.default?.LocalNotifications ?? null
-      if (!ln) {
-        lastPluginFailure = `module loaded but exports [${Object.keys(mod ?? {}).join(", ") || "nothing"}]`
-      }
-      return { ln }
+      if (!mods.LN) lastPluginFailure = "module loaded but has no LocalNotifications export"
+      return { ln: mods.LN ?? null }
     })(), BRIDGE_TIMEOUT_MS, "timeout")
     if (loaded === "timeout") {
       lastPluginFailure = `import didn't settle within ${BRIDGE_TIMEOUT_MS}ms`
