@@ -414,6 +414,47 @@ export async function getNotificationPermission(): Promise<"granted" | "denied" 
 let actionHandlerRegistered = false
 
 /**
+ * Why notifications can't work here, when they can't.
+ *
+ * "Unavailable" has several very different causes that all look identical from
+ * the outside — an old APK with no native plugin, a web bundle that failed to
+ * ship the plugin's JS, a bridge that accepts calls and never answers — and
+ * telling someone to update the app is only right for one of them. Capacitor
+ * can distinguish them, so ask it rather than guess.
+ */
+export type NotifDiagnosis =
+  | "ok"                    // the plugin answered
+  | "not-native"            // a browser, not the app
+  | "plugin-missing-in-app" // the installed APK has no LocalNotifications
+  | "js-module-missing"     // the web build didn't ship the plugin's JS
+  | "bridge-silent"         // registered, but calls go unanswered
+
+export async function diagnoseNotifications(): Promise<{ reason: NotifDiagnosis; detail: string }> {
+  if (typeof window === "undefined") return { reason: "not-native", detail: "server" }
+
+  const core = await bridge<any>(() => import("@capacitor/core"), null)
+  const Cap = core?.Capacitor
+  if (!Cap?.isNativePlatform?.()) return { reason: "not-native", detail: "web browser" }
+
+  const platform = Cap.getPlatform?.() ?? "unknown"
+
+  // The bridge's own register of what the native side actually carries.
+  if (Cap.isPluginAvailable?.("LocalNotifications") === false) {
+    return { reason: "plugin-missing-in-app", detail: `${platform}: native plugin not registered` }
+  }
+
+  const mod = await bridge<any>(() => import("@capacitor/local-notifications"), null)
+  if (!mod?.LocalNotifications) {
+    return { reason: "js-module-missing", detail: `${platform}: plugin JS not in this web build` }
+  }
+
+  const perms = await bridge<any>(() => mod.LocalNotifications.checkPermissions(), null)
+  if (!perms) return { reason: "bridge-silent", detail: `${platform}: no answer from the native side` }
+
+  return { reason: "ok", detail: `${platform}: permission ${perms.display}` }
+}
+
+/**
  * Handle the notification action buttons: complete the habit, log the dose,
  * tick off the to-do, or snooze the notification half an hour — all without
  * the app being opened first. A plain body tap has actionId "tap" and is left
