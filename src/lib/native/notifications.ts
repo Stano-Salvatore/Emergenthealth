@@ -110,21 +110,62 @@ async function bridge<T>(call: () => Promise<T>, fallback: T): Promise<T> {
   }
 }
 
+// One success is permanent: a phone proved that raw imports and bridge calls
+// can all answer in single-digit milliseconds while this wrapper reported
+// "nothing there" — every user-visible feature funnels through here, so its
+// null IS the notifications outage. Caching means a single good resolution
+// anywhere in the session heals every later caller, and when it does fail,
+// `lastPluginFailure` records which branch — the word "unavailable" alone has
+// cost days.
+let cachedPlugin: any | null = null
+let lastPluginFailure = "not attempted yet"
+
+/** Why the most recent getPlugin() returned null. For diagnostics display. */
+export function getLastPluginFailure(): string {
+  return lastPluginFailure
+}
+
 async function getPlugin(): Promise<any | null> {
-  if (typeof window === "undefined") return null
+  if (cachedPlugin) return cachedPlugin
+  if (typeof window === "undefined") {
+    lastPluginFailure = "server render"
+    return null
+  }
   try {
-    return await withTimeout((async () => {
-      const core = await import("@capacitor/core")
-      if ((core as any).Capacitor?.isNativePlatform?.() !== true) return null
-      const mod = await import("@capacitor/local-notifications")
-      return (mod as any).LocalNotifications ?? null
-    })(), BRIDGE_TIMEOUT_MS, null)
+    const loaded = await withTimeout<{ ln: any | null } | "timeout">((async () => {
+      const core: any = await import("@capacitor/core")
+      // `?? default` on both: if a bundler ever serves the CJS build through
+      // dynamic import, the exports sit one level down — and this wrapper
+      // failing while identical-looking direct imports succeed is exactly the
+      // bug being chased.
+      const Cap = core?.Capacitor ?? core?.default?.Capacitor
+      if (Cap?.isNativePlatform?.() !== true) {
+        lastPluginFailure = `isNativePlatform() returned ${String(Cap?.isNativePlatform?.())}`
+        return { ln: null }
+      }
+      const mod: any = await import("@capacitor/local-notifications")
+      const ln = mod?.LocalNotifications ?? mod?.default?.LocalNotifications ?? null
+      if (!ln) {
+        lastPluginFailure = `module loaded but exports [${Object.keys(mod ?? {}).join(", ") || "nothing"}]`
+      }
+      return { ln }
+    })(), BRIDGE_TIMEOUT_MS, "timeout")
+    if (loaded === "timeout") {
+      lastPluginFailure = `import didn't settle within ${BRIDGE_TIMEOUT_MS}ms`
+      return null
+    }
+    if (loaded.ln) {
+      cachedPlugin = loaded.ln
+      lastPluginFailure = "loaded"
+    }
+    return loaded.ln
   } catch (err) {
     // A page left running long enough for its build to be replaced can no
     // longer fetch the plugin's chunk. That reads as "notifications don't
     // work on this phone" when the truth is the tab is out of date, so take
     // the fresh build rather than reporting a fault that isn't there.
     const message = err instanceof Error ? err.message : String(err)
+    lastPluginFailure = `threw: ${message}`
     if (looksLikeStaleChunk(message)) reloadForFreshBuild()
     return null
   }
@@ -594,7 +635,7 @@ export async function getScheduledStatus(): Promise<ScheduledStatus> {
  */
 export async function scheduleTestNotification(): Promise<{ status: "scheduled" | "denied" | "unavailable"; detail?: string }> {
   const ln = await getPlugin()
-  if (!ln) return { status: "unavailable", detail: "plugin didn't load" }
+  if (!ln) return { status: "unavailable", detail: `plugin didn't load — ${getLastPluginFailure()}` }
   const granted = await withTimeout(ensureNotificationPermission(), 6000, false)
   if (!granted) return { status: "denied" }
   try {
@@ -682,6 +723,19 @@ export async function runNotificationSelfTest(): Promise<SelfTestStep[]> {
       steps.push({ step: "plugin JS", ok: false, ms: Date.now() - t1, detail: err instanceof Error ? err.message : String(err) })
     }
     if (!ln) return steps
+
+    // The production wrapper everything else routes through. The raw calls
+    // above all passing while this fails is precisely the observed outage —
+    // this line is the difference between "the phone is broken" and "one
+    // function in this web app is broken".
+    const t2 = Date.now()
+    const viaWrapper = await getPlugin()
+    steps.push({
+      step: "getPlugin (app path)",
+      ok: !!viaWrapper,
+      ms: Date.now() - t2,
+      detail: viaWrapper ? "plugin resolved" : getLastPluginFailure(),
+    })
 
     // Three times over, sequentially: one dropped call renders as a missing
     // feature, and only repetition tells flaky from absent.
