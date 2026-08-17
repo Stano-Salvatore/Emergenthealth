@@ -39,7 +39,12 @@ const NAV_ITEMS: NavItem[] = [
   // Health — one nav entry each instead of two.
   { href: "/dashboard/intake",      label: "Intake & Meds",   emoji: "🥤", section: "Body" },
   { href: "/dashboard/health",      label: "Health & Body",   emoji: "❤️", section: "Body" },
+  { href: "/dashboard/medications", label: "Medications",     emoji: "💊", section: "Body" },
   { href: "/dashboard/symptoms",    label: "Symptoms",        emoji: "🩹", section: "Body" },
+  { href: "/dashboard/labs",        label: "Blood work",      emoji: "🧪", section: "Body" },
+  { href: "/dashboard/body",        label: "Body composition", emoji: "📐", section: "Body" },
+  { href: "/dashboard/weight",      label: "Weight",          emoji: "⚖️", section: "Body" },
+  { href: "/dashboard/caffeine",    label: "Caffeine",        emoji: "☕", section: "Body" },
   { href: "/dashboard/fasting",     label: "Fasting",         emoji: "⏳", section: "Body" },
   { href: "/dashboard/strava",      label: "Strava",          emoji: "🏃", section: "Body" },
 
@@ -51,6 +56,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/location",    label: "Location",        emoji: "📍", section: "Life" },
   { href: "/dashboard/reading",     label: "Reading",         emoji: "📚", section: "Life" },
   { href: "/dashboard/finances",    label: "Finances",        emoji: "💰", section: "Life" },
+  { href: "/dashboard/bills",       label: "Bills",           emoji: "🧾", section: "Life" },
   { href: "/dashboard/subscriptions", label: "Subscriptions", emoji: "🔄", section: "Life" },
   { href: "/dashboard/gmail",       label: "Gmail",           emoji: "📬", section: "Life" },
   { href: "/dashboard/home",        label: "Home",            emoji: "🏡", section: "Life" },
@@ -58,6 +64,8 @@ const NAV_ITEMS: NavItem[] = [
   // The correlation engine's own page had no nav entry at all — it was
   // reachable only through a small link on a dashboard card.
   { href: "/dashboard/insights",    label: "Insights",        emoji: "🔍", section: "Patterns" },
+  { href: "/dashboard/location-insights", label: "Place patterns", emoji: "🗺️", section: "Patterns" },
+  { href: "/dashboard/custom",      label: "Custom metrics",  emoji: "🧮", section: "Patterns" },
   { href: "/dashboard/week",        label: "This Week",       emoji: "📅", section: "Patterns" },
   { href: "/dashboard/timeline",    label: "Timeline",        emoji: "🕐", section: "Patterns" },
   { href: "/dashboard/stats",       label: "Trends",          emoji: "💡", section: "Patterns" },
