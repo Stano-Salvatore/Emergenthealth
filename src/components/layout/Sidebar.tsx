@@ -448,7 +448,15 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
             <button onClick={reset} className="text-xs text-muted-foreground hover:text-foreground transition-colors">Reset</button>
           </div>
         ) : (
-          <div className={cn("transition-opacity duration-150", bottomHovered ? "opacity-100" : "opacity-0")}>
+          // Hidden until hover on a mouse, always visible on touch. It was
+          // hover-only everywhere, so on a phone — where this sidebar is a
+          // drawer and there is no hover — the one control that lets someone
+          // reorder and hide nav items was invisible. The app could be
+          // personalised the whole time; you just couldn't find the door.
+          <div className={cn(
+            "transition-opacity duration-150 opacity-100 [@media(hover:hover)]:opacity-0",
+            bottomHovered && "[@media(hover:hover)]:opacity-100",
+          )}>
             <button
               onClick={() => setEditing(true)}
               className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-all"
