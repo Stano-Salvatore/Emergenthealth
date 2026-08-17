@@ -7,8 +7,9 @@ import {
   format, isToday, parseISO,
   differenceInMinutes, eachDayOfInterval,
 } from "date-fns"
-import { ChevronLeft, ChevronRight, RefreshCw, MapPin, X, Clock, Link as LinkIcon, Smartphone } from "lucide-react"
+import { ChevronLeft, ChevronRight, RefreshCw, MapPin, X, Clock, Link as LinkIcon, Smartphone, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { createDeviceEvent, isNativeApp as isNativeCalendarApp } from "@/lib/native/device-calendar"
 
 interface CalendarEvent {
   id: string
@@ -252,6 +253,83 @@ function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => 
 // answer "when am I free"; this answers "what is today", which is the question
 // a phone gets asked far more often — and the one the overlay makes worth
 // asking, now that doses and habits sit beside the meetings.
+
+// Creating events writes to the phone's calendar (see createDeviceEvent), so
+// the composer only exists in the app. On the web the calendar stays a
+// read-only view of what other systems hold, which is worth showing plainly
+// rather than offering a button that cannot work.
+function NewEventSheet({ day, onClose, onCreated }: {
+  day: Date
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [title, setTitle] = useState("")
+  const [date, setDate] = useState(format(day, "yyyy-MM-dd"))
+  const [startTime, setStartTime] = useState("09:00")
+  const [endTime, setEndTime] = useState("10:00")
+  const [allDay, setAllDay] = useState(false)
+  const [location, setLocation] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    if (!title.trim()) { setError("Give it a title"); return }
+    setSaving(true)
+    setError(null)
+    const [y, mo, d] = date.split("-").map(Number)
+    const mk = (hhmm: string) => {
+      const [h, m] = hhmm.split(":").map(Number)
+      return new Date(y, mo - 1, d, h || 0, m || 0)
+    }
+    const res = await createDeviceEvent({
+      title: title.trim(),
+      start: allDay ? new Date(y, mo - 1, d) : mk(startTime),
+      end: allDay ? new Date(y, mo - 1, d, 23, 59) : mk(endTime),
+      isAllDay: allDay,
+      location: location.trim() || null,
+    })
+    setSaving(false)
+    if (!res.ok) { setError(res.reason); return }
+    onCreated()
+    onClose()
+  }
+
+  const field = "w-full rounded-lg bg-secondary/60 border border-border px-3 py-2 text-sm"
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4" onClick={onClose}>
+      <div
+        className="w-full sm:max-w-sm bg-background border border-border rounded-t-2xl sm:rounded-2xl p-4 space-y-3"
+        style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}
+        onClick={e => e.stopPropagation()}
+      >
+        <p className="text-sm font-medium">New event</p>
+        <input className={field} placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
+        <input className={field} type="date" value={date} onChange={e => setDate(e.target.value)} />
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input type="checkbox" checked={allDay} onChange={e => setAllDay(e.target.checked)} />
+          All day
+        </label>
+        {!allDay && (
+          <div className="flex gap-2">
+            <input className={field} type="time" value={startTime} onChange={e => setStartTime(e.target.value)} />
+            <input className={field} type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
+          </div>
+        )}
+        <input className={field} placeholder="Place (optional)" value={location} onChange={e => setLocation(e.target.value)} />
+        {error && <p className="text-xs text-red-400">{error}</p>}
+        <p className="text-[10px] text-muted-foreground">
+          Saves to your phone&apos;s calendar, which syncs it on to Google itself.
+        </p>
+        <div className="flex gap-2 pt-1">
+          <Button size="sm" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button size="sm" className="flex-1" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AgendaView({ from, days, events, now, onEventClick }: {
   from: Date
   days: number
@@ -555,6 +633,10 @@ export default function CalendarPage() {
   // Week stays the default everywhere; 3 days is an option for when seven
   // columns are too narrow to read. The choice is remembered.
   const [view, setView] = useState<ViewMode>("week")
+  // Creating events needs the phone's calendar, so the button only exists in
+  // the app — read the shell synchronously rather than awaiting the bridge.
+  const [canCreate, setCanCreate] = useState(false)
+  const [composing, setComposing] = useState(false)
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [currentMonth, setCurrentMonth] = useState(() => new Date())
   const [events, setEvents] = useState<CalendarEvent[]>([])
@@ -574,6 +656,8 @@ export default function CalendarPage() {
       if (saved === "agenda" || saved === "3day" || saved === "week" || saved === "month") setView(saved)
     } catch { /* private mode */ }
   }, [])
+
+  useEffect(() => { setCanCreate(isNativeCalendarApp()) }, [])
 
   function chooseView(v: ViewMode) {
     setView(v)
@@ -697,6 +781,12 @@ export default function CalendarPage() {
               </button>
             ))}
           </div>
+          {canCreate && (
+            <Button size="sm" variant="ghost" onClick={() => setComposing(true)} className="gap-1.5 h-8 text-xs text-muted-foreground hover:text-foreground">
+              <Plus className="h-3.5 w-3.5" />
+              New
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={() => load(visibleFrom, visibleTo, true)} disabled={loading} className="gap-1.5 h-8 text-xs text-muted-foreground hover:text-foreground">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Sync
@@ -716,6 +806,14 @@ export default function CalendarPage() {
         <WeekView weekStart={weekStart} dayCount={dayCount} events={events} now={now} onEventClick={setSelectedEvent} />
       ) : (
         <MonthView currentMonth={currentMonth} events={events} onEventClick={setSelectedEvent} />
+      )}
+
+      {composing && (
+        <NewEventSheet
+          day={view === "month" ? currentMonth : weekStart}
+          onClose={() => setComposing(false)}
+          onCreated={() => load(visibleFrom, visibleTo, true)}
+        />
       )}
 
       {selectedEvent && <EventDetail event={selectedEvent} onClose={() => setSelectedEvent(null)} />}
