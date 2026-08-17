@@ -2,6 +2,8 @@
 
 import { useEffect } from "react"
 
+import { isNativeShell } from "@/lib/native/shell"
+
 // The native app is a thin shell that loads the live site (server.url in
 // capacitor.config.ts), so a service worker caching that shell can pin the
 // phone to a build the server has long since replaced — a failure mode that
@@ -16,7 +18,7 @@ export function ServiceWorkerRegistration() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return
 
-    if (navigator.userAgent.includes("Emergenthealth-Capacitor")) {
+    if (isNativeShell()) {
       navigator.serviceWorker
         .getRegistrations()
         .then(regs => Promise.all(regs.map(r => r.unregister())))

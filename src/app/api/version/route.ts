@@ -14,7 +14,7 @@ export async function GET() {
       // project isn't exposing system env vars, and the Settings card's
       // "web build" line will read "sha unavailable" for that reason.
       clientSha: process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ?? null,
-      deployedAt: process.env.VERCEL_DEPLOYMENT_COMPLETED_AT ?? null,
+      env: process.env.VERCEL_ENV ?? null,
     },
     { headers: { "Cache-Control": "no-store" } },
   )

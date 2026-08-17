@@ -122,39 +122,43 @@ const SNOOZE_ID_SPAN = 10_000
 // A MessageChannel pump is a chain of macrotasks, not timers, and is exempt
 // from that clamping (it is how React's scheduler dodges the same throttle),
 // so the fallback fires on schedule even when setTimeout cannot.
-function timeoutSignal(ms: number): Promise<void> {
-  return new Promise(resolve => {
-    const deadline = Date.now() + ms
-    let settled = false
-    const done = () => {
-      if (settled) return
-      settled = true
+function startDeadline(ms: number): Promise<void> & { cancel: () => void } {
+  let stop = () => {}
+  const promise = new Promise<void>(resolve => {
+    const end = Date.now() + ms
+    let stopped = false
+    let mc: MessageChannel | null = null
+    const cleanup = () => {
+      if (stopped) return
+      stopped = true
       clearTimeout(timer)
       if (mc) {
         mc.port1.onmessage = null
         mc.port1.close()
         mc.port2.close()
       }
+    }
+    const fire = () => {
+      if (stopped) return
+      cleanup()
       resolve()
     }
-    const timer = setTimeout(done, ms)
-    let mc: MessageChannel | null = null
+    const timer = setTimeout(fire, ms)
+    stop = cleanup
     try {
       mc = new MessageChannel()
       mc.port1.onmessage = () => {
-        if (settled) return
-        if (Date.now() >= deadline) done()
+        if (stopped) return
+        if (Date.now() >= end) fire()
         else mc!.port2.postMessage(0)
       }
       mc.port2.postMessage(0)
     } catch {
       // No MessageChannel — the plain timer stays as the only clock.
     }
-  })
-}
-
-function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return Promise.race([p, timeoutSignal(ms).then(() => fallback)])
+  }) as Promise<void> & { cancel: () => void }
+  promise.cancel = () => stop()
+  return promise
 }
 
 /**
@@ -164,9 +168,20 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
  * "Sending…" past its own timeout, so the screen must be able to give a
  * verdict without trusting anything in here to resolve — a watchdog inside
  * the machinery under suspicion is no watchdog at all.
+ *
+ * Cancel it once the work finishes. The pump is a chain of macrotasks with no
+ * delay between them, which is what makes it immune to timer throttling and
+ * also what makes it expensive: left running after the race is decided it
+ * spins the main thread until its deadline, and the longest deadline here is
+ * a minute.
  */
-export function deadline(ms: number): Promise<void> {
-  return timeoutSignal(ms)
+export function deadline(ms: number): Promise<void> & { cancel: () => void } {
+  return startDeadline(ms)
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  const d = startDeadline(ms)
+  return Promise.race([p.finally(() => d.cancel()), d.then(() => fallback)])
 }
 
 const BRIDGE_TIMEOUT_MS = 6000
@@ -694,15 +709,13 @@ export async function scheduleTestNotification(
   const check = await bridge<any>(() => ln.checkPermissions(), null)
   if (!check) return { status: "unavailable", detail: "checkPermissions(): no answer from the native side" }
   if (check.display !== "granted") {
-    // Android 13 stops showing this dialog after it has been dismissed
-    // twice — the request then reports denied without anything appearing.
-    onStep?.("asking Android for permission — answer the dialog…")
-    const req = await withTimeout<any>(ln.requestPermissions().catch(() => null), 60_000, null)
-    if (req?.display !== "granted") {
-      return {
-        status: "denied",
-        detail: "If no dialog appeared, Android has stopped asking: grant it in Settings → Apps → Emergenthealth → Notifications.",
-      }
+    // Deliberately not requesting it here. Granting is the Enable button's
+    // job, and it waits a full minute for the dialog; a test that did the
+    // same would outlive the card's own watchdog and report a failure while
+    // the user was still reading Android's prompt.
+    return {
+      status: "denied",
+      detail: `Android reports permission "${check.display}". Use Enable above, or grant it in Settings → Apps → Emergenthealth → Notifications.`,
     }
   }
   onStep?.("scheduling…")
@@ -773,7 +786,7 @@ export async function runNotificationSelfTest(): Promise<SelfTestStep[]> {
     const tTimer = Date.now()
     const timerFired = await Promise.race([
       new Promise<boolean>(r => setTimeout(() => r(true), 1000)),
-      timeoutSignal(4000).then(() => false),
+      deadline(4000).then(() => false),
     ])
     const timerMs = Date.now() - tTimer
     steps.push({
