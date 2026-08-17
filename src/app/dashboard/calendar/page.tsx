@@ -20,14 +20,18 @@ interface CalendarEvent {
   isAllDay: boolean
   url: string | null
   color?: string | null
-  source?: "google" | "device"
+  source?: "google" | "device" | "app"
+  /** Set on overlay items — what part of the app produced this. */
+  kind?: string
 }
 
-type ViewMode = "3day" | "week" | "month"
+type ViewMode = "agenda" | "3day" | "week" | "month"
 
 const VIEW_KEY = "calendar_view"
 const DAY_COUNT: Record<string, number> = { "3day": 3, week: 7 }
-const VIEW_LABEL: Record<ViewMode, string> = { "3day": "3 days", week: "Week", month: "Month" }
+// Agenda runs a fortnight — long enough to plan around, short enough to scan.
+const AGENDA_DAYS = 14
+const VIEW_LABEL: Record<ViewMode, string> = { agenda: "Agenda", "3day": "3 days", week: "Week", month: "Month" }
 
 const HOUR_HEIGHT = 56
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -241,6 +245,78 @@ function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => 
 }
 
 // ── Month View ────────────────────────────────────────────────────────────────
+
+
+// A plain reading of the next fortnight: one row per day, each day's items in
+// time order, days with nothing on them collapsed to a line. The grid views
+// answer "when am I free"; this answers "what is today", which is the question
+// a phone gets asked far more often — and the one the overlay makes worth
+// asking, now that doses and habits sit beside the meetings.
+function AgendaView({ from, days, events, now, onEventClick }: {
+  from: Date
+  days: number
+  events: CalendarEvent[]
+  now: Date
+  onEventClick: (e: CalendarEvent) => void
+}) {
+  const dayList = Array.from({ length: days }, (_, i) => addDays(from, i))
+  const nowMs = now.getTime()
+
+  return (
+    <div className="rounded-xl border border-border overflow-hidden divide-y divide-border/60">
+      {dayList.map(day => {
+        const items = events
+          .filter(e => eventCoversDay(e, day))
+          .sort((a, b) => {
+            if (a.isAllDay !== b.isAllDay) return a.isAllDay ? -1 : 1
+            return (a.start ?? "").localeCompare(b.start ?? "")
+          })
+        const today = isToday(day)
+        return (
+          <div key={day.toISOString()} className={`flex gap-3 px-3 py-2.5 ${today ? "bg-primary/5" : ""}`}>
+            <div className="w-12 shrink-0 pt-0.5">
+              <p className={`text-[10px] uppercase tracking-wide ${today ? "text-primary" : "text-muted-foreground"}`}>
+                {format(day, "EEE")}
+              </p>
+              <p className={`text-lg leading-none font-semibold ${today ? "text-primary" : ""}`}>{format(day, "d")}</p>
+            </div>
+            <div className="min-w-0 flex-1 space-y-1">
+              {items.length === 0 ? (
+                <p className="text-xs text-muted-foreground/60 pt-1">Nothing scheduled</p>
+              ) : items.map(e => {
+                const start = e.start ? parseEventDate(e.start, e.isAllDay) : null
+                const past = start ? start.getTime() < nowMs : false
+                return (
+                  <button
+                    key={e.id}
+                    onClick={() => onEventClick(e)}
+                    className={`w-full text-left flex items-baseline gap-2 rounded-lg px-2 py-1.5 hover:bg-secondary/60 transition-colors ${past ? "opacity-55" : ""}`}
+                  >
+                    {(() => {
+                      // Same colour rules the grid views use, so an event
+                      // doesn't change colour when the view changes.
+                      const v = eventVisual(e, "accent")
+                      return <span className={`w-1 self-stretch rounded-full shrink-0 ${v.className ?? ""}`} style={v.style} />
+                    })()}
+                    <span className="text-[11px] font-mono text-muted-foreground w-11 shrink-0">
+                      {e.isAllDay ? "all day" : start ? format(start, "HH:mm") : ""}
+                    </span>
+                    <span className="text-sm min-w-0 flex-1 truncate">{e.title}</span>
+                    {e.source === "app" && (
+                      // Says plainly that this line came from the app rather
+                      // than a calendar the user keeps elsewhere.
+                      <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 shrink-0">app</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 function MonthView({ currentMonth, events, onEventClick }: {
   currentMonth: Date
@@ -495,7 +571,7 @@ export default function CalendarPage() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(VIEW_KEY)
-      if (saved === "3day" || saved === "week" || saved === "month") setView(saved)
+      if (saved === "agenda" || saved === "3day" || saved === "week" || saved === "month") setView(saved)
     } catch { /* private mode */ }
   }, [])
 
@@ -527,11 +603,19 @@ export default function CalendarPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(
-        `/api/sync/calendar?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`
-      )
+      const range = `from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`
+      // Two sources, one timeline. The overlay is this app's own day —
+      // doses, habit times, reminders, workouts, check-ins, moments — and a
+      // failure to load it must not blank the calendar, so it settles
+      // separately from the events themselves.
+      const [res, overlayRes] = await Promise.all([
+        fetch(`/api/sync/calendar?${range}`),
+        fetch(`/api/calendar/overlay?${range}`).catch(() => null),
+      ])
       if (!res.ok) throw new Error(String(res.status))
-      setEvents(await res.json())
+      const calendarEvents: CalendarEvent[] = await res.json()
+      const overlay: CalendarEvent[] = overlayRes?.ok ? await overlayRes.json().catch(() => []) : []
+      setEvents([...calendarEvents, ...overlay])
       loadedRange.current = { from: from.getTime(), to: to.getTime() }
     } catch {
       // The raw response body was being shown to the user — often a whole HTML
@@ -545,7 +629,9 @@ export default function CalendarPage() {
   // Visible range drives what gets fetched.
   const visibleFrom = view === "month" ? startOfMonth(currentMonth) : weekStart
   const visibleTo =
-    view === "month" ? endOfMonth(currentMonth) : addDays(weekStart, (DAY_COUNT[view] ?? 7) - 1)
+    view === "month" ? endOfMonth(currentMonth)
+      : view === "agenda" ? addDays(weekStart, AGENDA_DAYS - 1)
+      : addDays(weekStart, (DAY_COUNT[view] ?? 7) - 1)
 
   useEffect(() => {
     load(visibleFrom, visibleTo)
@@ -603,7 +689,7 @@ export default function CalendarPage() {
         <div className="flex items-center gap-2">
           {/* view toggle — pill style */}
           <div className="flex rounded-lg border bg-secondary/40 p-0.5 gap-0.5">
-            {(["3day", "week", "month"] as ViewMode[]).map(v => (
+            {(["agenda", "3day", "week", "month"] as ViewMode[]).map(v => (
               <button key={v} onClick={() => chooseView(v)}
                 className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap
                   ${view === v ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
@@ -624,7 +710,9 @@ export default function CalendarPage() {
         </p>
       )}
 
-      {view !== "month" ? (
+      {view === "agenda" ? (
+        <AgendaView from={weekStart} days={AGENDA_DAYS} events={events} now={now} onEventClick={setSelectedEvent} />
+      ) : view !== "month" ? (
         <WeekView weekStart={weekStart} dayCount={dayCount} events={events} now={now} onEventClick={setSelectedEvent} />
       ) : (
         <MonthView currentMonth={currentMonth} events={events} onEventClick={setSelectedEvent} />
