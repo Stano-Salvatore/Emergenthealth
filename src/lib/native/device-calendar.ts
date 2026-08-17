@@ -299,3 +299,74 @@ export async function syncToServer(): Promise<SyncResult> {
     pluginSource: getPluginSource(),
   }
 }
+
+// ── Creating events ───────────────────────────────────────────────────────
+//
+// Writes land in the phone's own calendar rather than through Google's API.
+// The app's Google scope is calendar.readonly and widening it would force
+// every user to re-consent before anything worked again; the phone already
+// holds a writable account and syncs it up itself, so an event created here
+// reaches the same Google Calendar by a route that costs the user nothing.
+// The trade is that this only works inside the app — on the web the calendar
+// stays read-only, which the UI reflects rather than hides.
+
+const WRITE_SCOPE = "writeCalendar"
+
+export type CreateEventInput = {
+  title: string
+  start: Date
+  end: Date | null
+  isAllDay: boolean
+  location?: string | null
+  description?: string | null
+  calendarId?: string | null
+}
+
+export type CreateEventResult =
+  | { ok: true; id: string | null }
+  | { ok: false; reason: string }
+
+/**
+ * Create an event in the device calendar. Returns why it failed rather than a
+ * bare false — "it didn't work" was the shape of a bug that cost this project
+ * a whole evening.
+ */
+export async function createDeviceEvent(input: CreateEventInput): Promise<CreateEventResult> {
+  if (!isNativeApp()) return { ok: false, reason: "Only available in the app" }
+
+  const cal = await getPlugin()
+  if (!cal) return { ok: false, reason: "Calendar plugin unavailable — update the app" }
+  if (typeof cal.createEvent !== "function") {
+    return { ok: false, reason: "This app version can't create events — update the app" }
+  }
+
+  try {
+    // Non-interactive check first, so a granted permission costs no prompt.
+    const current = await withTimeout<any>(cal.checkPermission({ scope: WRITE_SCOPE }), 8000, "TIMEOUT")
+    if (current === "TIMEOUT") return { ok: false, reason: "The calendar isn't responding" }
+    if (current?.result !== "granted") {
+      // Interactive: a human is answering, so this one isn't raced against a
+      // timeout.
+      const asked = await cal.requestWriteOnlyCalendarAccess?.()
+        ?? await cal.requestPermission?.({ scope: WRITE_SCOPE })
+      if (asked?.result !== "granted") {
+        return { ok: false, reason: "Calendar permission denied — allow it in Android settings" }
+      }
+    }
+
+    const res = await withTimeout<any>(cal.createEvent({
+      title: input.title,
+      // The plugin takes epoch milliseconds, not ISO strings.
+      startDate: input.start.getTime(),
+      endDate: (input.end ?? new Date(input.start.getTime() + 60 * 60_000)).getTime(),
+      isAllDay: input.isAllDay,
+      ...(input.location ? { location: input.location } : {}),
+      ...(input.description ? { description: input.description } : {}),
+      ...(input.calendarId ? { calendarId: input.calendarId } : {}),
+    }), 15000, "TIMEOUT")
+    if (res === "TIMEOUT") return { ok: false, reason: "Saving timed out" }
+    return { ok: true, id: res?.result ?? res?.id ?? null }
+  } catch (e) {
+    return { ok: false, reason: errMsg(e) }
+  }
+}

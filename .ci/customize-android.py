@@ -65,6 +65,13 @@ extra_permissions = """
     -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!--
+      Creating events writes to the phone's calendar rather than through
+      Google's API: the app's Google scope is calendar.readonly, and widening
+      it would make every user re-consent before anything worked again. The
+      phone already holds a writable account and syncs it up itself.
+    -->
+    <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
