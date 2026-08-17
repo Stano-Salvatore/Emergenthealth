@@ -20,7 +20,6 @@ import {
   adaptiveBackground,
   adaptiveForeground,
   monochromeForeground,
-  notificationIcon,
   emergySilhouette,
   emergyColorIcon,
 } from "./brand-icon.mjs"
@@ -106,17 +105,13 @@ async function main() {
   }
   console.log("✓ mipmap-anydpi-v26 — adaptive icon (background + foreground + monochrome)")
 
-  // Two small icons ship: Emergy, who fronts the notifications, and the pulse,
-  // kept because a mark that has been the app's face is worth one file.
-  const notification = notificationIcon()
   const emergyStat = emergySilhouette()
   for (const [dir, size] of Object.entries(NOTIFICATION_DENSITIES)) {
     const outDir = join(resDir, dir)
     mkdirSync(outDir, { recursive: true })
-    await render(notification, size, join(outDir, "ic_stat_notify.png"))
     await render(emergyStat, size, join(outDir, "ic_stat_emergy.png"))
   }
-  console.log("✓ drawable-* — ic_stat_emergy + ic_stat_notify (white silhouettes, 24dp)")
+  console.log("✓ drawable-* — ic_stat_emergy (white silhouette, 24dp)")
 
   const emergyLarge = emergyColorIcon()
   for (const [dir, size] of Object.entries(LARGE_ICON_DENSITIES)) {

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback } from "react"
+import { isNativeShell } from "@/lib/native/shell"
 import { usePathname } from "next/navigation"
 import { X, Send, Bell } from "lucide-react"
 import { EmergyAvatar, type EmergyState } from "./EmergyAvatar"
@@ -147,6 +148,9 @@ export function EmergyPanel() {
     setNotifPerm(perm)
     if (perm !== "granted") return
     try {
+      // Never in the shell: registering here would reinstall the worker the
+      // app strips on launch, and with it the stale-code failure mode.
+      if (isNativeShell()) return
       const reg = await navigator.serviceWorker.register("/sw.js")
       const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
       if (!vapidKey) return

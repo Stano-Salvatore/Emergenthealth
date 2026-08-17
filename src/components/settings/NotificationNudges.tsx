@@ -84,8 +84,12 @@ export function NotificationNudges() {
     const id = setInterval(() => {
       setBeat(b => ({ ...b, timer: Math.round((Date.now() - t0) / 1000) }))
     }, 1000)
-    // The pump is a continuous macrotask chain, so it burns CPU while it
-    // runs — 90 seconds is plenty to screenshot and costs nothing after.
+    // The pump is a continuous macrotask chain with no delay between links:
+    // that is what makes it immune to the timer throttling it exists to
+    // detect, and also what makes it costly. Ten seconds is long enough to
+    // read the row or screenshot it, and short enough not to sit spinning
+    // the main thread of a phone whose battery is the whole reason this
+    // diagnostic exists.
     let stop = false
     let mc: MessageChannel | null = null
     try {
@@ -94,7 +98,7 @@ export function NotificationNudges() {
       mc.port1.onmessage = () => {
         if (stop) return
         const now = Date.now()
-        if (now - t0 > 90_000) { stop = true; return }
+        if (now - t0 > 10_000) { stop = true; return }
         if (now - last >= 1000) {
           last = now
           setBeat(b => ({ ...b, pump: Math.round((now - t0) / 1000) }))
@@ -161,9 +165,11 @@ export function NotificationNudges() {
       // already bounded and the button still hung past those bounds, so the
       // screen keeps its own deadline out here where nothing in that module
       // can hold it.
+      const watchdog = deadline(12_000)
       const res = await Promise.race([
-        scheduleTestNotification(step => { lastStepRef.current = step; setTestDetail(step) }),
-        deadline(12_000).then(() => ({
+        scheduleTestNotification(step => { lastStepRef.current = step; setTestDetail(step) })
+          .finally(() => watchdog.cancel()),
+        watchdog.then(() => ({
           status: "unavailable" as const,
           detail: `no verdict after 12s — the call never came back (stuck at: ${lastStepRef.current})`,
         })),
@@ -193,11 +199,12 @@ export function NotificationNudges() {
   async function runSelfTest() {
     setSelfTesting(true)
     try {
+      const watchdog = deadline(25_000)
       setSelfTest(await Promise.race([
-        runNotificationSelfTest(),
+        runNotificationSelfTest().finally(() => watchdog.cancel()),
         // Same reasoning as the test's watchdog: the diagnostics have sat on
         // "Running…" past every bound they set for themselves.
-        deadline(25_000).then(() => [{
+        watchdog.then(() => [{
           step: "self-test",
           ok: false,
           ms: 25_000,

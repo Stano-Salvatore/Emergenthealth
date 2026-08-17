@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { isNativeShell } from "@/lib/native/shell"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
 import { X, Rocket, ChevronRight } from "lucide-react"
@@ -59,7 +60,7 @@ export function QuickStart({ hasCheckin, hasHabits, hasPush }: {
     if (daysSince <= SHOW_DAYS) setVisible(true)
 
     // Check push subscription status
-    if ("serviceWorker" in navigator && "PushManager" in window) {
+    if ("serviceWorker" in navigator && "PushManager" in window && !isNativeShell()) {
       navigator.serviceWorker.ready
         .then(reg => reg.pushManager.getSubscription())
         .then(sub => setPushEnabled(!!sub))

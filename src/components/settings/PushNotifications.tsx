@@ -5,6 +5,7 @@ import { Bell, BellOff, Send, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { resyncNotifications } from "@/lib/native/notifications"
+import { isNativeShell } from "@/lib/native/shell"
 
 function formatHour(h: number) {
   if (h === 0) return "12:00 AM"
@@ -29,7 +30,12 @@ export function PushNotifications() {
   const [savingEvening, setSavingEvening] = useState(false)
 
   useEffect(() => {
-    const ok = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window
+    // Not in the native shell: it deliberately has no service worker, and
+    // navigator.serviceWorker.ready never settles without one — this card
+    // would sit on its loading state for the life of the session. The shell
+    // schedules its notifications on the device instead (Phone Notifications).
+    const ok = typeof window !== "undefined" && "serviceWorker" in navigator
+      && "PushManager" in window && !isNativeShell()
     setSupported(ok)
     if (ok) {
       setPermission(Notification.permission)
