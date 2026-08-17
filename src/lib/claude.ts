@@ -551,6 +551,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
 
   const since14 = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000)
+  const since7 = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
 
   const since7Str = fmtDateISO.format(new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000))
 
@@ -605,6 +606,45 @@ async function buildSystemPrompt(userId: string): Promise<string> {
         select: { caffeineMg: true, loggedAt: true },
       }).catch(() => [] as { caffeineMg: number; loggedAt: Date }[]),
     ])
+
+  // Everything below was in the database but invisible to Emergy: he could see
+  // that a place called "Gym" existed but not that they had been there, knew
+  // their symptoms but not their prescriptions, and had no idea what they were
+  // aiming at. Fetched in one batch alongside the rest so the extra sources
+  // cost latency once, not seven times.
+  const [locationPoints, timelineEvents, focusSessions, medSchedules, books, goals, routines] = await Promise.all([
+    // Raw pings, summarised below rather than listed — there can be thousands
+    // a week and none of them mean anything individually.
+    prisma.locationPoint.findMany({
+      where: { userId, trackedAt: { gte: since7 } },
+      orderBy: { trackedAt: "asc" }, take: 3000,
+      select: { lat: true, lng: true, trackedAt: true },
+    }).catch(() => [] as { lat: number; lng: number; trackedAt: Date }[]),
+    prisma.timelineEvent.findMany({
+      where: { userId, occurredAt: { gte: since14 } },
+      orderBy: { occurredAt: "desc" }, take: 15,
+      select: { emoji: true, label: true, note: true, occurredAt: true },
+    }).catch(() => [] as { emoji: string; label: string; note: string | null; occurredAt: Date }[]),
+    prisma.focusSession.findMany({
+      where: { userId, startedAt: { gte: since7 }, type: "focus" },
+      orderBy: { startedAt: "desc" }, take: 100,
+      select: { durationMin: true, label: true, startedAt: true },
+    }).catch(() => [] as { durationMin: number; label: string | null; startedAt: Date }[]),
+    prisma.medSchedule.findMany({
+      where: { userId, active: true },
+      select: { name: true, dose: true, times: true, daysOfWeek: true, note: true, startDate: true, endDate: true },
+    }).catch(() => [] as { name: string; dose: string | null; times: string[]; daysOfWeek: number[]; note: string | null; startDate: string | null; endDate: string | null }[]),
+    prisma.book.findMany({
+      where: { userId, status: { in: ["reading", "done"] } },
+      orderBy: { updatedAt: "desc" }, take: 8,
+      select: { title: true, author: true, status: true, rating: true, finishedAt: true },
+    }).catch(() => [] as { title: string; author: string | null; status: string; rating: number | null; finishedAt: Date | null }[]),
+    prisma.userGoals.findUnique({ where: { userId } }).catch(() => null),
+    prisma.habitRoutine.findMany({
+      where: { userId }, orderBy: { sortOrder: "asc" },
+      select: { name: true, emoji: true, habitIds: true },
+    }).catch(() => [] as { name: string; emoji: string; habitIds: string[] }[]),
+  ])
 
   const [recentMoods, todayWeather, recentNotes, recentLabs, latestBody, recentWorkouts, recentSymptoms, fastActivePref, fastHistoryPref] = await Promise.all([
     prisma.moodLog.findMany({ where: { userId, date: { gte: since14 } }, orderBy: { date: "desc" } }).catch(() => [] as { date: Date; mood: number }[]),
@@ -893,6 +933,85 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       ? "No calendar events."
       : `Recent (last ~30 days):\n${past.length ? past.map(fmtCalLine).join("\n") : "  (none)"}\n\nUpcoming (next ~14 days):\n${upcoming.length ? upcoming.map(fmtCalLine).join("\n") : "  (none)"}`
 
+  // ── Summaries for the newly-visible sources ──────────────────────────────
+  // Raw pings say nothing on their own, so location becomes what a person
+  // would actually notice: how far they moved each day and how long they were
+  // out. Anything finer would be surveillance rather than context.
+  const haversineKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+    const R = 6371
+    const dLat = ((b.lat - a.lat) * Math.PI) / 180
+    const dLng = ((b.lng - a.lng) * Math.PI) / 180
+    const la1 = (a.lat * Math.PI) / 180
+    const la2 = (b.lat * Math.PI) / 180
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2
+    return 2 * R * Math.asin(Math.sqrt(h))
+  }
+  const locByDay = new Map<string, { km: number; first: Date; last: Date; prev: { lat: number; lng: number } | null }>()
+  for (const pt of locationPoints) {
+    const day = fmtDateISO.format(pt.trackedAt)
+    const entry = locByDay.get(day) ?? { km: 0, first: pt.trackedAt, last: pt.trackedAt, prev: null }
+    // A GPS jump of more than 3km between consecutive pings is a gap in
+    // tracking, not a teleport; counting it would inflate the day's distance.
+    if (entry.prev) {
+      const step = haversineKm(entry.prev, pt)
+      if (step < 3) entry.km += step
+    }
+    entry.prev = { lat: pt.lat, lng: pt.lng }
+    entry.last = pt.trackedAt
+    locByDay.set(day, entry)
+  }
+  const locationStr = locByDay.size === 0
+    ? null
+    : [...locByDay.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([day, e]) => {
+        const outH = (e.last.getTime() - e.first.getTime()) / 3600_000
+        return `- ${day}: ~${e.km.toFixed(1)}km moved, tracked ${fmtTime.format(e.first)}–${fmtTime.format(e.last)} (${outH.toFixed(1)}h span)`
+      }).join("\n")
+
+  const timelineStr = timelineEvents.length === 0
+    ? null
+    : timelineEvents.map(e => `- ${fmtDateISO.format(e.occurredAt)} ${e.emoji} ${e.label}${e.note ? ` — ${e.note}` : ""}`).join("\n")
+
+  const focusByDay = new Map<string, number>()
+  const focusLabels = new Map<string, number>()
+  for (const f of focusSessions) {
+    const day = fmtDateISO.format(f.startedAt)
+    focusByDay.set(day, (focusByDay.get(day) ?? 0) + f.durationMin)
+    if (f.label) focusLabels.set(f.label, (focusLabels.get(f.label) ?? 0) + f.durationMin)
+  }
+  const topFocus = [...focusLabels.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+  const focusStr = focusByDay.size === 0
+    ? null
+    : [...focusByDay.entries()].sort((a, b) => b[0].localeCompare(a[0]))
+        .map(([day, min]) => `- ${day}: ${min}min focused`).join("\n")
+      + (topFocus.length > 0 ? `\nMost time on: ${topFocus.map(([l, m]) => `${l} (${m}min)`).join(", ")}` : "")
+
+  const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+  const medsStr = medSchedules.length === 0
+    ? null
+    : medSchedules.map(m => {
+        const days = m.daysOfWeek.length === 0 || m.daysOfWeek.length === 7
+          ? "daily"
+          : m.daysOfWeek.map(d => DAY_NAMES[d]).join("/")
+        const window = m.startDate || m.endDate ? ` [${m.startDate ?? "…"} → ${m.endDate ?? "ongoing"}]` : ""
+        return `- ${m.name}${m.dose ? ` (${m.dose})` : ""} — ${m.times.join(", ") || "no time set"}, ${days}${window}${m.note ? ` · ${m.note}` : ""}`
+      }).join("\n")
+
+  const booksStr = books.length === 0
+    ? null
+    : books.map(b => b.status === "reading"
+        ? `- Reading: ${b.title}${b.author ? ` by ${b.author}` : ""}`
+        : `- Finished${b.finishedAt ? ` ${fmtDateISO.format(b.finishedAt)}` : ""}: ${b.title}${b.rating ? ` (${b.rating}/5)` : ""}`
+      ).join("\n")
+
+  const goalsStr = !goals
+    ? null
+    : `- Sleep ${goals.sleepH}h · Steps ${goals.steps} · Water ${goals.waterMl}ml · Focus ${goals.focusMin}min/day · Readiness ≥${goals.readinessMin} · Coffee ≤${goals.coffeeMax}mg${goals.weightKg ? ` · Target weight ${goals.weightKg}kg` : ""}`
+
+  const habitNameById = new Map(habits.map((h: { id: string; name: string }) => [h.id, h.name]))
+  const routinesStr = routines.length === 0
+    ? null
+    : routines.map(r => `- ${r.emoji} ${r.name}: ${r.habitIds.map(id => habitNameById.get(id) ?? "?").filter(n => n !== "?").join(", ") || "no habits yet"}`).join("\n")
+
   return `You are Emergy 🌱 — a caring AI companion who lives inside the user's health dashboard. You're like a little plant that grows alongside them. You have a warm, encouraging, slightly dramatic personality: celebrate wins enthusiastically (yes, use ALL CAPS occasionally for big moments), get genuinely worried when data looks rough, use plant metaphors naturally ("that's helping me grow!", "oh no I'm wilting..."), and be human about it — not clinical.
 
 Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${fmtDay.format(today)} (${todayStr}), local time ${fmtTime.format(today)} (${tz}).
@@ -909,6 +1028,7 @@ FORMATTING: your replies render as markdown. Use **bold** to highlight times, nu
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
 You have tools to CREATE habits/reminders, COMPLETE habits, LOG water/coffee/mood/weight/journal and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
+${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
 - Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml` : ""}
@@ -934,6 +1054,7 @@ ${symptomsStr ? `## Symptoms logged (last 14 days — how they actually felt)\n$
 ${workoutsStr ? `## Workouts (Strava, most recent)\n${workoutsStr}\n` : ""}
 ${bodyStr ? `## Body composition (latest measurement)\n${bodyStr}\n` : ""}
 ${labsStr ? `## Blood work (latest value per marker — mention ⚠️ flags when health topics come up)\n${labsStr}\n` : ""}
+${medsStr ? `## Prescribed medications (active schedules — read these back, never advise on dose or whether to take them)\n${medsStr}\n` : ""}
 ## Oura tags (last 7 days — coffee, supplements, meds the user logs in the Oura app)
 ${ouraTagsStr ?? "None logged this week. (For longer history, call get_health_range — it includes tags.)"}
 
@@ -951,6 +1072,11 @@ ${Object.entries(spendingByCategory).sort(([, a], [, b]) => b - a).map(([cat, am
 ## Calendar (from phone + Google)
 ${calendarStr}
 
+${locationStr ? `## Movement (last 7 days, from their phone's location history)\n${locationStr}\nUse this as life context — a big-distance day is a day out, a flat one is a day in. Never imply you know exactly where they were.\n` : ""}
+${focusStr ? `## Focus sessions (last 7 days)\n${focusStr}\n` : ""}
+${timelineStr ? `## Their timeline (moments they marked, last 14 days)\n${timelineStr}\n` : ""}
+${booksStr ? `## Reading\n${booksStr}\n` : ""}
+${routinesStr ? `## Habit routines (groups they've built)\n${routinesStr}\n` : ""}
 ## Habits
 ${habitsWithStreaks.length === 0 ? "No habits set up yet." : habitsWithStreaks.map((h) => `- ${h.name}: ${h.streak}-day streak, ${h.completedToday ? "✓ done today" : "not done today"}`).join("\n")}
 
