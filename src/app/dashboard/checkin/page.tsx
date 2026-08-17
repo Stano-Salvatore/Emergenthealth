@@ -89,6 +89,11 @@ export default function CheckInPage() {
   const [streak, setStreak] = useState(0)
   const [isNewCheckin, setIsNewCheckin] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
+  // The morning note writes to the same daily journal the Journal page shows
+  // and Emergy already reads — a second, check-in-only note would split the
+  // day's writing across two places and be invisible to both.
+  const [note, setNote] = useState("")
+  const [noteStatus, setNoteStatus] = useState<"idle" | "saving" | "saved">("idle")
 
   useEffect(() => {
     const today = new Date()
@@ -108,7 +113,33 @@ export default function CheckInPage() {
         setLoading(false)
       })
       .catch(() => setLoading(false))
+
+    fetch(`/api/daily-note?date=${localDate}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.content) setNote(d.content) })
+      .catch(() => {})
   }, [])
+
+  async function saveNote() {
+    setNoteStatus("saving")
+    const today = new Date()
+    const localDate = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, "0"),
+      String(today.getDate()).padStart(2, "0"),
+    ].join("-")
+    try {
+      await fetch("/api/daily-note", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: note, date: localDate }),
+      })
+      setNoteStatus("saved")
+      setTimeout(() => setNoteStatus("idle"), 2000)
+    } catch {
+      setNoteStatus("idle")
+    }
+  }
 
   async function save(waterMl: number) {
     const today = new Date()
@@ -349,6 +380,33 @@ export default function CheckInPage() {
                       {streak} day streak
                     </span>
                   )}
+                </div>
+
+                {/* Morning note. Deliberately after the celebration rather than
+                    as a fifth step: the check-in stays four taps for anyone who
+                    just wants it done, and writing is offered to those with
+                    something to say. It saves to the day's journal entry, so
+                    the Journal page and Emergy both see it. */}
+                <div className="mt-1 mb-4 text-left">
+                  <label className="text-xs font-medium text-muted-foreground">
+                    Anything on your mind? <span className="font-normal">(optional — goes to today&apos;s journal)</span>
+                  </label>
+                  <Textarea
+                    value={note}
+                    onChange={e => { setNote(e.target.value); setNoteStatus("idle") }}
+                    onBlur={() => { if (note.trim() || noteStatus === "saved") saveNote() }}
+                    placeholder="How did you sleep? What's on today?"
+                    rows={3}
+                    className="mt-1.5 text-sm"
+                  />
+                  <div className="flex items-center justify-between mt-1.5">
+                    <span className="text-[11px] text-muted-foreground">
+                      {noteStatus === "saving" ? "Saving…" : noteStatus === "saved" ? "✓ Saved to journal" : ""}
+                    </span>
+                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={saveNote} disabled={noteStatus === "saving"}>
+                      Save note
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Summary */}
