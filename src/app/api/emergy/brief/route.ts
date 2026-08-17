@@ -44,7 +44,11 @@ export async function GET(req: NextRequest) {
     prisma.healthLog.findFirst({
       where: { userId, date: { lte: new Date(todayStr) } },
       orderBy: { date: "desc" },
-      select: { readinessScore: true, sleepDuration: true, steps: true },
+      // `date` comes back too: this is the most recent night on record, which
+      // is only *last* night when its date is today. Without it the brief
+      // announced a stale night as "last night's sleep" — a flat ring battery
+      // read as a good night's rest.
+      select: { readinessScore: true, sleepDuration: true, steps: true, date: true },
     }),
     prisma.moodLog.findFirst({
       where: { userId, date: new Date(todayStr) },
@@ -76,13 +80,21 @@ export async function GET(req: NextRequest) {
   let contextLines: string[] = []
 
   if (type === "morning") {
-    const sleepHrs = recentHealth?.sleepDuration ? (recentHealth.sleepDuration / 60).toFixed(1) : null
-    const readiness = recentHealth?.readinessScore
+    const isLastNight = recentHealth?.date != null
+      && recentHealth.date.toISOString().split("T")[0] === todayStr
+    const sleepHrs = isLastNight && recentHealth?.sleepDuration
+      ? (recentHealth.sleepDuration / 60).toFixed(1) : null
+    const readiness = isLastNight ? recentHealth?.readinessScore : null
     contextLines = [
       `Today is ${dateLabel}.`,
       weatherDesc ? `Weather: ${weatherDesc}.` : "",
       sleepHrs ? `Last night's sleep: ${sleepHrs} hours.` : "",
       readiness != null ? `Readiness score: ${readiness}/100.` : "",
+      // Say the gap out loud rather than leaving a silent hole the model
+      // fills with encouragement about a night that was never measured.
+      !isLastNight ? (recentHealth?.date
+        ? `NO SLEEP DATA for last night — the ring's last recorded night was ${recentHealth.date.toISOString().split("T")[0]}. Mention this once, warmly and briefly (the ring is probably off the finger or out of battery), and don't invent or imply any sleep figures.`
+        : "NO SLEEP DATA recorded at all yet. Don't invent or imply any sleep figures.") : "",
       habitsTotalCount > 0 ? `Today's habits: ${habitsAll.map(h => h.name).join(", ")}.` : "",
     ]
   } else if (type === "midday") {
@@ -134,7 +146,11 @@ export async function GET(req: NextRequest) {
       habitsCompleted: habitsCompletedCount,
       habitsTotal: habitsTotalCount,
       readiness: recentHealth?.readinessScore,
-      sleepHours: recentHealth?.sleepDuration ? recentHealth.sleepDuration / 60 : null,
+      // Same rule for the structured payload the card renders: a stale night
+      // is not last night's.
+      sleepHours: recentHealth?.date?.toISOString().split("T")[0] === todayStr && recentHealth?.sleepDuration
+        ? recentHealth.sleepDuration / 60
+        : null,
       mood: moodToday?.mood,
       weather: weatherDesc,
     },

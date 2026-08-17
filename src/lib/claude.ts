@@ -933,6 +933,23 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       ? "No calendar events."
       : `Recent (last ~30 days):\n${past.length ? past.map(fmtCalLine).join("\n") : "  (none)"}\n\nUpcoming (next ~14 days):\n${upcoming.length ? upcoming.map(fmtCalLine).join("\n") : "  (none)"}`
 
+  // ── Wearable coverage ────────────────────────────────────────────────────
+  // A missing night is information, not an absence. Emergy saw "?" in the rows
+  // and read straight past it, so a ring left on the charger produced a
+  // cheerful brief about a night nobody measured. This states the gap plainly
+  // so he can mention it instead of talking around a hole.
+  const latestHealthDay = recentHealth.length > 0
+    ? fmtDateISO.format(recentHealth[0].date)
+    : null
+  const daysSinceHealth = latestHealthDay
+    ? Math.round((new Date(todayStr).getTime() - new Date(latestHealthDay).getTime()) / 86400_000)
+    : null
+  const wearableStr = latestHealthDay == null
+    ? "No wearable data recorded at all yet."
+    : daysSinceHealth != null && daysSinceHealth >= 1
+      ? `⚠️ No Oura data for ${daysSinceHealth === 1 ? "last night" : `${daysSinceHealth} days`} — the last recorded night is ${latestHealthDay}. The ring is most likely off the finger or out of battery. Say so once, kindly and briefly, if sleep, readiness or energy comes up; never state or imply sleep figures for the nights that are missing, and don't treat the gap as a bad night.`
+      : null
+
   // ── Summaries for the newly-visible sources ──────────────────────────────
   // Raw pings say nothing on their own, so location becomes what a person
   // would actually notice: how far they moved each day and how long they were
@@ -1047,6 +1064,7 @@ ${weatherStr ?? "No weather data available."}
 - Steps/day: ${avgStepsThis ?? "n/a"}${trend(avgStepsThis, avgStepsLast)}
 - Mood avg: ${avgMoodThis != null ? `${avgMoodThis}/5` : "n/a"}${avgMoodThis != null && avgMoodLast != null ? trend(avgMoodThis, avgMoodLast) : ""}
 
+${wearableStr ? `## Wearable coverage\n${wearableStr}\n` : ""}
 ## Health (last 7 days)
 ${recentHealth.slice(0, 7).length === 0 ? "No health data yet." : recentHealth.slice(0, 7).map((h) => `- ${h.date.toISOString().split("T")[0]}: sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"}${(h as any).sleepScore != null ? ` (score ${(h as any).sleepScore})` : ""}${h.readinessScore != null ? ` | readiness ${h.readinessScore}` : ""}${h.hrv != null ? ` | HRV ${Math.round(h.hrv)}ms` : ""} | ${h.steps ?? "?"}steps | HR ${h.restingHR ?? "?"}bpm${h.activityScore != null ? ` | activity ${h.activityScore}` : ""}${h.weight != null ? ` | ${h.weight}kg` : ""}`).join("\n")}
 
