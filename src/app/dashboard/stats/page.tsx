@@ -3,20 +3,6 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrendingUp, TrendingDown, Minus, BarChart3, Moon, Footprints, Activity, Zap } from "lucide-react"
-import { cn } from "@/lib/utils"
-
-interface Correlation {
-  key: string
-  label: string
-  r: number | null
-  n: number
-  emoji: string
-  insight: string
-  strength: "strong" | "moderate" | "weak" | "insufficient"
-  direction: "positive" | "negative" | null
-  isCustom?: boolean
-  sparkPoints?: { x: number; y: number }[]
-}
 
 interface StatsData {
   dowStats: { day: string; avgSleep: number | null; avgSteps: number | null; avgReadiness: number | null }[]
@@ -40,13 +26,6 @@ interface StatsData {
   sleepConsistency: "consistent" | "moderate" | "irregular" | null
   avgBedtime: string | null
   bedtimeStdDevMin: number | null
-  correlations: Correlation[]
-  customCorrelations: Correlation[]
-  intakeCorrelations: Correlation[]
-  spendingCorrelations: Correlation[]
-  weatherCorrelations: Correlation[]
-  lastfmCorrelations: Correlation[]
-  checkinCorrelations: Correlation[]
   dataPoints: number
 }
 
@@ -74,123 +53,6 @@ function TrendBadge({ current, prev, higherIsBetter = true }: { current: number 
   )
 }
 
-function CorrelationBar({ r }: { r: number | null }) {
-  if (r == null) return <div className="h-1.5 rounded-full bg-secondary w-full" />
-  const pct = Math.abs(r) * 100
-  const color = r > 0 ? "bg-green-400" : "bg-red-400"
-  return (
-    <div className="relative h-1.5 rounded-full bg-secondary w-full overflow-hidden">
-      {r >= 0 ? (
-        <div className={`absolute left-0 top-0 h-full rounded-full ${color}`} style={{ width: `${pct / 2}%`, marginLeft: "50%" }} />
-      ) : (
-        <div className={`absolute top-0 h-full rounded-full ${color}`} style={{ width: `${pct / 2}%`, right: "50%" }} />
-      )}
-      <div className="absolute top-0 bottom-0 w-px bg-border/60" style={{ left: "50%" }} />
-    </div>
-  )
-}
-
-function Sparkline({ points, positive }: { points: { x: number; y: number }[]; positive: boolean }) {
-  if (points.length < 3) return null
-  const xs = points.map(p => p.x)
-  const ys = points.map(p => p.y)
-  const minX = Math.min(...xs), maxX = Math.max(...xs)
-  const minY = Math.min(...ys), maxY = Math.max(...ys)
-  const rangeX = maxX - minX || 1
-  const rangeY = maxY - minY || 1
-  const W = 80, H = 32
-  const color = positive ? "#4ade80" : "#f87171"
-  return (
-    <svg width={W} height={H} className="shrink-0 opacity-70">
-      {points.map((p, i) => {
-        const cx = ((p.x - minX) / rangeX) * (W - 6) + 3
-        const cy = H - 3 - ((p.y - minY) / rangeY) * (H - 6)
-        return <circle key={i} cx={cx} cy={cy} r={2} fill={color} />
-      })}
-    </svg>
-  )
-}
-
-function AIPanel() {
-  const [state, setState] = useState<"idle" | "loading" | "done" | "error">("idle")
-  const [bullets, setBullets] = useState<string[]>([])
-  const [cached, setCached] = useState(false)
-
-  useEffect(() => {
-    setState("loading")
-    fetch("/api/insight")
-      .then(r => r.json())
-      .then(d => {
-        if (d.bullets?.length) { setBullets(d.bullets); setCached(!!d.cached); setState("done") }
-        else setState("error")
-      })
-      .catch(() => setState("error"))
-  }, [])
-
-  const regen = () => {
-    setState("loading")
-    fetch("/api/insight", { method: "POST" })
-      .then(r => r.json())
-      .then(d => {
-        if (d.bullets?.length) { setBullets(d.bullets); setCached(false); setState("done") }
-        else setState("error")
-      })
-      .catch(() => setState("error"))
-  }
-
-  if (state === "error") return null
-
-  return (
-    <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-bold uppercase tracking-widest text-primary/70">AI weekly snapshot</p>
-        {state === "done" && (
-          <button onClick={regen} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
-            {cached ? "regenerate" : "↻"}
-          </button>
-        )}
-      </div>
-      {state === "loading" && (
-        <div className="space-y-2">
-          {[...Array(3)].map((_, i) => <div key={i} className="h-3.5 bg-primary/10 rounded animate-pulse" style={{ width: `${70 + i * 10}%` }} />)}
-        </div>
-      )}
-      {state === "done" && (
-        <div className="space-y-1.5">
-          {bullets.map((b, i) => (
-            <p key={i} className="text-sm leading-snug">{b}</p>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function CorrRow({ c }: { c: Correlation }) {
-  const showSpark = (c.sparkPoints?.length ?? 0) >= 3 && c.r != null && Math.abs(c.r) >= 0.2
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-base leading-none shrink-0">{c.emoji}</span>
-        <span className="text-xs font-medium flex-1 min-w-0 break-words">{c.label}</span>
-        {showSpark && <Sparkline points={c.sparkPoints!} positive={c.direction === "positive"} />}
-        <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0",
-          c.strength === "strong" ? "bg-green-500/15 text-green-400"
-          : c.strength === "moderate" ? "bg-amber-500/15 text-amber-400"
-          : c.strength === "weak" ? "bg-secondary text-muted-foreground"
-          : "bg-secondary text-muted-foreground/50"
-        )}>
-          {c.strength === "insufficient"
-            ? `need ${Math.max(0, 7 - c.n)} more days`
-            : `r=${c.r?.toFixed(2)}`}
-        </span>
-      </div>
-      <CorrelationBar r={c.r} />
-      <p className="text-[11px] text-muted-foreground mt-1.5 leading-relaxed">{c.insight}</p>
-    </div>
-  )
-}
-
 export default function StatsPage() {
   const [data, setData] = useState<StatsData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -209,7 +71,7 @@ export default function StatsPage() {
   if (!data) return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/50 px-8 py-20 text-center max-w-3xl">
       <div className="mb-3 text-5xl leading-none select-none">📊</div>
-      <h3 className="text-base font-semibold text-foreground">Could not load insights</h3>
+      <h3 className="text-base font-semibold text-foreground">Could not load trends</h3>
       <p className="mt-2 max-w-xs text-sm text-muted-foreground">
         Something went wrong fetching your stats. Try refreshing the page.
       </p>
@@ -218,16 +80,13 @@ export default function StatsPage() {
 
   const { dowStats, focusDowStats, trendData, bestSleepDay, bestStepsDay, bestReadinessDay, bestHrvDay,
     waterStreak, totalFocusMin30, stepStreak, sleepStreak, hrvTrend, hrvAvg7,
-    sleepConsistency, avgBedtime, bedtimeStdDevMin, correlations, customCorrelations,
-    intakeCorrelations, spendingCorrelations, weatherCorrelations,
-    lastfmCorrelations, checkinCorrelations, dataPoints } = data
+    sleepConsistency, avgBedtime, bedtimeStdDevMin, dataPoints } = data
 
   const maxSleep = Math.max(...dowStats.map(d => d.avgSleep ?? 0), 9)
   const maxSteps = Math.max(...dowStats.map(d => d.avgSteps ?? 0), 8000)
   const maxFocus = Math.max(...focusDowStats.map(d => d.avgFocusMin ?? 0), 60)
   const today = new Date().getDay()
 
-  const strongCorrelations = [...correlations, ...(customCorrelations ?? [])].filter(c => c.strength === "strong" || c.strength === "moderate")
   const needsMoreData = dataPoints < 7
 
   const consistencyColor = sleepConsistency === "consistent" ? "text-green-400"
@@ -244,15 +103,15 @@ export default function StatsPage() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <BarChart3 className="h-6 w-6 text-primary shrink-0" /> Insights
+            <BarChart3 className="h-6 w-6 text-primary shrink-0" /> Trends
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">
-            Patterns from {dataPoints} days of data · last 90 days
+            How you&apos;re doing — {dataPoints} days of data · last 90 days
           </p>
         </div>
         {needsMoreData && (
           <div className="text-xs text-muted-foreground bg-secondary/60 rounded-lg px-3 py-2 max-w-[180px] text-right shrink-0">
-            Correlations improve with 14+ days of data
+            Trends improve with 14+ days of data
           </div>
         )}
       </div>
@@ -260,9 +119,9 @@ export default function StatsPage() {
       {dataPoints === 0 && (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border/50 px-8 py-20 text-center">
           <div className="mb-3 text-5xl leading-none select-none">📈</div>
-          <h3 className="text-base font-semibold text-foreground">No insights yet</h3>
+          <h3 className="text-base font-semibold text-foreground">No trends yet</h3>
           <p className="mt-2 max-w-xs text-sm text-muted-foreground leading-relaxed">
-            Insights appear once you have at least 7 days of health data. Log your sleep, steps, and readiness to unlock correlations.
+            Trends appear once you have at least 7 days of health data. Log your sleep, steps, and readiness to unlock them.
           </p>
           <div className="mt-4 flex flex-col gap-2 text-sm text-muted-foreground text-left">
             <span className="flex items-start gap-2">
@@ -287,109 +146,21 @@ export default function StatsPage() {
         </div>
       )}
 
-      {/* ── Key findings strip (strong/moderate only) ── */}
-      {strongCorrelations.length > 0 && (
-        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-          <p className="text-xs font-bold uppercase tracking-widest text-primary mb-3">Key findings</p>
-          <div className="space-y-2">
-            {strongCorrelations.slice(0, 3).map(c => (
-              <div key={c.key} className="flex items-start gap-2">
-                <span className="text-sm shrink-0">{c.emoji}</span>
-                <p className="text-sm leading-snug break-words min-w-0">{c.insight}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── All Correlations ── */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium">Correlations</CardTitle>
-          <p className="text-xs text-muted-foreground">How your habits and metrics relate to each other</p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {correlations.map(c => (
-            <CorrRow key={c.key} c={c} />
-          ))}
-
-          {customCorrelations.length > 0 && (
-            <div className="pt-2 border-t border-border/40">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
-                📐 Your trackers
-              </p>
-              <div className="space-y-4">
-                {customCorrelations.map(c => <CorrRow key={c.key} c={c} />)}
-              </div>
-            </div>
-          )}
-
-          {customCorrelations.length === 0 && (
-            <p className="text-xs text-muted-foreground/40 border-t border-border/30 pt-3 mt-2">
-              Create custom trackers and log 7+ days to unlock tracker correlations →{" "}
-              <a href="/dashboard/custom" className="underline underline-offset-2 hover:text-muted-foreground">Trackers</a>
+      {/* ── Pattern findings live on Insights now ── */}
+      <a
+        href="/dashboard/insights"
+        className="block rounded-xl border border-primary/20 bg-primary/5 p-4 hover:bg-primary/10 transition-colors"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">What predicts what → Insights</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+              Correlations moved to the Insights page — one place, every finding tested against chance before it&apos;s shown.
             </p>
-          )}
-
-          {(weatherCorrelations ?? []).length > 0 && (
-            <div className="pt-2 border-t border-border/40">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
-                🌤️ Weather
-              </p>
-              <div className="space-y-4">
-                {(weatherCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
-              </div>
-            </div>
-          )}
-
-          {(lastfmCorrelations ?? []).length > 0 && (
-            <div className="pt-2 border-t border-border/40">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
-                🎵 Music
-              </p>
-              <div className="space-y-4">
-                {(lastfmCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
-              </div>
-            </div>
-          )}
-
-          {(checkinCorrelations ?? []).length > 0 && (
-            <div className="pt-2 border-t border-border/40">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
-                🌅 Morning
-              </p>
-              <div className="space-y-4">
-                {(checkinCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
-              </div>
-            </div>
-          )}
-
-          {(intakeCorrelations ?? []).length > 0 && (
-            <div className="pt-2 border-t border-border/40">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
-                🍷 Alcohol &amp; Coffee
-              </p>
-              <div className="space-y-4">
-                {(intakeCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
-              </div>
-            </div>
-          )}
-
-          {(spendingCorrelations ?? []).length > 0 && (
-            <div className="pt-2 border-t border-border/40">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-3">
-                💸 Spending
-              </p>
-              <div className="space-y-4">
-                {(spendingCorrelations ?? []).map(c => <CorrRow key={c.key} c={c} />)}
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ── AI snapshot ── */}
-      <AIPanel />
+          </div>
+          <span className="text-primary text-lg shrink-0" aria-hidden>→</span>
+        </div>
+      </a>
 
       {/* ── Week-over-week trends ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

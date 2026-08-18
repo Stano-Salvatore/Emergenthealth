@@ -38,6 +38,7 @@ type DayData = {
   lastMealMin?: number     // minutes after local midnight of the day's last meal
   supplements?: string[]   // normalized supplement names taken (Oura tags)
   symptoms?: Record<string, number> // symptom name -> worst severity that day (1-5)
+  custom?: Record<string, number>   // custom tracker values by metric id (logged days only)
   deepSleepMin?: number    // sleep architecture (Oura)
   remSleepMin?: number
   workoutMin?: number      // Strava moving time that day
@@ -50,7 +51,7 @@ type DayData = {
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom"
   emoji: string
   title: string
   finding: string
@@ -345,7 +346,7 @@ export async function computeCorrelations(
 
   // Sources that used to live only in the /api/stats mini-engine (music, money,
   // focus) or nowhere at all (standalone mood logs, Strava, fasting).
-  const [moodRows, stravaRows, focusRows, lastfmRows, txRows, fastPref, symptomRows] = await Promise.all([
+  const [moodRows, stravaRows, focusRows, lastfmRows, txRows, fastPref, symptomRows, customMetricRows, customLogRows] = await Promise.all([
     prisma.moodLog.findMany({
       where: { userId, date: { gte: since60 } },
       select: { date: true, mood: true },
@@ -380,6 +381,16 @@ export async function computeCorrelations(
       where: { userId, day: { gte: since60str } },
       select: { day: true, name: true, severity: true },
     }).catch(() => [] as { day: string; name: string; severity: number }[]),
+
+    // Custom trackers also live in raw-DDL tables with no Prisma model
+    prisma.$queryRaw<{ id: string; name: string; emoji: string; type: string }[]>`
+      SELECT "id", "name", "emoji", "type" FROM "CustomMetric" WHERE "userId" = ${userId}
+    `.catch(() => [] as { id: string; name: string; emoji: string; type: string }[]),
+
+    prisma.$queryRaw<{ metricId: string; date: string; value: number }[]>`
+      SELECT "metricId", "date"::text as "date", "value" FROM "CustomMetricLog"
+      WHERE "userId" = ${userId} AND "date" >= ${since60str}
+    `.catch(() => [] as { metricId: string; date: string; value: number }[]),
   ])
 
   const dayMap = new Map<string, DayData>()
@@ -417,6 +428,12 @@ export async function computeCorrelations(
     const dateStr = m.date.toISOString().slice(0, 10)
     const d = getOrCreate(dateStr)
     if (d.mood == null) d.mood = m.mood
+  }
+
+  for (const cl of customLogRows) {
+    const d = getOrCreate(cl.date.slice(0, 10))
+    if (!d.custom) d.custom = {}
+    d.custom[cl.metricId] = Number(cl.value)
   }
 
   const habitCountByDay: Record<string, number> = {}
@@ -1774,6 +1791,70 @@ export async function computeCorrelations(
         : `Drinking isn't cutting your REM sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
   })
   if (ins_alcohol_rem) insights.push(ins_alcohol_rem)
+
+  // 22. Custom trackers — the one family the retired Pearson card on Trends
+  // had that this engine didn't. Same treatment as every built-in source:
+  // group split, permutation test, FDR across the run. Only logged days count
+  // (an unlogged day is unknown, not zero), and the targets are fixed up
+  // front — mood that day, sleep that night, next-morning energy — instead of
+  // cherry-picking whichever pairing happens to score highest.
+  for (const metric of customMetricRows) {
+    const logged = days.filter(d => d.custom?.[metric.id] != null)
+    if (logged.length < 10) continue
+    const vals = logged.map(d => d.custom![metric.id])
+    const isBinary = metric.type === "boolean" || vals.every(v => v === 0 || v === 1)
+    const valMedian = median(vals)
+    // Binary trackers split did/didn't; numeric ones split at the personal
+    // median. A degenerate split (every day identical) empties one side and
+    // compareGroups declines it.
+    const isHigh = (v: number) => (isBinary ? v >= 1 : v >= valMedian)
+    const highLabel = isBinary ? `${metric.name} days` : `higher ${metric.name} days (${r1(valMedian)}+)`
+    const lowLabel = isBinary ? `days without ${metric.name}` : `lower ${metric.name} days`
+
+    const cMoodHigh: number[] = [], cMoodLow: number[] = []
+    const cSleepHigh: number[] = [], cSleepLow: number[] = []
+    const cEnergyHigh: number[] = [], cEnergyLow: number[] = []
+    for (const d of logged) {
+      const high = isHigh(d.custom![metric.id])
+      if (d.mood != null) { if (high) cMoodHigh.push(d.mood); else cMoodLow.push(d.mood) }
+      const next = byDate[nextDateStr(d.date)]
+      if (next?.sleepScore != null) { if (high) cSleepHigh.push(next.sleepScore); else cSleepLow.push(next.sleepScore) }
+      if (next?.energy != null) { if (high) cEnergyHigh.push(next.energy); else cEnergyLow.push(next.energy) }
+    }
+
+    const ins_custom_mood = compareGroups({
+      id: `custom_${metric.id}_mood`, category: "custom", emoji: metric.emoji, title: `${metric.name} & Mood`,
+      highGroupLabel: highLabel, lowGroupLabel: lowLabel,
+      highValues: cMoodHigh, lowValues: cMoodLow,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On ${highLabel}, your mood averages ${h} vs ${l} on ${lowLabel}`
+          : `On ${highLabel}, mood runs ${h} vs ${l} on ${lowLabel}`,
+    })
+    if (ins_custom_mood) insights.push(ins_custom_mood)
+
+    const ins_custom_sleep = compareGroups({
+      id: `custom_${metric.id}_sleep`, category: "custom", emoji: metric.emoji, title: `${metric.name} & Sleep`,
+      highGroupLabel: highLabel, lowGroupLabel: lowLabel,
+      highValues: cSleepHigh, lowValues: cSleepLow,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `Nights after ${highLabel}, sleep score averages ${h} vs ${l}`
+          : `Nights after ${highLabel}, sleep score runs ${h} vs ${l}`,
+    })
+    if (ins_custom_sleep) insights.push(ins_custom_sleep)
+
+    const ins_custom_energy = compareGroups({
+      id: `custom_${metric.id}_energy`, category: "custom", emoji: metric.emoji, title: `${metric.name} & Next-Day Energy`,
+      highGroupLabel: highLabel, lowGroupLabel: lowLabel,
+      highValues: cEnergyHigh, lowValues: cEnergyLow,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `The morning after ${highLabel}, energy averages ${h} vs ${l}`
+          : `The morning after ${highLabel}, energy runs ${h} vs ${l}`,
+    })
+    if (ins_custom_energy) insights.push(ins_custom_energy)
+  }
 
   return insights
   } // end deriveInsights
