@@ -612,7 +612,7 @@ async function buildSystemPrompt(userId: string): Promise<string> {
   // their symptoms but not their prescriptions, and had no idea what they were
   // aiming at. Fetched in one batch alongside the rest so the extra sources
   // cost latency once, not seven times.
-  const [locationPoints, timelineEvents, focusSessions, medSchedules, books, goals, routines] = await Promise.all([
+  const [locationPoints, timelineEvents, focusSessions, medSchedules, books, goals, routines, cachedInsights] = await Promise.all([
     // Raw pings, summarised below rather than listed — there can be thousands
     // a week and none of them mean anything individually.
     prisma.locationPoint.findMany({
@@ -644,6 +644,16 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       where: { userId }, orderBy: { sortOrder: "asc" },
       select: { name: true, emoji: true, habitIds: true },
     }).catch(() => [] as { name: string; emoji: string; habitIds: string[] }[]),
+    // The correlation engine tests 51 relationships and puts every one through
+    // a permutation test and Benjamini-Hochberg correction — and the results
+    // lived on a page. Emergy, the one part of this app that actually talks,
+    // could not see a single finding. This reads the cache the insights page
+    // and the nightly cron both write, so nothing is recomputed here: a chat
+    // message must never trigger a 1000-shuffle run.
+    prisma.userPreference.findUnique({
+      where: { userId_key: { userId, key: "insights_cache:overall" } },
+      select: { value: true },
+    }).catch(() => null),
   ])
 
   const [recentMoods, todayWeather, recentNotes, recentLabs, latestBody, recentWorkouts, recentSymptoms, fastActivePref, fastHistoryPref] = await Promise.all([
@@ -933,6 +943,29 @@ async function buildSystemPrompt(userId: string): Promise<string> {
       ? "No calendar events."
       : `Recent (last ~30 days):\n${past.length ? past.map(fmtCalLine).join("\n") : "  (none)"}\n\nUpcoming (next ~14 days):\n${upcoming.length ? upcoming.map(fmtCalLine).join("\n") : "  (none)"}`
 
+  // ── Proven patterns ──────────────────────────────────────────────────────
+  // Only findings that survived the engine's own filtering, with their tier
+  // kept: "strong" cleared Benjamini-Hochberg at q=0.10, "suggestive" did not
+  // and is a lead rather than a fact. Handing over the whole board would
+  // invite him to recite it; the cap and the instructions below are what keep
+  // this a remark he makes when it fits, not a report he delivers.
+  let patternsStr: string | null = null
+  try {
+    const parsed = cachedInsights?.value ? JSON.parse(cachedInsights.value) : null
+    const all: { title?: string; finding?: string; tier?: string }[] = parsed?.payload?.insights ?? []
+    const ranked = [
+      ...all.filter(i => i.tier === "strong"),
+      ...all.filter(i => i.tier === "suggestive"),
+    ].slice(0, 10)
+    if (ranked.length > 0) {
+      patternsStr = ranked
+        .map(i => `- [${i.tier === "strong" ? "solid" : "tentative"}] ${i.finding ?? i.title}`)
+        .join("\n")
+    }
+  } catch {
+    // A malformed cache must not cost the user their whole prompt.
+  }
+
   // ── Wearable coverage ────────────────────────────────────────────────────
   // A missing night is information, not an absence. Emergy saw "?" in the rows
   // and read straight past it, so a ring left on the charger produced a
@@ -1064,6 +1097,9 @@ ${weatherStr ?? "No weather data available."}
 - Steps/day: ${avgStepsThis ?? "n/a"}${trend(avgStepsThis, avgStepsLast)}
 - Mood avg: ${avgMoodThis != null ? `${avgMoodThis}/5` : "n/a"}${avgMoodThis != null && avgMoodLast != null ? trend(avgMoodThis, avgMoodLast) : ""}
 
+${patternsStr ? `## Patterns in their own data (found by the app, already filtered for flukes)
+${patternsStr}
+These come from their own history, not from general health advice — which makes them worth far more. Bring ONE up only when it fits what they're actually asking about, in your own words. Never list them, never open with them. "Solid" survived statistical correction; "tentative" did not, so soften it ("might be", "worth watching") and never state it as established. All of it is association, not proof — never imply one thing causes another.\n` : ""}
 ${wearableStr ? `## Wearable coverage\n${wearableStr}\n` : ""}
 ## Health (last 7 days)
 ${recentHealth.slice(0, 7).length === 0 ? "No health data yet." : recentHealth.slice(0, 7).map((h) => `- ${h.date.toISOString().split("T")[0]}: sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"}${(h as any).sleepScore != null ? ` (score ${(h as any).sleepScore})` : ""}${h.readinessScore != null ? ` | readiness ${h.readinessScore}` : ""}${h.hrv != null ? ` | HRV ${Math.round(h.hrv)}ms` : ""} | ${h.steps ?? "?"}steps | HR ${h.restingHR ?? "?"}bpm${h.activityScore != null ? ` | activity ${h.activityScore}` : ""}${h.weight != null ? ` | ${h.weight}kg` : ""}`).join("\n")}

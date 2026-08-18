@@ -106,11 +106,28 @@ export async function GET(req: NextRequest) {
     checked++
 
     let insights
+    let totalDays = 0
     try {
-      ({ insights } = await computeCorrelations(userId, WINDOW_DAYS))
+      ({ insights, totalDays } = await computeCorrelations(userId, WINDOW_DAYS))
     } catch {
       continue
     }
+
+    // This run has already paid for the expensive part, so store it where the
+    // rest of the app can read it. Same key and shape the insights page uses,
+    // so both readers agree and the page loads from cache the next morning —
+    // and Emergy can see these patterns without a chat message triggering a
+    // 1000-permutation recompute.
+    await prisma.userPreference.upsert({
+      where: { userId_key: { userId, key: "insights_cache:overall" } },
+      create: {
+        userId, key: "insights_cache:overall",
+        value: JSON.stringify({ at: Date.now(), payload: { insights, dataRange: { days: totalDays } } }),
+      },
+      update: {
+        value: JSON.stringify({ at: Date.now(), payload: { insights, dataRange: { days: totalDays } } }),
+      },
+    }).catch(() => null)
     const byId = new Map(insights.map(i => [i.id, i]))
     const prevState = stateByUser.get(userId) ?? {}
     const nextState: WatchState = { ...prevState }
