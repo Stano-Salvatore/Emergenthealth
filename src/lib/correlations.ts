@@ -78,6 +78,14 @@ export type InsightResult = {
 
 export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall: 90 }
 
+/**
+ * Bump when the insight battery gains or loses sources. Cached runs stamped
+ * with an older version are recomputed on the next read instead of served,
+ * so a new family (like custom trackers) appears immediately rather than
+ * after the cache TTL happens to expire.
+ */
+export const ENGINE_VERSION = 2
+
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
 }
@@ -571,6 +579,29 @@ export async function computeCorrelations(
 
   // The whole insight battery, runnable on any subset of days — it runs twice:
   // once on everything, once on weekdays only (the weekend confounder guard).
+  // Custom-tracker group definitions come from the FULL window, not from
+  // whichever day-subset a pass happens to see: recomputing the median (or
+  // the binary detection) on weekdays-only would make the weekend guard
+  // compare two structurally different splits, and re-applying the 10-day
+  // gate on the smaller weekday set would silently skip the guard for
+  // exactly the weekend-clustered trackers it exists to catch. Qualification
+  // happens here; inside each pass compareGroups' per-group minimums decide,
+  // same as every built-in source.
+  const customDefs = customMetricRows.flatMap(metric => {
+    const vals = allDays.filter(d => d.custom?.[metric.id] != null).map(d => d.custom![metric.id])
+    if (vals.length < 10) return []
+    const isBinary = metric.type === "boolean" || vals.every(v => v === 0 || v === 1)
+    const valMedian = median(vals)
+    return [{
+      id: metric.id,
+      name: metric.name,
+      emoji: metric.emoji,
+      isHigh: (v: number) => (isBinary ? v >= 1 : v >= valMedian),
+      highLabel: isBinary ? `${metric.name} days` : `higher ${metric.name} days (${r1(valMedian)}+)`,
+      lowLabel: isBinary ? `days without ${metric.name}` : `lower ${metric.name} days`,
+    }]
+  })
+
   const deriveInsights = (days: DayData[]): InsightResult[] => {
   const insights: InsightResult[] = []
   const byDate = Object.fromEntries(days.map(d => [d.date, d]))
@@ -1794,22 +1825,14 @@ export async function computeCorrelations(
 
   // 22. Custom trackers — the one family the retired Pearson card on Trends
   // had that this engine didn't. Same treatment as every built-in source:
-  // group split, permutation test, FDR across the run. Only logged days count
-  // (an unlogged day is unknown, not zero), and the targets are fixed up
-  // front — mood that day, sleep that night, next-morning energy — instead of
-  // cherry-picking whichever pairing happens to score highest.
-  for (const metric of customMetricRows) {
+  // group split (did/didn't for boolean trackers, personal-median otherwise —
+  // see customDefs above), permutation test, FDR across the run. Only logged
+  // days count (an unlogged day is unknown, not zero), and the targets are
+  // fixed up front — mood that day, sleep that night, next-morning energy —
+  // instead of cherry-picking whichever pairing happens to score highest.
+  for (const metric of customDefs) {
     const logged = days.filter(d => d.custom?.[metric.id] != null)
-    if (logged.length < 10) continue
-    const vals = logged.map(d => d.custom![metric.id])
-    const isBinary = metric.type === "boolean" || vals.every(v => v === 0 || v === 1)
-    const valMedian = median(vals)
-    // Binary trackers split did/didn't; numeric ones split at the personal
-    // median. A degenerate split (every day identical) empties one side and
-    // compareGroups declines it.
-    const isHigh = (v: number) => (isBinary ? v >= 1 : v >= valMedian)
-    const highLabel = isBinary ? `${metric.name} days` : `higher ${metric.name} days (${r1(valMedian)}+)`
-    const lowLabel = isBinary ? `days without ${metric.name}` : `lower ${metric.name} days`
+    const { isHigh, highLabel, lowLabel } = metric
 
     const cMoodHigh: number[] = [], cMoodLow: number[] = []
     const cSleepHigh: number[] = [], cSleepLow: number[] = []

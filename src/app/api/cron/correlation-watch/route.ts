@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { Resend } from "resend"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser, type PushSub } from "@/lib/push"
-import { computeCorrelations } from "@/lib/correlations"
+import { computeCorrelations, ENGINE_VERSION } from "@/lib/correlations"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -122,10 +122,10 @@ export async function GET(req: NextRequest) {
       where: { userId_key: { userId, key: "insights_cache:overall" } },
       create: {
         userId, key: "insights_cache:overall",
-        value: JSON.stringify({ at: Date.now(), payload: { insights, dataRange: { days: totalDays } } }),
+        value: JSON.stringify({ at: Date.now(), v: ENGINE_VERSION, payload: { insights, dataRange: { days: totalDays } } }),
       },
       update: {
-        value: JSON.stringify({ at: Date.now(), payload: { insights, dataRange: { days: totalDays } } }),
+        value: JSON.stringify({ at: Date.now(), v: ENGINE_VERSION, payload: { insights, dataRange: { days: totalDays } } }),
       },
     }).catch(() => null)
     const byId = new Map(insights.map(i => [i.id, i]))

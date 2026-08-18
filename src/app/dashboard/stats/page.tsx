@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrendingUp, TrendingDown, Minus, BarChart3, Moon, Footprints, Activity, Zap } from "lucide-react"
 
@@ -147,7 +148,7 @@ export default function StatsPage() {
       )}
 
       {/* ── Pattern findings live on Insights now ── */}
-      <a
+      <Link
         href="/dashboard/insights"
         className="block rounded-xl border border-primary/20 bg-primary/5 p-4 hover:bg-primary/10 transition-colors"
       >
@@ -160,7 +161,7 @@ export default function StatsPage() {
           </div>
           <span className="text-primary text-lg shrink-0" aria-hidden>→</span>
         </div>
-      </a>
+      </Link>
 
       {/* ── Week-over-week trends ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

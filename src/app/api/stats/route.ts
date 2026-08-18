@@ -53,8 +53,9 @@ export async function GET() {
       where: { userId, endedAt: { gte: since30 }, type: "focus" },
       select: { durationMin: true, endedAt: true },
     }).catch(() => [] as { durationMin: number; endedAt: Date }[]),
+    // The water streak looks back 31 days at most — no need for the 90-day window.
     prisma.intakeLog.findMany({
-      where: { userId, loggedAt: { gte: since90 } },
+      where: { userId, loggedAt: { gte: subDays(new Date(), 31) } },
       select: { amountMl: true, loggedAt: true, type: true },
     }).catch(() => [] as { amountMl: number; loggedAt: Date; type: string }[]),
   ])
@@ -116,13 +117,10 @@ export async function GET() {
 
   // ── Water streak ─────────────────────────────────────────────────────────────
   const waterByDay: Record<string, number> = {}
-  const alcoholByDay: Record<string, number> = {}
-  const coffeeByDay: Record<string, number> = {}
   for (const w of intakeLogs) {
+    if (w.type === "alcohol" || w.type === "coffee") continue
     const d = format(new Date(w.loggedAt), "yyyy-MM-dd")
-    if (w.type === "alcohol") alcoholByDay[d] = (alcoholByDay[d] ?? 0) + w.amountMl
-    else if (w.type === "coffee") coffeeByDay[d] = (coffeeByDay[d] ?? 0) + w.amountMl
-    else waterByDay[d] = (waterByDay[d] ?? 0) + w.amountMl
+    waterByDay[d] = (waterByDay[d] ?? 0) + w.amountMl
   }
   let waterStreak = 0
   const wCursor = new Date()
