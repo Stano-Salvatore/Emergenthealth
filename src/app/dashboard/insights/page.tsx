@@ -10,7 +10,7 @@ import { DailyScoreCard } from "@/components/dashboard/DailyScoreCard"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting"
+type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom"
 
 interface InsightResult {
   id: string
@@ -51,6 +51,7 @@ const CATEGORY_META: Record<Category, { label: string; emoji: string; color: str
   fitness:     { label: "Workouts", emoji: "🏃", color: "text-emerald-400" },
   fasting:     { label: "Fasting",  emoji: "⏳", color: "text-yellow-400" },
   habits:      { label: "Habits",   emoji: "✅", color: "text-green-400" },
+  custom:      { label: "Your trackers", emoji: "📐", color: "text-lime-400" },
   focus:       { label: "Focus",    emoji: "🎯", color: "text-red-400" },
   caffeine:    { label: "Caffeine", emoji: "☕", color: "text-amber-400" },
   screen:      { label: "Screen Time", emoji: "📱", color: "text-cyan-400" },
@@ -60,7 +61,7 @@ const CATEGORY_META: Record<Category, { label: string; emoji: string; color: str
   tags:        { label: "Tags",     emoji: "🏷️", color: "text-primary" },
 }
 
-const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "stress", "food", "symptoms", "supplements", "interactions", "fitness", "fasting", "habits", "focus", "caffeine", "screen", "music", "money", "calendar", "tags"]
+const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "stress", "food", "symptoms", "supplements", "interactions", "fitness", "fasting", "habits", "custom", "focus", "caffeine", "screen", "music", "money", "calendar", "tags"]
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
