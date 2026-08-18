@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { computeCorrelations, PERIOD_DAYS } from "@/lib/correlations"
+import { computeCorrelations, ENGINE_VERSION, PERIOD_DAYS } from "@/lib/correlations"
 
 // A full correlation run is now genuinely expensive: ~15 queries, then the
 // whole insight battery twice (once over all days, once weekdays-only for the
@@ -33,7 +33,9 @@ export async function GET(req: Request) {
     if (cached) {
       try {
         const parsed = JSON.parse(cached.value)
-        if (Date.now() - (parsed.at ?? 0) < TTL_MS) {
+        // A cache entry from an older engine is stale regardless of age —
+        // serving it would hide whole insight families that were just added.
+        if (parsed.v === ENGINE_VERSION && Date.now() - (parsed.at ?? 0) < TTL_MS) {
           return NextResponse.json({ ...parsed.payload, computedAt: new Date(parsed.at).toISOString(), cached: true })
         }
       } catch { /* recompute */ }
@@ -46,8 +48,8 @@ export async function GET(req: Request) {
 
   await prisma.userPreference.upsert({
     where: { userId_key: { userId, key: cacheKey(period) } },
-    create: { userId, key: cacheKey(period), value: JSON.stringify({ at, payload }) },
-    update: { value: JSON.stringify({ at, payload }) },
+    create: { userId, key: cacheKey(period), value: JSON.stringify({ at, v: ENGINE_VERSION, payload }) },
+    update: { value: JSON.stringify({ at, v: ENGINE_VERSION, payload }) },
   }).catch(() => null)
 
   return NextResponse.json({ ...payload, computedAt: new Date(at).toISOString(), cached: false })

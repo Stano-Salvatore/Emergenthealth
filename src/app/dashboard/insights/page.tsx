@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -351,6 +352,14 @@ export default function InsightsPage() {
               </section>
             )
           })}
+          {!grouped.custom?.length && (
+            <p className="text-xs text-muted-foreground/50">
+              📐 Custom trackers join once one has ~10 logged days ·{" "}
+              <Link href="/dashboard/custom" className="underline underline-offset-2 hover:text-muted-foreground">
+                Trackers
+              </Link>
+            </p>
+          )}
         </div>
       )}
     </div>
