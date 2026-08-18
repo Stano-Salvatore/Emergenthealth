@@ -533,7 +533,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   return "Unknown tool."
 }
 
-async function buildSystemPrompt(userId: string): Promise<string> {
+export async function buildSystemPrompt(userId: string): Promise<string> {
   const today = new Date()
 
   // The user's IANA timezone (captured by TimezoneDetector into UserPreference).
