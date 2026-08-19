@@ -7,6 +7,8 @@ import { estimateCaffeine, activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
+import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { randomUUID } from "crypto"
 
 /** Fold whatever the model called it onto a type the app stores. */
 function normalizeDrinkType(raw: string): string {
@@ -215,6 +217,68 @@ const TOOLS: Anthropic.Tool[] = [
         fact: { type: "string", description: "The fact to remember, in a short sentence" },
       },
       required: ["fact"],
+    },
+  },
+  {
+    name: "complete_reminder",
+    description: "Mark one of the user's open reminders/to-dos as done. Matches by title, case-insensitively.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string", description: "The reminder's title, or enough of it to identify it" },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "log_focus",
+    description: "Record a completed deep-work/focus session, e.g. 'just did 50 minutes of writing'. Logs it as ending now.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        durationMin: { type: "number", description: "Session length in minutes" },
+        label: { type: "string", description: "Optional: what they worked on" },
+      },
+      required: ["durationMin"],
+    },
+  },
+  {
+    name: "log_custom_metric",
+    description: "Log today's value for one of the user's custom trackers (the metrics they created themselves, e.g. 'stress', 'meditation', 'back pain'). Matches the tracker by name. For yes/no trackers use 1 (did) or 0 (didn't).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        metricName: { type: "string", description: "The tracker's name, or enough of it to identify it" },
+        value: { type: "number", description: "Today's value (1/0 for yes-no trackers)" },
+        note: { type: "string", description: "Optional short note" },
+      },
+      required: ["metricName", "value"],
+    },
+  },
+  {
+    name: "log_symptom",
+    description: "Record a symptom the user mentions — headache, sore throat, back pain — with a 1-5 severity (1=barely there, 5=severe). Infer a reasonable severity from how they describe it if they don't give a number.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Symptom name, e.g. 'Headache'" },
+        severity: { type: "number", description: "1-5" },
+        note: { type: "string", description: "Optional context, e.g. 'started after lunch'" },
+      },
+      required: ["name", "severity"],
+    },
+  },
+  {
+    name: "log_moment",
+    description: "Save a small life moment to the user's timeline — 'first swim of the year', 'dinner with mom'. Use when the user shares something worth marking that isn't a metric.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        label: { type: "string", description: "Short label for the moment" },
+        emoji: { type: "string", description: "One fitting emoji (default 📌)" },
+        note: { type: "string", description: "Optional detail" },
+      },
+      required: ["label"],
     },
   },
 ]
@@ -528,6 +592,102 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       update: { value: JSON.stringify(facts) },
     }).catch(() => null)
     return `Got it — I'll remember that: "${fact}".`
+  }
+
+  if (name === "complete_reminder") {
+    const q = String(input.title ?? "").trim()
+    if (!q) return "Which reminder?"
+    const reminder = await prisma.reminder.findFirst({
+      where: { userId, isCompleted: false, title: { contains: q, mode: "insensitive" } },
+      orderBy: { dueDate: "asc" },
+    }).catch(() => null)
+    if (!reminder) {
+      const open = await prisma.reminder.findMany({
+        where: { userId, isCompleted: false },
+        orderBy: { dueDate: "asc" },
+        take: 5,
+        select: { title: true },
+      }).catch(() => [] as { title: string }[])
+      return open.length
+        ? `No open reminder matches "${q}". Open ones: ${open.map(r => `"${r.title}"`).join(", ")}.`
+        : `No open reminder matches "${q}" — the list is empty.`
+    }
+    await prisma.reminder.update({
+      where: { id: reminder.id },
+      data: { isCompleted: true, completedAt: new Date() },
+    }).catch(() => null)
+    return `Marked "${reminder.title}" as done.`
+  }
+
+  if (name === "log_focus") {
+    const durationMin = clampInt(input.durationMin, 1, 600, 0)
+    if (!durationMin) return "Need a duration in minutes."
+    const label = String(input.label ?? "").trim().slice(0, 120) || null
+    const endedAt = new Date()
+    await prisma.focusSession.create({
+      data: {
+        userId, durationMin, type: "focus", label,
+        startedAt: new Date(endedAt.getTime() - durationMin * 60_000),
+        endedAt,
+      },
+    }).catch(() => null)
+    return `Logged ${durationMin}min of deep work${label ? ` on "${label}"` : ""}.`
+  }
+
+  if (name === "log_custom_metric") {
+    const q = String(input.metricName ?? "").trim()
+    if (!q) return "Which tracker?"
+    const metrics = await prisma.$queryRaw<{ id: string; name: string; emoji: string; type: string }[]>`
+      SELECT "id","name","emoji","type" FROM "CustomMetric" WHERE "userId" = ${userId}
+    `.catch(() => [] as { id: string; name: string; emoji: string; type: string }[])
+    const metric = metrics.find(m => m.name.toLowerCase() === q.toLowerCase())
+      ?? metrics.find(m => m.name.toLowerCase().includes(q.toLowerCase()))
+    if (!metric) {
+      return metrics.length
+        ? `No tracker matches "${q}". They have: ${metrics.map(m => `${m.emoji} ${m.name}`).join(", ")}.`
+        : `No custom trackers exist yet — they can be created on the Trackers page.`
+    }
+    const raw = Number(input.value)
+    if (!Number.isFinite(raw)) return "Need a numeric value."
+    const value = metric.type === "boolean" ? (raw >= 1 ? 1 : 0) : Math.round(raw * 100) / 100
+    const note = String(input.note ?? "").trim().slice(0, 200) || null
+    const tz = await getUserTimezone(userId)
+    const dateStr = localDateStr(tz)
+    // Same write the Trackers page does: one value per metric per day.
+    await prisma.$executeRaw`
+      INSERT INTO "CustomMetricLog"("id","userId","metricId","date","value","note")
+      VALUES (${randomUUID()}, ${userId}, ${metric.id}, ${dateStr}::date, ${value}, ${note})
+      ON CONFLICT ("metricId","date") DO UPDATE SET "value" = EXCLUDED."value", "note" = EXCLUDED."note"
+    `.catch(() => null)
+    return `Logged ${metric.emoji} ${metric.name} = ${metric.type === "boolean" ? (value ? "yes" : "no") : value} for today.`
+  }
+
+  if (name === "log_symptom") {
+    const label = String(input.name ?? "").trim().slice(0, 80)
+    if (!label) return "Need a symptom name."
+    const severity = clampInt(input.severity, 1, 5, 3)
+    const note = String(input.note ?? "").trim().slice(0, 300) || null
+    const tz = await getUserTimezone(userId)
+    await prisma.symptomLog.create({
+      data: {
+        userId,
+        name: label.charAt(0).toUpperCase() + label.slice(1),
+        severity, note,
+        day: localDateStr(tz),
+      },
+    }).catch(() => null)
+    return `Logged ${label} at ${severity}/5. Hope it eases up.`
+  }
+
+  if (name === "log_moment") {
+    const label = String(input.label ?? "").trim().slice(0, 120)
+    if (!label) return "Need a label for the moment."
+    const emoji = String(input.emoji ?? "").trim().slice(0, 8) || "📌"
+    const note = String(input.note ?? "").trim().slice(0, 500) || null
+    await prisma.timelineEvent.create({
+      data: { userId, emoji, label, note },
+    }).catch(() => null)
+    return `Saved to the timeline: ${emoji} ${label}.`
   }
 
   return "Unknown tool."
@@ -1076,7 +1236,7 @@ You can see their medications, symptoms and lab results. You may describe what's
 
 FORMATTING: your replies render as markdown. Use **bold** to highlight times, numbers and key words (bold shows in green — that's your accent colour), "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
-You have tools to CREATE habits/reminders, COMPLETE habits, LOG water/coffee/mood/weight/journal and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
+You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
 ## Today's snapshot
