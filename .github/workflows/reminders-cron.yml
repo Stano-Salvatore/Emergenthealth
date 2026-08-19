@@ -52,7 +52,7 @@ jobs:
           # wind-down-nudge and emergy-weekly-review are window-gated inside the
           # route (local evening hours; Sunday only for the review) and keep the
           # same per-day sent record, so the 10-minute tick is safe for them too.
-          for endpoint in habit-reminders med-reminders morning-reminder noon-reminder evening-reminder wind-down-nudge emergy-weekly-review monthly-export re-engagement place-checkins; do
+          for endpoint in habit-reminders med-reminders morning-reminder noon-reminder evening-reminder wind-down-nudge experiment-nudge emergy-weekly-review monthly-export re-engagement place-checkins; do
             code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${endpoint}") || true

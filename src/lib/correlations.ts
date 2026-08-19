@@ -136,7 +136,7 @@ const PERMUTATIONS = 1000
  * as large as the observed one. Distribution-free — no normality assumptions,
  * works at the small n this engine deals in.
  */
-function permutationP(high: number[], low: number[], seedKey: string): number {
+export function permutationP(high: number[], low: number[], seedKey: string): number {
   const observed = Math.abs(avg(high) - avg(low))
   const pool = [...high, ...low]
   const nHigh = high.length
