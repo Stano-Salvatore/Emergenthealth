@@ -25,6 +25,15 @@ const SENSITIVE_PREF_KEY = /(token|secret|password|api_?key|credential)/i
 
 const SAFE_TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
+// Tables that grow without bound (continuous location tracking, chat).
+// Uncapped, a heavy user's export could balloon past memory and the
+// function budget — breaking the backup for exactly the people with the
+// most to lose. Capped newest-first, and the bundle says so.
+const TABLE_LIMITS: Record<string, { cap: number; orderBy: string }> = {
+  LocationPoint: { cap: 50_000, orderBy: '"trackedAt" DESC' },
+  ChatMessage: { cap: 20_000, orderBy: '"createdAt" DESC' },
+}
+
 export type ExportBundle = {
   filename: string
   json: string
@@ -52,21 +61,26 @@ export async function buildExportBundle(userId: string): Promise<ExportBundle> {
   ])
 
   const tables: Record<string, unknown[]> = {}
+  const truncated: Record<string, number> = {}
   let rowCount = 0
 
   for (const { table_name } of tableRows) {
     if (EXCLUDED_TABLES.has(table_name)) continue
     if (!SAFE_TABLE_NAME.test(table_name)) continue // defense in depth; names come from information_schema
 
+    const limit = TABLE_LIMITS[table_name]
     let rows: Record<string, unknown>[]
     try {
       rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
-        `SELECT * FROM "${table_name}" WHERE "userId" = $1`,
+        limit
+          ? `SELECT * FROM "${table_name}" WHERE "userId" = $1 ORDER BY ${limit.orderBy} LIMIT ${limit.cap}`
+          : `SELECT * FROM "${table_name}" WHERE "userId" = $1`,
         userId,
       )
     } catch {
       continue // a table this connection can't read shouldn't sink the export
     }
+    if (limit && rows.length === limit.cap) truncated[table_name] = limit.cap
     if (rows.length === 0) continue
 
     if (table_name === "UserPreference") {
@@ -88,6 +102,7 @@ export async function buildExportBundle(userId: string): Promise<ExportBundle> {
     exportedAt,
     user: { name: user?.name ?? null, email: user?.email ?? null, memberSince: user?.createdAt ?? null },
     note: "Complete account export. Credential tables (OAuth tokens, push keys, API keys) are deliberately excluded.",
+    truncated, // table -> row cap, for the few unbounded-growth tables (newest rows kept); empty when nothing was cut
     counts: Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.length])),
     tables,
   }

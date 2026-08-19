@@ -5,6 +5,7 @@ import { generateWeeklyReview, readWeeklyReview, saveWeeklyReview } from "@/lib/
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+export const maxDuration = 60 // full-context Opus generation runs tens of seconds
 
 // The dashboard's weekly-review card. The Sunday cron writes the canonical
 // review; GET serves it instantly, POST regenerates on demand through the

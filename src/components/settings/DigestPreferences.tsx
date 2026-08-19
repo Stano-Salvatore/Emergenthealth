@@ -113,7 +113,7 @@ export function DigestPreferences() {
           {saveStatus === "saved" && <span className="text-[11px] font-normal text-green-400">Saved</span>}
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Choose what appears in your weekly email digest
+          Choose which stats appear in your weekly review email
         </p>
       </CardHeader>
       <CardContent className="space-y-4">

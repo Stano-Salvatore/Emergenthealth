@@ -99,6 +99,7 @@ function TypeCard({
   const [expanded, setExpanded] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
 
   // Change when a manually logged dose was taken. Oura-sourced rows stay
   // read-only — the next ring sync would overwrite the edit.
@@ -109,13 +110,21 @@ function TypeCard({
     const d = new Date(entry.day + "T00:00:00")
     d.setHours(h, m, 0, 0)
     setSavingId(entry.id)
+    setEditError(null)
     try {
       const res = await fetch("/api/medications", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: entry.id, takenAt: d.toISOString() }),
       })
-      if (res.ok) onChanged()
+      if (res.ok) {
+        onChanged()
+      } else {
+        const d2 = await res.json().catch(() => null)
+        setEditError(d2?.error ?? "Couldn't change the time — try again.")
+      }
+    } catch {
+      setEditError("Couldn't change the time — try again.")
     } finally {
       setSavingId(null)
       setEditingId(null)
@@ -233,6 +242,9 @@ function TypeCard({
           ))}
           {!expanded && sorted.length > 3 && (
             <p className="text-xs text-muted-foreground/40 italic">+{sorted.length - 3} more…</p>
+          )}
+          {editError && (
+            <p className="text-[11px] text-red-400">{editError}</p>
           )}
         </div>
       </CardContent>

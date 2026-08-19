@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma"
 import Anthropic from "@anthropic-ai/sdk"
-import { format, startOfWeek, subDays } from "date-fns"
+import { format } from "date-fns"
 import { buildSystemPrompt } from "@/lib/claude"
+import { addDaysISO, getUserTimezone, localDateStr } from "@/lib/local-date"
 
 // The weekly review used to be three different things: a Sunday email with
 // bare averages, a dashboard button that asked Haiku for 200 generic words,
@@ -42,15 +43,24 @@ function avg(arr: (number | null | undefined)[]): number | null {
  * when generation isn't possible (no API key) or there is nothing to review
  * (no health data or check-ins all week).
  */
-export async function generateWeeklyReview(userId: string): Promise<WeeklyReview | null> {
+export async function generateWeeklyReview(userId: string, timezone?: string): Promise<WeeklyReview | null> {
   if (!process.env.ANTHROPIC_API_KEY) return null
 
-  const today = new Date()
-  const weekStart = startOfWeek(today, { weekStartsOn: 1 })
-  const prevWeekStart = subDays(weekStart, 7)
-  const prevWeekEnd = subDays(weekStart, 1)
-  const weekStartStr = format(weekStart, "yyyy-MM-dd")
-  const todayStr = format(today, "yyyy-MM-dd")
+  // The week is the USER'S week. The cron fires on their local Sunday
+  // evening, which for anyone west of UTC is already Monday in server time —
+  // computing the week from new Date() there would review the hour-old new
+  // week (empty) instead of the one that just ended.
+  const tz = timezone ?? await getUserTimezone(userId)
+  const todayStr = localDateStr(tz)
+  const dow = new Date(todayStr + "T12:00:00Z").getUTCDay() // 0 = Sunday
+  const weekStartStr = addDaysISO(todayStr, -((dow + 6) % 7)) // Monday of their week
+  const prevWeekStartStr = addDaysISO(weekStartStr, -7)
+  // healthLog.date sits at UTC midnight of the calendar day, so these
+  // boundaries select whole local calendar days.
+  const weekStart = new Date(weekStartStr + "T00:00:00Z")
+  const today = new Date(todayStr + "T23:59:59Z")
+  const prevWeekStart = new Date(prevWeekStartStr + "T00:00:00Z")
+  const prevWeekEnd = new Date(addDaysISO(weekStartStr, -1) + "T23:59:59Z")
 
   const [thisWeekLogs, prevWeekLogs, habits, focusSessions, moodLogs, waterLogs, checkinRows, stravaRows] = await Promise.all([
     prisma.healthLog.findMany({
@@ -92,7 +102,7 @@ export async function generateWeeklyReview(userId: string): Promise<WeeklyReview
   // Nothing tracked all week — a review would be fiction.
   if (thisWeekLogs.length === 0 && checkinRows.length === 0) return null
 
-  const daysThisWeek = Math.max(1, Math.round((today.getTime() - weekStart.getTime()) / 86400000) + 1)
+  const daysThisWeek = ((dow + 6) % 7) + 1
   const trackedDays = new Set(thisWeekLogs.map(l => l.date.toISOString().slice(0, 10))).size
 
   const avgSleepMin = avg(thisWeekLogs.map(l => l.sleepDuration))
@@ -123,7 +133,7 @@ export async function generateWeeklyReview(userId: string): Promise<WeeklyReview
   const intentions = checkinRows.map(c => c.intention).filter((s): s is string => !!s?.trim())
   const workoutKm = stravaRows.reduce((s, w) => s + (w.distanceM ?? 0) / 1000, 0)
 
-  const weekOf = format(weekStart, "MMMM d")
+  const weekOf = format(new Date(weekStartStr + "T12:00:00Z"), "MMMM d")
 
   const lines: string[] = [
     `Days with wearable data: ${trackedDays}/${daysThisWeek}${trackedDays < daysThisWeek ? " (the rest are gaps, not zeros)" : ""}`,
