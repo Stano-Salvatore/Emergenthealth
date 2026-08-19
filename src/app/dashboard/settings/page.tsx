@@ -17,6 +17,7 @@ import { TimelineImporter } from "@/components/settings/TimelineImporter"
 import { MigrateButton } from "@/components/settings/MigrateButton"
 import { SeedDemoButton } from "@/components/settings/SeedDemoButton"
 import { GoalsEditor } from "@/components/settings/GoalsEditor"
+import { EmergyMemory } from "@/components/settings/EmergyMemory"
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
 import { ZoomControl } from "@/components/settings/ZoomControl"
 import { LayoutModeControl } from "@/components/settings/LayoutModeControl"
@@ -370,6 +371,9 @@ export default async function SettingsPage({
       <SettingsSection title="Goals & reports" emoji="🎯">
       {/* Personal goals */}
       <GoalsEditor />
+
+      {/* Emergy's long-term memory, with delete */}
+      <EmergyMemory />
 
       <Card>
         <CardContent className="pt-4 pb-4 space-y-4">
