@@ -387,7 +387,7 @@ export async function syncNotifications(
         body: r.description?.trim() || "Reminder",
         schedule: { at, allowWhileIdle: true },
         actionTypeId: "TODO_REMINDER",
-        extra: { kind: "reminder", id: r.id },
+        extra: { kind: "reminder", id: r.id, url: "/dashboard/reminders" },
       })
     }
 
@@ -409,7 +409,7 @@ export async function syncNotifications(
           body: `Don't forget: ${habit.name}`,
           schedule: { at, allowWhileIdle: true },
           actionTypeId: "HABIT_REMINDER",
-          extra: { kind: "habit", id: habit.id },
+          extra: { kind: "habit", id: habit.id, url: "/dashboard/habits" },
         })
       }
     }
@@ -446,7 +446,7 @@ export async function syncNotifications(
             schedule: { at, allowWhileIdle: true },
             actionTypeId: "MED_REMINDER",
             // The dose log keys on the medication's name, same as the page.
-            extra: { kind: "med", name: med.name },
+            extra: { kind: "med", name: med.name, url: "/dashboard/medications" },
           })
         })
       }
@@ -589,10 +589,39 @@ export async function diagnoseNotifications(): Promise<{ reason: NotifDiagnosis;
 }
 
 /**
- * Handle the notification action buttons: complete the habit, log the dose,
- * tick off the to-do, or snooze the notification half an hour — all without
- * the app being opened first. A plain body tap has actionId "tap" and is left
- * alone: it opens the app, which is already the right thing.
+ * Where each kind of notification belongs in the app.
+ *
+ * Notifications are laid down in Android's alarm store days ahead, so the ones
+ * already on a phone carry whatever `extra` the version that scheduled them
+ * wrote. Deriving the destination from `kind` (with `extra.url` only as an
+ * override) means every notification already sitting on the device lands in
+ * the right place too, not just the ones scheduled from now on.
+ */
+const KIND_DESTINATIONS: Record<string, string> = {
+  habit: "/dashboard/habits",
+  reminder: "/dashboard/reminders",
+  med: "/dashboard/medications",
+}
+
+function destinationFor(extra: Record<string, unknown> | undefined): string | null {
+  const raw = typeof extra?.url === "string" && extra.url
+    ? extra.url
+    : KIND_DESTINATIONS[String(extra?.kind ?? "")]
+  // Same-origin app paths only. A notification's payload must never be able to
+  // send the shell's WebView off to another site.
+  if (typeof raw !== "string") return null
+  if (!raw.startsWith("/") || raw.startsWith("//")) return null
+  return raw
+}
+
+/**
+ * Handle notification taps: the action buttons complete the habit, log the
+ * dose, tick off the to-do or snooze half an hour without opening the app —
+ * and a plain body tap opens the page the notification is actually about.
+ *
+ * That last part used to be missing. Tapping "time for your 21:00 dose" landed
+ * on whatever page the WebView happened to have open, leaving the user to
+ * navigate to the thing they had just been reminded of.
  */
 export async function registerNotificationActionHandler(): Promise<void> {
   if (actionHandlerRegistered) return
@@ -606,6 +635,15 @@ export async function registerNotificationActionHandler(): Promise<void> {
         const actionId: string = event?.actionId ?? ""
         const notif = event?.notification
         const extra = notif?.extra ?? {}
+
+        // Body tap (Capacitor reports "tap"; older builds have sent "").
+        if (actionId === "tap" || actionId === "") {
+          const dest = destinationFor(extra)
+          if (dest && typeof window !== "undefined" && window.location.pathname !== dest) {
+            window.location.assign(dest)
+          }
+          return
+        }
 
         if (actionId === "snooze") {
           await ln.schedule({
