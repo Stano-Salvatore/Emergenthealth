@@ -90,11 +90,37 @@ function buildGroups(items: TagItem[]): TagGroup[] {
 function TypeCard({
   group,
   onRename,
+  onChanged,
 }: {
   group: TagGroup
   onRename: (uuids: string[], current: string) => void
+  onChanged: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [savingId, setSavingId] = useState<string | null>(null)
+
+  // Change when a manually logged dose was taken. Oura-sourced rows stay
+  // read-only — the next ring sync would overwrite the edit.
+  async function saveTime(entry: TagItem, hhmm: string) {
+    const [h, m] = hhmm.split(":").map(Number)
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return
+    // The picked time stays on the entry's own day.
+    const d = new Date(entry.day + "T00:00:00")
+    d.setHours(h, m, 0, 0)
+    setSavingId(entry.id)
+    try {
+      const res = await fetch("/api/medications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entry.id, takenAt: d.toISOString() }),
+      })
+      if (res.ok) onChanged()
+    } finally {
+      setSavingId(null)
+      setEditingId(null)
+    }
+  }
   const sorted = [...group.entries].sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   )
@@ -179,7 +205,27 @@ function TypeCard({
           {preview.map(e => (
             <div key={e.id} className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span>{format(new Date(e.day + "T12:00:00"), "MMM d")}</span>
-              <span className="text-muted-foreground/50">{format(new Date(e.timestamp), "HH:mm")}</span>
+              {editingId === e.id ? (
+                <input
+                  type="time"
+                  autoFocus
+                  defaultValue={format(new Date(e.timestamp), "HH:mm")}
+                  onBlur={ev => { if (ev.target.value) saveTime(e, ev.target.value); else setEditingId(null) }}
+                  onKeyDown={ev => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); if (ev.key === "Escape") setEditingId(null) }}
+                  className="rounded border border-primary bg-background px-1 py-0 text-xs outline-none"
+                />
+              ) : e.id.startsWith("manual_") ? (
+                <button
+                  onClick={() => setEditingId(e.id)}
+                  disabled={savingId === e.id}
+                  title="Change the time this dose was taken"
+                  className="text-muted-foreground/50 underline decoration-dotted underline-offset-2 hover:text-primary transition-colors disabled:opacity-50"
+                >
+                  {savingId === e.id ? "…" : format(new Date(e.timestamp), "HH:mm")}
+                </button>
+              ) : (
+                <span className="text-muted-foreground/50">{format(new Date(e.timestamp), "HH:mm")}</span>
+              )}
               {e.text && e.text !== e.tagName && (
                 <span className="flex-1 truncate text-left ml-2 italic">{e.text}</span>
               )}
@@ -210,6 +256,7 @@ export default function MedicationsPage() {
   // Manual dose logging — no ring required
   const [doseName, setDoseName] = useState("")
   const [doseMinutesAgo, setDoseMinutesAgo] = useState(0)
+  const [doseTime, setDoseTime] = useState("") // HH:MM — exact taken-at time; "" means "use the presets"
   const [logging, setLogging] = useState<string | null>(null)
 
   const load = useCallback(async (q = filter, cat = activeCategory) => {
@@ -237,14 +284,24 @@ export default function MedicationsPage() {
     if (!clean) return
     setLogging(clean)
     try {
+      // A picked time is today's; a time still ahead of the clock means the
+      // dose crossed midnight (23:50 logged at 00:10) and was yesterday.
+      let takenAt: string | undefined
+      if (doseTime) {
+        const [h, m] = doseTime.split(":").map(Number)
+        const d = new Date(); d.setHours(h, m, 0, 0)
+        if (d.getTime() > Date.now() + 5 * 60_000) d.setDate(d.getDate() - 1)
+        takenAt = d.toISOString()
+      }
       const res = await fetch("/api/medications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: clean, minutesAgo: doseMinutesAgo }),
+        body: JSON.stringify({ name: clean, minutesAgo: doseMinutesAgo, takenAt }),
       })
       if (res.ok) {
         setDoseName("")
         setDoseMinutesAgo(0)
+        setDoseTime("")
         await load()
       } else {
         setError("Couldn't log that dose — try again.")
@@ -425,14 +482,14 @@ export default function MedicationsPage() {
         <CardContent className="pt-3 pb-3 space-y-2.5">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs font-semibold">💊 Log a dose</p>
-            <div className="flex gap-1">
+            <div className="flex items-center gap-1">
               {[[0, "now"], [30, "30m ago"], [60, "1h ago"], [180, "3h ago"]].map(([mins, label]) => (
                 <button
                   key={mins}
-                  onClick={() => setDoseMinutesAgo(mins as number)}
+                  onClick={() => { setDoseMinutesAgo(mins as number); setDoseTime("") }}
                   className={cn(
                     "px-2 py-0.5 rounded-md text-[10px] transition-colors",
-                    doseMinutesAgo === mins
+                    !doseTime && doseMinutesAgo === mins
                       ? "bg-primary text-primary-foreground"
                       : "bg-secondary text-muted-foreground hover:text-foreground",
                   )}
@@ -440,6 +497,16 @@ export default function MedicationsPage() {
                   {label}
                 </button>
               ))}
+              <input
+                type="time"
+                value={doseTime}
+                onChange={e => setDoseTime(e.target.value)}
+                aria-label="Exact time the dose was taken"
+                className={cn(
+                  "rounded-md border bg-background px-1.5 py-0.5 text-[10px] outline-none transition-colors",
+                  doseTime ? "border-primary text-foreground" : "border-border text-muted-foreground",
+                )}
+              />
             </div>
           </div>
 
@@ -534,6 +601,7 @@ export default function MedicationsPage() {
               key={group.key}
               group={group}
               onRename={startRename}
+              onChanged={load}
             />
           ))}
           <p className="text-[10px] text-muted-foreground/50 px-1 pt-1">{PHARMA_DISCLAIMER}</p>

@@ -160,12 +160,24 @@ export async function GET(req: Request) {
 
 const MAX_MINUTES_AGO = 48 * 60
 
+/** Exact taken-at time from the client: must parse, not sit in the future
+ *  (beyond clock skew), and not reach back further than a week. */
+function parseTakenAt(raw: unknown): Date | null {
+  if (typeof raw !== "string" || !raw) return null
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return null
+  const now = Date.now()
+  if (d.getTime() > now + 5 * 60_000) return null
+  if (d.getTime() < now - 7 * 86400_000) return null
+  return d
+}
+
 export async function POST(req: Request) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const body = await req.json().catch(() => null) as { name?: unknown; minutesAgo?: unknown; note?: unknown } | null
+  const body = await req.json().catch(() => null) as { name?: unknown; minutesAgo?: unknown; takenAt?: unknown; note?: unknown } | null
   const name = typeof body?.name === "string" ? body.name.trim().slice(0, 60) : ""
   if (!name) return NextResponse.json({ error: "name required" }, { status: 400 })
 
@@ -173,7 +185,10 @@ export async function POST(req: Request) {
   const minutesAgo = Number.isFinite(rawMinutes) ? Math.min(MAX_MINUTES_AGO, Math.max(0, Math.round(rawMinutes))) : 0
   const note = typeof body?.note === "string" && body.note.trim() ? body.note.trim().slice(0, 200) : null
 
-  const timestamp = new Date(Date.now() - minutesAgo * 60_000)
+  // An exact time beats the "N minutes ago" presets when both arrive. Doses
+  // feed the half-life math and the med→sleep correlations, so a dose taken
+  // at 8:15 but logged at 14:00 should say 8:15.
+  const timestamp = parseTakenAt(body?.takenAt) ?? new Date(Date.now() - minutesAgo * 60_000)
   // The day this belongs to is the user's day, not the server's — a 00:30 dose
   // in Bratislava is still "today" for them and yesterday for UTC.
   const tz = await getUserTimezone(userId)
@@ -187,6 +202,34 @@ export async function POST(req: Request) {
   `
 
   return NextResponse.json({ ok: true, id, name, day, timestamp: timestamp.toISOString() })
+}
+
+export async function PATCH(req: Request) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const userId = session.user.id
+
+  const body = await req.json().catch(() => null) as { id?: unknown; takenAt?: unknown } | null
+  const id = typeof body?.id === "string" ? body.id : ""
+  if (!id.startsWith("manual_")) {
+    return NextResponse.json({ error: "Only manually logged doses can be edited" }, { status: 400 })
+  }
+  // Unlike logging (7-day window), an edit may touch any old entry — the
+  // client keeps the time on the entry's own day, so only "not in the
+  // future" needs enforcing here.
+  const takenAtRaw = typeof body?.takenAt === "string" ? new Date(body.takenAt) : null
+  const takenAt = takenAtRaw && !Number.isNaN(takenAtRaw.getTime()) && takenAtRaw.getTime() <= Date.now() + 5 * 60_000
+    ? takenAtRaw : null
+  if (!takenAt) return NextResponse.json({ error: "takenAt must be a valid time, not in the future" }, { status: 400 })
+
+  const tz = await getUserTimezone(userId)
+  const day = localDateStr(tz, takenAt)
+  const updated = await prisma.$executeRaw`
+    UPDATE "OuraTag" SET "timestamp" = ${takenAt}, "day" = ${day}
+    WHERE "id" = ${id} AND "userId" = ${userId}
+  `
+  if (updated === 0) return NextResponse.json({ error: "not found" }, { status: 404 })
+  return NextResponse.json({ ok: true, id, day, timestamp: takenAt.toISOString() })
 }
 
 export async function DELETE(req: Request) {
