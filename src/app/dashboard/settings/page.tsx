@@ -400,9 +400,9 @@ export default async function SettingsPage({
         <CardContent className="pt-4 pb-4">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm font-medium">Export CSV</p>
+              <p className="text-sm font-medium">Export your data</p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Last 90 days of health data as a CSV file.
+                Per-topic CSVs, or the full backup (JSON) of every table — also emailed to you on the 1st of each month.
               </p>
             </div>
             <ExportButton isPro={plan === "pro"} />
