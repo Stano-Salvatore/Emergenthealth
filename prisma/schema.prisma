@@ -39,6 +39,7 @@ model User {
   intakeLogs           IntakeLog[]
   foodLogs             FoodLog[]
   symptomLogs          SymptomLog[]
+  experiments          Experiment[]
   medSchedules         MedSchedule[]
   focusSessions        FocusSession[]
   driveImportLogs      DriveImportLog[]
@@ -894,4 +895,60 @@ model UserGoals {
   updatedAt    DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Self-experiments (N-of-1) ───────────────────────────────────────────────
+
+// A correlation can only ever say "these move together". An experiment can say
+// "this changed something", because the user decides what to do *before* seeing
+// the outcome, and alternates on and off in blocks so time, weather, mood and
+// everything else that drifts gets a chance to cancel out.
+//
+// One outcome is chosen up front. That single pre-registered question is what
+// makes this stronger evidence than the 51-question correlation scan, which has
+// to spend statistical power on false-discovery correction precisely because
+// nobody chose its questions in advance.
+model Experiment {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String // "Magnesium before bed"
+  /// What the user does during an ON block, in their own words.
+  action    String
+  /// The measured thing being watched, e.g. "sleepScore" or "custom:<metricId>".
+  outcome   String
+  /// Length of one block in days. Blocks alternate ON/OFF.
+  blockDays Int      @default(7)
+  /// Total number of blocks; 4 gives the classic ABAB.
+  blocks    Int      @default(4)
+  /// Days to discard after each switch, for carry-over.
+  washoutDays Int    @default(1)
+  /// True when the first block is an ON block. Randomised at creation.
+  startsOn  Boolean  @default(true)
+  startDate String // YYYY-MM-DD, the user's local day
+  status    String   @default("running") // running | completed | abandoned
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  days ExperimentDay[]
+
+  @@index([userId, status])
+}
+
+// One row per day the user answered "did you do it?". Absent means unanswered,
+// which the analysis treats as unknown — never as a silent yes or no.
+model ExperimentDay {
+  id           String   @id @default(cuid())
+  experimentId String
+  userId       String
+  date         String // YYYY-MM-DD, local
+  adhered      Boolean
+  note         String?
+  createdAt    DateTime @default(now())
+
+  experiment Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@unique([experimentId, date])
+  @@index([userId, date])
 }

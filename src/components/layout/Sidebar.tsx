@@ -65,6 +65,7 @@ const NAV_ITEMS: NavItem[] = [
   // The correlation engine's own page had no nav entry at all — it was
   // reachable only through a small link on a dashboard card.
   { href: "/dashboard/insights",    label: "Insights",        emoji: "🔍", section: "Patterns" },
+  { href: "/dashboard/experiments",  label: "Experiments",     emoji: "🧪", section: "Patterns" },
   { href: "/dashboard/location-insights", label: "Place patterns", emoji: "🗺️", section: "Patterns" },
   { href: "/dashboard/custom",      label: "Custom metrics",  emoji: "🧮", section: "Patterns" },
   { href: "/dashboard/week",        label: "This Week",       emoji: "📅", section: "Patterns" },
@@ -115,7 +116,7 @@ const GARDEN_HREF = "/dashboard/garden"
 // saved stay hidden forever, because the old defaults were persisted as if
 // they were choices. Strip these from stored prefs once — re-hiding sticks.
 const LS_LAUNCH_MIGRATED = "sidebar-launch-unhidden-v1"
-const NEWLY_LAUNCHED = ["/dashboard/insights", "/dashboard/fasting", "/dashboard/strava", "/dashboard/symptoms", "/dashboard/report"]
+const NEWLY_LAUNCHED = ["/dashboard/insights", "/dashboard/fasting", "/dashboard/strava", "/dashboard/symptoms", "/dashboard/report", "/dashboard/experiments"]
 
 function SortableItem({
   item, active, isHidden, editing, onToggleHidden, onClose,
