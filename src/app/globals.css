@@ -331,3 +331,39 @@ body {
 .react-resizable-handle-sw::after { transform: rotate(45deg); }
 .react-resizable-handle-nw::after { transform: rotate(135deg); }
 .react-resizable-handle-ne::after { transform: rotate(-45deg); }
+
+/* ── Printable clinical report ────────────────────────────────────────────────
+   The dashboard shell is a fixed-height scroll container (h-[100dvh] +
+   overflow-hidden), so a naive print captures one viewport and stops, and the
+   sidebar keeps reserving its width. Neutralising the containers lets the
+   document flow, `visibility` hides the app chrome without depending on its
+   markup, and taking .report-doc out of flow keeps it from being pushed by the
+   space the (invisible) sidebar still occupies. */
+@media print {
+  html, body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  body * {
+    visibility: hidden;
+    overflow: visible !important;
+    max-height: none !important;
+  }
+  .report-doc, .report-doc * { visibility: visible; }
+  .report-doc {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none;
+    padding: 0;
+    color: #000;
+    background: #fff;
+  }
+  .print-hide { display: none !important; }
+  .report-section { break-inside: avoid; page-break-inside: avoid; }
+  .report-doc table { width: 100%; border-collapse: collapse; }
+  .report-doc thead { display: table-header-group; }
+  @page { margin: 16mm 14mm; }
+}

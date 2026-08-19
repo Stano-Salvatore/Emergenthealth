@@ -42,6 +42,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/medications", label: "Medications",     emoji: "💊", section: "Body" },
   { href: "/dashboard/symptoms",    label: "Symptoms",        emoji: "🩹", section: "Body" },
   { href: "/dashboard/labs",        label: "Blood work",      emoji: "🧪", section: "Body" },
+  { href: "/dashboard/report",      label: "Health report",   emoji: "📄", section: "Body" },
   { href: "/dashboard/body",        label: "Body composition", emoji: "📐", section: "Body" },
   { href: "/dashboard/weight",      label: "Weight",          emoji: "⚖️", section: "Body" },
   { href: "/dashboard/caffeine",    label: "Caffeine",        emoji: "☕", section: "Body" },
@@ -114,7 +115,7 @@ const GARDEN_HREF = "/dashboard/garden"
 // saved stay hidden forever, because the old defaults were persisted as if
 // they were choices. Strip these from stored prefs once — re-hiding sticks.
 const LS_LAUNCH_MIGRATED = "sidebar-launch-unhidden-v1"
-const NEWLY_LAUNCHED = ["/dashboard/insights", "/dashboard/fasting", "/dashboard/strava", "/dashboard/symptoms"]
+const NEWLY_LAUNCHED = ["/dashboard/insights", "/dashboard/fasting", "/dashboard/strava", "/dashboard/symptoms", "/dashboard/report"]
 
 function SortableItem({
   item, active, isHidden, editing, onToggleHidden, onClose,
