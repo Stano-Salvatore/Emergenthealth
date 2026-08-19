@@ -612,10 +612,11 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         ? `No open reminder matches "${q}". Open ones: ${open.map(r => `"${r.title}"`).join(", ")}.`
         : `No open reminder matches "${q}" — the list is empty.`
     }
-    await prisma.reminder.update({
+    const done = await prisma.reminder.update({
       where: { id: reminder.id },
       data: { isCompleted: true, completedAt: new Date() },
     }).catch(() => null)
+    if (!done) return `Couldn't mark "${reminder.title}" as done — the update didn't write. Worth retrying.`
     return `Marked "${reminder.title}" as done.`
   }
 
@@ -624,13 +625,14 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     if (!durationMin) return "Need a duration in minutes."
     const label = String(input.label ?? "").trim().slice(0, 120) || null
     const endedAt = new Date()
-    await prisma.focusSession.create({
+    const saved = await prisma.focusSession.create({
       data: {
         userId, durationMin, type: "focus", label,
         startedAt: new Date(endedAt.getTime() - durationMin * 60_000),
         endedAt,
       },
     }).catch(() => null)
+    if (!saved) return "Couldn't save that focus session — the log didn't write. Worth retrying."
     return `Logged ${durationMin}min of deep work${label ? ` on "${label}"` : ""}.`
   }
 
@@ -654,11 +656,12 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     const tz = await getUserTimezone(userId)
     const dateStr = localDateStr(tz)
     // Same write the Trackers page does: one value per metric per day.
-    await prisma.$executeRaw`
+    const wrote = await prisma.$executeRaw`
       INSERT INTO "CustomMetricLog"("id","userId","metricId","date","value","note")
       VALUES (${randomUUID()}, ${userId}, ${metric.id}, ${dateStr}::date, ${value}, ${note})
       ON CONFLICT ("metricId","date") DO UPDATE SET "value" = EXCLUDED."value", "note" = EXCLUDED."note"
-    `.catch(() => null)
+    `.catch(() => 0)
+    if (!wrote) return `Couldn't save ${metric.name} — the log didn't write. Worth retrying.`
     return `Logged ${metric.emoji} ${metric.name} = ${metric.type === "boolean" ? (value ? "yes" : "no") : value} for today.`
   }
 
@@ -668,7 +671,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     const severity = clampInt(input.severity, 1, 5, 3)
     const note = String(input.note ?? "").trim().slice(0, 300) || null
     const tz = await getUserTimezone(userId)
-    await prisma.symptomLog.create({
+    const savedSymptom = await prisma.symptomLog.create({
       data: {
         userId,
         name: label.charAt(0).toUpperCase() + label.slice(1),
@@ -676,6 +679,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         day: localDateStr(tz),
       },
     }).catch(() => null)
+    if (!savedSymptom) return "Couldn't save that symptom — the log didn't write. Worth retrying."
     return `Logged ${label} at ${severity}/5. Hope it eases up.`
   }
 
@@ -684,9 +688,10 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     if (!label) return "Need a label for the moment."
     const emoji = String(input.emoji ?? "").trim().slice(0, 8) || "📌"
     const note = String(input.note ?? "").trim().slice(0, 500) || null
-    await prisma.timelineEvent.create({
+    const savedMoment = await prisma.timelineEvent.create({
       data: { userId, emoji, label, note },
     }).catch(() => null)
+    if (!savedMoment) return "Couldn't save that moment — the log didn't write. Worth retrying."
     return `Saved to the timeline: ${emoji} ${label}.`
   }
 

@@ -187,8 +187,14 @@ export async function POST(req: Request) {
 
   // An exact time beats the "N minutes ago" presets when both arrive. Doses
   // feed the half-life math and the med→sleep correlations, so a dose taken
-  // at 8:15 but logged at 14:00 should say 8:15.
-  const timestamp = parseTakenAt(body?.takenAt) ?? new Date(Date.now() - minutesAgo * 60_000)
+  // at 8:15 but logged at 14:00 should say 8:15 — and a takenAt the server
+  // can't honor must fail loudly, not silently become "now".
+  const wantsExact = typeof body?.takenAt === "string" && body.takenAt.length > 0
+  const exact = wantsExact ? parseTakenAt(body?.takenAt) : null
+  if (wantsExact && !exact) {
+    return NextResponse.json({ error: "takenAt must be a valid time, not in the future, within the last week" }, { status: 400 })
+  }
+  const timestamp = exact ?? new Date(Date.now() - minutesAgo * 60_000)
   // The day this belongs to is the user's day, not the server's — a 00:30 dose
   // in Bratislava is still "today" for them and yesterday for UTC.
   const tz = await getUserTimezone(userId)

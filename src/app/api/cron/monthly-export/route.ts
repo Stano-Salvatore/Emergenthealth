@@ -71,9 +71,28 @@ export async function GET(req: NextRequest) {
       continue
     }
     if (bundle.rowCount === 0) continue
-    if (bundle.bytes > MAX_ATTACH_BYTES) { skippedSize++; continue }
 
     const firstName = user.name?.split(" ")[0] ?? "there"
+
+    // Too big to attach: say so instead of silently stopping the backups —
+    // the users who outgrow the attachment limit are exactly the ones with
+    // the most history to lose.
+    if (bundle.bytes > MAX_ATTACH_BYTES) {
+      skippedSize++
+      try {
+        await resend.emails.send({
+          from: "Emergenthealth <onboarding@resend.dev>",
+          to: user.email!,
+          subject: "💾 Your monthly backup is ready (too large to attach)",
+          html: `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;color:#0f0f1a">
+            <h2 style="font-size:18px;margin:0 0 8px">💾 Monthly backup</h2>
+            <p style="color:#555;font-size:14px;line-height:1.6">Hi ${firstName}, your export has grown past the email attachment limit (${(bundle.bytes / 1024 / 1024).toFixed(0)}MB) — a good problem to have. Download it from <strong>Settings → Import &amp; export → Export → Full Backup (JSON)</strong> to keep your off-site copy current.</p>
+          </div>`,
+        })
+        emailed++
+      } catch { /* non-fatal */ }
+      continue
+    }
     const sizeMb = (bundle.bytes / 1024 / 1024).toFixed(1)
     try {
       await resend.emails.send({

@@ -8,6 +8,7 @@ import { generateWeeklyReview, saveWeeklyReview, type WeeklyReview } from "@/lib
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+export const maxDuration = 60 // full-context Opus generation runs tens of seconds
 
 // Sunday-evening weekly review, written by Emergy with the full chat brain —
 // goals, patterns, wearable gaps and all. Replaces the old Sunday-morning
@@ -20,14 +21,34 @@ export const dynamic = "force-dynamic"
 const SENT_KEY = "daily_nudges_sent"
 const SENT_ID = "weekly-review"
 
+// The Settings "email digest" section toggles used to drive the retired
+// weekly-digest email; the review email's stat tiles honor them now, so the
+// UI still controls what it says it controls. minDays gates the tiles the
+// same way it used to gate the digest's averages.
+type DigestPrefs = { sections: Record<string, boolean>; minDays: number }
+
+function parseDigestPrefs(value: string | undefined): DigestPrefs {
+  try {
+    const parsed = value ? JSON.parse(value) : {}
+    return {
+      sections: parsed.sections ?? {},
+      minDays: Number(parsed.thresholds?.minDays) || 3,
+    }
+  } catch {
+    return { sections: {}, minDays: 3 }
+  }
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, c => (
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string
   ))
 }
 
-function reviewEmail(name: string, review: WeeklyReview, appUrl: string): string {
+function reviewEmail(name: string, review: WeeklyReview, appUrl: string, prefs: DigestPrefs): string {
   const { stats } = review
+  const on = (key: string) => prefs.sections[key] !== false // unset = on
+  const enoughDays = stats.daysTracked >= prefs.minDays
   const paragraphs = review.narrative
     .split(/\n\s*\n/)
     .map(p => `<p style="margin:0 0 12px;font-size:14px;line-height:1.65;color:#e0e0f0;">${escapeHtml(p.trim())}</p>`)
@@ -40,12 +61,12 @@ function reviewEmail(name: string, review: WeeklyReview, appUrl: string): string
       ${prev ? `<div style="font-size:11px;color:#7a7a96;margin-top:4px;">last week ${prev}</div>` : ""}
     </div>`
 
-  const tiles = [
-    stats.avgSleepH != null ? tile("Avg sleep", `${stats.avgSleepH}h`, stats.prevAvgSleepH != null ? `${stats.prevAvgSleepH}h` : null, "#818cf8") : "",
-    stats.avgHrv != null ? tile("Avg HRV", `${stats.avgHrv}ms`, stats.prevAvgHrv != null ? `${stats.prevAvgHrv}ms` : null, "#34d399") : "",
-    stats.totalSteps > 0 ? tile("Steps", stats.totalSteps.toLocaleString(), null, "#fbbf24") : "",
-    stats.habitRate != null ? tile("Habits", `${stats.habitRate}%`, null, "#a78bfa") : "",
-  ].filter(Boolean).join("")
+  const tiles = (enoughDays ? [
+    on("sleep") && stats.avgSleepH != null ? tile("Avg sleep", `${stats.avgSleepH}h`, stats.prevAvgSleepH != null ? `${stats.prevAvgSleepH}h` : null, "#818cf8") : "",
+    on("hrv") && stats.avgHrv != null ? tile("Avg HRV", `${stats.avgHrv}ms`, stats.prevAvgHrv != null ? `${stats.prevAvgHrv}ms` : null, "#34d399") : "",
+    on("steps") && stats.totalSteps > 0 ? tile("Steps", stats.totalSteps.toLocaleString(), null, "#fbbf24") : "",
+    on("habits") && stats.habitRate != null ? tile("Habits", `${stats.habitRate}%`, null, "#a78bfa") : "",
+  ] : []).filter(Boolean).join("")
 
   return `<!DOCTYPE html>
 <html>
@@ -83,11 +104,15 @@ export async function GET(req: NextRequest) {
   }).catch(() => [] as { id: string; name: string | null; email: string | null }[])
   if (users.length === 0) return NextResponse.json({ ok: true, generated: 0 })
 
-  const tzRows = await prisma.userPreference.findMany({
-    where: { userId: { in: users.map(u => u.id) }, key: "timezone" },
-    select: { userId: true, value: true },
-  }).catch(() => [] as { userId: string; value: string }[])
-  const tzByUser = new Map(tzRows.map(r => [r.userId, r.value.trim() || "UTC"]))
+  const prefRows = await prisma.userPreference.findMany({
+    where: { userId: { in: users.map(u => u.id) }, key: { in: ["timezone", "digest_prefs"] } },
+    select: { userId: true, key: true, value: true },
+  }).catch(() => [] as { userId: string; key: string; value: string }[])
+  const tzByUser = new Map(prefRows.filter(r => r.key === "timezone").map(r => [r.userId, r.value.trim() || "UTC"]))
+  const prefsByUser = new Map(users.map(u => [
+    u.id,
+    parseDigestPrefs(prefRows.find(r => r.userId === u.id && r.key === "digest_prefs")?.value),
+  ]))
 
   const pushReady = configurePush()
   const subsByUser = pushReady ? await loadSubscriptionsByUser() : new Map()
@@ -112,7 +137,7 @@ export async function GET(req: NextRequest) {
 
     let review: WeeklyReview | null
     try {
-      review = await generateWeeklyReview(user.id)
+      review = await generateWeeklyReview(user.id, timezone)
     } catch {
       continue // transient failure — the next tick inside the window retries
     }
@@ -143,11 +168,16 @@ export async function GET(req: NextRequest) {
           from: "Emergenthealth <onboarding@resend.dev>",
           to: user.email,
           subject: `🌱 Your week, by Emergy — week of ${review.weekOf}`,
-          html: reviewEmail(user.name?.split(" ")[0] ?? "there", review, appUrl),
+          html: reviewEmail(user.name?.split(" ")[0] ?? "there", review, appUrl, prefsByUser.get(user.id) ?? parseDigestPrefs(undefined)),
         })
         emailed++
       } catch { /* non-fatal */ }
     }
+
+    // One generation per tick: a full-context Opus call runs tens of seconds,
+    // and two in one invocation risks the function budget killing the second
+    // mid-flight. The 10-minute tick serves the next user inside the window.
+    break
   }
 
   return NextResponse.json({ ok: true, generated, pushed, emailed, users: users.length })
