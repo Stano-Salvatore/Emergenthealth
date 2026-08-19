@@ -1,6 +1,11 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextRequest } from "next/server"
+import { buildExportBundle } from "@/lib/export"
+
+export const runtime = "nodejs"
+export const dynamic = "force-dynamic"
+export const maxDuration = 60 // dumping every table can outlive the default budget
 
 function cell(value: unknown): string {
   if (value == null) return ""
@@ -44,72 +49,17 @@ export async function GET(req: NextRequest) {
   }
 
   if (type === "all" || format === "json") {
-    // Full account backup as JSON. Every personal-data table the user can
-    // see in the app, so this is a genuine "everything" export — auth
-    // tokens, sessions, passkeys and other secrets are deliberately excluded.
-    const [
-      profile, health, transactions, habits, completions, reminders, mood, tags,
-      checkIns, savedPlaces, notes, intake, books, screenTime, timeline, focus,
-      chatMessages, ouraTags, morningCheckIns, weatherLogs, caffeineLogs,
-      labResults, bodyMeasurements, habitRoutines, locationPoints, stravaActivities,
-      feedbacks, bodyMeasurementLogs,
-    ] = await Promise.all([
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: { name: true, email: true, createdAt: true, digestDay: true, digestHour: true },
-      }),
-      prisma.healthLog.findMany({ where: { userId }, orderBy: { date: "asc" } }),
-      prisma.transaction.findMany({ where: { userId }, orderBy: { date: "desc" } }),
-      prisma.habit.findMany({ where: { userId } }),
-      prisma.habitCompletion.findMany({ where: { userId }, orderBy: { date: "desc" } }),
-      prisma.reminder.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
-      prisma.moodLog.findMany({ where: { userId }, orderBy: { date: "asc" } }),
-      prisma.tag.findMany({ where: { userId } }),
-      prisma.checkIn.findMany({ where: { userId }, orderBy: { checkedAt: "asc" } }),
-      prisma.savedPlace.findMany({ where: { userId } }),
-      prisma.dailyNote.findMany({ where: { userId }, orderBy: { date: "asc" } }),
-      prisma.intakeLog.findMany({ where: { userId }, orderBy: { loggedAt: "asc" } }),
-      prisma.book.findMany({ where: { userId } }),
-      prisma.screenTimeLog.findMany({ where: { userId }, orderBy: { date: "asc" } }),
-      prisma.timelineEvent.findMany({ where: { userId }, orderBy: { occurredAt: "asc" } }),
-      prisma.focusSession.findMany({ where: { userId }, orderBy: { endedAt: "asc" } }),
-      prisma.chatMessage.findMany({ where: { userId }, orderBy: { createdAt: "asc" }, take: 5000 }),
-      prisma.ouraTag.findMany({ where: { userId } }),
-      prisma.morningCheckIn.findMany({ where: { userId }, orderBy: { date: "asc" } }),
-      prisma.weatherLog.findMany({ where: { userId }, orderBy: { date: "asc" } }),
-      prisma.caffeineLog.findMany({ where: { userId }, orderBy: { loggedAt: "asc" } }),
-      prisma.labResult.findMany({ where: { userId }, orderBy: { date: "asc" } }),
-      prisma.bodyMeasurement.findMany({ where: { userId }, orderBy: { date: "asc" } }),
-      prisma.habitRoutine.findMany({ where: { userId } }),
-      prisma.locationPoint.findMany({ where: { userId }, orderBy: { trackedAt: "asc" }, take: 50000 }),
-      prisma.stravaActivity.findMany({ where: { userId }, orderBy: { startDate: "asc" } }),
-      prisma.userFeedback.findMany({ where: { userId }, orderBy: { createdAt: "asc" } }),
-      // The Body page's tape-measure entries live in a raw table (created with
-      // ad-hoc DDL, no Prisma model) — without this the backup silently missed
-      // everything that form ever saved. Absent table → empty list.
-      prisma.$queryRaw<Record<string, unknown>[]>`
-        SELECT * FROM "BodyMeasurementLog" WHERE "userId" = ${userId} ORDER BY "loggedAt" ASC
-      `.catch(() => [] as Record<string, unknown>[]),
-    ])
-
-    const payload = {
-      exportedAt: new Date().toISOString(),
-      format: "emergenthealth-export-v1",
-      userId,
-      profile,
-      data: {
-        health, transactions, habits, completions, reminders, mood, tags,
-        checkIns, savedPlaces, notes, intake, books, screenTime, timeline, focus,
-        chatMessages, ouraTags, morningCheckIns, weatherLogs, caffeineLogs,
-        labResults, bodyMeasurements, bodyMeasurementLogs, habitRoutines, locationPoints, stravaActivities,
-        feedbacks,
-      },
-    }
-
-    return new Response(JSON.stringify(payload, null, 2), {
+    // Full account backup. Tables are discovered from information_schema in
+    // lib/export (every table with a userId column, credentials excluded), so
+    // new features join the backup automatically — the previous hand-kept list
+    // had quietly drifted and was missing food logs, custom trackers,
+    // symptoms, med schedules and goals.
+    const bundle = await buildExportBundle(userId)
+    return new Response(bundle.json, {
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition": `attachment; filename="emergenthealth-backup-${new Date().toISOString().split("T")[0]}.json"`,
+        "Content-Disposition": `attachment; filename="${bundle.filename}"`,
+        "Cache-Control": "no-store",
       },
     })
   }
