@@ -95,8 +95,13 @@ public class HabitsWidget extends AppWidgetProvider {
                         boolean done = h.optBoolean("done", false);
                         int streak = h.optInt("streak", 0);
                         views.setViewVisibility(ROW_IDS[i], View.VISIBLE);
-                        views.setTextViewText(CHECK_IDS[i], done ? "✅" : "⬜");
-                        views.setTextViewText(NAME_IDS[i], streak > 0 ? name + "  🔥" + streak : name);
+                        // Filled ring for done, hollow for pending, and the
+                        // colour says which — an emoji checkbox renders at a
+                        // different size on every launcher.
+                        views.setTextViewText(CHECK_IDS[i], done ? "\u25CF" : "\u25CB");
+                        views.setTextColor(CHECK_IDS[i], done ? 0xFF4ADE80 : 0xFF7A7A96);
+                        views.setTextViewText(NAME_IDS[i], streak > 0 ? name + "  \u00B7 " + streak : name);
+                        views.setTextColor(NAME_IDS[i], done ? 0xFF7A7A96 : 0xFFE6E6F0);
                         Intent toggle = new Intent(context, HabitsWidget.class);
                         toggle.setAction(ACTION_TOGGLE);
                         toggle.setData(Uri.parse("emergenthealth://habit/" + id));
@@ -111,7 +116,8 @@ public class HabitsWidget extends AppWidgetProvider {
             } catch (Exception e) {
                 for (int i = 0; i < MAX_ROWS; i++) views.setViewVisibility(ROW_IDS[i], View.GONE);
                 views.setViewVisibility(ROW_IDS[0], View.VISIBLE);
-                views.setTextViewText(CHECK_IDS[0], "⚠️");
+                views.setTextViewText(CHECK_IDS[0], "\u26A0");
+                views.setTextColor(CHECK_IDS[0], 0xFFFBBF24);
                 views.setTextViewText(NAME_IDS[0], "Tap to open app");
             }
 

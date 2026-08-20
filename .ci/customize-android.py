@@ -215,6 +215,8 @@ widget_copies = [
     (f"{widget_src}/widget_quick_log.xml",      f"{res_layout}/widget_quick_log.xml"),
     (f"{widget_src}/quick_log_widget_info.xml", f"{res_xml}/quick_log_widget_info.xml"),
     (f"{widget_src}/widget_background.xml",      f"{res_drawable}/widget_background.xml"),
+    (f"{widget_src}/widget_button.xml",          f"{res_drawable}/widget_button.xml"),
+    (f"{widget_src}/widget_button_primary.xml",  f"{res_drawable}/widget_button_primary.xml"),
     # Habits widget (tap a habit to mark it complete)
     (f"{widget_src}/HabitsWidget.java",         f"{pkg_java_dir}/HabitsWidget.java"),
     (f"{widget_src}/widget_habits.xml",         f"{res_layout}/widget_habits.xml"),

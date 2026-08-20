@@ -1,14 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Matches the app's Midnight theme: card background + subtle border. -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-
-    <solid android:color="#100f1a" />
-
-    <corners android:radius="16dp" />
-
-    <stroke
-        android:width="1dp"
-        android:color="#201f32" />
-
+<!--
+  The app's card, not an approximation of it: #13122B on a #312E81 hairline, the
+  same pairing the dashboard and the review email use. The widgets used to sit
+  on near-black with a grey border and pastel controls, which read as a
+  different product sitting next to the real one.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#13122B" />
+    <corners android:radius="20dp" />
+    <stroke android:width="1dp" android:color="#312E81" />
 </shape>
