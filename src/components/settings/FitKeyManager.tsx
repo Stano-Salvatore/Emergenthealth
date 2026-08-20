@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Copy, Plus, Trash2, Check } from "lucide-react"
+import { copyText } from "@/lib/utils"
 
 type KeyRow = {
   id: string
@@ -43,9 +44,12 @@ export function FitKeyManager({ initialKeys }: { initialKeys: KeyRow[] }) {
     if (newToken) setNewToken(null)
   }
 
-  function copyToken() {
+  async function copyToken() {
+    // This used to say "Copied!" without waiting to find out — on a token the
+    // user has one chance to save, and which is shown on screen to copy by hand
+    // if this fails.
     if (!newToken) return
-    navigator.clipboard.writeText(newToken)
+    if (!await copyText(newToken)) return
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }

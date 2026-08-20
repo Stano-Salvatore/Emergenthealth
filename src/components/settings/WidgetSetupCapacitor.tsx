@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Copy, Check, RefreshCw, Trash2, Smartphone } from "lucide-react"
 import { ensureWidgetActivation, isCapacitorAndroid } from "@/lib/widget-activator"
+import { copyText } from "@/lib/utils"
 
 function maskKey(key: string): string {
   if (key.length <= 8) return key
@@ -85,13 +86,9 @@ export function WidgetSetupCapacitor() {
 
   async function copyKey() {
     if (!apiKey) return
-    try {
-      await navigator.clipboard.writeText(apiKey)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // silently ignore
-    }
+    if (!await copyText(apiKey)) return
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   return (

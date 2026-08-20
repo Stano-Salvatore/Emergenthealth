@@ -26,7 +26,7 @@ import { CsvImport } from "@/components/settings/CsvImport"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
 import { DigestPreferences } from "@/components/settings/DigestPreferences"
-import { DigestSchedule } from "@/components/settings/DigestSchedule"
+import { WeeklyReviewSchedule } from "@/components/settings/WeeklyReviewSchedule"
 import { StravaManager } from "@/components/settings/StravaManager"
 import { GitHubManager } from "@/components/settings/GitHubManager"
 import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
@@ -379,10 +379,10 @@ export default async function SettingsPage({
 
       <Card>
         <CardContent className="pt-4 pb-4 space-y-4">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Daily digest</p>
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Email summaries</p>
           <DigestPreferences />
           <div className="border-t border-border/50" />
-          <DigestSchedule />
+          <WeeklyReviewSchedule />
           <div className="border-t border-border/50" />
           <DigestButton />
         </CardContent>

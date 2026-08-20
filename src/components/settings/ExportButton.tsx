@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Download, ChevronDown, Zap } from "lucide-react"
+import { Check, ChevronDown, Download, Mail, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
 
@@ -23,6 +23,25 @@ const PRO_EXPORTS = [
 
 export function ExportButton({ isPro = false }: { isPro?: boolean }) {
   const [open, setOpen] = useState(false)
+  const [mailing, setMailing] = useState(false)
+  const [mailResult, setMailResult] = useState<string | null>(null)
+
+  // A download link is the right way to hand someone a file, and it works in
+  // every browser. It does nothing at all inside an Android WebView that has
+  // no DownloadListener, which is where this app mostly runs — so the backup
+  // needs a route off the phone that asks nothing of the client.
+  async function emailBackup() {
+    setMailing(true)
+    setMailResult(null)
+    try {
+      const res = await fetch("/api/export/email", { method: "POST" })
+      const d = await res.json().catch(() => null)
+      setMailResult(res.ok ? "sent" : (d?.error ?? "Couldn't send the backup."))
+    } catch {
+      setMailResult("Couldn't send the backup — check your connection.")
+    }
+    setMailing(false)
+  }
 
   return (
     <div className="relative">
@@ -62,6 +81,19 @@ export function ExportButton({ isPro = false }: { isPro?: boolean }) {
               <Download className="h-3.5 w-3.5 text-muted-foreground" />
               {BACKUP_EXPORT.label}
             </a>
+            <button
+              onClick={emailBackup}
+              disabled={mailing}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-sm hover:bg-secondary transition-colors disabled:opacity-50 text-left"
+            >
+              {mailResult === "sent"
+                ? <Check className="h-3.5 w-3.5 text-green-400" />
+                : <Mail className="h-3.5 w-3.5 text-muted-foreground" />}
+              {mailResult === "sent" ? "Sent to your inbox" : mailing ? "Sending…" : "Email me the backup"}
+            </button>
+            {mailResult && mailResult !== "sent" && (
+              <p className="px-3 pb-2 text-[11px] text-amber-400 leading-snug">{mailResult}</p>
+            )}
             <div className="border-t border-border/50" />
             {isPro ? (
               PRO_EXPORTS.map(e => (
