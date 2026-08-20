@@ -45,9 +45,6 @@ public class QuickLogWidget extends AppWidgetProvider {
     private static final String CAP_API_KEY = "widget_api_key";
     private static final String CAP_APP_URL = "widget_app_url";
 
-    private static final String EMOJI_WATER  = "💧"; // water drop
-    private static final String EMOJI_COFFEE = "☕";       // hot beverage
-    private static final String EMOJI_BEER   = "🍺"; // beer mug
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
@@ -101,9 +98,11 @@ public class QuickLogWidget extends AppWidgetProvider {
 
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_quick_log);
 
-        views.setTextViewText(R.id.water_status, EMOJI_WATER + " " + waterMl + "ml");
-        views.setTextViewText(R.id.coffee_status, EMOJI_COFFEE + " " + coffeeMl + "ml");
-        views.setTextViewText(R.id.beer_status, EMOJI_BEER + " " + beerCount);
+        // Each total is already coloured like the thing it counts (water blue,
+        // coffee amber, beer orange), so an emoji in front of it is noise.
+        views.setTextViewText(R.id.water_status, waterMl + "ml");
+        views.setTextViewText(R.id.coffee_status, coffeeMl + "ml");
+        views.setTextViewText(R.id.beer_status, String.valueOf(beerCount));
 
         Intent openIntent = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
         if (openIntent != null) {

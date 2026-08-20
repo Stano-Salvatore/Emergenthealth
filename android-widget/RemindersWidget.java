@@ -93,8 +93,15 @@ public class RemindersWidget extends AppWidgetProvider {
                         String title = r.getString("title");
                         String state = r.optString("state", "upcoming");
                         views.setViewVisibility(ROW_IDS[i], View.VISIBLE);
-                        views.setTextViewText(DOT_IDS[i], "overdue".equals(state) ? "🔴" : "today".equals(state) ? "🟡" : "⚪");
+                        // Urgency reads from colour; the mark stays one shape so
+                        // the rows line up whatever the launcher's emoji font does.
+                        views.setTextViewText(DOT_IDS[i], "\u25CF");
+                        views.setTextColor(DOT_IDS[i],
+                                "overdue".equals(state) ? 0xFFF87171
+                                        : "today".equals(state) ? 0xFFFBBF24
+                                        : 0xFF7A7A96);
                         views.setTextViewText(TITLE_IDS[i], title);
+                        views.setTextColor(TITLE_IDS[i], "overdue".equals(state) ? 0xFFF2F2FA : 0xFFE6E6F0);
                         Intent done = new Intent(context, RemindersWidget.class);
                         done.setAction(ACTION_DONE);
                         done.setData(Uri.parse("emergenthealth://reminder/" + id));
@@ -107,13 +114,15 @@ public class RemindersWidget extends AppWidgetProvider {
                 }
                 if (rems.length() == 0) {
                     views.setViewVisibility(ROW_IDS[0], View.VISIBLE);
-                    views.setTextViewText(DOT_IDS[0], "✓");
+                    views.setTextViewText(DOT_IDS[0], "\u2713");
+                    views.setTextColor(DOT_IDS[0], 0xFF4ADE80);
                     views.setTextViewText(TITLE_IDS[0], "All clear!");
                 }
             } catch (Exception e) {
                 for (int i = 0; i < MAX_ROWS; i++) views.setViewVisibility(ROW_IDS[i], View.GONE);
                 views.setViewVisibility(ROW_IDS[0], View.VISIBLE);
-                views.setTextViewText(DOT_IDS[0], "⚠️");
+                views.setTextViewText(DOT_IDS[0], "\u26A0");
+                views.setTextColor(DOT_IDS[0], 0xFFFBBF24);
                 views.setTextViewText(TITLE_IDS[0], "Tap to open app");
             }
 

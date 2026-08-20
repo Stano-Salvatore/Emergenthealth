@@ -1,186 +1,186 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Same card, same palette, same letter-spaced label as the other widgets. The
+  previous version used pastel mint and yellow fills with near-black text on a
+  near-black card: high effort, wrong app.
+
+  Totals sit on top in the colour of the thing they count; the actions below are
+  quiet pills, with the two water buttons carrying the emphasis because that is
+  the one logged many times a day.
+-->
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:padding="14dp"
+    android:padding="16dp"
     android:background="@drawable/widget_background">
 
-    <!-- Row 1: App name + Open button -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
-
+        android:gravity="center_vertical"
+        android:paddingBottom="10dp">
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Emergenthealth"
-            android:textColor="#FFFFFF"
+            android:text="QUICK LOG"
+            android:textColor="#A5B4FC"
             android:textSize="11sp"
-            android:textStyle="bold" />
-
-        <!-- One tap logs the usual order of the place you last checked in at -->
-        <Button
-            android:id="@+id/btn_usual"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="⭐ Usual"
-            android:textColor="#1a3a1a"
-            android:textSize="10sp"
-            android:backgroundTint="#f5d67b"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
-            android:layout_marginEnd="6dp" />
-
-        <Button
+            android:letterSpacing="0.12"
+            android:textStyle="bold"
+            android:maxLines="1" />
+        <TextView
             android:id="@+id/btn_open_app"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="↗ Open"
-            android:textColor="#FFFFFF"
-            android:textSize="10sp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="2dp"
-            android:paddingBottom="2dp"
-            android:background="@android:color/transparent"
-            style="?android:attr/borderlessButtonStyle" />
-
+            android:text="Open"
+            android:textColor="#A5B4FC"
+            android:textSize="11sp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="4dp"
+            android:background="@drawable/widget_button"
+            android:clickable="true" />
     </LinearLayout>
 
-    <!-- Row 2: Status totals -->
+    <!-- Today's totals -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="2"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
-
+        android:paddingBottom="12dp">
         <TextView
             android:id="@+id/water_status"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="💧 0ml"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
+            android:text="0ml"
+            android:textColor="#38BDF8"
+            android:textSize="17sp"
             android:textStyle="bold"
-            android:gravity="center" />
-
+            android:maxLines="1" />
         <TextView
             android:id="@+id/coffee_status"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="☕ 0ml"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
+            android:text="0ml"
+            android:textColor="#F59E0B"
+            android:textSize="17sp"
             android:textStyle="bold"
-            android:gravity="center" />
-
+            android:maxLines="1" />
         <TextView
             android:id="@+id/beer_status"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="🍺 0"
-            android:textColor="#FFFFFF"
-            android:textSize="13sp"
+            android:text="0"
+            android:textColor="#FB923C"
+            android:textSize="17sp"
             android:textStyle="bold"
-            android:gravity="center" />
-
+            android:maxLines="1" />
     </LinearLayout>
 
-    <!-- Row 3: Log buttons -->
+    <!-- Water: the one logged many times a day, so it gets the emphasis -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="3"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:weightSum="5">
-
-        <Button
+        android:paddingBottom="8dp">
+        <TextView
             android:id="@+id/btn_water_250"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="+250ml"
-            android:textColor="#1a3a1a"
-            android:textSize="10sp"
-            android:backgroundTint="#a8d5a2"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
-            android:layout_marginEnd="2dp" />
-
-        <Button
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/widget_button_primary"
+            android:clickable="true" />
+        <TextView
             android:id="@+id/btn_water_500"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:text="+500ml"
-            android:textColor="#1a3a1a"
-            android:textSize="10sp"
-            android:backgroundTint="#a8d5a2"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
-            android:layout_marginEnd="2dp" />
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:background="@drawable/widget_button_primary"
+            android:clickable="true" />
+    </LinearLayout>
 
-        <Button
+    <!-- Everything else -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+        <TextView
             android:id="@+id/btn_coffee"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="+☕"
-            android:textColor="#1a3a1a"
-            android:textSize="10sp"
-            android:backgroundTint="#a8d5a2"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
-            android:layout_marginEnd="2dp" />
-
-        <Button
+            android:text="Coffee"
+            android:textColor="#E6E6F0"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/widget_button"
+            android:clickable="true" />
+        <TextView
             android:id="@+id/btn_beer"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="+🍺"
-            android:textColor="#1a3a1a"
-            android:textSize="10sp"
-            android:backgroundTint="#a8d5a2"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp"
-            android:layout_marginEnd="2dp" />
-
-        <Button
+            android:text="Beer"
+            android:textColor="#E6E6F0"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/widget_button"
+            android:clickable="true" />
+        <TextView
             android:id="@+id/btn_wine"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="+🍷"
-            android:textColor="#1a3a1a"
-            android:textSize="10sp"
-            android:backgroundTint="#a8d5a2"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="4dp" />
-
+            android:text="Wine"
+            android:textColor="#E6E6F0"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/widget_button"
+            android:clickable="true" />
+        <TextView
+            android:id="@+id/btn_usual"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Usual"
+            android:textColor="#FBBF24"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:paddingTop="9dp"
+            android:paddingBottom="9dp"
+            android:background="@drawable/widget_button"
+            android:clickable="true" />
     </LinearLayout>
-
 </LinearLayout>
