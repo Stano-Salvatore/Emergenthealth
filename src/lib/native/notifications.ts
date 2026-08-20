@@ -314,19 +314,22 @@ export function setNudgesEnabled(on: boolean): void {
  * could see did nothing and the notifications you actually got couldn't be
  * configured. Same preferences, now driving the notifications that really fire.
  */
-export function buildNudges(prefs: NudgePrefs): { id: number; title: string; body: string; hour: number; minute: number }[] {
+export function buildNudges(prefs: NudgePrefs): { id: number; title: string; body: string; hour: number; minute: number; url: string }[] {
+  // Each nudge names where it belongs: a hydration reminder that opens the
+  // dashboard has asked a question and then hidden the answer.
   const out = [{
     id: 910001,
     title: "🌅 Morning check-in",
     body: "Log your energy, mood & focus — takes 10 seconds.",
     hour: Math.max(0, Math.min(23, prefs.morningHour)),
     minute: 0,
+    url: "/dashboard/checkin",
   }]
   if (prefs.noon) {
-    out.push({ id: 910002, title: "💧 Hydration check", body: "How's your water intake looking today?", hour: 13, minute: 0 })
+    out.push({ id: 910002, title: "💧 Hydration check", body: "How's your water intake looking today?", hour: 13, minute: 0, url: "/dashboard/intake" })
   }
   if (prefs.evening) {
-    out.push({ id: 910003, title: "✅ Habits", body: "Any habits left to close out before bed?", hour: 20, minute: 0 })
+    out.push({ id: 910003, title: "✅ Habits", body: "Any habits left to close out before bed?", hour: 20, minute: 0, url: "/dashboard/habits" })
   }
   return out
 }
@@ -459,6 +462,7 @@ export async function syncNotifications(
           title: n.title,
           body: n.body,
           schedule: { on: { hour: n.hour, minute: n.minute }, repeats: true, allowWhileIdle: true },
+          extra: { kind: "nudge", id: n.id, url: n.url },
         })
       }
     }
@@ -603,10 +607,20 @@ const KIND_DESTINATIONS: Record<string, string> = {
   med: "/dashboard/medications",
 }
 
-function destinationFor(extra: Record<string, unknown> | undefined): string | null {
+// The daily nudges repeat forever from a single scheduling, so copies laid
+// down by an older build are still on the phone carrying no extra at all.
+// Their ids are fixed, which is enough to route them until they are replaced.
+const NUDGE_DESTINATIONS: Record<number, string> = {
+  910001: "/dashboard/checkin",
+  910002: "/dashboard/intake",
+  910003: "/dashboard/habits",
+}
+
+function destinationFor(extra: Record<string, unknown> | undefined, notificationId?: unknown): string | null {
   const raw = typeof extra?.url === "string" && extra.url
     ? extra.url
     : KIND_DESTINATIONS[String(extra?.kind ?? "")]
+      ?? NUDGE_DESTINATIONS[Number(notificationId)]
   // Same-origin app paths only. A notification's payload must never be able to
   // send the shell's WebView off to another site.
   if (typeof raw !== "string") return null
@@ -638,7 +652,7 @@ export async function registerNotificationActionHandler(): Promise<void> {
 
         // Body tap (Capacitor reports "tap"; older builds have sent "").
         if (actionId === "tap" || actionId === "") {
-          const dest = destinationFor(extra)
+          const dest = destinationFor(extra, notif?.id)
           if (dest && typeof window !== "undefined" && window.location.pathname !== dest) {
             window.location.assign(dest)
           }
@@ -765,6 +779,7 @@ export async function scheduleTestNotification(
           title: "🔔 Test notification",
           body: "Nice — notifications work on this phone!",
           schedule: { at: new Date(Date.now() + 3000), allowWhileIdle: true },
+          extra: { kind: "test", url: "/dashboard/settings" },
         }]),
       }),
       6000,
