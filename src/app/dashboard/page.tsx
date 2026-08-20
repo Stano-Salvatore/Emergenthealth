@@ -25,7 +25,6 @@ import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
 import { QuickHabits } from "@/components/dashboard/QuickHabits"
 import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
 import { InsightsPanel } from "@/components/dashboard/InsightsPanel"
-import { PeriodInsightCard } from "@/components/dashboard/PeriodInsightCard"
 import { TodayStrip } from "@/components/dashboard/TodayStrip"
 import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
@@ -803,9 +802,6 @@ export default async function DashboardPage() {
     ),
 
     insights: <InsightsPanel />,
-    insights_week: <PeriodInsightCard period="week" />,
-    insights_month: <PeriodInsightCard period="month" />,
-    insights_overall: <PeriodInsightCard period="overall" />,
     notes: <NotesWidget />,
     screentime: isFeatureEnabled("screentime") ? <ScreenTimeCard /> : null,
     location: <LocationCard />,

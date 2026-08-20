@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react"
 import Link from "next/link"
-import { RefreshCw, ChevronRight, Star, Minus, Plus } from "lucide-react"
+import { ChevronRight, Star, Minus, Plus } from "lucide-react"
 import { sharedFetchJson } from "@/lib/shared-fetch"
 
 type Period = "today" | "week" | "month" | "overall"
@@ -107,12 +107,6 @@ function TodayTab() {
 
 // ── Insight + Correlations tabs ────────────────────────────────────────────────
 
-type InsightData = {
-  bullets: string[]
-  generatedAt: string
-  error?: string
-} | null
-
 type CorrelationItem = {
   id: string
   emoji: string
@@ -135,7 +129,6 @@ type LocationPattern = {
 }
 
 type PeriodData = {
-  insight: InsightData
   correlations: CorrelationItem[]
   locationPatterns: LocationPattern[]
   loaded: boolean
@@ -191,8 +184,6 @@ function PeriodTab({
   pinned,
   onCountChange,
   onTogglePin,
-  onRegenerate,
-  regenerating,
 }: {
   period: Exclude<Period, "today">
   data: PeriodData
@@ -200,14 +191,10 @@ function PeriodTab({
   pinned: Set<string>
   onCountChange: (n: number) => void
   onTogglePin: (id: string) => void
-  onRegenerate: () => void
-  regenerating: boolean
 }) {
   if (!data.loaded) return <SkeletonRows count={4} />
 
-  const bullets = data.insight?.bullets ?? []
   const corr = data.correlations
-  const hasInsight = bullets.length > 0
   const hasCorr = corr.length > 0
   const showLocation = period === "month" || period === "overall"
   const locWithData = data.locationPatterns.filter(l => l.n >= 6 && l.delta != null)
@@ -217,7 +204,7 @@ function PeriodTab({
   const rest = corr.filter(c => !pinned.has(c.id))
   const visibleCorr = [...pinnedInCorr, ...rest].slice(0, Math.max(count, pinnedInCorr.length))
 
-  if (!hasInsight && !hasCorr) {
+  if (!hasCorr) {
     return (
       <p className="text-xs text-muted-foreground py-2">
         Not enough data for this period yet — keep logging!
@@ -227,26 +214,6 @@ function PeriodTab({
 
   return (
     <div className="space-y-3">
-      {hasInsight && (
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-primary/60">✨ AI insights</p>
-            <button
-              onClick={onRegenerate}
-              disabled={regenerating}
-              className="text-muted-foreground/30 hover:text-muted-foreground/60 transition-colors p-0.5 disabled:cursor-not-allowed"
-              title="Regenerate"
-            >
-              <RefreshCw className={`h-3 w-3 ${regenerating ? "animate-spin" : ""}`} />
-            </button>
-          </div>
-          <div className="space-y-1">
-            {bullets.map((b, i) => (
-              <p key={i} className="text-xs text-muted-foreground leading-relaxed">{b}</p>
-            ))}
-          </div>
-        </div>
-      )}
 
       {hasCorr && (
         <div>
@@ -330,7 +297,6 @@ function PeriodTab({
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export function InsightsPanel() {
-  const [regenerating, setRegenerating] = useState<Exclude<Period, "today"> | null>(null)
 
   const periodData = useRef<Partial<Record<Exclude<Period, "today">, PeriodData>>>({})
   const [, forceUpdate] = useState(0)
@@ -341,12 +307,11 @@ export function InsightsPanel() {
 
   const loadPeriod = useCallback(async (period: Exclude<Period, "today">) => {
     if (periodData.current[period]) return
-    periodData.current[period] = { insight: null, correlations: [], locationPatterns: [], loaded: false }
+    periodData.current[period] = { correlations: [], locationPatterns: [], loaded: false }
     forceUpdate(n => n + 1)
 
     const fetchLoc = period === "month" || period === "overall"
-    const [insightRes, corrRes, locRes] = await Promise.allSettled([
-      fetch(`/api/insight?period=${period}`).then(r => r.json()),
+    const [corrRes, locRes] = await Promise.allSettled([
       fetch(`/api/insights/correlations?period=${period}`).then(r => r.json()),
       fetchLoc
         ? sharedFetchJson("/api/location-correlations?metric=hrv")
@@ -354,7 +319,6 @@ export function InsightsPanel() {
     ])
 
     periodData.current[period] = {
-      insight: insightRes.status === "fulfilled" ? insightRes.value : null,
       // Noise-tier patterns are dropped here rather than rendered. The full
       // Insights page can show them behind a toggle because it also renders
       // the trust badge — this panel has no badge and no room for one, so a
@@ -366,22 +330,6 @@ export function InsightsPanel() {
       loaded: true,
     }
     forceUpdate(n => n + 1)
-  }, [])
-
-  const regenerate = useCallback(async (period: Exclude<Period, "today">) => {
-    setRegenerating(period)
-    try {
-      const res = await fetch(`/api/insight?period=${period}`, { method: "POST" })
-      const data = await res.json()
-      if (periodData.current[period]) {
-        periodData.current[period]!.insight = data
-        forceUpdate(n => n + 1)
-      }
-    } catch {
-      // ignore
-    } finally {
-      setRegenerating(null)
-    }
   }, [])
 
   // Load every period up-front so all sections render stacked, plus saved prefs.
@@ -436,13 +384,11 @@ export function InsightsPanel() {
           <p className="text-[11px] font-bold uppercase tracking-wider text-foreground/70 mb-2">{p.label}</p>
           <PeriodTab
             period={p.key}
-            data={periodData.current[p.key] ?? { insight: null, correlations: [], locationPatterns: [], loaded: false }}
+            data={periodData.current[p.key] ?? { correlations: [], locationPatterns: [], loaded: false }}
             count={counts[p.key] ?? DEFAULT_COUNTS[p.key]}
             pinned={pinned}
             onCountChange={n => changeCount(p.key, n)}
             onTogglePin={togglePin}
-            onRegenerate={() => regenerate(p.key)}
-            regenerating={regenerating === p.key}
           />
         </div>
       ))}
