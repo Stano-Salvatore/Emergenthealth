@@ -49,10 +49,34 @@ export function normalizeSupplement(rawLabel: string): string | null {
   return null
 }
 
+// How much of a tablet was taken, written in words rather than milligrams:
+// "Atarax - half", "Frontin 1/2", "Elicea ½", Slovak "pol"/"polovica". These
+// say something about the dose and nothing about which substance it was, so
+// they belong out of the name for the same reason "25 mg" does — otherwise
+// "Atarax" and "Atarax - half" are two different substances to every grouping
+// and correlation in the app, and each half of the history can sit below the
+// 5-day threshold that would have produced an insight.
+//
+// Anchored to the end of the label (optionally in brackets), because that is
+// where a dose annotation actually goes. Matching anywhere would eat the word
+// out of a genuine name — "Half-life booster" is not a half dose of anything.
+const TRAILING_DOSE =
+  /[\s([{,;:–—-]*(?:half|halve|quarter|third|double|triple|pol|polka|polovica|polovicu|[sš]tvrtina|[sš]tvr[tť]|tretina|dvojit[aáu]|\d\s*\/\s*\d|[½¼¾⅓⅔]|x\s*\d+|\d+\s*x)[)\]}\s.]*$/iu
+
 /** Fallback tidy-up for unrecognized labels: strip dosage, collapse spaces. */
 export function cleanLabel(rawLabel: string): string {
-  const cleaned = rawLabel
+  let cleaned = rawLabel
     .replace(/\b\d+([.,]\d+)?\s*(mg|mcg|µg|ug|iu|g|ml|tbl|caps?|tablet\w*|kvapk\w*|drops?)\b\.?/gi, "")
+    .trim()
+  // Loop: "Atarax 1/2 (half)" carries two of them.
+  for (let i = 0; i < 3; i++) {
+    const next = cleaned.replace(TRAILING_DOSE, "").trim()
+    if (next === cleaned || !next) break
+    cleaned = next
+  }
+  cleaned = cleaned
+    .replace(/[\s]*[-–—,:;/]+[\s]*$/g, "")
+    .replace(/\(\s*\)/g, "")
     .replace(/\s{2,}/g, " ")
     .trim()
   return cleaned || rawLabel.trim()
