@@ -3,7 +3,12 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { isNativeShell } from "@/lib/native/shell"
 import { usePathname } from "next/navigation"
-import { X, Send, Bell } from "lucide-react"
+import { X, Send, Bell, Mic, Square, Volume2, VolumeX } from "lucide-react"
+import {
+  dictationSupport, startDictation, speak, stopSpeaking, speechSupported,
+  listVoices, resolveVoice, getSavedVoiceUri, getVoiceRate, getAutoSpeak, saveAutoSpeak,
+  type DictationHandle, type DictationSupport,
+} from "@/lib/voice"
 import { EmergyAvatar, type EmergyState } from "./EmergyAvatar"
 import { ChatMarkdown } from "./ChatMarkdown"
 
@@ -54,6 +59,12 @@ export function EmergyPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
+  const [listening, setListening] = useState(false)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [canDictate, setCanDictate] = useState<DictationSupport>("unsupported")
+  const [autoSpeak, setAutoSpeak] = useState(false)
+  const [speaking, setSpeaking] = useState(false)
+  const dictationRef = useRef<DictationHandle | null>(null)
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | null>(null)
   const [showBubble, setShowBubble] = useState(false)
   const [lastShownMessage, setLastShownMessage] = useState<string | null>(null)
@@ -166,6 +177,47 @@ export function EmergyPanel() {
     } catch {}
   }
 
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const support = await dictationSupport()
+      if (!cancelled) setCanDictate(support)
+    })()
+    setAutoSpeak(getAutoSpeak())
+    return () => { cancelled = true }
+  }, [])
+
+  /** Read a reply aloud in the voice chosen on this device. */
+  const speakReply = useCallback(async (text: string) => {
+    if (!speechSupported() || !text.trim()) return
+    const voices = await listVoices()
+    const voice = resolveVoice(voices, getSavedVoiceUri(), navigator.language)
+    setSpeaking(true)
+    const started = speak(text, { voice, rate: getVoiceRate(), onEnd: () => setSpeaking(false) })
+    if (!started) setSpeaking(false)
+  }, [])
+
+  function toggleDictation() {
+    setVoiceError(null)
+    if (listening) {
+      dictationRef.current?.stop()
+      dictationRef.current = null
+      setListening(false)
+      return
+    }
+    setListening(true)
+    void startDictation({
+      // Words land in the box rather than sending themselves: a dictation that
+      // fires off a half-heard sentence is worse than typing it.
+      onPartial: text => setInput(text),
+      onFinal: text => { setInput(text); setListening(false); dictationRef.current = null },
+      onError: message => { setVoiceError(message); setListening(false); dictationRef.current = null },
+    }).then(handle => {
+      if (handle) dictationRef.current = handle
+      else setListening(false)
+    })
+  }
+
   async function sendMessage() {
     const text = input.trim()
     if (!text || sending) return
@@ -178,17 +230,19 @@ export function EmergyPanel() {
     const assistantMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: "assistant", content: "" }
     setMessages(prev => [...prev, assistantMsg])
 
+    let fullText = ""
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
       })
-      if (!res.body) return
+      // Returning here used to skip the reset below, leaving the composer
+      // disabled until the panel was reopened.
+      if (!res.body) throw new Error("no stream")
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
-      let fullText = ""
 
       while (true) {
         const { done, value } = await reader.read()
@@ -212,8 +266,16 @@ export function EmergyPanel() {
     } catch {}
 
     setSending(false)
+    // Only the finished reply is spoken — reading each token as it streams
+    // would stutter and restart on every chunk.
+    if (autoSpeak && fullText.trim()) void speakReply(fullText)
     inputRef.current?.focus()
   }
+
+  useEffect(() => () => {
+    stopSpeaking()
+    dictationRef.current?.stop()
+  }, [])
 
   const state = emergy?.state ?? "okay"
   const isScreaming = emergy?.state === "screaming"
@@ -363,13 +425,50 @@ export function EmergyPanel() {
           </div>
 
           {/* Input */}
-          <div className="flex gap-2 px-3 py-2 border-t border-border shrink-0">
+          {voiceError && (
+            <p className="px-3 pt-2 text-[10px] text-amber-400 shrink-0">{voiceError}</p>
+          )}
+          <div className="flex gap-2 px-3 py-2 border-t border-border shrink-0 items-center">
+            {/* Speak replies aloud. Hidden where the device has no speech at
+                all rather than offering a button that does nothing. */}
+            {speechSupported() && (
+              <button
+                onClick={() => {
+                  if (speaking) { stopSpeaking(); setSpeaking(false); return }
+                  const next = !autoSpeak
+                  setAutoSpeak(next)
+                  saveAutoSpeak(next)
+                }}
+                aria-label={speaking ? "Stop speaking" : autoSpeak ? "Turn off spoken replies" : "Read replies aloud"}
+                title={speaking ? "Stop speaking" : autoSpeak ? "Spoken replies on" : "Read replies aloud"}
+                className={`p-1.5 rounded-lg transition-colors ${
+                  speaking ? "bg-primary/20 text-primary animate-pulse"
+                  : autoSpeak ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {autoSpeak || speaking ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+              </button>
+            )}
+            {canDictate !== "unsupported" && (
+              <button
+                onClick={toggleDictation}
+                disabled={sending}
+                aria-label={listening ? "Stop dictation" : "Dictate a message"}
+                title={listening ? "Stop dictation" : "Dictate a message"}
+                className={`p-1.5 rounded-lg transition-colors disabled:opacity-40 ${
+                  listening ? "bg-red-500/20 text-red-400 animate-pulse" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {listening ? <Square className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+              </button>
+            )}
             <input
               ref={inputRef}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage() } }}
-              placeholder="Ask Emergy…"
+              placeholder={listening ? "Listening…" : "Ask Emergy…"}
               className="flex-1 text-xs bg-secondary rounded-lg px-3 py-1.5 outline-none border border-transparent focus:border-primary/50 transition-colors"
               disabled={sending}
             />

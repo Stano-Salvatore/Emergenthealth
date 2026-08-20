@@ -72,6 +72,15 @@ extra_permissions = """
       phone already holds a writable account and syncs it up itself.
     -->
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+    <!--
+      Dictation into Emergy. The browser's SpeechRecognition API does not exist
+      inside an Android WebView — it needs Chrome's own speech service, which
+      the WebView never exposes — so the microphone button in the app is served
+      by the native speech-recognition plugin, and that needs RECORD_AUDIO.
+      Without this the plugin reports unavailable and the UI says so rather
+      than offering a button that silently does nothing.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
@@ -85,6 +94,18 @@ extra_permissions = """
         <package android:name="com.google.android.apps.healthdata" />
         <intent>
             <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+        </intent>
+        <!--
+          The speech recognizer and the text-to-speech engine both live in other
+          apps. Under Android 11+ package visibility rules an app cannot see
+          them without declaring the intents, and the plugin would report "not
+          available" on a phone that has both.
+        -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
     </queries>
 """
