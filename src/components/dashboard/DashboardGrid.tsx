@@ -292,7 +292,7 @@ export function DashboardGrid({ blocks, header, mobileHidden }: Props) {
     setHidden(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
-    else next.add(id)
+      else next.add(id)
       try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next])) } catch { /* */ }
       persist([...itemsRef.current], [...next] as string[], false)
       return next

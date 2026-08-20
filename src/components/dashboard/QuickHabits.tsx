@@ -45,7 +45,7 @@ export function QuickHabits({ habits }: { habits: Habit[] }) {
       setCompleted(prev => {
         const next = new Set(prev)
         if (isDone) next.add(id)
-      else next.delete(id)
+        else next.delete(id)
         return next
       })
     } finally {
