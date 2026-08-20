@@ -223,6 +223,10 @@ widget_copies = [
     (f"{widget_src}/RemindersWidget.java",      f"{pkg_java_dir}/RemindersWidget.java"),
     (f"{widget_src}/widget_reminders.xml",      f"{res_layout}/widget_reminders.xml"),
     (f"{widget_src}/reminders_widget_info.xml", f"{res_xml}/reminders_widget_info.xml"),
+    # Today widget (readiness, sleep, steps, habits, next dose — read-only)
+    (f"{widget_src}/TodayWidget.java",          f"{pkg_java_dir}/TodayWidget.java"),
+    (f"{widget_src}/widget_today.xml",          f"{res_layout}/widget_today.xml"),
+    (f"{widget_src}/today_widget_info.xml",     f"{res_xml}/today_widget_info.xml"),
 ]
 
 widget_ok = True
@@ -287,6 +291,16 @@ if widget_ok:
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/reminders_widget_info" />
+        </receiver>
+""",
+        "TodayWidget": """
+        <receiver android:name=".TodayWidget" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/today_widget_info" />
         </receiver>
 """,
     }

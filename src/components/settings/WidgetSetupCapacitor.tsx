@@ -193,8 +193,14 @@ export function WidgetSetupCapacitor() {
                   <li>Open the app on your Android phone</li>
                   <li>Go to Settings → Android Widget</li>
                   <li>Tap <strong>Activate Widget</strong> — key is stored automatically</li>
-                  <li>Long-press home screen → Widgets → Emergenthealth Quick Log</li>
+                  <li>Long-press home screen → Widgets → Emergenthealth</li>
                 </ol>
+
+                <p className="text-[11px] text-muted-foreground leading-snug">
+                  Four widgets share this key: <strong>Today</strong> (readiness, sleep, steps,
+                  habits and the next dose), <strong>Quick Log</strong>, <strong>Habits</strong> and{" "}
+                  <strong>Reminders</strong>. Revoking the key switches all of them off at once.
+                </p>
 
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground">Manual entry — full key:</p>
