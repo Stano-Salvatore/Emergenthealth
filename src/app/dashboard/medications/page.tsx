@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { RefreshCw, Search, Pencil, CalendarDays, Tag } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
+import { formatDose, parseDose } from "@/lib/dose"
 import { supplementInfoFor, fractionRemaining, PHARMA_DISCLAIMER } from "@/lib/supplement-info"
 import { MedScheduleCard } from "@/components/medications/MedScheduleCard"
 
@@ -12,6 +13,8 @@ interface TagItem {
   id: string
   day: string
   timestamp: Date
+  doseAmount?: number | null
+  doseUnit?: string | null
   tagName: string | null
   rawName?: string | null    // pre-normalization label from Oura
   text: string | null
@@ -235,6 +238,11 @@ function TypeCard({
               ) : (
                 <span className="text-muted-foreground/50">{format(new Date(e.timestamp), "HH:mm")}</span>
               )}
+              {formatDose(e.doseAmount, e.doseUnit) && (
+                <span className="shrink-0 rounded px-1.5 py-0.5 bg-secondary text-[10px] text-foreground/70">
+                  {formatDose(e.doseAmount, e.doseUnit)}
+                </span>
+              )}
               {e.text && e.text !== e.tagName && (
                 <span className="flex-1 truncate text-left ml-2 italic">{e.text}</span>
               )}
@@ -269,6 +277,8 @@ export default function MedicationsPage() {
   const [doseName, setDoseName] = useState("")
   const [doseMinutesAgo, setDoseMinutesAgo] = useState(0)
   const [doseTime, setDoseTime] = useState("") // HH:MM — exact taken-at time; "" means "use the presets"
+  const [doseAmount, setDoseAmount] = useState("") // how much, e.g. "12.5" or "0.5"
+  const [doseUnit, setDoseUnit] = useState<"mg" | "tablet">("tablet")
   const [logging, setLogging] = useState<string | null>(null)
 
   const load = useCallback(async (q = filter, cat = activeCategory) => {
@@ -305,15 +315,24 @@ export default function MedicationsPage() {
         if (d.getTime() > Date.now() + 5 * 60_000) d.setDate(d.getDate() - 1)
         takenAt = d.toISOString()
       }
+      const amount = doseAmount.trim() ? Number(doseAmount.replace(",", ".")) : null
       const res = await fetch("/api/medications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: clean, minutesAgo: doseMinutesAgo, takenAt }),
+        body: JSON.stringify({
+          name: clean,
+          minutesAgo: doseMinutesAgo,
+          takenAt,
+          // Only sent when the user typed one — otherwise the server reads a
+          // dose off the label, so "Atarax - half" still records ½ tablet.
+          ...(amount && Number.isFinite(amount) && amount > 0 ? { doseAmount: amount, doseUnit } : {}),
+        }),
       })
       if (res.ok) {
         setDoseName("")
         setDoseMinutesAgo(0)
         setDoseTime("")
+        setDoseAmount("")
         await load()
       } else {
         setError("Couldn't log that dose — try again.")
@@ -537,6 +556,38 @@ export default function MedicationsPage() {
               ))}
             </div>
           )}
+
+          {/* How much. Left blank, a dose written into the name is used
+              instead — "Atarax - half" records ½ tablet either way. */}
+          <div className="flex items-center gap-1.5">
+            <input
+              value={doseAmount}
+              onChange={e => setDoseAmount(e.target.value)}
+              inputMode="decimal"
+              placeholder="Dose (optional)"
+              aria-label="Dose amount"
+              className="w-28 rounded-lg border bg-background px-2.5 py-1.5 text-xs outline-none focus:border-primary"
+            />
+            <div className="flex rounded-lg border border-border overflow-hidden">
+              {(["tablet", "mg"] as const).map(u => (
+                <button
+                  key={u}
+                  onClick={() => setDoseUnit(u)}
+                  className={cn(
+                    "px-2 py-1.5 text-[10px] transition-colors",
+                    doseUnit === u ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {u === "tablet" ? "tablets" : "mg"}
+                </button>
+              ))}
+            </div>
+            {!doseAmount.trim() && parseDose(doseName) && (
+              <span className="text-[10px] text-muted-foreground">
+                reads {formatDose(parseDose(doseName)!.amount, parseDose(doseName)!.unit)} from the name
+              </span>
+            )}
+          </div>
 
           <div className="flex gap-1.5">
             <input
