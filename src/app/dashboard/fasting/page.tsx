@@ -81,6 +81,9 @@ export default function FastingPage() {
   }, [])
 
   useEffect(() => {
+    // Same as everywhere else: loadData only setStates after awaiting the
+    // fetch, which the rule cannot see through a useCallback.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData()
   }, [loadData])
 

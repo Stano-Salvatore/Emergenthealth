@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { persistDisplayScale } from "@/lib/display-scale"
+import { readLocalString, useLocalSetting } from "@/lib/use-client-value"
 
 const STEPS = [0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1, 1.15, 1.2]
 const DEFAULT = 1
@@ -19,18 +19,13 @@ function closestStepIndex(v: number): number {
   return best
 }
 
-export function ZoomControl() {
-  const [zoom, setZoom] = useState(DEFAULT)
+function readStoredZoom(): number {
+  const v = parseFloat(readLocalString("display_zoom", ""))
+  return isNaN(v) ? DEFAULT : v
+}
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("display_zoom")
-      if (saved) {
-        const v = parseFloat(saved)
-        if (!isNaN(v)) setZoom(v)
-      }
-    } catch {}
-  }, [])
+export function ZoomControl() {
+  const [zoom, setZoom] = useLocalSetting(readStoredZoom, DEFAULT)
 
   function apply(v: number) {
     setZoom(v)

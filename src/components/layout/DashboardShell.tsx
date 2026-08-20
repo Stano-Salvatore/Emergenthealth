@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect } from "react"
 import { Menu } from "lucide-react"
 import { Sidebar } from "./Sidebar"
 import { CommandPalette } from "./CommandPalette"
@@ -12,51 +12,55 @@ import { OfflineToast } from "./OfflineToast"
 import { RateAppPrompt } from "./RateAppPrompt"
 import { BottomNav } from "./BottomNav"
 import { cn } from "@/lib/utils"
+import { readLocalString, useClientValue, useLocalSetting } from "@/lib/use-client-value"
 
 const STORAGE_KEY = "sidebar-open"
 
+// layout_mode (and display_zoom) live only in localStorage/cookies, which are
+// per-device by nature — switching to Web mode on a phone never affects a
+// tablet. A device that has never set a preference used to default to "mobile"
+// regardless of its actual screen size, which looks needlessly cramped on a
+// tablet with room to spare, so an unset device is sized by its width instead.
+function resolveLayoutMode(): "web" | "mobile" {
+  const saved = readLocalString("layout_mode", "")
+  if (saved === "web" || saved === "mobile") return saved
+  return window.innerWidth >= 768 ? "web" : "mobile"
+}
+
+function defaultSidebarOpen(): boolean {
+  if (resolveLayoutMode() === "web") return true
+  const saved = readLocalString(STORAGE_KEY, "")
+  // A wide screen keeps the sidebar unless it was explicitly closed; a narrow
+  // one keeps it closed unless it was explicitly opened.
+  return window.innerWidth >= 1024 ? saved !== "false" : saved === "true"
+}
+
 export function DashboardShell({ children }: { children: React.ReactNode }) {
-  const [open, setOpen] = useState(true)
-  const [mounted, setMounted] = useState(false)
-  const [webMode, setWebMode] = useState(false)
+  // All three come from localStorage and the window size — things the server
+  // cannot see. Reading them without an effect means the first client paint is
+  // already the right layout instead of a mobile-shaped flash.
+  const mounted = useClientValue(() => true, false)
+  const webMode = useClientValue(() => resolveLayoutMode() === "web", false)
+  const [open, setOpen] = useLocalSetting(defaultSidebarOpen, true)
 
+  // Write the width-derived choice down the first time, so it stays put if the
+  // window is later resized. Display scale itself is rendered server-side (see
+  // generateViewport() in app/layout.tsx) from a cookie — nothing to apply
+  // client-side here, and doing so on every mount (including SPA navigations
+  // between dashboard pages) used to risk re-mutating the viewport meta with a
+  // stale value after the correct one was already set at first load.
   useEffect(() => {
-    // Display scale itself is rendered server-side (see generateViewport() in
-    // app/layout.tsx) from a cookie — nothing to apply client-side here. Doing
-    // so on every mount (including SPA navigations between dashboard pages)
-    // used to risk re-mutating the viewport meta with a stale value after the
-    // correct one was already set at first load.
-    let layoutMode = localStorage.getItem("layout_mode")
-
-    // layout_mode (and display_zoom) live only in localStorage/cookies, which
-    // are per-device by nature — switching to Web mode on a phone never
-    // affects a tablet or any other device. But a device that's never set a
-    // preference of its own defaulted to "mobile" regardless of its actual
-    // screen size, which looks needlessly cramped on a tablet that already
-    // has plenty of room. On first-ever load for a device, auto-pick based on
-    // its real (un-zoomed, since no zoom cookie exists yet either) width:
-    // tablet-or-larger gets Web mode's always-visible sidebar at normal 100%
-    // zoom (no need to shrink anything — that trick is for small phones);
-    // phone-sized stays "mobile" as before.
-    if (layoutMode !== "web" && layoutMode !== "mobile") {
-      layoutMode = window.innerWidth >= 768 ? "web" : "mobile"
-      try { localStorage.setItem("layout_mode", layoutMode) } catch { /* */ }
+    const saved = readLocalString("layout_mode", "")
+    if (saved !== "web" && saved !== "mobile") {
+      try { localStorage.setItem("layout_mode", resolveLayoutMode()) } catch { /* */ }
     }
-    const isWeb = layoutMode === "web"
-    setWebMode(isWeb)
-
-    const saved = localStorage.getItem(STORAGE_KEY)
-    const wide = window.innerWidth >= 1024
-    const defaultOpen = isWeb ? true : wide ? (saved !== "false") : (saved === "true")
-    setOpen(defaultOpen)
-    setMounted(true)
   }, [])
 
-  const toggle = () =>
-    setOpen(o => {
-      localStorage.setItem(STORAGE_KEY, String(!o))
-      return !o
-    })
+  const toggle = () => {
+    const next = !open
+    try { localStorage.setItem(STORAGE_KEY, String(next)) } catch { /* */ }
+    setOpen(next)
+  }
 
   if (!mounted) return (
     <div className="flex h-[100dvh] overflow-hidden bg-background">

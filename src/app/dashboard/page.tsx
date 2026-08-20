@@ -7,9 +7,9 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import Link from "next/link"
 import {
-  Activity, Euro, Calendar, CheckSquare, Bell, Moon,
+  Activity, CheckSquare, Moon,
   Footprints, ChevronRight, Heart, Clock,
-  TrendingUp, TrendingDown, Mail, Shield,
+  TrendingUp, TrendingDown, Shield,
   Wind, Flame, Droplets, Timer,
 } from "lucide-react"
 import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"

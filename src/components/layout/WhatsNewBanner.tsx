@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { X, Sparkles } from "lucide-react"
+import { readLocalString, useLocalSetting } from "@/lib/use-client-value"
 
 const RELEASE_KEY = "whats_new_dismissed_v3_play"
 
@@ -14,12 +14,12 @@ const HIGHLIGHTS = [
 ]
 
 export function WhatsNewBanner() {
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    const dismissed = localStorage.getItem(RELEASE_KEY)
-    if (!dismissed) setVisible(true)
-  }, [])
+  // Starts hidden on the server: a banner that flashes in and out during
+  // hydration is worse than one that appears a frame later.
+  const [visible, setVisible] = useLocalSetting(
+    () => readLocalString(RELEASE_KEY, "") === "",
+    false,
+  )
 
   function dismiss() {
     localStorage.setItem(RELEASE_KEY, "1")

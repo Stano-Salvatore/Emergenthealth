@@ -10,7 +10,9 @@ export async function POST(req: NextRequest) {
   const {
     date,
     sleepHours,
-    wakeTime,
+    // No wakeTime here: HealthLog has awakeTime (minutes spent awake), which is
+    // a different quantity. Destructuring a wake *time* only made the endpoint
+    // look like it stored one.
     deepSleepMin,
     remMin,
     lightSleepMin,

@@ -298,17 +298,21 @@ function PeriodTab({
 
 export function InsightsPanel() {
 
-  const periodData = useRef<Partial<Record<Exclude<Period, "today">, PeriodData>>>({})
-  const [, forceUpdate] = useState(0)
+  // Loaded periods were kept in a ref and painted by bumping a dummy counter —
+  // a hand-rolled setState that React can't see. A ref read during render is
+  // also exactly what breaks under concurrent rendering, so this is plain
+  // state now; the ref that remains is only the in-flight guard, which is
+  // written from a callback, never during a render.
+  const [periodData, setPeriodData] = useState<Partial<Record<Exclude<Period, "today">, PeriodData>>>({})
+  const requested = useRef<Set<string>>(new Set())
 
   // User prefs: per-period visible count + pinned/watched correlation ids.
   const [counts, setCounts] = useState<Record<Exclude<Period, "today">, number>>(DEFAULT_COUNTS)
   const [pinned, setPinned] = useState<Set<string>>(new Set())
 
   const loadPeriod = useCallback(async (period: Exclude<Period, "today">) => {
-    if (periodData.current[period]) return
-    periodData.current[period] = { correlations: [], locationPatterns: [], loaded: false }
-    forceUpdate(n => n + 1)
+    if (requested.current.has(period)) return
+    requested.current.add(period)
 
     const fetchLoc = period === "month" || period === "overall"
     const [corrRes, locRes] = await Promise.allSettled([
@@ -318,18 +322,20 @@ export function InsightsPanel() {
         : Promise.resolve([]),
     ])
 
-    periodData.current[period] = {
-      // Noise-tier patterns are dropped here rather than rendered. The full
-      // Insights page can show them behind a toggle because it also renders
-      // the trust badge — this panel has no badge and no room for one, so a
-      // "could be chance" card would be indistinguishable from a solid one.
-      correlations: corrRes.status === "fulfilled"
-        ? ((corrRes.value.insights ?? []) as CorrelationItem[]).filter(i => i.tier !== "noise")
-        : [],
-      locationPatterns: locRes.status === "fulfilled" && Array.isArray(locRes.value) ? locRes.value : [],
-      loaded: true,
-    }
-    forceUpdate(n => n + 1)
+    setPeriodData(prev => ({
+      ...prev,
+      [period]: {
+        // Noise-tier patterns are dropped here rather than rendered. The full
+        // Insights page can show them behind a toggle because it also renders
+        // the trust badge — this panel has no badge and no room for one, so a
+        // "could be chance" card would be indistinguishable from a solid one.
+        correlations: corrRes.status === "fulfilled"
+          ? ((corrRes.value.insights ?? []) as CorrelationItem[]).filter(i => i.tier !== "noise")
+          : [],
+        locationPatterns: locRes.status === "fulfilled" && Array.isArray(locRes.value) ? locRes.value : [],
+        loaded: true,
+      },
+    }))
   }, [])
 
   // Load every period up-front so all sections render stacked, plus saved prefs.
@@ -384,7 +390,7 @@ export function InsightsPanel() {
           <p className="text-[11px] font-bold uppercase tracking-wider text-foreground/70 mb-2">{p.label}</p>
           <PeriodTab
             period={p.key}
-            data={periodData.current[p.key] ?? { correlations: [], locationPatterns: [], loaded: false }}
+            data={periodData[p.key] ?? { correlations: [], locationPatterns: [], loaded: false }}
             count={counts[p.key] ?? DEFAULT_COUNTS[p.key]}
             pinned={pinned}
             onCountChange={n => changeCount(p.key, n)}

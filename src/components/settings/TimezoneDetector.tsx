@@ -1,7 +1,15 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { Globe } from "lucide-react"
+import { useClientValue } from "@/lib/use-client-value"
+
+function deviceTimezone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null
+  } catch {
+    return null
+  }
+}
 
 // Pure display. TimezoneSync (mounted in the dashboard layout) owns keeping
 // the stored timezone converged to the device's — this component used to be a
@@ -9,15 +17,7 @@ import { Globe } from "lucide-react"
 // after travel could be the old zone while TimezoneSync had already moved on.
 // The device zone is what the server ends up holding, so show that.
 export function TimezoneDetector() {
-  const [tz, setTz] = useState<string | null>(null)
-
-  useEffect(() => {
-    try {
-      setTz(Intl.DateTimeFormat().resolvedOptions().timeZone || null)
-    } catch {
-      setTz(null)
-    }
-  }, [])
+  const tz = useClientValue(deviceTimezone, null)
 
   if (!tz) return null
 

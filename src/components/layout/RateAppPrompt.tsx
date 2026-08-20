@@ -1,32 +1,35 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { X, Star } from "lucide-react"
+import { useLocalSetting } from "@/lib/use-client-value"
 
 const DISMISSED_KEY = "eh_rate_app_v1"
 const FIRST_SEEN_KEY = "eh_first_seen"
 const DAYS_BEFORE_PROMPT = 14
 
+// Whether this browser has earned the ask: installed as an app, first seen
+// long enough ago, and not already dismissed.
+function shouldAsk(): boolean {
+  try {
+    if (localStorage.getItem(DISMISSED_KEY)) return false
+
+    // Only show in standalone mode (installed PWA)
+    const standalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone === true
+    if (!standalone) return false
+
+    const firstSeen = localStorage.getItem(FIRST_SEEN_KEY)
+    if (!firstSeen) return false
+
+    return (Date.now() - parseInt(firstSeen)) / (1000 * 60 * 60 * 24) >= DAYS_BEFORE_PROMPT
+  } catch {
+    return false
+  }
+}
+
 export function RateAppPrompt() {
-  const [show, setShow] = useState(false)
-
-  useEffect(() => {
-    try {
-      if (localStorage.getItem(DISMISSED_KEY)) return
-
-      // Only show in standalone mode (installed PWA)
-      const standalone =
-        window.matchMedia("(display-mode: standalone)").matches ||
-        (window.navigator as unknown as { standalone?: boolean }).standalone === true
-      if (!standalone) return
-
-      const firstSeen = localStorage.getItem(FIRST_SEEN_KEY)
-      if (!firstSeen) return
-
-      const daysSince = (Date.now() - parseInt(firstSeen)) / (1000 * 60 * 60 * 24)
-      if (daysSince >= DAYS_BEFORE_PROMPT) setShow(true)
-    } catch { /* */ }
-  }, [])
+  const [show, setShow] = useLocalSetting(shouldAsk, false)
 
   function dismiss() {
     try { localStorage.setItem(DISMISSED_KEY, "1") } catch { /* */ }

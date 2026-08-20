@@ -108,10 +108,8 @@ export default async function SettingsPage({
   `.catch(() => [] as { userId: string }[])
   const hasRescuetimeKey = rescuetimeRows.length > 0
 
-  const lastfmRows = await prisma.$queryRaw<{ username: string }[]>`
-    SELECT "username" FROM "LastfmKey" WHERE "userId" = ${userId} LIMIT 1
-  `.catch(() => [] as { username: string }[])
-  const lastfmUsername = lastfmRows[0]?.username ?? null
+  // LastfmManager loads its own username; this page used to query for it too
+  // and throw the answer away — a database round trip on every settings load.
 
   const isOuraConnected = !!ouraToken
 

@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Mail, RefreshCw, AlertCircle } from "lucide-react"
-import { format, parseISO, isToday, isYesterday } from "date-fns"
+import { format, isToday, isYesterday } from "date-fns"
 import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
 
 interface GmailMessage {

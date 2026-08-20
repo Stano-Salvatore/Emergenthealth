@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { X, Download } from "lucide-react"
+import { useClientValue } from "@/lib/use-client-value"
 
 const DISMISS_KEY = "install_prompt_dismissed_v1"
 
@@ -10,16 +11,26 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>
 }
 
+// iOS has no beforeinstallprompt event, so it gets written instructions
+// instead of a button. That's a fact about the browser, known before paint.
+function isIosBrowser(): boolean {
+  try {
+    return /ipad|iphone|ipod/i.test(navigator.userAgent) && !(window as unknown as { MSStream?: unknown }).MSStream
+  } catch {
+    return false
+  }
+}
+
 export function InstallPrompt() {
   const [show, setShow] = useState(false)
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null)
-  const [isIos, setIsIos] = useState(false)
+  const isIos = useClientValue(isIosBrowser, false)
 
   useEffect(() => {
     // Don't show if already installed (standalone mode)
     const standalone =
       window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as any).standalone === true
+      (window.navigator as Navigator & { standalone?: boolean }).standalone === true
     if (standalone) return
 
     // Don't show if recently dismissed
@@ -28,9 +39,7 @@ export function InstallPrompt() {
       if (until && Date.now() < parseInt(until)) return
     } catch { /* */ }
 
-    const ua = navigator.userAgent
-    const ios = /ipad|iphone|ipod/i.test(ua) && !(window as any).MSStream
-    setIsIos(ios)
+    const ios = isIosBrowser()
 
     // Listen for the Chrome/Android install prompt
     const handler = (e: Event) => {

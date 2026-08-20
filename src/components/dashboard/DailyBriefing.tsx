@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState } from "react"
 import { Sparkles, RefreshCw } from "lucide-react"
 
 type BriefingState =
@@ -8,29 +8,42 @@ type BriefingState =
   | { status: "loaded"; briefing: string; generatedAt: string }
   | { status: "empty" }
 
+async function loadBriefing(force: boolean): Promise<BriefingState> {
+  try {
+    const res = await fetch(force ? "/api/briefing?force=1" : "/api/briefing")
+    if (!res.ok) return { status: "empty" }
+    const data = await res.json() as { briefing?: string; generatedAt?: string }
+    if (!data.briefing) return { status: "empty" }
+    return {
+      status: "loaded",
+      briefing: data.briefing,
+      generatedAt: data.generatedAt ?? new Date().toISOString(),
+    }
+  } catch {
+    return { status: "empty" }
+  }
+}
+
 export function DailyBriefing() {
   const [state, setState] = useState<BriefingState>({ status: "loading" })
   const [refreshing, setRefreshing] = useState(false)
 
-  const fetchBriefing = useCallback(async (force = false) => {
-    const url = force ? "/api/briefing?force=1" : "/api/briefing"
-    try {
-      const res = await fetch(url)
-      if (!res.ok) { setState({ status: "empty" }); return }
-      const data = await res.json() as { briefing?: string; generatedAt?: string }
-      if (!data.briefing) { setState({ status: "empty" }); return }
-      setState({ status: "loaded", briefing: data.briefing, generatedAt: data.generatedAt ?? new Date().toISOString() })
-    } catch {
-      setState({ status: "empty" })
-    }
+  // Every state update lands after an await, and `cancelled` drops the answer
+  // if the component goes away first — the load lives in the effect rather
+  // than in a callback the effect invokes, so nothing renders twice on mount.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const next = await loadBriefing(false)
+      if (!cancelled) setState(next)
+    })()
+    return () => { cancelled = true }
   }, [])
-
-  useEffect(() => { fetchBriefing(false) }, [fetchBriefing])
 
   async function handleRefresh() {
     setRefreshing(true)
     setState({ status: "loading" })
-    await fetchBriefing(true)
+    setState(await loadBriefing(true))
     setRefreshing(false)
   }
 

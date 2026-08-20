@@ -242,6 +242,8 @@ export default function ReadingPage() {
     setLoading(false)
   }, [])
 
+  // load awaits the fetch before it setStates; the rule can't see through it.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load() }, [load])
 
   async function addBook(data: Partial<Book>) {

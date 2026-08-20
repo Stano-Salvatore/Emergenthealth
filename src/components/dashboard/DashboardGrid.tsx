@@ -193,10 +193,18 @@ export function DashboardGrid({ blocks, header, mobileHidden }: Props) {
 
   const { containerRef, width } = useMeasuredWidth(1280)
 
-  // Refs so async/debounced saves always read the latest state.
-  const itemsRef = useRef(items); itemsRef.current = items
-  const hiddenRef = useRef(hidden); hiddenRef.current = hidden
-  const editingRef = useRef(editing); editingRef.current = editing
+  // Refs so async/debounced saves always read the latest state. Written after
+  // the commit, not during render: a ref mutated mid-render is invisible to
+  // React and reads wrong under concurrent rendering. Everything that reads
+  // these runs from a timer or an event, i.e. after the commit anyway.
+  const itemsRef = useRef(items)
+  const hiddenRef = useRef(hidden)
+  const editingRef = useRef(editing)
+  useEffect(() => {
+    itemsRef.current = items
+    hiddenRef.current = hidden
+    editingRef.current = editing
+  })
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Persist layout + hidden widgets to the server so the arrangement syncs
@@ -218,6 +226,11 @@ export function DashboardGrid({ blocks, header, mobileHidden }: Props) {
     }
   }, [])
 
+  // Hydrating the saved layout out of localStorage. The state here is an array
+  // of layout items and a Set of hidden ids — useSyncExternalStore compares
+  // snapshots with Object.is and would spin forever on a fresh object per call,
+  // so an effect is the right tool.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     // Local cache first for an instant paint.
     setItems(loadItems())
@@ -244,6 +257,7 @@ export function DashboardGrid({ blocks, header, mobileHidden }: Props) {
       })
       .catch(() => {})
   }, [])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Track viewport width independently of the grid container: on phones we
   // render a plain vertical stack instead of the draggable 12-column grid,

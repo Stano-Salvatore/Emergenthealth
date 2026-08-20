@@ -49,17 +49,33 @@ export default function RescueTimePage() {
   const [msg, setMsg] = useState("")
   const [error, setError] = useState(false)
 
-  function load() {
+  async function load() {
     setLoading(true)
     setError(false)
-    fetch("/api/rescuetime")
-      .then(r => r.json())
-      .then(setData)
-      .catch(() => setError(true))
-      .finally(() => setLoading(false))
+    try {
+      setData(await (await fetch("/api/rescuetime")).json())
+    } catch {
+      setError(true)
+    }
+    setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  // The initial load lives in the effect rather than in a callback the effect
+  // calls: every state change then follows an await, and a page that unmounts
+  // mid-flight doesn't get its answer written back.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const rows = await (await fetch("/api/rescuetime")).json()
+        if (!cancelled) setData(rows)
+      } catch {
+        if (!cancelled) setError(true)
+      }
+      if (!cancelled) setLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   async function saveKey() {
     if (!apiKey.trim()) return

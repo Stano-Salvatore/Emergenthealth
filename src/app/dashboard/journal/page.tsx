@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -106,6 +106,8 @@ export default function JournalPage() {
     setNoteSaveState("idle")
   }
 
+  // loadDay awaits before every setState; the rule can't see through the call.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadDay(date) }, [date])
 
   function changeDay(delta: number) {

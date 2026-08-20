@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 
 const MOODS = [
   { value: 1, emoji: "😴", label: "Awful" },

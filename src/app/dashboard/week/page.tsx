@@ -3,15 +3,13 @@ export const metadata: Metadata = { title: "This Week" }
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { format, subDays, startOfWeek, endOfWeek } from "date-fns"
+import { format, subDays, startOfWeek } from "date-fns"
 import { WeekReviewAI } from "@/components/dashboard/WeekReviewAI"
 import { MoodPatterns } from "@/components/dashboard/MoodPatterns"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { Badge } from "@/components/ui/badge"
 import {
-  Moon, Footprints, Heart, Activity, Shield, Wind,
-  CheckSquare, Flame, Droplets, Timer, TrendingUp, TrendingDown, Minus,
+  Moon, Footprints, Activity, Shield, CheckSquare, Droplets, Timer, TrendingUp, TrendingDown, Minus,
 } from "lucide-react"
 
 const STEP_GOAL = 8000

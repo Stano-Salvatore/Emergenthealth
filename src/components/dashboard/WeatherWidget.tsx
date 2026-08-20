@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useClientValue } from "@/lib/use-client-value"
 
 const WMO: Record<number, { label: string; emoji: string }> = {
   0: { label: "Clear sky", emoji: "☀️" },
@@ -41,12 +42,20 @@ interface Weather {
 
 const DAY_LABELS = ["Tomorrow", "Day 2", "Day 3"]
 
+// A browser either has geolocation or it doesn't, and it never changes mid-
+// session. Nothing here needs to render "loading" first and then find out.
+function hasGeolocation(): boolean {
+  return typeof navigator !== "undefined" && "geolocation" in navigator
+}
+
 export function WeatherWidget() {
   const [weather, setWeather] = useState<Weather | null>(null)
-  const [loading, setLoading] = useState(true)
+  const geolocation = useClientValue(hasGeolocation, true)
+  const [locating, setLocating] = useState(true)
+  const loading = geolocation && locating
 
   useEffect(() => {
-    if (!navigator.geolocation) { setLoading(false); return }
+    if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       async ({ coords }) => {
         try {
@@ -86,9 +95,9 @@ export function WeatherWidget() {
             }),
           })
         } catch { /* silent */ }
-        setLoading(false)
+        setLocating(false)
       },
-      () => setLoading(false)
+      () => setLocating(false)
     )
   }, [])
 

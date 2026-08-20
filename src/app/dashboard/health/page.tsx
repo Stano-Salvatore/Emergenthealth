@@ -16,7 +16,7 @@ import {
   type ChartDay,
 } from "@/components/health/HealthCharts"
 import { Moon, Footprints, Heart, Scale, Zap, Activity, Thermometer, Wind, Shield, TrendingDown, TrendingUp, Minus } from "lucide-react"
-import { format, subDays } from "date-fns"
+import { format } from "date-fns"
 import WeightPage from "@/app/dashboard/weight/page"
 import LabsPage from "@/app/dashboard/labs/page"
 import BodyPage from "@/app/dashboard/body/page"

@@ -16,6 +16,21 @@ const eslintConfig = defineConfig([
     // material only, never imported by the app.
     "design/**",
   ]),
+  {
+    rules: {
+      // A leading underscore is this codebase's way of saying "required by the
+      // signature, deliberately unused" — a route handler that ignores its
+      // request, a stub that has to match an interface. Without this, the only
+      // way to silence the warning is to delete a parameter the caller still
+      // passes, which is worse.
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+        destructuredArrayIgnorePattern: "^_",
+      }],
+    },
+  },
 ]);
 
 export default eslintConfig;

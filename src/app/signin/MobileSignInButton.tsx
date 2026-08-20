@@ -1,7 +1,7 @@
 'use client'
 
 import { Button } from "@/components/ui/button"
-import { useEffect, useState } from "react"
+import { useClientValue } from "@/lib/use-client-value"
 
 const GoogleIcon = () => (
   <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24">
@@ -15,17 +15,19 @@ const GoogleIcon = () => (
 const GOOGLE_BTN_CLASS =
   "w-full gap-2.5 h-11 text-sm font-semibold rounded-xl bg-white text-gray-900 hover:bg-gray-100 shadow-lg"
 
-export function MobileSignInButton({ label }: { label: string }) {
-  const [bridgeReady, setBridgeReady] = useState<boolean | null>(null)
+function hasAuthBridge(): boolean {
+  return !!(window as unknown as { EhAuthBridge?: { openSignIn?: unknown } }).EhAuthBridge?.openSignIn
+}
 
-  useEffect(() => {
-    setBridgeReady(!!(window as any).EhAuthBridge?.openSignIn)
-  }, [])
+export function MobileSignInButton({ label }: { label: string }) {
+  // Either the native shell injected its sign-in bridge before this page
+  // rendered or it didn't; nothing about it changes later.
+  const bridgeReady = useClientValue(hasAuthBridge, null)
 
   function handleClick(e: React.MouseEvent<HTMLAnchorElement>) {
     e.preventDefault()
     const key = crypto.randomUUID()
-    const nativeBridge = (window as any).EhAuthBridge
+    const nativeBridge = (window as unknown as { EhAuthBridge?: { openSignIn?: (key: string) => void } }).EhAuthBridge
     if (nativeBridge?.openSignIn) {
       // Primary path: JSI registered by MainActivity.setupBridgeHooks().
       // Opens Custom Tab at /mobile-signin and loads /mobile-wait in WebView.

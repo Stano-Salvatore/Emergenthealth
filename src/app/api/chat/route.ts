@@ -50,19 +50,25 @@ export async function POST(req: NextRequest) {
   // user, or start a new one titled after the first message. Messages from the
   // pre-conversation era ("legacy") can't be appended to — a new conversation
   // is started instead.
-  const titleSource = message || "Photo"
+  // A photo with no caption is a real message, and it used to be stored as an
+  // empty string — a blank row in the transcript, under a conversation called
+  // "New chat". Neither says anything about what was actually sent.
+  const photoLabel = attachments.length === 1 ? "a photo" : `${attachments.length} photos`
+  const titleSource = message || (attachments.length === 1 ? "Photo" : `${attachments.length} photos`)
+  const storedContent = message || `[sent ${photoLabel}]`
+
   let conversation =
     conversationId && conversationId !== "legacy"
       ? await prisma.chatConversation.findFirst({ where: { id: conversationId, userId } }).catch(() => null)
       : null
   if (!conversation) {
     conversation = await prisma.chatConversation.create({
-      data: { userId, title: titleFromMessage(message) },
+      data: { userId, title: titleFromMessage(titleSource) },
     })
   }
   const convId = conversation.id
 
-  await prisma.chatMessage.create({ data: { userId, conversationId: convId, role: "user", content: message } })
+  await prisma.chatMessage.create({ data: { userId, conversationId: convId, role: "user", content: storedContent } })
 
   // Real token streaming — forward Claude's deltas straight to the client as
   // they arrive, then persist the accumulated reply once the stream finishes.
