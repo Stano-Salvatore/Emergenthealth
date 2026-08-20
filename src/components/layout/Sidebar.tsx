@@ -211,6 +211,12 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
+  // Hydrating the saved nav order and hidden set out of localStorage, plus a
+  // one-time migration that rewrites them. useSyncExternalStore is the usual
+  // answer for reading browser state during render, but these are an array and
+  // a Set — it compares snapshots with Object.is and would re-render forever on
+  // a fresh object each call. An effect is the right tool here.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const gardenMigrated = localStorage.getItem(LS_GARDEN_MIGRATED) === "1"
     const launchMigrated = localStorage.getItem(LS_LAUNCH_MIGRATED) === "1"
@@ -242,6 +248,7 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
         setHidden(new Set(arr))
       } catch {}
     } else setHidden(new Set(DEFAULT_HIDDEN))
+    /* eslint-enable react-hooks/set-state-in-effect */
 
     fetch("/api/preferences/sidebar")
       .then(r => r.json())
@@ -300,7 +307,8 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
   function toggleHidden(href: string) {
     if (NON_HIDEABLE.has(href)) return
     const next = new Set(hidden)
-    next.has(href) ? next.delete(href) : next.add(href)
+    if (next.has(href)) next.delete(href)
+    else next.add(href)
     setHidden(next)
     persist(order, next)
   }

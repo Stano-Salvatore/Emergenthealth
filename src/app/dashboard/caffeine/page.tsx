@@ -134,6 +134,9 @@ export default function CaffeinePage() {
   }, [])
 
   useEffect(() => {
+    // loadData's setState calls all follow an await, so nothing cascades — the
+    // rule just can't see through the useCallback boundary to know that.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData()
   }, [loadData])
 

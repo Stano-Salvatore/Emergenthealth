@@ -1,19 +1,17 @@
 "use client"
 
-import { useState, useEffect } from "react"
 import { persistDisplayScale } from "@/lib/display-scale"
+import { readLocalString, useLocalSetting } from "@/lib/use-client-value"
 
 export type LayoutMode = "mobile" | "web"
 
-export function LayoutModeControl() {
-  const [mode, setMode] = useState<LayoutMode>("mobile")
+function readStoredMode(): LayoutMode {
+  const saved = readLocalString("layout_mode", "mobile")
+  return saved === "web" ? "web" : "mobile"
+}
 
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("layout_mode") as LayoutMode | null
-      if (saved === "web" || saved === "mobile") setMode(saved)
-    } catch {}
-  }, [])
+export function LayoutModeControl() {
+  const [mode, setMode] = useLocalSetting(readStoredMode, "mobile" as LayoutMode)
 
   function apply(v: LayoutMode) {
     setMode(v)

@@ -1,6 +1,7 @@
 import { google } from "googleapis"
 import { prisma } from "@/lib/prisma"
 import { parseGpx, GpxTrack } from "./gpx"
+import { errorMessage } from "@/lib/utils"
 
 const GPSLOGGER_FOLDER_ID = "1rmfhtRSJz6OiOcdJilDwHHsjousC6oSy"
 
@@ -57,8 +58,8 @@ export async function listRevolutStatements(userId: string): Promise<DriveStatem
       createdTime: f.createdTime ?? "",
       size: parseInt(f.size ?? "0"),
     }))
-  } catch (e: any) {
-    console.error("[drive] listRevolutStatements failed:", e?.message)
+  } catch (e) {
+    console.error("[drive] listRevolutStatements failed:", errorMessage(e))
     return []
   }
 }

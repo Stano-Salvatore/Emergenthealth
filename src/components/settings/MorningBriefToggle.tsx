@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
+import { readLocalString, useLocalSetting } from "@/lib/use-client-value"
 
 const DISABLED_KEY = "morning_brief_off"
 const LAST_SHOWN_KEY = "morning_brief_last"
@@ -9,11 +9,10 @@ const LAST_SHOWN_KEY = "morning_brief_last"
 // Counterpart to the "Don't show automatically" link inside the popup, so
 // turning it off isn't a one-way door.
 export function MorningBriefToggle() {
-  const [enabled, setEnabled] = useState(true)
-
-  useEffect(() => {
-    try { setEnabled(localStorage.getItem(DISABLED_KEY) !== "1") } catch {}
-  }, [])
+  const [enabled, setEnabled] = useLocalSetting(
+    () => readLocalString(DISABLED_KEY, "") !== "1",
+    true,
+  )
 
   function toggle() {
     const next = !enabled

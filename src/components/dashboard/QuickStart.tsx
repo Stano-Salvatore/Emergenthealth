@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { useLocalSetting } from "@/lib/use-client-value"
 import { isNativeShell } from "@/lib/native/shell"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import Link from "next/link"
@@ -38,27 +39,37 @@ function CheckItem({ step }: { step: Step }) {
   )
 }
 
+// Shown only for the first few days after this browser first saw the app,
+// and never again once dismissed.
+function withinFirstDays(): boolean {
+  try {
+    if (localStorage.getItem(DISMISS_KEY)) return false
+    const firstSeen = parseInt(localStorage.getItem(FIRST_SEEN_KEY) ?? "", 10)
+    if (isNaN(firstSeen)) return false
+    return (Date.now() - firstSeen) / (1000 * 60 * 60 * 24) <= SHOW_DAYS
+  } catch {
+    return false
+  }
+}
+
 export function QuickStart({ hasCheckin, hasHabits, hasPush }: {
   hasCheckin: boolean
   hasHabits: boolean
   hasPush?: boolean
 }) {
-  const [visible, setVisible] = useState(false)
+  const [visible, setVisible] = useLocalSetting(withinFirstDays, false)
   const [pushEnabled, setPushEnabled] = useState(hasPush ?? false)
 
+  // Start the clock on the first visit. A write to storage, nothing on screen.
   useEffect(() => {
-    const dismissed = localStorage.getItem(DISMISS_KEY)
-    if (dismissed) return
+    try {
+      if (!localStorage.getItem(FIRST_SEEN_KEY)) {
+        localStorage.setItem(FIRST_SEEN_KEY, String(Date.now()))
+      }
+    } catch { /* private mode */ }
+  }, [])
 
-    // Track first seen
-    if (!localStorage.getItem(FIRST_SEEN_KEY)) {
-      localStorage.setItem(FIRST_SEEN_KEY, String(Date.now()))
-    }
-
-    const firstSeen = parseInt(localStorage.getItem(FIRST_SEEN_KEY) ?? "0", 10)
-    const daysSince = (Date.now() - firstSeen) / (1000 * 60 * 60 * 24)
-    if (daysSince <= SHOW_DAYS) setVisible(true)
-
+  useEffect(() => {
     // Check push subscription status
     if ("serviceWorker" in navigator && "PushManager" in window && !isNativeShell()) {
       navigator.serviceWorker.ready

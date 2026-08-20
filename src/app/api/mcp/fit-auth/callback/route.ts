@@ -25,10 +25,11 @@ export async function GET(req: NextRequest) {
     callbackUrl,
   )
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let tokens: any
+  // Only the three fields this route stores; googleapis types them as a much
+  // wider Credentials object that varies by library version.
+  let tokens: { access_token?: string | null; refresh_token?: string | null; expiry_date?: number | null; scope?: string | null }
   try {
-    const result = await oauth2.getToken(code) as any
+    const result = await oauth2.getToken(code)
     tokens = result.tokens
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)

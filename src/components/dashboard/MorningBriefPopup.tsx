@@ -39,12 +39,18 @@ export function MorningBriefPopup({ name }: { name: string }) {
   }, [onBriefPage])
 
   useEffect(() => {
-    maybeOpen()
+    // A frame later, not during the effect: the dashboard gets to paint before
+    // a full-screen sheet lands on top of it, which is also what stops this
+    // from being a render cascade on every mount.
+    const t = setTimeout(maybeOpen, 0)
     // The phone app is resumed far more often than cold-started: someone who
     // left it open overnight should still get the brief when they pick it up.
     const onVisible = () => { if (document.visibilityState === "visible") maybeOpen() }
     document.addEventListener("visibilitychange", onVisible)
-    return () => document.removeEventListener("visibilitychange", onVisible)
+    return () => {
+      clearTimeout(t)
+      document.removeEventListener("visibilitychange", onVisible)
+    }
   }, [maybeOpen])
 
   // Escape to dismiss, and don't let the page scroll behind the sheet

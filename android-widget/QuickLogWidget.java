@@ -42,6 +42,7 @@ public class QuickLogWidget extends AppWidgetProvider {
     private static final String KEY_WINE_COUNT = "wineCount";
     private static final String KEY_DATE       = "date";
 
+    private static final String KEY_LAST_FAILED = "last_failed";
     private static final String CAP_API_KEY = "widget_api_key";
     private static final String CAP_APP_URL = "widget_app_url";
 
@@ -98,11 +99,38 @@ public class QuickLogWidget extends AppWidgetProvider {
 
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.widget_quick_log);
 
-        // Each total is already coloured like the thing it counts (water blue,
-        // coffee amber, beer orange), so an emoji in front of it is noise.
-        views.setTextViewText(R.id.water_status, waterMl + "ml");
-        views.setTextViewText(R.id.coffee_status, coffeeMl + "ml");
-        views.setTextViewText(R.id.beer_status, String.valueOf(beerCount));
+        // With no credentials the widget can't log anything, and the totals it
+        // would print are a local counter that never left the phone. It used to
+        // show "0ml" regardless, which reads as "today you drank nothing"
+        // instead of "this widget is not connected" — so the buttons looked
+        // broken with no hint why. Dashes and a title that says what's wrong.
+        SharedPreferences cap = context.getSharedPreferences(PREFS_CAP, Context.MODE_PRIVATE);
+        boolean linked = cap.getString(CAP_API_KEY, null) != null
+                      && cap.getString(CAP_APP_URL, null) != null;
+
+        if (!linked) {
+            views.setTextViewText(R.id.quick_title, "QUICK LOG \u00B7 OPEN THE APP ONCE");
+            views.setTextColor(R.id.quick_title, 0xFFFBBF24);
+            views.setTextViewText(R.id.water_status, "\u2014");
+            views.setTextViewText(R.id.coffee_status, "\u2014");
+            views.setTextViewText(R.id.beer_status, "\u2014");
+        } else if (prefs.getBoolean(KEY_LAST_FAILED, false)) {
+            // A tap that never reached the server is worse than a slow one: the
+            // drink is simply not logged, and nothing on screen said so.
+            views.setTextViewText(R.id.quick_title, "QUICK LOG \u00B7 NOT SAVED");
+            views.setTextColor(R.id.quick_title, 0xFFF87171);
+            views.setTextViewText(R.id.water_status, waterMl + "ml");
+            views.setTextViewText(R.id.coffee_status, coffeeMl + "ml");
+            views.setTextViewText(R.id.beer_status, String.valueOf(beerCount));
+        } else {
+            // Each total is already coloured like the thing it counts (water blue,
+            // coffee amber, beer orange), so an emoji in front of it is noise.
+            views.setTextViewText(R.id.quick_title, "QUICK LOG");
+            views.setTextColor(R.id.quick_title, 0xFFA5B4FC);
+            views.setTextViewText(R.id.water_status, waterMl + "ml");
+            views.setTextViewText(R.id.coffee_status, coffeeMl + "ml");
+            views.setTextViewText(R.id.beer_status, String.valueOf(beerCount));
+        }
 
         Intent openIntent = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
         if (openIntent != null) {
@@ -123,6 +151,12 @@ public class QuickLogWidget extends AppWidgetProvider {
         appWidgetManager.updateAppWidget(appWidgetId, views);
     }
 
+    /** Remember whether the last tap reached the server, so the widget can say so. */
+    private static void noteResult(Context context, boolean ok) {
+        context.getSharedPreferences(PREFS_WIDGET, Context.MODE_PRIVATE)
+               .edit().putBoolean(KEY_LAST_FAILED, !ok).apply();
+    }
+
     private static PendingIntent buildActionPendingIntent(Context context, String action, int requestCode) {
         Intent intent = new Intent(context, QuickLogWidget.class);
         intent.setAction(action);
@@ -137,6 +171,7 @@ public class QuickLogWidget extends AppWidgetProvider {
             public void run() {
                 String body = postLog(context, "{\"type\":\"" + type + "\",\"amountMl\":" + amountMl + "}");
                 if (body != null) bumpLocalTotals(context, type, amountMl);
+                noteResult(context, body != null);
                 refreshAll(context);
             }
         }).start();
@@ -158,6 +193,7 @@ public class QuickLogWidget extends AppWidgetProvider {
                     int ml = extractInt(body, "amountMl");
                     if (type != null && ml > 0) bumpLocalTotals(context, type, ml);
                 }
+                noteResult(context, body != null);
                 refreshAll(context);
             }
         }).start();

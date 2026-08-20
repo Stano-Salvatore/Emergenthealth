@@ -111,6 +111,10 @@ function MetricCard({
 }) {
   const [expanded, setExpanded] = useState(false)
   const [inputVal, setInputVal] = useState("")
+  // onLog has always taken a date and doLog has always passed this one — there
+  // was simply no way to change it, so every custom metric could only ever be
+  // logged as today. Yesterday's reading, entered this morning, landed on the
+  // wrong day.
   const [logDate, setLogDate] = useState(TODAY)
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -204,7 +208,11 @@ function MetricCard({
                 value={inputVal}
                 onChange={e => setInputVal(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && doLog()}
-                placeholder={todayLog != null ? String(todayLog.value) : "Log…"}
+                placeholder={
+                  logDate !== TODAY ? format(parseISO(logDate), "d MMM")
+                  : todayLog != null ? String(todayLog.value)
+                  : "Log…"
+                }
                 className="flex-1 h-8 px-2.5 text-sm rounded-lg border border-border bg-secondary/50 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/40"
               />
               <button onClick={doLog} disabled={saving || !inputVal}
@@ -218,6 +226,26 @@ function MetricCard({
         {/* Expanded chart + history */}
         {expanded && (
           <div className="mt-4 pt-3 border-t border-border/30 space-y-3">
+            {metric.type === "number" && (
+              <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                Log for
+                <input
+                  type="date"
+                  value={logDate}
+                  max={TODAY}
+                  onChange={e => setLogDate(e.target.value || TODAY)}
+                  className="h-7 px-2 rounded-md border border-border bg-secondary/50 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                />
+                {logDate !== TODAY && (
+                  <button
+                    onClick={() => setLogDate(TODAY)}
+                    className="text-primary hover:underline"
+                  >
+                    today
+                  </button>
+                )}
+              </label>
+            )}
             <LogChart logs={logs} color={metric.color} type={metric.type} metric={metric} />
             <div className="space-y-1 max-h-40 overflow-y-auto">
               {[...logs].sort((a,b) => b.date.localeCompare(a.date)).slice(0, 20).map(l => (

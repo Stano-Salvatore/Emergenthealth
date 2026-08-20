@@ -43,7 +43,7 @@ export type BlockId =
   | "insights" | "health" | "finances" | "calendar" | "habits"
   | "reminders" | "gmail" | "quicklog" | "stats"
   | "location" | "ac" | "quests" | "quickstart"
-  | "notes" | "insights_week" | "insights_month" | "insights_overall"
+  | "notes"
   | "screentime"
 
 interface Block { id: BlockId; label: string }
@@ -64,9 +64,6 @@ const ALL_BLOCKS: Block[] = [
   { id: "quickstart", label: "🚀 Quick Start" },
   { id: "notes",      label: "📝 Notes" },
   { id: "screentime", label: "📱 Screen Time" },
-  { id: "insights_week",    label: "📈 Insights: 7 Days" },
-  { id: "insights_month",   label: "📊 Insights: 30 Days" },
-  { id: "insights_overall", label: "🌐 Insights: Overall" },
 ]
 
 // Note: "today" and "briefing" used to live here but were merged into the
@@ -88,9 +85,6 @@ const DEFAULT_ITEMS: LayoutItem[] = [
   { i: "ac",          x: 6, y: 49, w: 6,  h: 5 },
   { i: "notes",       x: 0, y: 55, w: 6,  h: 5 },
   { i: "screentime",  x: 6, y: 55, w: 6,  h: 6 },
-  { i: "insights_week",    x: 0, y: 61, w: 4, h: 11 },
-  { i: "insights_month",   x: 4, y: 61, w: 4, h: 11 },
-  { i: "insights_overall", x: 8, y: 61, w: 4, h: 11 },
 ]
 
 const STORAGE_KEY = "dashboard-layout-v8"
@@ -143,11 +137,12 @@ function WidgetGallery({
 }) {
   const available = ALL_BLOCKS.filter(b => blocks[b.id])
   const shownCount = available.filter(b => !hidden.has(b.id)).length
-  // Insight period widgets that are both available and currently shown — each
-  // gets a "how many pattern rows?" picker right here in the Customize panel.
-  const shownInsightPeriods = INSIGHT_PERIOD_BLOCKS.filter(
-    ip => blocks[ip.id as BlockId] && !hidden.has(ip.id as BlockId),
-  )
+  // The row-count pickers used to hang off three per-period widgets. Those
+  // widgets are gone, but the preference still drives how many patterns each
+  // period section of the Insights panel lists — so the pickers now follow the
+  // panel that actually reads them, instead of blocks that no longer exist.
+  const insightsShown = !!blocks["insights" as BlockId] && !hidden.has("insights" as BlockId)
+  const shownInsightPeriods = insightsShown ? INSIGHT_PERIOD_BLOCKS : []
   return (
     <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 space-y-2">
       <div className="flex items-center justify-between">
@@ -198,10 +193,18 @@ export function DashboardGrid({ blocks, header, mobileHidden }: Props) {
 
   const { containerRef, width } = useMeasuredWidth(1280)
 
-  // Refs so async/debounced saves always read the latest state.
-  const itemsRef = useRef(items); itemsRef.current = items
-  const hiddenRef = useRef(hidden); hiddenRef.current = hidden
-  const editingRef = useRef(editing); editingRef.current = editing
+  // Refs so async/debounced saves always read the latest state. Written after
+  // the commit, not during render: a ref mutated mid-render is invisible to
+  // React and reads wrong under concurrent rendering. Everything that reads
+  // these runs from a timer or an event, i.e. after the commit anyway.
+  const itemsRef = useRef(items)
+  const hiddenRef = useRef(hidden)
+  const editingRef = useRef(editing)
+  useEffect(() => {
+    itemsRef.current = items
+    hiddenRef.current = hidden
+    editingRef.current = editing
+  })
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Persist layout + hidden widgets to the server so the arrangement syncs
@@ -223,6 +226,11 @@ export function DashboardGrid({ blocks, header, mobileHidden }: Props) {
     }
   }, [])
 
+  // Hydrating the saved layout out of localStorage. The state here is an array
+  // of layout items and a Set of hidden ids — useSyncExternalStore compares
+  // snapshots with Object.is and would spin forever on a fresh object per call,
+  // so an effect is the right tool.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     // Local cache first for an instant paint.
     setItems(loadItems())
@@ -249,6 +257,7 @@ export function DashboardGrid({ blocks, header, mobileHidden }: Props) {
       })
       .catch(() => {})
   }, [])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Track viewport width independently of the grid container: on phones we
   // render a plain vertical stack instead of the draggable 12-column grid,
@@ -282,7 +291,8 @@ export function DashboardGrid({ blocks, header, mobileHidden }: Props) {
   function toggleHide(id: BlockId) {
     setHidden(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+    else next.add(id)
       try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next])) } catch { /* */ }
       persist([...itemsRef.current], [...next] as string[], false)
       return next

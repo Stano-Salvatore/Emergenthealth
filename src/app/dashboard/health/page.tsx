@@ -16,7 +16,7 @@ import {
   type ChartDay,
 } from "@/components/health/HealthCharts"
 import { Moon, Footprints, Heart, Scale, Zap, Activity, Thermometer, Wind, Shield, TrendingDown, TrendingUp, Minus } from "lucide-react"
-import { format, subDays } from "date-fns"
+import { format } from "date-fns"
 import WeightPage from "@/app/dashboard/weight/page"
 import LabsPage from "@/app/dashboard/labs/page"
 import BodyPage from "@/app/dashboard/body/page"
@@ -34,8 +34,6 @@ interface StravaActivityRow {
   day: string
 }
 
-const DEFAULT_STEP_GOAL = 8_000
-const DEFAULT_SLEEP_GOAL_H = 7.5
 
 export default async function HealthPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab } = await searchParams

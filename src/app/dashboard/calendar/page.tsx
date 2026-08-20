@@ -5,7 +5,7 @@ import {
   addDays, addWeeks, subWeeks, addMonths, subMonths,
   startOfWeek, endOfWeek, startOfMonth, endOfMonth,
   format, isToday, parseISO,
-  differenceInMinutes, eachDayOfInterval,
+  eachDayOfInterval,
 } from "date-fns"
 import { ChevronLeft, ChevronRight, RefreshCw, MapPin, X, Clock, Link as LinkIcon, Smartphone, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"

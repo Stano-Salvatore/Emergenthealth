@@ -2,29 +2,35 @@
 
 import { useEffect, useState } from "react"
 import { X, Share2, Star } from "lucide-react"
+import { useLocalSetting } from "@/lib/use-client-value"
 
 const FIRST_SEEN_KEY = "eh_first_seen"
 const DISMISSED_KEY = "eh_share_prompt_v1"
 const DAYS_BEFORE_PROMPT = 7
 
+// Long enough since this browser first showed up, and never dismissed.
+function shouldAsk(): boolean {
+  try {
+    if (localStorage.getItem(DISMISSED_KEY)) return false
+    const firstSeen = localStorage.getItem(FIRST_SEEN_KEY)
+    if (!firstSeen) return false
+    return (Date.now() - parseInt(firstSeen)) / (1000 * 60 * 60 * 24) >= DAYS_BEFORE_PROMPT
+  } catch {
+    return false
+  }
+}
+
 export function AppSharePrompt() {
-  const [show, setShow] = useState(false)
+  const [show, setShow] = useLocalSetting(shouldAsk, false)
   const [copied, setCopied] = useState(false)
 
+  // Start the clock on the first visit. This writes to storage and changes
+  // nothing on screen, which is what an effect is actually for.
   useEffect(() => {
     try {
-      // Don't show again if dismissed
-      if (localStorage.getItem(DISMISSED_KEY)) return
-
-      // Record first-seen timestamp if not yet set
-      const firstSeen = localStorage.getItem(FIRST_SEEN_KEY)
-      if (!firstSeen) {
+      if (!localStorage.getItem(FIRST_SEEN_KEY)) {
         localStorage.setItem(FIRST_SEEN_KEY, String(Date.now()))
-        return
       }
-
-      const daysSince = (Date.now() - parseInt(firstSeen)) / (1000 * 60 * 60 * 24)
-      if (daysSince >= DAYS_BEFORE_PROMPT) setShow(true)
     } catch { /* */ }
   }, [])
 

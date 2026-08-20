@@ -1,4 +1,5 @@
 import { auth } from "@/auth"
+import type { FocusSession, IntakeLog } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { getUpcomingEvents } from "@/lib/google-calendar"
 import { getGmailSummary } from "@/lib/gmail"
@@ -7,9 +8,9 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import Link from "next/link"
 import {
-  Activity, Euro, Calendar, CheckSquare, Bell, Moon,
+  Activity, CheckSquare, Moon,
   Footprints, ChevronRight, Heart, Clock,
-  TrendingUp, TrendingDown, Mail, Shield,
+  TrendingUp, TrendingDown, Shield,
   Wind, Flame, Droplets, Timer,
 } from "lucide-react"
 import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"
@@ -25,7 +26,6 @@ import { DashboardGrid } from "@/components/dashboard/DashboardGrid"
 import { QuickHabits } from "@/components/dashboard/QuickHabits"
 import { PlaceDetector } from "@/components/dashboard/PlaceDetector"
 import { InsightsPanel } from "@/components/dashboard/InsightsPanel"
-import { PeriodInsightCard } from "@/components/dashboard/PeriodInsightCard"
 import { TodayStrip } from "@/components/dashboard/TodayStrip"
 import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
@@ -152,6 +152,8 @@ function scoreGrade(s: number) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+type OuraTagRow = { tagName: string | null; text: string | null }
+
 export default async function DashboardPage() {
   const session = await auth()
   if (!session?.user?.id) return null
@@ -223,14 +225,14 @@ export default async function DashboardPage() {
       : Promise.resolve({ unreadCount: 0, messages: [] } as Awaited<ReturnType<typeof getGmailSummary>>),
     prisma.intakeLog.findMany({
       where: { userId, loggedAt: { gte: todayStart, lte: todayEnd } },
-    }).catch(() => [] as any[]),
+    }).catch(() => [] as IntakeLog[]),
     prisma.focusSession.findMany({
       where: { userId, endedAt: { gte: todayStart, lte: todayEnd }, type: "focus" },
-    }).catch(() => [] as any[]),
-    prisma.$queryRaw<{ tagName: string | null; text: string | null }[]>`
+    }).catch(() => [] as FocusSession[]),
+    prisma.$queryRaw<OuraTagRow[]>`
       SELECT "tagName", "text" FROM "OuraTag"
       WHERE "userId" = ${userId} AND "day" = ${todayStr}
-    `.catch(() => [] as any[]),
+    `.catch(() => [] as OuraTagRow[]),
   ])
 
   // ── goals + check-in (parsed from the batch above)
@@ -255,15 +257,17 @@ export default async function DashboardPage() {
   // ── intake — IntakeLog is the single source: the Oura sync mirrors drink
   // tags (water/coffee/alcohol) into it, so no tag-derived amounts are added
   // here (that would double-count).
-  const waterMl = todayIntake.filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
-  const coffeeMl = todayIntake.filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0)
-  const alcoholMl = todayIntake.filter((l: any) => l.type === "alcohol").reduce((a: number, l: any) => a + l.amountMl, 0)
-  const focusMinToday = todayFocus.reduce((a: number, s: any) => a + s.durationMin, 0)
+  const sumIntake = (type: string) =>
+    todayIntake.filter(l => l.type === type).reduce((a, l) => a + l.amountMl, 0)
+  const waterMl = sumIntake("water")
+  const coffeeMl = sumIntake("coffee")
+  const alcoholMl = sumIntake("alcohol")
+  const focusMinToday = todayFocus.reduce((a, s) => a + s.durationMin, 0)
 
   // Non-drink Oura tags = supplements/meds taken today (de-duped)
   const todayMedTags: string[] = []
   const seenMedNames = new Set<string>()
-  for (const t of (todayOuraTags as any[])) {
+  for (const t of todayOuraTags) {
     const label = [t.tagName, t.text].filter(Boolean).join(" ").trim()
     if (!label) continue
     if (classifyOuraTag(label).kind !== "med") continue
@@ -763,7 +767,7 @@ export default async function DashboardPage() {
     ),
 
     quicklog: (
-      <QuickLog todayWaterMl={waterMl} todayFocusMin={focusMinToday} todayMood={todayMood} latestWeight={latestHealth?.weight ?? null} waterGoalMl={WATER_GOAL_ML} />
+      <QuickLog todayWaterMl={waterMl} todayMood={todayMood} latestWeight={latestHealth?.weight ?? null} waterGoalMl={WATER_GOAL_ML} />
     ),
 
     stats: (
@@ -803,9 +807,6 @@ export default async function DashboardPage() {
     ),
 
     insights: <InsightsPanel />,
-    insights_week: <PeriodInsightCard period="week" />,
-    insights_month: <PeriodInsightCard period="month" />,
-    insights_overall: <PeriodInsightCard period="overall" />,
     notes: <NotesWidget />,
     screentime: isFeatureEnabled("screentime") ? <ScreenTimeCard /> : null,
     location: <LocationCard />,

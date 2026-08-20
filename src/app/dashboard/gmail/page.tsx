@@ -5,8 +5,9 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Mail, RefreshCw, AlertCircle } from "lucide-react"
-import { format, parseISO, isToday, isYesterday } from "date-fns"
+import { format, isToday, isYesterday } from "date-fns"
 import { ReconnectGoogleButton } from "@/components/ui/ReconnectGoogleButton"
+import { errorMessage } from "@/lib/utils"
 
 interface GmailMessage {
   id: string
@@ -63,8 +64,8 @@ export default function GmailPage() {
       const res = await fetch("/api/gmail")
       if (!res.ok) throw new Error(await res.text())
       setData(await res.json())
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e) {
+      setError(errorMessage(e))
     } finally {
       setLoading(false)
     }

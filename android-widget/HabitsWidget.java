@@ -114,11 +114,16 @@ public class HabitsWidget extends AppWidgetProvider {
                     }
                 }
             } catch (Exception e) {
+                // "Tap to open app" used to cover both of these, which made a
+                // widget that had simply never been linked look identical to one
+                // that couldn't reach the network. They need different actions.
                 for (int i = 0; i < MAX_ROWS; i++) views.setViewVisibility(ROW_IDS[i], View.GONE);
                 views.setViewVisibility(ROW_IDS[0], View.VISIBLE);
                 views.setTextViewText(CHECK_IDS[0], "\u26A0");
                 views.setTextColor(CHECK_IDS[0], 0xFFFBBF24);
-                views.setTextViewText(NAME_IDS[0], "Tap to open app");
+                views.setTextViewText(NAME_IDS[0], creds(context) == null
+                        ? "Open the app once to link"
+                        : "Can't reach Emergenthealth");
             }
 
             views.setTextViewText(R.id.habits_count, countText);

@@ -70,7 +70,8 @@ export function useInsightsPrefs() {
 
   const togglePin = useCallback((id: string) => {
     const next = new Set(state.pinned)
-    next.has(id) ? next.delete(id) : next.add(id)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
     state = { ...state, pinned: next }
     emit()
     persist({ pinned: [...next] })

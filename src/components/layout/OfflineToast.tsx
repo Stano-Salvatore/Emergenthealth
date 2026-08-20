@@ -1,27 +1,45 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import { WifiOff, Wifi } from "lucide-react"
 
+// Connectivity is a browser store, not component state: it has a current
+// value, it emits when that value changes, and the server has no opinion. Read
+// through useSyncExternalStore and the "is it offline right now" question
+// answers itself on the first paint instead of one render later.
+function subscribeToConnectivity(onChange: () => void): () => void {
+  window.addEventListener("online", onChange)
+  window.addEventListener("offline", onChange)
+  return () => {
+    window.removeEventListener("online", onChange)
+    window.removeEventListener("offline", onChange)
+  }
+}
+
 export function OfflineToast() {
-  const [isOffline, setIsOffline] = useState(false)
+  const isOffline = useSyncExternalStore(
+    subscribeToConnectivity,
+    () => !navigator.onLine,
+    () => false,
+  )
+  // "Back online" is a moment, not a state — three seconds after the
+  // connection returns, and nothing the browser can be asked about later. It
+  // belongs to the event, so it is set from the event.
   const [showOnline, setShowOnline] = useState(false)
-
   useEffect(() => {
-    function handleOffline() { setIsOffline(true); setShowOnline(false) }
-    function handleOnline() {
-      setIsOffline(false)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const onOnline = () => {
       setShowOnline(true)
-      setTimeout(() => setShowOnline(false), 3000)
+      clearTimeout(timer)
+      timer = setTimeout(() => setShowOnline(false), 3000)
     }
-
-    window.addEventListener("offline", handleOffline)
-    window.addEventListener("online", handleOnline)
-    setIsOffline(!navigator.onLine)
-
+    const onOffline = () => setShowOnline(false)
+    window.addEventListener("online", onOnline)
+    window.addEventListener("offline", onOffline)
     return () => {
-      window.removeEventListener("offline", handleOffline)
-      window.removeEventListener("online", handleOnline)
+      clearTimeout(timer)
+      window.removeEventListener("online", onOnline)
+      window.removeEventListener("offline", onOffline)
     }
   }, [])
 

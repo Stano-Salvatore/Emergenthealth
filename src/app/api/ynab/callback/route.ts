@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { verifyState } from "@/lib/state-token"
+import { errorMessage } from "@/lib/utils"
 
 function appOrigin(req: NextRequest): string {
   return (
@@ -92,9 +93,9 @@ export async function GET(req: NextRequest) {
         updatedAt: new Date(),
       },
     })
-  } catch (err: any) {
+  } catch (err) {
     console.error("[ynab/callback] error:", err)
-    const reason = encodeURIComponent(String(err?.message ?? "unknown").slice(0, 140))
+    const reason = encodeURIComponent(errorMessage(err, "unknown").slice(0, 140))
     return NextResponse.redirect(
       new URL(`/dashboard/settings?ynab_error=db_error&ynab_reason=${reason}`, req.url)
     )

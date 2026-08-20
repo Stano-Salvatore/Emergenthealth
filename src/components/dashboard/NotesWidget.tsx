@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { readLocalString, useLocalSetting } from "@/lib/use-client-value"
 import { StickyNote, Check } from "lucide-react"
 
 // A lightweight scratchpad widget. Notes persist to localStorage (device-local)
@@ -15,8 +16,9 @@ const STORAGE_KEY = "dashboard-notes-v1"
 const DIRTY_KEY = "dashboard-notes-dirty"
 
 export function NotesWidget() {
-  const [text, setText] = useState("")
-  const [saved, setSaved] = useState(true)
+  // The local copy is the first paint, not something applied a render later.
+  const [text, setText] = useLocalSetting(() => readLocalString(STORAGE_KEY, ""), "")
+  const [saved, setSaved] = useLocalSetting(() => readLocalString(DIRTY_KEY, "") !== "1", true)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function push(v: string) {
@@ -34,19 +36,16 @@ export function NotesWidget() {
   }
 
   useEffect(() => {
-    // Instant local paint. If the local copy has changes the server never
-    // accepted, push them; only a clean local copy gets replaced by the
-    // server's.
+    // If the local copy has changes the server never accepted, push them; only
+    // a clean local copy gets replaced by the server's.
     let local: string | null = null
     let dirty = false
     try {
       local = localStorage.getItem(STORAGE_KEY)
       dirty = localStorage.getItem(DIRTY_KEY) === "1"
     } catch { /* */ }
-    if (local != null) setText(local)
 
     if (dirty && local != null) {
-      setSaved(false)
       push(local)
       return
     }
@@ -60,6 +59,8 @@ export function NotesWidget() {
         }
       })
       .catch(() => {})
+    // Runs once on mount by design: this is the initial local-vs-server
+    // reconciliation, not something to redo whenever a callback identity moves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

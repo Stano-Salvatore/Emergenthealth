@@ -46,7 +46,9 @@ function elapsed(startIso: string): number {
 export function TogglPanel() {
   const [open, setOpen] = useState(false)
   const [state, setState] = useState<TogglState | null>(null)
-  const [tick, setTick] = useState(0)
+  // The counter itself is never read — it exists so the once-a-second setTick
+  // re-renders the running timer. Underscored to say that out loud.
+  const [_tick, setTick] = useState(0)
   const [desc, setDesc] = useState("")
   const [projectId, setProjectId] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
@@ -132,7 +134,6 @@ export function TogglPanel() {
   }
 
   const isRunning = !!state?.current
-  const runningSeconds = state?.current ? elapsed(state.current.start) + tick * 0 : 0
   const liveSeconds = state?.current ? elapsed(state.current.start) : 0
   const totalToday = (state?.totalSecondsToday ?? 0) + (isRunning ? liveSeconds : 0)
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { useTheme } from "next-themes"
-import { useState, useEffect } from "react"
+import { readLocalString, useClientValue, useLocalSetting } from "@/lib/use-client-value"
 import { cn } from "@/lib/utils"
 
 const BASE_THEMES = [
@@ -27,15 +27,12 @@ const ACCENTS = [
 
 export function ThemeSwitcher() {
   const { setTheme } = useTheme()
-  const [baseTheme, setBaseTheme] = useState("midnight")
-  const [accent, setAccent] = useState("indigo")
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-    setAccent(localStorage.getItem("accent") ?? "indigo")
-    setBaseTheme(localStorage.getItem("base_theme") ?? "midnight")
-  }, [])
+  // The saved theme is in localStorage, which the server cannot read — so the
+  // server renders nothing at all (mounted === false) and the client has the
+  // real answer from its first paint, rather than flashing the defaults.
+  const mounted = useClientValue(() => true, false)
+  const [baseTheme, setBaseTheme] = useLocalSetting(() => readLocalString("base_theme", "midnight"), "midnight")
+  const [accent, setAccent] = useLocalSetting(() => readLocalString("accent", "indigo"), "indigo")
 
   function applyBaseTheme(id: string) {
     setBaseTheme(id)

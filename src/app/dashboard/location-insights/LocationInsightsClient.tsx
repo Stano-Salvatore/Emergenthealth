@@ -212,18 +212,32 @@ export default function LocationInsightsClient() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // The spinner is turned on by whatever asks for a new metric, never by the
+  // effect itself, so every state change here happens after an await and
+  // switching metrics doesn't cost an extra render before the fetch starts.
   useEffect(() => {
-    setLoading(true)
-    setError(null)
-    fetch(`/api/location-correlations?metric=${metric}`)
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`)
-        return r.json() as Promise<LocationCorrelationResult[]>
-      })
-      .then(setData)
-      .catch(e => setError(String(e)))
-      .finally(() => setLoading(false))
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch(`/api/location-correlations?metric=${metric}`)
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        const rows = await res.json() as LocationCorrelationResult[]
+        if (cancelled) return
+        setData(rows)
+        setError(null)
+      } catch (e) {
+        if (!cancelled) setError(String(e))
+      }
+      if (!cancelled) setLoading(false)
+    })()
+    return () => { cancelled = true }
   }, [metric])
+
+  function chooseMetric(next: Metric) {
+    if (next === metric) return
+    setLoading(true)
+    setMetric(next)
+  }
 
   const currentMetaConfig = METRICS.find(m => m.key === metric)!
   const { unit, higherIsBetter } = currentMetaConfig
@@ -251,7 +265,7 @@ export default function LocationInsightsClient() {
         {METRICS.map(m => (
           <button
             key={m.key}
-            onClick={() => setMetric(m.key)}
+            onClick={() => chooseMetric(m.key)}
             className={cn(
               "shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all duration-150 border",
               metric === m.key

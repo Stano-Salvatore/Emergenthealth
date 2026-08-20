@@ -1282,7 +1282,7 @@ You can see their medications, symptoms and lab results. You may describe what's
 
 FORMATTING: your replies render as markdown. Use **bold** to highlight times, numbers and key words (bold shows in green — that's your accent colour), "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
-You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
+You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and offering to record them, a medication box means the name and strength, a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
 ## Today's snapshot
@@ -1352,10 +1352,16 @@ Be concise, reference real data, and use tools when asked to create or complete 
  * output appear immediately instead of waiting for the full generation.
  * Yields text chunks; the caller accumulates them for persistence.
  */
+/** A photo the user attached: a lab printout, a med box, a plate of food. */
+export type ChatImage = { mediaType: string; base64: string }
+
+const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"])
+
 export async function* streamChatResponse(
   userId: string,
   userMessage: string,
-  messageHistory: Array<{ role: "user" | "assistant"; content: string }>
+  messageHistory: Array<{ role: "user" | "assistant"; content: string }>,
+  images: ChatImage[] = [],
 ): AsyncGenerator<string> {
   const systemPrompt = await buildSystemPrompt(userId)
 
@@ -1365,6 +1371,20 @@ export async function* streamChatResponse(
     ...TOOLS.slice(0, -1),
     { ...TOOLS[TOOLS.length - 1], cache_control: CACHE },
   ]
+
+  // A photographed lab printout or med box says more in one shot than a
+  // paragraph of typing. Unsupported types are dropped rather than sent, since
+  // the API would reject the whole turn and the user would lose their message.
+  const safeImages = images.filter(i => SUPPORTED_IMAGE_TYPES.has(i.mediaType) && i.base64.length > 0).slice(0, 4)
+  const turnContent: Anthropic.ContentBlockParam[] | string = safeImages.length > 0
+    ? [
+        ...safeImages.map(img => ({
+          type: "image" as const,
+          source: { type: "base64" as const, media_type: img.mediaType as "image/jpeg", data: img.base64 },
+        })),
+        { type: "text" as const, text: userMessage || "What do you make of this?" },
+      ]
+    : userMessage
 
   // Cache the conversation history prefix (all but the current message)
   const history = messageHistory.slice(-20)
@@ -1376,9 +1396,9 @@ export async function* streamChatResponse(
           role: history[history.length - 1].role,
           content: [{ type: "text" as const, text: history[history.length - 1].content, cache_control: CACHE }],
         },
-        { role: "user" as const, content: userMessage },
+        { role: "user" as const, content: turnContent },
       ]
-    : [{ role: "user" as const, content: userMessage }]
+    : [{ role: "user" as const, content: turnContent }]
 
   // Stream each turn; if a turn ends in tool_use, run the tools and continue.
   // Loop is bounded so a misbehaving tool chain can't run forever.

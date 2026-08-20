@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useSyncExternalStore } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Copy, Check, RefreshCw, Trash2, Smartphone } from "lucide-react"
-import { activateWidget } from "@/lib/widget-activator"
+import { ensureWidgetActivation, isCapacitorAndroid } from "@/lib/widget-activator"
 
 function maskKey(key: string): string {
   if (key.length <= 8) return key
@@ -20,6 +20,11 @@ export function WidgetSetupCapacitor() {
   const [showSetup, setShowSetup] = useState(false)
   const [activated, setActivated] = useState(false)
   const [activating, setActivating] = useState(false)
+
+  // Re-linking writes into the Android app's SharedPreferences. In a desktop
+  // browser it would write to localStorage, report "Linked!", and change
+  // nothing on anyone's home screen — so the button belongs on the phone only.
+  const onAndroid = useSyncExternalStore(() => () => {}, isCapacitorAndroid, () => false)
 
   useEffect(() => {
     fetch("/api/widget/key")
@@ -60,12 +65,18 @@ export function WidgetSetupCapacitor() {
   }
 
   async function handleActivate() {
-    if (!apiKey) return
     setActivating(true)
     try {
-      await activateWidget(apiKey, window.location.origin)
-      setActivated(true)
-      setTimeout(() => setActivated(false), 3000)
+      // Same call the app makes on every launch; here it is a manual retry for
+      // when something has gone visibly wrong on the home screen.
+      const result = await ensureWidgetActivation()
+      if (result !== "failed") {
+        // The key may have been minted by this very call.
+        const res = await fetch("/api/widget/key").then(r => r.json()).catch(() => null)
+        if (res?.key) setApiKey(res.key)
+        setActivated(true)
+        setTimeout(() => setActivated(false), 3000)
+      }
     } catch {
       // silently ignore
     }
@@ -95,7 +106,7 @@ export function WidgetSetupCapacitor() {
         <div>
           <p className="text-sm font-medium">Android Home Screen Widget</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Log water, coffee and drinks directly from your home screen
+            Today, Quick Log, Habits and Reminders — straight from your home screen
           </p>
         </div>
 
@@ -113,17 +124,19 @@ export function WidgetSetupCapacitor() {
                   </code>
                 </div>
                 <div className="flex gap-2 flex-wrap">
-                  <Button size="sm" className="h-7 text-xs gap-1.5" onClick={handleActivate} disabled={activating}>
-                    {activated ? (
-                      <>
-                        <Check className="h-3 w-3" /> Activated!
-                      </>
-                    ) : (
-                      <>
-                        <Smartphone className="h-3 w-3" /> {activating ? "Activating…" : "Activate Widget"}
-                      </>
-                    )}
-                  </Button>
+                  {onAndroid && (
+                    <Button size="sm" className="h-7 text-xs gap-1.5" onClick={handleActivate} disabled={activating}>
+                      {activated ? (
+                        <>
+                          <Check className="h-3 w-3" /> Linked!
+                        </>
+                      ) : (
+                        <>
+                          <Smartphone className="h-3 w-3" /> {activating ? "Linking…" : "Re-link now"}
+                        </>
+                      )}
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5" onClick={copyKey}>
                     {copied ? (
                       <>
@@ -188,13 +201,18 @@ export function WidgetSetupCapacitor() {
 
             {showSetup && (
               <div className="space-y-3">
-                <p className="text-xs font-medium">Setup Widget in App</p>
+                <p className="text-xs font-medium">Adding a widget</p>
                 <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
-                  <li>Open the app on your Android phone</li>
-                  <li>Go to Settings → Android Widget</li>
-                  <li>Tap <strong>Activate Widget</strong> — key is stored automatically</li>
+                  <li>Open the app on your Android phone — it links the widgets itself</li>
                   <li>Long-press home screen → Widgets → Emergenthealth</li>
+                  <li>Drop the one you want on the screen</li>
                 </ol>
+                <p className="text-[11px] text-muted-foreground leading-snug">
+                  Linking used to be a manual step here, and missing it left every widget
+                  showing &ldquo;Set up in the app&rdquo;. The app now stores the key on each
+                  launch. <strong>Re-link now</strong> is only for when a widget still looks
+                  wrong after opening the app.
+                </p>
 
                 <p className="text-[11px] text-muted-foreground leading-snug">
                   Four widgets share this key: <strong>Today</strong> (readiness, sleep, steps,

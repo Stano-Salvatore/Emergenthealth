@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { resyncNotifications } from "@/lib/native/notifications"
 import { isNativeShell } from "@/lib/native/shell"
+import { useClientValue, useLocalSetting } from "@/lib/use-client-value"
 
 function formatHour(h: number) {
   if (h === 0) return "12:00 AM"
@@ -14,9 +15,21 @@ function formatHour(h: number) {
   return `${h - 12}:00 PM`
 }
 
+// Not in the native shell: it deliberately has no service worker, and
+// navigator.serviceWorker.ready never settles without one — this card would sit
+// on its loading state for the life of the session. The shell schedules its
+// notifications on the device instead (Phone Notifications).
+function pushSupported(): boolean {
+  return typeof window !== "undefined" && "serviceWorker" in navigator
+    && "PushManager" in window && !isNativeShell()
+}
+
 export function PushNotifications() {
-  const [supported, setSupported] = useState(false)
-  const [permission, setPermission] = useState<NotificationPermission>("default")
+  const supported = useClientValue(pushSupported, false)
+  const [permission, setPermission] = useLocalSetting<NotificationPermission>(
+    () => (typeof Notification === "undefined" ? "default" : Notification.permission),
+    "default",
+  )
   const [subscribed, setSubscribed] = useState(false)
   const [loading, setLoading] = useState(false)
   const [testStatus, setTestStatus] = useState<"idle" | "sent" | "error">("idle")
@@ -30,15 +43,7 @@ export function PushNotifications() {
   const [savingEvening, setSavingEvening] = useState(false)
 
   useEffect(() => {
-    // Not in the native shell: it deliberately has no service worker, and
-    // navigator.serviceWorker.ready never settles without one — this card
-    // would sit on its loading state for the life of the session. The shell
-    // schedules its notifications on the device instead (Phone Notifications).
-    const ok = typeof window !== "undefined" && "serviceWorker" in navigator
-      && "PushManager" in window && !isNativeShell()
-    setSupported(ok)
-    if (ok) {
-      setPermission(Notification.permission)
+    if (pushSupported()) {
       navigator.serviceWorker.ready.then((reg) =>
         reg.pushManager.getSubscription().then((sub) => setSubscribed(!!sub))
       ).catch(() => {})

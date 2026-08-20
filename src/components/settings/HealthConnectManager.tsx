@@ -8,21 +8,19 @@ import {
   checkAvailability,
   requestPermissions,
   syncToServer,
-  type HCAvailability,
 } from "@/lib/health-connect-service"
 
 type Status = "checking" | "unavailable" | "not_installed" | "ready" | "syncing" | "done" | "error"
 
 export function HealthConnectManager({ lastSync }: { lastSync?: string | null }) {
-  const [availability, setAvailability] = useState<HCAvailability | null>(null)
   const [status, setStatus] = useState<Status>("checking")
   const [syncedCount, setSyncedCount] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastSyncAt, setLastSyncAt] = useState(lastSync ?? null)
 
   useEffect(() => {
+    // `status` is the whole of what the availability answer is used for.
     checkAvailability().then(av => {
-      setAvailability(av)
       setStatus(
         av === "Available"     ? "ready"
         : av === "NotInstalled" ? "not_installed"

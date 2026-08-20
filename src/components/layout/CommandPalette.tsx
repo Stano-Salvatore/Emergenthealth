@@ -91,9 +91,14 @@ export function CommandPalette() {
     if (open) setTimeout(() => inputRef.current?.focus(), 50)
   }, [open])
 
-  useEffect(() => {
+  // Typing resets the highlight to the first result. That happens in the one
+  // place the query changes (onQueryChange), not in an effect watching it —
+  // an effect would render the old highlight against the new results first.
+
+  function onQueryChange(next: string) {
+    setQuery(next)
     setSelected(0)
-  }, [query])
+  }
 
   function navigate(href: string) {
     router.push(href)
@@ -134,7 +139,7 @@ export function CommandPalette() {
           <input
             ref={inputRef}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => onQueryChange(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder="Go to…"
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"

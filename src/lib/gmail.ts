@@ -1,5 +1,6 @@
 import { google } from "googleapis"
 import { prisma } from "@/lib/prisma"
+import { errorMessage } from "@/lib/utils"
 
 async function buildGmailClient(userId: string) {
   const account = await prisma.account.findFirst({
@@ -128,9 +129,9 @@ export async function getGmailSummary(userId: string): Promise<GmailSummary> {
     )
 
     return { unreadCount, messages }
-  } catch (e: any) {
-    console.error("[gmail] getGmailSummary failed:", e?.message ?? e)
-    return { unreadCount: 0, messages: [], error: e?.message ?? "Unknown error" }
+  } catch (e) {
+    console.error("[gmail] getGmailSummary failed:", errorMessage(e))
+    return { unreadCount: 0, messages: [], error: errorMessage(e) }
   }
 }
 
@@ -216,8 +217,8 @@ export async function getBillEmails(userId: string): Promise<BillEmail[]> {
       })
     )
     return messages
-  } catch (e: any) {
-    console.error("[gmail] getBillEmails failed:", e?.message ?? e)
+  } catch (e) {
+    console.error("[gmail] getBillEmails failed:", errorMessage(e))
     return []
   }
 }
@@ -261,8 +262,8 @@ export async function getSubscriptionEmails(userId: string): Promise<Subscriptio
       })
     )
     return messages
-  } catch (e: any) {
-    console.error("[gmail] getSubscriptionEmails failed:", e?.message ?? e)
+  } catch (e) {
+    console.error("[gmail] getSubscriptionEmails failed:", errorMessage(e))
     return []
   }
 }

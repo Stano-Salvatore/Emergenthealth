@@ -2,7 +2,6 @@
 
 import { useRef, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Loader2, Upload, FileSpreadsheet } from "lucide-react"
 
 export function CsvImport() {

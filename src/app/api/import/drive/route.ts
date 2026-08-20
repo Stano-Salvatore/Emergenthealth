@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { listRevolutStatements, downloadRevolutCsv } from "@/lib/google-drive"
 import { parseRevolutCsv, guessCategory, isInternalTransfer, rowKey } from "@/lib/revolut-csv"
+import { errorMessage } from "@/lib/utils"
 
 async function ensureTable() {
   await prisma.$executeRaw`
@@ -114,8 +115,8 @@ export async function POST() {
         data: { userId, fileId: file.id, fileName: file.name, rowCount },
       })
       totalImported += rowCount
-    } catch (e: any) {
-      console.error(`[drive-import] Failed to import ${file.name}:`, e?.message)
+    } catch (e) {
+      console.error(`[drive-import] Failed to import ${file.name}:`, errorMessage(e))
     }
   }
 

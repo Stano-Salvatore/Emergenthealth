@@ -25,7 +25,8 @@ export function QuickHabits({ habits }: { habits: Habit[] }) {
     const isDone = completed.has(id)
     setCompleted(prev => {
       const next = new Set(prev)
-      isDone ? next.delete(id) : next.add(id)
+      if (isDone) next.delete(id)
+      else next.add(id)
       // Celebrate when last habit is completed
       if (!isDone && "vibrate" in navigator) {
         const willBeAllDone = next.size === total
@@ -43,7 +44,8 @@ export function QuickHabits({ habits }: { habits: Habit[] }) {
     } catch {
       setCompleted(prev => {
         const next = new Set(prev)
-        isDone ? next.add(id) : next.delete(id)
+        if (isDone) next.add(id)
+      else next.delete(id)
         return next
       })
     } finally {

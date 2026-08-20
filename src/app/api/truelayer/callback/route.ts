@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { verifyState } from "@/lib/state-token"
 import { TL_AUTH, TL_API, ensureTLTable } from "@/lib/truelayer-sync"
+import { errorMessage } from "@/lib/utils"
 
 function appOrigin(req: NextRequest): string {
   return process.env.NEXT_PUBLIC_APP_URL || process.env.AUTH_URL || new URL(req.url).origin
@@ -79,9 +80,9 @@ export async function GET(req: NextRequest) {
             "currency"     = EXCLUDED."currency",
             "updatedAt"    = NOW()
     `
-  } catch (err: any) {
+  } catch (err) {
     console.error("[truelayer/callback] error:", err)
-    const reason = encodeURIComponent(String(err?.message ?? "unknown").slice(0, 140))
+    const reason = encodeURIComponent(errorMessage(err, "unknown").slice(0, 140))
     return NextResponse.redirect(
       new URL(`/dashboard/settings?tl_error=db_error&tl_reason=${reason}`, req.url)
     )

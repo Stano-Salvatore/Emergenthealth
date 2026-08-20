@@ -2,10 +2,27 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
+// The shape this route actually reads off an Actual Budget transaction. The
+// package's own types don't reach here (it is imported dynamically, inside the
+// handler, so the serverless bundle doesn't carry it), and `any[]` let a typo
+// in any of these field names through silently.
+type ActualTransaction = {
+  id: string
+  date: string
+  amount?: number
+  payee?: string
+  payee_name?: string
+  category_name?: string
+  notes?: string
+  cleared?: boolean
+  transfer_id?: string | null
+  accountName?: string
+}
+
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-export async function POST(req: NextRequest) {
+export async function POST(_req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
@@ -42,7 +59,7 @@ export async function POST(req: NextRequest) {
     const accounts = await api.getAccounts()
     const payees = await api.getPayees()
     const payeeMap = new Map((payees as { id: string; name: string }[]).map((p) => [p.id, p.name]))
-    let allTransactions: any[] = []
+    let allTransactions: ActualTransaction[] = []
 
     const accountBalances = (accounts as { id: string; name: string; balance: number; closed: boolean }[])
       .filter((a) => !a.closed)
@@ -51,7 +68,7 @@ export async function POST(req: NextRequest) {
     for (const account of accounts) {
       const txns = await api.getTransactions(account.id, startDate, endDate)
       allTransactions = allTransactions.concat(
-        txns.map((t: any) => ({ ...t, accountName: account.name }))
+        (txns as ActualTransaction[]).map(t => ({ ...t, accountName: account.name }))
       )
     }
 
@@ -70,7 +87,7 @@ export async function POST(req: NextRequest) {
           actualId: t.id,
           date: dateObj,
           amount: t.amount ?? 0,
-          payee: payeeMap.get(t.payee) ?? t.payee_name ?? null,
+          payee: (t.payee ? payeeMap.get(t.payee) : null) ?? t.payee_name ?? null,
           category: t.category_name ?? null,
           accountName: t.accountName ?? null,
           notes: t.notes ?? null,
@@ -80,7 +97,7 @@ export async function POST(req: NextRequest) {
         update: {
           date: dateObj,
           amount: t.amount ?? 0,
-          payee: payeeMap.get(t.payee) ?? t.payee_name ?? null,
+          payee: (t.payee ? payeeMap.get(t.payee) : null) ?? t.payee_name ?? null,
           category: t.category_name ?? null,
           notes: t.notes ?? null,
           cleared: t.cleared ?? false,
@@ -91,10 +108,10 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, synced, accounts: accountBalances })
-  } catch (error: any) {
+  } catch (error) {
     console.error("Actual Budget sync error:", error)
     return NextResponse.json(
-      { error: `Sync failed: ${error.message}` },
+      { error: `Sync failed: ${error instanceof Error ? error.message : String(error)}` },
       { status: 500 }
     )
   }

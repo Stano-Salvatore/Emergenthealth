@@ -5,16 +5,6 @@ import { getWeatherCoords } from "@/lib/weather-location"
 import { getUserTimezone, localTimeStr } from "@/lib/local-date"
 
 // Weather code → emoji
-function weatherEmoji(code: number): string {
-  if (code <= 2) return "☀️"
-  if (code === 3) return "⛅"
-  if (code <= 48) return "🌫️"
-  if (code <= 67) return "🌧️"
-  if (code <= 77) return "❄️"
-  if (code <= 82) return "🌦️"
-  return "⛈️"
-}
-
 function outfitFromWeather(temp: number, rainPct: number, code: number): string {
   let base: string
   if (temp < 5) base = "🧥 Heavy coat + layers"

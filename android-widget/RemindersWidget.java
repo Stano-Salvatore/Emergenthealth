@@ -119,11 +119,16 @@ public class RemindersWidget extends AppWidgetProvider {
                     views.setTextViewText(TITLE_IDS[0], "All clear!");
                 }
             } catch (Exception e) {
+                // "Tap to open app" used to cover both of these, which made a
+                // widget that had simply never been linked look identical to one
+                // that couldn't reach the network. They need different actions.
                 for (int i = 0; i < MAX_ROWS; i++) views.setViewVisibility(ROW_IDS[i], View.GONE);
                 views.setViewVisibility(ROW_IDS[0], View.VISIBLE);
                 views.setTextViewText(DOT_IDS[0], "\u26A0");
                 views.setTextColor(DOT_IDS[0], 0xFFFBBF24);
-                views.setTextViewText(TITLE_IDS[0], "Tap to open app");
+                views.setTextViewText(TITLE_IDS[0], creds(context) == null
+                        ? "Open the app once to link"
+                        : "Can't reach Emergenthealth");
             }
 
             views.setTextViewText(R.id.rem_count, countText);

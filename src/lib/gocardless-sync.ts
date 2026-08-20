@@ -69,10 +69,6 @@ export function gcHeaders(token: string) {
   }
 }
 
-const GC_CATEGORY_MAP: Record<string, string> = {
-  // GoCardless uses its own transaction codes but description-based mapping
-}
-
 const MERCHANT_KEYWORD_MAP: [RegExp, string][] = [
   [/revolut|transfer|topup/i, "Transfer"],
   [/grocery|supermarket|tesco|lidl|kaufland|albert|billa|coop|biedronka|zabka/i, "Food & Drink"],
