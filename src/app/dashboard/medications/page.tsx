@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react"
 import { Card, CardContent } from "@/components/ui/card"
-import { RefreshCw, Search, Pencil, CalendarDays, Tag } from "lucide-react"
+import { RefreshCw, Search, Pencil, CalendarDays, Tag, X } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { formatDose, parseDose } from "@/lib/dose"
@@ -103,6 +103,62 @@ function TypeCard({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
+  const [editingDoseId, setEditingDoseId] = useState<string | null>(null)
+
+  /** Delete a dose logged by mistake. Manual rows only — an Oura tag returns
+   *  on the next sync, so removing it here would be a lie. */
+  async function removeEntry(entry: TagItem) {
+    if (!window.confirm(`Delete this ${entry.tagName ?? "entry"} from ${format(new Date(entry.timestamp), "MMM d, HH:mm")}?`)) return
+    setSavingId(entry.id)
+    setEditError(null)
+    try {
+      const res = await fetch(`/api/medications?id=${encodeURIComponent(entry.id)}`, { method: "DELETE" })
+      if (res.ok) onChanged()
+      else {
+        const d = await res.json().catch(() => null)
+        setEditError(d?.error ?? "Couldn't delete that — try again.")
+      }
+    } catch {
+      setEditError("Couldn't delete that — try again.")
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  /** Correct the amount. An empty value clears it back to unknown, which is
+   *  honest — zero would claim they took nothing. */
+  async function saveDose(entry: TagItem, raw: string) {
+    const trimmed = raw.trim()
+    const parsed = trimmed ? Number(trimmed.replace(",", ".")) : null
+    if (trimmed && (!Number.isFinite(parsed) || (parsed ?? 0) <= 0)) {
+      setEditError("A dose needs a positive number.")
+      setEditingDoseId(null)
+      return
+    }
+    setSavingId(entry.id)
+    setEditError(null)
+    try {
+      const res = await fetch("/api/medications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: entry.id,
+          doseAmount: parsed,
+          doseUnit: parsed == null ? null : (entry.doseUnit ?? "tablet"),
+        }),
+      })
+      if (res.ok) onChanged()
+      else {
+        const d = await res.json().catch(() => null)
+        setEditError(d?.error ?? "Couldn't change the dose — try again.")
+      }
+    } catch {
+      setEditError("Couldn't change the dose — try again.")
+    } finally {
+      setSavingId(null)
+      setEditingDoseId(null)
+    }
+  }
 
   // Change when a manually logged dose was taken. Oura-sourced rows stay
   // read-only — the next ring sync would overwrite the edit.
@@ -238,13 +294,49 @@ function TypeCard({
               ) : (
                 <span className="text-muted-foreground/50">{format(new Date(e.timestamp), "HH:mm")}</span>
               )}
-              {formatDose(e.doseAmount, e.doseUnit) && (
+              {/* Dose: tappable on manual entries, plain text on Oura's own. */}
+              {editingDoseId === e.id ? (
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoFocus
+                  defaultValue={e.doseAmount != null ? String(e.doseAmount) : ""}
+                  placeholder={e.doseUnit === "mg" ? "mg" : "tablets"}
+                  aria-label="Dose amount"
+                  onBlur={ev => saveDose(e, ev.target.value)}
+                  onKeyDown={ev => {
+                    if (ev.key === "Enter") (ev.target as HTMLInputElement).blur()
+                    if (ev.key === "Escape") setEditingDoseId(null)
+                  }}
+                  className="w-16 shrink-0 rounded border border-primary bg-background px-1 py-0 text-[10px] outline-none"
+                />
+              ) : e.id.startsWith("manual_") ? (
+                <button
+                  onClick={() => setEditingDoseId(e.id)}
+                  disabled={savingId === e.id}
+                  title="Change the dose"
+                  className="shrink-0 rounded px-1.5 py-0.5 bg-secondary text-[10px] text-foreground/70 hover:text-primary transition-colors disabled:opacity-50"
+                >
+                  {formatDose(e.doseAmount, e.doseUnit) ?? "+ dose"}
+                </button>
+              ) : formatDose(e.doseAmount, e.doseUnit) ? (
                 <span className="shrink-0 rounded px-1.5 py-0.5 bg-secondary text-[10px] text-foreground/70">
                   {formatDose(e.doseAmount, e.doseUnit)}
                 </span>
-              )}
+              ) : null}
               {e.text && e.text !== e.tagName && (
                 <span className="flex-1 truncate text-left ml-2 italic">{e.text}</span>
+              )}
+              {e.id.startsWith("manual_") && (
+                <button
+                  onClick={() => removeEntry(e)}
+                  disabled={savingId === e.id}
+                  aria-label="Delete this entry"
+                  title="Delete this entry"
+                  className="shrink-0 rounded p-0.5 text-muted-foreground/40 hover:text-red-400 transition-colors disabled:opacity-50"
+                >
+                  <X className="h-3 w-3" />
+                </button>
               )}
             </div>
           ))}

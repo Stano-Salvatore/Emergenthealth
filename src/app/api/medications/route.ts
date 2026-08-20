@@ -227,11 +227,34 @@ export async function PATCH(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const body = await req.json().catch(() => null) as { id?: unknown; takenAt?: unknown } | null
+  const body = await req.json().catch(() => null) as
+    { id?: unknown; takenAt?: unknown; doseAmount?: unknown; doseUnit?: unknown } | null
   const id = typeof body?.id === "string" ? body.id : ""
   if (!id.startsWith("manual_")) {
     return NextResponse.json({ error: "Only manually logged doses can be edited" }, { status: 400 })
   }
+
+  // A dose edit and a time edit arrive separately; either alone is valid.
+  const wantsDose = body?.doseAmount !== undefined
+  if (wantsDose) {
+    const raw = Number(body?.doseAmount)
+    const unit = body?.doseUnit === "mg" || body?.doseUnit === "tablet" ? body.doseUnit : null
+    // null clears a dose recorded by mistake — back to "unknown", which is
+    // honest, rather than to zero, which would claim they took nothing.
+    const clearing = body?.doseAmount === null
+    if (!clearing && (!Number.isFinite(raw) || raw <= 0 || !unit)) {
+      return NextResponse.json({ error: "A dose needs a positive amount and a unit." }, { status: 400 })
+    }
+    const updatedDose = await prisma.$executeRaw`
+      UPDATE "OuraTag"
+      SET "doseAmount" = ${clearing ? null : Math.min(100_000, raw)},
+          "doseUnit"   = ${clearing ? null : unit}
+      WHERE "id" = ${id} AND "userId" = ${userId}
+    `
+    if (updatedDose === 0) return NextResponse.json({ error: "not found" }, { status: 404 })
+    return NextResponse.json({ ok: true, id })
+  }
+
   // Unlike logging (7-day window), an edit may touch any old entry — the
   // client keeps the time on the entry's own day, so only "not in the
   // future" needs enforcing here.

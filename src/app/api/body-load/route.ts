@@ -5,6 +5,7 @@ import { getGoals } from "@/lib/goals"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { supplementInfoFor } from "@/lib/supplement-info"
+import { formatDose } from "@/lib/dose"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { COMPOUND_LABELS } from "@/lib/caffeine"
 import {
@@ -41,11 +42,11 @@ export async function GET() {
       orderBy: { loggedAt: "asc" },
     }).catch(() => [] as { type: string; amountMl: number; note: string | null; loggedAt: Date }[]),
 
-    prisma.$queryRaw<{ tagName: string | null; text: string | null; timestamp: Date }[]>`
-      SELECT "tagName", "text", "timestamp" FROM "OuraTag"
+    prisma.$queryRaw<{ id: string; tagName: string | null; text: string | null; timestamp: Date; doseAmount: number | null; doseUnit: string | null }[]>`
+      SELECT "id", "tagName", "text", "timestamp", "doseAmount", "doseUnit" FROM "OuraTag"
       WHERE "userId" = ${userId} AND "timestamp" >= ${since72}
       ORDER BY "timestamp" ASC
-    `.catch(() => [] as { tagName: string | null; text: string | null; timestamp: Date }[]),
+    `.catch(() => [] as { id: string; tagName: string | null; text: string | null; timestamp: Date; doseAmount: number | null; doseUnit: string | null }[]),
 
     getPersonalCaffeineProfile(userId),
 
@@ -136,6 +137,9 @@ export async function GET() {
       takenAt: t.timestamp.toISOString(),
       clearsAt: new Date(now.getTime() + hoursLeft * 3_600_000).toISOString(),
       detail: `half-life ${info.halfLifeH}h${info.caution ? "" : ""}`,
+      // Only manual entries: an Oura tag deleted here returns on the next sync.
+      sourceId: t.id.startsWith("manual_") ? t.id : undefined,
+      doseLabel: formatDose(t.doseAmount, t.doseUnit),
     }
     if (existing) substances.splice(substances.indexOf(existing), 1, entry)
     else substances.push(entry)

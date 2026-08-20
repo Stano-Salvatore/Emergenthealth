@@ -20,6 +20,8 @@ interface ActiveSubstance {
   takenAt: string
   clearsAt: string | null
   detail?: string
+  sourceId?: string
+  doseLabel?: string | null
 }
 
 const KIND_COLOR: Record<ActiveSubstance["kind"], string> = {
@@ -66,6 +68,23 @@ export function BodyLoadTab() {
     } catch { /* keep what's on screen */ }
     finally { setLoading(false); setRefreshing(false) }
   }, [])
+
+  const [removing, setRemoving] = useState<string | null>(null)
+
+  /**
+   * Delete a dose logged by mistake. The half-life curve is only as good as
+   * the row underneath it, so a wrong entry has to be removable from the
+   * screen where it is wrong — not just from the Medications list.
+   */
+  const removeDose = useCallback(async (id: string, name: string) => {
+    if (!window.confirm(`Remove the ${name} dose from your log?`)) return
+    setRemoving(id)
+    try {
+      const res = await fetch(`/api/medications?id=${encodeURIComponent(id)}`, { method: "DELETE" })
+      if (res.ok) await load(true)
+    } catch { /* leave the card in place */ }
+    finally { setRemoving(null) }
+  }, [load])
 
   useEffect(() => { load() }, [load])
 
@@ -140,7 +159,22 @@ export function BodyLoadTab() {
                     </p>
                   )}
                 </div>
-                {s.detail && <p className="text-[10px] text-muted-foreground/60 mt-1">{s.detail}</p>}
+                <div className="flex items-center justify-between gap-2 mt-1">
+                  <p className="text-[10px] text-muted-foreground/60">
+                    {[s.doseLabel, s.detail].filter(Boolean).join(" · ")}
+                  </p>
+                  {/* Only manual entries can be removed: an Oura tag would come
+                      back on the next sync, so offering it would be a lie. */}
+                  {s.sourceId && (
+                    <button
+                      onClick={() => removeDose(s.sourceId!, s.name)}
+                      disabled={removing === s.sourceId}
+                      className="shrink-0 text-[10px] text-muted-foreground/50 hover:text-red-400 transition-colors disabled:opacity-40"
+                    >
+                      {removing === s.sourceId ? "removing…" : "logged wrong?"}
+                    </button>
+                  )}
+                </div>
               </CardContent>
             </Card>
           ))}
