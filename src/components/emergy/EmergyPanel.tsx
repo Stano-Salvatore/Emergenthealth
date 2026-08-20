@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { isNativeShell } from "@/lib/native/shell"
 import { usePathname } from "next/navigation"
-import { X, Send, Bell, Mic, Square, Volume2, VolumeX } from "lucide-react"
+import { X, Send, Bell, Mic, Square, Volume2, VolumeX, ImagePlus } from "lucide-react"
 import {
   dictationSupport, startDictation, speak, stopSpeaking, speechSupported,
   listVoices, resolveVoice, getSavedVoiceUri, getVoiceRate, getAutoSpeak, saveAutoSpeak,
@@ -65,6 +65,8 @@ export function EmergyPanel() {
   const [autoSpeak, setAutoSpeak] = useState(false)
   const [speaking, setSpeaking] = useState(false)
   const dictationRef = useRef<DictationHandle | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [pendingImage, setPendingImage] = useState<{ mediaType: string; base64: string; preview: string } | null>(null)
   const [notifPerm, setNotifPerm] = useState<NotificationPermission | null>(null)
   const [showBubble, setShowBubble] = useState(false)
   const [lastShownMessage, setLastShownMessage] = useState<string | null>(null)
@@ -218,13 +220,39 @@ export function EmergyPanel() {
     })
   }
 
+  async function pickImage(file: File) {
+    setVoiceError(null)
+    const bitmap = await createImageBitmap(file).catch(() => null)
+    if (!bitmap) { setVoiceError("Couldn't read that image."); return }
+
+    const MAX = 1280
+    const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height))
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.round(bitmap.width * scale)
+    canvas.height = Math.round(bitmap.height * scale)
+    const ctx = canvas.getContext("2d")
+    if (!ctx) { setVoiceError("Couldn't read that image."); return }
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+    bitmap.close()
+
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85)
+    setPendingImage({ mediaType: "image/jpeg", base64: dataUrl.split(",")[1] ?? "", preview: dataUrl })
+  }
+
   async function sendMessage() {
     const text = input.trim()
-    if (!text || sending) return
+    // A photo alone is a valid message.
+    if ((!text && !pendingImage) || sending) return
     setInput("")
     setSending(true)
 
-    const userMsg: ChatMessage = { id: Date.now().toString(), role: "user", content: text }
+    const sentImage = pendingImage
+    setPendingImage(null)
+    const userMsg: ChatMessage = {
+      id: Date.now().toString(),
+      role: "user",
+      content: text || (sentImage ? "📷 Photo" : ""),
+    }
     setMessages(prev => [...prev, userMsg])
 
     const assistantMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: "assistant", content: "" }
@@ -235,7 +263,10 @@ export function EmergyPanel() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({
+          message: text,
+          ...(sentImage ? { images: [{ mediaType: sentImage.mediaType, base64: sentImage.base64 }] } : {}),
+        }),
       })
       // Returning here used to skip the reset below, leaving the composer
       // disabled until the panel was reopened.
@@ -428,7 +459,42 @@ export function EmergyPanel() {
           {voiceError && (
             <p className="px-3 pt-2 text-[10px] text-amber-400 shrink-0">{voiceError}</p>
           )}
+          {pendingImage && (
+            <div className="flex items-center gap-2 px-3 pt-2 shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={pendingImage.preview} alt="Attached" className="h-12 w-12 rounded-lg object-cover border border-border" />
+              <span className="text-[11px] text-muted-foreground flex-1">Photo attached</span>
+              <button
+                onClick={() => setPendingImage(null)}
+                aria-label="Remove photo"
+                className="p-1 rounded text-muted-foreground hover:text-red-400 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
           <div className="flex gap-2 px-3 py-2 border-t border-border shrink-0 items-center">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0]
+                if (file) void pickImage(file)
+                e.target.value = ""
+              }}
+            />
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={sending}
+              aria-label="Attach a photo"
+              title="Attach a photo — a lab printout, a med box, a meal"
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+            >
+              <ImagePlus className="h-3.5 w-3.5" />
+            </button>
             {/* Speak replies aloud. Hidden where the device has no speech at
                 all rather than offering a button that does nothing. */}
             {speechSupported() && (
@@ -474,7 +540,7 @@ export function EmergyPanel() {
             />
             <button
               onClick={sendMessage}
-              disabled={sending || !input.trim()}
+              disabled={sending || (!input.trim() && !pendingImage)}
               aria-label="Send"
               className="p-1.5 rounded-lg bg-primary text-primary-foreground disabled:opacity-50 hover:bg-primary/90 transition-colors"
             >

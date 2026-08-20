@@ -6,11 +6,18 @@
   "start_url": "/dashboard?source=pwa",
   "scope": "/",
   "display": "standalone",
-  "display_override": ["standalone", "minimal-ui"],
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
   "background_color": "#09090f",
   "theme_color": "#09090f",
   "orientation": "portrait-primary",
-  "categories": ["health", "fitness", "productivity"],
+  "categories": [
+    "health",
+    "fitness",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "/icon.svg",
@@ -38,10 +45,12 @@
     }
   ],
   "share_target": {
-    "action": "/dashboard/journal",
+    "action": "/dashboard/chat",
     "method": "GET",
     "params": {
-      "text": "share"
+      "title": "title",
+      "text": "text",
+      "url": "url"
     }
   },
   "shortcuts": [
@@ -49,28 +58,48 @@
       "name": "Morning Check-in",
       "short_name": "Check-in",
       "url": "/dashboard/checkin",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }],
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ],
       "description": "Log your morning energy and mood"
     },
     {
       "name": "Log Drinks",
       "short_name": "Drinks",
       "url": "/dashboard/intake",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }],
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ],
       "description": "Log water, coffee, beer"
     },
     {
       "name": "Log Mood",
       "short_name": "Mood",
       "url": "/dashboard/home",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }],
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ],
       "description": "Quick mood log"
     },
     {
       "name": "Finances",
       "short_name": "Finance",
       "url": "/dashboard/finances",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }],
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ],
       "description": "View spending and transactions"
     }
   ]

@@ -61,6 +61,20 @@ export type LabSummary = {
   referenceMax: number | null
   date: string
   flag: "low" | "high" | "normal" | "unknown"
+  /** The reading before this one, so a clinician sees direction, not a dot. */
+  previous: { value: number; date: string } | null
+}
+
+export type BloodPressureSummary = {
+  readings: number
+  avgSystolic: number
+  avgDiastolic: number
+  maxSystolic: number
+  maxDiastolic: number
+  avgPulse: number | null
+  last: { systolic: number; diastolic: number; date: string }
+  /** ESC/ESH office-BP bands, on self-measured readings — a flag to discuss, never a diagnosis. */
+  band: "optimal" | "normal" | "high-normal" | "grade 1" | "grade 2" | "grade 3"
 }
 
 export type HealthReport = {
@@ -74,7 +88,10 @@ export type HealthReport = {
   meds: MedSummary[]
   symptoms: SymptomSummary[]
   labs: LabSummary[]
+  bloodPressure: BloodPressureSummary | null
   body: { weightKg: number | null; prevWeightKg: number | null; bodyFatPct: number | null; date: string | null }
+  /** Weight across the reporting period itself, from whichever source recorded it. */
+  weightTrend: { first: number; last: number; changeKg: number; readings: number } | null
   patterns: { finding: string; confidence: "solid" | "tentative" }[]
   narrative: string
 }
@@ -120,7 +137,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   const prevFrom = new Date(prevFromStr + "T00:00:00Z")
   const prevTo = new Date(addDaysISO(fromStr, -1) + "T23:59:59Z")
 
-  const [user, logs, prevLogs, medSchedules, doseRows, symptomRows, labRows, bodyRows, insightRow] = await Promise.all([
+  const [user, logs, prevLogs, medSchedules, doseRows, symptomRows, labRows, bodyRows, insightRow, bpRows] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }).catch(() => null),
     prisma.healthLog.findMany({
       where: { userId, date: { gte: from, lte: to } },
@@ -157,6 +174,15 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
       where: { userId_key: { userId, key: "insights_cache:overall" } },
       select: { value: true },
     }).catch(() => null),
+
+    // Blood pressure lives in a raw-DDL table with no Prisma model. It is the
+    // single most clinically actionable thing this app records, and the report
+    // was leaving it out entirely.
+    prisma.$queryRaw<{ systolic: number; diastolic: number; pulse: number | null; loggedAt: Date }[]>`
+      SELECT "systolic", "diastolic", "pulse", "loggedAt" FROM "BloodPressureLog"
+      WHERE "userId" = ${userId} AND "loggedAt" >= ${from} AND "loggedAt" <= ${to}
+      ORDER BY "loggedAt" ASC
+    `.catch(() => [] as { systolic: number; diastolic: number; pulse: number | null; loggedAt: Date }[]),
   ])
 
   // ── Vitals ────────────────────────────────────────────────────────────────
@@ -258,6 +284,8 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   for (const l of labRows) {
     if (seenMarkers.has(l.marker)) continue
     seenMarkers.add(l.marker)
+    // labRows is newest-first, so the next row for this marker is the one before.
+    const prior = labRows.find(o => o.marker === l.marker && o.date < l.date)
     const flag: LabSummary["flag"] =
       l.referenceMin != null && l.value < l.referenceMin ? "low"
       : l.referenceMax != null && l.value > l.referenceMax ? "high"
@@ -267,6 +295,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
       marker: l.marker, value: l.value, unit: l.unit,
       referenceMin: l.referenceMin, referenceMax: l.referenceMax,
       date: l.date.toISOString().slice(0, 10), flag,
+      previous: prior ? { value: prior.value, date: prior.date.toISOString().slice(0, 10) } : null,
     })
   }
   labs.sort((a, b) => (a.flag === "normal" || a.flag === "unknown" ? 1 : 0) - (b.flag === "normal" || b.flag === "unknown" ? 1 : 0))
@@ -292,6 +321,56 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
       .map(i => ({ finding: i.finding, confidence: i.tier === "strong" ? "solid" as const : "tentative" as const }))
   } catch { patterns = [] }
 
+  // ── Blood pressure ────────────────────────────────────────────────────────
+  // Bands are the standard office-BP thresholds, applied to self-measured
+  // readings — which run lower than office readings, so this is a prompt for a
+  // conversation and never a diagnosis. The report says as much in print.
+  function bpBand(sys: number, dia: number): BloodPressureSummary["band"] {
+    if (sys >= 180 || dia >= 110) return "grade 3"
+    if (sys >= 160 || dia >= 100) return "grade 2"
+    if (sys >= 140 || dia >= 90) return "grade 1"
+    if (sys >= 130 || dia >= 85) return "high-normal"
+    if (sys >= 120 || dia >= 80) return "normal"
+    return "optimal"
+  }
+
+  let bloodPressure: BloodPressureSummary | null = null
+  if (bpRows.length > 0) {
+    const sys = bpRows.map(r => r.systolic)
+    const dia = bpRows.map(r => r.diastolic)
+    const pulses = bpRows.map(r => r.pulse).filter((p): p is number => p != null)
+    const last = bpRows[bpRows.length - 1]
+    const avgSys = Math.round(mean(sys) ?? 0)
+    const avgDia = Math.round(mean(dia) ?? 0)
+    bloodPressure = {
+      readings: bpRows.length,
+      avgSystolic: avgSys,
+      avgDiastolic: avgDia,
+      maxSystolic: Math.max(...sys),
+      maxDiastolic: Math.max(...dia),
+      avgPulse: pulses.length ? Math.round(mean(pulses) ?? 0) : null,
+      last: { systolic: last.systolic, diastolic: last.diastolic, date: last.loggedAt.toISOString().slice(0, 10) },
+      band: bpBand(avgSys, avgDia),
+    }
+  }
+
+  // ── Weight across the period ──────────────────────────────────────────────
+  // Either source counts: the Body page's measurements and the ring's own
+  // readings both land here, oldest first.
+  const weightPoints = [
+    ...bodyRows.filter(b => b.weightKg != null).map(b => ({ date: b.date.toISOString().slice(0, 10), kg: b.weightKg as number })),
+  ]
+    .filter(w => w.date >= fromStr && w.date <= toStr)
+    .sort((a, b) => a.date.localeCompare(b.date))
+  const weightTrend = weightPoints.length >= 2
+    ? {
+        first: Math.round(weightPoints[0].kg * 10) / 10,
+        last: Math.round(weightPoints[weightPoints.length - 1].kg * 10) / 10,
+        changeKg: Math.round((weightPoints[weightPoints.length - 1].kg - weightPoints[0].kg) * 10) / 10,
+        readings: weightPoints.length,
+      }
+    : null
+
   // ── Narrative ─────────────────────────────────────────────────────────────
   const firstName = user?.name?.split(" ")[0] ?? "The patient"
   const metricLines = metrics.map(m => {
@@ -302,8 +381,14 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     `- ${m.name}${m.dose ? ` (${m.dose})` : ""}, scheduled ${m.times.length}×/day at ${m.times.join(", ") || "unspecified"}; ${m.loggedDoses} doses recorded in-app of ~${m.expectedDoses} scheduled${m.typicalDose ? `; typical recorded amount ${m.typicalDose}` : ""}`)
   const symptomLines = symptoms.slice(0, 8).map(s =>
     `- ${s.name}: recorded ${s.occurrences}× , mean severity ${s.avgSeverity}/5, worst ${s.worstSeverity}/5, last on ${s.lastSeen}`)
+  const bpLine = bloodPressure
+    ? `BLOOD PRESSURE (self-measured, ${bloodPressure.readings} readings): mean ${bloodPressure.avgSystolic}/${bloodPressure.avgDiastolic} mmHg, highest ${bloodPressure.maxSystolic}/${bloodPressure.maxDiastolic}, most recent ${bloodPressure.last.systolic}/${bloodPressure.last.diastolic} on ${bloodPressure.last.date}${bloodPressure.avgPulse != null ? `, mean pulse ${bloodPressure.avgPulse}` : ""}. Mean falls in the "${bloodPressure.band}" band by office thresholds; home readings typically run lower than office readings.`
+    : "BLOOD PRESSURE: none recorded."
+  const weightLine = weightTrend
+    ? `WEIGHT: ${weightTrend.first}kg to ${weightTrend.last}kg over the period (${weightTrend.changeKg >= 0 ? "+" : ""}${weightTrend.changeKg}kg across ${weightTrend.readings} measurements).`
+    : null
   const labLines = labs.slice(0, 12).map(l =>
-    `- ${l.marker}: ${l.value} ${l.unit} (${l.date})${l.referenceMin != null || l.referenceMax != null ? ` [ref ${l.referenceMin ?? "–"}–${l.referenceMax ?? "–"}]` : ""}${l.flag === "low" || l.flag === "high" ? ` — ${l.flag.toUpperCase()}` : ""}`)
+    `- ${l.marker}: ${l.value} ${l.unit} (${l.date})${l.referenceMin != null || l.referenceMax != null ? ` [ref ${l.referenceMin ?? "–"}–${l.referenceMax ?? "–"}]` : ""}${l.flag === "low" || l.flag === "high" ? ` — ${l.flag.toUpperCase()}` : ""}${l.previous ? `; previous ${l.previous.value} on ${l.previous.date}` : ""}`)
 
   const context = [
     `Patient: ${firstName}. Reporting period: ${fromStr} to ${toStr} (${days} days).`,
@@ -318,15 +403,18 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     "SYMPTOMS (self-reported):",
     ...(symptomLines.length ? symptomLines : ["- none recorded"]),
     "",
-    "LABORATORY RESULTS (most recent per marker, entered by the patient):",
+    bpLine,
+    "",
+    "LABORATORY RESULTS (most recent per marker, entered by the patient; previous value given where one exists):",
     ...(labLines.length ? labLines : ["- none on file"]),
     "",
+    weightLine,
     body.weightKg != null ? `BODY: weight ${body.weightKg}kg${body.prevWeightKg != null ? ` (previous measurement ${body.prevWeightKg}kg)` : ""}${body.bodyFatPct != null ? `, body fat ${body.bodyFatPct}%` : ""}, recorded ${body.date}.` : "BODY: no measurements on file.",
     "",
     patterns.length
       ? `STATISTICAL ASSOCIATIONS found by the app in this person's own data (permutation-tested, false-discovery corrected; associations only, not causal):\n${patterns.map(p => `- [${p.confidence}] ${p.finding}`).join("\n")}`
       : "STATISTICAL ASSOCIATIONS: none reached significance.",
-  ].join("\n")
+  ].filter((l): l is string => l != null).join("\n")
 
   let narrative = ""
   if (process.env.ANTHROPIC_API_KEY) {
@@ -355,7 +443,9 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     meds,
     symptoms,
     labs,
+    bloodPressure,
     body,
+    weightTrend,
     patterns,
     narrative,
   }

@@ -98,6 +98,23 @@ export default function ChatPage() {
     setListening(true)
   }, [])
 
+  // Text shared from another app lands here. The manifest used to point the
+  // share target at the journal, which never read the parameter, so anything
+  // shared into the app vanished. It goes to the composer rather than sending
+  // itself — a shared link usually needs a sentence of context first.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    const shared = [params.get("title"), params.get("text"), params.get("url")]
+      .filter(Boolean)
+      .join(" ")
+      .trim()
+    if (!shared) return
+    setInput(prev => (prev ? `${prev} ${shared}` : shared))
+    // Drop the query so a refresh doesn't paste it a second time.
+    window.history.replaceState({}, "", window.location.pathname)
+  }, [])
+
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop()
     setListening(false)

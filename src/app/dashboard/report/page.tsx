@@ -251,6 +251,51 @@ export default function ReportPage() {
             </Section>
           )}
 
+          {report.bloodPressure && (
+            <Section title="Blood pressure">
+              <table>
+                <thead>
+                  <tr>
+                    <th className={TH}>Mean</th>
+                    <th className={TH}>Highest</th>
+                    <th className={TH}>Most recent</th>
+                    <th className={TH}>Readings</th>
+                    <th className={TH}>Mean pulse</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t border-border/50 print:border-black/10">
+                    <td className={`${TD} font-semibold`}>
+                      {report.bloodPressure.avgSystolic}/{report.bloodPressure.avgDiastolic}
+                    </td>
+                    <td className={TD}>{report.bloodPressure.maxSystolic}/{report.bloodPressure.maxDiastolic}</td>
+                    <td className={TD}>
+                      {report.bloodPressure.last.systolic}/{report.bloodPressure.last.diastolic}
+                      <span className="text-muted-foreground print:text-black/60"> · {fmtDay(report.bloodPressure.last.date)}</span>
+                    </td>
+                    <td className={TD}>{report.bloodPressure.readings}</td>
+                    <td className={TD}>{report.bloodPressure.avgPulse ?? "—"}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p className="text-[11px] text-muted-foreground print:text-black/60 mt-1.5 leading-snug">
+                Mean sits in the <strong>{report.bloodPressure.band}</strong> band by standard office
+                thresholds. These are self-measured readings, which typically run lower than office
+                readings — a prompt for discussion, not a diagnosis.
+              </p>
+            </Section>
+          )}
+
+          {report.weightTrend && (
+            <Section title="Weight">
+              <p>
+                {report.weightTrend.first}kg → <strong>{report.weightTrend.last}kg</strong>{" "}
+                ({report.weightTrend.changeKg >= 0 ? "+" : ""}{report.weightTrend.changeKg}kg over{" "}
+                {report.periodDays} days, {report.weightTrend.readings} measurements).
+              </p>
+            </Section>
+          )}
+
           {report.labs.length > 0 && (
             <Section title="Laboratory results">
               <table>
@@ -258,6 +303,7 @@ export default function ReportPage() {
                   <tr>
                     <th className={TH}>Marker</th>
                     <th className={TH}>Value</th>
+                    <th className={TH}>Previous</th>
                     <th className={TH}>Reference</th>
                     <th className={TH}>Date</th>
                   </tr>
@@ -270,6 +316,17 @@ export default function ReportPage() {
                         {l.value} {l.unit}
                         {l.flag === "high" && " ↑"}
                         {l.flag === "low" && " ↓"}
+                      </td>
+                      <td className={TD}>
+                        {l.previous ? (
+                          <>
+                            {l.previous.value}
+                            {" "}
+                            <span className="text-muted-foreground print:text-black/60">
+                              {l.value > l.previous.value ? "↑" : l.value < l.previous.value ? "↓" : "="}
+                            </span>
+                          </>
+                        ) : "—"}
                       </td>
                       <td className={TD}>
                         {l.referenceMin != null || l.referenceMax != null
