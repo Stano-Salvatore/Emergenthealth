@@ -69,7 +69,9 @@ public class TodayWidget extends AppWidgetProvider {
 
                 String[] c = creds(context);
                 if (c == null) {
-                    views.setTextViewText(R.id.today_status, "Set up in the app");
+                    // Nothing the user can act on in Settings any more — the app
+                    // links the widgets itself on launch, so this is just "open me".
+                    views.setTextViewText(R.id.today_status, "Open the app once");
                     pushAll(mgr, ids, views);
                     return;
                 }

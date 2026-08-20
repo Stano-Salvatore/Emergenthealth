@@ -1,14 +1,21 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import { FileText, Printer, RefreshCw } from "lucide-react"
+import { useEffect, useState, useSyncExternalStore } from "react"
+import { Check, FileText, Mail, Printer, RefreshCw } from "lucide-react"
 import type { HealthReport } from "@/lib/health-report"
+import { printPage, printSupport } from "@/lib/native/print"
 
 // The one thing this app produced that a doctor could not use was everything.
 // JSON is for scripts, the dashboard is for browsing; fifteen minutes across a
 // desk needs one page of paper. Print styles live in globals.css under
 // `.report-doc` — the browser's own "Save as PDF" does the export, which keeps
-// a PDF library (and its fonts) out of the bundle and works on Android too.
+// a PDF library (and its fonts) out of the bundle.
+//
+// "and works on Android too" is what the comment used to claim, and it was
+// wrong: window.print() inside an Android WebView is a silent no-op, so the
+// export button did nothing on the phone. Printing now goes through the native
+// bridge (see lib/native/print), and every surface also gets "Email it to me",
+// which needs no print stack at all.
 
 const PERIODS = [
   { days: 30, label: "30 days" },
@@ -54,6 +61,40 @@ export default function ReportPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const [sending, setSending] = useState(false)
+  const [sent, setSent] = useState<string | null>(null)
+
+  // Whether this surface has a print stack at all. An Android shell older than
+  // the native print bridge answers "none" — hiding the button there beats
+  // offering one that does nothing, which is the bug this replaced.
+  //
+  // Read through useSyncExternalStore rather than an effect: the answer is a
+  // property of the browser, never changes, and the server has to say "no"
+  // so the markup it renders matches the client's first paint.
+  const canPrint = useSyncExternalStore(
+    () => () => {},
+    () => printSupport() !== "none",
+    () => false,
+  )
+
+  async function emailReport() {
+    setSending(true)
+    setSent(null)
+    try {
+      const res = await fetch("/api/report/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ days }),
+      })
+      const d = await res.json().catch(() => null)
+      setSent(res.ok ? "sent" : (d?.error ?? "Couldn't send the report."))
+      if (res.ok) setTimeout(() => setSent(null), 6000)
+    } catch {
+      setSent("Couldn't send the report — check your connection.")
+    }
+    setSending(false)
+  }
+
   // The fetch lives inside the effect so every state update happens after an
   // await, and `cancelled` drops a stale response when the period is switched
   // faster than the API answers. The spinner is turned on by whatever triggers
@@ -95,13 +136,23 @@ export default function ReportPage() {
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
               Rebuild
             </button>
+            {canPrint && (
+              <button
+                onClick={() => { if (!printPage(`Health report ${report?.from ?? ""}`)) setSent("This device can't print — email it instead.") }}
+                disabled={loading || !report}
+                className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs disabled:opacity-40 hover:bg-secondary transition-colors"
+              >
+                <Printer className="h-3.5 w-3.5" />
+                Print / Save as PDF
+              </button>
+            )}
             <button
-              onClick={() => window.print()}
-              disabled={loading || !report}
+              onClick={emailReport}
+              disabled={loading || !report || sending}
               className="flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground px-3 py-1.5 text-xs font-medium disabled:opacity-40"
             >
-              <Printer className="h-3.5 w-3.5" />
-              Print / Save as PDF
+              {sent === "sent" ? <Check className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
+              {sent === "sent" ? "Sent to your inbox" : sending ? "Sending…" : "Email it to me"}
             </button>
           </div>
         </div>
@@ -122,6 +173,9 @@ export default function ReportPage() {
           ))}
         </div>
         {error && <p className="text-sm text-red-400 bg-red-500/10 rounded-lg px-3 py-2 mb-4">{error}</p>}
+        {sent && sent !== "sent" && (
+          <p className="text-sm text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2 mb-4">{sent}</p>
+        )}
         {loading && (
           <div className="space-y-3 animate-pulse">
             {[...Array(5)].map((_, i) => <div key={i} className="h-24 bg-secondary rounded-xl" />)}
