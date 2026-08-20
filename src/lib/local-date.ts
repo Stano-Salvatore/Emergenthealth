@@ -81,6 +81,28 @@ export function zonedDayRange(timezone: string, dayISO?: string): { start: Date;
   return { start, end }
 }
 
+// The instant a given local wall-clock time falls at, as UTC. Same two-pass
+// resolution as zonedMidnight, for the same reason.
+//
+// Needed wherever the user tells us *when* something happened rather than
+// logging it as it happens: "put this at 23:40" has to mean 23:40 where they
+// are, not on the server. Accepts "YYYY-MM-DD" (midday, so a bare date can't
+// land on the wrong side of a boundary) or "YYYY-MM-DDTHH:MM" / with a space.
+// Returns null rather than guessing at anything it can't parse.
+export function zonedDateTime(timezone: string, input: string): Date | null {
+  const m = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}):(\d{2}))?$/.exec(input.trim())
+  if (!m) return null
+  const [, day, hh, mm] = m
+  const hour = hh === undefined ? 12 : Number(hh)
+  const min = mm === undefined ? 0 : Number(mm)
+  if (hour > 23 || min > 59) return null
+
+  const naive = Date.parse(`${day}T${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}:00Z`)
+  if (Number.isNaN(naive)) return null
+  const first = naive - tzOffsetMinutes(timezone, new Date(naive)) * 60000
+  return new Date(naive - tzOffsetMinutes(timezone, new Date(first)) * 60000)
+}
+
 // Shift a YYYY-MM-DD string by n days, staying in date-string space.
 export function addDaysISO(iso: string, n: number): string {
   const [y, m, d] = iso.split("-").map(Number)
