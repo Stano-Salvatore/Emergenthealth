@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Eye, EyeOff, Copy, Check } from "lucide-react"
+import { copyText } from "@/lib/utils"
 
 // A URL with an API key embedded in it. The key grants full read access to the
 // account's health data, so it is masked until asked for — the key manager on
@@ -16,11 +17,10 @@ export function SecretUrl({ url, secret, label }: { url: string; secret: string;
     : url
 
   async function copy() {
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1800)
-    } catch { /* clipboard blocked — the reveal button is the fallback */ }
+    // Only claim it was copied if it was; the reveal button is the fallback.
+    if (!await copyText(url)) return
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1800)
   }
 
   return (

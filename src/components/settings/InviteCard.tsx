@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Share2, Copy, Check, Users } from "lucide-react"
+import { copyText } from "@/lib/utils"
 
 interface InviteData {
   code: string
@@ -20,13 +21,9 @@ export function InviteCard() {
 
   async function copyLink() {
     if (!data) return
-    try {
-      await navigator.clipboard.writeText(data.inviteUrl)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // clipboard not available
-    }
+    if (!await copyText(data.inviteUrl)) return
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   async function shareLink() {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { X, Share2, Star } from "lucide-react"
 import { useLocalSetting } from "@/lib/use-client-value"
+import { copyText } from "@/lib/utils"
 
 const FIRST_SEEN_KEY = "eh_first_seen"
 const DISMISSED_KEY = "eh_share_prompt_v1"
@@ -56,12 +57,11 @@ export function AppSharePrompt() {
       } catch { /* user cancelled */ }
     }
 
-    // Fallback: copy link
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      setTimeout(() => { setCopied(false); dismiss() }, 2000)
-    } catch { /* */ }
+    // Fallback: copy the link. navigator.share doesn't exist inside the
+    // Android app at all, so this is the path that actually runs there.
+    if (!await copyText(url)) return
+    setCopied(true)
+    setTimeout(() => { setCopied(false); dismiss() }, 2000)
   }
 
   if (!show) return null
