@@ -4,6 +4,7 @@ import { format } from "date-fns"
 import { addDaysISO, getUserTimezone, localDateStr } from "@/lib/local-date"
 import { activeOn } from "@/lib/med-schedule"
 import { fold } from "@/lib/supplement-normalize"
+import { formatDose, sumDoses, type ParsedDose } from "@/lib/dose"
 import type { InsightResult } from "@/lib/correlations"
 
 // The clinical summary. Everything else this app produces is written for the
@@ -40,6 +41,8 @@ export type MedSummary = {
   expectedDoses: number
   loggedDoses: number
   lastTaken: string | null
+  /** Typical recorded amount, e.g. "12.5mg" or "½ tablet"; null when never stated. */
+  typicalDose: string | null
 }
 
 export type SymptomSummary = {
@@ -136,10 +139,10 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     }).catch(() => []),
     prisma.medSchedule.findMany({ where: { userId, active: true } }).catch(() => []),
     // Doses actually recorded — Oura tags and manual logs share this table.
-    prisma.$queryRaw<{ tagName: string | null; text: string | null; day: string; timestamp: Date }[]>`
-      SELECT "tagName", "text", "day", "timestamp" FROM "OuraTag"
+    prisma.$queryRaw<{ tagName: string | null; text: string | null; day: string; timestamp: Date; doseAmount: number | null; doseUnit: string | null }[]>`
+      SELECT "tagName", "text", "day", "timestamp", "doseAmount", "doseUnit" FROM "OuraTag"
       WHERE "userId" = ${userId} AND "day" >= ${fromStr} AND "day" <= ${toStr}
-    `.catch(() => [] as { tagName: string | null; text: string | null; day: string; timestamp: Date }[]),
+    `.catch(() => [] as { tagName: string | null; text: string | null; day: string; timestamp: Date; doseAmount: number | null; doseUnit: string | null }[]),
     prisma.symptomLog.findMany({
       where: { userId, day: { gte: fromStr, lte: toStr } },
       select: { name: true, severity: true, day: true },
@@ -212,9 +215,22 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     const lastTaken = hits.length
       ? hits.reduce((a, b) => (a.timestamp > b.timestamp ? a : b)).timestamp.toISOString()
       : null
+    // The mean of what was actually recorded, in whichever unit was used.
+    // Milligrams and tablet fractions are never mixed into one number.
+    const doses: ParsedDose[] = hits
+      .filter(h => h.doseAmount != null && (h.doseUnit === "mg" || h.doseUnit === "tablet"))
+      .map(h => ({ amount: h.doseAmount as number, unit: h.doseUnit as ParsedDose["unit"] }))
+    const totals = sumDoses(doses)
+    const mgCount = doses.filter(d => d.unit === "mg").length
+    const tabCount = doses.length - mgCount
+    const typicalDose =
+      totals.mg != null && mgCount > 0 ? formatDose(totals.mg / mgCount, "mg")
+      : totals.tablets != null && tabCount > 0 ? formatDose(totals.tablets / tabCount, "tablet")
+      : null
+
     return {
       name: m.name, dose: m.dose, times: m.times, daysOfWeek: m.daysOfWeek, note: m.note,
-      expectedDoses: expected, loggedDoses: hits.length, lastTaken,
+      expectedDoses: expected, loggedDoses: hits.length, lastTaken, typicalDose,
     }
   })
 
@@ -283,7 +299,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     return `- ${m.label}: mean ${m.avg}${m.unit}${trend}; range ${m.min}–${m.max}; ${m.days}/${days} days recorded`
   })
   const medLines = meds.map(m =>
-    `- ${m.name}${m.dose ? ` (${m.dose})` : ""}, scheduled ${m.times.length}×/day at ${m.times.join(", ") || "unspecified"}; ${m.loggedDoses} doses recorded in-app of ~${m.expectedDoses} scheduled`)
+    `- ${m.name}${m.dose ? ` (${m.dose})` : ""}, scheduled ${m.times.length}×/day at ${m.times.join(", ") || "unspecified"}; ${m.loggedDoses} doses recorded in-app of ~${m.expectedDoses} scheduled${m.typicalDose ? `; typical recorded amount ${m.typicalDose}` : ""}`)
   const symptomLines = symptoms.slice(0, 8).map(s =>
     `- ${s.name}: recorded ${s.occurrences}× , mean severity ${s.avgSeverity}/5, worst ${s.worstSeverity}/5, last on ${s.lastSeen}`)
   const labLines = labs.slice(0, 12).map(l =>

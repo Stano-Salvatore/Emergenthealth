@@ -539,6 +539,12 @@ model OuraTag {
   tagName   String?
   text      String?
   tags      String[]
+  /// How much was taken. Null means the label said nothing about quantity —
+  /// which is not the same as one tablet, and is never assumed to be.
+  doseAmount Float?
+  /// "mg" (absolute) or "tablet" (a share of an unknown strength). The two are
+  /// never converted into one another.
+  doseUnit   String?
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, day])

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { normalizeSupplement, cleanLabel, fold } from "@/lib/supplement-normalize"
 import { getUserTimezone, localDateStr } from "@/lib/local-date"
 import { randomUUID } from "crypto"
+import { parseDose } from "@/lib/dose"
 
 async function ensureTable() {
   await prisma.$executeRaw`
@@ -19,6 +20,8 @@ async function ensureTable() {
   `
   await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "OuraTag_userId_day_idx" ON "OuraTag"("userId","day")`
   await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "tagName" TEXT`
+  await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "doseAmount" DOUBLE PRECISION`
+  await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "doseUnit" TEXT`
   await prisma.$executeRaw`
     CREATE TABLE IF NOT EXISTS "TagAlias" (
       "userId"      TEXT NOT NULL,
@@ -79,9 +82,9 @@ export async function GET(req: Request) {
     await ensureTable()
     const [rows, aliasRows] = await Promise.all([
       prisma.$queryRaw<
-        { id: string; day: string; timestamp: Date; tagName: string | null; text: string | null; tags: string[] }[]
+        { id: string; day: string; timestamp: Date; tagName: string | null; text: string | null; tags: string[]; doseAmount: number | null; doseUnit: string | null }[]
       >`
-        SELECT "id","day","timestamp","tagName","text","tags"
+        SELECT "id","day","timestamp","tagName","text","tags","doseAmount","doseUnit"
         FROM "OuraTag"
         WHERE "userId" = ${userId}
         ORDER BY "timestamp" DESC
@@ -177,13 +180,22 @@ export async function POST(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const body = await req.json().catch(() => null) as { name?: unknown; minutesAgo?: unknown; takenAt?: unknown; note?: unknown } | null
+  const body = await req.json().catch(() => null) as { name?: unknown; minutesAgo?: unknown; takenAt?: unknown; note?: unknown; doseAmount?: unknown; doseUnit?: unknown } | null
   const name = typeof body?.name === "string" ? body.name.trim().slice(0, 60) : ""
   if (!name) return NextResponse.json({ error: "name required" }, { status: 400 })
 
   const rawMinutes = Number(body?.minutesAgo ?? 0)
   const minutesAgo = Number.isFinite(rawMinutes) ? Math.min(MAX_MINUTES_AGO, Math.max(0, Math.round(rawMinutes))) : 0
   const note = typeof body?.note === "string" && body.note.trim() ? body.note.trim().slice(0, 200) : null
+
+  // An explicit dose from the form wins; otherwise read one off the label, so
+  // "Atarax - half" and "Atarax 12.5 mg" both record a real quantity even when
+  // typed straight into the name box.
+  const explicitAmount = Number(body?.doseAmount)
+  const explicitUnit = body?.doseUnit === "mg" || body?.doseUnit === "tablet" ? body.doseUnit : null
+  const dose = Number.isFinite(explicitAmount) && explicitAmount > 0 && explicitUnit
+    ? { amount: Math.min(100_000, explicitAmount), unit: explicitUnit }
+    : parseDose(name) ?? (note ? parseDose(note) : null)
 
   // An exact time beats the "N minutes ago" presets when both arrive. Doses
   // feed the half-life math and the med→sleep correlations, so a dose taken
@@ -203,11 +215,11 @@ export async function POST(req: Request) {
   await ensureTable()
   const id = `manual_${randomUUID()}`
   await prisma.$executeRaw`
-    INSERT INTO "OuraTag" ("id","userId","day","timestamp","tagName","text","tags")
-    VALUES (${id}, ${userId}, ${day}, ${timestamp}, ${name}, ${note}, ARRAY['manual']::text[])
+    INSERT INTO "OuraTag" ("id","userId","day","timestamp","tagName","text","tags","doseAmount","doseUnit")
+    VALUES (${id}, ${userId}, ${day}, ${timestamp}, ${name}, ${note}, ARRAY['manual']::text[], ${dose?.amount ?? null}, ${dose?.unit ?? null})
   `
 
-  return NextResponse.json({ ok: true, id, name, day, timestamp: timestamp.toISOString() })
+  return NextResponse.json({ ok: true, id, name, day, timestamp: timestamp.toISOString(), dose })
 }
 
 export async function PATCH(req: Request) {

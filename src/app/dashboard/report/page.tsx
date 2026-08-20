@@ -201,7 +201,8 @@ export default function ReportPage() {
                 <thead>
                   <tr>
                     <th className={TH}>Medication</th>
-                    <th className={TH}>Dose</th>
+                    <th className={TH}>Prescribed</th>
+                    <th className={TH}>Typical taken</th>
                     <th className={TH}>Schedule</th>
                     <th className={TH}>Doses logged</th>
                     <th className={TH}>Last recorded</th>
@@ -212,6 +213,7 @@ export default function ReportPage() {
                     <tr key={m.name} className="border-t border-border/50 print:border-black/10">
                       <td className={TD}>{m.name}</td>
                       <td className={TD}>{m.dose ?? "—"}</td>
+                      <td className={TD}>{m.typicalDose ?? "—"}</td>
                       <td className={TD}>{m.times.length ? m.times.join(", ") : "—"}{m.daysOfWeek.length > 0 && m.daysOfWeek.length < 7 ? " (some days)" : ""}</td>
                       <td className={TD}>{m.loggedDoses} of ~{m.expectedDoses}</td>
                       <td className={TD}>{m.lastTaken ? new Date(m.lastTaken).toLocaleDateString() : "—"}</td>

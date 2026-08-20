@@ -9,6 +9,7 @@ import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
 import { getUserTimezone, localDateStr } from "@/lib/local-date"
 import { randomUUID } from "crypto"
+import { parseDose, formatDose } from "@/lib/dose"
 
 /** Fold whatever the model called it onto a type the app stores. */
 function normalizeDrinkType(raw: string): string {
@@ -266,6 +267,20 @@ const TOOLS: Anthropic.Tool[] = [
         note: { type: "string", description: "Optional context, e.g. 'started after lunch'" },
       },
       required: ["name", "severity"],
+    },
+  },
+  {
+    name: "log_dose",
+    description: "Record that the user took a medication or supplement — 'took my Atarax', 'half an Elicea', '400mg magnesium'. Pass the substance name on its own and the amount separately when they state one. Use this for pills, capsules and drops; use log_drink for drinks.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "The substance alone, e.g. 'Atarax' — no dose in this field" },
+        doseAmount: { type: "number", description: "How much, when stated: 12.5 for 12.5mg, or 0.5 for half a tablet" },
+        doseUnit: { type: "string", description: "'mg' for an absolute amount, 'tablet' for a share of a tablet" },
+        minutesAgo: { type: "number", description: "How long ago they took it; 0 or omitted means just now" },
+      },
+      required: ["name"],
     },
   },
   {
@@ -681,6 +696,32 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     }).catch(() => null)
     if (!savedSymptom) return "Couldn't save that symptom — the log didn't write. Worth retrying."
     return `Logged ${label} at ${severity}/5. Hope it eases up.`
+  }
+
+  if (name === "log_dose") {
+    const label = String(input.name ?? "").trim().slice(0, 60)
+    if (!label) return "Which medication or supplement?"
+
+    // An amount the model states wins; otherwise read one off the label, so a
+    // user saying "Atarax half" still records ½ tablet rather than nothing.
+    const rawAmount = Number(input.doseAmount)
+    const unit = input.doseUnit === "mg" || input.doseUnit === "tablet" ? input.doseUnit : null
+    const dose = Number.isFinite(rawAmount) && rawAmount > 0 && unit
+      ? { amount: Math.min(100_000, rawAmount), unit }
+      : parseDose(label)
+
+    const minutesAgo = clampInt(input.minutesAgo, 0, 48 * 60, 0)
+    const timestamp = new Date(Date.now() - minutesAgo * 60_000)
+    const tz = await getUserTimezone(userId)
+
+    const wrote = await prisma.$executeRaw`
+      INSERT INTO "OuraTag" ("id","userId","day","timestamp","tagName","text","tags","doseAmount","doseUnit")
+      VALUES (${`manual_${randomUUID()}`}, ${userId}, ${localDateStr(tz, timestamp)}, ${timestamp}, ${label}, ${null}, ARRAY['manual']::text[], ${dose?.amount ?? null}, ${dose?.unit ?? null})
+    `.catch(() => 0)
+    if (!wrote) return `Couldn't log ${label} — the write didn't go through. Worth retrying.`
+
+    const amountStr = dose ? formatDose(dose.amount, dose.unit) : null
+    return `Logged ${label}${amountStr ? ` — ${amountStr}` : ""}${minutesAgo ? `, ${minutesAgo} min ago` : ""}.`
   }
 
   if (name === "log_moment") {
@@ -1241,7 +1282,7 @@ You can see their medications, symptoms and lab results. You may describe what's
 
 FORMATTING: your replies render as markdown. Use **bold** to highlight times, numbers and key words (bold shows in green — that's your accent colour), "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
-You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
+You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
 ## Today's snapshot
