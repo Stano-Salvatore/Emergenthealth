@@ -307,7 +307,8 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
   function toggleHidden(href: string) {
     if (NON_HIDEABLE.has(href)) return
     const next = new Set(hidden)
-    next.has(href) ? next.delete(href) : next.add(href)
+    if (next.has(href)) next.delete(href)
+    else next.add(href)
     setHidden(next)
     persist(order, next)
   }

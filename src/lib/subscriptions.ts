@@ -55,11 +55,11 @@ export function detectRecurringCharges(
     recurring.push({
       description: last.description,
       amountCents: Math.round(mean),
-      currency: (last as any).currency ?? "EUR",
+      currency: last.currency ?? "EUR",
       occurrences: sorted.length,
       lastDate: new Date(last.date).toISOString().split("T")[0],
       avgIntervalDays: Math.round(avgInterval),
-      category: (last as any).category ?? null,
+      category: last.category ?? null,
     })
   }
 

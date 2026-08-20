@@ -370,7 +370,8 @@ export function InsightsPanel() {
   const togglePin = useCallback((id: string) => {
     setPinned(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       persist({ pinned: [...next] })
       return next
     })

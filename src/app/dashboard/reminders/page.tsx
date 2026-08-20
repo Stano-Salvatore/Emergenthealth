@@ -28,12 +28,6 @@ interface TagItem {
   color: string
 }
 
-const PRIORITY_COLORS: Record<string, string> = {
-  high: "text-red-400",
-  normal: "text-yellow-400",
-  low: "text-muted-foreground",
-}
-
 const TAG_COLORS = [
   "#6366f1","#22c55e","#f59e0b","#ef4444",
   "#8b5cf6","#06b6d4","#ec4899","#14b8a6",

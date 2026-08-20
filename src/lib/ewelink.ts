@@ -4,7 +4,6 @@
 const REGION = process.env.EWELINK_REGION ?? "eu"
 const BASE = `https://${REGION}-apia.coolkit.cc`
 const APP_ID = process.env.EWELINK_APP_ID ?? "oeVkj2lYFGnJrjOfAbbJaP3o6ixNNzy2"
-const APP_SECRET = process.env.EWELINK_APP_SECRET ?? "6Nz4n0xA8s8qdxQf2GqurZj2Fs55FUvM"
 
 let cachedToken: { at: string; expiresAt: number } | null = null
 

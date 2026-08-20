@@ -168,7 +168,6 @@ export default function RescueTimePage() {
   }
   const topCatList = Object.entries(topCategories).sort((a, b) => b[1] - a[1]).slice(0, 5)
 
-  const maxScore = Math.max(...logs.map(l => l.productivityScore ?? 0), 1)
   const recent14 = logs.slice(0, 14).reverse()
 
   return (

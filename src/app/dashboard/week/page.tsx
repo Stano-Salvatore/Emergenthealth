@@ -74,11 +74,11 @@ export default async function WeekPage() {
     prisma.intakeLog.findMany({
       where: { userId, type: "water", loggedAt: { gte: weekStart, lte: today } },
       select: { amountMl: true, loggedAt: true },
-    }).catch(() => [] as any[]),
+    }).catch(() => [] as { amountMl: number; loggedAt: Date }[]),
     prisma.focusSession.findMany({
       where: { userId, type: "focus", endedAt: { gte: weekStart, lte: today } },
       select: { durationMin: true },
-    }).catch(() => [] as any[]),
+    }).catch(() => [] as { durationMin: number }[]),
     prisma.moodLog.findMany({
       where: { userId, date: { gte: weekStart, lte: today } },
       orderBy: { date: "asc" },
@@ -98,11 +98,6 @@ export default async function WeekPage() {
     .filter(l => l.sleepDuration != null)
     .reduce((debt, l) => debt + Math.max(0, SLEEP_GOAL_H * 60 - l.sleepDuration!), 0)
   const sleepDebtH = (sleepDebtMin / 60).toFixed(1)
-
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const d = subDays(today, 6 - i)
-    return format(d, "yyyy-MM-dd")
-  })
 
   const thisWeekAvg = {
     sleep: avg(thisWeekLogs.map(l => l.sleepDuration != null ? l.sleepDuration/60 : null)),
@@ -142,7 +137,7 @@ export default async function WeekPage() {
   const totalWaterMl = Object.values(waterByDay).reduce((a,b) => a+b, 0)
 
   // Focus
-  const totalFocusMin = thisWeekFocus.reduce((a: number, s: any) => a + s.durationMin, 0)
+  const totalFocusMin = thisWeekFocus.reduce((a, s) => a + s.durationMin, 0)
 
   // Check-ins
   const weekCheckins = checkinRows as { date: string; energy: number; mood: number }[]

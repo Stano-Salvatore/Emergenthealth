@@ -7,11 +7,6 @@ import type { StravaActivityRow, WeeklyStats } from "@/app/api/strava/activities
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
-function fmtDistance(m: number | null): string {
-  if (m == null) return "—"
-  return (m / 1000).toFixed(2) + " km"
-}
-
 function fmtDuration(sec: number): string {
   const h = Math.floor(sec / 3600)
   const m = Math.floor((sec % 3600) / 60)

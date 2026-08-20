@@ -48,10 +48,6 @@ export async function GET(request: Request) {
   const intentTarget = authKey
     ? `intent://auth?key=${encodeURIComponent(authKey)}#Intent;scheme=emergenthealth;package=app.emergenthealth;end`
     : `intent://auth?code=${encodeURIComponent(code)}#Intent;scheme=emergenthealth;package=app.emergenthealth;end`
-  const fallbackTarget = authKey
-    ? `emergenthealth://auth?key=${encodeURIComponent(authKey)}`
-    : `emergenthealth://auth?code=${encodeURIComponent(code)}`
-
   return new Response(
     `<!DOCTYPE html>
 <html>

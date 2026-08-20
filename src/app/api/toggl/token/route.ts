@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     const user = await verifyToken(apiToken.trim())
     await saveToken(session.user.id, apiToken.trim(), user.default_workspace_id)
     return NextResponse.json({ connected: true, workspaceId: user.default_workspace_id, name: user.fullname })
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: "Invalid Toggl API token" }, { status: 400 })
   }
 }

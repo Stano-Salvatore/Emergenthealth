@@ -105,12 +105,6 @@ const SUMMARY_COLS: Record<number, string> = {
   9: "sm:grid-cols-5",
 }
 
-function progressColor(pct: number) {
-  if (pct >= 100) return "bg-green-500"
-  if (pct >= 60) return "bg-blue-500"
-  return "bg-blue-400/60"
-}
-
 interface WeekDay {
   date: string
   waterMl: number
@@ -393,16 +387,16 @@ export default function IntakePage() {
           can see in the source, so the old built-up `sm:grid-cols-${n}` left
           5- and 6-column layouts with no CSS at all. */}
       <div className={cn("grid gap-3 grid-cols-2", SUMMARY_COLS[cardCount])}>
-        <SummaryCard label="Water" value={waterTotal} goal={waterGoal} unit="ml" color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
-        <SummaryCard label="Coffee" value={coffeeTotal} goal={400} unit="ml" color="text-amber-500" barColor="bg-amber-600" emoji="☕"
+        <SummaryCard label="Water" value={waterTotal} goal={waterGoal} color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
+        <SummaryCard label="Coffee" value={coffeeTotal} goal={400} color="text-amber-500" barColor="bg-amber-600" emoji="☕"
           sub={isToday && caffeineMg != null && caffeineMg > 0 ? `≈${caffeineMg} mg caffeine` : undefined} />
-        {sparklingTotal > 0 && <SummaryCard label="Sparkling" value={sparklingTotal} unit="ml" color="text-cyan-400" barColor="bg-cyan-500" emoji="🫧" />}
-        {teaTotal > 0 && <SummaryCard label="Tea" value={teaTotal} unit="ml" color="text-green-500" barColor="bg-green-600" emoji="🍵" />}
-        {matchaTotal > 0 && <SummaryCard label="Matcha" value={matchaTotal} unit="ml" color="text-emerald-400" barColor="bg-emerald-500" emoji="🍃" />}
-        {beerTotal > 0 && <SummaryCard label="Beer" value={beerTotal} unit="ml" color="text-yellow-400" barColor="bg-yellow-500" emoji="🍺" />}
-        {wineTotal > 0 && <SummaryCard label="Wine" value={wineTotal} unit="ml" color="text-rose-400" barColor="bg-rose-700" emoji="🍷" />}
-        {spiritsTotal > 0 && <SummaryCard label="Spirits" value={spiritsTotal} unit="ml" color="text-purple-400" barColor="bg-purple-500" emoji="🥃" />}
-        {alcoholTotal > 0 && <SummaryCard label="Alcohol" value={alcoholTotal} unit="ml" color="text-yellow-500" barColor="bg-yellow-600" emoji="🍾" />}
+        {sparklingTotal > 0 && <SummaryCard label="Sparkling" value={sparklingTotal} color="text-cyan-400" barColor="bg-cyan-500" emoji="🫧" />}
+        {teaTotal > 0 && <SummaryCard label="Tea" value={teaTotal} color="text-green-500" barColor="bg-green-600" emoji="🍵" />}
+        {matchaTotal > 0 && <SummaryCard label="Matcha" value={matchaTotal} color="text-emerald-400" barColor="bg-emerald-500" emoji="🍃" />}
+        {beerTotal > 0 && <SummaryCard label="Beer" value={beerTotal} color="text-yellow-400" barColor="bg-yellow-500" emoji="🍺" />}
+        {wineTotal > 0 && <SummaryCard label="Wine" value={wineTotal} color="text-rose-400" barColor="bg-rose-700" emoji="🍷" />}
+        {spiritsTotal > 0 && <SummaryCard label="Spirits" value={spiritsTotal} color="text-purple-400" barColor="bg-purple-500" emoji="🥃" />}
+        {alcoholTotal > 0 && <SummaryCard label="Alcohol" value={alcoholTotal} color="text-yellow-500" barColor="bg-yellow-600" emoji="🍾" />}
       </div>
 
       {/* 7-day water trend */}
@@ -619,8 +613,10 @@ export default function IntakePage() {
   )
 }
 
-function SummaryCard({ label, value, goal, unit, color, barColor, emoji, sub }: {
-  label: string; value: number; goal?: number; unit: string; color: string; barColor: string; emoji: string; sub?: string
+// Every one of these is a volume, and the card formats ml/L itself — the
+// `unit` prop each caller dutifully set to "ml" was never read.
+function SummaryCard({ label, value, goal, color, barColor, emoji, sub }: {
+  label: string; value: number; goal?: number; color: string; barColor: string; emoji: string; sub?: string
 }) {
   const pct = goal ? Math.min(100, (value / goal) * 100) : null
   const display = value >= 1000 ? `${(value / 1000).toFixed(1)}L` : `${value}ml`

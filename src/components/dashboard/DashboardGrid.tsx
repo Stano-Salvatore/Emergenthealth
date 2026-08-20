@@ -291,7 +291,8 @@ export function DashboardGrid({ blocks, header, mobileHidden }: Props) {
   function toggleHide(id: BlockId) {
     setHidden(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+    else next.add(id)
       try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...next])) } catch { /* */ }
       persist([...itemsRef.current], [...next] as string[], false)
       return next

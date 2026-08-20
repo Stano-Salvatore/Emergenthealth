@@ -80,10 +80,6 @@ function isoToHour(iso: string): number {
 }
 
 /** Clamp a fractional hour to 0–24 range then scale to % */
-function hourToPct(h: number, startH: number, totalH: number): number {
-  return Math.max(0, Math.min(100, ((h - startH) / totalH) * 100))
-}
-
 // ── Day summary strip ──────────────────────────────────────────────────────────
 
 function SummaryStrip({ log, mood }: { log: HealthLog | null; mood: { mood: number; note: string | null } | null }) {

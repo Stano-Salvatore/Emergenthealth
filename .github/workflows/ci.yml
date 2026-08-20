@@ -53,9 +53,7 @@ jobs:
         run: npm test
 
       - name: Lint
-        # Report-only for now: the repo carries ~90 pre-existing violations,
-        # mostly from newer react-hooks rules. Making this blocking is a
-        # separate cleanup, and failing every build until then would just
-        # train everyone to ignore CI.
-        continue-on-error: true
-        run: npx eslint src
+        # Blocking as of the cleanup that cleared the backlog this used to
+        # carry. `npx eslint src` is clean; keeping it that way is cheaper than
+        # letting it drift back to ninety violations nobody reads.
+        run: npx eslint src --max-warnings 0

@@ -34,8 +34,6 @@ interface StravaActivityRow {
   day: string
 }
 
-const DEFAULT_STEP_GOAL = 8_000
-const DEFAULT_SLEEP_GOAL_H = 7.5
 
 export default async function HealthPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab } = await searchParams

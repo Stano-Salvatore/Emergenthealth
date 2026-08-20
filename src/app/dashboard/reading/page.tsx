@@ -22,12 +22,6 @@ interface Book {
   updatedAt: string
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  reading: "Currently Reading",
-  done: "Finished",
-  wishlist: "Want to Read",
-}
-
 const COLORS = [
   "#6366f1", "#8b5cf6", "#ec4899", "#f43f5e", "#ef4444",
   "#f97316", "#eab308", "#22c55e", "#14b8a6", "#0ea5e9",

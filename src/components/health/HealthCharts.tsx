@@ -50,12 +50,17 @@ function usePrimaryColor() {
 
 // ── Tooltip ────────────────────────────────────────────────────────────────────
 
-function Tip({ active, payload, label }: any) {
+// recharts' own tooltip props are generic over the chart's data type and do
+// not narrow usefully here; this is the slice of them this tooltip reads.
+type TipEntry = { name?: string; value?: number | string; color?: string; fill?: string }
+type TipProps = { active?: boolean; payload?: TipEntry[]; label?: string | number }
+
+function Tip({ active, payload, label }: TipProps) {
   if (!active || !payload?.length) return null
   return (
     <div style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, padding: "6px 10px", fontSize: 11 }}>
       <p style={{ fontWeight: 600, marginBottom: 2 }}>{label}</p>
-      {payload.map((p: any, i: number) => (
+      {payload.map((p, i) => (
         <p key={i} style={{ color: p.color ?? p.fill }}>
           {p.name}: <strong>{p.value}</strong>
         </p>
@@ -400,7 +405,7 @@ export function MoodChart({ data }: { data: ChartDay[] }) {
           <CartesianGrid vertical={false} stroke={getGrid()} />
           <XAxis dataKey="date" tick={axis} axisLine={false} tickLine={false} interval="preserveStartEnd" />
           <YAxis tick={axis} axisLine={false} tickLine={false} domain={[0, 5]} width={36} tickFormatter={v => MOOD_LABELS[v as number] ?? ""} />
-          <Tooltip content={<Tip />} formatter={(v: any) => [MOOD_LABELS[v as number] ?? v, "Mood"]} />
+          <Tooltip content={<Tip />} formatter={v => [MOOD_LABELS[v as number] ?? String(v), "Mood"]} />
           <Bar dataKey="mood" name="Mood" radius={[3, 3, 0, 0]}>
             {d.map((row, i) => (
               <Cell key={i} fill={MOOD_COLORS[row.mood!] ?? "#6366f1"} />

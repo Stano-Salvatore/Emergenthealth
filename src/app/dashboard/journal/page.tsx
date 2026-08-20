@@ -43,6 +43,9 @@ interface CheckIn {
 interface MoodEntry {
   mood: number
   note: string | null
+  // Present on every row the API returns and used to pick out today's entry;
+  // the type just never said so, so the lookup had to be cast to any.
+  date?: string
 }
 
 interface DailyNote {
@@ -84,9 +87,6 @@ export default function JournalPage() {
   }, [])
 
   async function loadDay(d: string) {
-    const dayStart = d
-    const dayEnd = new Date(new Date(d + "T23:59:59").toISOString()).toISOString()
-
     const [moodRes, noteRes, checkinsRes] = await Promise.all([
       fetch(`/api/mood?days=1`),
       fetch(`/api/daily-note?date=${d}`),
@@ -95,7 +95,7 @@ export default function JournalPage() {
 
     if (moodRes.ok) {
       const moods = await moodRes.json()
-      const todayMood = moods.find((m: any) => m.date?.startsWith(d))
+      const todayMood = (moods as MoodEntry[]).find(m => m.date?.startsWith(d))
       setMood(todayMood ?? null)
     }
     if (noteRes.ok) setNote(await noteRes.json())

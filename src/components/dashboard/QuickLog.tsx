@@ -6,9 +6,8 @@ import { Droplets, Smile, Scale } from "lucide-react"
 const MOOD_EMOJIS = ["😴", "😕", "😐", "🙂", "😄"]
 const WATER_PRESETS = [250, 500, 1000]
 
-export function QuickLog({ todayWaterMl, todayFocusMin, todayMood, latestWeight, waterGoalMl = 2000 }: {
+export function QuickLog({ todayWaterMl, todayMood, latestWeight, waterGoalMl = 2000 }: {
   todayWaterMl: number
-  todayFocusMin: number
   todayMood: number | null
   latestWeight?: number | null
   waterGoalMl?: number
