@@ -7,7 +7,7 @@ import { estimateCaffeine, activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
-import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { getUserTimezone, localDateStr, zonedDateTime } from "@/lib/local-date"
 import { randomUUID } from "crypto"
 import { parseDose, formatDose } from "@/lib/dose"
 
@@ -285,13 +285,17 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "log_moment",
-    description: "Save a small life moment to the user's timeline — 'first swim of the year', 'dinner with mom'. Use when the user shares something worth marking that isn't a metric.",
+    description: "Save a small life moment to the user's timeline — 'first swim of the year', 'dinner with mom'. Use when the user shares something worth marking that isn't a metric. Set occurredAt when it happened earlier than now — late-night messages about the evening just gone belong to that evening, not to the small hours of the next day.",
     input_schema: {
       type: "object" as const,
       properties: {
         label: { type: "string", description: "Short label for the moment" },
         emoji: { type: "string", description: "One fitting emoji (default 📌)" },
         note: { type: "string", description: "Optional detail" },
+        occurredAt: {
+          type: "string",
+          description: "When it happened, in the user's local time: YYYY-MM-DD or YYYY-MM-DDTHH:MM. Omit only if it is happening right now.",
+        },
       },
       required: ["label"],
     },
@@ -729,11 +733,28 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     if (!label) return "Need a label for the moment."
     const emoji = String(input.emoji ?? "").trim().slice(0, 8) || "📌"
     const note = String(input.note ?? "").trim().slice(0, 500) || null
+
+    // A moment logged at 00:02 about the evening just gone belongs to that
+    // evening. occurredAt defaulted to now(), so the journal entry and the
+    // moment it came from could land on two different days.
+    let occurredAt: Date | undefined
+    const whenRaw = String(input.occurredAt ?? "").trim()
+    if (whenRaw) {
+      const tz = await getUserTimezone(userId)
+      const parsed = zonedDateTime(tz, whenRaw)
+      // A moment can be backdated but not postdated: the future is not
+      // something that has happened.
+      if (parsed && parsed.getTime() <= Date.now() + 60_000) occurredAt = parsed
+    }
+
     const savedMoment = await prisma.timelineEvent.create({
-      data: { userId, emoji, label, note },
+      data: { userId, emoji, label, note, ...(occurredAt ? { occurredAt } : {}) },
     }).catch(() => null)
     if (!savedMoment) return "Couldn't save that moment — the log didn't write. Worth retrying."
-    return `Saved to the timeline: ${emoji} ${label}.`
+    const stamp = occurredAt
+      ? ` (${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: await getUserTimezone(userId) }).format(occurredAt)})`
+      : ""
+    return `Saved to the timeline: ${emoji} ${label}${stamp}.`
   }
 
   return "Unknown tool."
