@@ -5,18 +5,20 @@ import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import { localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 import { generateWeeklyReview, saveWeeklyReview, type WeeklyReview } from "@/lib/weekly-review"
+import { isReviewWindow, parseSchedule } from "@/lib/weekly-review-schedule"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60 // full-context Opus generation runs tens of seconds
 
-// Sunday-evening weekly review, written by Emergy with the full chat brain —
+// Weekly review, written by Emergy with the full chat brain —
 // goals, patterns, wearable gaps and all. Replaces the old Sunday-morning
 // digest email, whose narrative was two generic Haiku sentences over bare
 // averages. Ticked every ten minutes by the Actions reminders cron; the
-// per-day sent log makes the extra ticks harmless, and the review lands
-// between 18:00 and 20:00 in the user's own timezone instead of a fixed UTC
-// hour. Stored for the dashboard card, pushed, and emailed.
+// per-day sent log makes the extra ticks harmless, and the review lands on the
+// day and hour chosen in Settings — in the user's own timezone, not a fixed UTC
+// hour. Sunday evening if they never chose. Stored for the dashboard card,
+// pushed, and emailed.
 
 const SENT_KEY = "daily_nudges_sent"
 const SENT_ID = "weekly-review"
@@ -105,10 +107,17 @@ export async function GET(req: NextRequest) {
   if (users.length === 0) return NextResponse.json({ ok: true, generated: 0 })
 
   const prefRows = await prisma.userPreference.findMany({
-    where: { userId: { in: users.map(u => u.id) }, key: { in: ["timezone", "digest_prefs"] } },
+    where: {
+      userId: { in: users.map(u => u.id) },
+      key: { in: ["timezone", "digest_prefs", "weekly_review_time"] },
+    },
     select: { userId: true, key: true, value: true },
   }).catch(() => [] as { userId: string; key: string; value: string }[])
   const tzByUser = new Map(prefRows.filter(r => r.key === "timezone").map(r => [r.userId, r.value.trim() || "UTC"]))
+  const scheduleByUser = new Map(users.map(u => [
+    u.id,
+    parseSchedule(prefRows.find(r => r.userId === u.id && r.key === "weekly_review_time")?.value),
+  ]))
   const prefsByUser = new Map(users.map(u => [
     u.id,
     parseDigestPrefs(prefRows.find(r => r.userId === u.id && r.key === "digest_prefs")?.value),
@@ -128,9 +137,10 @@ export async function GET(req: NextRequest) {
     const localDate = localDateStr(timezone)
     const localHour = parseInt(localTimeStr(timezone).slice(0, 2), 10)
 
-    // Sunday 18:00–19:59 local, with the sent log absorbing the extra ticks.
+    // Their chosen day and hour, local, with the sent log absorbing the extra
+    // ticks inside the two-hour window.
     const dow = new Date(localDate + "T12:00:00Z").getUTCDay()
-    if (dow !== 0 || (localHour !== 18 && localHour !== 19)) continue
+    if (!isReviewWindow(scheduleByUser.get(user.id)!, dow, localHour)) continue
 
     const alreadySent = await readSentLog(user.id, SENT_KEY, localDate)
     if (alreadySent.has(SENT_ID)) continue

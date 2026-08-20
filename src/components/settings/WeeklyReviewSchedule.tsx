@@ -12,17 +12,21 @@ function formatHour(h: number) {
   return `${h - 12}:00 PM`
 }
 
-export function DigestSchedule() {
-  const [day, setDay] = useState(1)
-  const [hour, setHour] = useState(8)
+// The picker that used to schedule an email nobody received: it wrote
+// User.digestDay / digestHour, which only a cron endpoint outside the cron loop
+// ever read. It now sets when Emergy's weekly review lands — the email that
+// does arrive — in the user's own timezone.
+export function WeeklyReviewSchedule() {
+  const [day, setDay] = useState(0)
+  const [hour, setHour] = useState(18)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [saveError, setSaveError] = useState(false)
 
   useEffect(() => {
-    fetch("/api/digest/schedule")
+    fetch("/api/weekly-review/schedule")
       .then(r => r.json())
-      .then(d => { setDay(d.digestDay ?? 1); setHour(d.digestHour ?? 8) })
+      .then(d => { setDay(d.day ?? 0); setHour(d.hour ?? 18) })
       .catch(() => {})
   }, [])
 
@@ -33,10 +37,10 @@ export function DigestSchedule() {
     setSaved(false)
     setSaveError(false)
     try {
-      const res = await fetch("/api/digest/schedule", {
+      const res = await fetch("/api/weekly-review/schedule", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ digestDay: day, digestHour: hour }),
+        body: JSON.stringify({ day, hour }),
       })
       if (!res.ok) throw new Error()
       setSaved(true)
@@ -50,7 +54,11 @@ export function DigestSchedule() {
 
   return (
     <div className="space-y-4">
-      <h3 className="font-semibold text-sm">Digest Schedule</h3>
+      <h3 className="font-semibold text-sm">Weekly review</h3>
+      <p className="text-xs text-muted-foreground -mt-2">
+        When Emergy&apos;s review of your week arrives — how the week actually went,
+        and one thing for next week.
+      </p>
       <div>
         <p className="text-xs text-muted-foreground mb-2">Day of week</p>
         <div className="flex gap-1 flex-wrap">
@@ -88,7 +96,8 @@ export function DigestSchedule() {
         <p className="text-xs text-red-400">Couldn&apos;t save the schedule — try again.</p>
       )}
       <p className="text-xs text-muted-foreground">
-        Digest emails will be sent automatically on your chosen schedule.
+        Sent in your own timezone, and shown on the Week page whether or not the
+        email reaches you.
       </p>
     </div>
   )

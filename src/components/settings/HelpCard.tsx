@@ -24,7 +24,7 @@ const FAQS = [
   },
   {
     q: "How do I install the app on my phone?",
-    a: "On Android: open the app in Chrome, tap the menu (⋮), then 'Add to Home screen'. On iOS (Safari): tap the Share icon, then 'Add to Home Screen'. The app works fully offline once installed.",
+    a: "On Android there's a signed APK — install that and you also get home-screen widgets, notifications and voice. Otherwise, or on iOS (Safari): tap the Share icon, then 'Add to Home Screen'. Either way the app needs a connection for anything live; only a placeholder page is cached for offline.",
   },
   {
     q: "How do I cancel my Pro subscription?",
@@ -32,11 +32,11 @@ const FAQS = [
   },
   {
     q: "My morning reminder isn't arriving — why?",
-    a: "Make sure you've granted notification permission (Settings → Push Notifications) and that your browser isn't blocking notifications. Morning reminders are sent at 7 AM UTC and only if you haven't completed a check-in yet that day.",
+    a: "Check notification permission (Settings → Push Notifications) and that nothing is blocking notifications. Reminders go out at the hour you picked, in your own timezone — not a fixed UTC time — and only if you haven't done your check-in yet that day.",
   },
   {
     q: "Can I export my data?",
-    a: "Yes. Go to Settings → Data → Export CSV to download the last 90 days of health logs. You can also request a full daily digest email from the same section.",
+    a: "Yes, all of it. Settings → Import & export → Export gives you CSVs per area and a Full Backup (JSON) covering every table your account has — nothing is held back or capped at 90 days. Prefer it in your inbox? 'Email me the backup' in the same menu, and one goes out automatically on the 1st of every month.",
   },
 ]
 
