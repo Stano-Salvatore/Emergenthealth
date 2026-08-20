@@ -31,6 +31,16 @@ export interface ActiveSubstance {
   /** When it drops under a "doesn't matter any more" threshold. */
   clearsAt: string | null
   detail?: string
+  /**
+   * The log row this card was computed from, when it came from exactly one —
+   * a med dose does, a caffeine total summed from three coffees does not.
+   * Present only for rows the user is allowed to change: an Oura-sourced tag
+   * would come straight back on the next sync, so offering to edit it would
+   * be a lie.
+   */
+  sourceId?: string
+  /** How much was recorded, when it was recorded at all. */
+  doseLabel?: string | null
 }
 
 // ── Alcohol ──────────────────────────────────────────────────────────────────
