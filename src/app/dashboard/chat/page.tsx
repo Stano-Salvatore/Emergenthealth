@@ -115,6 +115,22 @@ export default function ChatPage() {
     window.history.replaceState({}, "", window.location.pathname)
   }, [])
 
+  // ?listen=1 — the home-screen widget's whole reason to exist. The cost of
+  // logging something isn't the typing, it's the unlock, the launch, the tab
+  // and the keyboard; arriving already listening removes all four.
+  //
+  // Deferred a beat because dictation needs the page interactive and, the
+  // first time, a permission prompt — firing during mount would ask before
+  // there is anything on screen to explain why.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get("listen") !== "1") return
+    window.history.replaceState({}, "", window.location.pathname)
+    const t = setTimeout(() => { startListening() }, 350)
+    return () => clearTimeout(t)
+  }, [startListening])
+
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop()
     setListening(false)

@@ -62,6 +62,9 @@ public class TodayWidget extends AppWidgetProvider {
                 Intent launch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
                 if (launch != null) {
                     launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    // Land on the screen this widget is about, not wherever
+                    // the app happened to be left open.
+                    launch.putExtra("eh_dest", "/dashboard");
                     views.setOnClickPendingIntent(R.id.today_root, PendingIntent.getActivity(
                             context, 0, launch,
                             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));

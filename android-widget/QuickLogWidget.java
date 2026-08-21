@@ -135,6 +135,8 @@ public class QuickLogWidget extends AppWidgetProvider {
         Intent openIntent = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
         if (openIntent != null) {
             openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            // Land on the screen this widget is about, not the dashboard.
+            openIntent.putExtra("eh_dest", "/dashboard/intake");
             PendingIntent openPi = PendingIntent.getActivity(
                 context, 0, openIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
