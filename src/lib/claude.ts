@@ -1,13 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Anthropic from "@anthropic-ai/sdk"
 import { prisma } from "@/lib/prisma"
+import { Prisma } from "@prisma/client"
+import { isRefKind, issueConfirmToken, makeRef, parseRef, verifyConfirmToken, type RefKind } from "@/lib/log-refs"
 import { getEventsInRange } from "@/lib/google-calendar"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { estimateCaffeine, activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
-import { getUserTimezone, localDateStr, zonedDateTime } from "@/lib/local-date"
+import { getUserTimezone, localDateStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
 import { randomUUID } from "crypto"
 import { parseDose, formatDose } from "@/lib/dose"
 
@@ -300,7 +302,163 @@ const TOOLS: Anthropic.Tool[] = [
       required: ["label"],
     },
   },
+  {
+    name: "find_my_logs",
+    description: "Look up the user's own recent entries so they can be corrected or removed. Returns each one with a `ref` — pass that ref verbatim to correct_log or delete_log. Use this first; never guess a ref.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        kind: { type: "string", enum: ["dose", "intake", "moment"], description: "dose = medication/supplement, intake = water/coffee/drinks, moment = timeline entry" },
+        date: { type: "string", description: "YYYY-MM-DD in the user's local time. Omit for the last few days." },
+        name: { type: "string", description: "Filter by name, e.g. 'Atarax'. Omit for everything of that kind." },
+      },
+      required: ["kind"],
+    },
+  },
+  {
+    name: "delete_log",
+    description: "Remove an entry the user asked to remove. TWO STEPS, always. Call it first with only the ref: nothing is deleted, and you get back a description of the entry plus a confirmation token. Show the user exactly what you are about to delete and wait for them to say yes. Only then call again with the same ref AND that token. You cannot delete in one step and must never claim something is deleted until the second call has returned.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        ref: { type: "string", description: "The ref from find_my_logs" },
+        confirm: { type: "string", description: "The token from the first call. Omit on the first call. Never invent one." },
+      },
+      required: ["ref"],
+    },
+  },
+  {
+    name: "correct_log",
+    description: "Fix a detail of an existing entry rather than deleting it — a wrong time, a wrong amount, a moment filed on the wrong day. Say what changed when you report back, so the user can see it and correct again if needed.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        ref: { type: "string", description: "The ref from find_my_logs" },
+        occurredAt: { type: "string", description: "New local time: YYYY-MM-DD or YYYY-MM-DDTHH:MM" },
+        amount: { type: "number", description: "New amount — dose quantity, or millilitres for intake" },
+        label: { type: "string", description: "New label, moments only" },
+      },
+      required: ["ref"],
+    },
+  },
 ]
+
+
+// ── Correcting and removing the user's own entries ──────────────────────────
+//
+// Three tables, named explicitly. A kind that isn't on this list cannot be
+// reached at all, so a hallucinated ref has nowhere to land.
+
+function fmtLocal(d: Date, tz: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz, day: "numeric", month: "short",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(d)
+}
+
+/** A day filter expressed in the user's timezone, not the server's. */
+function zonedDayWhere(field: string, tz: string, dayISO: string): Record<string, unknown> {
+  const { start, end } = zonedDayRange(tz, dayISO)
+  return { [field]: { gte: start, lte: end } }
+}
+
+/** What this ref actually points at, in words the user will recognise. */
+async function describeRef(userId: string, ref: { kind: RefKind; id: string }): Promise<string | null> {
+  const tz = await getUserTimezone(userId)
+  if (ref.kind === "dose") {
+    const rows = await prisma.$queryRaw<{ timestamp: Date; tagName: string | null; doseAmount: number | null; doseUnit: string | null }[]>`
+      SELECT "timestamp","tagName","doseAmount","doseUnit" FROM "OuraTag"
+      WHERE "id" = ${ref.id} AND "userId" = ${userId} AND "id" LIKE 'manual_%' LIMIT 1
+    `.catch(() => [])
+    const r = rows[0]
+    if (!r) return null
+    const dose = formatDose(r.doseAmount, r.doseUnit)
+    return `${r.tagName ?? "unnamed"}${dose ? ` ${dose}` : ""} logged at ${fmtLocal(r.timestamp, tz)}`
+  }
+  if (ref.kind === "intake") {
+    const r = await prisma.intakeLog.findFirst({
+      where: { id: ref.id, userId },
+      select: { type: true, amountMl: true, note: true, loggedAt: true },
+    }).catch(() => null)
+    if (!r) return null
+    return `${r.amountMl}ml ${r.type}${r.note ? ` (${r.note})` : ""} logged at ${fmtLocal(r.loggedAt, tz)}`
+  }
+  const r = await prisma.timelineEvent.findFirst({
+    where: { id: ref.id, userId },
+    select: { emoji: true, label: true, occurredAt: true },
+  }).catch(() => null)
+  if (!r) return null
+  return `${r.emoji} "${r.label}" on ${fmtLocal(r.occurredAt, tz)}`
+}
+
+/** Every query carries userId: a ref alone must never reach another account's row. */
+async function deleteRef(userId: string, ref: { kind: RefKind; id: string }): Promise<boolean> {
+  try {
+    if (ref.kind === "dose") {
+      const n = await prisma.$executeRaw`
+        DELETE FROM "OuraTag" WHERE "id" = ${ref.id} AND "userId" = ${userId} AND "id" LIKE 'manual_%'
+      `
+      return n > 0
+    }
+    if (ref.kind === "intake") {
+      const { count } = await prisma.intakeLog.deleteMany({ where: { id: ref.id, userId } })
+      return count > 0
+    }
+    const { count } = await prisma.timelineEvent.deleteMany({ where: { id: ref.id, userId } })
+    return count > 0
+  } catch {
+    return false
+  }
+}
+
+async function correctRef(
+  userId: string,
+  ref: { kind: RefKind; id: string },
+  change: { at: Date | null; amount: number | null; label: string | null },
+): Promise<boolean> {
+  try {
+    if (ref.kind === "dose") {
+      if (change.at) {
+        // "day" is what every by-date view groups on, so it has to move with
+        // the timestamp or the entry lands under one date and reads as another.
+        const tz = await getUserTimezone(userId)
+        const day = new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(change.at)
+        await prisma.$executeRaw`
+          UPDATE "OuraTag" SET "timestamp" = ${change.at}, "day" = ${day}
+          WHERE "id" = ${ref.id} AND "userId" = ${userId} AND "id" LIKE 'manual_%'
+        `
+      }
+      if (change.amount != null) {
+        await prisma.$executeRaw`
+          UPDATE "OuraTag" SET "doseAmount" = ${Math.min(100_000, change.amount)},
+            "doseUnit" = COALESCE("doseUnit", 'tablet')
+          WHERE "id" = ${ref.id} AND "userId" = ${userId} AND "id" LIKE 'manual_%'
+        `
+      }
+      return true
+    }
+    if (ref.kind === "intake") {
+      const { count } = await prisma.intakeLog.updateMany({
+        where: { id: ref.id, userId },
+        data: {
+          ...(change.at ? { loggedAt: change.at } : {}),
+          ...(change.amount != null ? { amountMl: Math.round(Math.min(100_000, change.amount)) } : {}),
+        },
+      })
+      return count > 0
+    }
+    const { count } = await prisma.timelineEvent.updateMany({
+      where: { id: ref.id, userId },
+      data: {
+        ...(change.at ? { occurredAt: change.at } : {}),
+        ...(change.label ? { label: change.label.slice(0, 120) } : {}),
+      },
+    })
+    return count > 0
+  } catch {
+    return false
+  }
+}
 
 async function executeTool(name: string, input: Record<string, string>, userId: string): Promise<string> {
   if (name === "create_habit") {
@@ -755,6 +913,101 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       ? ` (${new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false, timeZone: await getUserTimezone(userId) }).format(occurredAt)})`
       : ""
     return `Saved to the timeline: ${emoji} ${label}${stamp}.`
+  }
+
+  if (name === "find_my_logs") {
+    const kind = String(input.kind ?? "")
+    if (!isRefKind(kind)) return "I can look up doses, intake or moments."
+    const tz = await getUserTimezone(userId)
+    const dayFilter = String(input.date ?? "").trim()
+    const nameFilter = String(input.name ?? "").trim().toLowerCase()
+
+    if (kind === "dose") {
+      // Only manual rows: an Oura-sourced tag returns on the next sync, so
+      // offering to remove one would be a promise the ring undoes.
+      const rows = await prisma.$queryRaw<{ id: string; timestamp: Date; tagName: string | null; doseAmount: number | null; doseUnit: string | null }[]>`
+        SELECT "id","timestamp","tagName","doseAmount","doseUnit" FROM "OuraTag"
+        WHERE "userId" = ${userId} AND "id" LIKE 'manual_%'
+          ${dayFilter ? Prisma.sql`AND "day" = ${dayFilter}` : Prisma.empty}
+        ORDER BY "timestamp" DESC LIMIT 40
+      `.catch(() => [])
+      const hits = rows.filter(r => !nameFilter || (r.tagName ?? "").toLowerCase().includes(nameFilter)).slice(0, 15)
+      if (hits.length === 0) return "Nothing matching that."
+      return hits.map(r =>
+        `${makeRef("dose", r.id)} — ${r.tagName ?? "unnamed"}${formatDose(r.doseAmount, r.doseUnit) ? ` ${formatDose(r.doseAmount, r.doseUnit)}` : ""} at ${fmtLocal(r.timestamp, tz)}`
+      ).join("\n")
+    }
+
+    if (kind === "intake") {
+      const rows = await prisma.intakeLog.findMany({
+        where: { userId, ...(dayFilter ? zonedDayWhere("loggedAt", tz, dayFilter) : {}) },
+        orderBy: { loggedAt: "desc" }, take: 40,
+        select: { id: true, type: true, amountMl: true, note: true, loggedAt: true },
+      }).catch(() => [])
+      const hits = rows.filter(r => !nameFilter || r.type.toLowerCase().includes(nameFilter) || (r.note ?? "").toLowerCase().includes(nameFilter)).slice(0, 15)
+      if (hits.length === 0) return "Nothing matching that."
+      return hits.map(r =>
+        `${makeRef("intake", r.id)} — ${r.amountMl}ml ${r.type}${r.note ? ` (${r.note})` : ""} at ${fmtLocal(r.loggedAt, tz)}`
+      ).join("\n")
+    }
+
+    const rows = await prisma.timelineEvent.findMany({
+      where: { userId, ...(dayFilter ? zonedDayWhere("occurredAt", tz, dayFilter) : {}) },
+      orderBy: { occurredAt: "desc" }, take: 40,
+      select: { id: true, emoji: true, label: true, occurredAt: true },
+    }).catch(() => [])
+    const hits = rows.filter(r => !nameFilter || r.label.toLowerCase().includes(nameFilter)).slice(0, 15)
+    if (hits.length === 0) return "Nothing matching that."
+    return hits.map(r => `${makeRef("moment", r.id)} — ${r.emoji} ${r.label} at ${fmtLocal(r.occurredAt, tz)}`).join("\n")
+  }
+
+  if (name === "delete_log") {
+    const ref = String(input.ref ?? "").trim()
+    const parsed = parseRef(ref)
+    if (!parsed) return "That isn't a ref I recognise. Use find_my_logs first."
+
+    const described = await describeRef(userId, parsed)
+    if (!described) return "That entry doesn't exist any more — nothing to delete."
+
+    const confirm = String(input.confirm ?? "").trim()
+    if (!confirm) {
+      // Nothing is deleted on this call, by design. The token is an HMAC the
+      // model cannot compute, so the round trip through the user is enforced
+      // here rather than requested in the prompt.
+      return `NOT DELETED YET. This would delete: ${described}. Show the user exactly that and ask them to confirm. If they say yes, call delete_log again with ref="${ref}" and confirm="${issueConfirmToken(userId, ref)}".`
+    }
+    if (!verifyConfirmToken(userId, ref, confirm)) {
+      return "That confirmation isn't valid or has expired. Ask the user again, starting from a fresh delete_log call without a confirm."
+    }
+
+    const ok = await deleteRef(userId, parsed)
+    return ok ? `Deleted: ${described}.` : "Couldn't delete that — nothing was removed."
+  }
+
+  if (name === "correct_log") {
+    const ref = String(input.ref ?? "").trim()
+    const parsed = parseRef(ref)
+    if (!parsed) return "That isn't a ref I recognise. Use find_my_logs first."
+    const before = await describeRef(userId, parsed)
+    if (!before) return "That entry doesn't exist any more."
+
+    const tz = await getUserTimezone(userId)
+    const when = String(input.occurredAt ?? "").trim()
+    const at = when ? zonedDateTime(tz, when) : null
+    if (when && !at) return "I couldn't read that time. Use YYYY-MM-DD or YYYY-MM-DDTHH:MM."
+    if (at && at.getTime() > Date.now() + 60_000) return "That time is in the future — a log has to be of something that happened."
+
+    const amountRaw = input.amount
+    const amount = amountRaw === undefined || amountRaw === null || amountRaw === "" ? null : Number(amountRaw)
+    if (amount != null && (!Number.isFinite(amount) || amount <= 0)) return "An amount needs to be a positive number."
+
+    const label = String(input.label ?? "").trim()
+    if (!at && amount == null && !label) return "Nothing to change — give a time, an amount or a label."
+
+    const ok = await correctRef(userId, parsed, { at, amount, label: label || null })
+    if (!ok) return "Couldn't change that — nothing was altered."
+    const after = await describeRef(userId, parsed)
+    return `Changed. Before: ${before}. Now: ${after}. Tell the user both, so they can see it and correct again if it's still wrong.`
   }
 
   return "Unknown tool."
@@ -1303,7 +1556,7 @@ You can see their medications, symptoms and lab results. You may describe what's
 
 FORMATTING: your replies render as markdown. Use **bold** to highlight times, numbers and key words (bold shows in green — that's your accent colour), "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
-You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and offering to record them, a medication box means the name and strength, a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
+You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and offering to record them, a medication box means the name and strength, a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
 ## Today's snapshot
