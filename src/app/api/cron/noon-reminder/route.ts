@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
+import { configurePush, loadLocalCoverage, loadSubscriptionsByUser, phoneCovers, sendToUser } from "@/lib/push"
 import { localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 
@@ -25,6 +25,7 @@ export async function GET(req: NextRequest) {
   }
 
   const byUser = await loadSubscriptionsByUser()
+  const coverage = await loadLocalCoverage()
   if (byUser.size === 0) return NextResponse.json({ ok: true, sent: 0 })
 
   // One query for every user's prefs, not two per user per tick — this runs
@@ -44,6 +45,11 @@ export async function GET(req: NextRequest) {
   let sent = 0
 
   for (const [userId, subs] of byUser) {
+    // The phone already laid this down locally at the exact time. Two
+    // notifications for one nudge is worse than either alone; the push resumes
+    // by itself once the local window runs dry.
+    if (phoneCovers(coverage, userId)) continue
+
     if (prefs.get(userId)?.["noon_reminder_enabled"] === "false") continue
 
     const timezone = prefs.get(userId)?.["timezone"]?.trim() || "UTC"
