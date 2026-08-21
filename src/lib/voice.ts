@@ -16,6 +16,7 @@
 
 import { Capacitor } from "@capacitor/core"
 import { SpeechRecognition } from "@capacitor-community/speech-recognition"
+import type { PluginListenerHandle } from "@capacitor/core"
 
 const VOICE_PREF_KEY = "emergy_voice_uri"
 const RATE_PREF_KEY = "emergy_voice_rate"
@@ -89,28 +90,79 @@ export async function startDictation(opts: {
         opts.onError("Microphone permission is off — turn it on in Android Settings → Apps → Emergenthealth.")
         return null
       }
+      // How this plugin actually behaves, from its own docs: with
+      // partialResults on, start() "respond[s] directly without result" — it
+      // resolves immediately and empty, and every word arrives through the
+      // partialResults event instead, until something stops it.
+      //
+      // Reading start()'s resolution as the end of speech is therefore wrong
+      // twice over: onFinal never fires, and tearing the listeners down in
+      // that .then() removes them before the first word is spoken. The mic
+      // listens and nothing ever appears.
+      //
+      // So: listeners first, then start; the latest partial is the answer, and
+      // listeningState says when speech is over.
       let settled = false
-      await SpeechRecognition.addListener("partialResults", (data: { matches?: string[] }) => {
+      let latest = ""
+
+      // Collected in a list so cleanup never closes over a binding that might
+      // not be initialised yet, and so only this call's listeners are removed
+      // — removeAllListeners() would tear down anyone else's too.
+      const handles: PluginListenerHandle[] = []
+      const cleanup = () => {
+        while (handles.length) void handles.pop()?.remove().catch(() => {})
+      }
+
+      handles.push(await SpeechRecognition.addListener("partialResults", (data: { matches?: string[] }) => {
         const text = data?.matches?.[0]
-        if (text) opts.onPartial?.(text)
-      })
-      // start() resolves with the final matches when listening ends.
+        if (!text) return
+        latest = text
+        opts.onPartial?.(text)
+      }))
+
+      // Idempotent: whichever of the stop event and the stop() call lands
+      // first finishes the job, and the other becomes a no-op.
+      const finish = () => {
+        if (settled) return
+        settled = true
+        if (graceTimer) clearTimeout(graceTimer)
+        cleanup()
+        if (latest) opts.onFinal(latest)
+        else opts.onError("Didn't catch that — nothing was heard.")
+      }
+
+      // Android emits end-of-speech before it delivers the polished result:
+      // onEndOfSpeech() fires "stopped", and onResults() — which with
+      // partialResults on is also sent through the partialResults event —
+      // arrives after it. Finishing the instant "stopped" lands would settle
+      // on the last rough partial and throw the real answer away, so the
+      // window stays open a moment longer for it.
+      let graceTimer: ReturnType<typeof setTimeout> | null = null
+      const finishAfterFinalResult = () => {
+        if (settled || graceTimer) return
+        graceTimer = setTimeout(finish, 700)
+      }
+
+      handles.push(await SpeechRecognition.addListener("listeningState", (data: { status?: string }) => {
+        if (data?.status === "stopped") finishAfterFinalResult()
+      }))
+
       SpeechRecognition.start({ language: lang, partialResults: true, popup: false, maxResults: 1 })
-        .then(result => {
-          if (settled) return
-          settled = true
-          const text = (result as { matches?: string[] })?.matches?.[0] ?? ""
-          if (text) opts.onFinal(text)
-          void SpeechRecognition.removeAllListeners()
-        })
         .catch(() => {
           if (settled) return
           settled = true
+          cleanup()
           opts.onError("Dictation stopped unexpectedly.")
-          void SpeechRecognition.removeAllListeners()
         })
+
       return {
-        stop: () => { void SpeechRecognition.stop().catch(() => {}) },
+        // stop() makes the native side emit listeningState "stopped", which
+        // finishes. finish() is called anyway in case that event never lands,
+        // so pressing stop always resolves to something.
+        stop: () => {
+          // Same grace window: the final result may still be in flight.
+          void SpeechRecognition.stop().catch(() => {}).finally(() => finishAfterFinalResult())
+        },
       }
     } catch {
       opts.onError("Couldn't start dictation.")
