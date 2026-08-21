@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Send, User, Mic, MicOff, History, Plus, Trash2, X } from "lucide-react"
+import { startDictation, type DictationHandle } from "@/lib/voice"
+import { Send, User, Mic, Square, History, Plus, Trash2, X } from "lucide-react"
 import { EmergyAvatar, type EmergyState } from "@/components/emergy/EmergyAvatar"
 import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
 import { isFeatureEnabled } from "@/lib/features"
@@ -69,33 +70,31 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false)
   const [emergyState, setEmergyState] = useState<EmergyState>("okay")
   const [listening, setListening] = useState(false)
+  const [voiceError, setVoiceError] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recognitionRef = useRef<any>(null)
+  const recognitionRef = useRef<DictationHandle | null>(null)
 
+  // This page had its own copy of the browser SpeechRecognition API, which does
+  // not exist inside an Android WebView — so in the app the mic button hit
+  // `if (!SR) return` and did nothing at all, with no error and no explanation.
+  // The native path already existed in lib/voice and the floating panel already
+  // used it; only this page was left behind. Both surfaces go through the same
+  // code now, and an unsupported build says so instead of going quiet.
   const startListening = useCallback(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any
-    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition
-    if (!SR) return
-
-    const rec = new SR()
-    rec.continuous = false
-    rec.interimResults = false
-    rec.lang = "en-US"
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onresult = (e: any) => {
-      const transcript = e.results[0][0].transcript
-      setInput((prev) => prev ? prev + " " + transcript : transcript)
-      setListening(false)
-    }
-    rec.onerror = () => setListening(false)
-    rec.onend = () => setListening(false)
-    recognitionRef.current = rec
-    rec.start()
+    setVoiceError(null)
     setListening(true)
+    void startDictation({
+      // Words land in the box rather than sending themselves: a dictation that
+      // fires off a half-heard sentence is worse than typing it.
+      onPartial: text => setInput(text),
+      onFinal: text => { setInput(text); setListening(false); recognitionRef.current = null },
+      onError: message => { setVoiceError(message); setListening(false); recognitionRef.current = null },
+    }).then(handle => {
+      if (handle) recognitionRef.current = handle
+      else setListening(false)
+    })
   }, [])
 
   // Text shared from another app lands here. The manifest used to point the
@@ -133,6 +132,7 @@ export default function ChatPage() {
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop()
+    recognitionRef.current = null
     setListening(false)
   }, [])
 
@@ -456,15 +456,19 @@ export default function ChatPage() {
           rows={2}
           className="resize-none flex-1 bg-secondary border-border"
         />
+        {/* A crossed-out mic conventionally means muted, so showing one *while*
+            listening made a working mic look broken. Recording now reads as
+            recording: a stop square on a live, pulsing button. */}
         <Button
           onClick={listening ? stopListening : startListening}
           disabled={sending}
           size="icon"
           variant={listening ? "destructive" : "outline"}
           className={`h-10 w-10 shrink-0 ${listening ? "animate-pulse" : ""}`}
-          title={listening ? "Stop recording" : "Voice input"}
+          aria-pressed={listening}
+          title={listening ? "Stop listening" : "Speak instead of typing"}
         >
-          {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          {listening ? <Square className="h-3.5 w-3.5 fill-current" /> : <Mic className="h-4 w-4" />}
         </Button>
         <Button
           onClick={() => sendMessage()}
@@ -478,6 +482,11 @@ export default function ChatPage() {
       <p className="text-xs text-muted-foreground text-center mt-2">
         {listening ? "Listening… speak now" : "Enter to send · Shift+Enter for new line · 🎤 for voice"}
       </p>
+      {/* Whatever went wrong has to reach the screen. A mic that fails in
+          silence is the bug this whole page just had. */}
+      {voiceError && (
+        <p className="text-center text-xs text-amber-400 mt-1 px-4">{voiceError}</p>
+      )}
     </div>
   )
 }
