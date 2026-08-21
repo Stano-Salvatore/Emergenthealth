@@ -3,6 +3,7 @@ import { getDailySleep, getDailySleepScores, getDailyActivity, getDailyReadiness
 import { classifyOuraTag, INTAKE_KINDS } from "@/lib/oura-tag-classify"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { format, subDays } from "date-fns"
+import { isMeasuredNight } from "@/lib/sleep-quality"
 
 export type OuraSyncResult =
   | { ok: true; synced: number; tagsSynced: number; tagsError?: string }
@@ -57,14 +58,32 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
 
     const upserts = Array.from(allDates).map(dateStr => {
       const date = new Date(dateStr + "T00:00:00.000Z")
-      const s = sleep[dateStr]
+      // A session the ring wasn't awake for isn't a night. Dropping it here
+      // means the day reads as "not measured" — a dash — rather than as a
+      // nine-minute night that drags the averages and hands the correlation
+      // engine evidence for a pattern that never happened.
+      const rawSleep = sleep[dateStr]
+      const s = rawSleep && isMeasuredNight(rawSleep) ? rawSleep : undefined
       const sc = sleepScore[dateStr]
       const a = activity[dateStr]
       const r = readiness[dateStr]
       const o = spo2[dateStr]
       const t = stress[dateStr]
 
+      // When Oura published a session for this day but it fails the test, the
+      // values already stored came from that same fragment — so clearing them
+      // is correcting our own bad write, not clobbering another source. A day
+      // with no session at all is left untouched: that one might be Samsung's.
+      const unmeasuredNight = rawSleep != null && s == null
+      const clearedSleep = unmeasuredNight ? {
+        sleepDuration: null, deepSleep: null, remSleep: null, lightSleep: null,
+        restingHR: null, hrv: null, sleepEfficiency: null, sleepLatency: null,
+        breathingRate: null, awakeTime: null, timeInBed: null,
+        restlessPeriods: null, sleepStart: null, sleepEnd: null,
+      } : {}
+
       const fields = {
+        ...clearedSleep,
         // Sleep core
         ...(s?.totalSleepSeconds  != null && { sleepDuration:        Math.round(s.totalSleepSeconds / 60) }),
         ...(s?.deepSleepSeconds   != null && { deepSleep:            Math.round(s.deepSleepSeconds / 60) }),
