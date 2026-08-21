@@ -15,6 +15,7 @@
 
 import webpush from "web-push"
 import { prisma } from "@/lib/prisma"
+import { localCoversNow, parseCoverage, type LocalCoverage } from "@/lib/local-notifications"
 
 export interface PushSub {
   userId: string
@@ -92,4 +93,28 @@ export async function sendToUser(subs: PushSub[], payload: PushPayload): Promise
   )
 
   return results.some(r => r.status === "fulfilled")
+}
+
+/**
+ * Which users' phones already have their notifications scheduled locally.
+ *
+ * The native app lays down local notifications on a rolling window; the server
+ * crons push for the same things. Both land — different ids — so the phone
+ * buzzes twice for one nudge. habit-reminders has gated on this since it was
+ * written; morning, noon, evening and med did not, which is why a phone with
+ * the app installed still got a second morning check-in through the browser.
+ *
+ * One query per tick rather than one per user: these run every ten minutes
+ * against mostly out-of-window users.
+ */
+export async function loadLocalCoverage(): Promise<Map<string, LocalCoverage>> {
+  const rows = await prisma.$queryRaw<{ userId: string; value: string }[]>`
+    SELECT "userId", "value" FROM "UserPreference" WHERE "key" = 'local_notifications_synced'
+  `.catch(() => [] as { userId: string; value: string }[])
+  return new Map(rows.map(r => [r.userId, parseCoverage(r.value)]))
+}
+
+/** True when the phone has this user covered right now, so the server stays quiet. */
+export function phoneCovers(coverage: Map<string, LocalCoverage>, userId: string): boolean {
+  return localCoversNow(coverage.get(userId) ?? { syncedAt: null, windowDays: null })
 }

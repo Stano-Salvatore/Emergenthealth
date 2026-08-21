@@ -90,6 +90,170 @@ function buildGroups(items: TagItem[]): TagGroup[] {
   })
 }
 
+/**
+ * Time, dose and delete for one logged entry — the three corrections a
+ * mis-logged dose needs.
+ *
+ * Shared deliberately. These controls first shipped inside the type view only,
+ * so the date view — the one you actually browse, day by day — had no way to
+ * fix anything, and the one pencil on screen there renamed the whole substance
+ * rather than editing the entry under it. One component means the two views
+ * cannot drift apart again.
+ *
+ * Oura's own tags stay read-only: they come back on the next sync, so an edit
+ * here would be a lie the ring quietly undoes.
+ */
+function MedEntryControls({ entry, onChanged, compact = false }: {
+  entry: TagItem
+  onChanged: () => void
+  compact?: boolean
+}) {
+  const [editingTime, setEditingTime] = useState(false)
+  const [editingDose, setEditingDose] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const editable = entry.id.startsWith("manual_")
+  const timeText = format(new Date(entry.timestamp), "HH:mm")
+
+  async function patch(body: Record<string, unknown>, failure: string) {
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch("/api/medications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: entry.id, ...body }),
+      })
+      if (res.ok) onChanged()
+      else setError((await res.json().catch(() => null))?.error ?? failure)
+    } catch {
+      setError(failure)
+    } finally {
+      setSaving(false)
+      setEditingTime(false)
+      setEditingDose(false)
+    }
+  }
+
+  /** The picked time stays on the entry's own day. */
+  function saveTime(hhmm: string) {
+    const [h, m] = hhmm.split(":").map(Number)
+    if (!Number.isFinite(h) || !Number.isFinite(m)) { setEditingTime(false); return }
+    const d = new Date(entry.day + "T00:00:00")
+    d.setHours(h, m, 0, 0)
+    void patch({ takenAt: d.toISOString() }, "Couldn't change the time — try again.")
+  }
+
+  /** An empty value clears the dose back to unknown, which is honest — zero
+   *  would claim they took nothing. */
+  function saveDose(raw: string) {
+    const trimmed = raw.trim()
+    const parsed = trimmed ? Number(trimmed.replace(",", ".")) : null
+    if (trimmed && (!Number.isFinite(parsed) || (parsed ?? 0) <= 0)) {
+      setError("A dose needs a positive number.")
+      setEditingDose(false)
+      return
+    }
+    void patch(
+      { doseAmount: parsed, doseUnit: parsed == null ? null : (entry.doseUnit ?? "tablet") },
+      "Couldn't change the dose — try again.",
+    )
+  }
+
+  async function remove() {
+    if (!window.confirm(`Delete this ${entry.tagName ?? "entry"} from ${format(new Date(entry.timestamp), "MMM d, HH:mm")}?`)) return
+    setSaving(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/medications?id=${encodeURIComponent(entry.id)}`, { method: "DELETE" })
+      if (res.ok) onChanged()
+      else setError((await res.json().catch(() => null))?.error ?? "Couldn't delete that — try again.")
+    } catch {
+      setError("Couldn't delete that — try again.")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      {editingTime ? (
+        <input
+          type="time"
+          autoFocus
+          defaultValue={timeText}
+          aria-label="Time this dose was taken"
+          onBlur={ev => { if (ev.target.value) saveTime(ev.target.value); else setEditingTime(false) }}
+          onKeyDown={ev => {
+            if (ev.key === "Enter") (ev.target as HTMLInputElement).blur()
+            if (ev.key === "Escape") setEditingTime(false)
+          }}
+          className="rounded border border-primary bg-background px-1 py-0 text-xs outline-none"
+        />
+      ) : editable ? (
+        <button
+          onClick={() => setEditingTime(true)}
+          disabled={saving}
+          title="Change the time this dose was taken"
+          className={cn(
+            "underline decoration-dotted underline-offset-2 hover:text-primary transition-colors disabled:opacity-50",
+            compact ? "text-muted-foreground/50" : "text-xs text-muted-foreground/60",
+          )}
+        >
+          {saving ? "…" : timeText}
+        </button>
+      ) : (
+        <span className={compact ? "text-muted-foreground/50" : "text-xs text-muted-foreground/60"}>{timeText}</span>
+      )}
+
+      {editingDose ? (
+        <input
+          type="text"
+          inputMode="decimal"
+          autoFocus
+          defaultValue={entry.doseAmount != null ? String(entry.doseAmount) : ""}
+          placeholder={entry.doseUnit === "mg" ? "mg" : "tablets"}
+          aria-label="Dose amount"
+          onBlur={ev => saveDose(ev.target.value)}
+          onKeyDown={ev => {
+            if (ev.key === "Enter") (ev.target as HTMLInputElement).blur()
+            if (ev.key === "Escape") setEditingDose(false)
+          }}
+          className="w-16 shrink-0 rounded border border-primary bg-background px-1 py-0 text-[10px] outline-none"
+        />
+      ) : editable ? (
+        <button
+          onClick={() => setEditingDose(true)}
+          disabled={saving}
+          title="Change the dose"
+          className="shrink-0 rounded px-1.5 py-0.5 bg-secondary text-[10px] text-foreground/70 hover:text-primary transition-colors disabled:opacity-50"
+        >
+          {formatDose(entry.doseAmount, entry.doseUnit) ?? "+ dose"}
+        </button>
+      ) : formatDose(entry.doseAmount, entry.doseUnit) ? (
+        <span className="shrink-0 rounded px-1.5 py-0.5 bg-secondary text-[10px] text-foreground/70">
+          {formatDose(entry.doseAmount, entry.doseUnit)}
+        </span>
+      ) : null}
+
+      {editable && (
+        <button
+          onClick={remove}
+          disabled={saving}
+          aria-label="Delete this entry"
+          title="Delete this entry"
+          className="shrink-0 rounded p-0.5 text-muted-foreground/40 hover:text-red-400 transition-colors disabled:opacity-50"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+
+      {error && <span className="text-[11px] text-red-400 basis-full">{error}</span>}
+    </>
+  )
+}
+
 function TypeCard({
   group,
   onRename,
@@ -100,95 +264,7 @@ function TypeCard({
   onChanged: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [savingId, setSavingId] = useState<string | null>(null)
-  const [editError, setEditError] = useState<string | null>(null)
-  const [editingDoseId, setEditingDoseId] = useState<string | null>(null)
 
-  /** Delete a dose logged by mistake. Manual rows only — an Oura tag returns
-   *  on the next sync, so removing it here would be a lie. */
-  async function removeEntry(entry: TagItem) {
-    if (!window.confirm(`Delete this ${entry.tagName ?? "entry"} from ${format(new Date(entry.timestamp), "MMM d, HH:mm")}?`)) return
-    setSavingId(entry.id)
-    setEditError(null)
-    try {
-      const res = await fetch(`/api/medications?id=${encodeURIComponent(entry.id)}`, { method: "DELETE" })
-      if (res.ok) onChanged()
-      else {
-        const d = await res.json().catch(() => null)
-        setEditError(d?.error ?? "Couldn't delete that — try again.")
-      }
-    } catch {
-      setEditError("Couldn't delete that — try again.")
-    } finally {
-      setSavingId(null)
-    }
-  }
-
-  /** Correct the amount. An empty value clears it back to unknown, which is
-   *  honest — zero would claim they took nothing. */
-  async function saveDose(entry: TagItem, raw: string) {
-    const trimmed = raw.trim()
-    const parsed = trimmed ? Number(trimmed.replace(",", ".")) : null
-    if (trimmed && (!Number.isFinite(parsed) || (parsed ?? 0) <= 0)) {
-      setEditError("A dose needs a positive number.")
-      setEditingDoseId(null)
-      return
-    }
-    setSavingId(entry.id)
-    setEditError(null)
-    try {
-      const res = await fetch("/api/medications", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: entry.id,
-          doseAmount: parsed,
-          doseUnit: parsed == null ? null : (entry.doseUnit ?? "tablet"),
-        }),
-      })
-      if (res.ok) onChanged()
-      else {
-        const d = await res.json().catch(() => null)
-        setEditError(d?.error ?? "Couldn't change the dose — try again.")
-      }
-    } catch {
-      setEditError("Couldn't change the dose — try again.")
-    } finally {
-      setSavingId(null)
-      setEditingDoseId(null)
-    }
-  }
-
-  // Change when a manually logged dose was taken. Oura-sourced rows stay
-  // read-only — the next ring sync would overwrite the edit.
-  async function saveTime(entry: TagItem, hhmm: string) {
-    const [h, m] = hhmm.split(":").map(Number)
-    if (!Number.isFinite(h) || !Number.isFinite(m)) return
-    // The picked time stays on the entry's own day.
-    const d = new Date(entry.day + "T00:00:00")
-    d.setHours(h, m, 0, 0)
-    setSavingId(entry.id)
-    setEditError(null)
-    try {
-      const res = await fetch("/api/medications", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: entry.id, takenAt: d.toISOString() }),
-      })
-      if (res.ok) {
-        onChanged()
-      } else {
-        const d2 = await res.json().catch(() => null)
-        setEditError(d2?.error ?? "Couldn't change the time — try again.")
-      }
-    } catch {
-      setEditError("Couldn't change the time — try again.")
-    } finally {
-      setSavingId(null)
-      setEditingId(null)
-    }
-  }
   const sorted = [...group.entries].sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   )
@@ -273,78 +349,14 @@ function TypeCard({
           {preview.map(e => (
             <div key={e.id} className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
               <span>{format(new Date(e.day + "T12:00:00"), "MMM d")}</span>
-              {editingId === e.id ? (
-                <input
-                  type="time"
-                  autoFocus
-                  defaultValue={format(new Date(e.timestamp), "HH:mm")}
-                  onBlur={ev => { if (ev.target.value) saveTime(e, ev.target.value); else setEditingId(null) }}
-                  onKeyDown={ev => { if (ev.key === "Enter") (ev.target as HTMLInputElement).blur(); if (ev.key === "Escape") setEditingId(null) }}
-                  className="rounded border border-primary bg-background px-1 py-0 text-xs outline-none"
-                />
-              ) : e.id.startsWith("manual_") ? (
-                <button
-                  onClick={() => setEditingId(e.id)}
-                  disabled={savingId === e.id}
-                  title="Change the time this dose was taken"
-                  className="text-muted-foreground/50 underline decoration-dotted underline-offset-2 hover:text-primary transition-colors disabled:opacity-50"
-                >
-                  {savingId === e.id ? "…" : format(new Date(e.timestamp), "HH:mm")}
-                </button>
-              ) : (
-                <span className="text-muted-foreground/50">{format(new Date(e.timestamp), "HH:mm")}</span>
-              )}
-              {/* Dose: tappable on manual entries, plain text on Oura's own. */}
-              {editingDoseId === e.id ? (
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  autoFocus
-                  defaultValue={e.doseAmount != null ? String(e.doseAmount) : ""}
-                  placeholder={e.doseUnit === "mg" ? "mg" : "tablets"}
-                  aria-label="Dose amount"
-                  onBlur={ev => saveDose(e, ev.target.value)}
-                  onKeyDown={ev => {
-                    if (ev.key === "Enter") (ev.target as HTMLInputElement).blur()
-                    if (ev.key === "Escape") setEditingDoseId(null)
-                  }}
-                  className="w-16 shrink-0 rounded border border-primary bg-background px-1 py-0 text-[10px] outline-none"
-                />
-              ) : e.id.startsWith("manual_") ? (
-                <button
-                  onClick={() => setEditingDoseId(e.id)}
-                  disabled={savingId === e.id}
-                  title="Change the dose"
-                  className="shrink-0 rounded px-1.5 py-0.5 bg-secondary text-[10px] text-foreground/70 hover:text-primary transition-colors disabled:opacity-50"
-                >
-                  {formatDose(e.doseAmount, e.doseUnit) ?? "+ dose"}
-                </button>
-              ) : formatDose(e.doseAmount, e.doseUnit) ? (
-                <span className="shrink-0 rounded px-1.5 py-0.5 bg-secondary text-[10px] text-foreground/70">
-                  {formatDose(e.doseAmount, e.doseUnit)}
-                </span>
-              ) : null}
+              <MedEntryControls entry={e} onChanged={onChanged} compact />
               {e.text && e.text !== e.tagName && (
                 <span className="flex-1 truncate text-left ml-2 italic">{e.text}</span>
-              )}
-              {e.id.startsWith("manual_") && (
-                <button
-                  onClick={() => removeEntry(e)}
-                  disabled={savingId === e.id}
-                  aria-label="Delete this entry"
-                  title="Delete this entry"
-                  className="shrink-0 rounded p-0.5 text-muted-foreground/40 hover:text-red-400 transition-colors disabled:opacity-50"
-                >
-                  <X className="h-3 w-3" />
-                </button>
               )}
             </div>
           ))}
           {!expanded && sorted.length > 3 && (
             <p className="text-xs text-muted-foreground/40 italic">+{sorted.length - 3} more…</p>
-          )}
-          {editError && (
-            <p className="text-[11px] text-red-400">{editError}</p>
           )}
         </div>
       </CardContent>
@@ -808,7 +820,7 @@ export default function MedicationsPage() {
                                     <button
                                       onClick={() => startRename([item.tags[0]], item.tagName ?? "")}
                                       className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground/40 hover:text-primary hover:bg-primary/10 active:bg-primary/20 transition-colors shrink-0"
-                                      title="Rename this tag type"
+                                      title={`Rename every "${item.tagName ?? "unnamed"}" entry`}
                                     >
                                       <Pencil className="h-3.5 w-3.5" />
                                     </button>
@@ -820,9 +832,9 @@ export default function MedicationsPage() {
                                   </p>
                                 )}
                               </div>
-                              <span className="text-xs text-muted-foreground/60 shrink-0 mt-0.5">
-                                {format(new Date(item.timestamp), "HH:mm")}
-                              </span>
+                              <div className="flex items-center gap-2 shrink-0 mt-0.5 flex-wrap justify-end">
+                                <MedEntryControls entry={item} onChanged={load} />
+                              </div>
                             </CardContent>
                           </Card>
                         ))}

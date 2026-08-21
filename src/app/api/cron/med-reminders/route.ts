@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
+import { configurePush, loadLocalCoverage, loadSubscriptionsByUser, phoneCovers, sendToUser } from "@/lib/push"
 import { getUserTimezone, localDateStr, localTimeStr } from "@/lib/local-date"
 import { activeOn, matchKey, minutesOfDay, sortedTimes, type ScheduleLike } from "@/lib/med-schedule"
 
@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
   const userIds = [...new Set(schedules.map(s => s.userId))]
 
   const subsByUser = await loadSubscriptionsByUser(userIds)
+  const coverage = await loadLocalCoverage()
   if (subsByUser.size === 0) return NextResponse.json({ ok: true, checked: 0, pushed: 0 })
 
   const stateRows = await prisma.$queryRaw<{ userId: string; value: string }[]>`
@@ -117,6 +118,12 @@ export async function GET(req: NextRequest) {
     `.catch(() => {})
 
     if (due.length === 0) continue
+
+    // The phone laid these down locally at the exact times, so the push would
+    // be a second buzz for the same dose. Gated here rather than at the top of
+    // the loop on purpose: the state above still advances, so nothing floods
+    // out in one burst the moment the local window lapses.
+    if (phoneCovers(coverage, userId)) continue
 
     const listed = due.slice(0, MAX_LISTED).join(", ")
     const body = due.length > MAX_LISTED ? `${listed} +${due.length - MAX_LISTED} more` : listed
