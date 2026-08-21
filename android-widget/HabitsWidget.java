@@ -63,6 +63,8 @@ public class HabitsWidget extends AppWidgetProvider {
             Intent open = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
             if (open != null) {
                 open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                // Land on the screen this widget is about, not the dashboard.
+                open.putExtra("eh_dest", "/dashboard/habits");
                 views.setOnClickPendingIntent(R.id.btn_habits_open, PendingIntent.getActivity(
                     context, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
             }

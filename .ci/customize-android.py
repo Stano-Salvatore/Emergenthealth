@@ -229,6 +229,10 @@ widget_copies = [
     (f"{widget_src}/TodayWidget.java",          f"{pkg_java_dir}/TodayWidget.java"),
     (f"{widget_src}/widget_today.xml",          f"{res_layout}/widget_today.xml"),
     (f"{widget_src}/today_widget_info.xml",     f"{res_xml}/today_widget_info.xml"),
+    # Emergy widget (one tap to talk — no network, no key, nothing to go stale)
+    (f"{widget_src}/EmergyWidget.java",         f"{pkg_java_dir}/EmergyWidget.java"),
+    (f"{widget_src}/widget_emergy.xml",         f"{res_layout}/widget_emergy.xml"),
+    (f"{widget_src}/emergy_widget_info.xml",    f"{res_xml}/emergy_widget_info.xml"),
 ]
 
 widget_ok = True
@@ -303,6 +307,16 @@ if widget_ok:
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/today_widget_info" />
+        </receiver>
+""",
+        "EmergyWidget": """
+        <receiver android:name=".EmergyWidget" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/emergy_widget_info" />
         </receiver>
 """,
     }
