@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import type { FocusSession, IntakeLog } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { getUserTimezone, localDateStr, zonedDayRange } from "@/lib/local-date"
 import { getUpcomingEvents } from "@/lib/google-calendar"
 import { getGmailSummary } from "@/lib/gmail"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -154,20 +155,34 @@ function scoreGrade(s: number) {
 
 type OuraTagRow = { tagName: string | null; text: string | null }
 
+// Calendar starts are stored as UTC ISO strings; date-fns `format` on the
+// server would render them in the server's zone. A 14:00 meeting showed as
+// 12:00 PM.
+function eventTime(start: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone, hour: "numeric", minute: "2-digit", hour12: true,
+  }).format(parseISO(start))
+}
+
 export default async function DashboardPage() {
   const session = await auth()
   if (!session?.user?.id) return null
   const userId = session.user.id
 
   const now = new Date()
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
-  const todayStr = today.toISOString().split("T")[0]
-  const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
 
-  const todayStart = new Date(todayStr + "T00:00:00.000Z")
-  const todayEnd = new Date(todayStr + "T23:59:59.999Z")
+  // This page renders on the server, where midnight and toISOString() are the
+  // server's — UTC on Vercel. Every night between local midnight and 02:00 the
+  // dashboard was therefore still showing yesterday: "today's" intake, habits
+  // and check-in all resolved to the previous date. The day belongs to the
+  // person living it, so it is derived from their timezone.
+  const timezone = await getUserTimezone(userId)
+  const todayStr = localDateStr(timezone)
+  const { start: todayStart, end: todayEnd } = zonedDayRange(timezone)
+
+  const today = new Date(todayStr + "T00:00:00")
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+  const weekAgo = new Date(todayStart.getTime() - 7 * 24 * 60 * 60 * 1000)
 
   // Single parallel batch — goals, check-in, and all dashboard data in one
   // round-trip group instead of three sequential awaits.
@@ -413,9 +428,9 @@ export default async function DashboardPage() {
         score={wellnessScore}
         healthDate={latestHealth ? latestHealth.date.toISOString().slice(0, 10) : null}
         today={todayStr}
-        calYear={now.getFullYear()}
-        calMonth={now.getMonth()}
-        calToday={now.getDate()}
+        calYear={today.getFullYear()}
+        calMonth={today.getMonth()}
+        calToday={today.getDate()}
         monthDots={Object.fromEntries(eventsByDay)}
         nextEvents={nextEvents.map(e => ({
           id: e.id, title: e.title, start: e.start, isAllDay: e.isAllDay,
@@ -469,7 +484,7 @@ export default async function DashboardPage() {
                 <div className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
                 <span className="text-sm font-medium">{e.title}</span>
                 {e.start && !e.isAllDay && (
-                  <span className="text-xs text-muted-foreground">{format(parseISO(e.start),"h:mm a")}</span>
+                  <span className="text-xs text-muted-foreground">{eventTime(e.start, timezone)}</span>
                 )}
                 {e.isAllDay && <span className="text-xs text-muted-foreground">all day</span>}
               </div>
@@ -646,7 +661,7 @@ export default async function DashboardPage() {
                           />
                           <div>
                             <p className="text-xs font-medium leading-tight">{e.title}</p>
-                            {e.start&&!e.isAllDay && <p className="text-[10px] text-muted-foreground">{format(parseISO(e.start),"h:mm a")}</p>}
+                            {e.start&&!e.isAllDay && <p className="text-[10px] text-muted-foreground">{eventTime(e.start, timezone)}</p>}
                           </div>
                         </div>
                       )
