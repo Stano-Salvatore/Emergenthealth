@@ -41,3 +41,40 @@ describe("pickNightlySessions", () => {
     expect(Object.keys(pickNightlySessions([{ type: "sleep", total_sleep_duration: 1 }]))).toEqual([])
   })
 })
+
+import { withinDays } from "@/lib/oura"
+
+// Oura's /sleep filters on when a session *started*, with an exclusive
+// end_date — so asking for one day (start === end) is an empty window and
+// returns nothing at all. getDailySummary called exactly that, which is why a
+// daily snapshot never carried sleep. The fetch now pads a day either side and
+// trims back, which also catches the night that begins the evening before.
+describe("withinDays", () => {
+  const byDay = {
+    "2026-08-20": "pad-before",
+    "2026-08-21": "wanted",
+    "2026-08-22": "wanted",
+    "2026-08-23": "pad-after",
+  }
+
+  it("keeps only the days that were asked for", () => {
+    expect(withinDays(byDay, "2026-08-21", "2026-08-22")).toEqual({
+      "2026-08-21": "wanted",
+      "2026-08-22": "wanted",
+    })
+  })
+
+  it("makes a single-day request return that day", () => {
+    // The whole point: start === end used to yield nothing.
+    expect(withinDays(byDay, "2026-08-21", "2026-08-21")).toEqual({ "2026-08-21": "wanted" })
+  })
+
+  it("is inclusive at both ends", () => {
+    expect(Object.keys(withinDays(byDay, "2026-08-20", "2026-08-23")).sort())
+      .toEqual(["2026-08-20", "2026-08-21", "2026-08-22", "2026-08-23"])
+  })
+
+  it("returns nothing when the range misses everything", () => {
+    expect(withinDays(byDay, "2026-09-01", "2026-09-02")).toEqual({})
+  })
+})
