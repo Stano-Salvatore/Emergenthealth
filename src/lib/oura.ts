@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { addDaysISO } from "@/lib/local-date"
 
 const OURA_API_BASE = "https://api.ouraring.com/v2/usercollection"
 
@@ -94,6 +95,18 @@ export async function getDailyActivity(userId: string, startDate: string, endDat
  * Exported so this can be tested without a network call — it is the step that
  * decides what "last night" means.
  */
+
+/** Drop the padding days fetched to work around Oura's start-based window. */
+export function withinDays<T>(
+  byDay: Record<string, T>, startDate: string, endDate: string,
+): Record<string, T> {
+  const out: Record<string, T> = {}
+  for (const [day, item] of Object.entries(byDay)) {
+    if (day >= startDate && day <= endDate) out[day] = item
+  }
+  return out
+}
+
 export function pickNightlySessions(
   items: Record<string, unknown>[],
 ): Record<string, Record<string, unknown>> {
@@ -116,10 +129,21 @@ export function pickNightlySessions(
 
 export async function getDailySleep(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
+  // Oura filters /sleep by when the session *started*, and its end_date is
+  // exclusive — so asking for a single day (start === end) is an empty window
+  // that always returns nothing. getDailySummary calls exactly that, which is
+  // why a daily snapshot has never carried sleep.
+  //
+  // Widening both ends fixes it and one thing more: a night belonging to a
+  // given `day` can start the evening before, or on the previous UTC date once
+  // the timezone offset is applied. Asking only for the day itself misses the
+  // night that day is about. Fetch a day either side, then keep the days that
+  // were actually asked for.
   const data = await makeOuraRequest("/sleep", client.accessToken, userId, {
-    start_date: startDate, end_date: endDate,
+    start_date: addDaysISO(startDate, -1),
+    end_date: addDaysISO(endDate, 1),
   })
-  const byDay = pickNightlySessions(data.data || [])
+  const byDay = withinDays(pickNightlySessions(data.data || []), startDate, endDate)
   return Object.values(byDay).map((item: Record<string, unknown>) => ({
     date: item.day as string,
     type: (item.type as string) ?? null,
