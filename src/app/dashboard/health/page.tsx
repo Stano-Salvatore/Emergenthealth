@@ -35,6 +35,15 @@ interface StravaActivityRow {
 }
 
 
+// This page renders on the server, where date-fns `format` uses the server's
+// clock — UTC on Vercel. A bedtime of 19:23 was being shown as 17:23. Times
+// belong to the person who slept them, so they render in their zone.
+function hhmm(d: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone, hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(d)
+}
+
 export default async function HealthPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const { tab } = await searchParams
   const activeTab = tab ?? "metrics"
@@ -456,7 +465,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                     )}
                     {latestLog.sleepStart != null && latestLog.sleepEnd != null && (
                       <StatBox icon={<span className="text-sm">🌙</span>} label="Bedtime"
-                        value={`${format(latestLog.sleepStart, "HH:mm")}–${format(latestLog.sleepEnd, "HH:mm")}`} />
+                        value={`${hhmm(latestLog.sleepStart, timezone)}–${hhmm(latestLog.sleepEnd, timezone)}`} />
                     )}
                   </div>
                 </div>

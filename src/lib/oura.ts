@@ -79,26 +79,50 @@ export async function getDailyActivity(userId: string, startDate: string, endDat
 
 // ── Daily sleep (duration, stages, efficiency, latency, HRV, resting HR) ─────
 
+
+/**
+ * One session per day: the night, not whatever else the ring recorded.
+ *
+ * Oura returns every sleep period it detected, typed long_sleep, sleep,
+ * late_nap or rest. This used to let a longer session win only when the two
+ * types matched, so an evening late_nap and a main sleep typed `sleep` were
+ * never compared at all — whichever the API happened to list first won, and a
+ * 41-minute nap displaced a five-hour night.
+ *
+ * Ranked rather than compared pairwise, so the answer cannot depend on array
+ * order: a long_sleep outranks anything else, and past that the longest wins.
+ * Exported so this can be tested without a network call — it is the step that
+ * decides what "last night" means.
+ */
+export function pickNightlySessions(
+  items: Record<string, unknown>[],
+): Record<string, Record<string, unknown>> {
+  const rank = (item: Record<string, unknown>): [number, number] => [
+    item.type === "long_sleep" ? 1 : 0,
+    (item.total_sleep_duration as number) ?? 0,
+  ]
+  const byDay: Record<string, Record<string, unknown>> = {}
+  for (const item of items) {
+    const day = item.day as string
+    if (!day) continue
+    const existing = byDay[day]
+    if (!existing) { byDay[day] = item; continue }
+    const [aLong, aDur] = rank(item)
+    const [bLong, bDur] = rank(existing)
+    if (aLong > bLong || (aLong === bLong && aDur > bDur)) byDay[day] = item
+  }
+  return byDay
+}
+
 export async function getDailySleep(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
   const data = await makeOuraRequest("/sleep", client.accessToken, userId, {
     start_date: startDate, end_date: endDate,
   })
-  // Group sessions by day, preferring long_sleep type then longest duration
-  const byDay: Record<string, Record<string, unknown>> = {}
-  for (const item of (data.data || [])) {
-    const day = item.day as string
-    const existing = byDay[day]
-    const itemDur = (item.total_sleep_duration as number) ?? 0
-    const existDur = existing ? ((existing.total_sleep_duration as number) ?? 0) : 0
-    if (!existing
-      || (item.type === "long_sleep" && existing.type !== "long_sleep")
-      || (item.type === existing.type && itemDur > existDur)) {
-      byDay[day] = item
-    }
-  }
+  const byDay = pickNightlySessions(data.data || [])
   return Object.values(byDay).map((item: Record<string, unknown>) => ({
     date: item.day as string,
+    type: (item.type as string) ?? null,
     totalSleepSeconds: (item.total_sleep_duration as number) ?? null,
     deepSleepSeconds: (item.deep_sleep_duration as number) ?? null,
     remSleepSeconds: (item.rem_sleep_duration as number) ?? null,
