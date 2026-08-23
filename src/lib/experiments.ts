@@ -190,8 +190,14 @@ export async function analyseExperiment(
       where: { userId, type: "focus", endedAt: { gte: new Date(first + "T00:00:00Z"), lte: new Date(last + "T23:59:59Z") } },
       select: { endedAt: true, durationMin: true },
     }).catch(() => [])
+    // endedAt is a timestamp, not a date-only column, so slicing the ISO string
+    // buckets it by UTC day. A session finishing at 00:30 local would land on
+    // the day before — and in an experiment that means the wrong arm, which
+    // corrupts the exact comparison the experiment exists to make.
+    const tz = await getUserTimezone(userId)
+    const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz })
     for (const r of rows) {
-      const d = r.endedAt.toISOString().slice(0, 10)
+      const d = dayFmt.format(r.endedAt)
       byDate.set(d, (byDate.get(d) ?? 0) + r.durationMin)
     }
   } else if (spec.source === "custom") {

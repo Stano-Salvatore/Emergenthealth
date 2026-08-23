@@ -9,7 +9,7 @@ import { estimateCaffeine, activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
-import { getUserTimezone, localDateStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
+import { addDaysISO, getUserTimezone, localDateStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
 import { randomUUID } from "crypto"
 import { parseDose, formatDose } from "@/lib/dose"
 
@@ -637,8 +637,10 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   }
 
   if (name === "write_daily_note") {
-    const today = new Date(); today.setHours(0, 0, 0, 0)
-    const todayStr = today.toISOString().split("T")[0]
+    // setHours(0,0,0,0) is midnight where the server stands — UTC on Vercel.
+    // A note written at 00:30 local was filed under the previous day, which is
+    // the same mistake log_moment made and the reverse of what the user meant.
+    const todayStr = localDateStr(await getUserTimezone(userId))
     await prisma.$executeRaw`
       INSERT INTO "DailyNote" ("id","userId","date","content","updatedAt")
       VALUES (gen_random_uuid()::text, ${userId}, ${todayStr}::date, ${input.content}, NOW())
@@ -652,8 +654,9 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     const mood = Math.min(5, Math.max(1, parseInt(String(input.mood), 10)))
     const intention = input.intention?.trim() || null
     const waterGoalMl = parseInt(String(input.waterGoalMl ?? 2000), 10)
-    const today = new Date(); today.setHours(0, 0, 0, 0)
-    const todayStr = today.toISOString().split("T")[0]
+    // The day is baked into the row id, so getting it wrong does not merely
+    // mislabel the check-in — it writes over, or fails to find, another day's.
+    const todayStr = localDateStr(await getUserTimezone(userId))
     const id = `mci_${userId}_${todayStr}`
     await prisma.$executeRaw`
       INSERT INTO "MorningCheckIn" ("id","userId","date","energy","mood","intention","waterGoalMl")
@@ -669,8 +672,11 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
 
   if (name === "get_health_range") {
     const days = Math.min(90, Math.max(1, parseInt(String(input.days), 10) || 7))
-    const since = new Date(); since.setDate(since.getDate() - days); since.setHours(0, 0, 0, 0)
-    const sinceStr = since.toISOString().split("T")[0]
+    // The window starts on the user's day, not the server's, and `since` is
+    // that day's local midnight rather than the server's.
+    const rangeTz = await getUserTimezone(userId)
+    const sinceStr = addDaysISO(localDateStr(rangeTz), -days)
+    const since = zonedDayRange(rangeTz, sinceStr).start
     const [logs, tags, checkins, notes, moods, intake] = await Promise.all([
       prisma.healthLog.findMany({
         where: { userId, date: { gte: since } },
@@ -714,8 +720,11 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     const noteByDay = new Map(notes.map(n => [n.date.toISOString().split("T")[0], n.content]))
     const moodByDay = new Map(moods.map(m => [m.date.toISOString().split("T")[0], m.mood]))
     const intakeByDay = new Map<string, { water: number; coffee: number }>()
+    // loggedAt is a timestamp; slicing it buckets by UTC day, so a late-night
+    // glass of water was reported against the day before.
+    const intakeDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
     for (const i of intake) {
-      const d = i.loggedAt.toISOString().split("T")[0]
+      const d = intakeDayFmt.format(i.loggedAt)
       const acc = intakeByDay.get(d) ?? { water: 0, coffee: 0 }
       if (i.type === "water") acc.water += i.amountMl
       else if (i.type === "coffee") acc.coffee += i.amountMl
@@ -1176,10 +1185,13 @@ export async function buildSystemPrompt(userId: string): Promise<string> {
 
   const habitsWithStreaks = habits.map((h) => {
     let streak = 0
-    const cursor = new Date(today); cursor.setHours(0, 0, 0, 0)
+    // Walked in date-string space from the user's today. c.date is a date-only
+    // column, so slicing its ISO string is exact; the cursor was not, and
+    // started from the server's midnight.
+    let cursor = todayStr
     const completionDates = new Set(h.completions.map((c) => c.date.toISOString().split("T")[0]))
-    while (completionDates.has(cursor.toISOString().split("T")[0])) {
-      streak++; cursor.setDate(cursor.getDate() - 1)
+    while (completionDates.has(cursor)) {
+      streak++; cursor = addDaysISO(cursor, -1)
     }
     return { name: h.name, streak, completedToday: completionDates.has(todayStr) }
   })
