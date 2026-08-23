@@ -25,6 +25,7 @@ import { LayoutModeControl } from "@/components/settings/LayoutModeControl"
 import { CsvImport } from "@/components/settings/CsvImport"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
+import { SyncStatusCard } from "@/components/settings/SyncStatusCard"
 import { DigestPreferences } from "@/components/settings/DigestPreferences"
 import { WeeklyReviewSchedule } from "@/components/settings/WeeklyReviewSchedule"
 import { StravaManager } from "@/components/settings/StravaManager"
@@ -312,6 +313,10 @@ export default async function SettingsPage({
 
       {/* ══ Connected apps & devices ══ */}
       <SettingsSection title="Connected apps & devices" emoji="🔗">
+      {/* What synced, when, and whether it worked — at the top of the section,
+          because it is what you come here to find out when something is off. */}
+      <SyncStatusCard />
+
       {/* Oura Ring connection (client component) */}
       <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
       {/* Health Connect — Android only, syncs from Garmin/Fitbit/Samsung/etc */}

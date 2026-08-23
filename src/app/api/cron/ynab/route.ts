@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { syncYnabForUser } from "@/lib/ynab-sync"
+import { recordSync } from "@/lib/sync-status"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -25,11 +26,18 @@ export async function GET(req: NextRequest) {
 
   for (const { userId } of tokens) {
     const result = await syncYnabForUser(userId)
+    // Record every run, good or bad: the Settings sync screen has to be able
+    // to tell "synced and there was nothing new" from "has been failing since
+    // Tuesday", and only the run itself knows which.
+    // Only users holding a token are iterated, so a failure here is a real
+    // failure rather than an unconnected account.
     if (result.ok) {
       totalSynced += result.synced
+      await recordSync(userId, "ynab", { ok: true, items: result.synced })
     } else {
       console.error("[cron/ynab] failed for", userId, result.error)
       errors.push(`${userId}: ${result.error}`)
+      await recordSync(userId, "ynab", { ok: false, error: result.error })
     }
   }
 
