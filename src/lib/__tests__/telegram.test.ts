@@ -66,3 +66,33 @@ describe("link codes", () => {
     expect(linkCodeValid(null, "ABCD2345", now)).toBe(false)
   })
 })
+
+// Link codes are the whole security boundary between a stranger's Telegram
+// chat and someone's health record. These are the ways that could go wrong.
+describe("link code hardening", () => {
+  const now = Date.parse("2026-08-23T12:00:00Z")
+  const stored = { code: "ABCD2345", expiresAt: now + 60_000 }
+
+  it("is not fooled by a code that merely starts the same", () => {
+    for (const near of ["A", "AB", "ABCD234", "ABCD2345 X", "ABCD2346"]) {
+      expect(linkCodeValid(stored, near, now)).toBe(false)
+    }
+  })
+
+  it("treats an already-expired code as no code", () => {
+    // Redeeming is single-use in the caller; expiry is the second lock, so a
+    // code left on screen does not stay live indefinitely.
+    expect(linkCodeValid(stored, "ABCD2345", stored.expiresAt + 1)).toBe(false)
+  })
+
+  it("cannot be satisfied by an empty or whitespace code", () => {
+    // A blank /start must never match a stored code.
+    for (const blank of ["", "   ", "\n"]) {
+      expect(linkCodeValid(stored, blank, now)).toBe(false)
+    }
+  })
+
+  it("does not match a stored value that failed to parse", () => {
+    expect(linkCodeValid(parseLinkCode("garbage"), "garbage", now)).toBe(false)
+  })
+})
