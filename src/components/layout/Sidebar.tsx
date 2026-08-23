@@ -2,8 +2,9 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { openCommandPalette } from "./CommandPalette"
 import { signOut } from "next-auth/react"
-import { X, Settings2, GripVertical, Eye, EyeOff } from "lucide-react"
+import { X, Settings2, GripVertical, Eye, EyeOff, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState, useEffect, useCallback } from "react"
 import {
@@ -349,6 +350,15 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
           </div>
         </div>
 
+        {/* Search, matching the expanded sidebar */}
+        <button
+          onClick={() => { openCommandPalette(); onClose?.() }}
+          aria-label="Search"
+          className="mx-auto mt-2 mb-1 h-9 w-9 rounded-lg flex items-center justify-center text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+        >
+          <Search className="h-4 w-4" />
+        </button>
+
         {/* Nav — icons only */}
         <nav className="flex-1 py-2 overflow-y-auto scrollbar-none flex flex-col items-center gap-0.5">
           {displayItems.map(item => {
@@ -412,8 +422,22 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
         )}
       </div>
 
+      {/* Search — the fastest way through forty entries, and until now the only
+          one that needed a keyboard. ⌘K was the sole way into the palette, so
+          on a phone it may as well not have existed. */}
+      <button
+        onClick={() => { openCommandPalette(); onClose?.() }}
+        className="mx-2 mt-2 mb-1 flex items-center gap-2 rounded-lg border border-border/60 bg-background/40 px-2.5 py-2 text-left text-xs text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+      >
+        <Search className="h-3.5 w-3.5 shrink-0" />
+        <span className="flex-1">Search…</span>
+        {/* The shortcut is a hint for people who have a keyboard, not the
+            only way in — hidden where there isn't one. */}
+        <kbd className="hidden lg:inline text-[10px] text-muted-foreground/60 border border-border/60 rounded px-1">⌘K</kbd>
+      </button>
+
       {/* Nav */}
-      <nav className="flex-1 p-2 overflow-y-auto scrollbar-thin">
+      <nav className="flex-1 p-2 pt-1 overflow-y-auto scrollbar-thin">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={displayItems.map(i => i.href)} strategy={verticalListSortingStrategy}>
             <div className="space-y-0.5">
