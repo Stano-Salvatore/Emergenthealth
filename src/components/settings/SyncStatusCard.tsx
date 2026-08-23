@@ -9,6 +9,7 @@ type Source = {
   id: string
   label: string
   what: string
+  driver: "server" | "device"
   connected: boolean
   run: SyncRun | null
 }
@@ -58,7 +59,7 @@ export function SyncStatusCard() {
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Sync status</p>
             <p className="text-xs text-muted-foreground mt-1">
               {data
-                ? `Runs every ${data.cadenceMinutes} minutes. GitHub schedules these, and can delay them — the times below are when a sync last actually finished, not when one was due.`
+                ? `Server syncs run every ${data.cadenceMinutes} minutes — GitHub schedules those and can delay them, so the times below are when one last actually finished, not when it was due. Phone syncs run when you open the app, and only record their successes.`
                 : " "}
             </p>
           </div>
@@ -74,7 +75,10 @@ export function SyncStatusCard() {
         {data && (
           <div className="space-y-1.5">
             {data.sources.map(s => {
-              const stale = s.connected && isStale(s.run ?? undefined)
+              // Only server-driven sources can be overdue. A device source
+              // syncs when the phone syncs it, so a long gap means the app has
+              // not been opened — calling that a fault would be inventing one.
+              const stale = s.driver === "server" && s.connected && isStale(s.run ?? undefined)
               const ago = agoLabel(s.run?.at)
               return (
                 <div key={s.id} className="flex items-start justify-between gap-3 py-1.5 border-b border-border/40 last:border-0">
@@ -100,6 +104,9 @@ export function SyncStatusCard() {
                           {!s.run.ok ? "Failed" : stale ? "Overdue" : "OK"}
                         </span>
                         <p className="text-[11px] text-muted-foreground">{ago}</p>
+                        {s.driver === "device" && (
+                          <p className="text-[11px] text-muted-foreground/60">last success</p>
+                        )}
                         {s.run.ok && s.run.items != null && (
                           <p className="text-[11px] text-muted-foreground/60">
                             {s.run.items === 0 ? "nothing new" : `${s.run.items} updated`}

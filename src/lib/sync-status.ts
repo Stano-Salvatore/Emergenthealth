@@ -15,13 +15,22 @@ import { prisma } from "@/lib/prisma"
 
 const KEY = "sync_status"
 
-/** Sources that sync on a schedule, in the order the status screen lists them. */
+/**
+ * Everything that syncs, in the order the status screen lists them.
+ *
+ * `driver` matters to what the screen may claim. Server sources run on a
+ * schedule, so silence from one is meaningful and can be called overdue.
+ * Device sources only run when the phone runs them, so a long gap means the
+ * app has not been opened — not that anything is broken — and saying otherwise
+ * would be inventing a fault.
+ */
 export const SYNC_SOURCES = [
-  { id: "oura", label: "Oura Ring", what: "Sleep, readiness, HRV, activity" },
-  { id: "strava", label: "Strava", what: "Workouts and routes" },
-  { id: "ynab", label: "YNAB", what: "Budget and transactions" },
-  { id: "truelayer", label: "TrueLayer", what: "Bank transactions" },
-  { id: "calendar", label: "Google Calendar", what: "Events" },
+  { id: "oura", label: "Oura Ring", what: "Sleep, readiness, HRV, activity", driver: "server" },
+  { id: "strava", label: "Strava", what: "Workouts and routes", driver: "server" },
+  { id: "ynab", label: "YNAB", what: "Budget and transactions", driver: "server" },
+  { id: "truelayer", label: "TrueLayer", what: "Bank transactions", driver: "server" },
+  { id: "health-connect", label: "Health Connect", what: "Steps and sleep from other apps", driver: "device" },
+  { id: "device-calendar", label: "Phone calendar", what: "Events from the phone's calendars", driver: "device" },
 ] as const
 
 export type SyncSourceId = (typeof SYNC_SOURCES)[number]["id"]
