@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getUserTimezone } from "@/lib/local-date"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement } from "@/lib/supplement-normalize"
@@ -25,9 +26,12 @@ export async function GET(req: Request) {
       where: { userId, loggedAt: { gte: start, lte: end } },
       select: { calories: true, loggedAt: true },
     })
+    // loggedAt is a timestamp, so slicing its ISO string groups by UTC day —
+    // a late-night meal counted toward the day before.
+    const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
     const byDay: Record<string, number> = {}
     for (const l of logs) {
-      const day = l.loggedAt.toISOString().split("T")[0]
+      const day = dayFmt.format(l.loggedAt)
       byDay[day] = (byDay[day] ?? 0) + l.calories
     }
     return NextResponse.json(byDay)

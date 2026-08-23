@@ -9,6 +9,7 @@ import {
   getWeight, getDistance, getActivitySessions, getDailySummary,
 } from "@/lib/oura"
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTimer, stopTimer } from "@/lib/toggl"
+import { getUserTimezone } from "@/lib/local-date"
 
 export const runtime = "nodejs"
 
@@ -548,13 +549,21 @@ function buildMcpServer(userId: string): McpServer {
         orderBy: { endedAt: "desc" },
       })
       const totalMin = sessions.reduce((s, f) => s + f.durationMin, 0)
+      const focusTz = await getUserTimezone(userId)
+      const focusDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: focusTz })
+      const focusTimeFmt = new Intl.DateTimeFormat("en-GB", {
+        timeZone: focusTz, hour: "2-digit", minute: "2-digit", hour12: false,
+      })
       return ok({
         total_focused: `${Math.floor(totalMin / 60)}h ${totalMin % 60}m`,
+        // Both were sliced out of the ISO string, which is UTC — so a session
+        // was reported on the wrong day and at the wrong clock time, and
+        // Emergy repeated both back as fact.
         sessions: sessions.map(f => ({
           label: f.label,
           duration_min: f.durationMin,
-          date: f.endedAt.toISOString().slice(0, 10),
-          time: f.endedAt.toISOString().slice(11, 16),
+          date: focusDayFmt.format(f.endedAt),
+          time: focusTimeFmt.format(f.endedAt),
         })),
       })
     },
@@ -609,7 +618,7 @@ function buildMcpServer(userId: string): McpServer {
       const stored = await getStoredToken(userId)
       if (!stored) return msg("Toggl not connected.")
       const [entries, projects] = await Promise.all([
-        getTodayEntries(stored.apiToken),
+        getTodayEntries(stored.apiToken, await getUserTimezone(userId)),
         stored.workspaceId ? getProjects(stored.apiToken, stored.workspaceId) : Promise.resolve([]),
       ])
       const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]))

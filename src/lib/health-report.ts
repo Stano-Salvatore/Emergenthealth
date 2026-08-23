@@ -129,6 +129,7 @@ Write 2-3 short paragraphs of plain, factual prose in the third person ("the pat
 export async function buildHealthReport(userId: string, periodDays = 90): Promise<HealthReport> {
   const days = Math.min(365, Math.max(7, Math.round(periodDays)))
   const tz = await getUserTimezone(userId)
+  const reportDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz })
   const toStr = localDateStr(tz)
   const fromStr = addDaysISO(toStr, -(days - 1))
   const prevFromStr = addDaysISO(fromStr, -days)
@@ -349,7 +350,9 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
       maxSystolic: Math.max(...sys),
       maxDiastolic: Math.max(...dia),
       avgPulse: pulses.length ? Math.round(mean(pulses) ?? 0) : null,
-      last: { systolic: last.systolic, diastolic: last.diastolic, date: last.loggedAt.toISOString().slice(0, 10) },
+      // loggedAt is a timestamp: sliced, a reading taken after local midnight
+      // is dated the day before on a report handed to a doctor.
+      last: { systolic: last.systolic, diastolic: last.diastolic, date: reportDayFmt.format(last.loggedAt) },
       band: bpBand(avgSys, avgDia),
     }
   }

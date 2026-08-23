@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getUserTimezone } from "@/lib/local-date"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { NextResponse } from "next/server"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
@@ -22,10 +23,12 @@ export async function GET(req: Request) {
       where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: start, lte: end } },
       select: { amountMl: true, loggedAt: true, type: true },
     })
-    // Group by day
+    // Grouped by the user's day, not the server's: loggedAt is a timestamp, so
+    // slicing its ISO string put a late-night drink on the day before.
+    const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
     const byDay: Record<string, number> = {}
     for (const l of logs) {
-      const day = l.loggedAt.toISOString().split("T")[0]
+      const day = dayFmt.format(l.loggedAt)
       byDay[day] = (byDay[day] ?? 0) + hydrationMl(l.type, l.amountMl)
     }
     return NextResponse.json(byDay)

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { localDateStr, zonedDayRange } from "@/lib/local-date"
 
 const BASE = "https://api.track.toggl.com"
 
@@ -102,10 +103,24 @@ export async function getCurrentTimer(apiToken: string): Promise<TogglEntry | nu
   return togglFetch<TogglEntry | null>(apiToken, "/api/v9/time_entries/current")
 }
 
-export async function getTodayEntries(apiToken: string): Promise<TogglEntry[]> {
-  const now = new Date()
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString()
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString()
+/**
+ * Today's entries, where "today" is the caller's day and not the server's.
+ *
+ * new Date(y, m, d) is midnight wherever this code runs — UTC on Vercel — so
+ * without a timezone the window silently belonged to the server. Anything
+ * tracked between local midnight and the offset landed on the wrong day, and
+ * for the first hours of the morning "today" was still yesterday.
+ *
+ * The timezone is optional so existing callers keep working; passing one is
+ * what makes the answer right.
+ */
+export async function getTodayEntries(apiToken: string, timezone?: string): Promise<TogglEntry[]> {
+  const day = timezone ? localDateStr(timezone) : new Date().toISOString().slice(0, 10)
+  const { start: startAt, end: endAt } = timezone
+    ? zonedDayRange(timezone, day)
+    : { start: new Date(day + "T00:00:00.000Z"), end: new Date(day + "T23:59:59.999Z") }
+  const start = startAt.toISOString()
+  const end = endAt.toISOString()
   const entries = await togglFetch<TogglEntry[]>(
     apiToken, `/api/v9/time_entries?start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`,
   )
