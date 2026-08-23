@@ -1,7 +1,7 @@
 import { auth } from "@/auth"
 import type { FocusSession, IntakeLog } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { getUserTimezone, localDateStr, zonedDayRange } from "@/lib/local-date"
+import { addDaysISO, getUserTimezone, localDateStr, zonedDayRange } from "@/lib/local-date"
 import { getUpcomingEvents } from "@/lib/google-calendar"
 import { getGmailSummary } from "@/lib/gmail"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -260,12 +260,14 @@ export default async function DashboardPage() {
   const checkinDates = new Set((checkinStreakRows as {date: string}[]).map(r => r.date))
   let checkinStreak = 0
   {
-    const cursor = new Date(todayStr)
+    // Walked in date-string space rather than with a Date: converting a Date
+    // back to a day depends on which zone does the converting, and this only
+    // came out right because Vercel happens to run in UTC.
+    let d = todayStr
     while (true) {
-      const d = cursor.toISOString().slice(0, 10)
       if (!checkinDates.has(d)) break
       checkinStreak++
-      cursor.setDate(cursor.getDate() - 1)
+      d = addDaysISO(d, -1)
     }
   }
 
@@ -316,10 +318,13 @@ export default async function DashboardPage() {
 
   // ── habits
   const habitsWithStreaks = habits.map(h => {
+    // c.date is a date-only column, so Prisma hands it back at UTC midnight and
+    // slicing the ISO string is exact. The walk stays in string space for the
+    // same reason as the check-in streak above.
     const dates = new Set(h.completions.map(c => c.date.toISOString().split("T")[0]))
     let streak = 0
-    const cursor = new Date(today)
-    while (dates.has(cursor.toISOString().split("T")[0])) { streak++; cursor.setDate(cursor.getDate()-1) }
+    let cursor = todayStr
+    while (dates.has(cursor)) { streak++; cursor = addDaysISO(cursor, -1) }
     return { ...h, streak, completedToday: dates.has(todayStr) }
   })
   const doneToday = habitsWithStreaks.filter(h => h.completedToday).length
