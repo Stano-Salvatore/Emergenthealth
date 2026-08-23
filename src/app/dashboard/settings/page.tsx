@@ -26,6 +26,7 @@ import { CsvImport } from "@/components/settings/CsvImport"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
 import { SyncStatusCard } from "@/components/settings/SyncStatusCard"
+import { TelegramCard } from "@/components/settings/TelegramCard"
 import { DigestPreferences } from "@/components/settings/DigestPreferences"
 import { WeeklyReviewSchedule } from "@/components/settings/WeeklyReviewSchedule"
 import { StravaManager } from "@/components/settings/StravaManager"
@@ -316,6 +317,9 @@ export default async function SettingsPage({
       {/* What synced, when, and whether it worked — at the top of the section,
           because it is what you come here to find out when something is off. */}
       <SyncStatusCard />
+
+      {/* Emergy outside the app */}
+      <TelegramCard />
 
       {/* Oura Ring connection (client component) */}
       <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
