@@ -47,6 +47,13 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/settings",      label: "Settings",         emoji: "⚙️",  group: "Tools" },
 ]
 
+/** Any button can ask for the palette by dispatching this. */
+export const OPEN_PALETTE_EVENT = "eh:open-palette"
+
+export function openCommandPalette() {
+  window.dispatchEvent(new Event(OPEN_PALETTE_EVENT))
+}
+
 const ALL_ITEMS = NAV_ITEMS.filter(i => isRouteEnabled(i.href))
 
 function fuzzy(query: string, target: string): boolean {
@@ -73,7 +80,20 @@ export function CommandPalette() {
     (item) => fuzzy(query, item.label) || fuzzy(query, item.group)
   )
 
+  // ⌘K was the only way in, which meant that on a phone this did not exist:
+  // there is no keyboard to press it with. The sidebar it competes with is a
+  // 40-item list with no filter, so search was the fastest route through the
+  // app and also the one route a thumb could not take.
+  //
+  // A custom event rather than lifted state: the palette is mounted once in
+  // the shell, and any button anywhere can now ask for it without threading a
+  // prop through everything in between.
   useEffect(() => {
+    function openPalette() {
+      setOpen(true)
+      setQuery("")
+      setSelected(0)
+    }
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault()
@@ -84,7 +104,11 @@ export function CommandPalette() {
       if (e.key === "Escape") setOpen(false)
     }
     window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    window.addEventListener(OPEN_PALETTE_EVENT, openPalette)
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      window.removeEventListener(OPEN_PALETTE_EVENT, openPalette)
+    }
   }, [])
 
   useEffect(() => {
