@@ -489,29 +489,45 @@ export async function computeCorrelations(
     }
   }
 
+  // Which day a timestamp belongs to, in the user's own time.
+  //
+  // Date-only columns are safe to slice out of an ISO string — Prisma returns
+  // them at UTC midnight, which is exactly how they were stored. Timestamps are
+  // not: slicing one buckets it by UTC day, so for anyone ahead of UTC
+  // everything logged between local midnight and their offset was filed under
+  // the previous day.
+  //
+  // That matters more here than anywhere else in the app. This engine joins
+  // sources by day and then tests whether one moves another. A drink logged at
+  // 00:30 landing on the day before is not a missing number — it is a number
+  // attached to the wrong night, which is how an association nobody lived gets
+  // published as a pattern.
+  const tz = tzRow?.value || "UTC"
+  const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz })
+  const localDay = (d: Date): string => dayFmt.format(d)
+
   for (const ev of (deviceEvents as { title: string; start: Date }[])) {
-    const dateStr = ev.start.toISOString().slice(0, 10)
+    const dateStr = localDay(ev.start)
     const d = getOrCreate(dateStr)
     d.eventCount = (d.eventCount ?? 0) + 1
     ;(d.eventTitles ??= []).push((ev.title ?? "").trim())
   }
 
   for (const w of waterRows) {
-    const dateStr = w.loggedAt.toISOString().slice(0, 10)
+    const dateStr = localDay(w.loggedAt)
     const d = getOrCreate(dateStr)
     d.waterMl = (d.waterMl ?? 0) + hydrationMl(w.type, w.amountMl)
   }
 
   // Food-tab meals: day totals, plus the local clock time of the day's last
   // meal (meal *timing* is a sleep lever the timestamps give us for free)
-  const tz = tzRow?.value || "UTC"
   const timeFmt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false })
   const localMinutes = (date: Date): number => {
     const [h, m] = timeFmt.format(date).split(":").map(Number)
     return (h % 24) * 60 + m
   }
   for (const f of foodRows) {
-    const dateStr = f.loggedAt.toISOString().slice(0, 10)
+    const dateStr = localDay(f.loggedAt)
     const d = getOrCreate(dateStr)
     d.calories = (d.calories ?? 0) + f.calories
     if (f.proteinG != null) d.proteinG = (d.proteinG ?? 0) + f.proteinG
@@ -544,7 +560,7 @@ export async function computeCorrelations(
   }
 
   for (const f of focusRows) {
-    const dateStr = f.endedAt.toISOString().slice(0, 10)
+    const dateStr = localDay(f.endedAt)
     const d = getOrCreate(dateStr)
     d.focusMin = (d.focusMin ?? 0) + f.durationMin
   }
