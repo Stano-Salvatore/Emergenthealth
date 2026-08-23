@@ -9,6 +9,7 @@ import {
   getWeight, getDistance, getActivitySessions, getDailySummary,
 } from "@/lib/oura"
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTimer, stopTimer } from "@/lib/toggl"
+import { getUserTimezone } from "@/lib/local-date"
 
 export const runtime = "nodejs"
 
@@ -609,7 +610,7 @@ function buildMcpServer(userId: string): McpServer {
       const stored = await getStoredToken(userId)
       if (!stored) return msg("Toggl not connected.")
       const [entries, projects] = await Promise.all([
-        getTodayEntries(stored.apiToken),
+        getTodayEntries(stored.apiToken, await getUserTimezone(userId)),
         stored.workspaceId ? getProjects(stored.apiToken, stored.workspaceId) : Promise.resolve([]),
       ])
       const projectMap = Object.fromEntries(projects.map(p => [p.id, p.name]))

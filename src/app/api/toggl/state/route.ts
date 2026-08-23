@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects } from "@/lib/toggl"
+import { getUserTimezone } from "@/lib/local-date"
 
 export async function GET() {
   const session = await auth()
@@ -12,7 +13,7 @@ export async function GET() {
   try {
     const [current, entries, projects] = await Promise.all([
       getCurrentTimer(stored.apiToken),
-      getTodayEntries(stored.apiToken),
+      getTodayEntries(stored.apiToken, await getUserTimezone(session.user.id)),
       stored.workspaceId ? getProjects(stored.apiToken, stored.workspaceId) : Promise.resolve([]),
     ])
 
