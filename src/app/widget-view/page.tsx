@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { addDaysISO, getUserTimezone, localDateStr } from "@/lib/local-date"
 import { notFound } from "next/navigation"
 
 export const dynamic = "force-dynamic"
@@ -9,10 +10,17 @@ async function getWidgetData(key: string) {
   if (!apiKey) return null
   const userId = apiKey.userId
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const todayStr = today.toISOString().split("T")[0]
-  const yesterday = new Date(today.getTime() - 86400000)
+  // setHours(0,0,0,0) is midnight where the *server* stands — UTC on Vercel —
+  // so between local midnight and the offset this widget showed yesterday's
+  // day as today's. Same bug the dashboard carried. The day belongs to the
+  // person whose widget this is.
+  //
+  // These columns are date-only, so the comparison values are the day at UTC
+  // midnight, which is exactly how Prisma stores and returns them.
+  const timezone = await getUserTimezone(userId)
+  const todayStr = localDateStr(timezone)
+  const today = new Date(todayStr + "T00:00:00.000Z")
+  const yesterday = new Date(addDaysISO(todayStr, -1) + "T00:00:00.000Z")
 
   const [healthToday, healthYesterday, moodToday, habitsCompleted, habitsTotal, weather, checkin] = await Promise.all([
     prisma.healthLog.findFirst({

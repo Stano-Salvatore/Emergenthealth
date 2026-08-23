@@ -57,12 +57,35 @@ async function makeOuraRequest(
 
 // ── Daily activity (steps, calories, distance, active minutes, score) ─────────
 
+
+/**
+ * Oura's end_date is exclusive across its endpoints, so asking for a single day
+ * (start === end) is an empty window that returns nothing at all. Confirmed
+ * against the live API, not inferred: a day with 9,408 steps reported zero
+ * through get_daily_summary, which asks for exactly one day.
+ *
+ * Every caller therefore requests one day past what it wants and filters the
+ * extra back out by `day`. Stated once here so the workaround cannot drift
+ * apart between the eight endpoints that need it.
+ */
+function inclusiveWindow(startDate: string, endDate: string) {
+  return { start_date: startDate, end_date: addDaysISO(endDate, 1) }
+}
+
+/** Drop rows outside the range the caller actually asked for. */
+function trimToRange<T extends { day?: unknown }>(rows: T[], startDate: string, endDate: string): T[] {
+  return rows.filter(r => {
+    const day = typeof r.day === "string" ? r.day : null
+    return day == null || (day >= startDate && day <= endDate)
+  })
+}
+
 export async function getDailyActivity(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
   const data = await makeOuraRequest("/daily_activity", client.accessToken, userId, {
-    start_date: startDate, end_date: endDate,
+    ...inclusiveWindow(startDate, endDate),
   })
-  return (data.data || []).map((item: Record<string, unknown>) => ({
+  return trimToRange((data.data || []) as Record<string, unknown>[], startDate, endDate).map((item: Record<string, unknown>) => ({
     date: item.day as string,
     steps: (item.steps as number) ?? null,
     activeCalories: item.active_calories != null ? Math.round(item.active_calories as number) : null,
@@ -169,9 +192,9 @@ export async function getDailySleep(userId: string, startDate: string, endDate: 
 export async function getDailySleepScores(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
   const data = await makeOuraRequest("/daily_sleep", client.accessToken, userId, {
-    start_date: startDate, end_date: endDate,
+    ...inclusiveWindow(startDate, endDate),
   })
-  return (data.data || []).map((item: Record<string, unknown>) => ({
+  return trimToRange((data.data || []) as Record<string, unknown>[], startDate, endDate).map((item: Record<string, unknown>) => ({
     date: item.day as string,
     score: (item.score as number) ?? null,
   }))
@@ -182,9 +205,9 @@ export async function getDailySleepScores(userId: string, startDate: string, end
 export async function getDailyReadiness(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
   const data = await makeOuraRequest("/daily_readiness", client.accessToken, userId, {
-    start_date: startDate, end_date: endDate,
+    ...inclusiveWindow(startDate, endDate),
   })
-  return (data.data || []).map((item: Record<string, unknown>) => ({
+  return trimToRange((data.data || []) as Record<string, unknown>[], startDate, endDate).map((item: Record<string, unknown>) => ({
     date: item.day as string,
     score: (item.score as number) ?? null,
     skinTemp: (item.temperature_deviation as number) ?? null,
@@ -196,9 +219,9 @@ export async function getDailyReadiness(userId: string, startDate: string, endDa
 export async function getDailySpo2(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
   const data = await makeOuraRequest("/daily_spo2", client.accessToken, userId, {
-    start_date: startDate, end_date: endDate,
+    ...inclusiveWindow(startDate, endDate),
   })
-  return (data.data || []).map((item: Record<string, unknown>) => {
+  return trimToRange((data.data || []) as Record<string, unknown>[], startDate, endDate).map((item: Record<string, unknown>) => {
     const pct = item.spo2_percentage as Record<string, number> | null
     return {
       date: item.day as string,
@@ -213,9 +236,9 @@ export async function getDailySpo2(userId: string, startDate: string, endDate: s
 export async function getDailyStress(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
   const data = await makeOuraRequest("/daily_stress", client.accessToken, userId, {
-    start_date: startDate, end_date: endDate,
+    ...inclusiveWindow(startDate, endDate),
   })
-  return (data.data || []).map((item: Record<string, unknown>) => ({
+  return trimToRange((data.data || []) as Record<string, unknown>[], startDate, endDate).map((item: Record<string, unknown>) => ({
     date: item.day as string,
     stressHighMin: item.stress_high != null ? Math.round((item.stress_high as number) / 60) : null,
     recoveryHighMin: item.recovery_high != null ? Math.round((item.recovery_high as number) / 60) : null,
@@ -227,9 +250,9 @@ export async function getDailyStress(userId: string, startDate: string, endDate:
 export async function getActivitySessions(userId: string, startDate: string, endDate: string) {
   const client = await buildOuraClient(userId)
   const data = await makeOuraRequest("/workout", client.accessToken, userId, {
-    start_date: startDate, end_date: endDate,
+    ...inclusiveWindow(startDate, endDate),
   })
-  return (data.data || []).map((item: Record<string, unknown>) => ({
+  return trimToRange((data.data || []) as Record<string, unknown>[], startDate, endDate).map((item: Record<string, unknown>) => ({
     id: item.id,
     name: (item.title as string) ?? "Workout",
     activityType: item.activity,
@@ -274,9 +297,9 @@ export interface OuraTagEntry {
 export async function getOuraTags(userId: string, startDate: string, endDate: string): Promise<OuraTagEntry[]> {
   const client = await buildOuraClient(userId)
   const data = await makeOuraRequest("/enhanced_tag", client.accessToken, userId, {
-    start_date: startDate, end_date: endDate,
+    ...inclusiveWindow(startDate, endDate),
   })
-  return (data.data ?? []).map((item: Record<string, unknown>) => {
+  const mapped = (data.data ?? []).map((item: Record<string, unknown>) => {
     // Try all text fields Oura might use for the per-entry description
     const commentText = (item.comment ?? item.note ?? item.text ?? item.label ?? item.title ?? null) as string | null
     const name = resolveTagName(item.custom_name, item.tag_type_code, commentText)
@@ -304,6 +327,10 @@ export async function getOuraTags(userId: string, startDate: string, endDate: st
       uuid,
     }
   })
+  // Trimmed after mapping, not before: this endpoint calls the date
+  // "start_day" rather than "day", so the generic filter would not have seen
+  // it and would have passed the padding day straight through.
+  return mapped.filter((t: OuraTagEntry) => !t.day || (t.day >= startDate && t.day <= endDate))
 }
 
 // ── Legacy helpers (used by MCP route) ───────────────────────────────────────
