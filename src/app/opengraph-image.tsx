@@ -68,9 +68,16 @@ export default function OGImage() {
           </span>
         </div>
 
-        {/* Headline */}
+        {/* Headline.
+            Satori refuses to render a div with more than one child unless the
+            display is explicit, and refuses the whole image rather than that
+            one element — which is why this card has been failing since June.
+            Two lines stacked in a column, not a <br /> between siblings. */}
         <div
           style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
             fontSize: "52px",
             fontWeight: 800,
             color: "#ffffff",
@@ -80,8 +87,7 @@ export default function OGImage() {
             letterSpacing: "-1.5px",
           }}
         >
-          Your health, finally
-          <br />
+          <span>Your health, finally</span>
           <span style={{ color: "#818cf8" }}>in one place.</span>
         </div>
 
