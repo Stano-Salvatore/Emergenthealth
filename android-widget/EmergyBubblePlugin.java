@@ -317,7 +317,7 @@ public class EmergyBubblePlugin extends Plugin {
         android.app.AlarmManager am = ctx.getSystemService(android.app.AlarmManager.class);
         if (am == null) { call.reject("No alarm manager"); return; }
 
-        StringBuilder laid = new StringBuilder();
+        org.json.JSONArray laid = new org.json.JSONArray();
         int count = 0;
         try {
             for (int i = 0; i < pops.length(); i++) {
@@ -338,8 +338,12 @@ public class EmergyBubblePlugin extends Plugin {
                     // not to the minute. Silently downgrading beats not firing.
                     am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
                 }
-                if (laid.length() > 0) laid.append(",");
-                laid.append(id);
+                // The whole record, not just the id. Android drops every alarm
+                // on reboot and on app update, and the list that produced them
+                // lives on a server this receiver cannot reach — so it has to
+                // be able to re-arm from what it kept.
+                laid.put(new org.json.JSONObject()
+                    .put("id", id).put("at", at).put("message", message));
                 count++;
             }
         } catch (Exception e) {
@@ -348,7 +352,7 @@ public class EmergyBubblePlugin extends Plugin {
         }
 
         ctx.getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE)
-            .edit().putString(POP_IDS, laid.toString()).apply();
+            .edit().putString(POP_LIST, laid.toString()).apply();
         call.resolve(new JSObject().put("scheduled", count));
     }
 
@@ -401,7 +405,7 @@ public class EmergyBubblePlugin extends Plugin {
     private static final int TEST_POP_ID = 999_999;
 
     private static final String POP_PREFS = "emergy_head_pops";
-    private static final String POP_IDS = "ids";
+    private static final String POP_LIST = "pops";
 
     private static boolean canScheduleExact(android.app.AlarmManager am) {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms();
@@ -416,21 +420,73 @@ public class EmergyBubblePlugin extends Plugin {
             android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
     }
 
+    private static org.json.JSONArray storedPops(Context ctx) {
+        String raw = ctx.getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE)
+            .getString(POP_LIST, "[]");
+        try {
+            return new org.json.JSONArray(raw == null ? "[]" : raw);
+        } catch (Exception e) {
+            return new org.json.JSONArray();
+        }
+    }
+
     private static void cancelAllPops(Context ctx) {
-        android.content.SharedPreferences prefs =
-            ctx.getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE);
-        String stored = prefs.getString(POP_IDS, "");
         android.app.AlarmManager am = ctx.getSystemService(android.app.AlarmManager.class);
-        if (am != null && stored != null && !stored.isEmpty()) {
-            for (String part : stored.split(",")) {
+        org.json.JSONArray stored = storedPops(ctx);
+        if (am != null) {
+            for (int i = 0; i < stored.length(); i++) {
                 try {
-                    am.cancel(popIntent(ctx, Integer.parseInt(part.trim()), ""));
+                    am.cancel(popIntent(ctx, stored.getJSONObject(i).optInt("id"), ""));
                 } catch (Exception ignored) {
-                    // A malformed id cancels nothing; it must not stop the rest.
+                    // A malformed entry cancels nothing; it must not stop the rest.
                 }
             }
         }
-        prefs.edit().remove(POP_IDS).apply();
+        ctx.getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE)
+            .edit().remove(POP_LIST).apply();
+    }
+
+    /**
+     * Put the stored alarms back after the system threw them away.
+     *
+     * Android clears every alarm an app holds when the phone reboots and when
+     * the app is updated. Nothing here notices, so without this the pop-outs
+     * simply stop — and the settings card would go on saying "20 armed",
+     * because from its side nothing changed. That is the exact failure this
+     * whole feature keeps being rebuilt to avoid.
+     *
+     * Occurrences already past are dropped rather than fired late; a nudge
+     * from before a reboot is not news.
+     */
+    static int rearmStoredPops(Context ctx) {
+        if (!android.provider.Settings.canDrawOverlays(ctx)) return 0;
+        android.app.AlarmManager am = ctx.getSystemService(android.app.AlarmManager.class);
+        if (am == null) return 0;
+
+        org.json.JSONArray stored = storedPops(ctx);
+        org.json.JSONArray kept = new org.json.JSONArray();
+        long now = System.currentTimeMillis();
+        for (int i = 0; i < stored.length(); i++) {
+            try {
+                org.json.JSONObject pop = stored.getJSONObject(i);
+                long at = pop.optLong("at", 0L);
+                String message = pop.optString("message", "");
+                int id = pop.optInt("id", 0);
+                if (id == 0 || at <= now || message.isEmpty()) continue;
+                android.app.PendingIntent pi = popIntent(ctx, id, message);
+                if (canScheduleExact(am)) {
+                    am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
+                } else {
+                    am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
+                }
+                kept.put(pop);
+            } catch (Exception ignored) {
+                // One bad record must not cost the rest of the list.
+            }
+        }
+        ctx.getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE)
+            .edit().putString(POP_LIST, kept.toString()).apply();
+        return kept.length();
     }
 
     @PluginMethod
