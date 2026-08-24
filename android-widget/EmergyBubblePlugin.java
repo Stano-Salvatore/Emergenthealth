@@ -62,16 +62,80 @@ public class EmergyBubblePlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("available", supported());
         ret.put("sdk", Build.VERSION.SDK_INT);
+        ret.put("allowed", false);
+        ret.put("preference", "unknown");
         if (supported()) {
             NotificationManager nm = getContext().getSystemService(NotificationManager.class);
-            // areBubblesAllowed reflects the user's own choice; reporting it
-            // lets the UI say "turn bubbles on for this app" rather than
-            // silently doing nothing.
-            ret.put("allowed", nm != null && nm.areBubblesAllowed());
-        } else {
-            ret.put("allowed", false);
+            if (nm != null) {
+                // areBubblesAllowed is the API 30 answer and it is a yes/no,
+                // which on Android 12+ is the wrong shape: there the setting
+                // has three values and the middle one is the default. Reading
+                // it as a boolean makes "you must pick this conversation once"
+                // indistinguishable from "bubbles are switched off", and those
+                // need opposite instructions.
+                ret.put("allowed", nm.areBubblesAllowed());
+                ret.put("preference", bubblePreference(nm));
+            }
         }
         call.resolve(ret);
+    }
+
+    /**
+     * none / selected / all.
+     *
+     * "selected" is Android's default from 12 onwards and is why a correctly
+     * built bubble still arrives as an ordinary notification the first time:
+     * the system posts it and waits for the user to promote that one
+     * conversation. Nothing is broken at that point, but nothing floats
+     * either, and only the user can move it along.
+     */
+    @android.annotation.SuppressLint("NewApi")
+    private static String bubblePreference(NotificationManager nm) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            // API 30 has no tri-state; the boolean is the whole answer.
+            return nm.areBubblesAllowed() ? "all" : "none";
+        }
+        int pref = nm.getBubblePreference();
+        if (pref == NotificationManager.BUBBLE_PREFERENCE_ALL) return "all";
+        if (pref == NotificationManager.BUBBLE_PREFERENCE_SELECTED) return "selected";
+        if (pref == NotificationManager.BUBBLE_PREFERENCE_NONE) return "none";
+        return "unknown";
+    }
+
+    /**
+     * Open the phone's bubble setting for this app.
+     *
+     * The path is five taps deep and the OEMs all name the steps differently,
+     * so written directions are a guess about someone else's phone. The
+     * system will open the exact screen if asked.
+     */
+    @PluginMethod
+    public void openSettings(PluginCall call) {
+        Context ctx = getContext();
+        try {
+            Intent intent;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                intent = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_BUBBLE_SETTINGS);
+            } else {
+                intent = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+            }
+            intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.getPackageName());
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            // Some builds do not carry that screen. Fall back to the app's
+            // notification settings rather than reporting a dead end.
+            try {
+                Intent fallback = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                fallback.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.getPackageName());
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(fallback);
+                call.resolve();
+            } catch (Exception e2) {
+                call.reject("Couldn't open Android's bubble settings");
+            }
+        }
     }
 
     @PluginMethod
@@ -143,6 +207,37 @@ public class EmergyBubblePlugin extends Plugin {
         } catch (Exception e) {
             call.reject(e.getMessage() == null ? "Couldn't show the bubble" : e.getMessage());
         }
+    }
+
+    /**
+     * Did the last one actually float?
+     *
+     * The system sets FLAG_BUBBLE on a notification it chose to bubble, so
+     * this is the phone's own answer rather than ours. Everything else in this
+     * plugin is a request; this is the only part that can say what happened,
+     * and without it "Sent." is a claim about a screen nobody here can see.
+     */
+    @PluginMethod
+    @androidx.annotation.RequiresApi(api = Build.VERSION_CODES.R)
+    public void didBubble(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("posted", false);
+        ret.put("bubbled", false);
+        if (!supported()) { call.resolve(ret); return; }
+        NotificationManager nm = getContext().getSystemService(NotificationManager.class);
+        if (nm == null) { call.resolve(ret); return; }
+        try {
+            for (android.service.notification.StatusBarNotification sbn : nm.getActiveNotifications()) {
+                if (sbn.getId() != NOTIFICATION_ID) continue;
+                ret.put("posted", true);
+                ret.put("bubbled", (sbn.getNotification().flags & Notification.FLAG_BUBBLE) != 0);
+                break;
+            }
+        } catch (Exception ignored) {
+            // Reading our own notifications back is best-effort; a failure
+            // here means we don't know, not that it failed.
+        }
+        call.resolve(ret);
     }
 
     @PluginMethod
