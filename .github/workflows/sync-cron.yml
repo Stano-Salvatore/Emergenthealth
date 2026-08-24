@@ -31,10 +31,14 @@ jobs:
             exit 1
           fi
 
-          # Data syncs only — health + finances. The notification/digest crons
-          # stay on Vercel's daily schedule (running them this often would spam).
+          # Data syncs only — health + finances. The notification crons stay on
+          # Vercel's daily schedule; running those this often would spam.
+          #
+          # Strava is here as well as in vercel.json. That schedule is daily, so
+          # on its own a ride recorded this morning would not show up until
+          # tomorrow — which is what made it look neglected on the sync screen.
           auth_failed=0
-          for path in oura ynab truelayer; do
+          for path in oura strava ynab truelayer; do
             code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${path}") || true

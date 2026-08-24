@@ -41,7 +41,13 @@ import java.util.Arrays;
 @CapacitorPlugin(name = "EmergyBubble")
 public class EmergyBubblePlugin extends Plugin {
 
-    private static final String CHANNEL_ID = "emergy_bubble";
+    // v2 deliberately. A NotificationChannel's settings are fixed once it has
+    // been created — createNotificationChannel on an existing id changes
+    // nothing but its name. The first version was created without
+    // setAllowBubbles, so correcting the code is not enough on a phone that
+    // already has it: the channel has to be a new one.
+    private static final String CHANNEL_ID = "emergy_bubble_v2";
+    private static final String OLD_CHANNEL_ID = "emergy_bubble";
     private static final String SHORTCUT_ID = "emergy_chat";
     private static final int NOTIFICATION_ID = 920001;
 
@@ -122,6 +128,10 @@ public class EmergyBubblePlugin extends Plugin {
                 .addPerson(emergy)
                 .setStyle(new Notification.MessagingStyle(emergy).addMessage(
                     message, System.currentTimeMillis(), emergy))
+                // Same reason as the shortcut category: without this the
+                // system does not treat it as a conversation, and only
+                // conversations bubble.
+                .setCategory(Notification.CATEGORY_MESSAGE)
                 .setAutoCancel(true)
                 .setContentIntent(bubbleIntent);
 
@@ -145,11 +155,18 @@ public class EmergyBubblePlugin extends Plugin {
     private void createChannel(Context ctx) {
         NotificationManager nm = ctx.getSystemService(NotificationManager.class);
         if (nm == null) return;
+        // Tidy up the version that could never bubble.
+        try { nm.deleteNotificationChannel(OLD_CHANNEL_ID); } catch (Exception ignored) {}
+
         NotificationChannel channel = new NotificationChannel(
             CHANNEL_ID, "Emergy bubble", NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("Emergy floating over other apps");
-        // Silent by default: a bubble is already visible, and a sound for
-        // every one of them is how this becomes the feature you switch off.
+        // The requirement that was missing. Without it Android posts the
+        // notification and simply declines to float it — no error, no warning,
+        // exactly the silent no-op this whole feature was meant to avoid.
+        channel.setAllowBubbles(true);
+        // Silent: a bubble is already visible, and a sound for every one of
+        // them is how this becomes the feature you switch off.
         channel.setSound(null, null);
         channel.setVibrationPattern(null);
         nm.createNotificationChannel(channel);
@@ -175,6 +192,11 @@ public class EmergyBubblePlugin extends Plugin {
             .setIntent(open)
             .setPerson(new android.app.Person.Builder()
                 .setName("Emergy").setKey(SHORTCUT_ID).setBot(true).build())
+            // Android 11+ bubbles conversations, and this is how a shortcut
+            // declares itself to be one.
+            .setCategories(java.util.Collections.singleton(
+                "android.shortcut.conversation"))
+            .setLongLived(true)
             .build();
         sm.addDynamicShortcuts(Arrays.asList(shortcut));
     }

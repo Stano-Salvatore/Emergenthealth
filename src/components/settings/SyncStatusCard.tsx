@@ -33,6 +33,7 @@ export function SyncStatusCard() {
   const [data, setData] = useState<Payload | null>(null)
   const [error, setError] = useState(false)
   const [nonce, setNonce] = useState(0)
+  const [syncing, setSyncing] = useState(false)
 
   // The fetch is inlined so every setState follows an await rather than running
   // synchronously in the effect body, which cascades renders.
@@ -51,6 +52,29 @@ export function SyncStatusCard() {
     return () => { cancelled = true }
   }, [nonce])
 
+  /**
+   * Run every connected source's sync, then re-read the status.
+   *
+   * allSettled rather than all: one source failing must not stop the others,
+   * and a source that is not connected simply returns an error nobody needs to
+   * see here — the row already says "Not connected".
+   */
+  async function syncNow() {
+    setSyncing(true)
+    try {
+      await Promise.allSettled(
+        (data?.sources ?? [])
+          .filter(s => s.connected && s.driver === "server")
+          .map(s => fetch(`/api/sync/${s.id}`, { method: "POST" })),
+      )
+    } finally {
+      setSyncing(false)
+      // Re-read regardless: a sync that failed still updated its status, and
+      // that is exactly what someone pressing this wants to see.
+      setNonce(n => n + 1)
+    }
+  }
+
   return (
     <Card>
       <CardContent className="pt-4 pb-4 space-y-3">
@@ -63,9 +87,13 @@ export function SyncStatusCard() {
                 : " "}
             </p>
           </div>
-          <Button size="sm" variant="ghost" onClick={() => setNonce(n => n + 1)}
-            aria-label="Refresh sync status" className="shrink-0 h-8 w-8 p-0">
-            <RefreshCw className="h-3.5 w-3.5" />
+          {/* This used to re-fetch the status and nothing else, which is why it
+              read as broken: a refresh icon on a sync card promises a sync, and
+              re-reading the same numbers changes nothing on screen. It runs the
+              syncs now, then shows what they did. */}
+          <Button size="sm" variant="ghost" onClick={syncNow} disabled={syncing}
+            aria-label="Sync now" title="Sync now" className="shrink-0 h-8 w-8 p-0">
+            <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
           </Button>
         </div>
 
