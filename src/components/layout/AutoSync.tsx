@@ -30,7 +30,13 @@ export function AutoSync() {
       const ouraSync = fetch("/api/sync/oura", { method: "POST" })
       const syncs: Promise<unknown>[] = [
         ouraSync,
-        fetch("/api/sync/calendar", { method: "POST" }),
+        // No calendar call here. /api/sync/calendar is a read despite the
+        // name: it asks Google for events and returns them, storing nothing,
+        // so there is no local copy for a background call to refresh. This
+        // posted to it on every app open and got a 405 every time, because
+        // that route only exports GET — and allSettled below meant nobody
+        // ever heard about it. The calendar page fetches live when it renders.
+        //
         // Connected-service syncs answer with a quick 4xx when not set up, so
         // it's safe to just attempt them all — everything fresh on app open.
         fetch("/api/sync/strava", { method: "POST" }),
