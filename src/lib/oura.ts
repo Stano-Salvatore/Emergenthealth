@@ -167,14 +167,37 @@ export async function getDailySleep(userId: string, startDate: string, endDate: 
     end_date: addDaysISO(endDate, 1),
   })
   const byDay = withinDays(pickNightlySessions(data.data || []), startDate, endDate)
-  return Object.values(byDay).map((item: Record<string, unknown>) => ({
+  return Object.values(byDay).map(mapSleepSession)
+}
+
+/**
+ * One Oura sleep document, in this app's shape.
+ *
+ * Pulled out of getSleepData so it can be tested against a real payload. It
+ * needed to be: `awakeTimeSeconds` read `awake_duration`, which is not a field
+ * Oura has ever returned — the name is `awake_time`, sitting in the same
+ * document as `time_in_bed` and `total_sleep_duration`, both of which are read
+ * correctly two lines away. So it was null on every night ever synced, and the
+ * timeline drew awake time as zero while the health page's tile, which only
+ * renders when the value is present, simply never appeared.
+ *
+ * A wrong key here cannot fail loudly: the document is Record<string, unknown>,
+ * so the compiler has nothing to check the name against, and a missing field is
+ * indistinguishable from a night Oura had no figure for.
+ *
+ * Deliberately not derived from time_in_bed − total_sleep_duration when
+ * absent: that difference is awake time *plus* latency, so it would overstate
+ * it, and a plausible wrong number is worse here than an honest gap.
+ */
+export function mapSleepSession(item: Record<string, unknown>) {
+  return {
     date: item.day as string,
     type: (item.type as string) ?? null,
     totalSleepSeconds: (item.total_sleep_duration as number) ?? null,
     deepSleepSeconds: (item.deep_sleep_duration as number) ?? null,
     remSleepSeconds: (item.rem_sleep_duration as number) ?? null,
     lightSleepSeconds: (item.light_sleep_duration as number) ?? null,
-    awakeTimeSeconds: (item.awake_duration as number) ?? null,
+    awakeTimeSeconds: (item.awake_time as number) ?? null,
     timeInBedSeconds: (item.time_in_bed as number) ?? null,
     restlessPeriods: (item.restless_periods as number) ?? null,
     avgRestingHR: (item.average_heart_rate as number) ?? null,
@@ -184,7 +207,7 @@ export async function getDailySleep(userId: string, startDate: string, endDate: 
     latencySeconds: (item.latency as number) ?? null,
     bedtimeStart: (item.bedtime_start as string) ?? null,
     bedtimeEnd: (item.bedtime_end as string) ?? null,
-  }))
+  }
 }
 
 // ── Daily sleep scores (/daily_sleep gives the score; /sleep gives metrics) ──
