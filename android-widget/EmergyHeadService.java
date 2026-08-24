@@ -271,10 +271,19 @@ public class EmergyHeadService extends Service {
 
         speech = bubble;
         windows.addView(speech, params);
-        // Long enough to read a sentence, short enough not to sit over another
-        // app until it is dismissed by hand.
+        // Also written onto the ongoing notification. The speech clears itself
+        // after half a minute, so without this a pop that happened while the
+        // phone was in a pocket leaves no evidence it ever did — which is
+        // exactly what made the first live one impossible to confirm.
+        updateNotice("Said: " + message);
+        // Half a minute, not nine seconds. Nine is enough to read a line you
+        // are already looking at and nowhere near enough to catch one you
+        // weren't — the first real reminder this fired on was missed entirely
+        // for that reason, which makes a reminder you can miss no reminder.
+        // Still bounded: something that sits over another app until dismissed
+        // by hand is the thing people revoke the permission over.
         main.removeCallbacks(hideSpeech);
-        main.postDelayed(hideSpeech, 9000);
+        main.postDelayed(hideSpeech, 30_000);
     }
 
     private void removeSpeech() {
@@ -406,6 +415,29 @@ public class EmergyHeadService extends Service {
 
     // -------------------------------------------------------- foreground notice
 
+    private Notification notice(String text) {
+        Intent stop = new Intent(this, EmergyHeadService.class).setAction(ACTION_STOP);
+        PendingIntent stopIntent = PendingIntent.getService(
+            this, 0, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+        return new Notification.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_emergy)
+            .setContentTitle("Emergy is floating")
+            .setContentText(text)
+            .setStyle(new Notification.BigTextStyle().bigText(text))
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .addAction(new Notification.Action.Builder(null, "Stop", stopIntent).build())
+            .build();
+    }
+
+    /** Rewrite the ongoing notice — only if we are already showing one. */
+    private void updateNotice(String text) {
+        if (!running) return;
+        NotificationManager nm = getSystemService(NotificationManager.class);
+        if (nm != null) nm.notify(NOTIFICATION_ID, notice(text));
+    }
+
     private void startForegroundNotice() {
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm != null) {
@@ -417,17 +449,7 @@ public class EmergyHeadService extends Service {
             nm.createNotificationChannel(channel);
         }
 
-        Intent stop = new Intent(this, EmergyHeadService.class).setAction(ACTION_STOP);
-        PendingIntent stopIntent = PendingIntent.getService(
-            this, 0, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-
-        Notification notification = new Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_stat_emergy)
-            .setContentTitle("Emergy is floating")
-            .setContentText("Drag him anywhere, tap to talk.")
-            .setOngoing(true)
-            .addAction(new Notification.Action.Builder(null, "Stop", stopIntent).build())
-            .build();
+        Notification notification = notice("Drag him anywhere, tap to talk.");
 
         // Android 14 requires a declared type. specialUse is the honest one:
         // this is a user-invoked floating window, not location or media.
