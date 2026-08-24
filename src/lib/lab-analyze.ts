@@ -46,7 +46,12 @@ const ROW_SCHEMA = {
     unit: { type: "string", description: "The unit exactly as printed, e.g. 'mmol/l', 'ng/mL', 'x10^9/l'. Empty string only if the report truly prints none." },
     referenceMin: { type: ["number", "null"], description: "Lower bound of the reference range printed ON THIS REPORT. Null if the report shows no lower bound. Never supply one from your own knowledge." },
     referenceMax: { type: ["number", "null"], description: "Upper bound of the reference range printed ON THIS REPORT. Null if the report shows no upper bound. Never supply one from your own knowledge." },
-    flag: { type: ["string", "null"], enum: ["low", "high", "normal", null], description: "Only if the report itself marks the row (H, L, ↑, ↓, bold, 'mimo referenčné rozmedzie'). Null when the report doesn't mark it — do not decide this yourself." },
+    // "none" rather than null, and a single declared type rather than a union.
+    // The API rejects an enum next to a ["string","null"] type outright — the
+    // whole request 400s, so this feature never worked. Every other schema in
+    // this codebase spells an absent choice as a sentinel string for the same
+    // reason; normalizeReport turns it back into null.
+    flag: { type: "string", enum: ["low", "high", "normal", "none"], description: "Only if the report itself marks the row (H, L, ↑, ↓, bold, 'mimo referenčné rozmedzie'). Use \"none\" when the report doesn't mark it — do not decide this yourself." },
   },
 } as const
 
@@ -87,7 +92,7 @@ const PROMPT =
   "- Decimal commas become decimal points; do not otherwise change a number.\n" +
   "- Copy the unit exactly as printed. Never convert between units.\n" +
   "- A reference range comes from this report or it is null. Reference ranges differ between laboratories and assays, so one supplied from general knowledge would be wrong in a way nobody could see.\n" +
-  "- Only set a flag if the report itself marks the row as out of range.\n" +
+  "- Only set a flag if the report itself marks the row as out of range; otherwise the flag is \"none\".\n" +
   "- A row you cannot read confidently belongs in `unreadable`, not in `results` with a guess.\n\n" +
   "Do not interpret the results, do not comment on what they might mean, and do not add rows the document doesn't contain."
 
