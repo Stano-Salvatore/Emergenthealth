@@ -5,17 +5,17 @@ import android.content.Context;
 import android.content.Intent;
 
 /**
- * Puts the pop alarms back after the two events that wipe them.
+ * Puts the pop-out alarms back after the system throws them away.
  *
- * Android clears every alarm an app holds when the phone reboots, and again
- * when the package is replaced. Neither is unusual — one is a restart, the
- * other is installing a new build — and until this existed both silently
- * switched the feature off while the settings card went on saying how many
- * were armed.
+ * Android clears every alarm an app holds on reboot, and again when the app is
+ * updated. Nothing in the app notices: the settings card would go on saying
+ * "20 armed" while the answer was zero, because from its side nothing changed.
+ * A feature that quietly stops and still reports success is the failure this
+ * project keeps finding, and a phone restart is not an exotic event.
  *
- * Nothing here decides what should pop. It re-arms exactly what was last
- * stored, dropping whatever has since gone past, and the app's own sync
- * replaces the list the next time it runs.
+ * Re-arming happens from what was stored when the alarms were first set, not
+ * from the server: this runs at boot, possibly with no network and certainly
+ * with no session.
  */
 public class HeadBootReceiver extends BroadcastReceiver {
 
@@ -23,14 +23,19 @@ public class HeadBootReceiver extends BroadcastReceiver {
     public void onReceive(Context ctx, Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
-        if (!Intent.ACTION_BOOT_COMPLETED.equals(action)
-            && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)
-            && !"android.intent.action.QUICKBOOT_POWERON".equals(action)) {
-            return;
+        boolean relevant =
+            Intent.ACTION_BOOT_COMPLETED.equals(action)
+                || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)
+                // Some OEM builds send this one instead after a quick restart.
+                || "android.intent.action.QUICKBOOT_POWERON".equals(action);
+        if (!relevant) return;
+
+        try {
+            EmergyBubblePlugin.rearmStoredPops(ctx);
+        } catch (Exception ignored) {
+            // Best effort. The notifications for the same reminders are
+            // rescheduled by the app itself; the head popping out is the
+            // extra, and losing it must not crash the boot receiver.
         }
-        // Revoked while the phone was off: re-arming would set alarms that can
-        // only fail. The app's next sync will re-arm them if it is granted again.
-        if (!android.provider.Settings.canDrawOverlays(ctx)) return;
-        HeadPops.rearm(ctx);
     }
 }
