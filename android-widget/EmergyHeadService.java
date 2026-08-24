@@ -43,6 +43,7 @@ import android.widget.TextView;
 public class EmergyHeadService extends Service {
 
     public static final String ACTION_STOP = "app.emergenthealth.HEAD_STOP";
+    public static final String ACTION_POP = "app.emergenthealth.HEAD_POP_SHOW";
 
     private static final String CHANNEL_ID = "emergy_head";
     private static final int NOTIFICATION_ID = 920002;
@@ -58,6 +59,12 @@ public class EmergyHeadService extends Service {
     private View panel;
     private WebView web;
     private WindowManager.LayoutParams headParams;
+    private View speech;
+    private View dropTarget;
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable hideSpeech = new Runnable() {
+        @Override public void run() { removeSpeech(); }
+    };
 
     private int dp(float value) {
         return Math.round(value * getResources().getDisplayMetrics().density);
@@ -80,6 +87,13 @@ public class EmergyHeadService extends Service {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             stopSelf();
             return START_NOT_STICKY;
+        }
+        if (intent != null && ACTION_POP.equals(intent.getAction())) {
+            // A reminder came due. The head is already on screen by now —
+            // onCreate ran before this if the service was not up — so all that
+            // is left is to let him say the thing.
+            String message = intent.getStringExtra(HeadAlarmReceiver.EXTRA_MESSAGE);
+            if (message != null && !message.trim().isEmpty()) showSpeech(message.trim());
         }
         // Not sticky: a floating window that reappears by itself after the
         // system killed the process is exactly the behaviour that makes people
@@ -134,6 +148,7 @@ public class EmergyHeadService extends Service {
                     touchY = event.getRawY();
                     dragged = false;
                     return true;
+
                 case MotionEvent.ACTION_MOVE: {
                     int dx = Math.round(event.getRawX() - touchX);
                     int dy = Math.round(event.getRawY() - touchY);
@@ -147,16 +162,126 @@ public class EmergyHeadService extends Service {
                         headParams.x = clamp(startX + dx, 0, widthPx() - dp(56));
                         headParams.y = clamp(startY + dy, 0, heightPx() - dp(56));
                         windows.updateViewLayout(head, headParams);
+                        removeSpeech();
+                        showDropTarget();
+                        dropTarget.setAlpha(overDropTarget() ? 1f : 0.6f);
                     }
                     return true;
                 }
-                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_UP: {
+                    boolean drop = dragged && overDropTarget();
+                    hideDropTarget();
+                    if (drop) {
+                        // Dragged onto the ✕ — the Messenger gesture, and the
+                        // one people try first. Put him away for real rather
+                        // than snapping him back to an edge.
+                        stopSelf();
+                        return true;
+                    }
                     if (!dragged) { v.performClick(); togglePanel(); }
                     return true;
+                }
                 default:
                     return false;
             }
         }
+    }
+
+    /** Where the head has to be let go for it to be dismissed. */
+    private void showDropTarget() {
+        if (dropTarget != null) return;
+        TextView x = new TextView(this);
+        x.setText("✕");
+        x.setTextSize(24);
+        x.setTextColor(0xFFC7D2FE);
+        x.setGravity(Gravity.CENTER);
+        x.setBackgroundResource(R.drawable.head_circle);
+
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+            dp(64), dp(64),
+            overlayType(),
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            PixelFormat.TRANSLUCENT);
+        params.gravity = Gravity.TOP | Gravity.START;
+        params.x = (widthPx() - dp(64)) / 2;
+        params.y = heightPx() - dp(140);
+        dropTarget = x;
+        windows.addView(dropTarget, params);
+    }
+
+    private void hideDropTarget() {
+        if (dropTarget == null) return;
+        try { windows.removeView(dropTarget); } catch (Exception ignored) {}
+        dropTarget = null;
+    }
+
+    /** Is the head sitting on the ✕ right now? */
+    private boolean overDropTarget() {
+        int headCx = headParams.x + dp(28);
+        int headCy = headParams.y + dp(28);
+        int targetCx = widthPx() / 2;
+        int targetCy = heightPx() - dp(140) + dp(32);
+        int dx = headCx - targetCx;
+        int dy = headCy - targetCy;
+        // Generous: a drag ending near the ✕ means the same thing as one
+        // ending exactly on it, and missing by 10px should not keep him.
+        return Math.sqrt(dx * (double) dx + dy * (double) dy) < dp(80);
+    }
+
+    // -------------------------------------------------------------- he speaks
+
+    /**
+     * Emergy says something next to his own head.
+     *
+     * The point of the whole feature: a reminder that arrives as a line of
+     * text over whatever is on screen, rather than as one more notification in
+     * a shade nobody pulls down. It clears itself after a few seconds, and a
+     * tap opens the chat where the reminder came from.
+     */
+    private void showSpeech(String message) {
+        if (head == null) return;
+        removeSpeech();
+
+        TextView bubble = new TextView(new android.view.ContextThemeWrapper(
+            this, android.R.style.Theme_DeviceDefault));
+        bubble.setText(message);
+        bubble.setTextSize(13);
+        bubble.setTextColor(0xFFE8E8F5);
+        bubble.setBackgroundResource(R.drawable.head_panel);
+        bubble.setPadding(dp(12), dp(10), dp(12), dp(10));
+        bubble.setMaxLines(4);
+        bubble.setElevation(dp(8));
+        bubble.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { removeSpeech(); togglePanel(); }
+        });
+
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
+            dp(220), WindowManager.LayoutParams.WRAP_CONTENT,
+            overlayType(),
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT);
+        params.gravity = Gravity.TOP | Gravity.START;
+        // Beside the head, flipping to its other side when there is no room —
+        // otherwise the text runs off the screen on a head parked at the right.
+        boolean rightSide = headParams.x + dp(60) + dp(220) <= widthPx();
+        params.x = rightSide ? headParams.x + dp(60) : Math.max(dp(8), headParams.x - dp(228));
+        params.y = clamp(headParams.y, dp(8), heightPx() - dp(120));
+
+        speech = bubble;
+        windows.addView(speech, params);
+        // Long enough to read a sentence, short enough not to sit over another
+        // app until it is dismissed by hand.
+        main.removeCallbacks(hideSpeech);
+        main.postDelayed(hideSpeech, 9000);
+    }
+
+    private void removeSpeech() {
+        main.removeCallbacks(hideSpeech);
+        if (speech == null) return;
+        try { windows.removeView(speech); } catch (Exception ignored) {}
+        speech = null;
     }
 
     // --------------------------------------------------------------- the panel
@@ -321,6 +446,8 @@ public class EmergyHeadService extends Service {
     @Override
     public void onDestroy() {
         removePanel();
+        removeSpeech();
+        hideDropTarget();
         if (head != null) {
             try { windows.removeView(head); } catch (Exception ignored) {}
             head = null;

@@ -6,9 +6,11 @@ import { MessageCircle } from "lucide-react"
 import {
   bubbleAvailability,
   bubbleOutcome,
+  headPopsEnabled,
   headStatus,
   openBubbleSettings,
   requestOverlayPermission,
+  setHeadPopsEnabled,
   showBubble,
   startHead,
   stopHead,
@@ -36,6 +38,7 @@ export function BubbleCard() {
   const [state, setState] = useState<BubbleAvailability | null>(null)
   const [head, setHead] = useState<HeadStatus | null>(null)
   const [headKnown, setHeadKnown] = useState(false)
+  const [pops, setPops] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<"floated" | "notification" | "unknown" | null>(null)
@@ -47,6 +50,7 @@ export function BubbleCard() {
       if (cancelled) return
       setState(a)
       setHead(h)
+      setPops(headPopsEnabled())
       setHeadKnown(true)
     })()
     return () => { cancelled = true }
@@ -111,7 +115,8 @@ export function BubbleCard() {
             <p className="text-xs text-muted-foreground">
               <span className="text-foreground font-medium">Chat head.</span> Emergy sits on
               top of whatever you&apos;re doing, like a Messenger bubble. Drag him anywhere,
-              tap to talk, and the notification he leaves has a Stop button.
+              tap to talk, and drag him onto the ✕ at the bottom to put him away. The
+              notification he leaves has a Stop button too.
             </p>
             {!head.granted && (
               <p className="text-xs text-amber-400">
@@ -128,6 +133,23 @@ export function BubbleCard() {
                 <Button size="sm" onClick={grantOverlay}>Allow it</Button>
               )}
             </div>
+
+            {head.granted && (
+              <label className="flex items-start gap-2 pt-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 accent-primary"
+                  checked={pops}
+                  onChange={e => { setPops(e.target.checked); setHeadPopsEnabled(e.target.checked) }}
+                />
+                <span className="text-xs text-muted-foreground">
+                  Let reminders pop him out. He appears over whatever you&apos;re doing and says
+                  the reminder, then clears himself after a few seconds.{" "}
+                  <span className="text-foreground">Takes effect at the next sync</span> — reopen
+                  the app once after switching this on.
+                </span>
+              </label>
+            )}
           </div>
         ) : null}
 

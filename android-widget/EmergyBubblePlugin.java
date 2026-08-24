@@ -296,6 +296,101 @@ public class EmergyBubblePlugin extends Plugin {
         }
     }
 
+    /**
+     * Set the alarms that make reminders pop the head onto the screen.
+     *
+     * Replaces the whole set every time, the same way the notification
+     * scheduler does: the app re-syncs from the server's list rather than
+     * patching, so a reminder deleted on the web must not survive as an alarm
+     * on the phone. The ids that were laid down are kept in a preference,
+     * because an alarm can only be cancelled by rebuilding the PendingIntent
+     * that made it and there is no way to ask Android what is pending.
+     */
+    @PluginMethod
+    public void scheduleHeadPops(PluginCall call) {
+        Context ctx = getContext();
+        cancelAllPops(ctx);
+
+        com.getcapacitor.JSArray pops = call.getArray("pops");
+        if (pops == null) { call.resolve(new JSObject().put("scheduled", 0)); return; }
+
+        android.app.AlarmManager am = ctx.getSystemService(android.app.AlarmManager.class);
+        if (am == null) { call.reject("No alarm manager"); return; }
+
+        StringBuilder laid = new StringBuilder();
+        int count = 0;
+        try {
+            for (int i = 0; i < pops.length(); i++) {
+                org.json.JSONObject pop = pops.getJSONObject(i);
+                int id = pop.optInt("id", 0);
+                long at = pop.optLong("at", 0L);
+                String message = pop.optString("message", "");
+                // In the past by the time we got here: skipped rather than
+                // fired immediately, which is what an alarm set for a moment
+                // already gone would otherwise do.
+                if (id == 0 || at <= System.currentTimeMillis() || message.isEmpty()) continue;
+
+                android.app.PendingIntent pi = popIntent(ctx, id, message);
+                if (canScheduleExact(am)) {
+                    am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
+                } else {
+                    // Not granted "Alarms & reminders": still delivered, just
+                    // not to the minute. Silently downgrading beats not firing.
+                    am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
+                }
+                if (laid.length() > 0) laid.append(",");
+                laid.append(id);
+                count++;
+            }
+        } catch (Exception e) {
+            call.reject(e.getMessage() == null ? "Couldn't set the alarms" : e.getMessage());
+            return;
+        }
+
+        ctx.getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE)
+            .edit().putString(POP_IDS, laid.toString()).apply();
+        call.resolve(new JSObject().put("scheduled", count));
+    }
+
+    @PluginMethod
+    public void cancelHeadPops(PluginCall call) {
+        cancelAllPops(getContext());
+        call.resolve();
+    }
+
+    private static final String POP_PREFS = "emergy_head_pops";
+    private static final String POP_IDS = "ids";
+
+    private static boolean canScheduleExact(android.app.AlarmManager am) {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms();
+    }
+
+    private static android.app.PendingIntent popIntent(Context ctx, int id, String message) {
+        Intent intent = new Intent(ctx, HeadAlarmReceiver.class)
+            .setAction(HeadAlarmReceiver.ACTION_POP)
+            .putExtra(HeadAlarmReceiver.EXTRA_MESSAGE, message);
+        return android.app.PendingIntent.getBroadcast(
+            ctx, id, intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    private static void cancelAllPops(Context ctx) {
+        android.content.SharedPreferences prefs =
+            ctx.getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE);
+        String stored = prefs.getString(POP_IDS, "");
+        android.app.AlarmManager am = ctx.getSystemService(android.app.AlarmManager.class);
+        if (am != null && stored != null && !stored.isEmpty()) {
+            for (String part : stored.split(",")) {
+                try {
+                    am.cancel(popIntent(ctx, Integer.parseInt(part.trim()), ""));
+                } catch (Exception ignored) {
+                    // A malformed id cancels nothing; it must not stop the rest.
+                }
+            }
+        }
+        prefs.edit().remove(POP_IDS).apply();
+    }
+
     @PluginMethod
     public void stopHead(PluginCall call) {
         Context ctx = getContext();

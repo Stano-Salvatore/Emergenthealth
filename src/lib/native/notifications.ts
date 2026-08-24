@@ -25,6 +25,7 @@ import { Capacitor } from "@capacitor/core"
 import { LocalNotifications } from "@capacitor/local-notifications"
 
 import { activeOn } from "@/lib/med-schedule"
+import { scheduleHeadPops } from "@/lib/native/bubble"
 
 type Reminder = {
   id: string
@@ -469,6 +470,26 @@ export async function syncNotifications(
 
     if (toSchedule.length === 0) return 0
     const capped = toSchedule.slice(0, MAX_SCHEDULED)
+
+    // The same list, again, as alarms that make Emergy pop out and say it —
+    // when that's switched on. Separate from the notification because the
+    // Capacitor plugin posts those from inside itself and offers nothing to
+    // hang this off, so the head keeps its own alarms set from the same source.
+    //
+    // Only entries with a real instant. A repeating daily nudge has no single
+    // `at`, and inventing its next occurrence here would drift out of step
+    // with the notification the moment the schedule changed.
+    void scheduleHeadPops(
+      capped
+        .filter((n): n is typeof n & { schedule: { at: Date } } =>
+          n.schedule != null && "at" in n.schedule && n.schedule.at instanceof Date)
+        .map(n => ({
+          id: n.id,
+          at: n.schedule.at.getTime(),
+          message: n.body ? `${n.title} — ${n.body}` : n.title,
+        })),
+    )
+
     // A schedule call that never answers means nothing was laid down, so it
     // must not be reported as success.
     const ok = await bridge(async () => { await ln.schedule({ notifications: fromEmergy(capped) }); return true }, false)
