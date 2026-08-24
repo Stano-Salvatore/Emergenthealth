@@ -93,6 +93,12 @@ extra_permissions = """
       user opened, not location or media — and it is not sticky, so the system
       killing the process ends the head rather than resurrecting it.
     -->
+    <!--
+      Only to put the chat head's alarms back. Android clears every alarm an
+      app holds when the phone restarts, so without this the pop-outs stop at
+      the first reboot while the app carries on reporting them as armed.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
@@ -255,6 +261,7 @@ widget_copies = [
     # which is the only version that can work on a build with no Bubbles.
     (f"{widget_src}/EmergyHeadService.java",    f"{pkg_java_dir}/EmergyHeadService.java"),
     (f"{widget_src}/HeadAlarmReceiver.java",    f"{pkg_java_dir}/HeadAlarmReceiver.java"),
+    (f"{widget_src}/HeadBootReceiver.java",     f"{pkg_java_dir}/HeadBootReceiver.java"),
     (f"{widget_src}/head_circle.xml",           f"{res_drawable}/head_circle.xml"),
     (f"{widget_src}/head_panel.xml",            f"{res_drawable}/head_panel.xml"),
 ]
@@ -408,6 +415,27 @@ if widget_ok:
         print("✓ AndroidManifest.xml updated with HeadAlarmReceiver")
     else:
         print("ℹ️  HeadAlarmReceiver already present")
+
+    # Re-arms the head's alarms after a reboot or an app update, both of which
+    # wipe them. Exported, because the system is the sender.
+    with open(manifest_path) as f:
+        m = f.read()
+    if "HeadBootReceiver" not in m:
+        boot_receiver = """
+        <receiver android:name=".HeadBootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+"""
+        m = m.replace("</application>", boot_receiver + "    </application>", 1)
+        with open(manifest_path, "w") as f:
+            f.write(m)
+        print("✓ AndroidManifest.xml updated with HeadBootReceiver")
+    else:
+        print("ℹ️  HeadBootReceiver already present")
 
     for name, block in extra_receivers.items():
         with open(manifest_path) as f:
