@@ -254,6 +254,7 @@ widget_copies = [
     # Chat head — the Messenger kind: an overlay window this app draws itself,
     # which is the only version that can work on a build with no Bubbles.
     (f"{widget_src}/EmergyHeadService.java",    f"{pkg_java_dir}/EmergyHeadService.java"),
+    (f"{widget_src}/HeadAlarmReceiver.java",    f"{pkg_java_dir}/HeadAlarmReceiver.java"),
     (f"{widget_src}/head_circle.xml",           f"{res_drawable}/head_circle.xml"),
     (f"{widget_src}/head_panel.xml",            f"{res_drawable}/head_panel.xml"),
 ]
@@ -388,6 +389,25 @@ if widget_ok:
         print("✓ AndroidManifest.xml updated with EmergyHeadService")
     else:
         print("ℹ️  EmergyHeadService already present")
+
+    # The alarm that makes a reminder pop the head. Not exported: nothing
+    # outside this app has any business making it draw over the screen.
+    with open(manifest_path) as f:
+        m = f.read()
+    if "HeadAlarmReceiver" not in m:
+        head_receiver = """
+        <receiver android:name=".HeadAlarmReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="app.emergenthealth.HEAD_POP" />
+            </intent-filter>
+        </receiver>
+"""
+        m = m.replace("</application>", head_receiver + "    </application>", 1)
+        with open(manifest_path, "w") as f:
+            f.write(m)
+        print("✓ AndroidManifest.xml updated with HeadAlarmReceiver")
+    else:
+        print("ℹ️  HeadAlarmReceiver already present")
 
     for name, block in extra_receivers.items():
         with open(manifest_path) as f:

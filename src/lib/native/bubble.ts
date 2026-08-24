@@ -46,6 +46,15 @@ type EmergyBubblePlugin = {
   requestOverlay(): Promise<void>
   startHead(): Promise<void>
   stopHead(): Promise<void>
+  scheduleHeadPops(options: { pops: HeadPop[] }): Promise<{ scheduled: number }>
+  cancelHeadPops(): Promise<void>
+}
+
+/** One moment at which Emergy should appear and say something. */
+export type HeadPop = {
+  id: number
+  at: number       // epoch ms
+  message: string
 }
 
 /**
@@ -162,4 +171,37 @@ export async function startHead(): Promise<string | null> {
 export async function stopHead(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return
   try { await plugin.stopHead() } catch { /* nothing running */ }
+}
+
+/** Whether reminders should pop the head out. Off unless switched on. */
+const POP_KEY = "eh_head_pops"
+
+export function headPopsEnabled(): boolean {
+  if (typeof localStorage === "undefined") return false
+  return localStorage.getItem(POP_KEY) === "1"
+}
+
+export function setHeadPopsEnabled(on: boolean): void {
+  if (typeof localStorage === "undefined") return
+  localStorage.setItem(POP_KEY, on ? "1" : "0")
+}
+
+/**
+ * Lay down the alarms that pop Emergy out when a reminder comes due.
+ *
+ * Replaces the whole set each time rather than adding to it — the same
+ * contract the notification scheduler works to, so a reminder deleted on the
+ * web cannot survive as an alarm on the phone.
+ */
+export async function scheduleHeadPops(pops: HeadPop[]): Promise<number> {
+  if (!Capacitor.isNativePlatform()) return 0
+  try {
+    if (!headPopsEnabled()) { await plugin.cancelHeadPops(); return 0 }
+    const res = await plugin.scheduleHeadPops({ pops })
+    return res?.scheduled ?? 0
+  } catch {
+    // An APK from before this existed. The notification still arrives; the
+    // head popping out is the extra, not the delivery.
+    return 0
+  }
 }
