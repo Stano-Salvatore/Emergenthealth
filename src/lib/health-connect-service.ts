@@ -147,21 +147,25 @@ export async function readLast30Days(): Promise<DayPayload[]> {
   for (const r of await safeRead("RestingHeartRate")) {
     const d = dateStr(new Date(r.time))
     if (!hrMap.has(d)) hrMap.set(d, [])
-    hrMap.get(d)!.push(r.beatsPerMinute ?? 0)
+    // Skipped when absent, not counted as zero. These lists are averaged, so a
+    // reading with no value would pull the day's figure towards a number no
+    // heart ever produced — and a day where every record lacked one would come
+    // out as exactly 0 bpm and be stored as a measurement.
+    if (r.beatsPerMinute != null) hrMap.get(d)!.push(r.beatsPerMinute)
   }
 
   // ── HRV (average per day) ─────────────────────────────────────────────────
   for (const r of await safeRead("HeartRateVariabilityRmssd")) {
     const d = dateStr(new Date(r.time))
     if (!hrvMap.has(d)) hrvMap.set(d, [])
-    hrvMap.get(d)!.push(r.heartRateVariabilityMillis ?? 0)
+    if (r.heartRateVariabilityMillis != null) hrvMap.get(d)!.push(r.heartRateVariabilityMillis)
   }
 
   // ── SpO₂ (average per day) ───────────────────────────────────────────────
   for (const r of await safeRead("OxygenSaturation")) {
     const d = dateStr(new Date(r.time))
     if (!spo2Map.has(d)) spo2Map.set(d, [])
-    spo2Map.get(d)!.push(r.percentage?.value ?? 0)
+    if (r.percentage?.value != null) spo2Map.get(d)!.push(r.percentage.value)
   }
 
   // ── Weight (latest per day) ───────────────────────────────────────────────

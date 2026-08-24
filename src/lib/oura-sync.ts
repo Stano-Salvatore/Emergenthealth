@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { plausibleBreathRate, plausibleHeartRate, plausibleHrv, plausibleSpo2 } from "@/lib/vitals"
 import { getDailySleep, getDailySleepScores, getDailyActivity, getDailyReadiness, getDailySpo2, getDailyStress, getOuraTags } from "@/lib/oura"
 import { classifyOuraTag, INTAKE_KINDS } from "@/lib/oura-tag-classify"
 import { estimateCaffeine } from "@/lib/caffeine"
@@ -89,12 +90,12 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         ...(s?.deepSleepSeconds   != null && { deepSleep:            Math.round(s.deepSleepSeconds / 60) }),
         ...(s?.remSleepSeconds    != null && { remSleep:             Math.round(s.remSleepSeconds / 60) }),
         ...(s?.lightSleepSeconds  != null && { lightSleep:           Math.round(s.lightSleepSeconds / 60) }),
-        ...(s?.avgRestingHR       != null && { restingHR:            Math.round(s.avgRestingHR) }),
-        ...(s?.hrv                != null && { hrv:                  s.hrv }),
+        ...(plausibleHeartRate(s?.avgRestingHR) != null && { restingHR: Math.round(s!.avgRestingHR!) }),
+        ...(plausibleHrv(s?.hrv)  != null && { hrv:                  s!.hrv }),
         ...(s?.efficiency         != null && { sleepEfficiency:      s.efficiency }),
         ...(s?.latencySeconds     != null && { sleepLatency:         Math.round(s.latencySeconds / 60) }),
         // Sleep extended
-        ...(s?.breathRate         != null && { breathingRate:        s.breathRate }),
+        ...(plausibleBreathRate(s?.breathRate) != null && { breathingRate: s!.breathRate }),
         ...(s?.awakeTimeSeconds   != null && { awakeTime:            Math.round(s.awakeTimeSeconds / 60) }),
         ...(s?.timeInBedSeconds   != null && { timeInBed:            Math.round(s.timeInBedSeconds / 60) }),
         ...(s?.restlessPeriods    != null && { restlessPeriods:      s.restlessPeriods }),
@@ -113,7 +114,9 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         ...(r?.score              != null && { readinessScore:       r.score }),
         ...(r?.skinTemp           != null && { skinTemp:             r.skinTemp }),
         // SpO2
-        ...(o?.spo2               != null && { spo2:                 o.spo2 }),
+        // Not `!= null`: two days in this database hold an SpO2 of 0, which
+        // that check waves through as a reading. See lib/vitals.
+        ...(plausibleSpo2(o?.spo2) != null && { spo2:                 o!.spo2 }),
         ...(o?.breathingDisturbance != null && { breathingDisturbance: o.breathingDisturbance }),
         // Sleep score (from /daily_sleep, separate from /sleep metrics)
         ...(sc?.score             != null && { sleepScore:           sc.score }),
