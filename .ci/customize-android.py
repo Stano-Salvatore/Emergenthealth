@@ -81,6 +81,21 @@ extra_permissions = """
       than offering a button that silently does nothing.
     -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!--
+      The floating chat head. SYSTEM_ALERT_WINDOW is the permission that lets
+      an app paint over any other app, and it is not granted at install: the
+      user has to turn it on by hand under "Display over other apps". Declaring
+      it here only makes that switch exist. Nothing floats until someone flips
+      it and then asks for the head, and the head's own notification carries a
+      Stop button.
+
+      The service is FOREGROUND_SERVICE_TYPE_SPECIAL_USE — it is a window the
+      user opened, not location or media — and it is not sticky, so the system
+      killing the process ends the head rather than resurrecting it.
+    -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
@@ -236,6 +251,11 @@ widget_copies = [
     # Bubble — Emergy floating over other apps (Android 11+)
     (f"{widget_src}/EmergyBubblePlugin.java",   f"{pkg_java_dir}/EmergyBubblePlugin.java"),
     (f"{widget_src}/BubbleActivity.java",       f"{pkg_java_dir}/BubbleActivity.java"),
+    # Chat head — the Messenger kind: an overlay window this app draws itself,
+    # which is the only version that can work on a build with no Bubbles.
+    (f"{widget_src}/EmergyHeadService.java",    f"{pkg_java_dir}/EmergyHeadService.java"),
+    (f"{widget_src}/head_circle.xml",           f"{res_drawable}/head_circle.xml"),
+    (f"{widget_src}/head_panel.xml",            f"{res_drawable}/head_panel.xml"),
 ]
 
 widget_ok = True
@@ -345,6 +365,29 @@ if widget_ok:
         print("✓ AndroidManifest.xml updated with BubbleActivity")
     else:
         print("ℹ️  BubbleActivity already present")
+
+    # The chat head's service. Android 14+ refuses to start a foreground
+    # service with no declared type, and specialUse needs the property below
+    # spelling out what the special use actually is.
+    with open(manifest_path) as f:
+        m = f.read()
+    if "EmergyHeadService" not in m:
+        head_service = """
+        <service
+            android:name=".EmergyHeadService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="A floating chat window the user switches on and can stop from its own notification" />
+        </service>
+"""
+        m = m.replace("</application>", head_service + "    </application>", 1)
+        with open(manifest_path, "w") as f:
+            f.write(m)
+        print("✓ AndroidManifest.xml updated with EmergyHeadService")
+    else:
+        print("ℹ️  EmergyHeadService already present")
 
     for name, block in extra_receivers.items():
         with open(manifest_path) as f:

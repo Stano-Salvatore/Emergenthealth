@@ -42,6 +42,24 @@ type EmergyBubblePlugin = {
   hide(): Promise<void>
   didBubble(): Promise<BubbleOutcome>
   openSettings(): Promise<void>
+  headStatus(): Promise<HeadStatus>
+  requestOverlay(): Promise<void>
+  startHead(): Promise<void>
+  stopHead(): Promise<void>
+}
+
+/**
+ * The chat head — the Messenger kind, which is a different mechanism from a
+ * bubble despite looking the same in a screenshot.
+ *
+ * A bubble is a notification the system may choose to float; Samsung's One UI
+ * does not implement them at all, so on those phones a correct bubble is still
+ * just a notification. A head is a window the app draws itself, which works
+ * everywhere and costs the "display over other apps" permission.
+ */
+export type HeadStatus = {
+  granted: boolean   // the user has allowed drawing over other apps
+  running: boolean   // a head is on screen right now
 }
 
 const plugin = registerPlugin<EmergyBubblePlugin>("EmergyBubble")
@@ -105,4 +123,43 @@ export async function openBubbleSettings(): Promise<boolean> {
 export async function hideBubble(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return
   try { await plugin.hide() } catch { /* nothing to hide */ }
+}
+
+/** Whether we may float a head, and whether one is up. */
+export async function headStatus(): Promise<HeadStatus | null> {
+  if (!Capacitor.isNativePlatform()) return null
+  try {
+    return await plugin.headStatus()
+  } catch {
+    // An APK from before the head existed. Absent, not off.
+    return null
+  }
+}
+
+/**
+ * Open the phone's "display over other apps" screen for this app.
+ *
+ * There is no runtime dialog for this one — it cannot be requested in a
+ * prompt, only switched on by hand — so pointing at the exact screen is the
+ * whole of what an app is allowed to do.
+ */
+export async function requestOverlayPermission(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try { await plugin.requestOverlay() } catch { /* screen unavailable */ }
+}
+
+/** Float him. Returns a reason when it couldn't, never a silent no-op. */
+export async function startHead(): Promise<string | null> {
+  if (!Capacitor.isNativePlatform()) return "The chat head only works in the Android app."
+  try {
+    await plugin.startHead()
+    return null
+  } catch (e) {
+    return e instanceof Error ? e.message : "Couldn't start the chat head."
+  }
+}
+
+export async function stopHead(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try { await plugin.stopHead() } catch { /* nothing running */ }
 }
