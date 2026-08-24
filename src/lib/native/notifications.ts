@@ -340,6 +340,62 @@ export function buildNudges(prefs: NudgePrefs): { id: number; title: string; bod
  * reminders (one-shot) + daily nudges (repeating), unless nudges are off.
  * Returns the number of notifications scheduled.
  */
+/** How many days of daily-nudge pops to lay down at a time. */
+const POP_WINDOW_DAYS = 7
+
+/** Never set more alarms than this, however the schedule grows. */
+const MAX_POPS = 120
+
+/**
+ * The moments at which Emergy should appear and say something.
+ *
+ * One-shot notifications map straight across. Repeating daily nudges are
+ * expanded into a rolling window of individual occurrences — the same way this
+ * module already handles habits, because a repeating alarm has no single
+ * instant and an alarm needs one.
+ *
+ * That expansion was left out at first, on the grounds that a computed next
+ * occurrence would drift from the notification if the schedule changed. It
+ * cannot: the whole set is replaced on every sync, so a changed schedule
+ * corrects itself the next time the app opens. Leaving it out meant the
+ * feature only ever fired for things a person might not have — for someone
+ * whose only scheduled notifications are the three daily nudges it did nothing
+ * at all, and reported "0 armed" as though that were an answer.
+ */
+export function buildPops(
+  scheduled: { id: number; title: string; body?: string; schedule?: unknown }[],
+  nudgePrefs: NudgePrefs,
+  now: Date = new Date(),
+  nudgesOn = true,
+): { id: number; at: number; message: string }[] {
+  const pops: { id: number; at: number; message: string }[] = []
+  // Sequential ids. They are only PendingIntent request codes, and the set is
+  // cancelled from a stored list rather than by recomputing them, so they need
+  // to be unique among themselves and nothing more.
+  const push = (at: number, title: string, body?: string) => {
+    if (!Number.isFinite(at) || at <= now.getTime()) return
+    pops.push({ id: pops.length + 1, at, message: body ? `${title} — ${body}` : title })
+  }
+
+  for (const n of scheduled) {
+    const at = (n.schedule as { at?: unknown } | undefined)?.at
+    if (at instanceof Date) push(at.getTime(), n.title, n.body)
+  }
+
+  if (nudgesOn) {
+    for (const nudge of buildNudges(nudgePrefs)) {
+      for (let day = 0; day < POP_WINDOW_DAYS; day++) {
+        const at = new Date(now)
+        at.setDate(at.getDate() + day)
+        at.setHours(nudge.hour, nudge.minute, 0, 0)
+        push(at.getTime(), nudge.title, nudge.body)
+      }
+    }
+  }
+
+  return pops.sort((a, b) => a.at - b.at).slice(0, MAX_POPS)
+}
+
 export async function syncNotifications(
   reminders: Reminder[],
   habits: HabitReminder[] = [],
@@ -476,22 +532,10 @@ export async function syncNotifications(
     // Capacitor plugin posts those from inside itself and offers nothing to
     // hang this off, so the head keeps its own alarms set from the same source.
     //
-    // Only entries with a real instant. A repeating daily nudge has no single
-    // `at`, and inventing its next occurrence here would drift out of step
-    // with the notification the moment the schedule changed.
     // Awaited, not fired and forgotten: the settings toggle reads the count
     // straight after this returns, and a race there would have the card
     // reporting the previous sync's number as if it were this one's.
-    await scheduleHeadPops(
-      capped
-        .filter((n): n is typeof n & { schedule: { at: Date } } =>
-          n.schedule != null && "at" in n.schedule && n.schedule.at instanceof Date)
-        .map(n => ({
-          id: n.id,
-          at: n.schedule.at.getTime(),
-          message: n.body ? `${n.title} — ${n.body}` : n.title,
-        })),
-    )
+    await scheduleHeadPops(buildPops(capped, nudgePrefs, new Date(), nudgesEnabled()))
 
     // A schedule call that never answers means nothing was laid down, so it
     // must not be reported as success.

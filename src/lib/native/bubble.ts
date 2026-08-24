@@ -194,8 +194,8 @@ export function setHeadPopsEnabled(on: boolean): void {
  * contract the notification scheduler works to, so a reminder deleted on the
  * web cannot survive as an alarm on the phone.
  */
-export async function scheduleHeadPops(pops: HeadPop[]): Promise<number> {
-  if (!Capacitor.isNativePlatform()) return 0
+export async function scheduleHeadPops(pops: HeadPop[]): Promise<number | null> {
+  if (!Capacitor.isNativePlatform()) return null
   try {
     if (!headPopsEnabled()) { await plugin.cancelHeadPops(); return 0 }
     const res = await plugin.scheduleHeadPops({ pops })
@@ -203,19 +203,30 @@ export async function scheduleHeadPops(pops: HeadPop[]): Promise<number> {
     // Kept so the settings card can say how many are armed. "Switched on" and
     // "actually has alarms" are different facts, and only the second one means
     // anything will happen.
-    try { localStorage.setItem(POP_COUNT_KEY, String(n)) } catch { /* private mode */ }
+    remember(String(n))
     return n
   } catch {
-    // An APK from before this existed. The notification still arrives; the
-    // head popping out is the extra, not the delivery.
-    return 0
+    // An APK from before this existed. Recorded as its own state, not as
+    // zero: "your app build can't do this yet" and "you have nothing with a
+    // time on it" both mean nothing pops, and they need opposite answers.
+    remember("unavailable")
+    return null
   }
 }
 
-/** How many pops the last sync actually armed. */
-export async function headPopCount(): Promise<number> {
+function remember(value: string): void {
+  try { localStorage.setItem(POP_COUNT_KEY, value) } catch { /* private mode */ }
+}
+
+/**
+ * How many pops the last sync armed — or null when this app build has no
+ * chat-head plugin to arm them with.
+ */
+export async function headPopCount(): Promise<number | null> {
   try {
-    return Number(localStorage.getItem(POP_COUNT_KEY) ?? "0") || 0
+    const raw = localStorage.getItem(POP_COUNT_KEY)
+    if (raw === "unavailable") return null
+    return Number(raw ?? "0") || 0
   } catch {
     return 0
   }

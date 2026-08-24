@@ -43,7 +43,7 @@ export function BubbleCard() {
   const [headKnown, setHeadKnown] = useState(false)
   const [pops, setPops] = useState(false)
   const [popsBusy, setPopsBusy] = useState(false)
-  const [popsSet, setPopsSet] = useState<number | null>(null)
+  const [popsSet, setPopsSet] = useState<number | "unavailable" | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<"floated" | "notification" | "unknown" | null>(null)
@@ -92,9 +92,10 @@ export function BubbleCard() {
     setPopsBusy(true)
     try {
       await resyncNotifications()
-      setPopsSet(await headPopCount())
+      const n = await headPopCount()
+      setPopsSet(n === null ? "unavailable" : n)
     } catch {
-      setPopsSet(0)
+      setPopsSet("unavailable")
     }
     setPopsBusy(false)
   }
@@ -174,9 +175,16 @@ export function BubbleCard() {
                   Let reminders pop him out. He appears over whatever you&apos;re doing and says
                   the reminder, then clears himself after a few seconds.
                   {popsBusy && <span className="text-foreground"> Setting the alarms…</span>}
-                  {popsSet != null && !popsBusy && (
-                    <span className="text-foreground">
-                      {" "}{popsSet} reminder{popsSet === 1 ? "" : "s"} armed.
+                  {!popsBusy && popsSet === "unavailable" && (
+                    <span className="text-amber-400">
+                      {" "}This app build can&apos;t arm them — install the latest APK.
+                    </span>
+                  )}
+                  {!popsBusy && typeof popsSet === "number" && (
+                    <span className={popsSet === 0 ? "text-amber-400" : "text-foreground"}>
+                      {" "}{popsSet === 0
+                        ? "Nothing armed — you have no reminders or nudges with a time on them."
+                        : `${popsSet} armed.`}
                     </span>
                   )}
                 </span>
