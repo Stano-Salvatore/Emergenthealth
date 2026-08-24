@@ -6,10 +6,12 @@ import { MessageCircle } from "lucide-react"
 import {
   bubbleAvailability,
   bubbleOutcome,
+  headPopCount,
   headPopsEnabled,
   headStatus,
   openBubbleSettings,
   requestOverlayPermission,
+  scheduleHeadPops,
   setHeadPopsEnabled,
   showBubble,
   startHead,
@@ -17,6 +19,7 @@ import {
   type BubbleAvailability,
   type HeadStatus,
 } from "@/lib/native/bubble"
+import { resyncNotifications } from "@/lib/native/notifications"
 
 /**
  * Emergy floating over other apps.
@@ -39,6 +42,8 @@ export function BubbleCard() {
   const [head, setHead] = useState<HeadStatus | null>(null)
   const [headKnown, setHeadKnown] = useState(false)
   const [pops, setPops] = useState(false)
+  const [popsBusy, setPopsBusy] = useState(false)
+  const [popsSet, setPopsSet] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<"floated" | "notification" | "unknown" | null>(null)
@@ -69,6 +74,29 @@ export function BubbleCard() {
     }
     setHead(await headStatus())
     setBusy(false)
+  }
+
+  /**
+   * Switching this on has to lay the alarms down now.
+   *
+   * The app's own re-sync is throttled to once every 30 minutes, so "reopen
+   * the app" was not a reliable instruction — reopen it a minute later and
+   * nothing would happen, with no way to tell that from a broken feature.
+   * This calls the sync directly and then says how many are armed.
+   */
+  async function togglePops(on: boolean) {
+    setPops(on)
+    setHeadPopsEnabled(on)
+    setPopsSet(null)
+    if (!on) { await scheduleHeadPops([]); return }
+    setPopsBusy(true)
+    try {
+      await resyncNotifications()
+      setPopsSet(await headPopCount())
+    } catch {
+      setPopsSet(0)
+    }
+    setPopsBusy(false)
   }
 
   async function grantOverlay() {
@@ -140,13 +168,17 @@ export function BubbleCard() {
                   type="checkbox"
                   className="mt-0.5 accent-primary"
                   checked={pops}
-                  onChange={e => { setPops(e.target.checked); setHeadPopsEnabled(e.target.checked) }}
+                  onChange={e => { void togglePops(e.target.checked) }}
                 />
                 <span className="text-xs text-muted-foreground">
                   Let reminders pop him out. He appears over whatever you&apos;re doing and says
-                  the reminder, then clears himself after a few seconds.{" "}
-                  <span className="text-foreground">Takes effect at the next sync</span> — reopen
-                  the app once after switching this on.
+                  the reminder, then clears himself after a few seconds.
+                  {popsBusy && <span className="text-foreground"> Setting the alarms…</span>}
+                  {popsSet != null && !popsBusy && (
+                    <span className="text-foreground">
+                      {" "}{popsSet} reminder{popsSet === 1 ? "" : "s"} armed.
+                    </span>
+                  )}
                 </span>
               </label>
             )}

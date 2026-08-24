@@ -479,7 +479,10 @@ export async function syncNotifications(
     // Only entries with a real instant. A repeating daily nudge has no single
     // `at`, and inventing its next occurrence here would drift out of step
     // with the notification the moment the schedule changed.
-    void scheduleHeadPops(
+    // Awaited, not fired and forgotten: the settings toggle reads the count
+    // straight after this returns, and a race there would have the card
+    // reporting the previous sync's number as if it were this one's.
+    await scheduleHeadPops(
       capped
         .filter((n): n is typeof n & { schedule: { at: Date } } =>
           n.schedule != null && "at" in n.schedule && n.schedule.at instanceof Date)
