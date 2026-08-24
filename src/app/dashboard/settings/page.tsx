@@ -27,6 +27,7 @@ import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
 import { SyncStatusCard } from "@/components/settings/SyncStatusCard"
 import { TelegramCard } from "@/components/settings/TelegramCard"
+import { BubbleCard } from "@/components/settings/BubbleCard"
 import { DigestPreferences } from "@/components/settings/DigestPreferences"
 import { WeeklyReviewSchedule } from "@/components/settings/WeeklyReviewSchedule"
 import { StravaManager } from "@/components/settings/StravaManager"
@@ -319,6 +320,7 @@ export default async function SettingsPage({
       <SyncStatusCard />
 
       {/* Emergy outside the app */}
+      <BubbleCard />
       <TelegramCard />
 
       {/* Oura Ring connection (client component) */}
