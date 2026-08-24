@@ -358,6 +358,48 @@ public class EmergyBubblePlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * One pop a few seconds out, to prove the path works without waiting for
+     * a real reminder.
+     *
+     * It goes through the alarm and the receiver like any other, because that
+     * is the part nobody can verify by reading code: whether Android lets this
+     * app raise a window from the background at all, and whether the phone's
+     * battery manager sat on the alarm. Calling the service directly would
+     * prove none of it.
+     *
+     * Its id is reserved and outside the sequential range the real pops use,
+     * and it is not added to the stored list, so a test neither cancels the
+     * armed set nor survives in it.
+     */
+    @PluginMethod
+    public void testHeadPop(PluginCall call) {
+        Context ctx = getContext();
+        if (!android.provider.Settings.canDrawOverlays(ctx)) {
+            call.reject("Emergenthealth needs permission to display over other apps");
+            return;
+        }
+        android.app.AlarmManager am = ctx.getSystemService(android.app.AlarmManager.class);
+        if (am == null) { call.reject("No alarm manager"); return; }
+
+        int seconds = call.getInt("seconds", 12);
+        long at = System.currentTimeMillis() + Math.max(3, seconds) * 1000L;
+        android.app.PendingIntent pi = popIntent(
+            ctx, TEST_POP_ID, "Test — if you can read this over another app, it works 🌱");
+        if (canScheduleExact(am)) {
+            am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
+        } else {
+            am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
+        }
+        JSObject ret = new JSObject();
+        ret.put("at", at);
+        ret.put("exact", canScheduleExact(am));
+        call.resolve(ret);
+    }
+
+    /** Reserved, well clear of the sequential ids the real pops are given. */
+    private static final int TEST_POP_ID = 999_999;
+
     private static final String POP_PREFS = "emergy_head_pops";
     private static final String POP_IDS = "ids";
 
