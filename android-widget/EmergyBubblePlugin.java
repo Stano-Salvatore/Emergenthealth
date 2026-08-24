@@ -240,6 +240,69 @@ public class EmergyBubblePlugin extends Plugin {
         call.resolve(ret);
     }
 
+    // ------------------------------------------------------------ the chat head
+    //
+    // Separate from everything above on purpose. The bubble is a notification
+    // the system may float; the head is a window this app draws. They look the
+    // same in a screenshot and share nothing, and on a phone whose Android
+    // build has no Bubbles support — Samsung's, for one — only the second one
+    // can work at all.
+
+    /** Can we float a head, and are we floating one right now? */
+    @PluginMethod
+    public void headStatus(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("granted", android.provider.Settings.canDrawOverlays(getContext()));
+        ret.put("running", EmergyHeadService.isRunning());
+        call.resolve(ret);
+    }
+
+    /**
+     * Open the phone's "Display over other apps" screen for this app.
+     *
+     * There is no runtime prompt for this permission — it cannot be requested
+     * in a dialog, only granted by hand in Settings — so sending the user
+     * straight to the right screen is the whole of what an app can do.
+     */
+    @PluginMethod
+    public void requestOverlay(PluginCall call) {
+        try {
+            Intent intent = new Intent(
+                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:" + getContext().getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Couldn't open the overlay permission screen");
+        }
+    }
+
+    @PluginMethod
+    public void startHead(PluginCall call) {
+        Context ctx = getContext();
+        if (!android.provider.Settings.canDrawOverlays(ctx)) {
+            // Refused rather than started-and-silently-empty: without the
+            // permission the service would come up, add nothing to the screen
+            // and look identical to a bug.
+            call.reject("Emergenthealth needs permission to display over other apps");
+            return;
+        }
+        try {
+            ctx.startForegroundService(new Intent(ctx, EmergyHeadService.class));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(e.getMessage() == null ? "Couldn't start the chat head" : e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopHead(PluginCall call) {
+        Context ctx = getContext();
+        ctx.stopService(new Intent(ctx, EmergyHeadService.class));
+        call.resolve();
+    }
+
     @PluginMethod
     public void hide(PluginCall call) {
         NotificationManagerCompat.from(getContext()).cancel(NOTIFICATION_ID);
