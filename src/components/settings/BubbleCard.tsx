@@ -16,6 +16,7 @@ import {
   showBubble,
   startHead,
   stopHead,
+  testHeadPop,
   type BubbleAvailability,
   type HeadStatus,
 } from "@/lib/native/bubble"
@@ -43,6 +44,7 @@ export function BubbleCard() {
   const [headKnown, setHeadKnown] = useState(false)
   const [pops, setPops] = useState(false)
   const [popsBusy, setPopsBusy] = useState(false)
+  const [testNote, setTestNote] = useState<string | null>(null)
   const [popsSet, setPopsSet] = useState<number | "unavailable" | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -162,6 +164,21 @@ export function BubbleCard() {
                 <Button size="sm" onClick={grantOverlay}>Allow it</Button>
               )}
             </div>
+
+            {head.granted && typeof popsSet === "number" && popsSet > 0 && (
+              <div className="space-y-1 pt-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    setTestNote(await testHeadPop(12) ?? "Set. Leave this app now — he should appear in about 12 seconds.")
+                  }}
+                >
+                  Test it in 12s
+                </Button>
+                {testNote && <p className="text-xs text-muted-foreground">{testNote}</p>}
+              </div>
+            )}
 
             {head.granted && (
               <label className="flex items-start gap-2 pt-1 cursor-pointer">

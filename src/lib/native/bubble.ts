@@ -48,6 +48,7 @@ type EmergyBubblePlugin = {
   stopHead(): Promise<void>
   scheduleHeadPops(options: { pops: HeadPop[] }): Promise<{ scheduled: number }>
   cancelHeadPops(): Promise<void>
+  testHeadPop(options: { seconds: number }): Promise<{ at: number; exact: boolean }>
 }
 
 /** One moment at which Emergy should appear and say something. */
@@ -229,5 +230,25 @@ export async function headPopCount(): Promise<number | null> {
     return Number(raw ?? "0") || 0
   } catch {
     return 0
+  }
+}
+
+/**
+ * Fire one pop a few seconds from now, through the real alarm.
+ *
+ * The point is to leave the app before it lands. Whether Android permits this
+ * app to raise a window from the background, and whether the phone's battery
+ * manager sat on the alarm, cannot be read off any code — only watched. A
+ * shortcut that showed the head directly would prove neither.
+ */
+export async function testHeadPop(seconds = 12): Promise<string | null> {
+  if (!Capacitor.isNativePlatform()) return "Only in the Android app."
+  try {
+    const res = await plugin.testHeadPop({ seconds })
+    return res?.exact === false
+      ? "Set, but not to the exact second — \"Alarms & reminders\" is off for this app, so it may land late."
+      : null
+  } catch (e) {
+    return e instanceof Error ? e.message : "Couldn't set the test."
   }
 }
