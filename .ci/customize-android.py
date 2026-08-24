@@ -233,6 +233,9 @@ widget_copies = [
     (f"{widget_src}/EmergyWidget.java",         f"{pkg_java_dir}/EmergyWidget.java"),
     (f"{widget_src}/widget_emergy.xml",         f"{res_layout}/widget_emergy.xml"),
     (f"{widget_src}/emergy_widget_info.xml",    f"{res_xml}/emergy_widget_info.xml"),
+    # Bubble — Emergy floating over other apps (Android 11+)
+    (f"{widget_src}/EmergyBubblePlugin.java",   f"{pkg_java_dir}/EmergyBubblePlugin.java"),
+    (f"{widget_src}/BubbleActivity.java",       f"{pkg_java_dir}/BubbleActivity.java"),
 ]
 
 widget_ok = True
@@ -320,6 +323,29 @@ if widget_ok:
         </receiver>
 """,
     }
+    # Bubble host activity. Every attribute here is load-bearing: Android
+    # hosts a bubble in its own small floating window, and refuses — silently —
+    # to bubble a notification whose target is not documentLaunchMode="always",
+    # resizeable and embeddable.
+    with open(manifest_path) as f:
+        m = f.read()
+    if "BubbleActivity" not in m:
+        bubble = """
+        <activity
+            android:name=".BubbleActivity"
+            android:exported="false"
+            android:label="Emergy"
+            android:documentLaunchMode="always"
+            android:resizeableActivity="true"
+            android:allowEmbedded="true" />
+"""
+        m = m.replace("</application>", bubble + "    </application>", 1)
+        with open(manifest_path, "w") as f:
+            f.write(m)
+        print("✓ AndroidManifest.xml updated with BubbleActivity")
+    else:
+        print("ℹ️  BubbleActivity already present")
+
     for name, block in extra_receivers.items():
         with open(manifest_path) as f:
             m = f.read()
