@@ -302,63 +302,30 @@ public class EmergyBubblePlugin extends Plugin {
      * Replaces the whole set every time, the same way the notification
      * scheduler does: the app re-syncs from the server's list rather than
      * patching, so a reminder deleted on the web must not survive as an alarm
-     * on the phone. The ids that were laid down are kept in a preference,
-     * because an alarm can only be cancelled by rebuilding the PendingIntent
-     * that made it and there is no way to ask Android what is pending.
+     * on the phone.
+     *
+     * The arming itself lives in HeadPops, shared with the receiver that puts
+     * these back after a reboot. The boot path has to behave exactly like this
+     * one, and the surest way to get that is for there to be one path.
      */
     @PluginMethod
     public void scheduleHeadPops(PluginCall call) {
         Context ctx = getContext();
-        cancelAllPops(ctx);
+        HeadPops.cancelAll(ctx);
 
         com.getcapacitor.JSArray pops = call.getArray("pops");
         if (pops == null) { call.resolve(new JSObject().put("scheduled", 0)); return; }
-
-        android.app.AlarmManager am = ctx.getSystemService(android.app.AlarmManager.class);
-        if (am == null) { call.reject("No alarm manager"); return; }
-
-        org.json.JSONArray laid = new org.json.JSONArray();
-        int count = 0;
         try {
-            for (int i = 0; i < pops.length(); i++) {
-                org.json.JSONObject pop = pops.getJSONObject(i);
-                int id = pop.optInt("id", 0);
-                long at = pop.optLong("at", 0L);
-                String message = pop.optString("message", "");
-                // In the past by the time we got here: skipped rather than
-                // fired immediately, which is what an alarm set for a moment
-                // already gone would otherwise do.
-                if (id == 0 || at <= System.currentTimeMillis() || message.isEmpty()) continue;
-
-                android.app.PendingIntent pi = popIntent(ctx, id, message);
-                if (canScheduleExact(am)) {
-                    am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
-                } else {
-                    // Not granted "Alarms & reminders": still delivered, just
-                    // not to the minute. Silently downgrading beats not firing.
-                    am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
-                }
-                // The whole record, not just the id. Android drops every alarm
-                // on reboot and on app update, and the list that produced them
-                // lives on a server this receiver cannot reach — so it has to
-                // be able to re-arm from what it kept.
-                laid.put(new org.json.JSONObject()
-                    .put("id", id).put("at", at).put("message", message));
-                count++;
-            }
+            int count = HeadPops.arm(ctx, new org.json.JSONArray(pops.toString()));
+            call.resolve(new JSObject().put("scheduled", count));
         } catch (Exception e) {
             call.reject(e.getMessage() == null ? "Couldn't set the alarms" : e.getMessage());
-            return;
         }
-
-        ctx.getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE)
-            .edit().putString(POP_LIST, laid.toString()).apply();
-        call.resolve(new JSObject().put("scheduled", count));
     }
 
     @PluginMethod
     public void cancelHeadPops(PluginCall call) {
-        cancelAllPops(getContext());
+        HeadPops.cancelAll(getContext());
         call.resolve();
     }
 
@@ -372,9 +339,9 @@ public class EmergyBubblePlugin extends Plugin {
      * battery manager sat on the alarm. Calling the service directly would
      * prove none of it.
      *
-     * Its id is reserved and outside the sequential range the real pops use,
-     * and it is not added to the stored list, so a test neither cancels the
-     * armed set nor survives in it.
+     * Its id is reserved and outside the range the real pops use, and it is
+     * armed directly rather than through HeadPops.arm, so a test neither
+     * cancels the armed set nor is remembered as part of it.
      */
     @PluginMethod
     public void testHeadPop(PluginCall call) {
@@ -388,106 +355,22 @@ public class EmergyBubblePlugin extends Plugin {
 
         int seconds = call.getInt("seconds", 12);
         long at = System.currentTimeMillis() + Math.max(3, seconds) * 1000L;
-        android.app.PendingIntent pi = popIntent(
+        android.app.PendingIntent pi = HeadPops.intentFor(
             ctx, TEST_POP_ID, "Test — if you can read this over another app, it works 🌱");
-        if (canScheduleExact(am)) {
+        boolean exact = HeadPops.canScheduleExact(am);
+        if (exact) {
             am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
         } else {
             am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
         }
         JSObject ret = new JSObject();
         ret.put("at", at);
-        ret.put("exact", canScheduleExact(am));
+        ret.put("exact", exact);
         call.resolve(ret);
     }
 
     /** Reserved, well clear of the sequential ids the real pops are given. */
     private static final int TEST_POP_ID = 999_999;
-
-    private static final String POP_PREFS = "emergy_head_pops";
-    private static final String POP_LIST = "pops";
-
-    private static boolean canScheduleExact(android.app.AlarmManager am) {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.S || am.canScheduleExactAlarms();
-    }
-
-    private static android.app.PendingIntent popIntent(Context ctx, int id, String message) {
-        Intent intent = new Intent(ctx, HeadAlarmReceiver.class)
-            .setAction(HeadAlarmReceiver.ACTION_POP)
-            .putExtra(HeadAlarmReceiver.EXTRA_MESSAGE, message);
-        return android.app.PendingIntent.getBroadcast(
-            ctx, id, intent,
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
-    }
-
-    private static org.json.JSONArray storedPops(Context ctx) {
-        String raw = ctx.getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE)
-            .getString(POP_LIST, "[]");
-        try {
-            return new org.json.JSONArray(raw == null ? "[]" : raw);
-        } catch (Exception e) {
-            return new org.json.JSONArray();
-        }
-    }
-
-    private static void cancelAllPops(Context ctx) {
-        android.app.AlarmManager am = ctx.getSystemService(android.app.AlarmManager.class);
-        org.json.JSONArray stored = storedPops(ctx);
-        if (am != null) {
-            for (int i = 0; i < stored.length(); i++) {
-                try {
-                    am.cancel(popIntent(ctx, stored.getJSONObject(i).optInt("id"), ""));
-                } catch (Exception ignored) {
-                    // A malformed entry cancels nothing; it must not stop the rest.
-                }
-            }
-        }
-        ctx.getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE)
-            .edit().remove(POP_LIST).apply();
-    }
-
-    /**
-     * Put the stored alarms back after the system threw them away.
-     *
-     * Android clears every alarm an app holds when the phone reboots and when
-     * the app is updated. Nothing here notices, so without this the pop-outs
-     * simply stop — and the settings card would go on saying "20 armed",
-     * because from its side nothing changed. That is the exact failure this
-     * whole feature keeps being rebuilt to avoid.
-     *
-     * Occurrences already past are dropped rather than fired late; a nudge
-     * from before a reboot is not news.
-     */
-    static int rearmStoredPops(Context ctx) {
-        if (!android.provider.Settings.canDrawOverlays(ctx)) return 0;
-        android.app.AlarmManager am = ctx.getSystemService(android.app.AlarmManager.class);
-        if (am == null) return 0;
-
-        org.json.JSONArray stored = storedPops(ctx);
-        org.json.JSONArray kept = new org.json.JSONArray();
-        long now = System.currentTimeMillis();
-        for (int i = 0; i < stored.length(); i++) {
-            try {
-                org.json.JSONObject pop = stored.getJSONObject(i);
-                long at = pop.optLong("at", 0L);
-                String message = pop.optString("message", "");
-                int id = pop.optInt("id", 0);
-                if (id == 0 || at <= now || message.isEmpty()) continue;
-                android.app.PendingIntent pi = popIntent(ctx, id, message);
-                if (canScheduleExact(am)) {
-                    am.setExactAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
-                } else {
-                    am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, at, pi);
-                }
-                kept.put(pop);
-            } catch (Exception ignored) {
-                // One bad record must not cost the rest of the list.
-            }
-        }
-        ctx.getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE)
-            .edit().putString(POP_LIST, kept.toString()).apply();
-        return kept.length();
-    }
 
     @PluginMethod
     public void stopHead(PluginCall call) {
