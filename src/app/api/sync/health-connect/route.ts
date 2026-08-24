@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { plausibleHeartRate, plausibleHrv, plausibleSpo2 } from "@/lib/vitals"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
@@ -52,9 +53,11 @@ export async function POST(req: NextRequest) {
         ...(d.lightSleepMin != null    && { lightSleep: d.lightSleepMin }),
         ...(d.sleepStart != null       && { sleepStart: new Date(d.sleepStart) }),
         ...(d.sleepEnd != null         && { sleepEnd: new Date(d.sleepEnd) }),
-        ...(d.restingHR != null        && { restingHR: d.restingHR }),
-        ...(d.hrv != null              && { hrv: d.hrv }),
-        ...(d.spo2 != null             && { spo2: d.spo2 }),
+        // Plausibility, not just presence: a device that reports a reading
+        // with no value has had it turned into 0 upstream more than once.
+        ...(plausibleHeartRate(d.restingHR) != null && { restingHR: d.restingHR }),
+        ...(plausibleHrv(d.hrv) != null && { hrv: d.hrv }),
+        ...(plausibleSpo2(d.spo2) != null && { spo2: d.spo2 }),
         ...(d.weight != null           && { weight: d.weight }),
         ...(d.caloriesBurned != null   && { caloriesBurned: d.caloriesBurned }),
         ...(d.totalCalories != null    && { totalCalories: d.totalCalories }),
