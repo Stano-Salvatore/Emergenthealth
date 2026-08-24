@@ -175,6 +175,7 @@ export async function stopHead(): Promise<void> {
 
 /** Whether reminders should pop the head out. Off unless switched on. */
 const POP_KEY = "eh_head_pops"
+const POP_COUNT_KEY = "eh_head_pops_count"
 
 export function headPopsEnabled(): boolean {
   if (typeof localStorage === "undefined") return false
@@ -198,10 +199,24 @@ export async function scheduleHeadPops(pops: HeadPop[]): Promise<number> {
   try {
     if (!headPopsEnabled()) { await plugin.cancelHeadPops(); return 0 }
     const res = await plugin.scheduleHeadPops({ pops })
-    return res?.scheduled ?? 0
+    const n = res?.scheduled ?? 0
+    // Kept so the settings card can say how many are armed. "Switched on" and
+    // "actually has alarms" are different facts, and only the second one means
+    // anything will happen.
+    try { localStorage.setItem(POP_COUNT_KEY, String(n)) } catch { /* private mode */ }
+    return n
   } catch {
     // An APK from before this existed. The notification still arrives; the
     // head popping out is the extra, not the delivery.
+    return 0
+  }
+}
+
+/** How many pops the last sync actually armed. */
+export async function headPopCount(): Promise<number> {
+  try {
+    return Number(localStorage.getItem(POP_COUNT_KEY) ?? "0") || 0
+  } catch {
     return 0
   }
 }
