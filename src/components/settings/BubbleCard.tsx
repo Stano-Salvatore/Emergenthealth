@@ -3,21 +3,29 @@ import { useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { MessageCircle } from "lucide-react"
-import { bubbleAvailability, showBubble, type BubbleAvailability } from "@/lib/native/bubble"
+import {
+  bubbleAvailability,
+  bubbleOutcome,
+  openBubbleSettings,
+  showBubble,
+  type BubbleAvailability,
+} from "@/lib/native/bubble"
 
 /**
  * Emergy floating over other apps — the chat head.
  *
- * Every state here says which of the three things is true, because they need
- * different actions from the user: the phone is too old, the app build is too
- * old, or bubbles are switched off in Android's settings. "It didn't work"
- * would leave all three looking identical.
+ * The states here are not decoration. A bubble can fail to float for four
+ * different reasons and only one of them is a bug: the phone is too old, the
+ * APK predates the feature, bubbles are switched off, or — the common one —
+ * Android is set to bubble only conversations you have picked, and nobody has
+ * picked this one yet. That last case looks exactly like "broken" and is
+ * fixed by one tap on the notification, so it gets its own words.
  */
 export function BubbleCard() {
   const [state, setState] = useState<BubbleAvailability | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [sent, setSent] = useState(false)
+  const [result, setResult] = useState<"floated" | "notification" | "unknown" | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -32,12 +40,25 @@ export function BubbleCard() {
   if (!state || (!state.available && state.sdk === 0)) return null
 
   async function tryIt() {
-    setBusy(true); setError(null); setSent(false)
+    setBusy(true); setError(null); setResult(null)
     const err = await showBubble("Hey 🌱 tap me and we can talk without leaving what you're doing.")
-    if (err) setError(err)
-    else setSent(true)
+    if (err) {
+      setError(err)
+      setBusy(false)
+      return
+    }
+    // The system sets the bubble flag as it posts, so reading it back
+    // immediately races the post. A short wait, then the phone's own answer.
+    await new Promise(r => setTimeout(r, 900))
+    const outcome = await bubbleOutcome()
+    setResult(outcome === null ? "unknown" : outcome.bubbled ? "floated" : "notification")
+    // Promoting a conversation changes the app-level answer too; re-read it
+    // so the card is not still describing the phone as it was a minute ago.
+    setState(await bubbleAvailability())
     setBusy(false)
   }
+
+  const pref = state.preference
 
   return (
     <Card>
@@ -51,10 +72,16 @@ export function BubbleCard() {
           <p className="text-xs text-muted-foreground">
             Floating bubbles need Android 11 or newer — this phone is on API {state.sdk}.
           </p>
-        ) : !state.allowed ? (
+        ) : pref === "none" ? (
           <p className="text-xs text-amber-400">
-            Bubbles are switched off for Emergenthealth. Android Settings → Apps →
-            Emergenthealth → Notifications → Bubbles.
+            Bubbles are switched off for Emergenthealth, so nothing will float until
+            that changes.
+          </p>
+        ) : pref === "selected" ? (
+          <p className="text-xs text-muted-foreground">
+            Android is set to float only conversations you&apos;ve picked. Send one below,
+            then <span className="text-foreground">tap and hold the notification</span> and
+            choose to bubble it — once, and Emergy floats from then on.
           </p>
         ) : (
           <p className="text-xs text-muted-foreground">
@@ -63,14 +90,31 @@ export function BubbleCard() {
           </p>
         )}
 
-        <Button size="sm" variant="outline" onClick={tryIt} disabled={busy || !state.available}>
-          {busy ? "…" : "Show him"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={tryIt} disabled={busy || !state.available}>
+            {busy ? "…" : "Show him"}
+          </Button>
+          {state.available && pref !== "all" && (
+            <Button size="sm" variant="ghost" onClick={() => { void openBubbleSettings() }}>
+              Open Android&apos;s bubble settings
+            </Button>
+          )}
+        </div>
 
-        {sent && (
+        {/* What happened, from the phone rather than from us. */}
+        {result === "floated" && (
+          <p className="text-xs text-emerald-400">He floated. Drag him anywhere, tap to talk.</p>
+        )}
+        {result === "notification" && (
+          <p className="text-xs text-amber-400">
+            Android posted him as an ordinary notification instead of floating him. Tap and
+            hold it and choose to bubble the conversation, or open the bubble settings above
+            and allow all conversations.
+          </p>
+        )}
+        {result === "unknown" && (
           <p className="text-xs text-muted-foreground">
-            Sent. If no bubble appeared, Android is showing it as a normal notification —
-            tap and hold it to allow bubbles.
+            Sent. This app build can&apos;t tell whether it floated — check your screen.
           </p>
         )}
         {error && <p className="text-xs text-red-400">{error}</p>}

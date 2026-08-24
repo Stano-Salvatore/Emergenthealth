@@ -12,27 +12,51 @@ import { Capacitor, registerPlugin } from "@capacitor/core"
 // happens, so a version that quietly does nothing would be worse than a
 // version that says it cannot.
 
+/**
+ * "none" — bubbles are off for this app, nothing will ever float.
+ * "selected" — Android's default from 12 on: it posts the notification and
+ *   waits for you to promote this one conversation. Correct build, no bubble.
+ * "all" — anything we send floats.
+ *
+ * The middle state is the one that matters. Treated as a boolean it looks
+ * identical to "off", and the two need opposite instructions.
+ */
+export type BubblePreference = "none" | "selected" | "all" | "unknown"
+
 export type BubbleAvailability = {
   available: boolean   // the OS can do this at all
-  allowed: boolean     // and the user has not switched bubbles off for us
+  allowed: boolean     // every bubble we post floats without further asking
+  preference: BubblePreference
   sdk: number
+}
+
+/** What the phone says happened, not what we asked for. */
+export type BubbleOutcome = {
+  posted: boolean
+  bubbled: boolean
 }
 
 type EmergyBubblePlugin = {
   isAvailable(): Promise<BubbleAvailability>
   show(options: { message: string }): Promise<void>
   hide(): Promise<void>
+  didBubble(): Promise<BubbleOutcome>
+  openSettings(): Promise<void>
 }
 
 const plugin = registerPlugin<EmergyBubblePlugin>("EmergyBubble")
 
 export async function bubbleAvailability(): Promise<BubbleAvailability> {
-  if (!Capacitor.isNativePlatform()) return { available: false, allowed: false, sdk: 0 }
+  const none: BubbleAvailability = { available: false, allowed: false, preference: "unknown", sdk: 0 }
+  if (!Capacitor.isNativePlatform()) return none
   try {
-    return await plugin.isAvailable()
+    const a = await plugin.isAvailable()
+    // An APK built before the tri-state shipped answers without it. Say
+    // "unknown" rather than inventing a state the phone never reported.
+    return { ...a, preference: a.preference ?? "unknown" }
   } catch {
     // An APK older than the plugin: absent, not broken.
-    return { available: false, allowed: false, sdk: 0 }
+    return none
   }
 }
 
@@ -47,6 +71,34 @@ export async function showBubble(message: string): Promise<string | null> {
     // project keeps finding, and a bubble that silently declines to appear is
     // indistinguishable from one that is broken.
     return e instanceof Error ? e.message : "Couldn't show the bubble."
+  }
+}
+
+/**
+ * Ask the phone whether the last bubble actually floated.
+ *
+ * Worth a short wait first: the system sets the flag when it posts, and
+ * reading it back the same tick races that.
+ */
+export async function bubbleOutcome(): Promise<BubbleOutcome | null> {
+  if (!Capacitor.isNativePlatform()) return null
+  try {
+    return await plugin.didBubble()
+  } catch {
+    // Older APK, or the read failed. We don't know — which is not the same
+    // as "it didn't", and the UI says so.
+    return null
+  }
+}
+
+/** Android's own bubble screen for this app. Beats directions we can't see. */
+export async function openBubbleSettings(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false
+  try {
+    await plugin.openSettings()
+    return true
+  } catch {
+    return false
   }
 }
 
