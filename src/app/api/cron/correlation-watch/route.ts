@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { Resend } from "resend"
 import { prisma } from "@/lib/prisma"
-import { configurePush, loadSubscriptionsByUser, sendToUser, type PushSub } from "@/lib/push"
+import { configurePush, loadSubscriptionsByUser, sendToUser, type Delivery } from "@/lib/push"
 import { computeCorrelations, ENGINE_VERSION } from "@/lib/correlations"
 
 export const runtime = "nodejs"
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
 
   // ── Channels ──
   const pushReady = configurePush()
-  const subsByUser: Map<string, PushSub[]> = pushReady
+  const subsByUser: Map<string, Delivery> = pushReady
     ? await loadSubscriptionsByUser()
     : new Map()
 

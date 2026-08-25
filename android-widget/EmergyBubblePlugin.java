@@ -401,6 +401,53 @@ public class EmergyBubblePlugin extends Plugin {
         call.resolve(ret);
     }
 
+    /**
+     * This device's FCM token, so the web layer can register it against the
+     * signed-in account.
+     *
+     * Fetched here rather than pushed from onNewToken: only the web side knows
+     * who is signed in, and a token sent from a background callback would have
+     * no user to attach to.
+     *
+     * Reflection, because the Firebase SDK is only in the build when the
+     * project is configured. Without it this reports unavailable instead of
+     * failing to compile — the APK has to keep building for everyone who has
+     * not set Firebase up.
+     */
+    @PluginMethod
+    public void fcmToken(PluginCall call) {
+        JSObject ret = new JSObject();
+        try {
+            Class<?> messaging = Class.forName("com.google.firebase.messaging.FirebaseMessaging");
+            Object instance = messaging.getMethod("getInstance").invoke(null);
+            Object task = messaging.getMethod("getToken").invoke(instance);
+            Object token = Class.forName("com.google.android.gms.tasks.Tasks")
+                .getMethod("await", Class.forName("com.google.android.gms.tasks.Task"))
+                .invoke(null, task);
+            ret.put("token", token == null ? null : token.toString());
+            ret.put("available", token != null);
+        } catch (Throwable t) {
+            // Not built with Firebase, or the token could not be minted.
+            ret.put("token", (String) null);
+            ret.put("available", false);
+        }
+        call.resolve(ret);
+    }
+
+    /**
+     * Mirror the pop-out toggle where native code can read it.
+     *
+     * The web side keeps this in localStorage, which a FirebaseMessagingService
+     * waking with no WebView cannot see.
+     */
+    @PluginMethod
+    public void setPopsEnabled(PluginCall call) {
+        boolean enabled = Boolean.TRUE.equals(call.getBoolean("enabled", false));
+        getContext().getSharedPreferences("emergy_head_pops", Context.MODE_PRIVATE)
+            .edit().putBoolean("pops_enabled", enabled).apply();
+        call.resolve();
+    }
+
     /** Reserved, well clear of the sequential ids the real pops are given. */
     private static final int TEST_POP_ID = 999_999;
 

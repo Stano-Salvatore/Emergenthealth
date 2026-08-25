@@ -11,12 +11,12 @@ export async function POST() {
     return NextResponse.json({ error: "Push notifications not configured. Add VAPID keys to environment variables." }, { status: 503 })
   }
 
-  const subs = (await loadSubscriptionsByUser([userId])).get(userId) ?? []
-  if (subs.length === 0) {
+  const delivery = (await loadSubscriptionsByUser([userId])).get(userId)
+  if (!delivery || (delivery.subs.length === 0 && delivery.fcm.length === 0)) {
     return NextResponse.json({ error: "No subscriptions found" }, { status: 404 })
   }
 
-  const delivered = await sendToUser(subs, {
+  const delivered = await sendToUser(delivery, {
     title: "Emergenthealth",
     body: "Push notifications are working! ✅",
     url: "/dashboard",

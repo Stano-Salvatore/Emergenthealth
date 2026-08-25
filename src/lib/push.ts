@@ -15,6 +15,7 @@
 
 import webpush from "web-push"
 import { prisma } from "@/lib/prisma"
+import { sendFcm } from "@/lib/fcm"
 import { localCoversNow, parseCoverage, type LocalCoverage } from "@/lib/local-notifications"
 
 export interface PushSub {
@@ -22,6 +23,21 @@ export interface PushSub {
   endpoint: string
   p256dh: string
   auth: string
+}
+
+/**
+ * Everywhere one person can be reached.
+ *
+ * Web push reaches a browser; FCM reaches the app's own process, which is the
+ * only one of the two that can raise the chat head — a service worker has no
+ * bridge to native code. Most accounts will have both, and a notification
+ * belongs to the person rather than to a transport, so both are loaded and
+ * both are used.
+ */
+export interface Delivery {
+  userId: string
+  subs: PushSub[]
+  fcm: string[]
 }
 
 export interface PushPayload {
@@ -49,22 +65,35 @@ export function configurePush(): boolean {
  * Every registered device, grouped by user. Pass `userIds` to narrow it;
  * omit to load everyone.
  */
-export async function loadSubscriptionsByUser(userIds?: string[]): Promise<Map<string, PushSub[]>> {
-  const rows = userIds
-    ? await prisma.$queryRaw<PushSub[]>`
-        SELECT "userId", endpoint, p256dh, auth FROM "PushSubscription"
-        WHERE "userId" = ANY(${userIds}::text[])
-      `.catch(() => [] as PushSub[])
-    : await prisma.$queryRaw<PushSub[]>`
-        SELECT "userId", endpoint, p256dh, auth FROM "PushSubscription"
-      `.catch(() => [] as PushSub[])
+export async function loadSubscriptionsByUser(userIds?: string[]): Promise<Map<string, Delivery>> {
+  const [rows, tokens] = await Promise.all([
+    userIds
+      ? prisma.$queryRaw<PushSub[]>`
+          SELECT "userId", endpoint, p256dh, auth FROM "PushSubscription"
+          WHERE "userId" = ANY(${userIds}::text[])
+        `.catch(() => [] as PushSub[])
+      : prisma.$queryRaw<PushSub[]>`
+          SELECT "userId", endpoint, p256dh, auth FROM "PushSubscription"
+        `.catch(() => [] as PushSub[]),
+    userIds
+      ? prisma.$queryRaw<{ userId: string; token: string }[]>`
+          SELECT "userId", token FROM "FcmToken" WHERE "userId" = ANY(${userIds}::text[])
+        `.catch(() => [] as { userId: string; token: string }[])
+      : prisma.$queryRaw<{ userId: string; token: string }[]>`
+          SELECT "userId", token FROM "FcmToken"
+        `.catch(() => [] as { userId: string; token: string }[]),
+  ])
 
-  const byUser = new Map<string, PushSub[]>()
-  for (const r of rows) {
-    const list = byUser.get(r.userId)
-    if (list) list.push(r)
-    else byUser.set(r.userId, [r])
+  const byUser = new Map<string, Delivery>()
+  const forUser = (userId: string): Delivery => {
+    let d = byUser.get(userId)
+    if (!d) { d = { userId, subs: [], fcm: [] }; byUser.set(userId, d) }
+    return d
   }
+  for (const r of rows) forUser(r.userId).subs.push(r)
+  // A phone registered for native push but not web push still has to be
+  // reachable — keyed off either source, not off web push having run first.
+  for (const t of tokens) forUser(t.userId).fcm.push(t.token)
   return byUser
 }
 
@@ -76,23 +105,36 @@ export async function loadSubscriptionsByUser(userIds?: string[]): Promise<Map<s
  * forever, which is also how a stale laptop registration eventually clears
  * itself up.
  */
-export async function sendToUser(subs: PushSub[], payload: PushPayload): Promise<boolean> {
-  if (subs.length === 0) return false
+export async function sendToUser(delivery: Delivery | undefined, payload: PushPayload): Promise<boolean> {
+  if (!delivery) return false
+  const { subs, fcm } = delivery
+  if (subs.length === 0 && fcm.length === 0) return false
   const json = JSON.stringify(payload)
 
-  const results = await Promise.allSettled(
-    subs.map(sub =>
-      webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, json)
-        .catch(async (err: unknown) => {
-          if (err && typeof err === "object" && "statusCode" in err && (err as { statusCode: number }).statusCode === 410) {
-            await prisma.$executeRaw`DELETE FROM "PushSubscription" WHERE endpoint = ${sub.endpoint}`.catch(() => {})
-          }
-          throw err
-        }),
+  const [webResults, native] = await Promise.all([
+    Promise.allSettled(
+      subs.map(sub =>
+        webpush.sendNotification({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, json)
+          .catch(async (err: unknown) => {
+            if (err && typeof err === "object" && "statusCode" in err && (err as { statusCode: number }).statusCode === 410) {
+              await prisma.$executeRaw`DELETE FROM "PushSubscription" WHERE endpoint = ${sub.endpoint}`.catch(() => {})
+            }
+            throw err
+          }),
+      ),
     ),
-  )
+    // Never throws, so a misconfigured or absent FCM setup cannot take web
+    // push down with it. Absent config simply delivers nothing.
+    sendFcm(fcm, { title: payload.title, body: payload.body, url: payload.url, tag: payload.tag }),
+  ])
 
-  return results.some(r => r.status === "fulfilled")
+  // A token the phone has thrown away, cleared the same way a 410 clears a
+  // web subscription — so a reinstalled app doesn't leave a corpse behind.
+  for (const dead of native.deadTokens) {
+    await prisma.$executeRaw`DELETE FROM "FcmToken" WHERE token = ${dead}`.catch(() => {})
+  }
+
+  return webResults.some(r => r.status === "fulfilled") || native.delivered > 0
 }
 
 /**

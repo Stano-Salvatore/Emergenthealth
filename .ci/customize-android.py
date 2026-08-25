@@ -437,6 +437,67 @@ if widget_ok:
     else:
         print("ℹ️  HeadBootReceiver already present")
 
+    # ── Native push (FCM) ────────────────────────────────────────────────
+    #
+    # Everything here is conditional on google-services.json existing, which
+    # CI writes from a secret. Without it the Google Services Gradle plugin
+    # fails the build outright, and firebase-messaging has nothing to
+    # configure itself from — so an unconfigured project must produce exactly
+    # the APK it produced before this existed, not a broken one.
+    #
+    # The plugin's fcmToken() reaches Firebase by reflection for the same
+    # reason: it has to compile whether or not the SDK is in the build.
+    if os.path.exists("android/app/google-services.json"):
+        shutil.copyfile(f"{widget_src}/EmergyFcmService.java",
+                        f"{pkg_java_dir}/EmergyFcmService.java")
+
+        with open(app_gradle_path) as f:
+            g = f.read()
+        if "firebase-messaging" not in g:
+            g = g.replace(
+                "apply plugin: 'com.android.application'",
+                "apply plugin: 'com.android.application'\napply plugin: 'com.google.gms.google-services'",
+                1)
+            g = g.replace(
+                "dependencies {",
+                "dependencies {\n    implementation platform('com.google.firebase:firebase-bom:33.7.0')\n"
+                "    implementation 'com.google.firebase:firebase-messaging'",
+                1)
+            with open(app_gradle_path, "w") as f:
+                f.write(g)
+            print("✓ app/build.gradle wired for Firebase messaging")
+
+        root_gradle = "android/build.gradle"
+        with open(root_gradle) as f:
+            rg = f.read()
+        if "google-services" not in rg:
+            rg = rg.replace(
+                "dependencies {",
+                "dependencies {\n        classpath 'com.google.gms:google-services:4.4.2'",
+                1)
+            with open(root_gradle, "w") as f:
+                f.write(rg)
+            print("✓ root build.gradle got the google-services classpath")
+
+        with open(manifest_path) as f:
+            m = f.read()
+        if "EmergyFcmService" not in m:
+            fcm_service = """
+        <service
+            android:name=".EmergyFcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+"""
+            m = m.replace("</application>", fcm_service + "    </application>", 1)
+            with open(manifest_path, "w") as f:
+                f.write(m)
+            print("✓ AndroidManifest.xml updated with EmergyFcmService")
+    else:
+        print("ℹ️  No google-services.json — native push left out, APK otherwise unchanged")
+
     for name, block in extra_receivers.items():
         with open(manifest_path) as f:
             m = f.read()

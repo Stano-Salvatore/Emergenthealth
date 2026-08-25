@@ -67,6 +67,14 @@ jobs:
 
       - name: Decode release keystore
         run: |
+          if [ -n "$GOOGLE_SERVICES_B64" ]; then
+            mkdir -p android/app
+            echo "$GOOGLE_SERVICES_B64" | base64 -d > android/app/google-services.json
+            echo "✓ google-services.json written — native push will be built in"
+          else
+            echo "ℹ️  No GOOGLE_SERVICES_JSON_BASE64 secret — APK built without native push"
+          fi
+
           if [ -n "$KEYSTORE_B64" ]; then
             echo "$KEYSTORE_B64" | base64 -d > /tmp/emergenthealth-release.jks
             echo "ANDROID_KEYSTORE_PATH=/tmp/emergenthealth-release.jks" >> $GITHUB_ENV
@@ -76,6 +84,7 @@ jobs:
           fi
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
 
       - name: Apply Android customizations
         run: python3 .ci/customize-android.py
