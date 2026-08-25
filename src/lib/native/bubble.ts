@@ -49,6 +49,8 @@ type EmergyBubblePlugin = {
   scheduleHeadPops(options: { pops: HeadPop[] }): Promise<{ scheduled: number }>
   cancelHeadPops(): Promise<void>
   testHeadPop(options: { seconds: number }): Promise<{ at: number; exact: boolean }>
+  fcmToken(): Promise<{ token: string | null; available: boolean }>
+  setPopsEnabled(options: { enabled: boolean }): Promise<void>
 }
 
 /** One moment at which Emergy should appear and say something. */
@@ -251,4 +253,45 @@ export async function testHeadPop(seconds = 12): Promise<string | null> {
   } catch (e) {
     return e instanceof Error ? e.message : "Couldn't set the test."
   }
+}
+
+/**
+ * Register this device for native push.
+ *
+ * Web push already delivers Emergy's messages, but only to a browser, and a
+ * service worker cannot raise the chat head — it has no bridge to native code.
+ * This is the path that can.
+ *
+ * Returns what happened, because "no token" and "server has no Firebase set
+ * up" and "registered" all look identical from the outside otherwise.
+ */
+export async function registerNativePush(): Promise<"registered" | "no-token" | "not-configured" | "off-device"> {
+  if (!Capacitor.isNativePlatform()) return "off-device"
+  try {
+    const { token, available } = await plugin.fcmToken()
+    if (!available || !token) return "no-token"
+    const res = await fetch("/api/push/fcm", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token }),
+    })
+    if (!res.ok) return "no-token"
+    const json = await res.json().catch(() => ({}))
+    return json?.configured === false ? "not-configured" : "registered"
+  } catch {
+    // An APK built without Firebase. Absent, not broken.
+    return "no-token"
+  }
+}
+
+/**
+ * Mirror the pop-out preference into native storage.
+ *
+ * The toggle lives in localStorage, which a push service waking with no
+ * WebView cannot read. Without this, a message arriving while the app is
+ * closed has no way to know whether popping was wanted.
+ */
+export async function setNativePopsEnabled(enabled: boolean): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try { await plugin.setPopsEnabled({ enabled }) } catch { /* older APK */ }
 }

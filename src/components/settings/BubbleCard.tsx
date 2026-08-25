@@ -13,6 +13,7 @@ import {
   requestOverlayPermission,
   scheduleHeadPops,
   setHeadPopsEnabled,
+  setNativePopsEnabled,
   showBubble,
   startHead,
   stopHead,
@@ -89,6 +90,10 @@ export function BubbleCard() {
   async function togglePops(on: boolean) {
     setPops(on)
     setHeadPopsEnabled(on)
+    // Also where native code can read it: a push arriving with the app closed
+    // has no WebView, so localStorage alone would leave it unable to tell
+    // whether popping was wanted.
+    await setNativePopsEnabled(on)
     setPopsSet(null)
     if (!on) { await scheduleHeadPops([]); return }
     setPopsBusy(true)

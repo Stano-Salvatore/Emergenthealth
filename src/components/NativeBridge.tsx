@@ -12,6 +12,7 @@
 import { useEffect } from "react"
 import { registerNotificationActionHandler, resyncNotifications } from "@/lib/native/notifications"
 import { syncScreenTime } from "@/lib/native/screen-time"
+import { registerNativePush } from "@/lib/native/bubble"
 
 const THROTTLE_MS = 30 * 60 * 1000
 const LS_KEY = "native_reminder_sync_at"
@@ -29,6 +30,9 @@ export function NativeBridge() {
         await resyncNotifications()
         // Pull today's screen time from the device and persist it (no-ops on web)
         await syncScreenTime()
+        // Register for native push. Cheap, idempotent, and the token changes
+        // on reinstall — so it is re-sent rather than assumed still good.
+        await registerNativePush()
         localStorage.setItem(LS_KEY, String(Date.now()))
       } catch {
         // Non-critical — ignore
