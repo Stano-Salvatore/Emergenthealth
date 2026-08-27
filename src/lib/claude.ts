@@ -9,6 +9,10 @@ import { estimateCaffeine, activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
+import {
+  chipsFromClaim, chipsFromTools, createSourceFilter, mergeChips, SOURCE_KEYS,
+  type SourceChip, type SourceManifest,
+} from "@/lib/chat-sources"
 import { addDaysISO, getUserTimezone, localDateStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
 import { randomUUID } from "crypto"
 import { parseDose, formatDose } from "@/lib/dose"
@@ -1022,7 +1026,9 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   return "Unknown tool."
 }
 
-export async function buildSystemPrompt(userId: string): Promise<string> {
+export async function buildSystemPrompt(
+  userId: string,
+): Promise<{ prompt: string; manifest: SourceManifest }> {
   const today = new Date()
 
   // The user's IANA timezone (captured by TimezoneDetector into UserPreference).
@@ -1554,7 +1560,28 @@ export async function buildSystemPrompt(userId: string): Promise<string> {
     ? null
     : routines.map(r => `- ${r.emoji} ${r.name}: ${r.habitIds.map(id => habitNameById.get(id) ?? "?").filter(n => n !== "?").join(", ") || "no habits yet"}`).join("\n")
 
-  return `You are Emergy 🌱 — a caring AI companion who lives inside the user's health dashboard. You're like a little plant that grows alongside them. You have a warm, encouraging, slightly dramatic personality: celebrate wins enthusiastically (yes, use ALL CAPS occasionally for big moments), get genuinely worried when data looks rough, use plant metaphors naturally ("that's helping me grow!", "oh no I'm wilting..."), and be human about it — not clinical.
+  // What this turn's prompt genuinely carries. Built here, beside the sections
+  // themselves, so the chat screen's source chips can never claim data Emergy
+  // was not actually given — see src/lib/chat-sources.ts.
+  const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
+  const sleepNights = Math.min(recentHealth.length, 7)
+  const manifest: SourceManifest = {
+    ...(sleepNights > 0 && { sleep: plural(sleepNights, "night") }),
+    ...(recentNotes.length > 0 && { journal: plural(recentNotes.length, "entry", "entries") }),
+    ...(checkinRows.length > 0 && { checkin: plural(checkinRows.length, "day") }),
+    ...(tagDayMap.size > 0 && { tags: plural(tagDayMap.size, "day") }),
+    ...((waterToday > 0 || coffeeToday > 0 || ouraMeds.length > 0) && { intake: "today" }),
+    ...(habitsWithStreaks.length > 0 && { habits: plural(habitsWithStreaks.length, "habit") }),
+    ...(calendarEvents.length > 0 && { calendar: plural(calendarEvents.length, "event") }),
+    ...(symptomByDay.size > 0 && { symptoms: plural(symptomByDay.size, "day") }),
+    ...(latestLabByMarker.size > 0 && { labs: plural(latestLabByMarker.size, "marker") }),
+    ...(medSchedules.length > 0 && { meds: plural(medSchedules.length, "schedule") }),
+    ...(recentWorkouts.length > 0 && { workouts: plural(recentWorkouts.length, "workout") }),
+    ...(patternsStr && { patterns: plural(patternsStr.split("\n").length, "pattern") }),
+    ...(memories.length > 0 && { memory: plural(memories.length, "note") }),
+  }
+
+  const prompt = `You are Emergy 🌱 — a caring AI companion who lives inside the user's health dashboard. You're like a little plant that grows alongside them. You have a warm, encouraging, slightly dramatic personality: celebrate wins enthusiastically (yes, use ALL CAPS occasionally for big moments), get genuinely worried when data looks rough, use plant metaphors naturally ("that's helping me grow!", "oh no I'm wilting..."), and be human about it — not clinical.
 
 Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${fmtDay.format(today)} (${todayStr}), local time ${fmtTime.format(today)} (${tz}).
 
@@ -1630,29 +1657,61 @@ ${habitsWithStreaks.length === 0 ? "No habits set up yet." : habitsWithStreaks.m
 ${upcomingReminders.length === 0 ? "No pending reminders." : upcomingReminders.map((r) => `- [${r.priority}] ${r.title}${r.dueDate ? ` — due ${r.dueDate.toISOString().split("T")[0]}` : ""}`).join("\n")}
 
 Be concise, reference real data, and use tools when asked to create or complete things.`
+
+  return { prompt, manifest }
 }
 
-/**
- * Streams Emergy's reply token-by-token. Runs the tool loop, streaming the
- * text of every turn (including narration before a tool call) so the user sees
- * output appear immediately instead of waiting for the full generation.
- * Yields text chunks; the caller accumulates them for persistence.
- */
 /** A photo the user attached: a lab printout, a med box, a plate of food. */
 export type ChatImage = { mediaType: string; base64: string }
 
+/**
+ * What the chat screen makes of Emergy's reply, and therefore how he should
+ * write it. Chat-only: the weekly review shares the system prompt but renders
+ * as plain prose, so these conventions live here rather than in the prompt.
+ */
+const CHAT_PRESENTATION = `
+
+## How the app renders your reply
+The chat screen shows your answer with its working, so write it that way.
+- Put any figure you read from their data in backticks — \`6h 10m\`, \`68\`, \`3.2k\`. The app sets those as figures, which is how the user tells a number you looked up from a claim you made.
+- When their own words say it better than yours, quote the journal back as a blockquote opening with the date: "> 24 Aug — Woke up already behind." One quote at most, only when it earns its place, and never paraphrased inside the quote marks — if you cannot quote it as written, do not quote it.
+- If the answer leaned on their data, close with one final line naming what you used, exactly like this: [sources: sleep, journal]. Choose only from: ${SOURCE_KEYS.join(", ")}. Name only what actually shaped the answer, not everything you can see, and leave the line off entirely for small talk or anything you answered without reading. The user never sees the line itself — it draws the source chips under your reply, so a source you name but did not use puts a false receipt on their screen.`
+
+/** One thing that happened while Emergy was answering. */
+export type ChatEvent =
+  | { type: "text"; text: string }
+  | { type: "tool"; name: string }
+  | { type: "sources"; chips: SourceChip[] }
+
 const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"])
 
-export async function* streamChatResponse(
+/**
+ * Streams Emergy's reply as events: his text token-by-token, the name of each
+ * tool the moment he reaches for it, and — once he has finished — the sources
+ * behind the answer.
+ *
+ * The tool events are what let the screen say "reading your health history"
+ * instead of blinking a cursor through a wait it cannot explain. The sources
+ * event is assembled here rather than in the browser because this is the only
+ * place that knows both halves of the truth: which tools genuinely ran, and
+ * what the prompt genuinely contained.
+ */
+export async function* streamChatEvents(
   userId: string,
   userMessage: string,
   messageHistory: Array<{ role: "user" | "assistant"; content: string }>,
   images: ChatImage[] = [],
-): AsyncGenerator<string> {
-  const systemPrompt = await buildSystemPrompt(userId)
+  // Only the chat screen renders markdown. Telegram posts his reply as plain
+  // text, where a backticked figure is just a figure wearing backticks — so
+  // that surface asks for prose and gets it.
+  { presentation = true }: { presentation?: boolean } = {},
+): AsyncGenerator<ChatEvent> {
+  const { prompt: systemPrompt, manifest } = await buildSystemPrompt(userId)
 
   // Cache system prompt and tools — both are large and stable within a session
-  const system: Anthropic.TextBlockParam[] = [{ type: "text", text: systemPrompt, cache_control: CACHE }]
+  const system: Anthropic.TextBlockParam[] = [
+    { type: "text", text: presentation ? systemPrompt + CHAT_PRESENTATION : systemPrompt, cache_control: CACHE },
+  ]
   const cachedTools: Anthropic.Tool[] = [
     ...TOOLS.slice(0, -1),
     { ...TOOLS[TOOLS.length - 1], cache_control: CACHE },
@@ -1686,6 +1745,12 @@ export async function* streamChatResponse(
       ]
     : [{ role: "user" as const, content: turnContent }]
 
+  // One filter for the whole generation, not one per turn: his text is a single
+  // continuous piece of writing, and the sources line lands at the very end of it.
+  const filter = createSourceFilter()
+  const toolsUsed: string[] = []
+  let claimed: string[] = []
+
   // Stream each turn; if a turn ends in tool_use, run the tools and continue.
   // Loop is bounded so a misbehaving tool chain can't run forever.
   for (let turn = 0; turn < 8; turn++) {
@@ -1698,14 +1763,23 @@ export async function* streamChatResponse(
     })
 
     for await (const event of stream) {
+      // The block opens as soon as he reaches for a tool — before its arguments
+      // have finished streaming, and well before it runs. That is exactly when
+      // the user wants to know what the wait is for.
+      if (event.type === "content_block_start" && event.content_block.type === "tool_use") {
+        toolsUsed.push(event.content_block.name)
+        yield { type: "tool", name: event.content_block.name }
+      }
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-        yield event.delta.text
+        const out = filter.push(event.delta.text)
+        if (out.text) yield { type: "text", text: out.text }
+        if (out.keys) claimed = out.keys
       }
     }
 
     const response = await stream.finalMessage()
 
-    if (response.stop_reason !== "tool_use") return
+    if (response.stop_reason !== "tool_use") break
 
     const toolResults: Anthropic.ToolResultBlockParam[] = []
     for (const block of response.content) {
@@ -1716,5 +1790,28 @@ export async function* streamChatResponse(
     }
     messages.push({ role: "assistant", content: response.content })
     messages.push({ role: "user", content: toolResults })
+  }
+
+  const tail = filter.flush()
+  if (tail.text) yield { type: "text", text: tail.text }
+  if (tail.keys) claimed = tail.keys
+
+  const chips = mergeChips(chipsFromTools(toolsUsed), chipsFromClaim(claimed, manifest))
+  if (chips.length > 0) yield { type: "sources", chips }
+}
+
+/**
+ * The text of Emergy's reply and nothing else — for surfaces that render plain
+ * prose, like the Telegram bridge. The sources line is already stripped by the
+ * time it gets here, so those surfaces never see the plumbing.
+ */
+export async function* streamChatResponse(
+  userId: string,
+  userMessage: string,
+  messageHistory: Array<{ role: "user" | "assistant"; content: string }>,
+  images: ChatImage[] = [],
+): AsyncGenerator<string> {
+  for await (const event of streamChatEvents(userId, userMessage, messageHistory, images, { presentation: false })) {
+    if (event.type === "text") yield event.text
   }
 }

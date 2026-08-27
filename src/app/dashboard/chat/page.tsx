@@ -4,9 +4,11 @@ import { useEffect, useRef, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { startDictation, type DictationHandle } from "@/lib/voice"
-import { Send, User, Mic, Square, History, Plus, Trash2, X } from "lucide-react"
+import { Send, User, Mic, Square, History, Plus, Trash2, X, Sunrise } from "lucide-react"
 import { EmergyAvatar, type EmergyState } from "@/components/emergy/EmergyAvatar"
 import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
+import { SourceTrail, ToolActivity } from "@/components/emergy/SourceTrail"
+import type { SourceChip } from "@/lib/chat-sources"
 import { isFeatureEnabled } from "@/lib/features"
 
 // An error we already have a human sentence for — shown to the user verbatim
@@ -18,6 +20,10 @@ interface Message {
   role: "user" | "assistant"
   content: string
   streaming?: boolean
+  /** What he read to answer — only ever set from the server's own accounting. */
+  sources?: SourceChip[]
+  /** The tool he is in the middle of, while he is in the middle of it. */
+  activeTool?: string
 }
 
 interface Conversation {
@@ -40,17 +46,33 @@ function MessageBubble({ msg, emergyState }: { msg: Message; emergyState: Emergy
         )}
       </div>
       <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+        className={`${isUser ? "max-w-[80%]" : "max-w-[88%]"} rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
           isUser
             ? "bg-primary text-white rounded-tr-sm whitespace-pre-wrap"
-            : "bg-[#1a2a1a] text-foreground rounded-tl-sm border border-green-900/30"
-        } ${msg.streaming ? "opacity-85" : ""}`}
+            : "bg-card text-foreground rounded-tl-sm border border-border"
+        }`}
       >
         {isUser ? msg.content : <ChatMarkdown text={msg.content} />}
-        {msg.streaming && <span className="animate-pulse ml-0.5">▍</span>}
+        {/* The cursor only stands in for text that is still coming. Once he
+            reaches for a tool the row below says what the wait is for, and two
+            competing "still working" signals would just be noise. */}
+        {msg.streaming && !msg.activeTool && <span className="animate-pulse ml-0.5">▍</span>}
+        {msg.streaming && msg.activeTool && (
+          <div className={msg.content ? "mt-2" : ""}><ToolActivity tool={msg.activeTool} /></div>
+        )}
+        {!isUser && msg.sources && <SourceTrail chips={msg.sources} />}
       </div>
     </div>
   )
+}
+
+function safeChips(raw: string): SourceChip[] | undefined {
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : undefined
+  } catch {
+    return undefined
+  }
 }
 
 function conversationDate(iso: string): string {
@@ -186,8 +208,14 @@ export default function ChatPage() {
     setHistoryOpen(false)
     const res = await fetch(`/api/chat?conversation=${encodeURIComponent(id)}`)
     if (!res.ok) return
-    const msgs = await res.json()
-    setMessages(msgs)
+    const rows: (Omit<Message, "sources"> & { sources?: string | null })[] = await res.json()
+    // Stored as JSON text; a row written before the trail existed has none, and
+    // a malformed one is simply an answer without its receipts rather than a
+    // conversation that won't open.
+    setMessages(rows.map(row => ({
+      ...row,
+      sources: row.sources ? safeChips(row.sources) : undefined,
+    })))
     setConversationId(id)
   }
 
@@ -261,21 +289,36 @@ export default function ChatPage() {
           if (data === "[DONE]") {
             setMessages((m) =>
               m.map((msg, i) =>
-                i === m.length - 1 ? { ...msg, streaming: false } : msg
+                i === m.length - 1 ? { ...msg, streaming: false, activeTool: undefined } : msg
               )
             )
             break
           }
           try {
             const parsed = JSON.parse(data)
+            // The stream carries three kinds of news now: his words, the tool
+            // he just reached for, and — once he is done — what he read to
+            // answer. Only the words are part of the message itself.
             if (parsed.conversationId) {
               setConversationId(parsed.conversationId)
-            } else if (parsed.text) {
+            } else if (parsed.type === "text" && parsed.text) {
               received = true
               setMessages((m) =>
                 m.map((msg, i) =>
-                  i === m.length - 1 ? { ...msg, content: msg.content + parsed.text } : msg
+                  // Text resuming means the tool has come back: drop the
+                  // activity row rather than leaving it up beside live output.
+                  i === m.length - 1
+                    ? { ...msg, content: msg.content + parsed.text, activeTool: undefined }
+                    : msg
                 )
+              )
+            } else if (parsed.type === "tool") {
+              setMessages((m) =>
+                m.map((msg, i) => (i === m.length - 1 ? { ...msg, activeTool: parsed.name } : msg))
+              )
+            } else if (parsed.type === "sources") {
+              setMessages((m) =>
+                m.map((msg, i) => (i === m.length - 1 ? { ...msg, sources: parsed.chips } : msg))
               )
             }
           } catch {}
@@ -329,13 +372,17 @@ export default function ChatPage() {
   // Every suggestion sends straight away — previously the big briefing button
   // sent while the six below it only pasted text, which looked identical but
   // behaved differently.
-  const QUICK_QUESTIONS = [
-    "🌅 Start my morning check-in",
-    "How was my sleep this week?",
-    "Does coffee affect my sleep? Check my Oura tags",
-    "What habits am I missing today?",
-    "What supplements did I take today?",
-    "What's on my calendar this week?",
+  //
+  // Label and prompt are separate so the pills can be short enough to sit two
+  // to a row. Six full-width buttons stacked under the briefing CTA ran off the
+  // bottom of a phone, which made the first thing anyone sees a scrolling menu.
+  const QUICK_QUESTIONS: { label: string; prompt: string }[] = [
+    { label: "Sleep this week", prompt: "How was my sleep this week?" },
+    { label: "Coffee vs sleep", prompt: "Does coffee affect my sleep? Check my Oura tags" },
+    { label: "Habits I'm missing", prompt: "What habits am I missing today?" },
+    { label: "Supplements today", prompt: "What supplements did I take today?" },
+    { label: "My week ahead", prompt: "What's on my calendar this week?" },
+    { label: "Start my check-in", prompt: "Start my morning check-in" },
   ]
 
   return (
@@ -420,23 +467,26 @@ export default function ChatPage() {
               <p className="font-semibold text-base">Hi!! I&apos;m Emergy 🌱</p>
               <p className="text-sm text-muted-foreground mt-1 max-w-xs">{intro}</p>
             </div>
-            {/* Morning briefing CTA */}
+            {/* One primary action; everything else is a quiet pill beneath it.
+                Green is reserved for "on target" in this app, so the CTA takes
+                the accent tint rather than a status colour. */}
             <button
               onClick={() => quickSend("Give me a morning briefing: last night's sleep score and quality, today's schedule, which habits I still need to do, any overdue reminders, and what supplements/meds I've taken so far.")}
               disabled={sending}
-              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-green-700/20 border border-green-700/30 hover:bg-green-700/30 transition-colors text-sm font-medium text-green-400 disabled:opacity-50"
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-primary/15 border border-primary/30 hover:bg-primary/25 transition-colors text-sm font-medium disabled:opacity-50"
             >
-              ☀️ Morning Briefing
+              <Sunrise className="h-4 w-4" />
+              Morning briefing
             </button>
-            <div className="grid grid-cols-1 gap-2 w-full max-w-sm">
-              {QUICK_QUESTIONS.map((prompt) => (
+            <div className="flex flex-wrap justify-center gap-2 w-full max-w-sm">
+              {QUICK_QUESTIONS.map(({ label, prompt }) => (
                 <button
-                  key={prompt}
+                  key={label}
                   onClick={() => quickSend(prompt)}
                   disabled={sending}
-                  className="text-left text-sm px-4 py-2.5 rounded-xl border border-border bg-secondary hover:bg-accent transition-colors disabled:opacity-50"
+                  className="text-sm px-3.5 py-2 rounded-full border border-border bg-secondary hover:bg-accent transition-colors disabled:opacity-50"
                 >
-                  {prompt}
+                  {label}
                 </button>
               ))}
             </div>
