@@ -4,8 +4,9 @@ import { useEffect, useRef, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { startDictation, type DictationHandle } from "@/lib/voice"
-import { Send, User, Mic, Square, History, Plus, Trash2, X, Sunrise } from "lucide-react"
+import { Send, User, Mic, Square, History, Plus, Trash2, X, Sunrise, Copy, Check, RotateCcw } from "lucide-react"
 import { EmergyAvatar, type EmergyState } from "@/components/emergy/EmergyAvatar"
+import { useEmergyState, refreshEmergy } from "@/lib/emergy-store"
 import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
 import { SourceTrail, ToolActivity } from "@/components/emergy/SourceTrail"
 import type { SourceChip } from "@/lib/chat-sources"
@@ -32,7 +33,49 @@ interface Conversation {
   updatedAt: string
 }
 
-function MessageBubble({ msg, emergyState }: { msg: Message; emergyState: EmergyState }) {
+/**
+ * Copy and retry, on a finished reply only. Mid-stream there is nothing whole
+ * to copy and nothing settled to retry.
+ */
+function MessageActions({ text, onRetry }: { text: string; onRetry?: () => void }) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    } catch {
+      // Clipboard is permission-gated and absent in some webviews; saying
+      // nothing is better than an error for something this incidental.
+    }
+  }
+
+  return (
+    <div className="flex gap-1 mt-2 -mb-1 -ml-1.5">
+      <button
+        onClick={copy}
+        className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors"
+        aria-label={copied ? "Copied" : "Copy reply"}
+        title={copied ? "Copied" : "Copy"}
+      >
+        {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="p-1.5 rounded-lg text-muted-foreground/60 hover:text-foreground hover:bg-secondary transition-colors"
+          aria-label="Ask again"
+          title="Ask again"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function MessageBubble({ msg, emergyState, onRetry }: { msg: Message; emergyState: EmergyState; onRetry?: () => void }) {
   const isUser = msg.role === "user"
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
@@ -61,10 +104,16 @@ function MessageBubble({ msg, emergyState }: { msg: Message; emergyState: Emergy
           <div className={msg.content ? "mt-2" : ""}><ToolActivity tool={msg.activeTool} /></div>
         )}
         {!isUser && msg.sources && <SourceTrail chips={msg.sources} />}
+        {!isUser && !msg.streaming && msg.content && (
+          <MessageActions text={msg.content} onRetry={onRetry} />
+        )}
       </div>
     </div>
   )
 }
+
+/** Tools that change something, and so can change how Emergy is feeling. */
+const WRITES = /^(log_|create_|complete_|write_|correct_|delete_|remember$)/
 
 function safeChips(raw: string): SourceChip[] | undefined {
   try {
@@ -90,7 +139,8 @@ export default function ChatPage() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
-  const [emergyState, setEmergyState] = useState<EmergyState>("okay")
+  // Shared with the nav and sidebar mascots — see lib/emergy-store.
+  const emergyState = useEmergyState()
   const [listening, setListening] = useState(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -168,9 +218,6 @@ export default function ChatPage() {
   // live in the History panel.
   useEffect(() => {
     refreshConversations()
-    fetch("/api/emergy").then(async (r) => {
-      if (r.ok) { const d = await r.json(); setEmergyState(d.state) }
-    }).catch(() => {})
   }, [refreshConversations])
 
   useEffect(() => {
@@ -274,6 +321,7 @@ export default function ChatPage() {
       const decoder = new TextDecoder()
       let buffer = ""
       let received = false
+      let wroteSomething = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -313,6 +361,7 @@ export default function ChatPage() {
                 )
               )
             } else if (parsed.type === "tool") {
+              if (WRITES.test(parsed.name)) wroteSomething = true
               setMessages((m) =>
                 m.map((msg, i) => (i === m.length - 1 ? { ...msg, activeTool: parsed.name } : msg))
               )
@@ -328,6 +377,10 @@ export default function ChatPage() {
       // bubble — say something instead.
       if (!received) throw new ChatError("I went quiet there, sorry — ask me again?")
       refreshConversations()
+      // Anything he logged this turn moves his mood — water before 4pm is the
+      // difference between wilting and fine — so let his face catch up rather
+      // than waiting out the five-minute poll.
+      if (wroteSomething) void refreshEmergy()
     } catch (err) {
       const note = err instanceof ChatError
         ? err.message
@@ -351,6 +404,20 @@ export default function ChatPage() {
       e.preventDefault()
       sendMessage()
     }
+  }
+
+  /**
+   * Ask the last question again, as a new turn rather than a replacement.
+   * Quietly dropping the previous answer would only drop it from the screen —
+   * the stored transcript keeps every turn, so reopening the chat would show
+   * something different from what you left. He can see he is being asked twice,
+   * which is also the reason he will answer differently.
+   */
+  function retryFrom(assistantIndex: number) {
+    if (sending) return
+    const asked = messages[assistantIndex - 1]
+    if (asked?.role !== "user") return
+    sendMessage(asked.content)
   }
 
   function quickSend(prompt: string) {
@@ -496,7 +563,16 @@ export default function ChatPage() {
             </div>
           </div>
         ) : (
-          messages.map((msg, i) => <MessageBubble key={i} msg={msg} emergyState={emergyState}/>)
+          messages.map((msg, i) => (
+            <MessageBubble
+              key={i}
+              msg={msg}
+              emergyState={emergyState}
+              // Only the newest reply can be retried — replaying an older one
+              // would silently throw away everything said after it.
+              onRetry={msg.role === "assistant" && i === messages.length - 1 ? () => retryFrom(i) : undefined}
+            />
+          ))
         )}
       </div>
 

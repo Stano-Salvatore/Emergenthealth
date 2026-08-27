@@ -9,20 +9,9 @@ import {
   listVoices, resolveVoice, getSavedVoiceUri, getVoiceRate, getAutoSpeak, saveAutoSpeak,
   type DictationHandle, type DictationSupport,
 } from "@/lib/voice"
-import { EmergyAvatar, type EmergyState } from "./EmergyAvatar"
+import { EmergyAvatar } from "./EmergyAvatar"
 import { ChatMarkdown } from "./ChatMarkdown"
-
-interface EmergyData {
-  state: EmergyState
-  message: string
-  xp: number
-  level: number
-  levelName: string
-  progress: number
-  waterMl: number
-  habitsDone: number
-  totalHabits: number
-}
+import { useEmergy } from "@/lib/emergy-store"
 
 interface ChatMessage {
   id: string
@@ -53,7 +42,8 @@ export function EmergyPanel() {
   // nobody could see, so it now genuinely only exists at lg+.
   const [isDesktop, setIsDesktop] = useState(false)
   const [open, setOpen] = useState(false)
-  const [emergy, setEmergy] = useState<EmergyData | null>(null)
+  // Shared with the nav and sidebar mascots — see lib/emergy-store.
+  const emergy = useEmergy()
   const [brief, setBrief] = useState<string | null>(null)
   const [briefLoading, setBriefLoading] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -72,27 +62,16 @@ export function EmergyPanel() {
   const [lastShownMessage, setLastShownMessage] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const bubbleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const fetchEmergy = useCallback(async () => {
-    try {
-      const res = await fetch("/api/emergy")
-      if (res.ok) {
-        const data = await res.json()
-        setEmergy(data)
-        // Update app icon badge with incomplete habit count
-        if ("setAppBadge" in navigator) {
-          const incomplete = (data.totalHabits ?? 0) - (data.habitsDone ?? 0)
-          if (incomplete > 0) {
-            navigator.setAppBadge(incomplete).catch(() => {})
-          } else {
-            navigator.clearAppBadge().catch(() => {})
-          }
-        }
-      }
-    } catch {}
-  }, [])
+  // The badge follows whatever the shared store last saw, rather than being a
+  // side effect of this component owning the fetch.
+  useEffect(() => {
+    if (!emergy || !("setAppBadge" in navigator)) return
+    const incomplete = (emergy.totalHabits ?? 0) - (emergy.habitsDone ?? 0)
+    if (incomplete > 0) navigator.setAppBadge(incomplete).catch(() => {})
+    else navigator.clearAppBadge().catch(() => {})
+  }, [emergy])
 
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 1024px)")
@@ -101,13 +80,6 @@ export function EmergyPanel() {
     mq.addEventListener("change", apply)
     return () => mq.removeEventListener("change", apply)
   }, [])
-
-  useEffect(() => {
-    if (!isDesktop) return
-    fetchEmergy()
-    intervalRef.current = setInterval(fetchEmergy, 5 * 60 * 1000)
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [fetchEmergy, isDesktop])
 
   useEffect(() => {
     if (typeof Notification !== "undefined") {

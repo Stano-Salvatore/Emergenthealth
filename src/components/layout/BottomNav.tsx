@@ -1,12 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useState } from "react"
 import { usePathname } from "next/navigation"
 import { Home, Sun, CheckSquare, DollarSign, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { isFeatureEnabled } from "@/lib/features"
-import { EmergyAvatar, type EmergyState } from "@/components/emergy/EmergyAvatar"
+import { EmergyAvatar } from "@/components/emergy/EmergyAvatar"
+import { useEmergyState } from "@/lib/emergy-store"
 
 type Tab = {
   href: string
@@ -53,22 +53,9 @@ function NavTab({ href, label, Icon, exact }: Tab) {
 
 export function BottomNav() {
   const pathname = usePathname()
-  const [emergyState, setEmergyState] = useState<EmergyState>("okay")
+  // Shared with every other Emergy on the page — see lib/emergy-store.
+  const emergyState = useEmergyState()
   const chatActive = pathname.startsWith("/dashboard/chat")
-
-  // Live mascot: mirror the floating panel's mood polling so the nav Emergy
-  // changes colour/expression with his actual state.
-  useEffect(() => {
-    let cancelled = false
-    const load = () =>
-      fetch("/api/emergy")
-        .then(r => (r.ok ? r.json() : null))
-        .then(d => { if (d?.state && !cancelled) setEmergyState(d.state) })
-        .catch(() => {})
-    load()
-    const t = setInterval(load, 5 * 60 * 1000)
-    return () => { cancelled = true; clearInterval(t) }
-  }, [])
 
   const needsAttention = emergyState === "screaming" || emergyState === "wilting"
 
