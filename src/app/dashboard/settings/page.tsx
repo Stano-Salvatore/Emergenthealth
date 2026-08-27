@@ -40,6 +40,7 @@ import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
 import { DeleteAccount } from "@/components/settings/DeleteAccount"
 import { PushNotifications } from "@/components/settings/PushNotifications"
 import { WidgetSetupCapacitor } from "@/components/settings/WidgetSetupCapacitor"
+import { BackgroundLocationCard } from "@/components/settings/BackgroundLocationCard"
 import { TimezoneDetector } from "@/components/settings/TimezoneDetector"
 import { WeatherLocation } from "@/components/settings/WeatherLocation"
 import { PasskeyManager } from "@/components/settings/PasskeyManager"
@@ -354,6 +355,8 @@ export default async function SettingsPage({
       <SettingsSection title="Widgets & Location" emoji="📱">
       {/* Android home screen widget */}
       <WidgetSetupCapacitor />
+      {/* The app's own background tracking — no second app, no export. */}
+      <BackgroundLocationCard />
       {/* OwnTracks live location */}
       {keys[0]?.token && (
         <Card>
