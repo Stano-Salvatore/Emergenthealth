@@ -101,8 +101,9 @@ export function BackgroundLocationCard() {
           </>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Only the Android app can track in the background. On the web, import a Google
-            Timeline export or point OwnTracks at the URL below.
+            Only the Android app can track in the background. On the web you can still import
+            a Google Timeline export, or point OwnTracks at this account — both land in the
+            same place and produce the same check-ins.
           </p>
         )}
       </CardContent>
