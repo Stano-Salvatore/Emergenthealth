@@ -26,8 +26,41 @@ export const MIN_DWELL_MIN = 20
  */
 export const MAX_GAP_MIN = 90
 
-/** One check-in per place per this window — the same visit seen twice is one visit. */
+/**
+ * Padding around a dwell when looking for a check-in that already covers it.
+ *
+ * This used to compare against the visit's MIDPOINT, which is stable only once
+ * the visit has ended. Detection now also runs per upload batch, where the same
+ * stay is seen again and again while it is still growing — and a growing dwell's
+ * midpoint advances, walking out of its own match window and writing a fresh
+ * check-in every so often. A night at home became a column of them.
+ *
+ * Matching against the whole span instead is stable: the first check-in for a
+ * stay falls inside every later, longer view of that same stay. Padding by the
+ * same 90 minutes that ends a dwell (MAX_GAP_MIN) keeps two genuinely separate
+ * visits separate, since anything closer than that never split in two.
+ */
 export const DEDUPE_MIN = 90
+
+/**
+ * When to treat a stay as already recorded.
+ *
+ * Pure and exported so the property that matters can be tested: a longer view
+ * of the same stay must still cover the check-in written for the shorter one.
+ * Matching near the midpoint did not, and per-batch detection turned one night
+ * into a column of check-ins.
+ */
+export function dedupeWindow(v: { start: Date; end: Date }): { gte: Date; lte: Date } {
+  return {
+    gte: new Date(v.start.getTime() - DEDUPE_MIN * 60_000),
+    lte: new Date(v.end.getTime() + DEDUPE_MIN * 60_000),
+  }
+}
+
+/** Where a visit's check-in is stamped: its middle reads better than its first fix. */
+export function visitCheckInAt(v: { start: Date; end: Date }): Date {
+  return new Date((v.start.getTime() + v.end.getTime()) / 2)
+}
 
 export interface DetectedVisit {
   placeId: string
@@ -110,16 +143,12 @@ export async function recordPlaceVisits(userId: string, from: Date, to: Date): P
   let created = 0
 
   for (const v of visits) {
-    // The visit's midpoint reads better than its first GPS fix: an arrival
-    // logged the instant tracking noticed you is often a few minutes early.
-    const at = new Date((v.start.getTime() + v.end.getTime()) / 2)
+    const at = visitCheckInAt(v)
 
+    // Anywhere inside this stay, not just near its middle — see DEDUPE_MIN.
+    const window = dedupeWindow(v)
     const existing = await prisma.checkIn.findFirst({
-      where: {
-        userId,
-        savedPlaceId: v.placeId,
-        checkedAt: { gte: new Date(at.getTime() - DEDUPE_MIN * 60_000), lte: new Date(at.getTime() + DEDUPE_MIN * 60_000) },
-      },
+      where: { userId, savedPlaceId: v.placeId, checkedAt: window },
       select: { id: true },
     })
     if (existing) continue

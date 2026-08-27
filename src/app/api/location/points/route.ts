@@ -28,6 +28,20 @@ interface InPoint {
   speedKmh?: number | null
 }
 
+/**
+ * A missing reading stays missing.
+ *
+ * `Number(null)` is 0 and `Number.isFinite(0)` is true, so the obvious
+ * coercion turns "this phone reported no altitude" into "this phone was at sea
+ * level". The plugin types altitude and speed as nullable and does send nulls.
+ */
+function optionalNumber(value: unknown, round?: (n: number) => number): number | null {
+  if (value === null || value === undefined) return null
+  const n = Number(value)
+  if (!Number.isFinite(n)) return null
+  return round ? round(n) : n
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -57,9 +71,9 @@ export async function POST(req: NextRequest) {
       userId,
       lat,
       lng,
-      accuracyM: Number.isFinite(Number(p.accuracyM)) ? Math.round(Number(p.accuracyM)) : null,
-      altitudeM: Number.isFinite(Number(p.altitudeM)) ? Number(p.altitudeM) : null,
-      speedKmh: Number.isFinite(Number(p.speedKmh)) ? Number(p.speedKmh) : null,
+      accuracyM: optionalNumber(p.accuracyM, Math.round),
+      altitudeM: optionalNumber(p.altitudeM),
+      speedKmh: optionalNumber(p.speedKmh),
       trackedAt: new Date(t),
       source: "app",
     })
@@ -71,10 +85,14 @@ export async function POST(req: NextRequest) {
 
   const res = await prisma.locationPoint.createMany({ data, skipDuplicates: true })
 
-  // Detect visits over the span this batch covers. The cron does this too, on
-  // its own tick — but a check-in that appears while you are still sitting in
-  // the café is worth more than one that appears an hour after you left, and
-  // recordPlaceVisits won't duplicate what either of them already found.
+  // Detect visits over the span this batch covers, so a check-in can appear
+  // while you are still sitting in the café rather than an hour after you left.
+  //
+  // This runs every few minutes against a stay that is still growing, and each
+  // pass sees a slightly longer version of the same dwell. That only stays at
+  // one check-in because recordPlaceVisits matches an existing one anywhere
+  // inside the span rather than near its midpoint — see DEDUPE_MIN. It did not,
+  // once, and this wrote a fresh check-in every ninety minutes of one stay.
   const times = data.map(d => d.trackedAt.getTime())
   const from = new Date(Math.min(...times) - 90 * 60_000)
   const to = new Date(Math.max(...times))

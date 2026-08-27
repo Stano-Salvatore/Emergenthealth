@@ -45,12 +45,16 @@ export function BackgroundLocationCard() {
         await stopBackgroundLocation()
         setEnabled(false)
       } else {
-        const started = await startBackgroundLocation()
+        // Refusal arrives through this callback, not through the return value:
+        // the plugin's addWatcher resolves the moment it is called, long before
+        // Android has asked anyone anything. Reading the boolean for a denial
+        // meant the branch never ran, and a refused prompt left the button
+        // saying "Stop following along" with nothing tracking behind it.
+        const started = await startBackgroundLocation(() => {
+          setEnabled(false)
+          setRefused(true)
+        })
         setEnabled(started)
-        // The permission prompt is the only thing that can refuse here, and it
-        // is refusable twice — after which Android stops asking and the only
-        // way back is the OS settings page.
-        setRefused(!started)
       }
     } finally {
       setBusy(false)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { detectDwells, MIN_DWELL_MIN, MAX_GAP_MIN } from "../place-visits"
+import { dedupeWindow, detectDwells, MAX_GAP_MIN, MIN_DWELL_MIN, visitCheckInAt } from "../place-visits"
 
 const CAFE = { id: "cafe", name: "Kaviareň Vták", emoji: "☕", lat: 48.1490416, lng: 17.1171726, radiusM: 150 }
 const HOME = { id: "home", name: "Home", emoji: "🏠", lat: 48.175421976678, lng: 17.126068557003457, radiusM: 150 }
@@ -60,5 +60,42 @@ describe("detectDwells", () => {
     // slack it will grant, so this must not count as being at the café.
     const far = { lat: CAFE.lat + 0.05, lng: CAFE.lng }
     expect(detectDwells([at(far, 0, 10_000), at(far, 60, 10_000)], PLACES)).toHaveLength(0)
+  })
+})
+
+// ── Re-detecting a stay that is still happening ────────────────────────────
+// Background tracking runs detection on every upload batch, so the same stay is
+// examined again and again while it grows. Matching a previous check-in near
+// the visit's MIDPOINT failed here: the midpoint advances as the stay lengthens
+// and eventually walks out of its own window, writing a second check-in for a
+// night nobody left. These pin the property that stopped that.
+
+
+const clock = (hhmm: string) => new Date(`2026-08-27T${hhmm}:00Z`)
+const covers = (w: { gte: Date; lte: Date }, d: Date) => d >= w.gte && d <= w.lte
+
+describe("dedupeWindow", () => {
+  it("still covers the first check-in once the stay has grown", () => {
+    const first = { start: clock("22:00"), end: clock("22:30") }
+    const stamped = visitCheckInAt(first)
+
+    // The same night, seen again after two, six and ten more hours.
+    for (const end of ["00:30", "04:30", "08:30"]) {
+      const grown = { start: clock("22:00"), end: new Date(clock(end).getTime() + 86_400_000) }
+      expect(covers(dedupeWindow(grown), stamped)).toBe(true)
+    }
+  })
+
+  it("covers its own check-in, whatever the length", () => {
+    const v = { start: clock("09:00"), end: clock("17:00") }
+    expect(covers(dedupeWindow(v), visitCheckInAt(v))).toBe(true)
+  })
+
+  it("does not swallow a genuinely separate later visit", () => {
+    // Two stays can only be separate if more than MAX_GAP_MIN (90) apart, or
+    // detectDwells would have kept them as one.
+    const morning = { start: clock("08:00"), end: clock("10:00") }
+    const evening = { start: clock("18:00"), end: clock("20:00") }
+    expect(covers(dedupeWindow(evening), visitCheckInAt(morning))).toBe(false)
   })
 })
