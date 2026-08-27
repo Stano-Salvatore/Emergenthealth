@@ -164,7 +164,7 @@ Write it as 3–4 short paragraphs of plain prose — no headers, no bullet list
 - End with one small, concrete suggestion for next week drawn from this week's data — not generic advice.
 Keep it under 250 words.`
 
-  const systemPrompt = await buildSystemPrompt(userId)
+  const { prompt: systemPrompt } = await buildSystemPrompt(userId)
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const response = await client.messages.create({
     model: "claude-opus-4-8",

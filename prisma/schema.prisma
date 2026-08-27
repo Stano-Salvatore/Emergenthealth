@@ -482,6 +482,10 @@ model ChatMessage {
   conversationId String?
   role           String
   content        String   @db.Text
+  // The source chips behind an assistant reply, as JSON. Stored so reopening a
+  // past chat shows the same receipts it showed live — an answer that loses its
+  // working on reload is a weaker answer.
+  sources        String?  @db.Text
   createdAt      DateTime @default(now())
 
   user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { streamChatResponse } from "@/lib/claude"
+import { streamChatEvents } from "@/lib/claude"
 import { checkRateLimit } from "@/lib/rate-limit"
 
 function titleFromMessage(message: string): string {
@@ -78,18 +78,28 @@ export async function POST(req: NextRequest) {
       // Tell the client which conversation this turn landed in before any text
       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ conversationId: convId })}\n\n`))
       let full = ""
+      let chips: unknown[] = []
       try {
-        for await (const chunk of streamChatResponse(userId, message ?? "", history ?? [], attachments)) {
-          full += chunk
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`))
+        // Text is what gets persisted; the tool and sources events are about
+        // this turn only — they describe how the answer was reached, so they
+        // are streamed to the screen and not written into the transcript.
+        for await (const event of streamChatEvents(userId, message ?? "", history ?? [], attachments)) {
+          if (event.type === "text") full += event.text
+          if (event.type === "sources") chips = event.chips
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
         }
       } catch {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: "\n\n_(Sorry, something went wrong.)_" })}\n\n`))
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "text", text: "\n\n_(Sorry, something went wrong.)_" })}\n\n`))
       }
       controller.enqueue(encoder.encode("data: [DONE]\n\n"))
       controller.close()
       if (full.trim()) {
-        await prisma.chatMessage.create({ data: { userId, conversationId: convId, role: "assistant", content: full } }).catch(() => {})
+        await prisma.chatMessage.create({
+          data: {
+            userId, conversationId: convId, role: "assistant", content: full,
+            sources: chips.length > 0 ? JSON.stringify(chips) : null,
+          },
+        }).catch(() => {})
       }
       await prisma.chatConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } }).catch(() => {})
     },
