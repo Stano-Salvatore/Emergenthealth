@@ -110,7 +110,7 @@ jobs:
         run: |
           PLUGINS=android/app/src/main/assets/capacitor.plugins.json
           echo "Registered Capacitor plugins:" && cat "$PLUGINS"
-          for pkg in "@capacitor/local-notifications" "@capacitor/geolocation" "@capacitor/preferences" "@capacitor-community/speech-recognition"; do
+          for pkg in "@capacitor/local-notifications" "@capacitor/geolocation" "@capacitor/preferences" "@capacitor-community/speech-recognition" "@capacitor-community/background-geolocation"; do
             if ! grep -q "\"$pkg\"" "$PLUGINS"; then
               echo "::error::$pkg missing from $PLUGINS — the APK would build without it"
               exit 1

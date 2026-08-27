@@ -12,6 +12,7 @@ import { OfflineToast } from "./OfflineToast"
 import { RateAppPrompt } from "./RateAppPrompt"
 import { BottomNav } from "./BottomNav"
 import { cn } from "@/lib/utils"
+import { resumeBackgroundLocation } from "@/lib/native/background-location"
 import { readLocalString, useClientValue, useLocalSetting } from "@/lib/use-client-value"
 
 const STORAGE_KEY = "sidebar-open"
@@ -42,6 +43,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const mounted = useClientValue(() => true, false)
   const webMode = useClientValue(() => resolveLayoutMode() === "web", false)
   const [open, setOpen] = useLocalSetting(defaultSidebarOpen, true)
+
+  // Android drops the foreground service on reboot and forbids starting one
+  // from the background, so the app opening is the only moment tracking can
+  // come back. Here rather than the root layout because the upload needs a
+  // session, and the sign-in page has none.
+  useEffect(() => { void resumeBackgroundLocation() }, [])
 
   // Write the width-derived choice down the first time, so it stays put if the
   // window is later resized. Display scale itself is rendered server-side (see
