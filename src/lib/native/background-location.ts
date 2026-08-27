@@ -149,6 +149,12 @@ function enqueue(location: any): void {
   if (!movedFar && !dueByTime) return
 
   lastSent = { lat, lng, at }
+  // Trim here too, not only in retry(). The cap used to live only there, so a
+  // failed batch came back at exactly MAX_QUEUED_POINTS and then every new fix
+  // pushed past it. The server keeps the first MAX_BATCH of an oversized post
+  // and answers ok, so the points silently discarded were the NEWEST ones —
+  // the opposite of what a backlog is for.
+  if (queue.length >= MAX_QUEUED_POINTS) queue = queue.slice(-(MAX_QUEUED_POINTS - 1))
   queue.push({
     lat,
     lng,
@@ -241,6 +247,16 @@ async function attachWatcher(onDenied?: () => void): Promise<boolean> {
     }
 
     await Preferences.set({ key: ENABLED_KEY, value: "1" })
+
+    // And once more, because that write is itself a suspension point. A denial
+    // landing inside it races stopBackgroundLocation's "0" against this "1" —
+    // and if "1" lands last the flag outlives the watcher, so every launch
+    // re-arms tracking the user just refused. Checking after settles it
+    // whichever order they arrived in.
+    if (denied) {
+      await stopBackgroundLocation()
+      return false
+    }
     return true
   } catch {
     watcherId = null

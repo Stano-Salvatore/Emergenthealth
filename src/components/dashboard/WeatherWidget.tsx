@@ -63,6 +63,9 @@ export function WeatherWidget() {
   useEffect(() => {
     // Matches hasGeolocation above, so `loading` is already false here.
     if (!navigator.geolocation) return
+    // Whichever of the three paths below arrives first wins; the others become
+    // no-ops rather than fighting over the same state.
+    let settled = false
     navigator.geolocation.getCurrentPosition(
       async ({ coords }) => {
         try {
@@ -102,14 +105,21 @@ export function WeatherWidget() {
             }),
           })
         } catch { /* silent */ }
-        setLocating(false)
+        if (!settled) { settled = true; setLocating(false) }
       },
-      () => setLocating(false),
-      // Without a timeout this call can sit there indefinitely — a permission
-      // prompt the user swipes away rather than answers never reaches either
-      // callback, and the skeleton below pulses until the page is reloaded.
+      () => { if (!settled) { settled = true; setLocating(false) } },
+      // Covers a slow FIX. It does NOT cover the prompt: the spec starts this
+      // clock once permission is granted, so a prompt the user swipes away
+      // rather than answers reaches neither callback and this never fires.
+      // Hence the timer below, which is the only thing that actually bounds it.
       { timeout: 10_000, maximumAge: 10 * 60 * 1000 },
     )
+
+    // The real guarantee. A skeleton with no path out of it is worse than no
+    // widget: it reads as "still loading" for the rest of the session and
+    // leaves a grey hole in the greeting card.
+    const giveUp = setTimeout(() => { if (!settled) { settled = true; setLocating(false) } }, 15_000)
+    return () => clearTimeout(giveUp)
   }, [])
 
   if (loading) {

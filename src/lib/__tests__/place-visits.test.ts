@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { dedupeWindow, detectDwells, MAX_GAP_MIN, MIN_DWELL_MIN, visitCheckInAt } from "../place-visits"
+import { DETECTION_LOOKBACK_MIN, autoNote, dedupeWindow, detectDwells, MAX_GAP_MIN, MIN_DWELL_MIN, visitCheckInAt } from "../place-visits"
 
 const CAFE = { id: "cafe", name: "Kaviareň Vták", emoji: "☕", lat: 48.1490416, lng: 17.1171726, radiusM: 150 }
 const HOME = { id: "home", name: "Home", emoji: "🏠", lat: 48.175421976678, lng: 17.126068557003457, radiusM: 150 }
@@ -112,11 +112,56 @@ describe("dedupeWindow", () => {
     expect(written).toHaveLength(1)
   })
 
+  // The cron runs the same loop on a fixed window rather than a batch's span,
+  // and it was left on a 12-hour look-back after the ingest route moved to 24 —
+  // so a stay longer than about 13h40m was truncated and written down twice.
+  // This is that loop, parameterised by the window, so the two cannot drift
+  // apart again silently.
+  function checkInsFor(stayHours: number, lookbackMin: number): number {
+    const HOUR = 3_600_000
+    const arrived = clock("18:00").getTime()
+    const written: Date[] = []
+    for (let now = arrived; now <= arrived + stayHours * HOUR; now += 10 * 60_000) {
+      if (now - arrived < MIN_DWELL_MIN * 60_000) continue
+      const seen = {
+        start: new Date(Math.max(arrived, now - lookbackMin * 60_000)),
+        end: new Date(now),
+      }
+      const w = dedupeWindow(seen)
+      if (written.some(d => d >= w.gte && d <= w.lte)) continue
+      written.push(visitCheckInAt(seen))
+    }
+    return written.length
+  }
+
+  it("keeps a fifteen-hour stay to one check-in at the shared look-back", () => {
+    expect(checkInsFor(15, DETECTION_LOOKBACK_MIN)).toBe(1)
+  })
+
+  it("would have split that stay at the twelve-hour window the cron used", () => {
+    expect(checkInsFor(15, 12 * 60)).toBeGreaterThan(1)
+  })
+
   it("does not swallow a genuinely separate later visit", () => {
     // Two stays can only be separate if more than MAX_GAP_MIN (90) apart, or
     // detectDwells would have kept them as one.
     const morning = { start: clock("08:00"), end: clock("10:00") }
     const evening = { start: clock("18:00"), end: clock("20:00") }
     expect(covers(dedupeWindow(evening), visitCheckInAt(morning))).toBe(false)
+  })
+})
+
+// A stay is re-detected while it grows, and the first pass sees only the
+// twenty minutes that qualified it. The check-in was written then and never
+// touched again, so a night at home read "20 min" for ever.
+describe("autoNote", () => {
+  it("reads the duration back out of a note it wrote", () => {
+    const known = Number(autoNote(612).match(/(\d+) min$/)?.[1])
+    expect(known).toBe(612)
+  })
+
+  it("recognises a longer view of the same stay as an update", () => {
+    const first = Number(autoNote(MIN_DWELL_MIN).match(/(\d+) min$/)?.[1])
+    expect(612).toBeGreaterThan(first)
   })
 })

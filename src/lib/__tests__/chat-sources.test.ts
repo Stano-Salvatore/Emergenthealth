@@ -60,7 +60,9 @@ describe("createSourceFilter", () => {
 
   it("keeps prose the model wrote after the closing bracket", () => {
     const out = run(["[sources: sleep] and that's that."])
-    expect(out.text).toBe(" and that's that.")
+    // No leading space: the marker takes the whitespace that was hugging it,
+    // and there is no prose in front for that space to separate it from.
+    expect(out.text).toBe("and that's that.")
     expect(out.keys).toEqual(["sleep"])
   })
 
@@ -164,5 +166,42 @@ describe("createSourceFilter · marker not at the end", () => {
     const out = run(["Go gently today. [sources: sleep]", " See [Patterns] for more.\n"])
     expect(out.text).toBe("Go gently today. See [Patterns] for more.\n")
     expect(out.keys).toEqual(["sleep"])
+  })
+})
+
+// A third pass over this filter. Each of these got through the fix before it.
+describe("createSourceFilter · what the reviews kept finding", () => {
+  it("strips every marker on a line, not just the first", () => {
+    const out = run(["Hi [sources: sleep] and [sources: journal] bye\n"])
+    expect(out.text).toBe("Hi and bye\n")
+    // Last one wins: they are the same claim, restated.
+    expect(out.keys).toEqual(["journal"])
+  })
+
+  // The filter's whole promise is that ordinary text is never delayed. Holding
+  // everything after a mid-line marker until the newline broke that: the reply
+  // stalled mid-sentence and then arrived in one lump.
+  it("releases prose after a mid-line marker without waiting for a newline", () => {
+    const f = createSourceFilter()
+    expect(f.push("Go gently. [sources: sleep] Want me to look?").text)
+      .toBe("Go gently. Want me to look?")
+  })
+
+  // The other half of that trade: a marker ENDING a line must still swallow the
+  // newline, or every cited answer gains a blank line.
+  it("still swallows the newline after a marker that ends a line", () => {
+    expect(run(["Hi.\n[sources: sleep]", "\nOne more thought."]).text)
+      .toBe("Hi.\nOne more thought.")
+  })
+
+  // Held text starts at a "[" that could have become the marker — but usually
+  // has not. Deleting real prose is worse than showing one stray bracket.
+  it("does not eat a trailing bracket that was never a marker", () => {
+    expect(run(["Nice work ["])).toEqual({ text: "Nice work [" })
+    expect(run(["Options: [s"])).toEqual({ text: "Options: [s" })
+  })
+
+  it("still drops a marker the stream cut off part-way through", () => {
+    expect(run(["Short night.\n", "[sources: sle"])).toEqual({ text: "Short night.\n" })
   })
 })

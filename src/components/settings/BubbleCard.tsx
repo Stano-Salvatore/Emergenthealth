@@ -60,16 +60,24 @@ export function BubbleCard() {
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      // registerNativePush is idempotent — it re-sends the token, which is
-      // what you want anyway since it changes on reinstall — so asking here
-      // both reports the state and repairs it where it can be repaired.
-      const [a, h, r] = await Promise.all([bubbleAvailability(), headStatus(), registerNativePush()])
+      // Everything the CARD needs is on-device and answers immediately.
+      const [a, h] = await Promise.all([bubbleAvailability(), headStatus()])
       if (cancelled) return
       setState(a)
       setHead(h)
-      setReach(r)
       setPops(headPopsEnabled())
       setHeadKnown(true)
+    })()
+    // Reachability is a network call with no timeout, and it was in the same
+    // Promise.all as the two above — so on a stalled connection nothing
+    // resolved, `state` stayed null, and the card returned null: the overlay
+    // permission button, which needs no network at all, never appeared.
+    // registerNativePush is idempotent (it re-sends the token, which you want
+    // anyway since it changes on reinstall), so this both reports the state and
+    // repairs it where it can be repaired — whenever it happens to land.
+    ;(async () => {
+      const r = await registerNativePush().catch(() => null)
+      if (!cancelled) setReach(r)
     })()
     return () => { cancelled = true }
   }, [])
