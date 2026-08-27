@@ -19,6 +19,21 @@ export const maxDuration = 30
 
 const MAX_BATCH = 200
 
+/**
+ * How far back to look when re-detecting visits from a batch.
+ *
+ * This has to reach past the START of any stay still in progress, not merely
+ * past the gap that would end one. A short look-back slides forward with each
+ * batch and drags the detected dwell's start along with it, so the check-in it
+ * would match against keeps ageing out of range and the same night writes
+ * itself down again every couple of hours — measured at four for a ten-hour
+ * night before this was widened.
+ *
+ * A day covers any ordinary stay. Something longer does eventually get a second
+ * check-in, which for a stay spanning more than a day is arguably right anyway.
+ */
+const DETECTION_LOOKBACK_MIN = 24 * 60
+
 interface InPoint {
   lat: number
   lng: number
@@ -88,13 +103,14 @@ export async function POST(req: NextRequest) {
   // Detect visits over the span this batch covers, so a check-in can appear
   // while you are still sitting in the café rather than an hour after you left.
   //
-  // This runs every few minutes against a stay that is still growing, and each
-  // pass sees a slightly longer version of the same dwell. That only stays at
-  // one check-in because recordPlaceVisits matches an existing one anywhere
-  // inside the span rather than near its midpoint — see DEDUPE_MIN. It did not,
-  // once, and this wrote a fresh check-in every ninety minutes of one stay.
+  // This runs every few minutes against a stay that is still growing, so it
+  // keeps re-detecting the same one. It settles on a single check-in only
+  // because two things hold together: the look-back reaches the stay's real
+  // start (DETECTION_LOOKBACK_MIN), and the dedupe matches anywhere inside the
+  // resulting span (DEDUPE_MIN). Either one alone is not enough, which is how
+  // the first attempt at this still wrote four check-ins for one night.
   const times = data.map(d => d.trackedAt.getTime())
-  const from = new Date(Math.min(...times) - 90 * 60_000)
+  const from = new Date(Math.min(...times) - DETECTION_LOOKBACK_MIN * 60_000)
   const to = new Date(Math.max(...times))
   const visits = await recordPlaceVisits(userId, from, to).catch(() => ({ created: 0, detected: 0 }))
 

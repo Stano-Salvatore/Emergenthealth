@@ -245,6 +245,12 @@ export function BubbleCard() {
                   this way yet, and Emergy&apos;s messages arrive through the browser instead.
                 </span>
               )}
+              {reach === "unreachable" && (
+                <span className="text-amber-400">
+                  This phone is ready, but registering it didn&apos;t reach the server just now.
+                  Try again in a moment.
+                </span>
+              )}
               {reach === "no-token" && (
                 <span className="text-amber-400">
                   This build has no Firebase in it, so the app can&apos;t be reached directly. Emergy&apos;s

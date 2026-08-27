@@ -54,9 +54,6 @@ const FLUSH_DELAY_MS = 20 * 1000
 /** Roughly a day of stationary tracking; beyond this the oldest points go. */
 const MAX_QUEUED_POINTS = 200
 
-/** Give up on a backlog after this many consecutive failures. */
-const MAX_UPLOAD_FAILURES = 12
-
 interface Point {
   lat: number
   lng: number
@@ -74,8 +71,6 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null
 let denied = false
 /** Concurrent starts share one attempt rather than adding a watcher each. */
 let starting: Promise<boolean> | null = null
-/** Consecutive failed uploads, so a hopeless backlog eventually stops retrying. */
-let failures = 0
 
 function metresBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6_371_000
@@ -116,11 +111,11 @@ async function flush(): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ points: batch }),
     })
-    if (res.ok) { failures = 0; return }
-    // A signed-out session will refuse this batch and every future one
-    // identically. Re-queueing would repost the same points on every fix for
-    // as long as tracking runs, so that backlog is dropped rather than carried.
-    if (res.status === 401 || res.status === 403) { failures = 0; return }
+    if (res.ok) return
+    // A signed-out session refuses this batch and every future one identically,
+    // so re-queueing would repost the same points on every fix for as long as
+    // tracking runs. That backlog is dropped; anything else is worth holding.
+    if (res.status === 401 || res.status === 403) return
     retry(batch)
   } catch {
     retry(batch)
@@ -129,14 +124,15 @@ async function flush(): Promise<void> {
 
 /**
  * Hold a failed batch for the next flush — ids come from time and position, so
- * a point that never arrives is a gap rather than a duplicate risk. Both the
- * backlog and the number of attempts are capped: a phone that has been out of
- * signal all day should upload what it can and forget the rest, not grow a
- * queue it will never drain.
+ * a point that never arrives is a gap rather than a duplicate risk.
+ *
+ * Only the SIZE is capped, deliberately. Counting failed attempts sounds like
+ * the safer bound and is not: a flush follows every point, so a drive through
+ * a dead spot burns a dozen attempts in minutes and would throw away the very
+ * backlog that exists to survive it. An hour in a tunnel should upload on the
+ * far side, not arrive empty.
  */
 function retry(batch: Point[]): void {
-  failures += 1
-  if (failures > MAX_UPLOAD_FAILURES) { failures = 0; return }
   queue = [...batch, ...queue].slice(-MAX_QUEUED_POINTS)
 }
 
@@ -184,7 +180,13 @@ export async function startBackgroundLocation(onDenied?: () => void): Promise<bo
   // both sail past the guard and register a watcher each, leaving the first
   // with no handle: exactly the duplication WATCHER_KEY exists to prevent.
   if (starting) return starting
-  if (watcherId) return true
+  // A watcher we already hold — including one a failed stop could not remove —
+  // is running, so say so AND put the flag back, or the button reads "Stop
+  // following along" over a watcher nothing will resume after a restart.
+  if (watcherId) {
+    await Preferences.set({ key: ENABLED_KEY, value: "1" }).catch(() => {})
+    return true
+  }
   starting = attachWatcher(onDenied).finally(() => { starting = null })
   return starting
 }

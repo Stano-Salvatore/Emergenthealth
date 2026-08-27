@@ -151,3 +151,18 @@ describe("createSourceFilter · marker after prose", () => {
       .toEqual({ text: "A look [see Patterns] and [notes] this week." })
   })
 })
+
+// Both of these got past the first attempt at the fix above.
+describe("createSourceFilter · marker not at the end", () => {
+  it("takes it out when he keeps talking on the same line", () => {
+    const out = run(["Go gently today. [sources: sleep] Want me to look?\nBye.\n"])
+    expect(out.text).toBe("Go gently today. Want me to look?\nBye.\n")
+    expect(out.keys).toEqual(["sleep"])
+  })
+
+  it("does not release a held marker when a later bracket arrives", () => {
+    const out = run(["Go gently today. [sources: sleep]", " See [Patterns] for more.\n"])
+    expect(out.text).toBe("Go gently today. See [Patterns] for more.\n")
+    expect(out.keys).toEqual(["sleep"])
+  })
+})

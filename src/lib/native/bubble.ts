@@ -265,7 +265,7 @@ export async function testHeadPop(seconds = 12): Promise<string | null> {
  * Returns what happened, because "no token" and "server has no Firebase set
  * up" and "registered" all look identical from the outside otherwise.
  */
-export async function registerNativePush(): Promise<"registered" | "no-token" | "not-configured" | "off-device"> {
+export async function registerNativePush(): Promise<"registered" | "no-token" | "not-configured" | "unreachable" | "off-device"> {
   if (!Capacitor.isNativePlatform()) return "off-device"
   try {
     const { token, available } = await plugin.fcmToken()
@@ -275,7 +275,11 @@ export async function registerNativePush(): Promise<"registered" | "no-token" | 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
     })
-    if (!res.ok) return "no-token"
+    // Distinct from "no-token": the phone HAS a token and Firebase is in the
+    // build — we just couldn't hand it over. Telling someone their app was
+    // built without Firebase because the server returned a 500 sends them off
+    // to fix the wrong thing entirely.
+    if (!res.ok) return "unreachable"
     const json = await res.json().catch(() => ({}))
     return json?.configured === false ? "not-configured" : "registered"
   } catch {

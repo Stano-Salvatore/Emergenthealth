@@ -134,8 +134,14 @@ export function toolActivity(name: string): string {
 // could still turn out to be the marker. Ordinary text is never delayed.
 
 const MARKER_PREFIX = "[sources:"
-/** The marker wherever it ends a piece of text — on its own line or after prose. */
-const MARKER_TAIL = /\s*\[sources:([^\]]*)\]\s*$/i
+/**
+ * The marker anywhere in a line, not only at its end.
+ *
+ * Anchoring to the end covered "…go gently today. [sources: sleep]" but not
+ * "…go gently today. [sources: sleep] Want me to look?" — which is the same
+ * missing newline, one clause later, and went out verbatim.
+ */
+const MARKER_ANYWHERE = /\s*\[sources:([^\]]*)\]\s*/i
 /** The marker at the very start, so prose written after it is still prose. */
 const MARKER_HEAD = /^\s*\[sources:([^\]]*)\]/i
 
@@ -153,7 +159,10 @@ function parseKeys(raw: string): string[] {
  * goes out immediately, so ordinary prose is never delayed.
  */
 function markerStart(partial: string): number {
-  for (let i = partial.length - 1; i >= 0; i--) {
+  // Left to right, so the EARLIEST candidate wins. Scanning from the end
+  // released a marker already being held the moment any later bracket showed
+  // up — "[sources: sleep]" then " See [" put the whole marker on screen.
+  for (let i = 0; i < partial.length; i++) {
     if (partial[i] !== "[") continue
     const rest = partial.slice(i).toLowerCase()
     if (MARKER_PREFIX.startsWith(rest) || rest.startsWith(MARKER_PREFIX)) return i
@@ -190,10 +199,15 @@ export function createSourceFilter(): SourceFilter {
         const nl = buf.indexOf("\n")
         if (nl === -1) break
         const body = buf.slice(0, nl)
-        const m = body.match(MARKER_TAIL)
+        const m = body.match(MARKER_ANYWHERE)
         if (m) {
           keys = parseKeys(m[1])
-          const prose = body.slice(0, m.index)
+          // Keep whatever he wrote on either side of it. The match eats the
+          // whitespace around the marker, so prose on both sides gets its one
+          // space back rather than being run together.
+          const before = body.slice(0, m.index)
+          const after = body.slice((m.index ?? 0) + m[0].length)
+          const prose = before && after ? `${before} ${after}` : before + after
           if (prose) text += prose + "\n"
         } else {
           text += body + "\n"

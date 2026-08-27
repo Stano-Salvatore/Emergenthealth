@@ -91,6 +91,27 @@ describe("dedupeWindow", () => {
     expect(covers(dedupeWindow(v), visitCheckInAt(v))).toBe(true)
   })
 
+  // The test above holds `start` fixed. The real caller does not: it re-detects
+  // from a rolling look-back, so a too-short window slides the detected start
+  // forward and the check-in ages out of range anyway. This walks the actual
+  // loop — batch, detect over [latest - lookback, latest], dedupe — and counts.
+  it("writes one check-in for a long stay, batch after batch", () => {
+    const HOUR = 3_600_000
+    const arrived = clock("22:00").getTime()
+    const written: Date[] = []
+
+    // A ten-hour night, re-detected every five minutes as the points arrive.
+    for (let now = arrived; now <= arrived + 10 * HOUR; now += 5 * 60_000) {
+      const windowStart = Math.max(arrived, now - MAX_GAP_MIN * 60_000 * 16) // 24h look-back
+      const seen = { start: new Date(windowStart), end: new Date(now) }
+      if (new Date(now).getTime() - arrived < MIN_DWELL_MIN * 60_000) continue
+      const w = dedupeWindow(seen)
+      if (written.some(d => d >= w.gte && d <= w.lte)) continue
+      written.push(visitCheckInAt(seen))
+    }
+    expect(written).toHaveLength(1)
+  })
+
   it("does not swallow a genuinely separate later visit", () => {
     // Two stays can only be separate if more than MAX_GAP_MIN (90) apart, or
     // detectDwells would have kept them as one.
