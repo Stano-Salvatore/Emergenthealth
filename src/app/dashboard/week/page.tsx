@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { scoreText } from "@/lib/score-color"
 export const metadata: Metadata = { title: "This Week" }
 
 import { auth } from "@/auth"
@@ -229,10 +230,10 @@ export default async function WeekPage() {
                       <td className={`text-right py-2 ${l.steps != null && l.steps >= STEP_GOAL ? "text-green-400" : "text-muted-foreground"}`}>
                         {l.steps != null ? l.steps.toLocaleString() : "—"}
                       </td>
-                      <td className={`text-right py-2 ${l.readinessScore != null && l.readinessScore >= 70 ? "text-green-400" : l.readinessScore != null && l.readinessScore < 50 ? "text-red-400" : "text-muted-foreground"}`}>
+                      <td className={`text-right py-2 ${scoreText(l.readinessScore, "text-muted-foreground")}`}>
                         {l.readinessScore ?? "—"}
                       </td>
-                      <td className={`text-right py-2 ${l.activityScore != null && l.activityScore >= 70 ? "text-green-400" : "text-muted-foreground"}`}>
+                      <td className={`text-right py-2 ${scoreText(l.activityScore, "text-muted-foreground")}`}>
                         {l.activityScore ?? "—"}
                       </td>
                       <td className="text-right py-2 text-muted-foreground">

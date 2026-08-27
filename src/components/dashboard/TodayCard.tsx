@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useState } from "react"
+import { scoreText, sleepVerdictText } from "@/lib/score-color"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 // Weather code → emoji (same mapping as API)
@@ -48,9 +49,9 @@ export function TodayCard() {
 
   if (!data) return null
 
-  const sleepColor = data.sleep.adequate === true ? "text-green-400" : data.sleep.adequate === false && (data.sleep.hours ?? 0) >= 6 ? "text-yellow-400" : "text-red-400"
+  const sleepColor = sleepVerdictText(data.sleep.adequate, data.sleep.hours)
   const sleepLabel = data.sleep.adequate === true ? "Good" : data.sleep.hours != null && data.sleep.hours >= 6 ? "Okay" : "Short"
-  const readinessColor = data.sleep.readiness == null ? "" : data.sleep.readiness >= 85 ? "text-green-400" : data.sleep.readiness >= 70 ? "text-yellow-400" : "text-red-400"
+  const readinessColor = scoreText(data.sleep.readiness)
   const readinessLabel = data.sleep.readiness == null ? null : data.sleep.readiness >= 85 ? "Optimal" : data.sleep.readiness >= 70 ? "Good" : data.sleep.readiness >= 55 ? "Fair" : "Low"
 
   const displayEvents = data.calendar.slice(0, 4)

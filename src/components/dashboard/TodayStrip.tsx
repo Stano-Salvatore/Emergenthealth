@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { scoreText, sleepVerdictText } from "@/lib/score-color"
 
 // Weather code → emoji (same mapping as TodayCard / API)
 function weatherEmoji(code: number): string {
@@ -41,15 +42,8 @@ export function TodayStrip() {
   }
   if (!data) return null
 
-  const sleepColor =
-    data.sleep.adequate === true ? "text-green-400"
-    : data.sleep.adequate === false && (data.sleep.hours ?? 0) >= 6 ? "text-yellow-400"
-    : "text-red-400"
-  const readinessColor =
-    data.sleep.readiness == null ? "text-muted-foreground"
-    : data.sleep.readiness >= 85 ? "text-green-400"
-    : data.sleep.readiness >= 70 ? "text-yellow-400"
-    : "text-red-400"
+  const sleepColor = sleepVerdictText(data.sleep.adequate, data.sleep.hours)
+  const readinessColor = scoreText(data.sleep.readiness, "text-muted-foreground")
 
   // Next upcoming event (first timed event still ahead, else first all-day)
   const nextEvent = data.calendar[0]

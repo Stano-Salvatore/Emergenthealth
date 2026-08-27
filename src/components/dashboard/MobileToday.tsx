@@ -6,6 +6,7 @@
 // Client component so event times format in the user's local timezone.
 
 import Link from "next/link"
+import { scoreHex } from "@/lib/score-color"
 import { format, parseISO } from "date-fns"
 
 export interface TodayEventItem {
@@ -68,13 +69,6 @@ function hexOrNull(c: string | null | undefined): string | null {
   return null
 }
 
-function scoreColor(s: number) {
-  if (s >= 85) return "#34d399"
-  if (s >= 70) return "#a3e635"
-  if (s >= 50) return "#fbbf24"
-  return "#f87171"
-}
-
 // 270° arc gauge, Vora-style: score centered, sweep starts bottom-left.
 function ScoreGauge({ score, label }: { score: number; label: string }) {
   const r = 34
@@ -87,7 +81,7 @@ function ScoreGauge({ score, label }: { score: number; label: string }) {
         <circle cx="42" cy="42" r={r} fill="none" strokeWidth="7" strokeLinecap="round"
           className="stroke-secondary" strokeDasharray={`${arc} ${circ}`} />
         <circle cx="42" cy="42" r={r} fill="none" strokeWidth="7" strokeLinecap="round"
-          stroke={scoreColor(score)} strokeDasharray={`${arc * pct} ${circ}`} />
+          stroke={scoreHex(score)} strokeDasharray={`${arc * pct} ${circ}`} />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-3xl font-black tabular-nums leading-none">{score}</span>
