@@ -134,17 +134,31 @@ export function toolActivity(name: string): string {
 // could still turn out to be the marker. Ordinary text is never delayed.
 
 const MARKER_PREFIX = "[sources:"
-const MARKER_LINE = /^\s*\[sources:([^\]]*)\]\s*$/i
+/** The marker wherever it ends a piece of text — on its own line or after prose. */
+const MARKER_TAIL = /\s*\[sources:([^\]]*)\]\s*$/i
+/** The marker at the very start, so prose written after it is still prose. */
 const MARKER_HEAD = /^\s*\[sources:([^\]]*)\]/i
 
 function parseKeys(raw: string): string[] {
   return raw.split(",").map(s => s.trim().toLowerCase()).filter(Boolean)
 }
 
-/** Could this partial line still become the marker if more text arrived? */
-function couldBeMarker(partial: string): boolean {
-  const t = partial.trimStart().toLowerCase()
-  return t.length === 0 || MARKER_PREFIX.startsWith(t) || t.startsWith(MARKER_PREFIX)
+/**
+ * Where a marker could begin in this partial line, or -1.
+ *
+ * He is asked to put it on a line of its own and usually does, but "…go gently
+ * today. [sources: sleep]" is one missing newline away and used to sail
+ * straight through to the screen — and into the stored transcript, where it
+ * stayed. Anything from a candidate "[" onwards is held; everything before it
+ * goes out immediately, so ordinary prose is never delayed.
+ */
+function markerStart(partial: string): number {
+  for (let i = partial.length - 1; i >= 0; i--) {
+    if (partial[i] !== "[") continue
+    const rest = partial.slice(i).toLowerCase()
+    if (MARKER_PREFIX.startsWith(rest) || rest.startsWith(MARKER_PREFIX)) return i
+  }
+  return -1
 }
 
 export interface FilterOutput {
@@ -169,25 +183,33 @@ export function createSourceFilter(): SourceFilter {
       let text = ""
       let keys: string[] | undefined
 
-      // Complete lines can be judged immediately: a whole-line marker is
-      // swallowed, anything else is forwarded.
+      // Complete lines can be judged immediately: the marker is taken off the
+      // end, and whatever prose came before it is forwarded. A line that was
+      // nothing but the marker leaves nothing — not even its newline.
       for (;;) {
         const nl = buf.indexOf("\n")
         if (nl === -1) break
-        const line = buf.slice(0, nl + 1)
-        const m = line.match(MARKER_LINE)
-        if (m) keys = parseKeys(m[1])
-        else text += line
+        const body = buf.slice(0, nl)
+        const m = body.match(MARKER_TAIL)
+        if (m) {
+          keys = parseKeys(m[1])
+          const prose = body.slice(0, m.index)
+          if (prose) text += prose + "\n"
+        } else {
+          text += body + "\n"
+        }
         buf = buf.slice(nl + 1)
       }
 
-      // Whatever is left is a partial line. Hold it only while it could still
-      // be the marker; otherwise it goes out with everything else.
-      if (couldBeMarker(buf)) {
-        pending = buf
-      } else {
+      // Whatever is left is a partial line. Hold from the point a marker could
+      // begin; everything before that goes out now.
+      const start = markerStart(buf)
+      if (start === -1) {
         text += buf
         pending = ""
+      } else {
+        text += buf.slice(0, start)
+        pending = buf.slice(start)
       }
       return keys ? { text, keys } : { text }
     },
@@ -201,9 +223,10 @@ export function createSourceFilter(): SourceFilter {
         const rest = held.slice(m[0].length)
         return { text: rest, keys: parseKeys(m[1]) }
       }
-      // A stream cut off mid-marker leaves a fragment that is plumbing too —
-      // showing "[sources: sle" would be worse than showing nothing.
-      if (couldBeMarker(held) && held.trim().length > 0) return { text: "" }
+      // Anything still held started at a "[" that could only have become the
+      // marker, so a stream cut off mid-way leaves a fragment that is plumbing
+      // too — showing "[sources: sle" would be worse than showing nothing.
+      if (held.trim().length > 0) return { text: "" }
       return { text: held }
     },
   }

@@ -121,3 +121,33 @@ describe("toolActivity", () => {
     expect(toolActivity("some_new_tool")).toBe("having a look")
   })
 })
+
+// He is asked to put the marker on a line of its own, and usually does. One
+// missing newline used to send it straight to the screen — and into the stored
+// transcript, where it stayed for good.
+describe("createSourceFilter · marker after prose", () => {
+  it("takes a marker off the end of a sentence", () => {
+    const out = run(["Go gently today. [sources: sleep]\n"])
+    expect(out.text).toBe("Go gently today.\n")
+    expect(out.keys).toEqual(["sleep"])
+  })
+
+  // Split across chunks the space before "[" is already out the door by the
+  // time the marker shows up. Holding trailing whitespace on the chance a
+  // marker follows would delay every ordinary word break, which is a far worse
+  // trade than one space that renders as nothing.
+  it("takes it off even when it arrives split mid-sentence", () => {
+    const out = run(["Go gently ", "today. [sour", "ces: sleep, journal]\n"])
+    expect(out.text).toBe("Go gently today. ")
+    expect(out.keys).toEqual(["sleep", "journal"])
+  })
+
+  it("drops a mid-sentence marker the stream cut off", () => {
+    expect(run(["Go gently today. [sources: sle"])).toEqual({ text: "Go gently today. " })
+  })
+
+  it("still leaves an ordinary bracket in the middle of a sentence alone", () => {
+    expect(run(["A look [see Patterns] and [notes] this week."]))
+      .toEqual({ text: "A look [see Patterns] and [notes] this week." })
+  })
+})
