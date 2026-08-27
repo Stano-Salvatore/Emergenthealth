@@ -6,8 +6,8 @@ import React from "react"
 //
 // Nothing here is tinted with a status colour. Green means "on target" across
 // the app (design/handoff/README.md), so a green figure inside a sentence
-// arguing the opposite would contradict the words around it. Figures are set
-// in mono and left neutral; the source chips under the reply carry the hue.
+// arguing the opposite would contradict the words around it. The source chips
+// under a reply carry the hue instead.
 
 const INLINE_RE = /(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`]+`)/g
 
@@ -15,20 +15,21 @@ function renderInline(text: string): React.ReactNode {
   const parts = text.split(INLINE_RE)
   if (parts.length === 1) return text
   return parts.map((part, i) => {
+    // Recurse: he writes **`500ml`** often enough, and without this the inner
+    // figure never got parsed — the backticks rendered as literal characters
+    // in the middle of a bold phrase.
     if (part.startsWith("**") && part.endsWith("**") && part.length > 4) {
-      return <strong key={i} className="font-semibold">{part.slice(2, -2)}</strong>
+      return <strong key={i} className="font-semibold">{renderInline(part.slice(2, -2))}</strong>
     }
     if (part.startsWith("*") && part.endsWith("*") && part.length > 2) {
-      return <em key={i}>{part.slice(1, -1)}</em>
+      return <em key={i}>{renderInline(part.slice(1, -1))}</em>
     }
-    // A figure he read from the data, rather than a claim he made. Mono with
-    // tabular figures so a column of them lines up when several sit together.
+    // A figure he read from the data. It reads as part of the sentence — a
+    // boxed mono token made "6.1h in bed" look like code quoted mid-prose.
+    // Tabular figures are the only treatment left, so digits still line up
+    // down a column of bullets.
     if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
-      return (
-        <span key={i} className="font-mono tabular-nums text-[0.9em] px-1.5 py-0.5 mx-px rounded-md bg-secondary">
-          {part.slice(1, -1)}
-        </span>
-      )
+      return <span key={i} className="tabular-nums">{part.slice(1, -1)}</span>
     }
     return part
   })

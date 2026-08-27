@@ -458,7 +458,11 @@ export default function ChatPage() {
 
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto space-y-4 scrollbar-thin pr-1"
+        // The shell pads every page 48px on the left so content clears the
+        // floating menu button, which sits above this list rather than beside
+        // it. Reclaiming most of that gutter puts Emergy's avatar near the edge
+        // like any other chat, instead of adrift in whitespace.
+        className="flex-1 overflow-y-auto space-y-4 scrollbar-thin pr-1 -ml-9 lg:ml-0"
       >
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center space-y-3 py-12">

@@ -52,7 +52,7 @@ export function SourceTrail({ chips }: { chips: SourceChip[] }) {
         return (
           <span
             key={chip.key}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-border px-2.5 py-1.5 text-[11px] text-muted-foreground"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-border px-2 py-1 text-[11px] text-muted-foreground"
           >
             <Icon className={`h-3 w-3 shrink-0 ${DOMAIN_TEXT[chip.domain]}`} />
             {chip.label}
