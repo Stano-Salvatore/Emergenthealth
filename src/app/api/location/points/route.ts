@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { optionalNumber } from "@/lib/optional-number"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { recordPlaceVisits } from "@/lib/place-visits"
@@ -41,20 +42,6 @@ interface InPoint {
   accuracyM?: number | null
   altitudeM?: number | null
   speedKmh?: number | null
-}
-
-/**
- * A missing reading stays missing.
- *
- * `Number(null)` is 0 and `Number.isFinite(0)` is true, so the obvious
- * coercion turns "this phone reported no altitude" into "this phone was at sea
- * level". The plugin types altitude and speed as nullable and does send nulls.
- */
-function optionalNumber(value: unknown, round?: (n: number) => number): number | null {
-  if (value === null || value === undefined) return null
-  const n = Number(value)
-  if (!Number.isFinite(n)) return null
-  return round ? round(n) : n
 }
 
 export async function POST(req: NextRequest) {
