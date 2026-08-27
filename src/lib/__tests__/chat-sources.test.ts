@@ -74,7 +74,7 @@ describe("chipsFromClaim", () => {
 
   it("renders only what the prompt actually carried", () => {
     const chips = chipsFromClaim(["sleep", "journal"], manifest)
-    expect(chips.map(c => c.label)).toEqual(["Sleep & readiness", "Journal"])
+    expect(chips.map(c => c.label)).toEqual(["Sleep", "Journal"])
     expect(chips.map(c => c.detail)).toEqual(["30 nights", "4 entries"])
   })
 

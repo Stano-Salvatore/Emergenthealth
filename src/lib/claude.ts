@@ -1026,6 +1026,10 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   return "Unknown tool."
 }
 
+/** How far the calendar section reaches, and what its source chip reports. */
+const CALENDAR_DAYS_BACK = 30
+const CALENDAR_DAYS_AHEAD = 14
+
 export async function buildSystemPrompt(
   userId: string,
 ): Promise<{ prompt: string; manifest: SourceManifest }> {
@@ -1074,8 +1078,8 @@ export async function buildSystemPrompt(
       prisma.reminder.findMany({ where: { userId, isCompleted: false }, orderBy: { dueDate: "asc" }, take: 20 }),
       getEventsInRange(
         userId,
-        new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-        new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        new Date(today.getTime() - CALENDAR_DAYS_BACK * 24 * 60 * 60 * 1000).toISOString(),
+        new Date(today.getTime() + CALENDAR_DAYS_AHEAD * 24 * 60 * 60 * 1000).toISOString(),
       ),
       prisma.moodLog.findFirst({ where: { userId, date: { gte: new Date(todayStr) } } }).catch(() => null),
       prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: new Date(todayStr) } } }).catch(() => []),
@@ -1572,7 +1576,10 @@ export async function buildSystemPrompt(
     ...(tagDayMap.size > 0 && { tags: plural(tagDayMap.size, "day") }),
     ...((waterToday > 0 || coffeeToday > 0 || ouraMeds.length > 0) && { intake: "today" }),
     ...(habitsWithStreaks.length > 0 && { habits: plural(habitsWithStreaks.length, "habit") }),
-    ...(calendarEvents.length > 0 && { calendar: plural(calendarEvents.length, "event") }),
+    // A span, not a row count: the calendar section reaches 30 days back and 14
+    // forward, so "65 events" read as though he had gone through sixty-five of
+    // them to name today's one meeting. Every other chip states a window.
+    ...(calendarEvents.length > 0 && { calendar: plural(CALENDAR_DAYS_BACK + CALENDAR_DAYS_AHEAD, "day") }),
     ...(symptomByDay.size > 0 && { symptoms: plural(symptomByDay.size, "day") }),
     ...(latestLabByMarker.size > 0 && { labs: plural(latestLabByMarker.size, "marker") }),
     ...(medSchedules.length > 0 && { meds: plural(medSchedules.length, "schedule") }),
@@ -1673,7 +1680,7 @@ const CHAT_PRESENTATION = `
 
 ## How the app renders your reply
 The chat screen shows your answer with its working, so write it that way.
-- Put any figure you read from their data in backticks — \`6h 10m\`, \`68\`, \`3.2k\`. The app sets those as figures, which is how the user tells a number you looked up from a claim you made.
+- Put any figure you read from their data in backticks — \`6h 10m\`, \`68\`, \`3.2k\`. They render as ordinary prose; the backticks only set the digits in tabular figures so they line up down a list.
 - When their own words say it better than yours, quote the journal back as a blockquote opening with the date: "> 24 Aug — Woke up already behind." One quote at most, only when it earns its place, and never paraphrased inside the quote marks — if you cannot quote it as written, do not quote it.
 - If the answer leaned on their data, close with one final line naming what you used, exactly like this: [sources: sleep, journal]. Choose only from: ${SOURCE_KEYS.join(", ")}. Name only what actually shaped the answer, not everything you can see, and leave the line off entirely for small talk or anything you answered without reading. The user never sees the line itself — it draws the source chips under your reply, so a source you name but did not use puts a false receipt on their screen.`
 

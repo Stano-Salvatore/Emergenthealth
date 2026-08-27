@@ -19,7 +19,8 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { isRouteEnabled } from "@/lib/features"
-import { EmergyAvatar, type EmergyState } from "@/components/emergy/EmergyAvatar"
+import { EmergyAvatar } from "@/components/emergy/EmergyAvatar"
+import { useEmergyState } from "@/lib/emergy-store"
 
 // Four rooms rather than one 27-item list: where you are now, what your body
 // is doing, the rest of life, and what the data means. Headers only render
@@ -190,21 +191,11 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
   const [hidden,  setHidden]  = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState(false)
   const [bottomHovered, setBottomHovered] = useState(false)
-  const [emergyState, setEmergyState] = useState<EmergyState>("okay")
+  // Shared with every other Emergy on the page — see lib/emergy-store.
+  const emergyState = useEmergyState()
 
   // The brand mark is Emergy himself — keep his colour in step with his
   // actual state, same polling as the bottom nav.
-  useEffect(() => {
-    let cancelled = false
-    const load = () =>
-      fetch("/api/emergy")
-        .then(r => (r.ok ? r.json() : null))
-        .then(d => { if (d?.state && !cancelled) setEmergyState(d.state) })
-        .catch(() => {})
-    load()
-    const t = setInterval(load, 5 * 60 * 1000)
-    return () => { cancelled = true; clearInterval(t) }
-  }, [])
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),

@@ -33,7 +33,10 @@ export async function POST(req: NextRequest) {
 
   const userId = session.user.id
 
-  const rl = checkRateLimit(userId, "chat", 20, 60 * 60 * 1000) // 20/hr
+  // 20/hr was set when chat was a side panel. It is the main surface now — a
+  // briefing plus a few follow-ups is a normal morning — and the ceiling was
+  // reachable in one sitting. Still low enough to catch a runaway loop.
+  const rl = checkRateLimit(userId, "chat", 80, 60 * 60 * 1000) // 80/hr
   if (!rl.allowed) {
     // resetAt lets the client tell the user *when* they can chat again rather
     // than failing silently; Retry-After is the same number for HTTP clients.

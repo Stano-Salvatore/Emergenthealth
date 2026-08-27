@@ -27,20 +27,22 @@ export interface SourceChip {
   domain: SourceDomain
 }
 
+// Labels stay short on purpose: at 390px one long one can't share a row with
+// anything, and a four-source answer turns into four rows of chips.
 const SOURCE_META: Record<SourceKey, { label: string; domain: SourceDomain }> = {
-  sleep:    { label: "Sleep & readiness", domain: "sleep" },
-  journal:  { label: "Journal",           domain: "mind"  },
-  checkin:  { label: "Check-ins",         domain: "mind"  },
-  tags:     { label: "Oura tags",         domain: "fuel"  },
-  intake:   { label: "Today's intake",    domain: "fuel"  },
-  habits:   { label: "Habits",            domain: "life"  },
-  calendar: { label: "Calendar",          domain: "life"  },
-  symptoms: { label: "Symptoms",          domain: "heart" },
-  labs:     { label: "Blood work",        domain: "heart" },
-  meds:     { label: "Medications",       domain: "fuel"  },
-  workouts: { label: "Workouts",          domain: "move"  },
-  patterns: { label: "Your patterns",     domain: "mind"  },
-  memory:   { label: "What I remember",   domain: "life"  },
+  sleep:    { label: "Sleep",       domain: "sleep" },
+  journal:  { label: "Journal",     domain: "mind"  },
+  checkin:  { label: "Check-ins",   domain: "mind"  },
+  tags:     { label: "Oura tags",   domain: "fuel"  },
+  intake:   { label: "Intake",      domain: "fuel"  },
+  habits:   { label: "Habits",      domain: "life"  },
+  calendar: { label: "Calendar",    domain: "life"  },
+  symptoms: { label: "Symptoms",    domain: "heart" },
+  labs:     { label: "Blood work",  domain: "heart" },
+  meds:     { label: "Medications", domain: "fuel"  },
+  workouts: { label: "Workouts",    domain: "move"  },
+  patterns: { label: "Patterns",    domain: "mind"  },
+  memory:   { label: "Memory",      domain: "life"  },
 }
 
 /** The vocabulary Emergy is told to pick from — kept in sync with SOURCE_META. */
@@ -70,7 +72,7 @@ export function chipsFromClaim(claimed: string[], manifest: SourceManifest): Sou
  */
 const TOOL_SOURCES: Record<string, { label: string; domain: SourceDomain }> = {
   get_health_range: { label: "Health history", domain: "sleep" },
-  find_my_logs:     { label: "Your logs",      domain: "life"  },
+  find_my_logs:     { label: "Logs",           domain: "life"  },
 }
 
 export function chipsFromTools(toolNames: string[]): SourceChip[] {
