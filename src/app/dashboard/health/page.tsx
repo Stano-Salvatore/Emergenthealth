@@ -22,7 +22,8 @@ import LabsPage from "@/app/dashboard/labs/page"
 import BodyPage from "@/app/dashboard/body/page"
 import { isFeatureEnabled } from "@/lib/features"
 import { getGoals } from "@/lib/goals"
-import { getUserTimezone, localDateStr, addDaysISO } from "@/lib/local-date"
+import { localDateStr, addDaysISO } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 
 interface StravaActivityRow {
   id: string

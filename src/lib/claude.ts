@@ -13,7 +13,8 @@ import {
   chipsFromClaim, chipsFromTools, createSourceFilter, mergeChips, SOURCE_KEYS,
   type SourceChip, type SourceManifest,
 } from "@/lib/chat-sources"
-import { addDaysISO, getUserTimezone, localDateStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
+import { addDaysISO, localDateStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { randomUUID } from "crypto"
 import { parseDose, formatDose } from "@/lib/dose"
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { syncTruelayerForUser } from "@/lib/truelayer-sync"
-import { recordSync } from "@/lib/sync-status"
+import { recordSync } from "@/lib/sync-status-store"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"

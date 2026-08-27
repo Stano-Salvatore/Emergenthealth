@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { getUserTimezone, localDateStr, zonedDayRange } from "@/lib/local-date"
+import { localDateStr, zonedDayRange } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
 
 export interface Quest {

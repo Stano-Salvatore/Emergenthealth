@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { getUserTimezone, localDateStr, localTimeStr, addDaysISO } from "@/lib/local-date"
+import { localDateStr, localTimeStr, addDaysISO } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import {
   activeOn, adherenceOver, dosesForDay, matchKey, minutesOfDay, sortedTimes,
   type ScheduleLike,

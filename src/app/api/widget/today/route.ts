@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { localDateStr } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"

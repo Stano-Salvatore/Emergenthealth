@@ -463,6 +463,13 @@ export default async function SettingsPage({
       <p className="text-center text-[11px] text-muted-foreground/40 pb-2">
         Emergenthealth v{APP_VERSION} · Built with ♥
       </p>
+      {/* The only route to these inside the app — the global corner links are
+          hidden here, where they landed on top of the bottom nav. */}
+      <p className="text-center text-[11px] text-muted-foreground/40 pb-2 flex justify-center gap-3">
+        <Link href="/privacy" className="hover:text-muted-foreground transition-colors">Privacy</Link>
+        <span aria-hidden>·</span>
+        <Link href="/terms" className="hover:text-muted-foreground transition-colors">Terms</Link>
+      </p>
     </div>
   )
 }

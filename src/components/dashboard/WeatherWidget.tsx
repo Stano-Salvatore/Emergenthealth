@@ -44,8 +44,14 @@ const DAY_LABELS = ["Tomorrow", "Day 2", "Day 3"]
 
 // A browser either has geolocation or it doesn't, and it never changes mid-
 // session. Nothing here needs to render "loading" first and then find out.
+//
+// Test the VALUE, not the key. `"geolocation" in navigator` is true even where
+// the value is undefined — an iframe with the geolocation permissions-policy
+// off, for one — and the effect below bails on the value. Disagree about that
+// and `loading` is stuck true with nothing left to resolve it: the skeleton
+// pulses for the rest of the session.
 function hasGeolocation(): boolean {
-  return typeof navigator !== "undefined" && "geolocation" in navigator
+  return typeof navigator !== "undefined" && Boolean(navigator.geolocation)
 }
 
 export function WeatherWidget() {
@@ -55,6 +61,7 @@ export function WeatherWidget() {
   const loading = geolocation && locating
 
   useEffect(() => {
+    // Matches hasGeolocation above, so `loading` is already false here.
     if (!navigator.geolocation) return
     navigator.geolocation.getCurrentPosition(
       async ({ coords }) => {
@@ -97,7 +104,11 @@ export function WeatherWidget() {
         } catch { /* silent */ }
         setLocating(false)
       },
-      () => setLocating(false)
+      () => setLocating(false),
+      // Without a timeout this call can sit there indefinitely — a permission
+      // prompt the user swipes away rather than answers never reaches either
+      // callback, and the skeleton below pulses until the page is reloaded.
+      { timeout: 10_000, maximumAge: 10 * 60 * 1000 },
     )
   }, [])
 

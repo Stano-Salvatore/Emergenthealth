@@ -40,7 +40,8 @@ vi.mock("@/lib/prisma", () => ({
   },
 }))
 
-import { buildSchedule, analyseExperiment, currentPhase, totalDays, endDate, type ExperimentRow } from "@/lib/experiments"
+import { buildSchedule, currentPhase, totalDays, endDate, type ExperimentRow } from "@/lib/experiments"
+import { analyseExperiment } from "@/lib/experiments-analysis"
 
 const BASE: ExperimentRow = {
   id: "exp1",

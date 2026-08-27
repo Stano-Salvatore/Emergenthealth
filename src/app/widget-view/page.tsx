@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
-import { addDaysISO, getUserTimezone, localDateStr } from "@/lib/local-date"
+import { addDaysISO, localDateStr } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { notFound } from "next/navigation"
 
 export const dynamic = "force-dynamic"

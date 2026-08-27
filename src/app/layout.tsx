@@ -4,11 +4,11 @@ import "./globals.css"
 import { cookies } from "next/headers"
 import { SessionProvider } from "next-auth/react"
 import { ThemeProvider } from "next-themes"
-import Link from "next/link"
 import { ServiceWorkerRegistration } from "@/components/layout/ServiceWorkerRegistration"
 import { StaleChunkRecovery } from "@/components/layout/StaleChunkRecovery"
 import { DeviceWidthCapture } from "@/components/layout/DeviceWidthCapture"
 import { StatusBarController } from "@/components/layout/StatusBarController"
+import { LegalFooter } from "@/components/layout/LegalFooter"
 import { Analytics } from "@vercel/analytics/next"
 
 const geistSans = Geist({
@@ -96,10 +96,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <DeviceWidthCapture />
         <StatusBarController />
         <Analytics />
-        <footer className="fixed bottom-0 right-0 z-50 p-3 flex gap-3 pointer-events-none">
-          <Link href="/privacy" className="pointer-events-auto text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors">Privacy</Link>
-          <Link href="/terms" className="pointer-events-auto text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors">Terms</Link>
-        </footer>
+        <LegalFooter />
       </body>
     </html>
   )

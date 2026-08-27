@@ -2,7 +2,8 @@ import { prisma } from "@/lib/prisma"
 import Anthropic from "@anthropic-ai/sdk"
 import { format } from "date-fns"
 import { buildSystemPrompt } from "@/lib/claude"
-import { addDaysISO, getUserTimezone, localDateStr } from "@/lib/local-date"
+import { addDaysISO, localDateStr } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 
 // The weekly review used to be three different things: a Sunday email with
 // bare averages, a dashboard button that asked Haiku for 200 generic words,

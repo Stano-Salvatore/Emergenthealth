@@ -1,6 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { getUserTimezone } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement } from "@/lib/supplement-normalize"
