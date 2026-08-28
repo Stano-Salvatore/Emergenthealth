@@ -35,7 +35,14 @@ const WIDTH = Number(process.env.WIDTH ?? 390)
 const HEIGHT = Number(process.env.HEIGHT ?? 844)
 
 /** How long a skeleton may legitimately still be animating. */
-const SETTLE_MS = Number(process.env.SETTLE_MS ?? 12_000)
+// Longer than the longest bound the app sets itself. WeatherWidget waits up to
+// 15s for a location fix before giving up and rendering its no-location state —
+// a deliberate bound, because the geolocation spec's own timeout does not start
+// until permission is granted, so a prompt that is swiped away rather than
+// answered reaches no callback at all. Checking at 12s therefore reported a
+// widget behaving exactly as designed: measured here, its skeleton is present
+// at 12s and gone by 16s. A check that flags correct behaviour gets ignored.
+const SETTLE_MS = Number(process.env.SETTLE_MS ?? 18_000)
 
 const ROUTES = (process.env.ROUTES ?? [
   "/dashboard",
