@@ -89,8 +89,20 @@ jobs:
             if [ "$(printf '%s' "$GOOGLE_SERVICES_B64" | tr -d '[:space:]' | head -c1)" = "{" ]; then
               printf '%s' "$GOOGLE_SERVICES_B64" > android/app/google-services.json
               echo "· secret held the JSON itself, not base64 — used as-is"
-            elif ! clean_b64 "$GOOGLE_SERVICES_B64" | base64 -d > android/app/google-services.json 2>/dev/null; then
-              echo "::error::GOOGLE_SERVICES_JSON_BASE64 is neither JSON nor valid base64. Paste the contents of google-services.json, or  base64 -w0 google-services.json"
+            elif ! clean_b64 "$GOOGLE_SERVICES_B64" | base64 -d > android/app/google-services.json 2>/dev/null \
+              && ! printf '%s' "$GOOGLE_SERVICES_B64" | tr -cd 'A-Za-z0-9+/=' | base64 -d > android/app/google-services.json 2>/dev/null; then
+              # Last resort above: keep only base64 alphabet characters. That
+              # rescues a value carrying a byte-order mark or other invisible
+              # packaging, and cannot quietly produce the wrong file — whatever
+              # it yields still has to pass the JSON check below.
+              #
+              # Describe the value rather than printing it. Length and shape are
+              # enough to tell a truncated paste from a wrong-encoding one, and
+              # neither reveals the contents.
+              n=$(printf '%s' "$GOOGLE_SERVICES_B64" | wc -c)
+              bad=$(printf '%s' "$GOOGLE_SERVICES_B64" | tr -d 'A-Za-z0-9+/=[:space:]' | wc -c)
+              first=$(printf '%s' "$GOOGLE_SERVICES_B64" | head -c1 | od -An -tx1 | tr -d ' ')
+              echo "::error::GOOGLE_SERVICES_JSON_BASE64 is neither JSON nor base64 (length ${n}, ${bad} characters outside the base64 alphabet, first byte 0x${first}). Re-paste the contents of google-services.json exactly."
               exit 1
             fi
             # Decoding cleanly is not the same as being the right file: a
