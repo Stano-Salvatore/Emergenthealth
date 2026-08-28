@@ -160,7 +160,29 @@ export async function recordPlaceVisits(userId: string, from: Date, to: Date): P
   if (points.length === 0) return { created: 0, detected: 0 }
 
   const visits = detectDwells(points, places)
+  const { created } = await recordVisits(userId, visits)
+  return { created, detected: visits.length }
+}
+
+/**
+ * Write check-ins for visits already detected, wherever they were detected
+ * from.
+ *
+ * Split out because the location API had its own copy of this idea and it was
+ * a worse one: any SINGLE point inside a saved place's radius created a
+ * check-in, stamped at noon UTC because no real time was to hand. Driving past
+ * home logged a visit to it, at 2pm local, whatever time you actually drove
+ * past. Two rules for the same event, disagreeing — and the wrong one ran on
+ * every page load.
+ *
+ * Returns the places touched so a caller can say what it tagged.
+ */
+export async function recordVisits(
+  userId: string,
+  visits: DetectedVisit[],
+): Promise<{ created: number; places: { id: string; name: string; emoji: string; isNew: boolean }[] }> {
   let created = 0
+  const touched = new Map<string, { id: string; name: string; emoji: string; isNew: boolean }>()
 
   for (const v of visits) {
     const at = visitCheckInAt(v)
@@ -173,6 +195,7 @@ export async function recordPlaceVisits(userId: string, from: Date, to: Date): P
       select: { id: true, note: true },
     })
     if (existing) {
+      touched.set(v.placeId, touched.get(v.placeId) ?? { id: v.placeId, name: v.name, emoji: v.emoji, isNew: false })
       // The check-in is right; its DURATION was frozen at whatever the stay
       // looked like the first time detection ran — twenty minutes in. A night
       // at home read "Auto-detected · 20 min" until morning and then for ever.
@@ -199,7 +222,8 @@ export async function recordPlaceVisits(userId: string, from: Date, to: Date): P
       },
     }).catch(() => null)
     created++
+    touched.set(v.placeId, { id: v.placeId, name: v.name, emoji: v.emoji, isNew: true })
   }
 
-  return { created, detected: visits.length }
+  return { created, places: [...touched.values()] }
 }
