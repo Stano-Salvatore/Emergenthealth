@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 // Background location, so being somewhere is enough to log it.
 //
 // Everything downstream already exists: LocationPoint rows feed detectDwells,
@@ -10,7 +9,22 @@
 // here is a no-op that reports "unavailable", so the settings card can say so
 // rather than offering a switch that does nothing.
 
+import { Capacitor, registerPlugin } from "@capacitor/core"
 import { Preferences } from "@capacitor/preferences"
+import type { BackgroundGeolocationPlugin, CallbackError, Location } from "@capacitor-community/background-geolocation"
+
+/**
+ * The plugin ships NO JavaScript — its package.json has no main, no module and
+ * no exports, and its `files` list is native sources plus a .d.ts. So there is
+ * nothing to import at runtime, and `await import(...)` of it always threw;
+ * the catch below turned that into "unavailable", which is why this feature
+ * reported itself off on every device it ever ran on.
+ *
+ * The documented usage is registerPlugin with the name the Android class
+ * declares in its @CapacitorPlugin annotation — the same shape lib/native/
+ * bubble.ts already uses for EmergyBubble.
+ */
+const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>("BackgroundGeolocation")
 
 const ENABLED_KEY = "backgroundLocationEnabled"
 /**
@@ -82,16 +96,11 @@ function metresBetween(aLat: number, aLng: number, bLat: number, bLng: number): 
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
 }
 
-async function loadPlugin(): Promise<any | null> {
+async function loadPlugin(): Promise<BackgroundGeolocationPlugin | null> {
   if (typeof window === "undefined") return null
-  try {
-    const core = await import("@capacitor/core")
-    if ((core as any).Capacitor?.isNativePlatform?.() !== true) return null
-    const mod = await import("@capacitor-community/background-geolocation")
-    return (mod as any).BackgroundGeolocation ?? (mod as any).default ?? null
-  } catch {
-    return null
-  }
+  // registerPlugin returns a proxy that only fails when CALLED, so the platform
+  // check is what decides availability — not whether a module resolved.
+  return Capacitor.isNativePlatform() ? BackgroundGeolocation : null
 }
 
 /** Whether this build can track at all — false on the web. */
@@ -136,7 +145,7 @@ function retry(batch: Point[]): void {
   queue = [...batch, ...queue].slice(-MAX_QUEUED_POINTS)
 }
 
-function enqueue(location: any): void {
+function enqueue(location: Location): void {
   const at = typeof location.time === "number" ? location.time : Date.now()
   const lat = location.latitude
   const lng = location.longitude
@@ -219,7 +228,7 @@ async function attachWatcher(onDenied?: () => void): Promise<boolean> {
         stale: false,
         distanceFilter: DISTANCE_FILTER_M,
       },
-      (location?: any, error?: any) => {
+      (location?: Location, error?: CallbackError) => {
         if (error) {
           // Refused outright, or location switched off at the OS level. Both
           // are delivered here rather than to the promise, and both can arrive

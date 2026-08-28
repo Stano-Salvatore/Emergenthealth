@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
+import Link from "next/link"
 import { MapPin, Loader2 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -24,6 +25,8 @@ export function BackgroundLocationCard() {
   const [enabled, setEnabled] = useState(false)
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState(false)
+  /** How many places are saved; null while unknown, which says nothing. */
+  const [places, setPlaces] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -32,7 +35,21 @@ export function BackgroundLocationCard() {
         isBackgroundLocationAvailable(),
         isBackgroundLocationEnabled(),
       ])
-      if (!cancelled) { setAvailable(can); setEnabled(on) }
+      if (cancelled) return
+      setAvailable(can)
+      setEnabled(on)
+      if (!can) return
+
+      // A stay is only ever noticed INSIDE a saved place — recordPlaceVisits
+      // returns immediately when there are none. So with nothing saved the
+      // whole chain runs perfectly and produces nothing: the notification
+      // shows, points upload, and no check-in ever appears. That is
+      // indistinguishable from the feature being broken, which is exactly the
+      // failure this card was built on top of. Better to say it up front.
+      const saved = await fetch("/api/saved-places")
+        .then(r => (r.ok ? r.json() : null))
+        .catch(() => null)
+      if (!cancelled && Array.isArray(saved)) setPlaces(saved.length)
     })()
     return () => { cancelled = true }
   }, [])
@@ -78,6 +95,16 @@ export function BackgroundLocationCard() {
               a café — and logs the visit without you opening anything. Android shows a
               notification the whole time it&apos;s running.
             </p>
+            {places === 0 && (
+              <p className="text-xs text-amber-400">
+                You haven&apos;t saved a place yet, and a visit is only ever noticed inside
+                one — so this would track all day and log nothing.{" "}
+                <Link href="/dashboard/location" className="underline">
+                  Save one first
+                </Link>
+                .
+              </p>
+            )}
             <Button
               onClick={toggle}
               disabled={busy}
