@@ -51,6 +51,9 @@ const MOVED_FAR_M = 200
 /** Points wait this long for company before going up on their own. */
 const FLUSH_DELAY_MS = 20 * 1000
 
+/** Roughly a day of stationary tracking; beyond this the oldest points go. */
+const MAX_QUEUED_POINTS = 200
+
 interface Point {
   lat: number
   lng: number
@@ -64,6 +67,10 @@ let watcherId: string | null = null
 let queue: Point[] = []
 let lastSent: { lat: number; lng: number; at: number } | null = null
 let flushTimer: ReturnType<typeof setTimeout> | null = null
+/** Set from the watcher callback; see startBackgroundLocation. */
+let denied = false
+/** Concurrent starts share one attempt rather than adding a watcher each. */
+let starting: Promise<boolean> | null = null
 
 function metresBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6_371_000
@@ -104,14 +111,29 @@ async function flush(): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ points: batch }),
     })
-    // A rejected batch is gone: ids are derived from time and position, so a
-    // point that never arrives is a gap, not a duplicate risk. Put it back and
-    // let the next fix carry it — but cap the backlog so a long offline stretch
-    // can't grow without limit.
-    if (!res.ok) queue = [...batch, ...queue].slice(-200)
+    if (res.ok) return
+    // A signed-out session refuses this batch and every future one identically,
+    // so re-queueing would repost the same points on every fix for as long as
+    // tracking runs. That backlog is dropped; anything else is worth holding.
+    if (res.status === 401 || res.status === 403) return
+    retry(batch)
   } catch {
-    queue = [...batch, ...queue].slice(-200)
+    retry(batch)
   }
+}
+
+/**
+ * Hold a failed batch for the next flush — ids come from time and position, so
+ * a point that never arrives is a gap rather than a duplicate risk.
+ *
+ * Only the SIZE is capped, deliberately. Counting failed attempts sounds like
+ * the safer bound and is not: a flush follows every point, so a drive through
+ * a dead spot burns a dozen attempts in minutes and would throw away the very
+ * backlog that exists to survive it. An hour in a tunnel should upload on the
+ * far side, not arrive empty.
+ */
+function retry(batch: Point[]): void {
+  queue = [...batch, ...queue].slice(-MAX_QUEUED_POINTS)
 }
 
 function enqueue(location: any): void {
@@ -127,6 +149,12 @@ function enqueue(location: any): void {
   if (!movedFar && !dueByTime) return
 
   lastSent = { lat, lng, at }
+  // Trim here too, not only in retry(). The cap used to live only there, so a
+  // failed batch came back at exactly MAX_QUEUED_POINTS and then every new fix
+  // pushed past it. The server keeps the first MAX_BATCH of an oversized post
+  // and answers ok, so the points silently discarded were the NEWEST ones —
+  // the opposite of what a backlog is for.
+  if (queue.length >= MAX_QUEUED_POINTS) queue = queue.slice(-(MAX_QUEUED_POINTS - 1))
   queue.push({
     lat,
     lng,
@@ -143,15 +171,37 @@ function enqueue(location: any): void {
 }
 
 /**
- * Start tracking. Returns false when the plugin is unavailable or the user
- * declines the permission — the caller shows the reason rather than leaving a
- * switch that flipped on and did nothing.
+ * Start tracking.
+ *
+ * `addWatcher` is a Capacitor RETURN_CALLBACK method: its promise resolves with
+ * the watcher's id the moment the call is made, and a refused permission is
+ * delivered to the CALLBACK afterwards, never to the promise. So the return
+ * value here can only mean "the watcher was registered" — it can never mean
+ * "and the user allowed it". Refusal arrives through `onDenied`, which is why
+ * the caller is given one rather than being told to read the boolean.
  */
-export async function startBackgroundLocation(): Promise<boolean> {
+export async function startBackgroundLocation(onDenied?: () => void): Promise<boolean> {
+  // One attempt at a time. The id is only known once addWatcher resolves, and
+  // three awaits happen before that — two overlapping callers would otherwise
+  // both sail past the guard and register a watcher each, leaving the first
+  // with no handle: exactly the duplication WATCHER_KEY exists to prevent.
+  if (starting) return starting
+  // A watcher we already hold — including one a failed stop could not remove —
+  // is running, so say so AND put the flag back, or the button reads "Stop
+  // following along" over a watcher nothing will resume after a restart.
+  if (watcherId) {
+    await Preferences.set({ key: ENABLED_KEY, value: "1" }).catch(() => {})
+    return true
+  }
+  starting = attachWatcher(onDenied).finally(() => { starting = null })
+  return starting
+}
+
+async function attachWatcher(onDenied?: () => void): Promise<boolean> {
   const plugin = await loadPlugin()
   if (!plugin) return false
-  if (watcherId) return true
 
+  denied = false
   try {
     // Clear a watcher left behind by a previous JS context before adding ours.
     const { value: stale } = await Preferences.get({ key: WATCHER_KEY })
@@ -171,9 +221,15 @@ export async function startBackgroundLocation(): Promise<boolean> {
       },
       (location?: any, error?: any) => {
         if (error) {
-          // NOT_AUTHORIZED means the permission was refused outright; there is
-          // nothing to retry, so stop rather than hold a dead watcher open.
-          if (error.code === "NOT_AUTHORIZED") void stopBackgroundLocation()
+          // Refused outright, or location switched off at the OS level. Both
+          // are delivered here rather than to the promise, and both can arrive
+          // before addWatcher has even resolved — hence the flag, which the
+          // code below reads once it knows the id it needs in order to stop.
+          if (error.code === "NOT_AUTHORIZED") {
+            denied = true
+            onDenied?.()
+            void stopBackgroundLocation()
+          }
           return
         }
         if (location) enqueue(location)
@@ -181,7 +237,26 @@ export async function startBackgroundLocation(): Promise<boolean> {
     )
     watcherId = id
     await Preferences.set({ key: WATCHER_KEY, value: id })
+
+    // The refusal may already have come and gone while the above was running.
+    // Marking it enabled now would leave a notification nobody can dismiss and
+    // a flag that re-arms the whole thing on every launch.
+    if (denied) {
+      await stopBackgroundLocation()
+      return false
+    }
+
     await Preferences.set({ key: ENABLED_KEY, value: "1" })
+
+    // And once more, because that write is itself a suspension point. A denial
+    // landing inside it races stopBackgroundLocation's "0" against this "1" —
+    // and if "1" lands last the flag outlives the watcher, so every launch
+    // re-arms tracking the user just refused. Checking after settles it
+    // whichever order they arrived in.
+    if (denied) {
+      await stopBackgroundLocation()
+      return false
+    }
     return true
   } catch {
     watcherId = null
@@ -196,11 +271,17 @@ export async function stopBackgroundLocation(): Promise<void> {
   // that is the only handle on the watcher still running.
   const stored = await Preferences.get({ key: WATCHER_KEY }).then(r => r.value).catch(() => null)
   const id = watcherId ?? stored
+  let removed = true
   if (plugin && id) {
-    await plugin.removeWatcher({ id }).catch(() => {})
+    removed = await plugin.removeWatcher({ id }).then(() => true).catch(() => false)
   }
-  await Preferences.remove({ key: WATCHER_KEY }).catch(() => {})
-  watcherId = null
+  // Only let go of the handle once the watcher is actually gone. Forgetting an
+  // id that still refers to a running watcher strands it: the notification
+  // stays up, points keep uploading, and nothing can reach it to stop it.
+  if (removed) {
+    await Preferences.remove({ key: WATCHER_KEY }).catch(() => {})
+    watcherId = null
+  }
   lastSent = null
   await flush()
 }

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { localDateStr } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 
 // Symptom logging: how the user feels, which nothing in this app recorded
 // before. Deliberately low-friction — a name and a 1-5 severity is enough,

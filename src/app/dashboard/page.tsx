@@ -1,7 +1,9 @@
 import { auth } from "@/auth"
+import { scoreText } from "@/lib/score-color"
 import type { FocusSession, IntakeLog } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { addDaysISO, getUserTimezone, localDateStr, zonedDayRange } from "@/lib/local-date"
+import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { getUpcomingEvents } from "@/lib/google-calendar"
 import { getGmailSummary } from "@/lib/gmail"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -525,7 +527,7 @@ export default async function DashboardPage() {
                   <div className="flex items-center gap-2 rounded-lg bg-primary/8 border border-primary/15 px-3 py-1.5">
                     <Moon className="h-3.5 w-3.5 text-primary shrink-0" />
                     <span className="text-xs text-muted-foreground">Sleep Score</span>
-                    <span className={`ml-auto text-sm font-bold tabular-nums ${latestHealth.sleepScore >= 85 ? "text-green-400" : latestHealth.sleepScore >= 70 ? "text-amber-400" : "text-red-400"}`}>
+                    <span className={`ml-auto text-sm font-bold tabular-nums ${scoreText(latestHealth.sleepScore)}`}>
                       {latestHealth.sleepScore}
                     </span>
                   </div>

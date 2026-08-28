@@ -1,6 +1,7 @@
 import { google } from "googleapis"
 import { prisma } from "@/lib/prisma"
-import { getUserTimezone, zonedDayRange } from "@/lib/local-date"
+import { zonedDayRange } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 
 async function buildCalendarClient(userId: string) {
   const account = await prisma.account.findFirst({

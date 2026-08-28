@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserPlan } from "@/lib/plan"
-import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { localDateStr } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { computeStreak, getVacationWindow, makeIsFrozen } from "@/lib/streak"
 
 const FREE_HABIT_LIMIT = 10

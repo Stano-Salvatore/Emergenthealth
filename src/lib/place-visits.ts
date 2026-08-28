@@ -26,8 +26,61 @@ export const MIN_DWELL_MIN = 20
  */
 export const MAX_GAP_MIN = 90
 
-/** One check-in per place per this window — the same visit seen twice is one visit. */
+/**
+ * Padding around a dwell when looking for a check-in that already covers it.
+ *
+ * This used to compare against the visit's MIDPOINT, which is stable only once
+ * the visit has ended. Detection now also runs per upload batch, where the same
+ * stay is seen again and again while it is still growing — and a growing dwell's
+ * midpoint advances, walking out of its own match window and writing a fresh
+ * check-in every so often. A night at home became a column of them.
+ *
+ * Matching against the whole span instead is stable: the first check-in for a
+ * stay falls inside every later, longer view of that same stay. Padding by the
+ * same 90 minutes that ends a dwell (MAX_GAP_MIN) keeps two genuinely separate
+ * visits separate, since anything closer than that never split in two.
+ */
 export const DEDUPE_MIN = 90
+
+/**
+ * How far back a detection pass must look.
+ *
+ * Not "how stale may a visit be" — how far back the START of a stay that is
+ * still in progress could be. Detection re-runs against a growing stay, and a
+ * window shorter than the stay truncates its start; the check-in already
+ * written then falls outside dedupeWindow and the same night is recorded again.
+ * Measured at four check-ins for a ten-hour night with a 90-minute window, and
+ * a 12-hour window still splits anything over about 13h40m.
+ *
+ * A day covers any ordinary stay. Longer than that eventually earns a second
+ * check-in, which for a stay spanning more than a day is arguably right.
+ */
+export const DETECTION_LOOKBACK_MIN = 24 * 60
+
+/**
+ * When to treat a stay as already recorded.
+ *
+ * Pure and exported so the property that matters can be tested: a longer view
+ * of the same stay must still cover the check-in written for the shorter one.
+ * Matching near the midpoint did not, and per-batch detection turned one night
+ * into a column of check-ins.
+ */
+export function dedupeWindow(v: { start: Date; end: Date }): { gte: Date; lte: Date } {
+  return {
+    gte: new Date(v.start.getTime() - DEDUPE_MIN * 60_000),
+    lte: new Date(v.end.getTime() + DEDUPE_MIN * 60_000),
+  }
+}
+
+/** Where a visit's check-in is stamped: its middle reads better than its first fix. */
+/** The note on an automatic check-in. Parsed back out when a stay grows. */
+export function autoNote(minutes: number): string {
+  return `Auto-detected · ${minutes} min`
+}
+
+export function visitCheckInAt(v: { start: Date; end: Date }): Date {
+  return new Date((v.start.getTime() + v.end.getTime()) / 2)
+}
 
 export interface DetectedVisit {
   placeId: string
@@ -110,26 +163,36 @@ export async function recordPlaceVisits(userId: string, from: Date, to: Date): P
   let created = 0
 
   for (const v of visits) {
-    // The visit's midpoint reads better than its first GPS fix: an arrival
-    // logged the instant tracking noticed you is often a few minutes early.
-    const at = new Date((v.start.getTime() + v.end.getTime()) / 2)
+    const at = visitCheckInAt(v)
+    const minutes = Math.round((v.end.getTime() - v.start.getTime()) / 60_000)
 
+    // Anywhere inside this stay, not just near its middle — see DEDUPE_MIN.
+    const window = dedupeWindow(v)
     const existing = await prisma.checkIn.findFirst({
-      where: {
-        userId,
-        savedPlaceId: v.placeId,
-        checkedAt: { gte: new Date(at.getTime() - DEDUPE_MIN * 60_000), lte: new Date(at.getTime() + DEDUPE_MIN * 60_000) },
-      },
-      select: { id: true },
+      where: { userId, savedPlaceId: v.placeId, checkedAt: window },
+      select: { id: true, note: true },
     })
-    if (existing) continue
+    if (existing) {
+      // The check-in is right; its DURATION was frozen at whatever the stay
+      // looked like the first time detection ran — twenty minutes in. A night
+      // at home read "Auto-detected · 20 min" until morning and then for ever.
+      // Its time stays put, so the timeline does not reshuffle underneath you.
+      const known = Number(existing.note?.match(/(\d+) min$/)?.[1] ?? -1)
+      if (minutes > known) {
+        await prisma.checkIn.update({
+          where: { id: existing.id },
+          data: { note: autoNote(minutes) },
+        }).catch(() => null)
+      }
+      continue
+    }
 
     await prisma.checkIn.create({
       data: {
         userId,
         place: v.name,
         emoji: v.emoji,
-        note: `Auto-detected · ${Math.round((v.end.getTime() - v.start.getTime()) / 60_000)} min`,
+        note: autoNote(minutes),
         checkedAt: at,
         isAuto: true,
         savedPlaceId: v.placeId,

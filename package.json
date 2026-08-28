@@ -10,7 +10,10 @@
     "lint": "eslint",
     "store-assets": "node .ci/generate-store-assets.mjs",
     "screenshots": "node .ci/capture-screenshots.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev:proxy": "node .ci/dev-wsproxy.mjs",
+    "dev:seed": "node .ci/dev-seed.mjs",
+    "smoke": "node .ci/smoke.mjs"
   },
   "dependencies": {
     "@actual-app/api": "^26.4.0",

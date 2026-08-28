@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { scoreHex, scoreText } from "@/lib/score-color"
 export const metadata: Metadata = { title: "Health" }
 
 import { auth } from "@/auth"
@@ -22,7 +23,8 @@ import LabsPage from "@/app/dashboard/labs/page"
 import BodyPage from "@/app/dashboard/body/page"
 import { isFeatureEnabled } from "@/lib/features"
 import { getGoals } from "@/lib/goals"
-import { getUserTimezone, localDateStr, addDaysISO } from "@/lib/local-date"
+import { localDateStr, addDaysISO } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 
 interface StravaActivityRow {
   id: string
@@ -230,18 +232,6 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
 
   const latestLog = logs[0] ?? null
 
-  function readinessColor(score: number) {
-    if (score >= 85) return "text-green-400"
-    if (score >= 70) return "text-amber-400"
-    return "text-red-400"
-  }
-
-  function scoreColor(score: number) {
-    if (score >= 85) return "text-green-400"
-    if (score >= 70) return "text-amber-400"
-    return "text-red-400"
-  }
-
   return (
     <div className="space-y-6">
       {/* ── header ── */}
@@ -412,17 +402,17 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                   </CardTitle>
                   <div className="flex items-center gap-2 flex-wrap shrink-0">
                     {latestLog.sleepScore != null && (
-                      <Badge variant="secondary" className={`text-xs ${scoreColor(latestLog.sleepScore)}`}>
+                      <Badge variant="secondary" className={`text-xs ${scoreText(latestLog.sleepScore)}`}>
                         Sleep {latestLog.sleepScore}
                       </Badge>
                     )}
                     {latestLog.readinessScore != null && (
-                      <Badge variant="secondary" className={`text-xs ${readinessColor(latestLog.readinessScore)}`}>
+                      <Badge variant="secondary" className={`text-xs ${scoreText(latestLog.readinessScore)}`}>
                         Readiness {latestLog.readinessScore}
                       </Badge>
                     )}
                     {latestLog.activityScore != null && (
-                      <Badge variant="secondary" className={`text-xs ${scoreColor(latestLog.activityScore)}`}>
+                      <Badge variant="secondary" className={`text-xs ${scoreText(latestLog.activityScore)}`}>
                         Activity {latestLog.activityScore}
                       </Badge>
                     )}
@@ -728,12 +718,12 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                     <span className="text-muted-foreground w-20 shrink-0 text-xs">{format(log.date, "EEE MMM d")}</span>
                     <div className="flex items-center gap-3 flex-1 justify-end flex-wrap min-w-0 overflow-hidden">
                       {log.readinessScore != null && (
-                        <span className={`flex items-center gap-1 text-xs ${readinessColor(log.readinessScore)}`}>
+                        <span className={`flex items-center gap-1 text-xs ${scoreText(log.readinessScore)}`}>
                           <Shield className="h-3 w-3" />{log.readinessScore}
                         </span>
                       )}
                       {log.activityScore != null && (
-                        <span className={`flex items-center gap-1 text-xs ${scoreColor(log.activityScore)}`}>
+                        <span className={`flex items-center gap-1 text-xs ${scoreText(log.activityScore)}`}>
                           <Zap className="h-3 w-3" />{log.activityScore}
                         </span>
                       )}
@@ -842,11 +832,12 @@ function SummaryCard({ icon, label, value, good, target, delta }: {
   )
 }
 
-// SVG progress ring for a 0–100 score; color follows the usual score bands.
+// SVG progress ring for a 0–100 score. Colour is status, per the handoff —
+// see lib/score-color for why there is only one scale now.
 function ScoreRing({ label, score, sub }: { label: string; score: number | null; sub?: string }) {
   const R = 34, C = 2 * Math.PI * R
   const pct = score != null ? Math.max(0, Math.min(100, score)) : 0
-  const color = score == null ? "#3f3f46" : score >= 85 ? "#4ade80" : score >= 70 ? "#fbbf24" : "#f87171"
+  const color = scoreHex(score)
   return (
     <div className="flex flex-col items-center gap-1.5">
       <div className="relative" style={{ width: 84, height: 84 }}>
@@ -856,7 +847,11 @@ function ScoreRing({ label, score, sub }: { label: string; score: number | null;
             strokeDasharray={C} strokeDashoffset={C * (1 - pct / 100)} />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-xl font-black" style={{ color }}>{score != null ? Math.round(score) : "—"}</span>
+          {/* The RING carries the status; the figure stays neutral. Tinting the
+              number too is what design/handoff/README.md rules out — a metric's
+              own glyph must not take a status colour, or the two palettes stop
+              being distinguishable. The dashboard's gauge already did this. */}
+          <span className="text-xl font-black">{score != null ? Math.round(score) : "—"}</span>
         </div>
       </div>
       <p className="text-xs font-medium">{label}</p>

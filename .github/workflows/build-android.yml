@@ -67,16 +67,61 @@ jobs:
 
       - name: Decode release keystore
         run: |
+          # A secret gets to CI by way of a terminal, a clipboard and a web form,
+          # and any of those can add carriage returns or wrap the value. GNU
+          # base64 tolerates plain line breaks and nothing else, so a value
+          # pasted from Windows — or from `certutil -encode`, which adds a
+          # BEGIN/END header too — fails with the whole of "base64: invalid
+          # input" and a red build that says nothing about which secret or why.
+          # Strip the packaging rather than making the person who pasted it
+          # guess. What CANNOT be repaired is reported by name, and loudly.
+          clean_b64() {
+            printf '%s' "$1" | tr -d '\r\n \t' | sed -e 's/-----[A-Z ]*-----//g'
+          }
+
           if [ -n "$GOOGLE_SERVICES_B64" ]; then
             mkdir -p android/app
-            echo "$GOOGLE_SERVICES_B64" | base64 -d > android/app/google-services.json
+            # Take the file either way. Pasting the JSON itself rather than a
+            # base64 of it is the obvious thing to do with a secret named after
+            # a .json file, and lib/fcm.ts already accepts both forms for the
+            # service account — so refusing it here was this repo disagreeing
+            # with itself about what a config secret looks like.
+            if [ "$(printf '%s' "$GOOGLE_SERVICES_B64" | tr -d '[:space:]' | head -c1)" = "{" ]; then
+              printf '%s' "$GOOGLE_SERVICES_B64" > android/app/google-services.json
+              echo "· secret held the JSON itself, not base64 — used as-is"
+            elif ! clean_b64 "$GOOGLE_SERVICES_B64" | base64 -d > android/app/google-services.json 2>/dev/null \
+              && ! printf '%s' "$GOOGLE_SERVICES_B64" | tr -cd 'A-Za-z0-9+/=' | base64 -d > android/app/google-services.json 2>/dev/null; then
+              # Last resort above: keep only base64 alphabet characters. That
+              # rescues a value carrying a byte-order mark or other invisible
+              # packaging, and cannot quietly produce the wrong file — whatever
+              # it yields still has to pass the JSON check below.
+              #
+              # Describe the value rather than printing it. Length and shape are
+              # enough to tell a truncated paste from a wrong-encoding one, and
+              # neither reveals the contents.
+              n=$(printf '%s' "$GOOGLE_SERVICES_B64" | wc -c)
+              bad=$(printf '%s' "$GOOGLE_SERVICES_B64" | tr -d 'A-Za-z0-9+/=[:space:]' | wc -c)
+              first=$(printf '%s' "$GOOGLE_SERVICES_B64" | head -c1 | od -An -tx1 | tr -d ' ')
+              echo "::error::GOOGLE_SERVICES_JSON_BASE64 is neither JSON nor base64 (length ${n}, ${bad} characters outside the base64 alphabet, first byte 0x${first}). Re-paste the contents of google-services.json exactly."
+              exit 1
+            fi
+            # Decoding cleanly is not the same as being the right file: a
+            # truncated paste can still decode into bytes that are not JSON,
+            # and google-services would then fail much later and less clearly.
+            if ! python3 -c "import json,sys; d=json.load(open('android/app/google-services.json')); sys.exit(0 if d.get('project_info') else 1)"; then
+              echo "::error::GOOGLE_SERVICES_JSON_BASE64 decoded, but is not a google-services.json (no project_info). Re-download it from the Firebase console."
+              exit 1
+            fi
             echo "✓ google-services.json written — native push will be built in"
           else
             echo "ℹ️  No GOOGLE_SERVICES_JSON_BASE64 secret — APK built without native push"
           fi
 
           if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > /tmp/emergenthealth-release.jks
+            if ! clean_b64 "$KEYSTORE_B64" | base64 -d > /tmp/emergenthealth-release.jks 2>/dev/null; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 is not valid base64. Regenerate it with:  base64 -w0 your-release.jks"
+              exit 1
+            fi
             echo "ANDROID_KEYSTORE_PATH=/tmp/emergenthealth-release.jks" >> $GITHUB_ENV
             echo "✓ Keystore decoded"
           else

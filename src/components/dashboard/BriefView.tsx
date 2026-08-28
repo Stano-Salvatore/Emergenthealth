@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { scoreText, sleepVerdictText } from "@/lib/score-color"
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Sparkles, Moon, Target, ChevronRight, Sun, Sunset, CloudSun } from "lucide-react"
@@ -98,10 +99,8 @@ export function BriefView({ name }: { name: string }) {
   const isEvening = period === "evening"
   const dateLabel = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
 
-  const readinessColor = (r: number | null) =>
-    r == null ? "text-muted-foreground" : r >= 85 ? "text-green-400" : r >= 70 ? "text-yellow-400" : "text-red-400"
-  const sleepColor = today?.sleep.adequate === true ? "text-green-400"
-    : today?.sleep.adequate === false && (today?.sleep.hours ?? 0) >= 6 ? "text-yellow-400" : "text-red-400"
+  const readinessColor = (r: number | null) => scoreText(r, "text-muted-foreground")
+  const sleepColor = sleepVerdictText(today?.sleep.adequate, today?.sleep.hours)
 
   // The evening card used to show calendar[0] — the day's *first* event — and
   // label it "still on your calendar", so at 21:00 it announced the 09:00

@@ -60,7 +60,9 @@ describe("createSourceFilter", () => {
 
   it("keeps prose the model wrote after the closing bracket", () => {
     const out = run(["[sources: sleep] and that's that."])
-    expect(out.text).toBe(" and that's that.")
+    // No leading space: the marker takes the whitespace that was hugging it,
+    // and there is no prose in front for that space to separate it from.
+    expect(out.text).toBe("and that's that.")
     expect(out.keys).toEqual(["sleep"])
   })
 
@@ -119,5 +121,87 @@ describe("toolActivity", () => {
 
   it("never leaks a function name for a tool it does not know", () => {
     expect(toolActivity("some_new_tool")).toBe("having a look")
+  })
+})
+
+// He is asked to put the marker on a line of its own, and usually does. One
+// missing newline used to send it straight to the screen — and into the stored
+// transcript, where it stayed for good.
+describe("createSourceFilter · marker after prose", () => {
+  it("takes a marker off the end of a sentence", () => {
+    const out = run(["Go gently today. [sources: sleep]\n"])
+    expect(out.text).toBe("Go gently today.\n")
+    expect(out.keys).toEqual(["sleep"])
+  })
+
+  // Split across chunks the space before "[" is already out the door by the
+  // time the marker shows up. Holding trailing whitespace on the chance a
+  // marker follows would delay every ordinary word break, which is a far worse
+  // trade than one space that renders as nothing.
+  it("takes it off even when it arrives split mid-sentence", () => {
+    const out = run(["Go gently ", "today. [sour", "ces: sleep, journal]\n"])
+    expect(out.text).toBe("Go gently today. ")
+    expect(out.keys).toEqual(["sleep", "journal"])
+  })
+
+  it("drops a mid-sentence marker the stream cut off", () => {
+    expect(run(["Go gently today. [sources: sle"])).toEqual({ text: "Go gently today. " })
+  })
+
+  it("still leaves an ordinary bracket in the middle of a sentence alone", () => {
+    expect(run(["A look [see Patterns] and [notes] this week."]))
+      .toEqual({ text: "A look [see Patterns] and [notes] this week." })
+  })
+})
+
+// Both of these got past the first attempt at the fix above.
+describe("createSourceFilter · marker not at the end", () => {
+  it("takes it out when he keeps talking on the same line", () => {
+    const out = run(["Go gently today. [sources: sleep] Want me to look?\nBye.\n"])
+    expect(out.text).toBe("Go gently today. Want me to look?\nBye.\n")
+    expect(out.keys).toEqual(["sleep"])
+  })
+
+  it("does not release a held marker when a later bracket arrives", () => {
+    const out = run(["Go gently today. [sources: sleep]", " See [Patterns] for more.\n"])
+    expect(out.text).toBe("Go gently today. See [Patterns] for more.\n")
+    expect(out.keys).toEqual(["sleep"])
+  })
+})
+
+// A third pass over this filter. Each of these got through the fix before it.
+describe("createSourceFilter · what the reviews kept finding", () => {
+  it("strips every marker on a line, not just the first", () => {
+    const out = run(["Hi [sources: sleep] and [sources: journal] bye\n"])
+    expect(out.text).toBe("Hi and bye\n")
+    // Last one wins: they are the same claim, restated.
+    expect(out.keys).toEqual(["journal"])
+  })
+
+  // The filter's whole promise is that ordinary text is never delayed. Holding
+  // everything after a mid-line marker until the newline broke that: the reply
+  // stalled mid-sentence and then arrived in one lump.
+  it("releases prose after a mid-line marker without waiting for a newline", () => {
+    const f = createSourceFilter()
+    expect(f.push("Go gently. [sources: sleep] Want me to look?").text)
+      .toBe("Go gently. Want me to look?")
+  })
+
+  // The other half of that trade: a marker ENDING a line must still swallow the
+  // newline, or every cited answer gains a blank line.
+  it("still swallows the newline after a marker that ends a line", () => {
+    expect(run(["Hi.\n[sources: sleep]", "\nOne more thought."]).text)
+      .toBe("Hi.\nOne more thought.")
+  })
+
+  // Held text starts at a "[" that could have become the marker — but usually
+  // has not. Deleting real prose is worse than showing one stray bracket.
+  it("does not eat a trailing bracket that was never a marker", () => {
+    expect(run(["Nice work ["])).toEqual({ text: "Nice work [" })
+    expect(run(["Options: [s"])).toEqual({ text: "Options: [s" })
+  })
+
+  it("still drops a marker the stream cut off part-way through", () => {
+    expect(run(["Short night.\n", "[sources: sle"])).toEqual({ text: "Short night.\n" })
   })
 })

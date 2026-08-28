@@ -5,16 +5,11 @@
 // that a habit ticked just after midnight was being filed under yesterday.
 // Everything here works in plain YYYY-MM-DD strings, which compare and sort
 // correctly without any further timezone juggling.
-
-import { prisma } from "@/lib/prisma"
-
-export async function getUserTimezone(userId: string): Promise<string> {
-  const row = await prisma.userPreference.findUnique({
-    where: { userId_key: { userId, key: "timezone" } },
-    select: { value: true },
-  }).catch(() => null)
-  return row?.value?.trim() || "UTC"
-}
+//
+// PURE ON PURPOSE — no database, nothing server-only. Client components import
+// these date helpers, so anything this file pulls in is traced into the browser
+// bundle; it used to import the Prisma client for one lookup, which shipped the
+// whole Prisma runtime to the browser. That lookup is user-timezone.ts now.
 
 // Today's date in the user's timezone. en-CA formats as YYYY-MM-DD.
 export function localDateStr(timezone: string, at: Date = new Date()): string {

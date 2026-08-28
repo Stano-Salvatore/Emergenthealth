@@ -51,3 +51,6 @@ __pycache__/
 # leaves the whole native tree staged.
 /android/
 /ios/
+
+# Smoke-test screenshots
+.ci/smoke-shots/

@@ -134,17 +134,58 @@ export function toolActivity(name: string): string {
 // could still turn out to be the marker. Ordinary text is never delayed.
 
 const MARKER_PREFIX = "[sources:"
-const MARKER_LINE = /^\s*\[sources:([^\]]*)\]\s*$/i
-const MARKER_HEAD = /^\s*\[sources:([^\]]*)\]/i
+
+/** One complete marker, anywhere, with the whitespace hugging it. */
+const MARKER_ANYWHERE = /\s*\[sources:([^\]]*)\]\s*/gi
+/** A complete marker starting exactly at a "[", plus whatever follows it. */
+const MARKER_HERE = /^\[sources:([^\]]*)\]([\s\S]*)$/i
 
 function parseKeys(raw: string): string[] {
   return raw.split(",").map(s => s.trim().toLowerCase()).filter(Boolean)
 }
 
-/** Could this partial line still become the marker if more text arrived? */
-function couldBeMarker(partial: string): boolean {
-  const t = partial.trimStart().toLowerCase()
-  return t.length === 0 || MARKER_PREFIX.startsWith(t) || t.startsWith(MARKER_PREFIX)
+/**
+ * Take every complete marker out of a piece of text.
+ *
+ * Every one, not the first: "Hi [sources: sleep] and [sources: journal] bye"
+ * used to lose the first and print the second, which is the same leak one
+ * clause later. Prose either side of a removed marker is rejoined with a single
+ * space, since the match eats the whitespace that was holding it apart.
+ */
+function stripMarkers(body: string): { text: string; keys?: string[] } {
+  const re = new RegExp(MARKER_ANYWHERE.source, "gi")
+  const parts: string[] = []
+  let keys: string[] | undefined
+  let last = 0
+  for (let m: RegExpExecArray | null; (m = re.exec(body)); ) {
+    keys = parseKeys(m[1])
+    parts.push(body.slice(last, m.index))
+    last = m.index + m[0].length
+  }
+  if (!keys) return { text: body }
+  parts.push(body.slice(last))
+  return { text: parts.filter(Boolean).join(" "), keys }
+}
+
+/**
+ * Where a marker could begin in this partial line, or -1.
+ *
+ * He is asked to put it on a line of its own and usually does, but "…go gently
+ * today. [sources: sleep]" is one missing newline away and used to sail
+ * straight through to the screen — and into the stored transcript, where it
+ * stayed. Anything from a candidate "[" onwards is held; everything before it
+ * goes out immediately, so ordinary prose is never delayed.
+ */
+function markerStart(partial: string): number {
+  // Left to right, so the EARLIEST candidate wins. Scanning from the end
+  // released a marker already being held the moment any later bracket showed
+  // up — "[sources: sleep]" then " See [" put the whole marker on screen.
+  for (let i = 0; i < partial.length; i++) {
+    if (partial[i] !== "[") continue
+    const rest = partial.slice(i).toLowerCase()
+    if (MARKER_PREFIX.startsWith(rest) || rest.startsWith(MARKER_PREFIX)) return i
+  }
+  return -1
 }
 
 export interface FilterOutput {
@@ -169,41 +210,65 @@ export function createSourceFilter(): SourceFilter {
       let text = ""
       let keys: string[] | undefined
 
-      // Complete lines can be judged immediately: a whole-line marker is
-      // swallowed, anything else is forwarded.
+      // Complete lines can be judged immediately: every marker comes out and
+      // whatever prose surrounded it is forwarded. A line that was nothing but
+      // a marker leaves nothing — not even its newline.
       for (;;) {
         const nl = buf.indexOf("\n")
         if (nl === -1) break
-        const line = buf.slice(0, nl + 1)
-        const m = line.match(MARKER_LINE)
-        if (m) keys = parseKeys(m[1])
-        else text += line
+        const { text: prose, keys: k } = stripMarkers(buf.slice(0, nl))
+        if (k) keys = k
+        if (prose) text += prose + "\n"
+        else if (!k) text += "\n"
         buf = buf.slice(nl + 1)
       }
 
-      // Whatever is left is a partial line. Hold it only while it could still
-      // be the marker; otherwise it goes out with everything else.
-      if (couldBeMarker(buf)) {
-        pending = buf
-      } else {
+      // What is left is a partial line. Hold from the point a marker could
+      // begin; everything before that goes out now.
+      const start = markerStart(buf)
+      if (start === -1) {
         text += buf
         pending = ""
+        return keys ? { text, keys } : { text }
       }
+
+      // A marker that is already complete AND has prose after it can be
+      // resolved now. Holding it instead meant the rest of the sentence waited
+      // for a newline that might be a paragraph away — the reply visibly
+      // stalled mid-sentence and then arrived in one lump.
+      const here = buf.slice(start).match(MARKER_HERE)
+      if (here && here[2].trim() !== "") {
+        const stripped = stripMarkers(buf)
+        if (stripped.keys) keys = stripped.keys
+        const next = markerStart(stripped.text)
+        if (next === -1) {
+          text += stripped.text
+          pending = ""
+        } else {
+          text += stripped.text.slice(0, next)
+          pending = stripped.text.slice(next)
+        }
+        return keys ? { text, keys } : { text }
+      }
+
+      // Still arriving, or nothing follows it yet. A marker at the end of a
+      // line has to stay pending so that it keeps swallowing its own newline.
+      text += buf.slice(0, start)
+      pending = buf.slice(start)
       return keys ? { text, keys } : { text }
     },
 
     flush(): FilterOutput {
       const held = pending
       pending = ""
-      const m = held.match(MARKER_HEAD)
-      if (m) {
-        // Anything the model wrote after a closing bracket is still prose.
-        const rest = held.slice(m[0].length)
-        return { text: rest, keys: parseKeys(m[1]) }
-      }
-      // A stream cut off mid-marker leaves a fragment that is plumbing too —
-      // showing "[sources: sle" would be worse than showing nothing.
-      if (couldBeMarker(held) && held.trim().length > 0) return { text: "" }
+      const stripped = stripMarkers(held)
+      if (stripped.keys) return { text: stripped.text, keys: stripped.keys }
+      // Nothing complete was held. It always starts at a "[" that COULD have
+      // become the marker, so this is a judgement call: drop it only when it is
+      // unambiguously a truncated marker. A bare "[" or "[s" is far more likely
+      // to be ordinary text he ended on, and swallowing real prose is worse
+      // than showing one stray bracket on a stream that got cut off.
+      if (/^\[sources/i.test(held)) return { text: "" }
       return { text: held }
     },
   }

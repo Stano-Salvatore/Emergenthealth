@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
-import { getUserTimezone, localDateStr, localTimeStr } from "@/lib/local-date"
+import { localDateStr, localTimeStr } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 
 export const runtime = "nodejs"

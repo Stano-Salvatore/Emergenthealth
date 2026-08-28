@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadLocalCoverage, loadSubscriptionsByUser, phoneCovers, sendToUser } from "@/lib/push"
-import { getUserTimezone, localDateStr, localTimeStr } from "@/lib/local-date"
+import { localDateStr, localTimeStr } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { activeOn, matchKey, minutesOfDay, sortedTimes, type ScheduleLike } from "@/lib/med-schedule"
 
 export const runtime = "nodejs"

@@ -1,6 +1,11 @@
-import { prisma } from "@/lib/prisma"
 
 // What synced, when, and whether it worked.
+//
+// DELIBERATELY FREE OF PRISMA. `SyncStatusCard` is a client component and
+// imports `agoLabel`/`isStale` from here, so anything this file pulls in gets
+// traced into the browser bundle — importing the database client for two pure
+// helpers shipped the whole Prisma runtime to every visitor. The reads and
+// writes live in sync-status-store.ts, which only the server imports.
 //
 // Nothing recorded this before. A status screen could have inferred it from the
 // newest row each source produced, but that answers a different question: a
@@ -12,8 +17,6 @@ import { prisma } from "@/lib/prisma"
 // new table: it is one small JSON blob per user, rewritten in place, and it
 // rides along with the existing export and backup instead of needing to be
 // remembered separately.
-
-const KEY = "sync_status"
 
 /**
  * Everything that syncs, in the order the status screen lists them.
@@ -55,46 +58,6 @@ export function parseSyncStatus(raw: string | null | undefined): SyncStatus {
   } catch {
     return {}
   }
-}
-
-export async function readSyncStatus(userId: string): Promise<SyncStatus> {
-  const rows = await prisma.$queryRaw<{ value: string }[]>`
-    SELECT "value" FROM "UserPreference"
-    WHERE "userId" = ${userId} AND "key" = ${KEY} LIMIT 1
-  `.catch(() => [] as { value: string }[])
-  return parseSyncStatus(rows[0]?.value)
-}
-
-/**
- * Record how one source's sync went.
- *
- * Deliberately never throws: a status line is worth less than the sync itself,
- * so a failure to write the note must not fail the run it is describing.
- */
-export async function recordSync(
-  userId: string,
-  source: string,
-  run: Omit<SyncRun, "at"> & { at?: string },
-): Promise<void> {
-  try {
-    const current = await readSyncStatus(userId)
-    const next: SyncStatus = {
-      ...current,
-      [source]: {
-        at: run.at ?? new Date().toISOString(),
-        ok: run.ok,
-        ...(run.items != null ? { items: run.items } : {}),
-        // Truncated: this is a hint for the user, not a stack trace.
-        ...(run.error ? { error: String(run.error).slice(0, 200) } : {}),
-      },
-    }
-    const json = JSON.stringify(next)
-    await prisma.$executeRaw`
-      INSERT INTO "UserPreference" ("userId", "key", "value")
-      VALUES (${userId}, ${KEY}, ${json})
-      ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${json}
-    `
-  } catch { /* never let bookkeeping break the sync it describes */ }
 }
 
 // The Actions schedules that drive these. GitHub delays scheduled workflows

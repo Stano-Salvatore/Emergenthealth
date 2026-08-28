@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { optionalNumber } from "@/lib/optional-number"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { recordPlaceVisits } from "@/lib/place-visits"
@@ -53,9 +54,9 @@ export async function POST(req: NextRequest) {
       userId,
       lat,
       lng,
-      accuracyM: Number.isFinite(Number(p.accuracyM)) ? Math.round(Number(p.accuracyM)) : null,
-      altitudeM: Number.isFinite(Number(p.altitudeM)) ? Number(p.altitudeM) : null,
-      speedKmh: Number.isFinite(Number(p.speedKmh)) ? Number(p.speedKmh) : null,
+      accuracyM: optionalNumber(p.accuracyM, Math.round),
+      altitudeM: optionalNumber(p.altitudeM),
+      speedKmh: optionalNumber(p.speedKmh),
       trackedAt: new Date(t),
       source: "timeline",
     })

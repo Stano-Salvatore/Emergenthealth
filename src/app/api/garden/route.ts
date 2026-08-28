@@ -3,7 +3,8 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getWeatherCoords } from "@/lib/weather-location"
 import { computeXp, getGithubStats, getLevel } from "@/lib/xp"
-import { getUserTimezone, localDateStr } from "@/lib/local-date"
+import { localDateStr } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { computeStreak, computeMissedDays, getVacationWindow, makeIsFrozen } from "@/lib/streak"
 
 // ─── Decoration unlocks ───────────────────────────────────────────────────────

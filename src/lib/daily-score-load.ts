@@ -2,7 +2,8 @@
 // scoring rules stay testable without a database.
 
 import { prisma } from "@/lib/prisma"
-import { getUserTimezone, localDateStr, addDaysISO } from "@/lib/local-date"
+import { localDateStr, addDaysISO } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { computeDailyScore, type DailyScore, type ScoreDay } from "@/lib/daily-score"
 
 /** Enough for a stable median without reaching back to a different version of you. */

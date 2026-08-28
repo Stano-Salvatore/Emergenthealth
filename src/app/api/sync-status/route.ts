@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { readSyncStatus, SYNC_SOURCES, SYNC_CADENCE_MINUTES, type SyncRun } from "@/lib/sync-status"
+import { readSyncStatus } from "@/lib/sync-status-store"
+import { SYNC_SOURCES, SYNC_CADENCE_MINUTES, type SyncRun } from "@/lib/sync-status"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"

@@ -10,6 +10,7 @@ import {
   headPopsEnabled,
   headStatus,
   openBubbleSettings,
+  registerNativePush,
   requestOverlayPermission,
   scheduleHeadPops,
   setHeadPopsEnabled,
@@ -50,16 +51,33 @@ export function BubbleCard() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<"floated" | "notification" | "unknown" | null>(null)
+  // Whether anything can reach this app while it is closed. The card above
+  // says the phone CAN float a window; this says whether a message ever
+  // arrives to make it. Both have to be true and only one of them was.
+  const [reach, setReach] = useState<Awaited<ReturnType<typeof registerNativePush>> | null>(null)
+  const [reachBusy, setReachBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
+      // Everything the CARD needs is on-device and answers immediately.
       const [a, h] = await Promise.all([bubbleAvailability(), headStatus()])
       if (cancelled) return
       setState(a)
       setHead(h)
       setPops(headPopsEnabled())
       setHeadKnown(true)
+    })()
+    // Reachability is a network call with no timeout, and it was in the same
+    // Promise.all as the two above — so on a stalled connection nothing
+    // resolved, `state` stayed null, and the card returned null: the overlay
+    // permission button, which needs no network at all, never appeared.
+    // registerNativePush is idempotent (it re-sends the token, which you want
+    // anyway since it changes on reinstall), so this both reports the state and
+    // repairs it where it can be repaired — whenever it happens to land.
+    ;(async () => {
+      const r = await registerNativePush().catch(() => null)
+      if (!cancelled) setReach(r)
     })()
     return () => { cancelled = true }
   }, [])
@@ -214,6 +232,54 @@ export function BubbleCard() {
             )}
           </div>
         ) : null}
+
+        {/* Whether a message sent while the app is closed arrives at all.
+            Every state below was already distinguished by registerNativePush
+            and then thrown away by its only caller, so a phone that could
+            float a window but could never be told to looked identical to one
+            that was working. */}
+        {reach && reach !== "off-device" && (
+          <div className="border-t border-border pt-3 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              <span className="text-foreground font-medium">Reaching him when the app is closed.</span>{" "}
+              {reach === "registered" && (
+                <span className="text-emerald-400">
+                  Registered. Messages sent while the app is shut arrive here directly, and can pop him out.
+                </span>
+              )}
+              {reach === "not-configured" && (
+                <span className="text-amber-400">
+                  This phone is registered, but the server has no Firebase set up — so nothing is sent
+                  this way yet, and Emergy&apos;s messages arrive through the browser instead.
+                </span>
+              )}
+              {reach === "unreachable" && (
+                <span className="text-amber-400">
+                  This phone is ready, but registering it didn&apos;t reach the server just now.
+                  Try again in a moment.
+                </span>
+              )}
+              {reach === "no-token" && (
+                <span className="text-amber-400">
+                  This build has no Firebase in it, so the app can&apos;t be reached directly. Emergy&apos;s
+                  messages still arrive — through the browser — but a browser notification can&apos;t
+                  pop him out, however the settings above are set.
+                </span>
+              )}
+            </p>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={reachBusy}
+              onClick={async () => {
+                setReachBusy(true)
+                try { setReach(await registerNativePush()) } finally { setReachBusy(false) }
+              }}
+            >
+              {reachBusy ? "…" : "Check again"}
+            </Button>
+          </div>
+        )}
 
         <div className="border-t border-border pt-3 space-y-2">
           {/* The bubble — kept, but no longer described as the pop-out. */}

@@ -9,7 +9,7 @@ import {
   getWeight, getDistance, getActivitySessions, getDailySummary,
 } from "@/lib/oura"
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTimer, stopTimer } from "@/lib/toggl"
-import { getUserTimezone } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 
 export const runtime = "nodejs"
 

@@ -1,6 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { getUserTimezone } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { NextResponse } from "next/server"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"

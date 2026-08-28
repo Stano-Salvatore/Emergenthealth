@@ -2,7 +2,8 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getWeatherCoords } from "@/lib/weather-location"
-import { getUserTimezone, localTimeStr } from "@/lib/local-date"
+import { localTimeStr } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 
 // Weather code → emoji
 function outfitFromWeather(temp: number, rainPct: number, code: number): string {

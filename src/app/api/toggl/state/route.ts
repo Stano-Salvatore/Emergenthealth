@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects } from "@/lib/toggl"
-import { getUserTimezone } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 
 export async function GET() {
   const session = await auth()
