@@ -37,6 +37,32 @@ function clampInt(v: unknown, min: number, max: number, fallback: number): numbe
   return Math.max(min, Math.min(max, n))
 }
 
+/**
+ * When something was actually had, from "1h ago".
+ *
+ * The intake tools took no time at all, so "add 100ml beer 1h ago" was logged
+ * as now and Emergy had to explain the tool's own limitation back to the user
+ * and offer to correct it. log_dose already accepted minutesAgo; the drinks
+ * and meals simply never got it.
+ *
+ * Bounded at 48 hours for the same reason log_dose is: past that it is not a
+ * correction to just-now, it is a memory, and a mistyped "600" should not file
+ * a beer into last week's sleep analysis.
+ */
+function loggedAtFrom(input: Record<string, unknown>): { at: Date; minutesAgo: number } {
+  const minutesAgo = clampInt(input.minutesAgo, 0, 48 * 60, 0)
+  return { at: new Date(Date.now() - minutesAgo * 60_000), minutesAgo }
+}
+
+/** " , 60 min ago" / " , 2h 5m ago" — said back, so a misread time is visible. */
+function agoSuffix(minutesAgo: number): string {
+  if (minutesAgo <= 0) return ""
+  if (minutesAgo < 60) return `, ${minutesAgo} min ago`
+  const h = Math.floor(minutesAgo / 60)
+  const m = minutesAgo % 60
+  return `, ${h}h${m ? ` ${m}m` : ""} ago`
+}
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
 const CACHE: Anthropic.CacheControlEphemeral = { type: "ephemeral" }
@@ -87,6 +113,7 @@ const TOOLS: Anthropic.Tool[] = [
       type: "object" as const,
       properties: {
         amountMl: { type: "number", description: "Amount in millilitres (e.g. 250, 500, 1000)" },
+        minutesAgo: { type: "number", description: "How long ago they had it; 0 or omitted means just now" },
       },
       required: ["amountMl"],
     },
@@ -98,6 +125,7 @@ const TOOLS: Anthropic.Tool[] = [
       type: "object" as const,
       properties: {
         amountMl: { type: "number", description: "Amount in ml (e.g. 30 espresso, 200 americano, 300 latte)" },
+        minutesAgo: { type: "number", description: "How long ago they had it; 0 or omitted means just now" },
       },
       required: ["amountMl"],
     },
@@ -126,6 +154,7 @@ const TOOLS: Anthropic.Tool[] = [
           type: "number",
           description: "Estimated caffeine for this serving, 0 if none. Yerba mate is roughly 0.15 mg/ml (~80mg per 500ml) — well under coffee's 0.4.",
         },
+        minutesAgo: { type: "number", description: "How long ago they had it; 0 or omitted means just now" },
       },
       required: ["name", "drinkType", "amountMl"],
     },
@@ -143,6 +172,7 @@ const TOOLS: Anthropic.Tool[] = [
         proteinG: { type: "number" },
         carbsG: { type: "number" },
         fatG: { type: "number" },
+        minutesAgo: { type: "number", description: "How long ago they ate it; 0 or omitted means just now" },
       },
       required: ["name", "calories"],
     },
@@ -154,6 +184,7 @@ const TOOLS: Anthropic.Tool[] = [
       type: "object" as const,
       properties: {
         placeName: { type: "string", description: "Saved place name or a part of it (optional)" },
+        minutesAgo: { type: "number", description: "How long ago they had it; 0 or omitted means just now" },
       },
       required: [],
     },
@@ -502,22 +533,27 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
 
   if (name === "log_water") {
     const amountMl = parseInt(String(input.amountMl), 10)
-    await prisma.intakeLog.create({ data: { userId, type: "water", amountMl } }).catch(() => null)
-    return `Logged ${amountMl}ml of water.`
+    const { at, minutesAgo } = loggedAtFrom(input)
+    await prisma.intakeLog.create({ data: { userId, type: "water", amountMl, loggedAt: at } }).catch(() => null)
+    return `Logged ${amountMl}ml of water${agoSuffix(minutesAgo)}.`
   }
 
   if (name === "log_coffee") {
     const amountMl = parseInt(String(input.amountMl), 10)
-    const log = await prisma.intakeLog.create({ data: { userId, type: "coffee", amountMl } }).catch(() => null)
+    const { at, minutesAgo } = loggedAtFrom(input)
+    const log = await prisma.intakeLog.create({ data: { userId, type: "coffee", amountMl, loggedAt: at } }).catch(() => null)
     if (log) {
       const est = estimateCaffeine("coffee", "", amountMl)
       if (est) {
+        // The SAME instant as the intake. Caffeine is read as a decay curve
+        // against bedtime, so a cup logged an hour late reads as an hour more
+        // of it still circulating.
         await prisma.caffeineLog.create({
-          data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg },
+          data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg, loggedAt: at },
         }).catch(() => null)
       }
     }
-    return `Logged ${amountMl}ml of coffee.`
+    return `Logged ${amountMl}ml of coffee${agoSuffix(minutesAgo)}.`
   }
 
   if (name === "log_drink") {
@@ -533,14 +569,15 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       ? null
       : Math.max(0, Math.min(600, Math.round(rawMg)))
 
+    const { at, minutesAgo } = loggedAtFrom(input)
     const log = await prisma.intakeLog.create({
-      data: { userId, type, amountMl, note: label },
+      data: { userId, type, amountMl, note: label, loggedAt: at },
     }).catch(() => null)
     if (!log) return "Couldn't save that drink — the log didn't write."
 
     if (caffeineMg && caffeineMg > 0) {
       await prisma.caffeineLog.create({
-        data: { id: `intake_${log.id}`, userId, compound: type, caffeineMg },
+        data: { id: `intake_${log.id}`, userId, compound: type, caffeineMg, loggedAt: at },
       }).catch(() => {})
     }
 
@@ -549,7 +586,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     if (caffeineMg && caffeineMg > 0) parts.push(`≈${caffeineMg}mg caffeine`)
     if (fluid !== amountMl) parts.push(`counts as ${fluid}ml fluid`)
     else parts.push(`${fluid}ml toward hydration`)
-    return parts.join(" · ") + "."
+    return parts.join(" · ") + agoSuffix(minutesAgo) + "."
   }
 
   if (name === "log_food") {
@@ -560,8 +597,10 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       const n = Number(v)
       return Number.isFinite(n) && n >= 0 ? Math.round(n * 10) / 10 : null
     }
+    const food = loggedAtFrom(input)
     await prisma.foodLog.create({
       data: {
+        loggedAt: food.at,
         userId,
         name: label,
         mealType: ["breakfast", "lunch", "dinner", "snack"].includes(String(input.mealType))
@@ -572,7 +611,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         fatG: macro(input.fatG),
       },
     }).catch(() => null)
-    return `Logged ${label} — ≈${calories} kcal. (Estimated from the name, so treat it as a ballpark.)`
+    return `Logged ${label} — ≈${calories} kcal${agoSuffix(food.minutesAgo)}. (Estimated from the name, so treat it as a ballpark.)`
   }
 
   if (name === "log_usual") {
@@ -600,23 +639,24 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         return `Which place? Usuals are set at: ${withUsual.map(p => p.name).join(", ")}. Ask the user, then call log_usual with the placeName.`
       }
     }
+    const usual = loggedAtFrom(input)
     const log = await prisma.intakeLog.create({
       data: {
         userId,
         type: place.usualType!,
         amountMl: place.usualMl!,
         note: `${place.usualNote || "the usual"} @ ${place.name}`,
-        loggedAt: new Date(),
+        loggedAt: usual.at,
       },
     })
     // same mirroring the intake API does, same deterministic id convention
     const est = estimateCaffeine(place.usualType!, place.usualNote ?? "", place.usualMl!)
     if (est) {
       await prisma.caffeineLog.create({
-        data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg },
+        data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg, loggedAt: usual.at },
       }).catch(() => null)
     }
-    return `Logged the usual at ${place.name}: ${place.usualNote || place.usualType}, ${place.usualMl} ml.${est ? ` Tracked ${est.mg} mg caffeine.` : ""}`
+    return `Logged the usual at ${place.name}: ${place.usualNote || place.usualType}, ${place.usualMl} ml${agoSuffix(usual.minutesAgo)}.${est ? ` Tracked ${est.mg} mg caffeine.` : ""}`
   }
 
   if (name === "log_mood") {
