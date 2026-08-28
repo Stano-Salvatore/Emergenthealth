@@ -32,6 +32,15 @@ describe("detectDwells", () => {
     ], PLACES)).toHaveLength(0)
   })
 
+  it("detects nothing at all when no places are saved", () => {
+    // The reason BackgroundLocationCard warns before you turn tracking on.
+    // A flawless day of points against an empty place list is still zero
+    // visits, so the feature looks broken rather than unconfigured.
+    const points = [at(CAFE, 0), at(CAFE, 15), at(CAFE, 30), at(CAFE, 45)]
+    expect(detectDwells(points, PLACES)).toHaveLength(1)
+    expect(detectDwells(points, [])).toHaveLength(0)
+  })
+
   it("splits one place into two visits across a long gap", () => {
     // Morning at home, out all day, home again — two visits, not one 12h blob.
     const points = [
