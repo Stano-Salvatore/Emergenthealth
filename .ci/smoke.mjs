@@ -35,14 +35,25 @@ const WIDTH = Number(process.env.WIDTH ?? 390)
 const HEIGHT = Number(process.env.HEIGHT ?? 844)
 
 /** How long a skeleton may legitimately still be animating. */
-// Longer than the longest bound the app sets itself. WeatherWidget waits up to
-// 15s for a location fix before giving up and rendering its no-location state —
-// a deliberate bound, because the geolocation spec's own timeout does not start
-// until permission is granted, so a prompt that is swiped away rather than
-// answered reaches no callback at all. Checking at 12s therefore reported a
-// widget behaving exactly as designed: measured here, its skeleton is present
-// at 12s and gone by 16s. A check that flags correct behaviour gets ignored.
-const SETTLE_MS = Number(process.env.SETTLE_MS ?? 18_000)
+// What this check is actually for is a loading state with NO PATH OUT of it.
+// Three times today a fixed deadline reported one that had a path out and was
+// merely walking it: the dashboard takes ~28s to settle on a loaded dev server
+// (23 skeletons at 8s, 13 at 18s, 0 at 28s) and every raise just moved the
+// goalposts. So the signal is STALLED, not SLOW — a page still retiring
+// skeletons is fine however long it takes; one that has stopped retiring them
+// is the bug.
+//
+// The floor exists because "stopped changing" is not enough on its own:
+// WeatherWidget deliberately holds a single skeleton for a fixed fifteen
+// seconds, waiting on a location fix that the geolocation spec will never time
+// out (its clock starts only once permission is granted, so a prompt swiped
+// away reaches no callback at all). Below the floor, a steady count is that
+// widget behaving correctly.
+const SETTLE_FLOOR_MS = Number(process.env.SETTLE_FLOOR_MS ?? 16_000)
+/** No skeleton retired in this long, past the floor, means stuck rather than slow. */
+const SETTLE_STALL_MS = Number(process.env.SETTLE_STALL_MS ?? 5_000)
+/** Absolute bound, so a genuinely broken page cannot hang the run. */
+const SETTLE_MAX_MS = Number(process.env.SETTLE_MAX_MS ?? 60_000)
 
 const ROUTES = (process.env.ROUTES ?? [
   "/dashboard",
@@ -124,13 +135,11 @@ for (const route of ROUTES) {
       break
     }
   }
-  // Poll rather than sleep the whole window. The bound exists for the slowest
-  // thing the app gives itself — WeatherWidget's fifteen seconds — but almost
-  // every screen is done in two, and paying the worst case on all nine turned a
-  // one-minute check into four. Waiting only as long as something is still
-  // pulsing keeps the same verdict at a fraction of the cost.
+  // Wait for the page to stop retiring skeletons, not for a clock to run out.
   {
-    const deadline = Date.now() + SETTLE_MS
+    const started = Date.now()
+    let best = Infinity
+    let lastProgress = Date.now()
     for (;;) {
       // EXACTLY the predicate the report uses below, substring match and
       // zero-size exclusion included. A poll that stops on a different
@@ -142,7 +151,13 @@ for (const route of ROUTES) {
           .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 })
           .length,
       ).catch(() => 1)
-      if (pulsing === 0 || Date.now() >= deadline) break
+
+      if (pulsing === 0) break
+      if (pulsing < best) { best = pulsing; lastProgress = Date.now() }
+
+      const elapsed = Date.now() - started
+      if (elapsed >= SETTLE_MAX_MS) break
+      if (elapsed >= SETTLE_FLOOR_MS && Date.now() - lastProgress >= SETTLE_STALL_MS) break
       await page.waitForTimeout(500)
     }
     // A short tail even once nothing pulses: a screen that has just swapped its
@@ -195,7 +210,7 @@ for (const route of ROUTES) {
   })
 
   for (const el of new Set(report.overlapping)) failures.push(`${route}: overlaps the bottom nav — ${el}`)
-  for (const el of new Set(report.pulsing)) failures.push(`${route}: still loading after ${SETTLE_MS / 1000}s — ${el}`)
+  for (const el of new Set(report.pulsing)) failures.push(`${route}: stuck loading — ${el}`)
   if (report.scrollsSideways) failures.push(`${route}: page scrolls sideways at ${WIDTH}px`)
 
   await page.screenshot({ path: `${OUT}/${route.replace(/\W+/g, "_").replace(/^_/, "")}.png` })
