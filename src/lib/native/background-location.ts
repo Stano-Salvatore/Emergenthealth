@@ -315,14 +315,68 @@ export async function stopBackgroundLocation(): Promise<void> {
   await flush()
 }
 
+/**
+ * How long any single bridge call gets before we stop waiting on it.
+ *
+ * Capacitor answers a plugin call by posting a message and resolving a promise
+ * when the native side posts back. Nothing times that out: if the reply never
+ * comes the promise simply stays pending for the life of the page. So every
+ * call here needs its own bound, or one unanswered read hangs whatever awaited
+ * it — which is exactly how reading a saved on/off flag took the entire
+ * settings card down with it.
+ */
+const BRIDGE_TIMEOUT_MS = 4000
+
+function bridgeTimeout<T>(work: Promise<T>, label: string): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} did not answer in ${BRIDGE_TIMEOUT_MS / 1000}s`)), BRIDGE_TIMEOUT_MS),
+    ),
+  ])
+}
+
 /** Whether the user has turned this on, whatever the watcher is doing now. */
 export async function isBackgroundLocationEnabled(): Promise<boolean> {
   try {
-    const { value } = await Preferences.get({ key: ENABLED_KEY })
+    const { value } = await bridgeTimeout(Preferences.get({ key: ENABLED_KEY }), "Preferences.get")
     return value === "1"
   } catch {
     return false
   }
+}
+
+/**
+ * What each piece of the check actually did, as one line short enough to read
+ * off a phone screen.
+ *
+ * Written because two rounds of reasoning about which call was hanging were
+ * both wrong. The platform and plugin checks are synchronous and cannot hang;
+ * only the bridge can. Measuring beats inferring, and this costs one line.
+ */
+export async function diagnoseBackgroundLocation(): Promise<string> {
+  const parts: string[] = []
+  const say = (err: unknown) => (err instanceof Error ? err.message : String(err))
+
+  try {
+    parts.push(`native=${typeof window !== "undefined" && Capacitor.isNativePlatform()}`)
+  } catch (err) {
+    parts.push(`native threw: ${say(err)}`)
+  }
+  try {
+    parts.push(`plugin=${Capacitor.isPluginAvailable("BackgroundGeolocation")}`)
+  } catch (err) {
+    parts.push(`plugin threw: ${say(err)}`)
+  }
+
+  const started = Date.now()
+  try {
+    await bridgeTimeout(Preferences.get({ key: ENABLED_KEY }), "Preferences.get")
+    parts.push(`prefs=ok in ${Date.now() - started}ms`)
+  } catch (err) {
+    parts.push(`prefs=${say(err)}`)
+  }
+  return parts.join(" · ")
 }
 
 /**
