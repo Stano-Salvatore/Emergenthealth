@@ -96,7 +96,26 @@ function metresBetween(aLat: number, aLng: number, bLat: number, bLng: number): 
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
 }
 
-async function loadPlugin(): Promise<BackgroundGeolocationPlugin | null> {
+/**
+ * SYNCHRONOUS, and it must stay that way.
+ *
+ * registerPlugin returns a Proxy whose get-handler answers EVERY property with
+ * a function that calls the native bridge — `then` included. That makes the
+ * plugin a thenable, so the moment it passes through promise resolution
+ * (returning it from an async function is enough) the runtime calls
+ * `then(resolve, reject)` on it, which posts a bridge call for a method named
+ * "then" that no plugin implements. Android never answers, nothing rejects,
+ * and the promise stays pending for the life of the page.
+ *
+ * That is what "the location check did not answer in 6s" was, with every
+ * individual call underneath it measured at 4ms. It also meant starting,
+ * stopping and opening settings each hung forever on a real device: the whole
+ * feature, not just the card that reported it.
+ *
+ * Returning it synchronously never resolves it, so the proxy is only ever
+ * touched by calling a method that actually exists.
+ */
+function loadPlugin(): BackgroundGeolocationPlugin | null {
   if (typeof window === "undefined") return null
   // registerPlugin returns a proxy that only fails when CALLED, so the platform
   // check is what decides availability — not whether a module resolved.
@@ -115,7 +134,7 @@ async function loadPlugin(): Promise<BackgroundGeolocationPlugin | null> {
 export type LocationSupport = "web" | "plugin-missing" | "ready"
 
 export async function backgroundLocationSupport(): Promise<LocationSupport> {
-  if ((await loadPlugin()) === null) return "web"
+  if (loadPlugin() === null) return "web"
   // registerPlugin hands back a proxy regardless of what the APK contains, so
   // this is the only thing that knows whether the native class is really
   // there. Without it the card offers a switch that answers every press with
@@ -227,7 +246,7 @@ export async function startBackgroundLocation(onDenied?: () => void): Promise<bo
 }
 
 async function attachWatcher(onDenied?: () => void): Promise<boolean> {
-  const plugin = await loadPlugin()
+  const plugin = loadPlugin()
   if (!plugin) return false
 
   denied = false
@@ -295,7 +314,7 @@ async function attachWatcher(onDenied?: () => void): Promise<boolean> {
 
 export async function stopBackgroundLocation(): Promise<void> {
   await Preferences.set({ key: ENABLED_KEY, value: "0" }).catch(() => {})
-  const plugin = await loadPlugin()
+  const plugin = loadPlugin()
   // Prefer this context's id, but fall back to the stored one — after a reload
   // that is the only handle on the watcher still running.
   const stored = await Preferences.get({ key: WATCHER_KEY }).then(r => r.value).catch(() => null)
@@ -404,7 +423,7 @@ export async function resumeBackgroundLocation(): Promise<void> {
 /** Opens the OS settings page for the app, for a permission set to "never". */
 export async function openLocationSettings(): Promise<void> {
   try {
-    const plugin = await loadPlugin()
+    const plugin = loadPlugin()
     await plugin?.openSettings?.()
   } catch {
     // Nothing useful to say if the OS won't open its own settings page.
