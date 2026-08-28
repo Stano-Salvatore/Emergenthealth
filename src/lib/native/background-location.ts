@@ -336,14 +336,26 @@ function bridgeTimeout<T>(work: Promise<T>, label: string): Promise<T> {
   ])
 }
 
-/** Whether the user has turned this on, whatever the watcher is doing now. */
-export async function isBackgroundLocationEnabled(): Promise<boolean> {
+/**
+ * Whether the user has turned this on, and whether we could actually find out.
+ *
+ * The two are worth separating. Falling back to "off" when the read fails is
+ * the right behaviour — the card stays usable — but reporting nothing about
+ * the failure would swallow the one symptom currently worth chasing. A fix
+ * that removes the evidence of the thing it fixed is half a fix.
+ */
+export async function readBackgroundLocationEnabled(): Promise<{ enabled: boolean; failure: string | null }> {
   try {
     const { value } = await bridgeTimeout(Preferences.get({ key: ENABLED_KEY }), "Preferences.get")
-    return value === "1"
-  } catch {
-    return false
+    return { enabled: value === "1", failure: null }
+  } catch (err) {
+    return { enabled: false, failure: err instanceof Error ? err.message : String(err) }
   }
+}
+
+/** Whether the user has turned this on, whatever the watcher is doing now. */
+export async function isBackgroundLocationEnabled(): Promise<boolean> {
+  return (await readBackgroundLocationEnabled()).enabled
 }
 
 /**

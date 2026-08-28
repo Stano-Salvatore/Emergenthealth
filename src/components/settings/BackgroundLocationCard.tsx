@@ -9,7 +9,7 @@ import {
   type LocationSupport,
   backgroundLocationSupport,
   diagnoseBackgroundLocation,
-  isBackgroundLocationEnabled,
+  readBackgroundLocationEnabled,
   openLocationSettings,
   startBackgroundLocation,
   stopBackgroundLocation,
@@ -78,8 +78,13 @@ export function BackgroundLocationCard() {
 
       // Now the parts that may be slow, each on its own, none of them able to
       // take the card down with it.
-      const on = await isBackgroundLocationEnabled().catch(() => false)
-      if (!cancelled) setEnabled(on)
+      const { enabled: on, failure } = await readBackgroundLocationEnabled()
+      if (cancelled) return
+      setEnabled(on)
+      // Off is the safe default, and it is also a guess. Say when it was one:
+      // this read hanging is the whole reason the card went blank, and a fix
+      // that hides its own symptom leaves nothing to chase next time.
+      if (failure) setDetail(await diagnoseBackgroundLocation().catch(() => null))
 
       // A stay is only ever noticed INSIDE a saved place — recordPlaceVisits
       // returns immediately when there are none. So with nothing saved the
@@ -127,14 +132,13 @@ export function BackgroundLocationCard() {
         </p>
 
         {problem && (
-          <>
-            <p className="text-xs text-amber-400">
-              Couldn&apos;t tell whether this device can track — {problem}
-            </p>
-            {detail && (
-              <p className="text-[10px] font-mono text-muted-foreground/70 break-all">{detail}</p>
-            )}
-          </>
+          <p className="text-xs text-amber-400">
+            Couldn&apos;t tell whether this device can track — {problem}
+          </p>
+        )}
+
+        {detail && (
+          <p className="text-[10px] font-mono text-muted-foreground/70 break-all">{detail}</p>
         )}
 
         {support === null ? (
