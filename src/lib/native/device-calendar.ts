@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { Capacitor } from "@capacitor/core"
 // Device calendar reader — runs inside the Capacitor Android WebView and reads
 // the native Android Calendar Provider, which aggregates EVERY calendar account
 // on the phone: Samsung Calendar, Google, and local "My calendar" alike. That's
@@ -58,19 +59,41 @@ export function getPluginSource(): "global" | "import" | "none" {
 function pluginFromGlobal(): any | null {
   const plugins = (window as any)?.Capacitor?.Plugins
   const p = plugins?.CapacitorCalendar
-  // Sanity-check it looks like our plugin (has the methods we call).
-  return p && typeof p.checkPermission === "function" ? p : null
+  if (!p) return null
+  // NOT a duck-type check on the methods we call: registerPlugin returns a
+  // Proxy that answers EVERY property with a function, so `typeof
+  // p.checkPermission === "function"` is true whatever is behind it — it
+  // cannot fail, and it was never checking anything. isPluginAvailable reads
+  // the bridge's own list of registered native plugins, which is the question
+  // that was meant to be asked.
+  return Capacitor.isPluginAvailable("CapacitorCalendar") ? p : null
 }
 
-async function getPlugin(): Promise<any | null> {
+/**
+ * Returns the plugin INSIDE a holder object, never on its own.
+ *
+ * registerPlugin's Proxy answers every property with a bridge-calling
+ * function, `then` included, so the plugin is a thenable — and one that
+ * ignores the resolve/reject it is handed. Return it from an async function
+ * and the runtime calls that `then`, nothing ever settles, and the promise
+ * stays pending for the life of the page. Every path below used to do exactly
+ * that: syncToServer and createDeviceEvent hung outright, and the two callers
+ * wrapped in withTimeout(..., 12000, null) reported the calendar unavailable
+ * twelve seconds later. Same bug that had background location dead; found
+ * while fixing it.
+ *
+ * A plain object is not thenable, so the holder resolves normally and the
+ * proxy inside it is only ever touched by calling a method that exists.
+ */
+async function getPlugin(): Promise<{ plugin: any } | null> {
   if (!isNativeApp()) return null
-  if (cachedPlugin) return cachedPlugin
+  if (cachedPlugin) return { plugin: cachedPlugin }
 
   const fromGlobal = pluginFromGlobal()
   if (fromGlobal) {
     cachedPlugin = fromGlobal
     pluginSource = "global"
-    return cachedPlugin
+    return { plugin: cachedPlugin }
   }
 
   // Fall back to the JS wrapper (its import registers the proxy).
@@ -78,13 +101,13 @@ async function getPlugin(): Promise<any | null> {
     const mod = await import("@ebarooni/capacitor-calendar")
     cachedPlugin = (mod as any).CapacitorCalendar ?? pluginFromGlobal()
     pluginSource = cachedPlugin ? "import" : "none"
-    return cachedPlugin
+    return cachedPlugin ? { plugin: cachedPlugin } : null
   } catch {
     // Import failed (e.g. ChunkLoadError) — last try at the global, in case the
     // native bridge registered it even though the wrapper chunk didn't load.
     const g = pluginFromGlobal()
     pluginSource = g ? "global" : "none"
-    return g
+    return g ? { plugin: g } : null
   }
 }
 
@@ -108,7 +131,7 @@ function normalizeState(state: unknown): CalPermission {
 
 /** Current READ_CALENDAR permission state (native only). */
 export async function getPermissionState(): Promise<CalPermission> {
-  const cal = await withTimeout(getPlugin(), 12000, null)
+  const cal = (await withTimeout(getPlugin(), 12000, null))?.plugin ?? null
   if (!cal) return "unavailable"
   try {
     const res = await withTimeout<any>(cal.checkPermission({ scope: READ_SCOPE }), 6000, null)
@@ -215,7 +238,7 @@ export async function readEvents(): Promise<{
   rawCount: number
   calendars: DeviceCalendarInfo[]
 }> {
-  const cal = await withTimeout(getPlugin(), 12000, null)
+  const cal = (await withTimeout(getPlugin(), 12000, null))?.plugin ?? null
   const fromMs = Date.now() - DAYS_BACK * 24 * 60 * 60 * 1000
   const toMs = Date.now() + DAYS_AHEAD * 24 * 60 * 60 * 1000
   const from = new Date(fromMs).toISOString()
@@ -334,7 +357,7 @@ export type CreateEventResult =
 export async function createDeviceEvent(input: CreateEventInput): Promise<CreateEventResult> {
   if (!isNativeApp()) return { ok: false, reason: "Only available in the app" }
 
-  const cal = await getPlugin()
+  const cal = (await getPlugin())?.plugin ?? null
   if (!cal) return { ok: false, reason: "Calendar plugin unavailable — update the app" }
   if (typeof cal.createEvent !== "function") {
     return { ok: false, reason: "This app version can't create events — update the app" }

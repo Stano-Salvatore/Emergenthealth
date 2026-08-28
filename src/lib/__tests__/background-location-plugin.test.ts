@@ -59,6 +59,15 @@ describe("how background-location.ts obtains the plugin", () => {
     expect(src).not.toContain("await loadPlugin")
   })
 
+  it("device-calendar never returns its plugin bare from an async function either", () => {
+    // Same trap, second feature. getPlugin() must stay async for its dynamic
+    // import fallback, so it hands the plugin back inside a plain holder —
+    // an object with a `then` is a thenable, an object with a `plugin` is not.
+    const cal = readFileSync("src/lib/native/device-calendar.ts", "utf8")
+    expect(cal).toContain("Promise<{ plugin: any } | null>")
+    expect(cal).not.toMatch(/\n\s+return cachedPlugin\n/)
+  })
+
   it("registers it by the name the Android class declares", () => {
     expect(src).toContain('registerPlugin<BackgroundGeolocationPlugin>("BackgroundGeolocation")')
   })
