@@ -81,8 +81,16 @@ jobs:
 
           if [ -n "$GOOGLE_SERVICES_B64" ]; then
             mkdir -p android/app
-            if ! clean_b64 "$GOOGLE_SERVICES_B64" | base64 -d > android/app/google-services.json 2>/dev/null; then
-              echo "::error::GOOGLE_SERVICES_JSON_BASE64 is not valid base64. Regenerate it with:  base64 -w0 google-services.json"
+            # Take the file either way. Pasting the JSON itself rather than a
+            # base64 of it is the obvious thing to do with a secret named after
+            # a .json file, and lib/fcm.ts already accepts both forms for the
+            # service account — so refusing it here was this repo disagreeing
+            # with itself about what a config secret looks like.
+            if [ "$(printf '%s' "$GOOGLE_SERVICES_B64" | tr -d '[:space:]' | head -c1)" = "{" ]; then
+              printf '%s' "$GOOGLE_SERVICES_B64" > android/app/google-services.json
+              echo "· secret held the JSON itself, not base64 — used as-is"
+            elif ! clean_b64 "$GOOGLE_SERVICES_B64" | base64 -d > android/app/google-services.json 2>/dev/null; then
+              echo "::error::GOOGLE_SERVICES_JSON_BASE64 is neither JSON nor valid base64. Paste the contents of google-services.json, or  base64 -w0 google-services.json"
               exit 1
             fi
             # Decoding cleanly is not the same as being the right file: a
