@@ -138,9 +138,21 @@ jobs:
               exit 1
             fi
             echo "ANDROID_KEYSTORE_PATH=/tmp/emergenthealth-release.jks" >> $GITHUB_ENV
+            echo "APK_VARIANT=release" >> $GITHUB_ENV
             echo "✓ Keystore decoded"
           else
-            echo "ℹ️  No ANDROID_KEYSTORE_BASE64 secret — release APK will be unsigned"
+            # An UNSIGNED release APK cannot be installed on Android at all, so
+            # building one produces an artifact nobody can use and says nothing
+            # about it. A debug build is signed with the SDK's own debug key and
+            # installs fine, which is what someone without a keystore actually
+            # wants: something they can put on a phone and try.
+            #
+            # It is not a substitute for the release build — a different
+            # signature means it installs alongside, not over, an existing
+            # install, and Play will not take it. The artifact name says so.
+            echo "APK_VARIANT=debug" >> $GITHUB_ENV
+            echo "ℹ️  No ANDROID_KEYSTORE_BASE64 secret — building a DEBUG APK instead"
+            echo "   (installable for testing; not a release build, and not for Play)"
           fi
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -191,19 +203,26 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -o pipefail
-          cd android && ./gradlew assembleRelease bundleRelease --no-daemon 2>&1 | tee /tmp/gradle.log
+          if [ "$APK_VARIANT" = "debug" ]; then
+            # No bundle: an AAB is only useful to Play, which will not take a
+            # debug build anyway.
+            cd android && ./gradlew assembleDebug --no-daemon 2>&1 | tee /tmp/gradle.log
+          else
+            cd android && ./gradlew assembleRelease bundleRelease --no-daemon 2>&1 | tee /tmp/gradle.log
+          fi
           grep -E "FAILED|error:|BUILD" /tmp/gradle.log | tail -20 || true
 
-      - name: Upload release APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: emergenthealth-release
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: emergenthealth-${{ env.APK_VARIANT }}
+          path: android/app/build/outputs/apk/${{ env.APK_VARIANT }}/app-${{ env.APK_VARIANT }}.apk
           if-no-files-found: warn
           retention-days: 90
 
       # Play Store uploads require an Android App Bundle, not an APK.
       - name: Upload release AAB (Play Store)
+        if: env.APK_VARIANT == 'release'
         uses: actions/upload-artifact@v4
         with:
           name: emergenthealth-release-aab
@@ -219,7 +238,7 @@ jobs:
       # The APK is only for sideloading; Play will not accept it. Same keystore
       # ⇒ APK installs update in place (local data kept). main only.
       - name: Publish APK + AAB to GitHub Release
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && env.APK_VARIANT == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
