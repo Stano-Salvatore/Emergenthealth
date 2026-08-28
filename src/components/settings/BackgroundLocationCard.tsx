@@ -33,6 +33,33 @@ function withTimeout<T>(work: Promise<T>): Promise<T> {
 }
 
 /**
+ * How long since a point actually landed.
+ *
+ * Amber past the gap at which something is wrong rather than quiet: a stationary
+ * phone still reports every five minutes, so a quarter of an hour of silence is
+ * not stillness, it is a watcher that stopped, a WebView the OS froze, or a
+ * session that expired. Any of those look identical from the switch.
+ */
+const STALE_AFTER_MIN = 15
+
+function TrackingHealth({ lastPointAt, lastDayCount, asOf }: { lastPointAt: string | null; lastDayCount: number; asOf: number }) {
+  if (!lastPointAt) {
+    return <p className="text-xs text-amber-400">Nothing has reached the server yet.</p>
+  }
+  const agoMin = Math.max(0, Math.round((asOf - Date.parse(lastPointAt)) / 60_000))
+  const stale = agoMin >= STALE_AFTER_MIN
+  const ago = agoMin < 1 ? "just now"
+    : agoMin < 60 ? `${agoMin} min ago`
+    : `${Math.floor(agoMin / 60)}h ${agoMin % 60}m ago`
+  return (
+    <p className={stale ? "text-xs text-amber-400" : "text-xs text-muted-foreground"}>
+      Last fix {ago} · {lastDayCount} in the past day
+      {stale && " — that is longer than tracking should ever go quiet."}
+    </p>
+  )
+}
+
+/**
  * The one switch that makes place check-ins happen by themselves.
  *
  * Everything behind it already worked from OwnTracks or a Timeline import —
@@ -50,6 +77,8 @@ export function BackgroundLocationCard() {
   const [problem, setProblem] = useState<string | null>(null)
   /** Which piece did what, measured rather than guessed. */
   const [detail, setDetail] = useState<string | null>(null)
+  /** When the SERVER last heard a point, which is the only proof that counts. */
+  const [health, setHealth] = useState<{ lastPointAt: string | null; lastDayCount: number; asOf: number } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -96,6 +125,17 @@ export function BackgroundLocationCard() {
         .then(r => (r.ok ? r.json() : null))
         .catch(() => null)
       if (!cancelled && Array.isArray(saved)) setPlaces(saved.length)
+
+      // Asked of the SERVER, not the phone. The queue, the watcher and the
+      // notification can all look healthy while nothing is arriving; the only
+      // thing that settles it is whether points landed.
+      const h = await fetch("/api/location/points")
+        .then(r => (r.ok ? r.json() : null))
+        .catch(() => null)
+      // Stamped with when it was asked, not read from the clock at render: a
+      // gap computed during render is both impure and wrong the moment the
+      // screen sits open, quietly ageing into a warning nobody caused.
+      if (!cancelled && h && typeof h.lastDayCount === "number") setHealth({ ...h, asOf: Date.now() })
     })()
     return () => { cancelled = true }
   }, [])
@@ -178,6 +218,7 @@ export function BackgroundLocationCard() {
                 </button>
               </p>
             )}
+            {enabled && health && <TrackingHealth {...health} />}
             {enabled && (
               <p className="text-[10px] text-muted-foreground/60">
                 A visit needs about 20 minutes in one place, so passing by logs nothing.
