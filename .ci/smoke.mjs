@@ -23,6 +23,9 @@ import { existsSync, mkdirSync } from "node:fs"
 const BASE = (process.env.BASE_URL ?? "http://localhost:3000").replace(/\/$/, "")
 const TOKEN = process.env.SMOKE_TOKEN ?? "demo-session-token-local-only"
 const OUT = process.env.OUT ?? ".ci/smoke-shots"
+// Generous, because this runs against `next dev` as often as a build, and a
+// cold Turbopack compile of a heavy route genuinely takes tens of seconds.
+const NAV_TIMEOUT_MS = Number(process.env.SMOKE_NAV_TIMEOUT_MS ?? 45_000)
 const CHROME = process.env.CHROMIUM_PATH
   ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined)
 
@@ -80,12 +83,27 @@ for (const route of ROUTES) {
 
   let status = "ERR"
   try {
-    const res = await page.goto(BASE + route, { waitUntil: "domcontentloaded", timeout: 45_000 })
+    const res = await page.goto(BASE + route, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS })
     status = res?.status() ?? "none"
   } catch (e) {
-    failures.push(`${route}: navigation failed — ${e.message.split("\n")[0]}`)
-    page.off("pageerror", onError)
-    continue
+    // A dev server compiles each route on its first request, and the heavy
+    // ones take longer than any sane navigation timeout. Reported as failures
+    // that is five phantom problems on a cold run — and a check that cries
+    // wolf gets ignored, which is worse than not having it. So the first
+    // timeout per route buys a second attempt against the now-warm route, and
+    // only the second one counts.
+    let recovered = false
+    try {
+      const res = await page.goto(BASE + route, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS })
+      status = res?.status() ?? "none"
+      recovered = true
+    } catch { /* the retry's own failure is the one worth reporting */ }
+
+    if (!recovered) {
+      failures.push(`${route}: navigation failed twice — ${e.message.split("\n")[0]}`)
+      page.off("pageerror", onError)
+      continue
+    }
   }
 
   // Best-effort: the dashboard polls and the chat page holds an open stream, so

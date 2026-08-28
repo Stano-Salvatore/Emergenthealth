@@ -56,6 +56,16 @@ export function BubbleCard() {
   // arrives to make it. Both have to be true and only one of them was.
   const [reach, setReach] = useState<Awaited<ReturnType<typeof registerNativePush>> | null>(null)
   const [reachBusy, setReachBusy] = useState(false)
+  /**
+   * Every channel this ACCOUNT can be reached at, not just this device.
+   *
+   * sendToUser delivers to all of them, so a browser that subscribed before
+   * the app existed keeps firing forever — and the only symptom is Emergy
+   * arriving twice, once here and once as Chrome. Nothing on the phone could
+   * see that, let alone end it.
+   */
+  const [channels, setChannels] = useState<{ nativeDevices: number; webSubscriptions: number } | null>(null)
+  const [clearing, setClearing] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -78,6 +88,9 @@ export function BubbleCard() {
     ;(async () => {
       const r = await registerNativePush().catch(() => null)
       if (!cancelled) setReach(r)
+      // After registering, so this device is counted in what comes back.
+      const c = await fetch("/api/push/fcm").then(x => (x.ok ? x.json() : null)).catch(() => null)
+      if (!cancelled && c && typeof c.webSubscriptions === "number") setChannels(c)
     })()
     return () => { cancelled = true }
   }, [])
@@ -278,6 +291,37 @@ export function BubbleCard() {
             >
               {reachBusy ? "…" : "Check again"}
             </Button>
+
+            {channels && channels.webSubscriptions > 0 && channels.nativeDevices > 0 && (
+              <div className="space-y-1.5">
+                <p className="text-xs text-amber-400">
+                  A browser on this account is subscribed too
+                  {channels.webSubscriptions > 1 ? ` (${channels.webSubscriptions} of them)` : ""}, and
+                  Emergy is sent to every channel at once — so his messages arrive twice, once here and
+                  once as Chrome.
+                </p>
+                <button
+                  onClick={async () => {
+                    setClearing(true)
+                    const ok = await fetch("/api/push/subscribe", {
+                      method: "DELETE",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ all: true }),
+                    }).then(r => r.ok).catch(() => false)
+                    if (ok) setChannels(c => (c ? { ...c, webSubscriptions: 0 } : c))
+                    setClearing(false)
+                  }}
+                  disabled={clearing}
+                  className="text-xs underline text-muted-foreground hover:text-foreground disabled:opacity-50"
+                >
+                  {clearing ? "Ending them…" : "Stop the browser copies"}
+                </button>
+                <p className="text-[10px] text-muted-foreground/60">
+                  Ends browser notifications everywhere on this account, a laptop included. The app is
+                  unaffected, and any browser can subscribe again from its own settings.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

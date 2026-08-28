@@ -203,6 +203,24 @@ export async function ensureFcmTable(): Promise<void> {
  * re-registering must move to the current user rather than accumulating rows
  * that all point at one phone.
  */
+/**
+ * How many app installs this account can be reached at.
+ *
+ * FcmToken is a raw table created on demand by ensureTable, so a fresh
+ * database has none — counting must survive that rather than erroring into a
+ * settings screen.
+ */
+export async function countFcmTokens(userId: string): Promise<number> {
+  try {
+    const rows = await prisma.$queryRaw<{ n: bigint }[]>`
+      SELECT COUNT(*)::bigint AS n FROM "FcmToken" WHERE "userId" = ${userId}
+    `
+    return Number(rows[0]?.n ?? 0)
+  } catch {
+    return 0
+  }
+}
+
 export async function saveFcmToken(userId: string, token: string): Promise<void> {
   await ensureFcmTable()
   await prisma.$executeRaw`
