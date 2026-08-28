@@ -5,7 +5,8 @@ import {
   LineChart, Moon, NotebookPen, Pill, Search, Sunrise, Tag, TrendingUp,
 } from "lucide-react"
 import type { SourceChip, SourceDomain } from "@/lib/chat-sources"
-import { toolActivity } from "@/lib/chat-sources"
+import { useEffect, useState } from "react"
+import { thinkingPhrases, toolActivity } from "@/lib/chat-sources"
 
 // Identity hues only — a source chip says WHAT was read, never whether the
 // news is good, so status colours have no business here.
@@ -68,6 +69,53 @@ export function SourceTrail({ chips }: { chips: SourceChip[] }) {
  * What he is doing right now. A blinking cursor makes a multi-second tool call
  * look like a hang; naming the tool turns the same wait into him working.
  */
+/** How long each phrase holds. Long enough to read, short enough to notice. */
+const PHRASE_MS = 2600
+
+/**
+ * What he shows before the first token, in place of a blinking caret.
+ *
+ * The caret still belongs at the END of text that is arriving — it is a cursor,
+ * and that is what a cursor means. In an EMPTY bubble it means nothing: it is
+ * the same single mark every time, it never changes, and a wait of ten seconds
+ * looks exactly like one that has died.
+ *
+ * The dots are ToolActivity's, deliberately. Both are the same event — him,
+ * working, before there is anything to read — and two different waiting
+ * animations in one thread would look like two different apps.
+ */
+export function ThinkingLine({ seed }: { seed: string }) {
+  // Lazy state, not a ref: computed once per message, and reading it during
+  // render is exactly what state is for.
+  const [phrases] = useState(() => thinkingPhrases(seed))
+  const [i, setI] = useState(0)
+
+  useEffect(() => {
+    // Cycles rather than stopping at the last phrase: running out and freezing
+    // on one word is the stalled look this exists to avoid.
+    const t = setInterval(() => setI(n => (n + 1) % phrases.length), PHRASE_MS)
+    return () => clearInterval(t)
+  }, [phrases.length])
+
+  return (
+    <span className="inline-flex items-center gap-2 text-[13px] text-muted-foreground">
+      {/* aria-live so a screen reader is told he is working, but "polite" and
+          on the FIRST phrase only — announcing a new word every 2.6 seconds
+          would talk over the answer it is waiting for. */}
+      <span aria-live="polite" aria-atomic="true">
+        <span key={i} className="motion-safe:animate-in motion-safe:fade-in motion-safe:duration-500">
+          {phrases[i]}
+        </span>
+      </span>
+      <span className="flex gap-1" aria-hidden>
+        <span className="h-1 w-1 rounded-full bg-muted-foreground/40 animate-pulse [animation-delay:0ms]" />
+        <span className="h-1 w-1 rounded-full bg-muted-foreground/70 animate-pulse [animation-delay:150ms]" />
+        <span className="h-1 w-1 rounded-full bg-muted-foreground animate-pulse [animation-delay:300ms]" />
+      </span>
+    </span>
+  )
+}
+
 export function ToolActivity({ tool }: { tool: string }) {
   return (
     <span className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-[13px] text-muted-foreground">

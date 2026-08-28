@@ -124,7 +124,32 @@ for (const route of ROUTES) {
       break
     }
   }
-  await page.waitForTimeout(SETTLE_MS)
+  // Poll rather than sleep the whole window. The bound exists for the slowest
+  // thing the app gives itself — WeatherWidget's fifteen seconds — but almost
+  // every screen is done in two, and paying the worst case on all nine turned a
+  // one-minute check into four. Waiting only as long as something is still
+  // pulsing keeps the same verdict at a fraction of the cost.
+  {
+    const deadline = Date.now() + SETTLE_MS
+    for (;;) {
+      // EXACTLY the predicate the report uses below, substring match and
+      // zero-size exclusion included. A poll that stops on a different
+      // question than the one asked at the end can stop while the report
+      // would still count something — turning a merely slow screen into a
+      // reported failure, which is the fault this whole change is undoing.
+      const pulsing = await page.evaluate(() =>
+        [...document.querySelectorAll("[class*='animate-pulse']")]
+          .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 })
+          .length,
+      ).catch(() => 1)
+      if (pulsing === 0 || Date.now() >= deadline) break
+      await page.waitForTimeout(500)
+    }
+    // A short tail even once nothing pulses: a screen that has just swapped its
+    // skeleton for content has not necessarily finished laying it out, and the
+    // overlap and sideways-scroll checks below read geometry.
+    await page.waitForTimeout(1_000)
+  }
 
   if (status !== 200) failures.push(`${route}: HTTP ${status}`)
 

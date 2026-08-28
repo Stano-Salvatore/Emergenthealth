@@ -8,7 +8,7 @@ import { Send, User, Mic, Square, History, Plus, Trash2, X, Sunrise, Copy, Check
 import { EmergyAvatar, type EmergyState } from "@/components/emergy/EmergyAvatar"
 import { useEmergyState, refreshEmergy } from "@/lib/emergy-store"
 import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
-import { SourceTrail, ToolActivity } from "@/components/emergy/SourceTrail"
+import { SourceTrail, ThinkingLine, ToolActivity } from "@/components/emergy/SourceTrail"
 import type { SourceChip } from "@/lib/chat-sources"
 import { isFeatureEnabled } from "@/lib/features"
 
@@ -96,10 +96,19 @@ function MessageBubble({ msg, emergyState, onRetry }: { msg: Message; emergyStat
         }`}
       >
         {isUser ? msg.content : <ChatMarkdown text={msg.content} />}
-        {/* The cursor only stands in for text that is still coming. Once he
-            reaches for a tool the row below says what the wait is for, and two
-            competing "still working" signals would just be noise. */}
-        {msg.streaming && !msg.activeTool && <span className="animate-pulse ml-0.5">▍</span>}
+        {/* Three different waits, three different things to say.
+            · Nothing yet, no tool — he is thinking, so say so, and keep saying
+              a different thing so a slow answer does not look like a dead one.
+            · Text arriving — a caret at the end of it, because that is what a
+              caret means.
+            · A tool running — the row below names the wait, and two competing
+              "still working" signals would just be noise. */}
+        {msg.streaming && !msg.activeTool && !msg.content && (
+          <ThinkingLine seed={msg.id ?? "emergy"} />
+        )}
+        {msg.streaming && !msg.activeTool && !!msg.content && (
+          <span className="animate-pulse ml-0.5">▍</span>
+        )}
         {msg.streaming && msg.activeTool && (
           <div className={msg.content ? "mt-2" : ""}><ToolActivity tool={msg.activeTool} /></div>
         )}
