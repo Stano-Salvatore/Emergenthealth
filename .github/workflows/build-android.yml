@@ -118,14 +118,41 @@ jobs:
           fi
 
           if [ -n "$KEYSTORE_B64" ]; then
-            if ! clean_b64 "$KEYSTORE_B64" | base64 -d > /tmp/emergenthealth-release.jks 2>/dev/null; then
+            if ! clean_b64 "$KEYSTORE_B64" | base64 -d > /tmp/emergenthealth-release.jks 2>/dev/null \
+              && ! printf '%s' "$KEYSTORE_B64" | tr -cd 'A-Za-z0-9+/=' | base64 -d > /tmp/emergenthealth-release.jks 2>/dev/null; then
               echo "::error::ANDROID_KEYSTORE_BASE64 is not valid base64. Regenerate it with:  base64 -w0 your-release.jks"
               exit 1
             fi
+            # Decoding is not the same as being a keystore. These two secrets sit
+            # next to each other in the GitHub UI with identical pencil icons,
+            # and a paste meant for one landing on the other is a real and
+            # already-observed mistake — one that would otherwise surface as an
+            # inscrutable Gradle signing error several minutes later, or worse,
+            # as an APK signed by something unexpected.
+            #
+            # JKS files start with the magic 0xFEEDFEED; PKCS#12 and BKS start
+            # with a DER SEQUENCE, 0x30 0x82. Anything else is not a keystore.
+            magic=$(head -c2 /tmp/emergenthealth-release.jks | od -An -tx1 | tr -d ' \n')
+            if [ "$magic" != "feed" ] && [ "$magic" != "3082" ]; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 decoded, but is not a keystore (starts 0x${magic}, expected 0xfeed for JKS or 0x3082 for PKCS#12). Check the value did not land on the wrong secret."
+              exit 1
+            fi
             echo "ANDROID_KEYSTORE_PATH=/tmp/emergenthealth-release.jks" >> $GITHUB_ENV
+            echo "APK_VARIANT=release" >> $GITHUB_ENV
             echo "✓ Keystore decoded"
           else
-            echo "ℹ️  No ANDROID_KEYSTORE_BASE64 secret — release APK will be unsigned"
+            # An UNSIGNED release APK cannot be installed on Android at all, so
+            # building one produces an artifact nobody can use and says nothing
+            # about it. A debug build is signed with the SDK's own debug key and
+            # installs fine, which is what someone without a keystore actually
+            # wants: something they can put on a phone and try.
+            #
+            # It is not a substitute for the release build — a different
+            # signature means it installs alongside, not over, an existing
+            # install, and Play will not take it. The artifact name says so.
+            echo "APK_VARIANT=debug" >> $GITHUB_ENV
+            echo "ℹ️  No ANDROID_KEYSTORE_BASE64 secret — building a DEBUG APK instead"
+            echo "   (installable for testing; not a release build, and not for Play)"
           fi
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -176,19 +203,26 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -o pipefail
-          cd android && ./gradlew assembleRelease bundleRelease --no-daemon 2>&1 | tee /tmp/gradle.log
+          if [ "$APK_VARIANT" = "debug" ]; then
+            # No bundle: an AAB is only useful to Play, which will not take a
+            # debug build anyway.
+            cd android && ./gradlew assembleDebug --no-daemon 2>&1 | tee /tmp/gradle.log
+          else
+            cd android && ./gradlew assembleRelease bundleRelease --no-daemon 2>&1 | tee /tmp/gradle.log
+          fi
           grep -E "FAILED|error:|BUILD" /tmp/gradle.log | tail -20 || true
 
-      - name: Upload release APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: emergenthealth-release
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: emergenthealth-${{ env.APK_VARIANT }}
+          path: android/app/build/outputs/apk/${{ env.APK_VARIANT }}/app-${{ env.APK_VARIANT }}.apk
           if-no-files-found: warn
           retention-days: 90
 
       # Play Store uploads require an Android App Bundle, not an APK.
       - name: Upload release AAB (Play Store)
+        if: env.APK_VARIANT == 'release'
         uses: actions/upload-artifact@v4
         with:
           name: emergenthealth-release-aab
@@ -204,7 +238,7 @@ jobs:
       # The APK is only for sideloading; Play will not accept it. Same keystore
       # ⇒ APK installs update in place (local data kept). main only.
       - name: Publish APK + AAB to GitHub Release
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && env.APK_VARIANT == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
