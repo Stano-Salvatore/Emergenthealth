@@ -6,7 +6,8 @@ import { MapPin, Loader2 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
-  isBackgroundLocationAvailable,
+  type LocationSupport,
+  backgroundLocationSupport,
   isBackgroundLocationEnabled,
   openLocationSettings,
   startBackgroundLocation,
@@ -38,7 +39,7 @@ function withTimeout<T>(work: Promise<T>): Promise<T> {
  * install and no export to remember.
  */
 export function BackgroundLocationCard() {
-  const [available, setAvailable] = useState<boolean | null>(null)
+  const [support, setSupport] = useState<LocationSupport | null>(null)
   const [enabled, setEnabled] = useState(false)
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState(false)
@@ -52,13 +53,13 @@ export function BackgroundLocationCard() {
     void (async () => {
       try {
         const [can, on] = await withTimeout(Promise.all([
-          isBackgroundLocationAvailable(),
+          backgroundLocationSupport(),
           isBackgroundLocationEnabled(),
         ]))
         if (cancelled) return
-        setAvailable(can)
+        setSupport(can)
         setEnabled(on)
-        if (!can) return
+        if (can !== "ready") return
 
         // A stay is only ever noticed INSIDE a saved place — recordPlaceVisits
         // returns immediately when there are none. So with nothing saved the
@@ -76,7 +77,7 @@ export function BackgroundLocationCard() {
         // a card that was never there says, so nobody goes looking. Say what
         // went wrong instead, on screen — a phone has no console to read.
         if (cancelled) return
-        setAvailable(false)
+        setSupport("web")
         setProblem(err instanceof Error ? `${err.name}: ${err.message}` : String(err))
       }
     })()
@@ -120,9 +121,9 @@ export function BackgroundLocationCard() {
           </p>
         )}
 
-        {available === null ? (
+        {support === null ? (
           <p className="text-xs text-muted-foreground">Checking what this device can do…</p>
-        ) : available ? (
+        ) : support === "ready" ? (
           <>
             <p className="text-xs text-muted-foreground">
               Emergy notices when you&apos;ve spent a while somewhere you&apos;ve saved — the garden,
@@ -164,6 +165,12 @@ export function BackgroundLocationCard() {
               </p>
             )}
           </>
+        ) : support === "plugin-missing" ? (
+          <p className="text-xs text-amber-400">
+            This app build doesn&apos;t contain the location plugin — the web half updates
+            itself from the server, but the native half only arrives with an install. Grab
+            the latest APK and tracking will appear here.
+          </p>
         ) : problem ? (
           // Deliberately NOT the web explanation below: telling someone
           // holding the Android app that only the Android app can track is

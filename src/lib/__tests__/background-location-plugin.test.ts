@@ -30,6 +30,14 @@ describe("the background-geolocation plugin package", () => {
 describe("how background-location.ts obtains the plugin", () => {
   const src = readFileSync(SOURCE, "utf8")
 
+  it("asks Capacitor whether the native class is actually in the APK", () => {
+    // registerPlugin returns a proxy on any platform, so the plugin looks
+    // present in an APK built before it was added — and the JS half updates
+    // from the server on every load while the native half needs an install.
+    // isPluginAvailable is the only thing that can tell those apart.
+    expect(src).toContain('Capacitor.isPluginAvailable("BackgroundGeolocation")')
+  })
+
   it("registers it by the name the Android class declares", () => {
     expect(src).toContain('registerPlugin<BackgroundGeolocationPlugin>("BackgroundGeolocation")')
   })
