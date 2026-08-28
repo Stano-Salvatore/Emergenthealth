@@ -96,6 +96,15 @@ let watcherId: string | null = null
 let queue: Point[] = []
 let lastSent: { lat: number; lng: number; at: number } | null = null
 let flushTimer: ReturnType<typeof setTimeout> | null = null
+/**
+ * Batches handed to the server whose fate is not yet known.
+ *
+ * They have left `queue` but must stay on disk, or a point arriving mid-request
+ * rewrites the stored copy without them — which is precisely the loss the
+ * stored copy exists to prevent. An array of batches rather than one, since
+ * stopBackgroundLocation can flush while a timer flush is still in the air.
+ */
+let inFlight: Point[][] = []
 /** Set from the watcher callback; see startBackgroundLocation. */
 let denied = false
 /** Concurrent starts share one attempt rather than adding a watcher each. */
@@ -143,7 +152,10 @@ export function parseStoredQueue(raw: string | null | undefined): Point[] {
  * the page lives, and this copy only has to survive the page not living.
  */
 function persistQueue(): void {
-  void Preferences.set({ key: QUEUE_KEY, value: JSON.stringify(queue) }).catch(() => {})
+  // In-flight batches first: they are older than anything still queued, and
+  // they are not safe to forget until the server has accepted them.
+  const owed = [...inFlight.flat(), ...queue].slice(-MAX_QUEUED_POINTS)
+  void Preferences.set({ key: QUEUE_KEY, value: JSON.stringify(owed) }).catch(() => {})
 }
 
 /** Take back anything a previous page collected and never managed to send. */
@@ -227,25 +239,29 @@ async function flush(): Promise<void> {
 
   const batch = queue
   queue = []
-  // Deliberately NOT persisting the emptying here. Between clearing the queue
-  // and learning whether the POST succeeded there is a request's worth of time,
-  // and a WebView killed inside it would leave disk saying "nothing pending"
-  // about points that never arrived. Leaving the stored copy alone until the
-  // outcome is known makes the worst case a re-send, which the server dedupes
-  // by id, rather than a loss, which nothing can undo.
+  // The batch stays on disk until the server's answer is known. Between the
+  // POST and its reply there is a request's worth of time, and a WebView killed
+  // inside it must not leave disk saying "nothing pending" about points that
+  // never arrived. Held in inFlight rather than simply not writing, because a
+  // fix arriving mid-request calls persistQueue and would otherwise write a
+  // queue with this batch missing.
+  inFlight.push(batch)
+  const settle = () => { inFlight = inFlight.filter(b => b !== batch) }
   try {
     const res = await fetch("/api/location/points", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ points: batch }),
     })
-    if (res.ok) { persistQueue(); return }
+    if (res.ok) { settle(); persistQueue(); return }
     // A signed-out session refuses this batch and every future one identically,
     // so re-queueing would repost the same points on every fix for as long as
     // tracking runs. That backlog is dropped; anything else is worth holding.
-    if (res.status === 401 || res.status === 403) { persistQueue(); return }
+    if (res.status === 401 || res.status === 403) { settle(); persistQueue(); return }
+    settle()
     retry(batch)
   } catch {
+    settle()
     retry(batch)
   }
 }

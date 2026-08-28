@@ -105,6 +105,22 @@ describe("trackToSvgPath", () => {
     expect(spread).toBeLessThan(40)
   })
 
+  it("fills the box when asked for a glyph rather than a map", () => {
+    // The dashboard's 280x90 strip. Drawn to scale, a north-south day is a
+    // correct and useless sliver; there the lie about geometry is the point.
+    const dLat = 3000 / 111_320
+    const pts = [{ lat: 48.15, lon: 17.11 }, { lat: 48.15 + dLat, lon: 17.11 }]
+    const shape = trackToSvgPath(pts, 280, 90, 10)!
+    const fill = trackToSvgPath(pts, 280, 90, 10, "fill")!
+    // Same day, same box: to scale it uses the height only; filled it spans it.
+    expect(Math.abs(shape.toY(48.15) - shape.toY(48.15 + dLat))).toBeCloseTo(70, 0)
+    expect(Math.abs(fill.toY(48.15) - fill.toY(48.15 + dLat))).toBeCloseTo(70, 0)
+    // and the map default must NOT stretch east-west to compensate
+    const eastShape = Math.abs(shape.toX(17.11) - shape.toX(17.12))
+    const eastFill = Math.abs(fill.toX(17.11) - fill.toX(17.12))
+    expect(eastFill).toBeGreaterThan(eastShape)
+  })
+
   it("has nothing to draw for a single point", () => {
     expect(trackToSvgPath([{ lat: 48.15, lon: 17.11 }], 800, 400, 24)).toBeNull()
   })

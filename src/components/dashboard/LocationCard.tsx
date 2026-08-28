@@ -7,7 +7,9 @@ import { MapPin, ChevronRight } from "lucide-react"
 import { format } from "date-fns"
 
 function TrackSvg({ points }: { points: { lat: number; lon: number }[] }) {
-  const data = trackToSvgPath(points, 280, 90, 10)
+  // A glyph, not a map — see TrackFit. This strip is 3.1:1, and a north-south
+  // day drawn to scale in it is a correct, useless sliver.
+  const data = trackToSvgPath(points, 280, 90, 10, "fill")
   if (!data) return null
   return (
     <svg viewBox="0 0 280 90" className="w-full rounded-lg overflow-hidden"

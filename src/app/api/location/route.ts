@@ -51,8 +51,14 @@ export async function GET(req: Request) {
     // tracking or a Timeline import) — without the latter, imported history
     // existed but nothing on the page revealed which days had it.
     const gpxDates = await listGpxDates(session.user.id)
+    // trackedAt is `timestamp WITHOUT time zone` holding UTC (Prisma's default
+    // mapping; only the six fields marked @db.Timestamptz differ). One
+    // AT TIME ZONE therefore READS it as local and shifts it the wrong way:
+    // 00:30 UTC on the 29th came out as 22:30 on the 28th instead of 02:30 on
+    // the 29th. The first conversion says what it is, the second says where to
+    // read it — and only then does this list agree with the day it opens.
     const pointDays = await prisma.$queryRaw<{ day: string }[]>`
-      SELECT DISTINCT to_char("trackedAt" AT TIME ZONE ${timezone}, 'YYYY-MM-DD') AS day
+      SELECT DISTINCT to_char(("trackedAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timezone}, 'YYYY-MM-DD') AS day
       FROM "LocationPoint" WHERE "userId" = ${session.user.id}
     `.catch(() => [] as { day: string }[])
     const merged = [...new Set([...gpxDates, ...pointDays.map(r => r.day)])]
@@ -103,9 +109,14 @@ export async function GET(req: Request) {
   // Where the day was actually spent. Computed on the FULL timestamped series,
   // never the downsampled one: dropping every second fix leaves the shape
   // intact and the durations wrong, and a stop is nothing but a duration.
-  const timedPoints = track?.points?.length
-    ? track.points.filter(p => p.time).map(p => ({ lat: p.lat, lon: p.lon, time: new Date(p.time as unknown as Date) }))
-    : ownTracksPoints
+  // Chosen on whether the GPX actually carries times, not on whether it has
+  // points. A track exported without <time> elements filtered to nothing and
+  // took the app's own timestamped series down with it, so a fully tracked day
+  // shipped no stops at all and the whole panel vanished.
+  const gpxTimed = (track?.points ?? [])
+    .filter(p => p.time)
+    .map(p => ({ lat: p.lat, lon: p.lon, time: new Date(p.time as unknown as Date) }))
+  const timedPoints = gpxTimed.length >= 2 ? gpxTimed : ownTracksPoints
   const stops = detectStops(timedPoints)
 
   const summary = summariseTrack(ownTracksPoints, stops)

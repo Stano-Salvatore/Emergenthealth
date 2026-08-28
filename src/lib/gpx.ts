@@ -102,9 +102,24 @@ export interface TrackProjection {
   toY: (lat: number) => number
 }
 
+/**
+ * How to fit a day into a box that is not the day's shape.
+ *
+ * "shape" keeps one scale on both axes, so the drawn route is the walked route.
+ * That is what a map owes you, and a north-south day in a wide box letterboxes
+ * to a sliver — correctly.
+ *
+ * "fill" stretches each axis to the box. It is a lie about geometry and the
+ * right one for the dashboard's 280×90 strip, which is a glyph answering "did
+ * you go anywhere today" rather than a map: there, a truthful sliver reads as
+ * a rendering fault and tells you nothing.
+ */
+export type TrackFit = "shape" | "fill"
+
 export function trackToSvgPath(
   points: { lat: number; lon: number }[],
   width: number, height: number, padding: number,
+  fit: TrackFit = "shape",
 ): TrackProjection | null {
   if (points.length < 2) return null
   const lats = points.map(p => p.lat)
@@ -128,15 +143,17 @@ export function trackToSvgPath(
 
   const innerW = width - padding * 2
   const innerH = height - padding * 2
-  // ONE scale for both axes, so a square detour draws square.
-  const scale = Math.min(innerW / spanX, innerH / spanY)
-  const drawnW = spanX * scale
-  const drawnH = spanY * scale
+  // ONE scale for both axes, so a square detour draws square — unless the
+  // caller has asked for a glyph instead of a map.
+  const scaleX = fit === "fill" ? innerW / spanX : Math.min(innerW / spanX, innerH / spanY)
+  const scaleY = fit === "fill" ? innerH / spanY : Math.min(innerW / spanX, innerH / spanY)
+  const drawnW = spanX * scaleX
+  const drawnH = spanY * scaleY
   const offsetX = padding + (innerW - drawnW) / 2
   const offsetY = padding + (innerH - drawnH) / 2
 
-  const toX = (lon: number) => offsetX + (padX + toMx(lon)) * scale
-  const toY = (lat: number) => offsetY + drawnH - (padY + toMy(lat)) * scale
+  const toX = (lon: number) => offsetX + (padX + toMx(lon)) * scaleX
+  const toY = (lat: number) => offsetY + drawnH - (padY + toMy(lat)) * scaleY
 
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${toX(p.lon).toFixed(1)} ${toY(p.lat).toFixed(1)}`).join(" ")
   return {
