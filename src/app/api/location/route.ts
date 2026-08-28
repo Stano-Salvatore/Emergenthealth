@@ -3,6 +3,9 @@ import { NextResponse } from "next/server"
 import { getGpxTrackForDate, listGpxDates } from "@/lib/google-drive"
 import { downsamplePoints } from "@/lib/gpx"
 import { prisma } from "@/lib/prisma"
+import { getUserTimezone } from "@/lib/user-timezone"
+import { localDateStr, zonedDayRange } from "@/lib/local-date"
+import { detectStops, summariseTrack } from "@/lib/day-stops"
 
 /** Haversine distance in metres between two GPS coordinates */
 function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -64,6 +67,7 @@ export async function GET(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { searchParams } = new URL(req.url)
+  const timezone = await getUserTimezone(session.user.id)
 
   if (searchParams.get("list") === "1") {
     // GPX days from Drive plus days with stored points (OwnTracks live
@@ -71,7 +75,7 @@ export async function GET(req: Request) {
     // existed but nothing on the page revealed which days had it.
     const gpxDates = await listGpxDates(session.user.id)
     const pointDays = await prisma.$queryRaw<{ day: string }[]>`
-      SELECT DISTINCT to_char("trackedAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day
+      SELECT DISTINCT to_char("trackedAt" AT TIME ZONE ${timezone}, 'YYYY-MM-DD') AS day
       FROM "LocationPoint" WHERE "userId" = ${session.user.id}
     `.catch(() => [] as { day: string }[])
     const merged = [...new Set([...gpxDates, ...pointDays.map(r => r.day)])]
@@ -81,11 +85,13 @@ export async function GET(req: Request) {
     return NextResponse.json(merged)
   }
 
-  const date = searchParams.get("date") ?? new Date().toISOString().split("T")[0]
+  const date = searchParams.get("date") ?? localDateStr(timezone)
 
-  // Fetch OwnTracks points for the day
-  const dayStart = new Date(`${date}T00:00:00Z`)
-  const dayEnd   = new Date(`${date}T23:59:59Z`)
+  // A day is the user's day, not UTC's. At Bratislava's +02:00 the UTC window
+  // started at 02:00 local and ended at 02:00 the next morning, so an evening
+  // after midnight landed on the wrong date and the first two hours of every
+  // date belonged to the day before.
+  const { start: dayStart, end: dayEnd } = zonedDayRange(timezone, date)
   const ownTracksRows = await prisma.locationPoint.findMany({
     where: { userId: session.user.id, trackedAt: { gte: dayStart, lte: dayEnd } },
     orderBy: { trackedAt: "asc" },
@@ -112,31 +118,41 @@ export async function GET(req: Request) {
   ]
   const autoTagged = await autoTagPlaces(session.user.id, date, allForTagging).catch(() => [])
 
+  // Where the day was actually spent. Computed on the FULL timestamped series,
+  // never the downsampled one: dropping every second fix leaves the shape
+  // intact and the durations wrong, and a stop is nothing but a duration.
+  const timedPoints = track?.points?.length
+    ? track.points.filter(p => p.time).map(p => ({ lat: p.lat, lon: p.lon, time: new Date(p.time as unknown as Date) }))
+    : ownTracksPoints
+  const stops = detectStops(timedPoints)
+
+  const summary = summariseTrack(ownTracksPoints, stops)
+  const totalMin = calcDurationMin(ownTracksPoints)
+
   return NextResponse.json({
-    distanceKm:  track?.distanceKm  ?? calcDistanceKm(ownTracksPoints),
-    durationMin: track?.durationMin ?? calcDurationMin(ownTracksPoints),
-    movingMin:   track?.movingMin   ?? calcDurationMin(ownTracksPoints),
-    maxSpeedKmh: track?.maxSpeedKmh ?? 0,
-    avgSpeedKmh: track?.avgSpeedKmh ?? 0,
+    distanceKm:  track?.distanceKm  ?? summary.distanceKm,
+    durationMin: track?.durationMin ?? totalMin,
+    movingMin:   track?.movingMin   ?? summary.movingMin,
+    maxSpeedKmh: track?.maxSpeedKmh ?? summary.maxSpeedKmh,
+    // Distance over time actually spent moving. Left at 0 when nothing moved,
+    // rather than dividing by a zero denominator and reporting Infinity.
+    avgSpeedKmh: track?.avgSpeedKmh ?? (summary.movingMin > 0 ? summary.distanceKm / (summary.movingMin / 60) : 0),
     startTime:   track?.startTime?.toISOString() ?? ownTracksPoints[0]?.time?.toISOString() ?? null,
     endTime:     track?.endTime?.toISOString()   ?? ownTracksPoints.at(-1)?.time?.toISOString() ?? null,
     points,
+    stops: stops.map(st => ({
+      lat: st.lat,
+      lon: st.lon,
+      start: st.start.toISOString(),
+      end: st.end.toISOString(),
+      minutes: st.minutes,
+    })),
     autoTagged,
     source: gpxPoints.length >= 2 ? "gpx" : "owntracks",
   })
 }
 
-function calcDistanceKm(pts: { lat: number; lon: number }[]): number {
-  let km = 0
-  for (let i = 1; i < pts.length; i++) {
-    const R = 6371, p = pts[i - 1], c = pts[i]
-    const dLat = (c.lat - p.lat) * Math.PI / 180
-    const dLon = (c.lon - p.lon) * Math.PI / 180
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(p.lat * Math.PI / 180) * Math.cos(c.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2
-    km += R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  }
-  return km
-}
+
 
 function calcDurationMin(pts: { time: Date }[]): number {
   if (pts.length < 2) return 0

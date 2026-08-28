@@ -151,6 +151,72 @@ for (const p of places) {
   }
 }
 
+// A day's worth of GPS, so the location map has something to draw.
+//
+// Without this the map was untestable locally — the one screen whose whole job
+// is to render recorded movement had no recorded movement to render, which is
+// how a projection that stretched each axis independently survived unnoticed.
+//
+// Shaped like a real day rather than a random walk: a morning at home, the
+// walk in, a working stretch, lunch out, back, and home again. The stop
+// detector should find four stays; the map should draw a route, not a scribble.
+await prisma.locationPoint.deleteMany({ where: { userId: user.id } }).catch(() => {})
+{
+  const HOME = { lat: 48.1486, lng: 17.1077 }
+  const WORK = { lat: 48.1520, lng: 17.1180 }
+  const LUNCH = { lat: 48.1502, lng: 17.1131 }
+  const today = new Date()
+  const atHour = (h, m) => new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m, 0, 0)
+
+  // [place, from, to, every N minutes] — a stay is just fixes that stay put.
+  const legs = [
+    [HOME, [7, 10], [8, 30], 10],
+    [WORK, [9, 0], [12, 20], 10],
+    [LUNCH, [12, 40], [13, 30], 10],
+    [WORK, [13, 50], [17, 30], 10],
+    [HOME, [18, 0], [22, 40], 15],
+  ]
+
+  const rows = []
+  const jitter = () => (Math.random() - 0.5) * 0.00025   // ~±14 m, like a real fix
+  for (const [place, from, to, everyMin] of legs) {
+    const start = atHour(from[0], from[1])
+    const end = atHour(to[0], to[1])
+    for (let t = start.getTime(); t <= end.getTime(); t += everyMin * 60_000) {
+      rows.push({
+        id: `seed_${user.id.slice(-6)}_${t}`,
+        userId: user.id,
+        lat: place.lat + jitter(),
+        lng: place.lng + jitter(),
+        accuracyM: 12,
+        trackedAt: new Date(t),
+        source: "app",
+      })
+    }
+  }
+  // Between stays, a few fixes on the way so the route is a line and not a jump.
+  for (const [a, b, at1, at2] of [[HOME, WORK, [8, 35], [8, 55]], [WORK, LUNCH, [12, 25], [12, 35]],
+                                  [LUNCH, WORK, [13, 35], [13, 45]], [WORK, HOME, [17, 35], [17, 55]]]) {
+    const start = atHour(at1[0], at1[1]).getTime()
+    const end = atHour(at2[0], at2[1]).getTime()
+    for (let k = 0; k <= 4; k++) {
+      const f = k / 4
+      const t = start + (end - start) * f
+      rows.push({
+        id: `seed_${user.id.slice(-6)}_${Math.round(t)}`,
+        userId: user.id,
+        lat: a.lat + (b.lat - a.lat) * f,
+        lng: a.lng + (b.lng - a.lng) * f,
+        accuracyM: 18,
+        trackedAt: new Date(t),
+        source: "app",
+      })
+    }
+  }
+  await prisma.locationPoint.createMany({ data: rows, skipDuplicates: true })
+  console.log(`  ${rows.length} location points for today`)
+}
+
 await prisma.symptomLog.deleteMany({ where: { userId: user.id } }).catch(() => {})
 console.log(`seeded ${user.id} — sign in with cookie authjs.session-token=${TOKEN}`)
 await prisma.$disconnect()

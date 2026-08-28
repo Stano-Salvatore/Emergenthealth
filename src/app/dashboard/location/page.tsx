@@ -578,9 +578,46 @@ type TrackData = {
   startTime:   string | null
   endTime:     string | null
   autoTagged:  { id: string; name: string; emoji: string; isNew: boolean }[]
+  stops?:      { lat: number; lon: number; start: string; end: string; minutes: number }[]
 }
 
-function TrackSvg({ points, width = 800, height = 400 }: { points: { lat: number; lon: number }[]; width?: number; height?: number }) {
+/**
+ * One marker per place, not per visit.
+ *
+ * Returns each distinct place with the visit numbers that happened there and
+ * their total time, in first-visit order — so the marker can be found from the
+ * list and a place you returned to reads as one dot rather than two stacked.
+ */
+function groupStops(stops: { lat: number; lon: number; minutes: number }[]) {
+  const SAME_PLACE_M = 150
+  const groups: { lat: number; lon: number; minutes: number; indices: number[] }[] = []
+  stops.forEach((st, i) => {
+    const hit = groups.find(g => metresApart(g.lat, g.lon, st.lat, st.lon) <= SAME_PLACE_M)
+    if (hit) {
+      hit.minutes += st.minutes
+      hit.indices.push(i + 1)
+      return
+    }
+    groups.push({ lat: st.lat, lon: st.lon, minutes: st.minutes, indices: [i + 1] })
+  })
+  return groups
+}
+
+function metresApart(aLat: number, aLon: number, bLat: number, bLon: number): number {
+  const R = 6_371_000
+  const dLat = ((bLat - aLat) * Math.PI) / 180
+  const dLon = ((bLon - aLon) * Math.PI) / 180
+  const la1 = (aLat * Math.PI) / 180
+  const la2 = (bLat * Math.PI) / 180
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
+}
+
+function TrackSvg({ points, stops = [], width = 800, height = 400 }: {
+  points: { lat: number; lon: number }[]
+  stops?: { lat: number; lon: number; minutes: number }[]
+  width?: number; height?: number
+}) {
   const data = trackToSvgPath(points, width, height, 24)
   if (!data) {
     return (
@@ -604,10 +641,39 @@ function TrackSvg({ points, width = 800, height = 400 }: { points: { lat: number
       </defs>
       <path d={data.pathD} fill="none" stroke="var(--primary)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" opacity="0.2"/>
       <path d={data.pathD} fill="none" stroke="url(#trackGrad)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <circle cx={data.startX} cy={data.startY} r="6" fill="#22c55e" opacity="0.9"/>
-      <circle cx={data.startX} cy={data.startY} r="10" fill="#22c55e" opacity="0.2"/>
-      <circle cx={data.endX}   cy={data.endY}   r="6" fill="#f43f5e" opacity="0.9"/>
-      <circle cx={data.endX}   cy={data.endY}   r="10" fill="#f43f5e" opacity="0.2"/>
+      <circle cx={data.startX} cy={data.startY} r="5" fill="var(--muted-foreground)" opacity="0.9"/>
+      <circle cx={data.startX} cy={data.startY} r="9" fill="var(--muted-foreground)" opacity="0.2"/>
+      <circle cx={data.endX}   cy={data.endY}   r="6" fill="var(--primary)" opacity="0.9"/>
+      <circle cx={data.endX}   cy={data.endY}   r="10" fill="var(--primary)" opacity="0.2"/>
+
+      {/* The stops, numbered in the order they happened. A route on its own
+          cannot distinguish an afternoon in one café from an afternoon of
+          errands — these are the part of the day worth reading.
+
+          Grouped by place first. Home in the morning and home at night are the
+          same dot, and drawing them separately meant the later one covered the
+          earlier one exactly: on an ordinary out-and-back day the map showed
+          three markers for five stays and gave no sign the other two existed. */}
+      {groupStops(stops).map(g => {
+        const cx = data.toX(g.lon)
+        const cy = data.toY(g.lat)
+        // Longer stays read larger, bounded so a whole night does not swallow
+        // the map and ten minutes is still visible.
+        const r = Math.max(8, Math.min(17, 7 + Math.sqrt(g.minutes)))
+        // "1·5" while it still fits, then a count — the list below carries the
+        // detail, so the marker only has to be findable from it.
+        const label = g.indices.length === 1 ? `${g.indices[0]}`
+          : g.indices.length === 2 ? g.indices.join("·")
+          : `×${g.indices.length}`
+        return (
+          <g key={`${g.lat}-${g.lon}`}>
+            <circle cx={cx} cy={cy} r={r + 4} fill="var(--primary)" opacity="0.12"/>
+            <circle cx={cx} cy={cy} r={r} fill="var(--card)" stroke="var(--primary)" strokeWidth="2"/>
+            <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
+              fontSize={label.length > 2 ? 8 : 10} fontWeight="600" fill="var(--foreground)">{label}</text>
+          </g>
+        )
+      })}
     </svg>
   )
 }
@@ -736,7 +802,7 @@ export default function LocationPage() {
           )}
         </div>
       ) : (
-        <TrackSvg points={track.points} width={800} height={320}/>
+        <TrackSvg points={track.points} stops={track.stops ?? []} width={800} height={320}/>
       )}
 
       {track && track.points.length >= 2 && (
@@ -752,6 +818,29 @@ export default function LocationPage() {
               {format(parseISO(track.startTime), "HH:mm")} → {format(parseISO(track.endTime), "HH:mm")}
               &nbsp;·&nbsp;{track.points.length} GPS points recorded
             </p>
+          )}
+
+          {/* The day in words. The map shows where; this says when and how
+              long, which is the half a route trace cannot carry. */}
+          {track.stops && track.stops.length > 0 && (
+            <div className="rounded-2xl border border-border bg-card/40 divide-y divide-border/60">
+              <p className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Where the day went
+              </p>
+              {track.stops.map((st, i) => (
+                <div key={`${st.start}-${i}`} className="flex items-center gap-3 px-4 py-2.5">
+                  <span className="shrink-0 h-6 w-6 rounded-full border-2 border-primary bg-card grid place-items-center text-[10px] font-semibold">
+                    {i + 1}
+                  </span>
+                  <span className="text-sm tabular-nums">
+                    {format(parseISO(st.start), "HH:mm")} – {format(parseISO(st.end), "HH:mm")}
+                  </span>
+                  <span className="ml-auto text-sm font-medium tabular-nums">
+                    {formatDuration(st.minutes)}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
         </>
       )}
