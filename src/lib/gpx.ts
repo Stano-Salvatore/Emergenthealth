@@ -81,19 +81,63 @@ export function downsamplePoints(points: GpxPoint[], maxPts = 400): GpxPoint[] {
   return points.filter((_, i) => i % step === 0 || i === points.length - 1)
 }
 
+/** Metres per degree of latitude; near enough anywhere for drawing a day. */
+const M_PER_DEG_LAT = 111_320
+
+/**
+ * Below this, stop zooming in.
+ *
+ * A day spent in one room is a cloud of GPS jitter a few metres wide. Scaled
+ * to fill the canvas it draws as frantic wandering — the emptiest day looks
+ * like the busiest. Flooring the span keeps a still day a still dot.
+ */
+const MIN_SPAN_M = 250
+
+export interface TrackProjection {
+  pathD: string
+  startX: number; startY: number
+  endX: number; endY: number
+  /** Project any coordinate into the same frame, for markers off the path. */
+  toX: (lon: number) => number
+  toY: (lat: number) => number
+}
+
 export function trackToSvgPath(
   points: { lat: number; lon: number }[],
   width: number, height: number, padding: number,
-): { pathD: string; startX: number; startY: number; endX: number; endY: number } | null {
+): TrackProjection | null {
   if (points.length < 2) return null
   const lats = points.map(p => p.lat)
   const lons = points.map(p => p.lon)
   const minLat = Math.min(...lats), maxLat = Math.max(...lats)
   const minLon = Math.min(...lons), maxLon = Math.max(...lons)
-  const latRange = maxLat - minLat || 0.0001
-  const lonRange = maxLon - minLon || 0.0001
-  const toX = (lon: number) => padding + ((lon - minLon) / lonRange) * (width - padding * 2)
-  const toY = (lat: number) => height - padding - ((lat - minLat) / latRange) * (height - padding * 2)
+
+  // A degree of longitude shrinks towards the poles — at Bratislava's latitude
+  // it is about two thirds of a degree of latitude. Scaling each axis
+  // independently to fill the box, as this did, means the drawn shape is not
+  // the walked shape: the same loop renders differently depending on which way
+  // the day happened to wander.
+  const lonScale = Math.cos(((minLat + maxLat) / 2) * Math.PI / 180)
+  const toMx = (lon: number) => (lon - minLon) * lonScale * M_PER_DEG_LAT
+  const toMy = (lat: number) => (lat - minLat) * M_PER_DEG_LAT
+
+  const padX = Math.max(0, (MIN_SPAN_M - toMx(maxLon)) / 2)
+  const padY = Math.max(0, (MIN_SPAN_M - toMy(maxLat)) / 2)
+  const spanX = toMx(maxLon) + padX * 2
+  const spanY = toMy(maxLat) + padY * 2
+
+  const innerW = width - padding * 2
+  const innerH = height - padding * 2
+  // ONE scale for both axes, so a square detour draws square.
+  const scale = Math.min(innerW / spanX, innerH / spanY)
+  const drawnW = spanX * scale
+  const drawnH = spanY * scale
+  const offsetX = padding + (innerW - drawnW) / 2
+  const offsetY = padding + (innerH - drawnH) / 2
+
+  const toX = (lon: number) => offsetX + (padX + toMx(lon)) * scale
+  const toY = (lat: number) => offsetY + drawnH - (padY + toMy(lat)) * scale
+
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${toX(p.lon).toFixed(1)} ${toY(p.lat).toFixed(1)}`).join(" ")
   return {
     pathD,
@@ -101,5 +145,7 @@ export function trackToSvgPath(
     startY: toY(points[0].lat),
     endX: toX(points[points.length - 1].lon),
     endY: toY(points[points.length - 1].lat),
+    toX,
+    toY,
   }
 }
