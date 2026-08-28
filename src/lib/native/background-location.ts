@@ -103,9 +103,29 @@ async function loadPlugin(): Promise<BackgroundGeolocationPlugin | null> {
   return Capacitor.isNativePlatform() ? BackgroundGeolocation : null
 }
 
+/**
+ * Why tracking is or is not on offer.
+ *
+ * "web" and "plugin-missing" both used to read as "your device can't do this",
+ * and they are not the same thing at all. The second one is an APK built
+ * before the plugin was added — the JS ships from the server on every load,
+ * but the native class only arrives with an install, so the two halves of this
+ * feature can be months apart on one phone.
+ */
+export type LocationSupport = "web" | "plugin-missing" | "ready"
+
+export async function backgroundLocationSupport(): Promise<LocationSupport> {
+  if ((await loadPlugin()) === null) return "web"
+  // registerPlugin hands back a proxy regardless of what the APK contains, so
+  // this is the only thing that knows whether the native class is really
+  // there. Without it the card offers a switch that answers every press with
+  // "not implemented on android".
+  return Capacitor.isPluginAvailable("BackgroundGeolocation") ? "ready" : "plugin-missing"
+}
+
 /** Whether this build can track at all — false on the web. */
 export async function isBackgroundLocationAvailable(): Promise<boolean> {
-  return (await loadPlugin()) !== null
+  return (await backgroundLocationSupport()) === "ready"
 }
 
 async function flush(): Promise<void> {

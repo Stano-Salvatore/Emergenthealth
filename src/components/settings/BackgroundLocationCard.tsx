@@ -6,12 +6,30 @@ import { MapPin, Loader2 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
-  isBackgroundLocationAvailable,
+  type LocationSupport,
+  backgroundLocationSupport,
   isBackgroundLocationEnabled,
   openLocationSettings,
   startBackgroundLocation,
   stopBackgroundLocation,
 } from "@/lib/native/background-location"
+
+/**
+ * Both checks cross the Capacitor bridge, and a bridge call to a plugin the
+ * native side never registered simply never answers. Waiting forever leaves
+ * this card blank, which reads as "feature absent" rather than "something is
+ * wrong" — so give up and say so instead.
+ */
+const CHECK_TIMEOUT_MS = 6000
+
+function withTimeout<T>(work: Promise<T>): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`the location check did not answer in ${CHECK_TIMEOUT_MS / 1000}s`)), CHECK_TIMEOUT_MS),
+    ),
+  ])
+}
 
 /**
  * The one switch that makes place check-ins happen by themselves.
@@ -21,35 +39,47 @@ import {
  * install and no export to remember.
  */
 export function BackgroundLocationCard() {
-  const [available, setAvailable] = useState<boolean | null>(null)
+  const [support, setSupport] = useState<LocationSupport | null>(null)
   const [enabled, setEnabled] = useState(false)
   const [busy, setBusy] = useState(false)
   const [refused, setRefused] = useState(false)
   /** How many places are saved; null while unknown, which says nothing. */
   const [places, setPlaces] = useState<number | null>(null)
+  /** Why the check failed, shown rather than swallowed. See the effect. */
+  const [problem, setProblem] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const [can, on] = await Promise.all([
-        isBackgroundLocationAvailable(),
-        isBackgroundLocationEnabled(),
-      ])
-      if (cancelled) return
-      setAvailable(can)
-      setEnabled(on)
-      if (!can) return
+      try {
+        const [can, on] = await withTimeout(Promise.all([
+          backgroundLocationSupport(),
+          isBackgroundLocationEnabled(),
+        ]))
+        if (cancelled) return
+        setSupport(can)
+        setEnabled(on)
+        if (can !== "ready") return
 
-      // A stay is only ever noticed INSIDE a saved place — recordPlaceVisits
-      // returns immediately when there are none. So with nothing saved the
-      // whole chain runs perfectly and produces nothing: the notification
-      // shows, points upload, and no check-in ever appears. That is
-      // indistinguishable from the feature being broken, which is exactly the
-      // failure this card was built on top of. Better to say it up front.
-      const saved = await fetch("/api/saved-places")
-        .then(r => (r.ok ? r.json() : null))
-        .catch(() => null)
-      if (!cancelled && Array.isArray(saved)) setPlaces(saved.length)
+        // A stay is only ever noticed INSIDE a saved place — recordPlaceVisits
+        // returns immediately when there are none. So with nothing saved the
+        // whole chain runs perfectly and produces nothing: the notification
+        // shows, points upload, and no check-in ever appears. That is
+        // indistinguishable from the feature being broken, which is exactly
+        // the failure this card was built on top of. Better to say it up front.
+        const saved = await fetch("/api/saved-places")
+          .then(r => (r.ok ? r.json() : null))
+          .catch(() => null)
+        if (!cancelled && Array.isArray(saved)) setPlaces(saved.length)
+      } catch (err) {
+        // Never render nothing. This card returning null on a failure is how
+        // the whole feature stayed invisible: an empty space says exactly what
+        // a card that was never there says, so nobody goes looking. Say what
+        // went wrong instead, on screen — a phone has no console to read.
+        if (cancelled) return
+        setSupport("web")
+        setProblem(err instanceof Error ? `${err.name}: ${err.message}` : String(err))
+      }
     })()
     return () => { cancelled = true }
   }, [])
@@ -78,9 +108,6 @@ export function BackgroundLocationCard() {
     }
   }, [enabled])
 
-  // Still checking, or plain web where there is no native watcher to offer.
-  if (available === null) return null
-
   return (
     <Card>
       <CardContent className="pt-4 pb-4 space-y-3">
@@ -88,7 +115,15 @@ export function BackgroundLocationCard() {
           Automatic place check-ins
         </p>
 
-        {available ? (
+        {problem && (
+          <p className="text-xs text-amber-400">
+            Couldn&apos;t tell whether this device can track — {problem}
+          </p>
+        )}
+
+        {support === null ? (
+          <p className="text-xs text-muted-foreground">Checking what this device can do…</p>
+        ) : support === "ready" ? (
           <>
             <p className="text-xs text-muted-foreground">
               Emergy notices when you&apos;ve spent a while somewhere you&apos;ve saved — the garden,
@@ -130,6 +165,21 @@ export function BackgroundLocationCard() {
               </p>
             )}
           </>
+        ) : support === "plugin-missing" ? (
+          <p className="text-xs text-amber-400">
+            This app build doesn&apos;t contain the location plugin — the web half updates
+            itself from the server, but the native half only arrives with an install. Grab
+            the latest APK and tracking will appear here.
+          </p>
+        ) : problem ? (
+          // Deliberately NOT the web explanation below: telling someone
+          // holding the Android app that only the Android app can track is
+          // worse than saying nothing, and that exact sentence is what this
+          // card showed while the feature was broken.
+          <p className="text-xs text-muted-foreground">
+            That is a fault, not a limitation of your phone. A Google Timeline export or
+            OwnTracks still works in the meantime.
+          </p>
         ) : (
           <p className="text-xs text-muted-foreground">
             Only the Android app can track in the background. On the web you can still import
