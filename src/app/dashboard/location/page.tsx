@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { format, parseISO, subDays, addDays, formatDistanceToNow } from "date-fns"
 import { ChevronLeft, ChevronRight, MapPin, Clock, Zap, Navigation, RefreshCw, Trash2, Plus, Search, Settings2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -692,12 +692,8 @@ function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: s
 }
 
 export default function LocationPage() {
-  const router = useRouter()
   const searchParams = useSearchParams()
-  // In the address, so refresh and back keep the tab you were on.
-  const activeTab: "map" | "insights" = searchParams.get("tab") === "insights" ? "insights" : "map"
-  const setActiveTab = (tab: "map" | "insights") =>
-    router.replace(tab === "map" ? "/dashboard/location" : "/dashboard/location?tab=insights", { scroll: false })
+  const scrolledToInsights = useRef(false)
   const [date, setDate]           = useState(() => { const _d = new Date(); return [_d.getFullYear(), String(_d.getMonth()+1).padStart(2,"0"), String(_d.getDate()).padStart(2,"0")].join("-") })
   const [track, setTrack]         = useState<TrackData | null>(null)
   const [loading, setLoading]     = useState(true)
@@ -723,6 +719,28 @@ export default function LocationPage() {
 
   useEffect(() => { load(date) }, [date, load])
 
+  // Insights used to be a tab, and ?tab=insights is in links and bookmarks. The
+  // section still exists, further down, so honour the address rather than
+  // dropping people at the top with no idea what changed.
+  //
+  // After the day has loaded, not on mount: the map and the places above it
+  // arrive asynchronously and push the section down, so scrolling first lands
+  // somewhere that is no longer where the section is.
+  useEffect(() => {
+    if (loading || scrolledToInsights.current) return
+    if (searchParams.get("tab") !== "insights") return
+    scrolledToInsights.current = true
+    // A frame is not enough: the places list and the insights below it fetch
+    // their own data and change height after this, so a scroll timed to the
+    // day's load lands where the section briefly was. A short settle, and
+    // instant rather than smooth, so the animation cannot be overtaken by the
+    // layout moving underneath it.
+    const t = setTimeout(() => {
+      document.getElementById("insights")?.scrollIntoView({ behavior: "auto", block: "start" })
+    }, 400)
+    return () => clearTimeout(t)
+  }, [loading, searchParams])
+
   function prevDay() { setDate(d => format(subDays(parseISO(d), 1), "yyyy-MM-dd")) }
   function nextDay() { setDate(d => format(addDays(parseISO(d), 1), "yyyy-MM-dd")) }
   const _now2 = new Date(); const _todayStr = [_now2.getFullYear(), String(_now2.getMonth()+1).padStart(2,"0"), String(_now2.getDate()).padStart(2,"0")].join("-")
@@ -740,7 +758,7 @@ export default function LocationPage() {
           <h1 className="text-2xl font-bold">Location</h1>
           <p className="text-muted-foreground text-sm mt-0.5">Route trace · places · health correlations</p>
         </div>
-        {activeTab === "map" && (
+        {(
         <div className="flex items-center gap-2">
           <Button size="icon" variant="outline" className="h-8 w-8" onClick={prevDay}>
             <ChevronLeft className="h-4 w-4"/>
@@ -761,28 +779,6 @@ export default function LocationPage() {
         )}
       </div>
 
-      {/* Tab bar */}
-      <div className="flex border-b border-border">
-        {([
-          { key: "map", label: "Map", emoji: "📍" },
-          { key: "insights", label: "Insights", emoji: "🗺️" },
-        ] as const).map(t => (
-          <button
-            key={t.key}
-            onClick={() => setActiveTab(t.key)}
-            className={cn(
-              "px-4 py-2 text-sm transition-colors",
-              activeTab === t.key
-                ? "text-foreground border-b-2 border-primary font-medium"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <span className="mr-1">{t.emoji}</span>{t.label}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === "insights" ? <LocationInsightsClient /> : (<>
 
       {loading ? (
         <div className="w-full rounded-2xl bg-secondary/30 flex items-center justify-center" style={{ height: 320 }}>
@@ -867,12 +863,22 @@ export default function LocationPage() {
       <SuggestedPlaces refreshKey={suggestKey} onSaved={() => setPlacesKey(k => k + 1)} />
       <PlacesSection key={placesKey} autoTagged={track?.autoTagged ?? []}/>
       <PlaceHealthImpact />
+
+      {/* Was a tab. Two tabs meant half the page was a place you had to know to
+          go and look at, and nobody looks: the day and the patterns it belongs
+          to are the same subject, so they are now the same scroll. */}
+      {/* No heading of its own: LocationInsightsClient already titles itself,
+          and adding one stacked two headings saying the same thing. Just the
+          rule, to part it from the section above. */}
+      <section id="insights" className="border-t border-border pt-5 scroll-mt-4">
+        <LocationInsightsClient />
+      </section>
+
       <TimelineImport onImported={() => {
         load(date)
         fetch("/api/location?list=1").then(r => r.json()).then(setAvailDates).catch(() => {})
         setSuggestKey(k => k + 1)
       }} />
-      </>)}
     </div>
   )
 }
