@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button"
 import {
   type LocationSupport,
   backgroundLocationSupport,
-  isBackgroundLocationEnabled,
+  diagnoseBackgroundLocation,
+  readBackgroundLocationEnabled,
   openLocationSettings,
   startBackgroundLocation,
   stopBackgroundLocation,
@@ -47,39 +48,54 @@ export function BackgroundLocationCard() {
   const [places, setPlaces] = useState<number | null>(null)
   /** Why the check failed, shown rather than swallowed. See the effect. */
   const [problem, setProblem] = useState<string | null>(null)
+  /** Which piece did what, measured rather than guessed. */
+  const [detail, setDetail] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
+      // Support first, and ALONE. It is two synchronous reads — what platform
+      // this is, and whether the native class is in the APK — so it cannot
+      // hang, and nothing that can hang belongs in front of it.
+      //
+      // The saved on/off flag used to share a Promise.all with this, and that
+      // flag is a bridge call: an unanswered read left support unknown, the
+      // card rendered nothing, and the feature looked absent rather than
+      // stuck. A switch's position is not worth waiting on to decide whether
+      // to show the switch.
       try {
-        const [can, on] = await withTimeout(Promise.all([
-          backgroundLocationSupport(),
-          isBackgroundLocationEnabled(),
-        ]))
+        const can = await withTimeout(backgroundLocationSupport())
         if (cancelled) return
         setSupport(can)
-        setEnabled(on)
         if (can !== "ready") return
-
-        // A stay is only ever noticed INSIDE a saved place — recordPlaceVisits
-        // returns immediately when there are none. So with nothing saved the
-        // whole chain runs perfectly and produces nothing: the notification
-        // shows, points upload, and no check-in ever appears. That is
-        // indistinguishable from the feature being broken, which is exactly
-        // the failure this card was built on top of. Better to say it up front.
-        const saved = await fetch("/api/saved-places")
-          .then(r => (r.ok ? r.json() : null))
-          .catch(() => null)
-        if (!cancelled && Array.isArray(saved)) setPlaces(saved.length)
       } catch (err) {
-        // Never render nothing. This card returning null on a failure is how
-        // the whole feature stayed invisible: an empty space says exactly what
-        // a card that was never there says, so nobody goes looking. Say what
-        // went wrong instead, on screen — a phone has no console to read.
         if (cancelled) return
         setSupport("web")
         setProblem(err instanceof Error ? `${err.name}: ${err.message}` : String(err))
+        setDetail(await diagnoseBackgroundLocation().catch(() => null))
+        return
       }
+
+      // Now the parts that may be slow, each on its own, none of them able to
+      // take the card down with it.
+      const { enabled: on, failure } = await readBackgroundLocationEnabled()
+      if (cancelled) return
+      setEnabled(on)
+      // Off is the safe default, and it is also a guess. Say when it was one:
+      // this read hanging is the whole reason the card went blank, and a fix
+      // that hides its own symptom leaves nothing to chase next time.
+      if (failure) setDetail(await diagnoseBackgroundLocation().catch(() => null))
+
+      // A stay is only ever noticed INSIDE a saved place — recordPlaceVisits
+      // returns immediately when there are none. So with nothing saved the
+      // whole chain runs perfectly and produces nothing: the notification
+      // shows, points upload, and no check-in ever appears. That is
+      // indistinguishable from the feature being broken, which is exactly
+      // the failure this card was built on top of. Better to say it up front.
+      const saved = await fetch("/api/saved-places")
+        .then(r => (r.ok ? r.json() : null))
+        .catch(() => null)
+      if (!cancelled && Array.isArray(saved)) setPlaces(saved.length)
     })()
     return () => { cancelled = true }
   }, [])
@@ -119,6 +135,10 @@ export function BackgroundLocationCard() {
           <p className="text-xs text-amber-400">
             Couldn&apos;t tell whether this device can track — {problem}
           </p>
+        )}
+
+        {detail && (
+          <p className="text-[10px] font-mono text-muted-foreground/70 break-all">{detail}</p>
         )}
 
         {support === null ? (
