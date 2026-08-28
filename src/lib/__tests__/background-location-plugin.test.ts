@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest"
+import { registerPlugin } from "@capacitor/core"
 import { readFileSync } from "node:fs"
 
 // Background location reported itself unavailable on every device it ever ran
@@ -36,6 +37,26 @@ describe("how background-location.ts obtains the plugin", () => {
     // from the server on every load while the native half needs an install.
     // isPluginAvailable is the only thing that can tell those apart.
     expect(src).toContain('Capacitor.isPluginAvailable("BackgroundGeolocation")')
+  })
+
+  it("a plugin proxy is a thenable, so awaiting one calls the native bridge", () => {
+    // The whole feature hung on this. registerPlugin answers EVERY property
+    // with a bridge-calling function, `then` included — so the proxy passing
+    // through promise resolution makes the runtime invoke `then(resolve,
+    // reject)`, posting a call for a method no plugin implements. On Android
+    // nothing answers and nothing rejects: pending forever.
+    const proxy = registerPlugin("APluginThatDoesNotExist") as unknown as Record<string, unknown>
+    expect(typeof proxy.then).toBe("function")
+  })
+
+  it("never lets the plugin pass through promise resolution", () => {
+    // Returning it from an async function is enough to resolve it, which is
+    // exactly how this was written when start, stop, openSettings and the
+    // availability check all hung on a real device while every call inside
+    // them measured 4ms.
+    expect(src).toMatch(/\nfunction loadPlugin\(\): BackgroundGeolocationPlugin \| null/)
+    expect(src).not.toContain("async function loadPlugin")
+    expect(src).not.toContain("await loadPlugin")
   })
 
   it("registers it by the name the Android class declares", () => {
