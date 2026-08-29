@@ -23,6 +23,9 @@ import { existsSync, mkdirSync } from "node:fs"
 const BASE = (process.env.BASE_URL ?? "http://localhost:3000").replace(/\/$/, "")
 const TOKEN = process.env.SMOKE_TOKEN ?? "demo-session-token-local-only"
 const OUT = process.env.OUT ?? ".ci/smoke-shots"
+// Generous, because this runs against `next dev` as often as a build, and a
+// cold Turbopack compile of a heavy route genuinely takes tens of seconds.
+const NAV_TIMEOUT_MS = Number(process.env.SMOKE_NAV_TIMEOUT_MS ?? 45_000)
 const CHROME = process.env.CHROMIUM_PATH
   ?? (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined)
 
@@ -32,7 +35,25 @@ const WIDTH = Number(process.env.WIDTH ?? 390)
 const HEIGHT = Number(process.env.HEIGHT ?? 844)
 
 /** How long a skeleton may legitimately still be animating. */
-const SETTLE_MS = Number(process.env.SETTLE_MS ?? 12_000)
+// What this check is actually for is a loading state with NO PATH OUT of it.
+// Three times today a fixed deadline reported one that had a path out and was
+// merely walking it: the dashboard takes ~28s to settle on a loaded dev server
+// (23 skeletons at 8s, 13 at 18s, 0 at 28s) and every raise just moved the
+// goalposts. So the signal is STALLED, not SLOW — a page still retiring
+// skeletons is fine however long it takes; one that has stopped retiring them
+// is the bug.
+//
+// The floor exists because "stopped changing" is not enough on its own:
+// WeatherWidget deliberately holds a single skeleton for a fixed fifteen
+// seconds, waiting on a location fix that the geolocation spec will never time
+// out (its clock starts only once permission is granted, so a prompt swiped
+// away reaches no callback at all). Below the floor, a steady count is that
+// widget behaving correctly.
+const SETTLE_FLOOR_MS = Number(process.env.SETTLE_FLOOR_MS ?? 16_000)
+/** No skeleton retired in this long, past the floor, means stuck rather than slow. */
+const SETTLE_STALL_MS = Number(process.env.SETTLE_STALL_MS ?? 5_000)
+/** Absolute bound, so a genuinely broken page cannot hang the run. */
+const SETTLE_MAX_MS = Number(process.env.SETTLE_MAX_MS ?? 60_000)
 
 const ROUTES = (process.env.ROUTES ?? [
   "/dashboard",
@@ -71,6 +92,7 @@ await ctx.addInitScript(() => document.addEventListener("DOMContentLoaded", () =
 }))
 
 const failures = []
+const redirects = []
 const page = await ctx.newPage()
 
 for (const route of ROUTES) {
@@ -80,12 +102,27 @@ for (const route of ROUTES) {
 
   let status = "ERR"
   try {
-    const res = await page.goto(BASE + route, { waitUntil: "domcontentloaded", timeout: 45_000 })
+    const res = await page.goto(BASE + route, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS })
     status = res?.status() ?? "none"
   } catch (e) {
-    failures.push(`${route}: navigation failed — ${e.message.split("\n")[0]}`)
-    page.off("pageerror", onError)
-    continue
+    // A dev server compiles each route on its first request, and the heavy
+    // ones take longer than any sane navigation timeout. Reported as failures
+    // that is five phantom problems on a cold run — and a check that cries
+    // wolf gets ignored, which is worse than not having it. So the first
+    // timeout per route buys a second attempt against the now-warm route, and
+    // only the second one counts.
+    let recovered = false
+    try {
+      const res = await page.goto(BASE + route, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS })
+      status = res?.status() ?? "none"
+      recovered = true
+    } catch { /* the retry's own failure is the one worth reporting */ }
+
+    if (!recovered) {
+      failures.push(`${route}: navigation failed twice — ${e.message.split("\n")[0]}`)
+      page.off("pageerror", onError)
+      continue
+    }
   }
 
   // Best-effort: the dashboard polls and the chat page holds an open stream, so
@@ -99,9 +136,44 @@ for (const route of ROUTES) {
       break
     }
   }
-  await page.waitForTimeout(SETTLE_MS)
+  // Wait for the page to stop retiring skeletons, not for a clock to run out.
+  {
+    const started = Date.now()
+    let best = Infinity
+    let lastProgress = Date.now()
+    for (;;) {
+      // EXACTLY the predicate the report uses below, substring match and
+      // zero-size exclusion included. A poll that stops on a different
+      // question than the one asked at the end can stop while the report
+      // would still count something — turning a merely slow screen into a
+      // reported failure, which is the fault this whole change is undoing.
+      const pulsing = await page.evaluate(() =>
+        [...document.querySelectorAll("[class*='animate-pulse']:not([data-pulse])")]
+          .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 })
+          .length,
+      ).catch(() => 1)
+
+      if (pulsing === 0) break
+      if (pulsing < best) { best = pulsing; lastProgress = Date.now() }
+
+      const elapsed = Date.now() - started
+      if (elapsed >= SETTLE_MAX_MS) break
+      if (elapsed >= SETTLE_FLOOR_MS && Date.now() - lastProgress >= SETTLE_STALL_MS) break
+      await page.waitForTimeout(500)
+    }
+    // A short tail even once nothing pulses: a screen that has just swapped its
+    // skeleton for content has not necessarily finished laying it out, and the
+    // overlap and sideways-scroll checks below read geometry.
+    await page.waitForTimeout(1_000)
+  }
 
   if (status !== 200) failures.push(`${route}: HTTP ${status}`)
+
+  // A held-back feature redirects to /dashboard, and a 200 on the dashboard
+  // is not evidence about the page that was asked for. Five routes were
+  // reporting clean while the screenshot underneath them was the home screen.
+  const landed = new URL(page.url()).pathname
+  if (landed !== route) redirects.push(`${route} → ${landed}`)
 
   const real = errors.filter(e => !IGNORED_ERRORS.some(re => re.test(e)))
   for (const e of new Set(real)) failures.push(`${route}: uncaught — ${e.slice(0, 160)}`)
@@ -133,7 +205,12 @@ for (const route of ROUTES) {
 
     // 2. A skeleton still animating long after the page settled is a loading
     //    state with no path out of it.
-    for (const el of document.querySelectorAll("[class*='animate-pulse']")) {
+    // `data-pulse` opts an element out: a pulse that MEANS something — the
+    // red badge on the Emergy button saying he has something for you — is not
+    // a skeleton, and reporting it as one is the fourth false alarm this file
+    // exists to prevent. Anything that pulses without declaring itself still
+    // fails, which is the right default: say what your animation is for.
+    for (const el of document.querySelectorAll("[class*='animate-pulse']:not([data-pulse])")) {
       const r = el.getBoundingClientRect()
       if (r.width > 0 && r.height > 0) out.pulsing.push(String(el.className).slice(0, 80))
     }
@@ -145,15 +222,24 @@ for (const route of ROUTES) {
   })
 
   for (const el of new Set(report.overlapping)) failures.push(`${route}: overlaps the bottom nav — ${el}`)
-  for (const el of new Set(report.pulsing)) failures.push(`${route}: still loading after ${SETTLE_MS / 1000}s — ${el}`)
+  for (const el of new Set(report.pulsing)) failures.push(`${route}: stuck loading — ${el}`)
   if (report.scrollsSideways) failures.push(`${route}: page scrolls sideways at ${WIDTH}px`)
 
   await page.screenshot({ path: `${OUT}/${route.replace(/\W+/g, "_").replace(/^_/, "")}.png` })
-  console.log(`${String(status).padEnd(5)} ${route}`)
+  const note = landed === route ? "" : `  → ${landed}`
+  console.log(`${String(status).padEnd(5)} ${route}${note}`)
   page.off("pageerror", onError)
 }
 
 await browser.close()
+
+// Not a failure — a held-back feature is meant to redirect. But it has to be
+// said out loud, or the run reads as forty pages checked when it was
+// thirty-five and the home screen five times over.
+if (redirects.length) {
+  console.log(`\n${redirects.length} route(s) redirected — the screenshot is of the destination, not the route:`)
+  for (const r of redirects) console.log("  · " + r)
+}
 
 if (failures.length) {
   console.error(`\n${failures.length} problem(s):`)
@@ -161,4 +247,4 @@ if (failures.length) {
   console.error(`\nScreenshots in ${OUT}/`)
   process.exit(1)
 }
-console.log(`\nAll ${ROUTES.length} screens clean. Screenshots in ${OUT}/`)
+console.log(`\nAll ${ROUTES.length} screens clean${redirects.length ? ` (${redirects.length} redirected)` : ""}. Screenshots in ${OUT}/`)

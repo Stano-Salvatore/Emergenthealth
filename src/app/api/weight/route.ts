@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userToday } from "@/lib/user-timezone"
 import { NextResponse } from "next/server"
 
 export async function GET(req: Request) {
@@ -33,7 +34,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "weight (kg) required" }, { status: 400 })
   }
 
-  const dateStr = date ?? new Date().toISOString().split("T")[0]
+  const dateStr = date ?? await userToday(userId)
   const dateObj = new Date(dateStr + "T00:00:00.000Z")
 
   const log = await prisma.healthLog.upsert({

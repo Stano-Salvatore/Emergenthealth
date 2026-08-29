@@ -33,6 +33,37 @@ interface InPoint {
   speedKmh?: number | null
 }
 
+/**
+ * When the server last heard anything, and how much of today it has.
+ *
+ * Tracking failing looks exactly like tracking working: the notification stays
+ * up, the switch still says "Stop following along", and the points simply stop.
+ * Today's first real journey logged sixteen fixes on a bus and then nothing for
+ * forty minutes of sitting still, and the only reason anyone noticed was a
+ * screenshot of the map. The app should be able to say it itself.
+ */
+export async function GET() {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  const userId = session.user.id
+
+  const newest = await prisma.locationPoint.findFirst({
+    where: { userId, source: "app" },
+    orderBy: { trackedAt: "desc" },
+    select: { trackedAt: true },
+  }).catch(() => null)
+
+  const since = new Date(Date.now() - 24 * 60 * 60_000)
+  const recent = await prisma.locationPoint.count({
+    where: { userId, source: "app", trackedAt: { gte: since } },
+  }).catch(() => 0)
+
+  return NextResponse.json({
+    lastPointAt: newest?.trackedAt?.toISOString() ?? null,
+    lastDayCount: recent,
+  })
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

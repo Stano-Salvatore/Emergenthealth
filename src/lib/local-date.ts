@@ -105,3 +105,16 @@ export function addDaysISO(iso: string, n: number): string {
   dt.setUTCDate(dt.getUTCDate() + n)
   return dt.toISOString().slice(0, 10)
 }
+
+// Today as the *device* would write it — for client components, where the
+// browser's own clock is already the user's.
+//
+// The mistake this replaces is `new Date().toISOString().slice(0, 10)`, which
+// looks local and is not: toISOString converts to UTC first, so for anyone
+// ahead of Greenwich the first hours of every morning report yesterday.
+export function todayLocalISO(at: Date = new Date()): string {
+  const y = at.getFullYear()
+  const m = String(at.getMonth() + 1).padStart(2, "0")
+  const d = String(at.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}

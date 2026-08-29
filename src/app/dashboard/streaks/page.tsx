@@ -53,6 +53,9 @@ interface Toast {
 
 const STORAGE_KEY = "emergenthealth:seen_achievements"
 
+/** How many toasts may stack before the rest become a count. */
+const TOAST_LIMIT = 3
+
 const XP_COLORS: Record<string, string> = {
   habits:      "bg-violet-500",
   sleep:       "bg-blue-500",
@@ -166,10 +169,22 @@ export default function StreaksPage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-8">
-      {/* Achievement toasts */}
+      {/* Achievement toasts. Cleared over the bottom nav, which only exists
+          below lg — the toast used to land squarely on top of it. Same offsets
+          the What's New banner uses.
+
+          At most three at a time. Opening this page for the first time with a
+          history behind it unlocks everything at once: ten stacked toasts
+          covered the entire screen, so the page you came to read was hidden
+          behind the news that you had earned the right to read it. */}
       {toasts.length > 0 && (
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
-          {toasts.map((t, i) => (
+        <div className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-50 flex flex-col gap-2 pointer-events-none">
+          {toasts.length > TOAST_LIMIT && (
+            <p className="pointer-events-none text-right text-xs text-muted-foreground">
+              and {toasts.length - TOAST_LIMIT} more unlocked
+            </p>
+          )}
+          {toasts.slice(0, TOAST_LIMIT).map((t, i) => (
             <div
               key={t.id}
               className="pointer-events-auto flex items-center gap-3 bg-card border border-primary/40 shadow-lg rounded-2xl px-4 py-3 min-w-[260px] animate-in slide-in-from-bottom-4 fade-in duration-300"

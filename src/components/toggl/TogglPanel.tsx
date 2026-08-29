@@ -149,7 +149,9 @@ export function TogglPanel() {
       <button
         onClick={() => setOpen(o => !o)}
         className={cn(
-          "fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full shadow-lg flex items-center justify-center transition-all duration-200",
+          // Clear of the bottom nav, which only exists below lg. At bottom-6
+          // the button sat half behind it and could not be tapped.
+          "fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-40 h-12 w-12 rounded-full shadow-lg flex items-center justify-center transition-all duration-200",
           isRunning
             ? "bg-red-500 hover:bg-red-600 shadow-red-500/40"
             : "bg-primary hover:bg-primary/90 shadow-primary/40",

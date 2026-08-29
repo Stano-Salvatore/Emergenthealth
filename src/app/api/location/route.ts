@@ -6,60 +6,37 @@ import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { localDateStr, zonedDayRange } from "@/lib/local-date"
 import { detectStops, summariseTrack } from "@/lib/day-stops"
+import { detectDwells, recordVisits } from "@/lib/place-visits"
 
-/** Haversine distance in metres between two GPS coordinates */
-function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6_371_000
-  const φ1 = (lat1 * Math.PI) / 180
-  const φ2 = (lat2 * Math.PI) / 180
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180
-  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
 
-/** Auto-create CheckIns for saved places detected in the GPS track (idempotent) */
-async function autoTagPlaces(
+/**
+ * Check-ins for saved places the day's track actually stayed at.
+ *
+ * This used to have a rule of its own, and it was the wrong one: a SINGLE
+ * point inside a saved place's radius created a check-in, stamped at noon UTC
+ * because no real time was to hand. Driving past home logged a visit to it, at
+ * 2pm local, whatever time you actually drove past — and it ran on every load
+ * of this page, so the fabrications accumulated.
+ *
+ * Meanwhile lib/place-visits already decided the same question properly, with
+ * a dwell threshold and the stay's real times, for points arriving from the
+ * app. Two rules for one event, disagreeing. Now there is one, and this hands
+ * it the merged GPX-and-app track so an imported Timeline is judged the same
+ * way a phone is.
+ */
+async function tagPlacesFromTrack(
   userId: string,
-  date: string,
-  points: { lat: number; lon: number }[]
+  points: { lat: number; lng: number; accuracyM: number | null; trackedAt: Date }[],
 ): Promise<{ id: string; name: string; emoji: string; isNew: boolean }[]> {
-  const savedPlaces = await prisma.savedPlace.findMany({ where: { userId } })
-  if (!savedPlaces.length || !points.length) return []
+  if (points.length === 0) return []
+  const places = await prisma.savedPlace.findMany({
+    where: { userId },
+    select: { id: true, name: true, emoji: true, lat: true, lng: true, radiusM: true },
+  })
+  if (places.length === 0) return []
 
-  const dayStart = new Date(`${date}T00:00:00Z`)
-  const dayEnd   = new Date(`${date}T23:59:59Z`)
-
-  const tagged: { id: string; name: string; emoji: string; isNew: boolean }[] = []
-
-  for (const sp of savedPlaces) {
-    const visited = points.some(p => haversineM(p.lat, p.lon, sp.lat, sp.lng) <= sp.radiusM)
-    if (!visited) continue
-
-    const existing = await prisma.checkIn.findFirst({
-      where: { userId, savedPlaceId: sp.id, checkedAt: { gte: dayStart, lte: dayEnd } },
-    })
-
-    if (existing) {
-      tagged.push({ id: sp.id, name: sp.name, emoji: sp.emoji, isNew: false })
-      continue
-    }
-
-    await prisma.checkIn.create({
-      data: {
-        userId,
-        place: sp.name,
-        emoji: sp.emoji,
-        note: "Auto-detected from GPS track",
-        checkedAt: new Date(`${date}T12:00:00Z`),
-        isAuto: true,
-        savedPlaceId: sp.id,
-      },
-    })
-    tagged.push({ id: sp.id, name: sp.name, emoji: sp.emoji, isNew: true })
-  }
-
-  return tagged
+  const { places: touched } = await recordVisits(userId, detectDwells(points, places))
+  return touched
 }
 
 export async function GET(req: Request) {
@@ -74,8 +51,14 @@ export async function GET(req: Request) {
     // tracking or a Timeline import) — without the latter, imported history
     // existed but nothing on the page revealed which days had it.
     const gpxDates = await listGpxDates(session.user.id)
+    // trackedAt is `timestamp WITHOUT time zone` holding UTC (Prisma's default
+    // mapping; only the six fields marked @db.Timestamptz differ). One
+    // AT TIME ZONE therefore READS it as local and shifts it the wrong way:
+    // 00:30 UTC on the 29th came out as 22:30 on the 28th instead of 02:30 on
+    // the 29th. The first conversion says what it is, the second says where to
+    // read it — and only then does this list agree with the day it opens.
     const pointDays = await prisma.$queryRaw<{ day: string }[]>`
-      SELECT DISTINCT to_char("trackedAt" AT TIME ZONE ${timezone}, 'YYYY-MM-DD') AS day
+      SELECT DISTINCT to_char(("trackedAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timezone}, 'YYYY-MM-DD') AS day
       FROM "LocationPoint" WHERE "userId" = ${session.user.id}
     `.catch(() => [] as { day: string }[])
     const merged = [...new Set([...gpxDates, ...pointDays.map(r => r.day)])]
@@ -112,18 +95,28 @@ export async function GET(req: Request) {
   // Prefer GPX if available, supplement with OwnTracks outside GPX time range
   const points = gpxPoints.length >= 2 ? gpxPoints : otDownsampled
 
+  // The merged track WITH its times kept. A dwell is a duration, so points
+  // stripped of when they happened cannot be judged at all — which is why the
+  // rule this replaces could only ever ask "was I ever within the radius".
   const allForTagging = [
-    ...(track?.points ?? []).map(p => ({ lat: p.lat, lon: p.lon })),
-    ...ownTracksPoints.map(p => ({ lat: p.lat, lon: p.lon })),
-  ]
-  const autoTagged = await autoTagPlaces(session.user.id, date, allForTagging).catch(() => [])
+    ...(track?.points ?? [])
+      .filter(p => p.time)
+      .map(p => ({ lat: p.lat, lng: p.lon, accuracyM: null, trackedAt: new Date(p.time as unknown as Date) })),
+    ...ownTracksRows.map(r => ({ lat: r.lat, lng: r.lng, accuracyM: r.accuracyM, trackedAt: r.trackedAt })),
+  ].sort((a, b) => a.trackedAt.getTime() - b.trackedAt.getTime())
+  const autoTagged = await tagPlacesFromTrack(session.user.id, allForTagging).catch(() => [])
 
   // Where the day was actually spent. Computed on the FULL timestamped series,
   // never the downsampled one: dropping every second fix leaves the shape
   // intact and the durations wrong, and a stop is nothing but a duration.
-  const timedPoints = track?.points?.length
-    ? track.points.filter(p => p.time).map(p => ({ lat: p.lat, lon: p.lon, time: new Date(p.time as unknown as Date) }))
-    : ownTracksPoints
+  // Chosen on whether the GPX actually carries times, not on whether it has
+  // points. A track exported without <time> elements filtered to nothing and
+  // took the app's own timestamped series down with it, so a fully tracked day
+  // shipped no stops at all and the whole panel vanished.
+  const gpxTimed = (track?.points ?? [])
+    .filter(p => p.time)
+    .map(p => ({ lat: p.lat, lon: p.lon, time: new Date(p.time as unknown as Date) }))
+  const timedPoints = gpxTimed.length >= 2 ? gpxTimed : ownTracksPoints
   const stops = detectStops(timedPoints)
 
   const summary = summariseTrack(ownTracksPoints, stops)

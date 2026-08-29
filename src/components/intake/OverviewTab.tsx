@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Loader2, Ruler } from "lucide-react"
 import { computeTargets } from "@/lib/targets"
+import { todayLocalISO } from "@/lib/local-date"
 
 interface Micronutrient { name: string; amount: number; unit: string; dailyPct: number }
 interface FoodLogLite {
@@ -35,7 +36,7 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const today = new Date().toISOString().split("T")[0]
+    const today = todayLocalISO()
     try {
       const [intakeRes, cafRes, foodRes, goalsRes, weightRes] = await Promise.all([
         fetch(`/api/intake?date=${today}`),

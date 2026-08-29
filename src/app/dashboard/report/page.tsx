@@ -52,6 +52,18 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
+/**
+ * Tables here are six columns wide and the page is read on a phone. Bare, the
+ * last column ("Days", the one that says how much data each average rests on)
+ * was clipped off the right edge and unreachable — the card hides the overflow,
+ * so it did not even scroll. Print is unaffected: paper is wide enough.
+ */
+function TableScroll({ children }: { children: React.ReactNode }) {
+  return <div className="overflow-x-auto print:overflow-visible">{children}</div>
+}
+
+const TABLE = "w-full min-w-[34rem] print:min-w-0"
+
 const TH = "text-left font-semibold text-[11px] uppercase tracking-wide text-muted-foreground print:text-black/60 py-1 pr-3"
 const TD = "py-1 pr-3 align-top"
 
@@ -192,7 +204,14 @@ export default function ReportPage() {
               {report.user.name ?? "Patient"} · {fmtDay(report.from)} – {fmtDay(report.to)} ({report.periodDays} days)
             </p>
             <p className="text-[11px] text-muted-foreground/70 print:text-black/50 mt-0.5">
-              Generated {new Date(report.generatedAt).toLocaleString()} · Emergenthealth
+              {/* Spelled-out month and a 24-hour clock rather than the
+                  browser's default. This page gets printed and handed to a
+                  doctor, where "8/29/2026" is the 8th of September to half of
+                  Europe, and the rest of the app has no 12-hour clock in it. */}
+              Generated {new Intl.DateTimeFormat("en-GB", {
+                day: "numeric", month: "short", year: "numeric",
+                hour: "2-digit", minute: "2-digit", hour12: false,
+              }).format(new Date(report.generatedAt))} · Emergenthealth
             </p>
           </header>
 
@@ -222,7 +241,8 @@ export default function ReportPage() {
 
           {report.metrics.length > 0 && (
             <Section title="Vitals & sleep">
-              <table>
+              <TableScroll>
+              <table className={TABLE}>
                 <thead>
                   <tr>
                     <th className={TH}>Metric</th>
@@ -246,12 +266,14 @@ export default function ReportPage() {
                   ))}
                 </tbody>
               </table>
+              </TableScroll>
             </Section>
           )}
 
           {report.meds.length > 0 && (
             <Section title="Medications">
-              <table>
+              <TableScroll>
+              <table className={TABLE}>
                 <thead>
                   <tr>
                     <th className={TH}>Medication</th>
@@ -275,12 +297,14 @@ export default function ReportPage() {
                   ))}
                 </tbody>
               </table>
+              </TableScroll>
             </Section>
           )}
 
           {report.symptoms.length > 0 && (
             <Section title="Symptoms reported">
-              <table>
+              <TableScroll>
+              <table className={TABLE}>
                 <thead>
                   <tr>
                     <th className={TH}>Symptom</th>
@@ -302,12 +326,14 @@ export default function ReportPage() {
                   ))}
                 </tbody>
               </table>
+              </TableScroll>
             </Section>
           )}
 
           {report.bloodPressure && (
             <Section title="Blood pressure">
-              <table>
+              <TableScroll>
+              <table className={TABLE}>
                 <thead>
                   <tr>
                     <th className={TH}>Mean</th>
@@ -332,6 +358,7 @@ export default function ReportPage() {
                   </tr>
                 </tbody>
               </table>
+              </TableScroll>
               <p className="text-[11px] text-muted-foreground print:text-black/60 mt-1.5 leading-snug">
                 Mean sits in the <strong>{report.bloodPressure.band}</strong> band by standard office
                 thresholds. These are self-measured readings, which typically run lower than office
@@ -352,7 +379,8 @@ export default function ReportPage() {
 
           {report.labs.length > 0 && (
             <Section title="Laboratory results">
-              <table>
+              <TableScroll>
+              <table className={TABLE}>
                 <thead>
                   <tr>
                     <th className={TH}>Marker</th>
@@ -392,6 +420,7 @@ export default function ReportPage() {
                   ))}
                 </tbody>
               </table>
+              </TableScroll>
             </Section>
           )}
 

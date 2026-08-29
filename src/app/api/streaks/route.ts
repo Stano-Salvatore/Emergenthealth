@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 import { getLevel, computeXp, getGithubStats, currentDayStreak } from "@/lib/xp"
+import { userToday } from "@/lib/user-timezone"
 
 function longestStreak(sortedDates: string[]): number {
   if (!sortedDates.length) return 0
@@ -72,6 +73,7 @@ export async function GET() {
   const githubStreak = github.streak
 
   // per-habit streaks
+  const today = await userToday(userId)
   const byHabit = new Map<string, string[]>()
   for (const c of completions) {
     const key = c.habitId
@@ -87,7 +89,7 @@ export async function GET() {
       name: h.name,
       color: h.color,
       icon: h.icon ?? null,
-      currentStreak: currentDayStreak(dates),
+      currentStreak: currentDayStreak(dates, today),
       longestStreak: longestStreak(dates),
       totalCompletions: dates.length,
     }
@@ -101,7 +103,7 @@ export async function GET() {
   const intakeDateSet = new Set(intakeDays.map(l => (l.loggedAt as Date).toISOString().slice(0, 10)))
   const supplementDays = (ouraTagDays as { day: string }[]).length
   const checkinDates = (checkinRows as { date: string }[]).map(r => r.date).sort()
-  const checkinStreak = currentDayStreak(checkinDates)
+  const checkinStreak = currentDayStreak(checkinDates, today)
 
   const totalXp = xpBreakdown.total + github.xp
   const levelInfo = getLevel(totalXp)

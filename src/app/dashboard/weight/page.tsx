@@ -108,8 +108,12 @@ export default function WeightPage() {
   const monthDiff = delta(latest, monthAgo)
   const totalDiff = delta(latest, allTime)
 
-  const chartMin  = entries.length ? Math.min(...entries.map(e => e.weight)) - 1 : 50
-  const chartMax  = entries.length ? Math.max(...entries.map(e => e.weight)) + 1 : 100
+  // Floored and ceiled, not just padded by 1. A weight of 78.10000000000001 —
+  // which is what 78.1 is in binary floating point — made the domain
+  // 77.10000000000001, and recharts derived its ticks from that: the axis
+  // printed "77.60000000000001", clipped by its own width to "0000001".
+  const chartMin  = entries.length ? Math.floor(Math.min(...entries.map(e => e.weight)) - 1) : 50
+  const chartMax  = entries.length ? Math.ceil(Math.max(...entries.map(e => e.weight)) + 1) : 100
 
   const goalWeight: number | null = null // future: user-settable
 
@@ -191,7 +195,8 @@ export default function WeightPage() {
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false}
                   interval="preserveStartEnd"
                   tickFormatter={d => { try { return format(parseISO(d), "d MMM") } catch { return d } }} />
-                <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false} domain={[chartMin, chartMax]} />
+                <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false}
+                  domain={[chartMin, chartMax]} tickFormatter={v => Number(v).toFixed(1)} />
                 <Tooltip content={<CustomTooltip />} />
                 {goalWeight != null && (
                   <ReferenceLine y={goalWeight} stroke="#10b981" strokeDasharray="4 2" strokeOpacity={0.6}

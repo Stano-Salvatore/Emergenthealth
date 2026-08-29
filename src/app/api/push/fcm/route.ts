@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
-import { fcmConfigured, saveFcmToken } from "@/lib/fcm"
+import { countFcmTokens, fcmConfigured, saveFcmToken } from "@/lib/fcm"
+import { prisma } from "@/lib/prisma"
 
 export const runtime = "nodejs"
 
@@ -14,8 +15,22 @@ export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   // Whether the server could send at all, so the app can say "not set up on
-  // this server" rather than registering into a void.
-  return NextResponse.json({ configured: fcmConfigured() })
+  // this server" rather than registering into a void — plus every channel this
+  // account can be reached at, because sendToUser delivers to ALL of them.
+  // A browser subscription made before the app existed keeps firing forever,
+  // and the only symptom is Emergy arriving twice: once here, once as Chrome.
+  const [nativeDevices, webRows] = await Promise.all([
+    countFcmTokens(session.user.id),
+    prisma.$queryRaw<{ n: bigint }[]>`
+      SELECT COUNT(*)::bigint AS n FROM "PushSubscription" WHERE "userId" = ${session.user.id}
+    `.catch(() => [] as { n: bigint }[]),
+  ])
+
+  return NextResponse.json({
+    configured: fcmConfigured(),
+    nativeDevices,
+    webSubscriptions: Number(webRows[0]?.n ?? 0),
+  })
 }
 
 export async function POST(req: NextRequest) {

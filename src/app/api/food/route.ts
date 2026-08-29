@@ -1,4 +1,5 @@
 import { auth } from "@/auth"
+import { userToday } from "@/lib/user-timezone"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { estimateCaffeine } from "@/lib/caffeine"
@@ -14,7 +15,10 @@ export async function GET(req: Request) {
   const userId = session.user.id
 
   const url = new URL(req.url)
-  const date = url.searchParams.get("date") ?? new Date().toISOString().split("T")[0]
+  // The POST path has always filed a meal under the user's own day; this
+  // read path defaulted to the server's UTC one, so between midnight and
+  // the offset the page asked for yesterday and looked empty.
+  const date = url.searchParams.get("date") ?? await userToday(userId)
 
   // ?days=7 returns daily calorie totals for the last N days (for trend charts)
   const days = parseInt(url.searchParams.get("days") ?? "0")

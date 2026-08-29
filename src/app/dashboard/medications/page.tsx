@@ -615,9 +615,12 @@ export default function MedicationsPage() {
       {/* Log a dose — the app no longer depends on the ring to know about meds */}
       <Card className="border-primary/20 bg-primary/5">
         <CardContent className="pt-3 pb-3 space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold">💊 Log a dose</p>
-            <div className="flex items-center gap-1">
+          {/* Wraps. Four chips plus a native time input — which has a large
+              intrinsic width and will not shrink — squeezed the label to one
+              word per line at phone width: "Log / a / dose". */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-xs font-semibold whitespace-nowrap">💊 Log a dose</p>
+            <div className="flex items-center gap-1 flex-wrap justify-end">
               {[[0, "now"], [30, "30m ago"], [60, "1h ago"], [180, "3h ago"]].map(([mins, label]) => (
                 <button
                   key={mins}

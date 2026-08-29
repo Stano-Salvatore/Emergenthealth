@@ -9,6 +9,7 @@ interface LastfmLogRow {
   date: string
   tracksPlayed: number
   listeningMin: number
+  lateTracks: number | null
   topArtist: string | null
   topTrack: string | null
 }
@@ -25,7 +26,7 @@ export async function GET() {
   const username = keyRow?.username ?? null
 
   const logs = await prisma.$queryRaw<LastfmLogRow[]>`
-    SELECT "id", "userId", "date", "tracksPlayed", "listeningMin", "topArtist", "topTrack"
+    SELECT "id", "userId", "date", "tracksPlayed", "listeningMin", "lateTracks", "topArtist", "topTrack"
     FROM "LastfmLog"
     WHERE "userId" = ${userId}
       AND "date" >= to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD')
@@ -66,7 +67,24 @@ export async function POST(req: NextRequest) {
     if (!keyRow) return NextResponse.json({ error: "Not connected" }, { status: 400 })
 
     try {
-      const result = await syncLastfm(userId, keyRow.apiKey, keyRow.username)
+      // The first sync after connecting reaches back a year; every later one
+      // only needs the recent window. Without this the history starts on the
+      // day the key was pasted, and a correlation needs more days than that.
+      const existing = await prisma.$queryRaw<{ n: bigint }[]>`
+        SELECT COUNT(*) AS n FROM "LastfmLog" WHERE "userId" = ${userId}
+      `.catch(() => [{ n: BigInt(1) }])
+      const first = Number(existing[0]?.n ?? 1) === 0
+
+      // An explicit backfill wins over both. Connecting is not the only moment
+      // a longer reach is wanted: anyone who was already syncing when the
+      // one-year first sync landed would otherwise be stuck on thirty days for
+      // ever, because their table is not empty any more.
+      const asked = Number(body.days)
+      const days = Number.isFinite(asked) && asked > 0
+        ? Math.min(asked, 730)
+        : first ? 365 : 30
+
+      const result = await syncLastfm(userId, keyRow.apiKey, keyRow.username, { days })
       return NextResponse.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Sync failed"

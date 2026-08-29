@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { RefreshCw, Trash2, Music, AlertCircle, Radio } from "lucide-react"
+import { RefreshCw, Trash2, Music, AlertCircle, Radio, History, Moon } from "lucide-react"
 
 interface LastfmLogRow {
   id: string
@@ -12,6 +12,8 @@ interface LastfmLogRow {
   date: string
   tracksPlayed: number
   listeningMin: number
+  /** Null on days synced before this was recorded — not the same as zero. */
+  lateTracks: number | null
   topArtist: string | null
   topTrack: string | null
 }
@@ -33,6 +35,9 @@ function fmtDate(dateStr: string) {
   }
 }
 
+// Last.fm's recent-tracks endpoint carries no track durations, so every
+// "listening time" here is three minutes a scrobble. Shown with a ~ rather
+// than quietly presented as measured.
 function fmtHours(mins: number) {
   const h = Math.floor(mins / 60)
   const m = mins % 60
@@ -161,7 +166,7 @@ function ListeningChart({ logs }: { logs: LastfmLogRow[] }) {
           const pct = v / max
           const _nt = new Date(); const isToday = d === [_nt.getFullYear(), String(_nt.getMonth()+1).padStart(2,"0"), String(_nt.getDate()).padStart(2,"0")].join("-")
           return (
-            <div key={d} className="flex-1 flex flex-col items-center gap-1 group relative">
+            <div key={d} className="flex-1 h-full flex flex-col items-center justify-end gap-1 group relative">
               {/* tooltip */}
               <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 hidden group-hover:flex flex-col items-center pointer-events-none z-10">
                 <div className="rounded-lg bg-popover border border-border text-[10px] px-2 py-1 whitespace-nowrap shadow-md">
@@ -214,6 +219,11 @@ function Dashboard({
   // Summary stats
   const totalTracks = logs.reduce((s, l) => s + l.tracksPlayed, 0)
   const totalMins = logs.reduce((s, l) => s + l.listeningMin, 0)
+  // Only days that actually know count towards the late-night figure. A day
+  // synced before the column existed is unknown, and averaging it in as zero
+  // would understate every late night on the page.
+  const lateKnown = logs.filter(l => l.lateTracks != null)
+  const totalLate = lateKnown.reduce((s, l) => s + (l.lateTracks as number), 0)
   const avgPerDay = logs.length > 0 ? Math.round(totalTracks / 30) : 0
 
   // Most played artist
@@ -229,14 +239,17 @@ function Dashboard({
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
 
-  async function handleSync() {
+  // `days` reaches further back than the routine sync's thirty. The scrobbles
+  // are already on Last.fm's side; nothing here can recover a day it never
+  // fetched except by asking for it.
+  async function handleSync(days?: number) {
     setSyncing(true)
     setError(null)
     try {
       const res = await fetch("/api/lastfm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "sync" }),
+        body: JSON.stringify(days ? { action: "sync", days } : { action: "sync" }),
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
@@ -268,7 +281,7 @@ function Dashboard({
   return (
     <div className="space-y-5 max-w-3xl">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Radio className="h-6 w-6 text-rose-400" />
@@ -280,16 +293,27 @@ function Dashboard({
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <Button
             size="sm"
             variant="outline"
-            onClick={handleSync}
+            onClick={() => handleSync()}
             disabled={syncing}
             className="gap-1.5"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
             {syncing ? "Syncing…" : "Sync"}
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => handleSync(365)}
+            disabled={syncing}
+            title="Re-read the last year of scrobbles from Last.fm"
+            className="gap-1.5"
+          >
+            <History className="h-3.5 w-3.5" />
+            Backfill
           </Button>
           <Button
             size="sm"
@@ -319,7 +343,7 @@ function Dashboard({
             <p className="text-sm text-muted-foreground mt-1 max-w-xs mx-auto">
               Hit Sync to pull your recent scrobbles from Last.fm.
             </p>
-            <Button size="sm" className="mt-4" onClick={handleSync} disabled={syncing}>
+            <Button size="sm" className="mt-4" onClick={() => handleSync()} disabled={syncing}>
               <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${syncing ? "animate-spin" : ""}`} />
               {syncing ? "Syncing…" : "Sync now"}
             </Button>
@@ -333,12 +357,18 @@ function Dashboard({
               <CardContent className="pt-4 pb-3 text-center">
                 <p className="text-2xl font-black text-rose-400">{totalTracks.toLocaleString()}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">Tracks (30 days)</p>
+                {lateKnown.length > 0 && (
+                  <p className="text-[11px] text-indigo-400 mt-1 flex items-center justify-center gap-1">
+                    <Moon className="h-3 w-3" />
+                    {totalLate.toLocaleString()} after 22:00
+                  </p>
+                )}
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-4 pb-3 text-center">
-                <p className="text-2xl font-black text-primary">{fmtHours(totalMins)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Listening time</p>
+                <p className="text-2xl font-black text-primary">~{fmtHours(totalMins)}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Listening time (est.)</p>
               </CardContent>
             </Card>
             <Card>
@@ -433,7 +463,7 @@ function Dashboard({
                         {row.tracksPlayed}
                       </td>
                       <td className="py-2.5 pr-4 text-right text-xs text-muted-foreground whitespace-nowrap">
-                        {fmtHours(row.listeningMin)}
+                        ~{fmtHours(row.listeningMin)}
                       </td>
                       <td className="py-2.5 pr-4 max-w-[140px]">
                         <span className="truncate block text-xs" title={row.topArtist ?? ""}>

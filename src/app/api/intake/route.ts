@@ -1,6 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { getUserTimezone } from "@/lib/user-timezone"
+import { getUserTimezone, userToday } from "@/lib/user-timezone"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { NextResponse } from "next/server"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   const userId = session.user.id
 
   const url = new URL(req.url)
-  const date = url.searchParams.get("date") ?? new Date().toISOString().split("T")[0]
+  const date = url.searchParams.get("date") ?? await userToday(userId)
 
   // ?days=7 returns daily water totals for the last N days (for trend charts)
   const days = parseInt(url.searchParams.get("days") ?? "0")

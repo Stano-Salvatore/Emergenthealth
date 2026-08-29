@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userToday } from "@/lib/user-timezone"
 
 export async function GET(req: Request) {
   const session = await auth()
@@ -8,7 +9,7 @@ export async function GET(req: Request) {
   const userId = session.user.id
 
   const { searchParams } = new URL(req.url)
-  const dateStr = searchParams.get("date") ?? new Date().toISOString().slice(0, 10)
+  const dateStr = searchParams.get("date") ?? await userToday(userId)
   const dateObj = new Date(dateStr + "T00:00:00.000Z")
   const nextDay = new Date(dateStr + "T00:00:00.000Z")
   nextDay.setDate(nextDay.getDate() + 1)

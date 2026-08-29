@@ -30,7 +30,22 @@ export async function DELETE(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { endpoint } = await req.json()
+  const body = await req.json().catch(() => ({}))
+
+  // Clearing every browser subscription on the account, not just the one the
+  // caller holds. Inside the native app you hold none: the browser that
+  // subscribed was Chrome, months ago, and nothing in the app can reach it.
+  // sendToUser delivers to every channel, so that stale subscription is why
+  // Emergy arrives twice — and until now there was no way to end it from the
+  // device actually being bothered.
+  if (body?.all === true) {
+    await prisma.$executeRaw`
+      DELETE FROM "PushSubscription" WHERE "userId" = ${session.user.id}
+    `.catch(() => {})
+    return NextResponse.json({ ok: true, cleared: "all" })
+  }
+
+  const endpoint = body?.endpoint
   if (!endpoint) return NextResponse.json({ error: "endpoint required" }, { status: 400 })
 
   await prisma.$executeRaw`

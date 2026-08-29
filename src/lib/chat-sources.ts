@@ -126,6 +126,47 @@ export function toolActivity(name: string): string {
   return TOOL_ACTIVITY[name] ?? "having a look"
 }
 
+// ── Waiting on the first word ──────────────────────────────────────────────
+// Before any token arrives there is nothing to say and nothing to show, and a
+// lone blinking caret in an empty bubble reads as a stalled text field rather
+// than someone thinking. Worse, it is identical every time and never changes,
+// so a long wait looks exactly like a stuck one.
+//
+// Same voice as the tool lines above: lowercase, unhurried, a participle. Two
+// of them lean on him being a plant, which he is, but only two — the joke wears
+// out at the pace of a spinner.
+const THINKING = [
+  "thinking",
+  "having a think",
+  "turning that over",
+  "gathering my thoughts",
+  "checking what I know",
+  "putting that together",
+  "working through it",
+  "finding the thread",
+  "getting my roots around it",
+  "letting that settle",
+]
+
+/**
+ * The phrases for one wait, in an order that varies between messages.
+ *
+ * Seeded from the message so a re-render does not reshuffle mid-sentence, and
+ * so two answers in a row do not open with the same word. Rotated rather than
+ * randomly picked each tick: an order that never repeats within a wait reads as
+ * progress, where random picks read as a machine flailing.
+ */
+export function thinkingPhrases(seed: string): string[] {
+  let h = 2166136261
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  const start = Math.abs(h) % THINKING.length
+  return [...THINKING.slice(start), ...THINKING.slice(0, start)]
+}
+
+
 // ── The sources marker ─────────────────────────────────────────────────────
 // Emergy ends a data-backed answer with a line like `[sources: sleep, journal]`.
 // It is plumbing, not prose, so it must never reach the screen — including for

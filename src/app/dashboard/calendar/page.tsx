@@ -211,7 +211,7 @@ function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => 
             <Clock className="h-3.5 w-3.5 shrink-0" />
             {event.isAllDay
               ? format(start, "EEEE, MMMM d")
-              : `${format(start, "EEE, MMM d · h:mm a")}${end ? ` – ${format(end, "h:mm a")}` : ""}`}
+              : `${format(start, "EEE, MMM d · HH:mm")}${end ? ` – ${format(end, "HH:mm")}` : ""}`}
           </div>
         )}
 
@@ -559,7 +559,7 @@ function WeekView({ weekStart, dayCount, events, now, onEventClick }: {
             {HOURS.map(h => (
               <div key={h} className="absolute right-2 text-[10px] text-muted-foreground/50 select-none tabular-nums"
                 style={{ top: h * HOUR_HEIGHT - 7, lineHeight: 1 }}>
-                {h === 0 ? "" : h < 12 ? `${h} AM` : h === 12 ? "12 PM" : `${h - 12} PM`}
+                {h === 0 ? "" : `${String(h).padStart(2, "0")}:00`}
               </div>
             ))}
           </div>
@@ -606,7 +606,7 @@ function WeekView({ weekStart, dayCount, events, now, onEventClick }: {
                       <p className="text-[11px] font-semibold leading-tight truncate">{evt.title}</p>
                       {height > 28 && (
                         <p className="text-[10px] leading-tight opacity-80 truncate">
-                          {format(parseISO(evt.start), "h:mm a")}{evt.end ? ` – ${format(parseISO(evt.end), "h:mm a")}` : ""}
+                          {format(parseISO(evt.start), "HH:mm")}{evt.end ? ` – ${format(parseISO(evt.end), "HH:mm")}` : ""}
                         </p>
                       )}
                       {height > 52 && evt.location && (

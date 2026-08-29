@@ -614,8 +614,12 @@ export default function GardenPage() {
 
         </div>
 
-        {/* Control bar under the garden: Emergy | Water + habit cards | Decorate */}
-        <div className="flex items-center gap-2">
+        {/* Control bar under the garden: Emergy | Water + habit cards | Decorate.
+            Wraps below sm. Three 58px round buttons plus the gaps left the
+            scrolling strip about 110px on a 390px phone — one card and a
+            second sliced down the middle, which reads as broken rather than
+            as something to scroll. On a phone the strip takes its own row. */}
+        <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => { setShowEmergy(v => !v); setShowDecos(false); setSelectedHabitId(null) }}
             className="shrink-0 flex flex-col items-center justify-center transition-transform hover:scale-105 active:scale-95"
             style={{ width: 58, height: 58, borderRadius: "50%",
@@ -627,7 +631,7 @@ export default function GardenPage() {
           </button>
 
           {data && (
-            <div className="flex-1 min-w-0 flex gap-2 overflow-x-auto rounded-2xl p-2"
+            <div className="order-last sm:order-none w-full sm:w-auto sm:flex-1 min-w-0 flex gap-2 overflow-x-auto rounded-2xl p-2"
               style={{ background: "rgba(22,26,22,0.55)", backdropFilter: "blur(6px)" }}>
               <button onClick={handleWater} disabled={data.watered.today || watering}
                 className="relative shrink-0 flex flex-col items-center gap-1 rounded-xl px-1 pt-2 pb-1.5 transition-transform hover:scale-105 active:scale-95 disabled:hover:scale-100"

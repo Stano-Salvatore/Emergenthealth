@@ -391,7 +391,7 @@ export default function FocusPage() {
           {/* Label input — only when idle */}
           {phase === "idle" && (
             <div className="px-4">
-              <Input placeholder="What are you working on? (optional)"
+              <Input placeholder="What are you working on?"
                 value={label} onChange={e => setLabel(e.target.value)}
                 className="text-sm text-center border-dashed" />
             </div>

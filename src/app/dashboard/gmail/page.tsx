@@ -29,7 +29,7 @@ function formatEmailDate(dateStr: string) {
   try {
     const d = new Date(dateStr)
     if (isNaN(d.getTime())) return dateStr
-    if (isToday(d)) return format(d, "h:mm a")
+    if (isToday(d)) return format(d, "HH:mm")
     if (isYesterday(d)) return "Yesterday"
     return format(d, "MMM d")
   } catch {

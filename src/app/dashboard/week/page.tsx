@@ -204,8 +204,13 @@ export default async function WeekPage() {
           <CardTitle className="text-sm font-medium">Daily breakdown</CardTitle>
         </CardHeader>
         <CardContent>
+          {/* The wrapper has always said overflow-x-auto, but `w-full` on the
+              table meant it could never overflow: at phone width the columns
+              squeezed until the numbers touched — "8158bpm" where an activity
+              score of 81 met a resting HR of 58. A minimum width lets it
+              actually scroll, inside the card, with the page still fixed. */}
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="w-full min-w-[26rem] text-xs [&_th]:px-2 [&_td]:px-2 [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
               <thead>
                 <tr className="text-muted-foreground">
                   <th className="text-left pb-2 font-medium">Day</th>
@@ -223,7 +228,7 @@ export default async function WeekPage() {
                   const mood = moodLogs.find(m => m.date.toISOString().startsWith(dateStr))?.mood ?? null
                   return (
                     <tr key={dateStr} className="hover:bg-secondary/30">
-                      <td className="py-2 font-medium">{format(l.date, "EEE d")}</td>
+                      <td className="py-2 font-medium whitespace-nowrap">{format(l.date, "EEE d")}</td>
                       <td className={`text-right py-2 ${l.sleepDuration != null && l.sleepDuration/60 >= SLEEP_GOAL_H ? "text-green-400" : "text-muted-foreground"}`}>
                         {l.sleepDuration != null ? `${(l.sleepDuration/60).toFixed(1)}h` : "—"}
                       </td>

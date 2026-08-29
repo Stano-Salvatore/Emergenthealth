@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
+import { todayLocalISO } from "@/lib/local-date"
 
 const QUICK_SUGGESTIONS = [
   "headache", "great day", "tired", "travel", "social",
@@ -31,7 +32,7 @@ function tagColor(tag: string): string {
 }
 
 function todayStr(): string {
-  return new Date().toISOString().split("T")[0]
+  return todayLocalISO()
 }
 
 export function DailyTags() {

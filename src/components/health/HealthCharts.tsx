@@ -209,8 +209,12 @@ export function HRChart({ data }: { data: ChartDay[] }) {
   const d = [...data].reverse().filter(r => r.restingHR != null)
   if (!d.length) return null
   const vals = d.map(r => r.restingHR!).filter(Boolean)
-  const min = Math.min(...vals) - 5
-  const max = Math.max(...vals) + 5
+  // Floored and ceiled, here and in every chart below. Recharts derives its
+  // ticks from the domain it is handed, and 78.1 is 78.10000000000001 in
+  // binary floating point — which is how the weight axis came to print
+  // "77.60000000000001", clipped by its own width to "0000001".
+  const min = Math.floor(Math.min(...vals) - 5)
+  const max = Math.ceil(Math.max(...vals) + 5)
   const axis = { fill: getAxisFill(), fontSize: 10 }
   const today = todayLabel()
   return (
@@ -234,8 +238,8 @@ export function WeightChart({ data }: { data: ChartDay[] }) {
   const d = [...data].reverse().filter(r => r.weight != null)
   if (!d.length) return null
   const vals = d.map(r => r.weight!).filter(Boolean)
-  const min = Math.min(...vals) - 1
-  const max = Math.max(...vals) + 1
+  const min = Math.floor(Math.min(...vals) - 1)
+  const max = Math.ceil(Math.max(...vals) + 1)
   const axis = { fill: getAxisFill(), fontSize: 10 }
   return (
     <div>
@@ -296,8 +300,8 @@ export function HRVChart({ data }: { data: ChartDay[] }) {
   const d = [...data].reverse().filter(r => r.hrv != null)
   if (!d.length) return null
   const vals = d.map(r => r.hrv!).filter(Boolean)
-  const min = Math.max(0, Math.min(...vals) - 5)
-  const max = Math.max(...vals) + 5
+  const min = Math.max(0, Math.floor(Math.min(...vals) - 5))
+  const max = Math.ceil(Math.max(...vals) + 5)
   const axis = { fill: getAxisFill(), fontSize: 10 }
   const today = todayLabel()
   return (
@@ -321,8 +325,8 @@ export function SpO2Chart({ data }: { data: ChartDay[] }) {
   const d = [...data].reverse().filter(r => r.spo2 != null)
   if (!d.length) return null
   const vals = d.map(r => r.spo2!).filter(Boolean)
-  const min = Math.max(90, Math.min(...vals) - 1)
-  const max = Math.min(100, Math.max(...vals) + 0.5)
+  const min = Math.max(90, Math.floor(Math.min(...vals) - 1))
+  const max = Math.min(100, Math.ceil(Math.max(...vals) + 0.5))
   const axis = { fill: getAxisFill(), fontSize: 10 }
   return (
     <div>
@@ -421,8 +425,8 @@ export function BreathingRateChart({ data }: { data: ChartDay[] }) {
   const d = [...data].reverse().filter(r => r.breathingRate != null)
   if (!d.length) return null
   const vals = d.map(r => r.breathingRate!).filter(Boolean)
-  const min = Math.max(0, Math.min(...vals) - 1)
-  const max = Math.max(...vals) + 1
+  const min = Math.max(0, Math.floor(Math.min(...vals) - 1))
+  const max = Math.ceil(Math.max(...vals) + 1)
   const axis = { fill: getAxisFill(), fontSize: 10 }
   return (
     <div>

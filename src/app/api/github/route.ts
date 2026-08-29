@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { userToday } from "@/lib/user-timezone"
 import { prisma } from "@/lib/prisma"
 
 interface GitHubProfileRow {
@@ -28,9 +29,8 @@ async function ensureGitHubTable(): Promise<void> {
   `
 }
 
-function calcStreak(commitsByDay: Record<string, number>): number {
-  const today = new Date().toISOString().slice(0, 10)
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+function calcStreak(commitsByDay: Record<string, number>, today: string): number {
+  const yesterday = new Date(Date.parse(today + "T12:00:00Z") - 86400000).toISOString().slice(0, 10)
   const start = commitsByDay[today] != null ? today : commitsByDay[yesterday] != null ? yesterday : null
   if (!start) return 0
   let streak = 0
@@ -85,7 +85,7 @@ export async function GET() {
     commitsByDay[day] = (commitsByDay[day] ?? 0) + count
   }
 
-  const streak = calcStreak(commitsByDay)
+  const streak = calcStreak(commitsByDay, await userToday(userId))
 
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10)
   const totalThisWeek = Object.entries(commitsByDay)

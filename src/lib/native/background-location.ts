@@ -39,6 +39,21 @@ const ENABLED_KEY = "backgroundLocationEnabled"
 const WATCHER_KEY = "backgroundLocationWatcherId"
 
 /**
+ * Points collected but not yet accepted by the server.
+ *
+ * The queue lives in module state, and module state dies with the page. Android
+ * suspends and eventually kills a backgrounded WebView whenever it likes, so
+ * every point gathered since the last successful upload went with it — silently,
+ * and exactly when tracking is doing the thing it exists for: running while
+ * nobody is looking at the screen.
+ *
+ * Ids are derived from time and position, so re-sending a batch that did arrive
+ * is a no-op rather than a duplicate. That makes it safe to keep the copy until
+ * the server has actually said yes.
+ */
+const QUEUE_KEY = "backgroundLocationQueue"
+
+/**
  * Deliver every fix the OS produces rather than filtering by distance.
  *
  * A distance filter looks like the obvious battery saving, and it quietly
@@ -81,10 +96,81 @@ let watcherId: string | null = null
 let queue: Point[] = []
 let lastSent: { lat: number; lng: number; at: number } | null = null
 let flushTimer: ReturnType<typeof setTimeout> | null = null
+/**
+ * Batches handed to the server whose fate is not yet known.
+ *
+ * They have left `queue` but must stay on disk, or a point arriving mid-request
+ * rewrites the stored copy without them — which is precisely the loss the
+ * stored copy exists to prevent. An array of batches rather than one, since
+ * stopBackgroundLocation can flush while a timer flush is still in the air.
+ */
+let inFlight: Point[][] = []
 /** Set from the watcher callback; see startBackgroundLocation. */
 let denied = false
 /** Concurrent starts share one attempt rather than adding a watcher each. */
 let starting: Promise<boolean> | null = null
+
+/**
+ * Read a stored queue back, keeping only what is still usable.
+ *
+ * Whatever is on disk was written by some earlier version of this file, so it
+ * is validated rather than trusted: one malformed row should cost that row, not
+ * the whole backlog behind it.
+ */
+export function parseStoredQueue(raw: string | null | undefined): Point[] {
+  if (!raw) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+
+  const points: Point[] = []
+  for (const row of parsed) {
+    if (typeof row !== "object" || row === null) continue
+    const r = row as Record<string, unknown>
+    if (typeof r.lat !== "number" || !Number.isFinite(r.lat)) continue
+    if (typeof r.lng !== "number" || !Number.isFinite(r.lng)) continue
+    if (typeof r.trackedAt !== "string" || !Number.isFinite(Date.parse(r.trackedAt))) continue
+    const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null)
+    points.push({
+      lat: r.lat,
+      lng: r.lng,
+      trackedAt: r.trackedAt,
+      accuracyM: num(r.accuracyM),
+      altitudeM: num(r.altitudeM),
+      speedKmh: num(r.speedKmh),
+    })
+  }
+  return points.slice(-MAX_QUEUED_POINTS)
+}
+
+/**
+ * Write the queue out. Fire and forget: memory is the source of truth while
+ * the page lives, and this copy only has to survive the page not living.
+ */
+function persistQueue(): void {
+  // In-flight batches first: they are older than anything still queued, and
+  // they are not safe to forget until the server has accepted them.
+  const owed = [...inFlight.flat(), ...queue].slice(-MAX_QUEUED_POINTS)
+  void Preferences.set({ key: QUEUE_KEY, value: JSON.stringify(owed) }).catch(() => {})
+}
+
+/** Take back anything a previous page collected and never managed to send. */
+async function restoreQueue(): Promise<void> {
+  try {
+    const { value } = await bridgeTimeout(Preferences.get({ key: QUEUE_KEY }), "Preferences.get")
+    const saved = parseStoredQueue(value)
+    if (saved.length === 0) return
+    // Older points go in front: anything already in memory happened after them.
+    queue = [...saved, ...queue].slice(-MAX_QUEUED_POINTS)
+  } catch {
+    // A queue that cannot be read is a queue that cannot be sent. Carry on
+    // collecting rather than refusing to start over a backlog.
+  }
+}
 
 function metresBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
   const R = 6_371_000
@@ -153,19 +239,29 @@ async function flush(): Promise<void> {
 
   const batch = queue
   queue = []
+  // The batch stays on disk until the server's answer is known. Between the
+  // POST and its reply there is a request's worth of time, and a WebView killed
+  // inside it must not leave disk saying "nothing pending" about points that
+  // never arrived. Held in inFlight rather than simply not writing, because a
+  // fix arriving mid-request calls persistQueue and would otherwise write a
+  // queue with this batch missing.
+  inFlight.push(batch)
+  const settle = () => { inFlight = inFlight.filter(b => b !== batch) }
   try {
     const res = await fetch("/api/location/points", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ points: batch }),
     })
-    if (res.ok) return
+    if (res.ok) { settle(); persistQueue(); return }
     // A signed-out session refuses this batch and every future one identically,
     // so re-queueing would repost the same points on every fix for as long as
     // tracking runs. That backlog is dropped; anything else is worth holding.
-    if (res.status === 401 || res.status === 403) return
+    if (res.status === 401 || res.status === 403) { settle(); persistQueue(); return }
+    settle()
     retry(batch)
   } catch {
+    settle()
     retry(batch)
   }
 }
@@ -182,6 +278,7 @@ async function flush(): Promise<void> {
  */
 function retry(batch: Point[]): void {
   queue = [...batch, ...queue].slice(-MAX_QUEUED_POINTS)
+  persistQueue()
 }
 
 function enqueue(location: Location): void {
@@ -212,6 +309,8 @@ function enqueue(location: Location): void {
     // The plugin reports metres per second; everything downstream stores km/h.
     speedKmh: typeof location.speed === "number" ? location.speed * 3.6 : null,
   })
+
+  persistQueue()
 
   // Give a moving device a moment to produce its next fix so a journey uploads
   // as one request instead of one per point.
@@ -251,6 +350,11 @@ async function attachWatcher(onDenied?: () => void): Promise<boolean> {
 
   denied = false
   try {
+    // Anything a previous page collected and never sent is still owed to the
+    // server — take it back before collecting more, and send it.
+    await restoreQueue()
+    if (queue.length > 0) void flush()
+
     // Clear a watcher left behind by a previous JS context before adding ours.
     const { value: stale } = await Preferences.get({ key: WATCHER_KEY })
     if (stale) await plugin.removeWatcher({ id: stale }).catch(() => {})
