@@ -109,9 +109,9 @@ export default function SymptomsPage() {
       {/* Log */}
       <Card className="border-primary/20 bg-primary/5">
         <CardContent className="pt-3 pb-3 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold">🩹 Log a symptom</p>
-            <div className="flex gap-1">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-xs font-semibold whitespace-nowrap">🩹 Log a symptom</p>
+            <div className="flex gap-1 flex-wrap justify-end">
               {WHEN.map(w => (
                 <button
                   key={w.mins}

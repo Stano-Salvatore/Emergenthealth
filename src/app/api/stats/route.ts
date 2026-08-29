@@ -1,4 +1,5 @@
 import { auth } from "@/auth"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 import { subDays, format } from "date-fns"
@@ -152,12 +153,24 @@ export async function GET() {
     : "declining"
 
   // ── Sleep consistency ────────────────────────────────────────────────────────
-  // Bedtime in minutes since 6pm (handles midnight crossover)
+  // Bedtime in minutes since 6pm (handles midnight crossover).
+  //
+  // Read in the USER'S timezone. `getHours()` on a server running in UTC gave
+  // the UTC hour, so a bedtime of 23:20 in Bratislava was averaged — and
+  // displayed — as 21:20. The spread was unaffected, being a constant offset,
+  // so the page said "consistent" about a number that was two hours wrong.
+  const clockFmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: await getUserTimezone(userId),
+    hour12: false, hour: "2-digit", minute: "2-digit",
+  })
   const bedtimes = recent30
     .filter(l => l.sleepStart != null)
     .map(l => {
-      const t = new Date(l.sleepStart!)
-      let mins = t.getHours() * 60 + t.getMinutes()
+      const parts: Record<string, string> = {}
+      for (const part of clockFmt.formatToParts(new Date(l.sleepStart!))) {
+        if (part.type !== "literal") parts[part.type] = part.value
+      }
+      let mins = (Number(parts.hour) % 24) * 60 + Number(parts.minute)
       // Normalise: shift so 6pm = 0; times before 6pm are assumed next-day
       mins = mins >= 18 * 60 ? mins - 18 * 60 : mins + 6 * 60
       return mins
@@ -175,7 +188,9 @@ export async function GET() {
         const totalMin = Math.round(avgBedtimeMin) + 18 * 60
         const h = Math.floor(totalMin / 60) % 24
         const m = totalMin % 60
-        return `${h === 0 ? 12 : h > 12 ? h - 12 : h}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`
+        // 24-hour, like the clock on the dashboard and every other time in
+        // the app. "11:20 PM" was the only 12-hour reading in the product.
+        return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
       })()
     : null
 
