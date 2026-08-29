@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
-  estimateHome, summariseDays, fillMissingDays, detectTrips, awayVsHome, AWAY_KM,
+  estimateHome, summariseDays, fillMissingDays, detectTrips, awayVsHome, agreementBetween, AWAY_KM,
   type DatedPoint,
 } from "../day-location"
 import { zonedDateTime } from "../local-date"
@@ -173,5 +173,93 @@ describe("awayVsHome", () => {
     const { nights } = awayVsHome(days, new Map())
     expect(nights.away.n).toBe(0)
     expect(nights.away.sleepHours).toBeNull()
+  })
+})
+
+describe("hoursWithFixes", () => {
+  it("counts distinct local hours, not fixes", () => {
+    const days = summariseDays([
+      at(HOME, "2026-08-04", "09:05"), at(HOME, "2026-08-04", "09:35"),
+      at(HOME, "2026-08-04", "21:00"),
+    ], TZ, HOME)
+    expect(days[0].points).toBe(3)
+    expect(days[0].hoursWithFixes).toBe(2)
+  })
+})
+
+describe("fillMissingDays over an explicit span", () => {
+  it("pads both ends so two sources line up day for day", () => {
+    const days = summariseDays([at(HOME, "2026-08-05", "13:00")], TZ, HOME)
+    const filled = fillMissingDays(days, "2026-08-03", "2026-08-06")
+    expect(filled.map(d => d.date)).toEqual([
+      "2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06",
+    ])
+    expect(filled.filter(d => d.points > 0)).toHaveLength(1)
+  })
+})
+
+describe("agreementBetween", () => {
+  // The app saw the 3rd and 4th; Google saw the 4th and 5th. Only the 4th can
+  // be compared at all, and there the two disagree.
+  const app = summariseDays([
+    at(HOME, "2026-08-03", "13:00"),
+    at(HOME, "2026-08-04", "13:00"),
+  ], TZ, HOME)
+  const google = summariseDays([
+    at(PRAGUE, "2026-08-04", "13:00"),
+    at(HOME, "2026-08-05", "13:00"),
+  ], TZ, HOME)
+
+  it("only compares days both sources actually saw", () => {
+    const a = agreementBetween(app, google)
+    expect(a.bothDays).toBe(1)
+    expect(a.agreeDays).toBe(0)
+    expect(a.onlyA).toBe(1)
+    expect(a.onlyB).toBe(1)
+    expect(a.disagreements).toEqual([{ date: "2026-08-04", a: "home", b: "away" }])
+  })
+
+  it("a padded day is not a day the source saw", () => {
+    // fillMissingDays adds zero-point rows; those must not count as coverage,
+    // or every source would appear to cover the whole window.
+    const a = agreementBetween(
+      fillMissingDays(app, "2026-08-01", "2026-08-10"),
+      fillMissingDays(google, "2026-08-01", "2026-08-10"),
+    )
+    expect(a.bothDays).toBe(1)
+    expect(a.onlyA).toBe(1)
+    expect(a.onlyB).toBe(1)
+  })
+})
+
+describe("naming a trip", () => {
+  it("takes its centre from the nights, not the average of the travel days", () => {
+    // Drive out on the 4th (half the day's fixes are still near home), sleep in
+    // Prague, drive back on the 7th. The mean of every fix sits on the motorway;
+    // the mean of the nights sits in Prague, which is what you want to geocode.
+    const trips = detectTrips(summariseDays([
+      at(HOME, "2026-08-03", "13:00"),
+      at(HOME, "2026-08-04", "08:00"), at(HOME, "2026-08-04", "09:00"),
+      at(PRAGUE, "2026-08-04", "18:00"),
+      at(PRAGUE, "2026-08-05", "02:00"), at(PRAGUE, "2026-08-05", "14:00"),
+      at(PRAGUE, "2026-08-06", "02:00"), at(PRAGUE, "2026-08-06", "14:00"),
+      at(HOME, "2026-08-07", "13:00"),
+    ], TZ, HOME))
+
+    expect(trips).toHaveLength(1)
+    expect(trips[0].lat).toBeCloseTo(PRAGUE.lat, 4)
+    expect(trips[0].lng).toBeCloseTo(PRAGUE.lng, 4)
+  })
+
+  it("falls back to the day centre when a trip has no night fixes at all", () => {
+    const trips = detectTrips(summariseDays([
+      at(HOME, "2026-08-03", "13:00"),
+      at(ATHENS, "2026-08-04", "14:00"),
+      at(ATHENS, "2026-08-05", "14:00"),
+      at(HOME, "2026-08-06", "13:00"),
+    ], TZ, HOME))
+    expect(trips).toHaveLength(1)
+    expect(trips[0].nights).toBe(1)   // no night fixes: one night per boundary
+    expect(trips[0].lat).toBeCloseTo(ATHENS.lat, 4)
   })
 })

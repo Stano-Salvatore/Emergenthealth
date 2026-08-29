@@ -20,6 +20,7 @@ interface DayLocation {
   presence: Presence
   slept: "home" | "away" | "unknown"
   points: number
+  hoursWithFixes: number
   maxKmFromHome: number | null
 }
 
@@ -41,14 +42,30 @@ interface Side {
   mood: number | null
 }
 
+interface SourceSummary {
+  points: number
+  days: number
+  strip: DayLocation[]
+}
+
+interface Agreement {
+  bothDays: number
+  agreeDays: number
+  onlyA: number
+  onlyB: number
+  disagreements: { date: string; a: Presence; b: Presence }[]
+}
+
 interface DaysResponse {
   timezone: string
   windowDays: number
   trackedDays: number
+  truncated: boolean
   home: { lat: number; lng: number; nights: number; share: number } | null
   days: DayLocation[]
   trips: Trip[]
   comparison: { nights: { away: Side; home: Side }; days: { away: Side; home: Side } }
+  sources: { app: SourceSummary; timeline: SourceSummary; agreement: Agreement }
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -84,7 +101,11 @@ function DayStrip({ days }: { days: DayLocation[] }) {
       {days.map(d => (
         <span
           key={d.date}
-          title={`${d.date} — ${PRESENCE_LABEL[d.presence]}${d.maxKmFromHome != null ? ` (max ${d.maxKmFromHome} km)` : ""}`}
+          title={[
+            `${d.date} — ${PRESENCE_LABEL[d.presence]}`,
+            d.maxKmFromHome != null ? `max ${d.maxKmFromHome} km` : null,
+            d.points > 0 ? `${d.hoursWithFixes}/24 h covered` : null,
+          ].filter(Boolean).join(" · ")}
           className={cn("h-2.5 w-2.5 rounded-[3px]", CELL[d.presence])}
         />
       ))}
@@ -123,6 +144,59 @@ function Row({
           </span>
         )}
       </span>
+    </div>
+  )
+}
+
+/**
+ * Two independent witnesses to the same weeks.
+ *
+ * Worth showing because agreement is the only cheap way to find out whether
+ * background tracking actually ran. From inside the app, a week it slept
+ * through looks exactly like a week spent at home — Google's copy is what
+ * tells the two apart.
+ */
+function Sources({ sources }: { sources: { app: SourceSummary; timeline: SourceSummary; agreement: Agreement } }) {
+  const { app, timeline, agreement } = sources
+  return (
+    <div>
+      <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">
+        Where the data comes from
+      </h3>
+
+      <div className="space-y-2.5">
+        {[
+          { label: "Emergenthealth", s: app },
+          { label: "Google Timeline", s: timeline },
+        ].map(({ label, s }) => (
+          <div key={label} className="space-y-1">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-sm font-medium">{label}</span>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {s.days} day{s.days === 1 ? "" : "s"} · {s.points.toLocaleString()} fixes
+              </span>
+            </div>
+            {s.strip.length > 0 && <DayStrip days={s.strip} />}
+          </div>
+        ))}
+      </div>
+
+      <p className="text-xs text-muted-foreground mt-2.5">
+        {timeline.points === 0 ? (
+          <>No Timeline import yet. Importing one backfills everything above — home,
+          trips and the comparisons — for as far back as the export goes.</>
+        ) : agreement.bothDays === 0 ? (
+          <>No day yet has fixes from both, so there is nothing to check one against
+          the other.</>
+        ) : (
+          <>Both had fixes on {agreement.bothDays} day{agreement.bothDays === 1 ? "" : "s"} and
+          agreed on {agreement.agreeDays}.
+          {agreement.disagreements.length > 0 && (
+            <> The odd ones out: {agreement.disagreements.slice(0, 5).map(d => d.date).join(", ")}
+            {agreement.disagreements.length > 5 && ` and ${agreement.disagreements.length - 5} more`}.</>
+          )}</>
+        )}
+      </p>
     </div>
   )
 }
@@ -166,12 +240,20 @@ export default function HomeAndAway({ days = 180 }: { days?: number }) {
           </p>
         ) : (
           <>
+            {data.home.nights < 5 && (
+              <p className="text-xs rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-amber-400">
+                Home has only {data.home.nights} night{data.home.nights === 1 ? "" : "s"} behind it
+                so far, and every number below is measured from it. Treat this as provisional
+                until tracking has seen a few more.
+              </p>
+            )}
+
             <div className="space-y-2">
               <DayStrip days={data.days} />
               <p className="text-xs text-muted-foreground">
                 {data.trackedDays} of the last {data.windowDays} days have fixes. Darker is further
-                from home; dashed is a day the phone recorded nothing, which is never counted as
-                being in.
+                from home; dashed is a day with no fixes, which is never counted as being in.
+                {data.truncated && " The oldest part of this window held more points than could be loaded, so its dashes mean unread rather than unrecorded."}
               </p>
             </div>
 
@@ -219,6 +301,8 @@ export default function HomeAndAway({ days = 180 }: { days?: number }) {
               </p>
               <Row label="Mood" away={data.comparison.days.away.mood} home={data.comparison.days.home.mood} digits={1} unit="/5" higherIsBetter />
             </div>
+
+            <Sources sources={data.sources} />
           </>
         )}
       </CardContent>

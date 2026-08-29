@@ -9,18 +9,16 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { localDateStr } from "@/lib/local-date"
 import {
-  estimateHome, summariseDays, fillMissingDays, detectTrips, awayVsHome,
+  estimateHome, summariseDays, fillMissingDays, detectTrips, awayVsHome, agreementBetween,
   type DatedPoint, type DayMetrics,
 } from "@/lib/day-location"
+import { loadCoarsePoints } from "@/lib/day-location-load"
 
 const DEFAULT_DAYS = 180
 const MAX_DAYS = 730
 
-/** A day's worth of points is plenty to place it; a year of raw fixes is not. */
-const MAX_POINTS = 40_000
-
-type PointRow = { lat: number; lng: number; trackedAt: Date }
 type HealthRow = { date: Date; readinessScore: number | null; sleepDuration: number | null; hrv: number | null }
 type MoodRow = { date: Date; mood: number }
 
@@ -35,14 +33,9 @@ export async function GET(req: NextRequest) {
   const window = Number.isFinite(asked) && asked > 0 ? Math.min(asked, MAX_DAYS) : DEFAULT_DAYS
   const since = new Date(Date.now() - window * 24 * 60 * 60 * 1000)
 
-  const [timezone, points, healthLogs, moodLogs] = await Promise.all([
+  const [timezone, loaded, healthLogs, moodLogs] = await Promise.all([
     getUserTimezone(userId),
-    prisma.locationPoint.findMany({
-      where: { userId, trackedAt: { gte: since } },
-      select: { lat: true, lng: true, trackedAt: true },
-      orderBy: { trackedAt: "asc" },
-      take: MAX_POINTS,
-    }).catch(() => [] as PointRow[]),
+    loadCoarsePoints(userId, since),
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since } },
       select: { date: true, readinessScore: true, sleepDuration: true, hrv: true },
@@ -53,9 +46,23 @@ export async function GET(req: NextRequest) {
     }).catch(() => [] as MoodRow[]),
   ])
 
-  const dated: DatedPoint[] = (points as PointRow[]).map(p => ({ lat: p.lat, lng: p.lng, at: p.trackedAt }))
+  const dated: DatedPoint[] = loaded.points
   const home = estimateHome(dated, timezone)
   const days = summariseDays(dated, timezone, home)
+
+  // Two independent witnesses to the same week. Google's import is the only
+  // way to find out whether the app's own tracking actually ran — a week the
+  // app has nothing for looks identical, from inside the app, to a week spent
+  // at home.
+  const pick = (want: (source: string) => boolean): DatedPoint[] =>
+    loaded.points.filter(p => want(p.source))
+  const appDays = summariseDays(pick(src => src !== "timeline"), timezone, home)
+  const timelineDays = summariseDays(pick(src => src === "timeline"), timezone, home)
+  // Every strip spans the whole window asked for, not just the days that have
+  // data — so the gaps are visible as gaps. A strip that quietly starts at the
+  // first recorded day makes patchy tracking look continuous.
+  const spanFrom = localDateStr(timezone, since)
+  const spanTo = localDateStr(timezone)
 
   const metrics = new Map<string, DayMetrics>()
   for (const h of healthLogs as HealthRow[]) {
@@ -79,9 +86,27 @@ export async function GET(req: NextRequest) {
     // Truthful about how much of the window was actually observed — every
     // number below is only as good as this.
     trackedDays: days.length,
+    // Set when the window held more than could be loaded and its oldest end
+    // was dropped — the strip is then shorter than the window asked for.
+    truncated: loaded.truncated,
     home,
-    days: fillMissingDays(days),
+    days: fillMissingDays(days, spanFrom, spanTo),
     trips: detectTrips(days),
     comparison: awayVsHome(days, metrics),
+    sources: {
+      app: {
+        points: Object.entries(loaded.countsBySource)
+          .filter(([src]) => src !== "timeline")
+          .reduce((n, [, c]) => n + c, 0),
+        days: appDays.length,
+        strip: fillMissingDays(appDays, spanFrom, spanTo),
+      },
+      timeline: {
+        points: loaded.countsBySource.timeline ?? 0,
+        days: timelineDays.length,
+        strip: fillMissingDays(timelineDays, spanFrom, spanTo),
+      },
+      agreement: agreementBetween(appDays, timelineDays),
+    },
   })
 }

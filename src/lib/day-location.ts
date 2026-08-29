@@ -55,10 +55,29 @@ export interface DayLocation {
    */
   slept: "home" | "away" | "unknown"
   points: number
+  /**
+   * Distinct local hours that had at least one fix — 0 to 24.
+   *
+   * The honest measure of whether tracking worked that day. Two points at 9am
+   * and 9pm is not a tracked day, and counting points alone cannot tell the
+   * difference between that and a day covered end to end.
+   */
+  hoursWithFixes: number
   maxKmFromHome: number | null
   /** Centre of the day's fixes, for naming the place later. */
   lat: number | null
   lng: number | null
+  /**
+   * Centre of the night fixes that were AWAY from home — the bed that was not
+   * your own, when there was one.
+   *
+   * This is what names a trip. The mean of a travel day sits halfway down the
+   * motorway, so geocoding it returns a field between two countries; even the
+   * mean of the whole night drags towards home on the day you set off. The
+   * away fixes alone sit in the hotel.
+   */
+  awayNightLat: number | null
+  awayNightLng: number | null
 }
 
 export interface Home {
@@ -82,7 +101,10 @@ export interface Trip {
   days: string[]
   /** Days inside the run with no fixes at all, bridged rather than splitting. */
   gapDays: number
-  /** Centre of the trip, for reverse-geocoding a name once per trip. */
+  /**
+   * Centre of the trip, for reverse-geocoding a name once per trip: where the
+   * nights were spent when there are any, otherwise the mean of the days.
+   */
   lat: number
   lng: number
   maxKmFromHome: number
@@ -166,19 +188,32 @@ export function summariseDays(
   home: { lat: number; lng: number } | null,
 ): DayLocation[] {
   const read = zonedReader(timezone)
-  const byDay = new Map<string, { pts: DatedPoint[]; nightAway: boolean; nightPts: number }>()
+  const byDay = new Map<string, {
+    pts: DatedPoint[]; nightAway: boolean; nightPts: number
+    awayNightLat: number; awayNightLng: number; awayNightPts: number
+    hours: Set<number>
+  }>()
 
   for (const p of points) {
     const { date, hour } = read(p.at)
     let day = byDay.get(date)
     if (!day) {
-      day = { pts: [], nightAway: false, nightPts: 0 }
+      day = {
+        pts: [], nightAway: false, nightPts: 0,
+        awayNightLat: 0, awayNightLng: 0, awayNightPts: 0, hours: new Set(),
+      }
       byDay.set(date, day)
     }
     day.pts.push(p)
+    day.hours.add(hour)
     if (hour < NIGHT_UNTIL_HOUR) {
       day.nightPts += 1
-      if (home && distanceM(home.lat, home.lng, p.lat, p.lng) > HOME_RADIUS_M) day.nightAway = true
+      if (home && distanceM(home.lat, home.lng, p.lat, p.lng) > HOME_RADIUS_M) {
+        day.nightAway = true
+        day.awayNightLat += p.lat
+        day.awayNightLng += p.lng
+        day.awayNightPts += 1
+      }
     }
   }
 
@@ -203,9 +238,12 @@ export function summariseDays(
       presence,
       slept: day.nightPts === 0 ? "unknown" : day.nightAway ? "away" : "home",
       points: day.pts.length,
+      hoursWithFixes: day.hours.size,
       maxKmFromHome: maxKm === null ? null : Math.round(maxKm * 10) / 10,
       lat: sumLat / day.pts.length,
       lng: sumLng / day.pts.length,
+      awayNightLat: day.awayNightPts === 0 ? null : day.awayNightLat / day.awayNightPts,
+      awayNightLng: day.awayNightPts === 0 ? null : day.awayNightLng / day.awayNightPts,
     })
   }
   return out
@@ -216,8 +254,10 @@ export function summariseDays(
  * phone recorded nothing on is present and explicitly `unknown` rather than
  * quietly missing. Trip detection needs this to tell a gap from an ending.
  */
-export function fillMissingDays(days: DayLocation[]): DayLocation[] {
-  if (days.length === 0) return []
+export function fillMissingDays(days: DayLocation[], from?: string, to?: string): DayLocation[] {
+  const first = from ?? days[0]?.date
+  const last = to ?? days[days.length - 1]?.date
+  if (!first || !last) return []
   const have = new Map(days.map(d => [d.date, d]))
   const out: DayLocation[] = []
   const step = (iso: string, n: number) => {
@@ -226,10 +266,11 @@ export function fillMissingDays(days: DayLocation[]): DayLocation[] {
     dt.setUTCDate(dt.getUTCDate() + n)
     return dt.toISOString().slice(0, 10)
   }
-  for (let date = days[0].date; date <= days[days.length - 1].date; date = step(date, 1)) {
+  for (let date = first; date <= last; date = step(date, 1)) {
     out.push(have.get(date) ?? {
       date, presence: "unknown", slept: "unknown",
-      points: 0, maxKmFromHome: null, lat: null, lng: null,
+      points: 0, hoursWithFixes: 0, maxKmFromHome: null,
+      lat: null, lng: null, awayNightLat: null, awayNightLng: null,
     })
   }
   return out
@@ -269,11 +310,17 @@ export function detectTrips(days: DayLocation[]): Trip[] {
     const nights = sleptAway > 0 ? sleptAway : run.length - 1
     if (nights >= 1 && withFixes.length > 0) {
       let sumLat = 0, sumLng = 0, weight = 0, maxKm = 0
+      let nightLat = 0, nightLng = 0, nightWeight = 0
       for (const d of withFixes) {
         sumLat += (d.lat as number) * d.points
         sumLng += (d.lng as number) * d.points
         weight += d.points
         maxKm = Math.max(maxKm, d.maxKmFromHome ?? 0)
+        if (d.awayNightLat != null && d.awayNightLng != null) {
+          nightLat += d.awayNightLat
+          nightLng += d.awayNightLng
+          nightWeight += 1
+        }
       }
       trips.push({
         start: run[0].date,
@@ -281,8 +328,8 @@ export function detectTrips(days: DayLocation[]): Trip[] {
         nights,
         days: run.map(d => d.date),
         gapDays: run.length - withFixes.length,
-        lat: sumLat / weight,
-        lng: sumLng / weight,
+        lat: nightWeight > 0 ? nightLat / nightWeight : sumLat / weight,
+        lng: nightWeight > 0 ? nightLng / nightWeight : sumLng / weight,
         maxKmFromHome: maxKm,
       })
     }
@@ -355,5 +402,52 @@ export function awayVsHome(
         metrics,
       ),
     },
+  }
+}
+
+// ─── One source against another ──────────────────────────────────────────────
+
+export interface Agreement {
+  /** Days both sources had something to say about. */
+  bothDays: number
+  /** Of those, days they put you in the same category. */
+  agreeDays: number
+  /** Days only the first source covered, and only the second. */
+  onlyA: number
+  onlyB: number
+  disagreements: { date: string; a: DayPresence; b: DayPresence }[]
+}
+
+/**
+ * How two sources of location compare — the app's own tracking against a
+ * Google Timeline import, say.
+ *
+ * Worth having because agreement is the only cheap way to find out whether
+ * background tracking is actually working. A week where Google saw you out
+ * and the app saw nothing is a week the app was asleep, and no amount of
+ * staring at the app's own numbers would say so.
+ */
+export function agreementBetween(a: DayLocation[], b: DayLocation[]): Agreement {
+  const byDateA = new Map(a.filter(d => d.points > 0).map(d => [d.date, d]))
+  const byDateB = new Map(b.filter(d => d.points > 0).map(d => [d.date, d]))
+
+  let bothDays = 0
+  let agreeDays = 0
+  const disagreements: { date: string; a: DayPresence; b: DayPresence }[] = []
+  for (const [date, dayA] of byDateA) {
+    const dayB = byDateB.get(date)
+    if (!dayB) continue
+    bothDays++
+    if (dayA.presence === dayB.presence) agreeDays++
+    else disagreements.push({ date, a: dayA.presence, b: dayB.presence })
+  }
+  disagreements.sort((x, y) => x.date.localeCompare(y.date))
+
+  return {
+    bothDays,
+    agreeDays,
+    onlyA: [...byDateA.keys()].filter(d => !byDateB.has(d)).length,
+    onlyB: [...byDateB.keys()].filter(d => !byDateA.has(d)).length,
+    disagreements,
   }
 }

@@ -10,7 +10,8 @@ import {
 } from "@/lib/oura"
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTimer, stopTimer } from "@/lib/toggl"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { estimateHome, summariseDays, detectTrips, awayVsHome, type DatedPoint, type DayMetrics } from "@/lib/day-location"
+import { estimateHome, summariseDays, detectTrips, awayVsHome, type DayMetrics } from "@/lib/day-location"
+import { loadCoarsePoints } from "@/lib/day-location-load"
 
 export const runtime = "nodejs"
 
@@ -750,14 +751,9 @@ function buildMcpServer(userId: string): McpServer {
       const window = Math.min(Math.max(days ?? 180, 7), 730)
       const since = new Date(Date.now() - window * 24 * 60 * 60 * 1000)
 
-      const [timezone, points, healthLogs, moodLogs] = await Promise.all([
+      const [timezone, loaded, healthLogs, moodLogs] = await Promise.all([
         getUserTimezone(userId),
-        prisma.locationPoint.findMany({
-          where: { userId, trackedAt: { gte: since } },
-          select: { lat: true, lng: true, trackedAt: true },
-          orderBy: { trackedAt: "asc" },
-          take: 40_000,
-        }).catch(() => []),
+        loadCoarsePoints(userId, since),
         prisma.healthLog.findMany({
           where: { userId, date: { gte: since } },
           select: { date: true, readinessScore: true, sleepDuration: true, hrv: true },
@@ -768,7 +764,7 @@ function buildMcpServer(userId: string): McpServer {
         }).catch(() => []),
       ])
 
-      const dated: DatedPoint[] = points.map(p => ({ lat: p.lat, lng: p.lng, at: p.trackedAt }))
+      const dated = loaded.points
       const home = estimateHome(dated, timezone)
       if (!home) return msg("No location history yet, so there is nothing to say about home or away. Background location tracking has to run through a few nights first.")
 
@@ -798,6 +794,7 @@ function buildMcpServer(userId: string): McpServer {
       return ok({
         window_days: window,
         days_with_location_data: dayRows.length,
+        points_by_source: loaded.countsBySource,
         home: { lat: round(home.lat, 4), lng: round(home.lng, 4), nights_seen: home.nights },
         day_counts: {
           home_all_day: dayRows.filter(d => d.presence === "home").length,
