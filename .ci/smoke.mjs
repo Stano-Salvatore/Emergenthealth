@@ -92,6 +92,7 @@ await ctx.addInitScript(() => document.addEventListener("DOMContentLoaded", () =
 }))
 
 const failures = []
+const redirects = []
 const page = await ctx.newPage()
 
 for (const route of ROUTES) {
@@ -168,6 +169,12 @@ for (const route of ROUTES) {
 
   if (status !== 200) failures.push(`${route}: HTTP ${status}`)
 
+  // A held-back feature redirects to /dashboard, and a 200 on the dashboard
+  // is not evidence about the page that was asked for. Five routes were
+  // reporting clean while the screenshot underneath them was the home screen.
+  const landed = new URL(page.url()).pathname
+  if (landed !== route) redirects.push(`${route} → ${landed}`)
+
   const real = errors.filter(e => !IGNORED_ERRORS.some(re => re.test(e)))
   for (const e of new Set(real)) failures.push(`${route}: uncaught — ${e.slice(0, 160)}`)
 
@@ -214,11 +221,20 @@ for (const route of ROUTES) {
   if (report.scrollsSideways) failures.push(`${route}: page scrolls sideways at ${WIDTH}px`)
 
   await page.screenshot({ path: `${OUT}/${route.replace(/\W+/g, "_").replace(/^_/, "")}.png` })
-  console.log(`${String(status).padEnd(5)} ${route}`)
+  const note = landed === route ? "" : `  → ${landed}`
+  console.log(`${String(status).padEnd(5)} ${route}${note}`)
   page.off("pageerror", onError)
 }
 
 await browser.close()
+
+// Not a failure — a held-back feature is meant to redirect. But it has to be
+// said out loud, or the run reads as forty pages checked when it was
+// thirty-five and the home screen five times over.
+if (redirects.length) {
+  console.log(`\n${redirects.length} route(s) redirected — the screenshot is of the destination, not the route:`)
+  for (const r of redirects) console.log("  · " + r)
+}
 
 if (failures.length) {
   console.error(`\n${failures.length} problem(s):`)
@@ -226,4 +242,4 @@ if (failures.length) {
   console.error(`\nScreenshots in ${OUT}/`)
   process.exit(1)
 }
-console.log(`\nAll ${ROUTES.length} screens clean. Screenshots in ${OUT}/`)
+console.log(`\nAll ${ROUTES.length} screens clean${redirects.length ? ` (${redirects.length} redirected)` : ""}. Screenshots in ${OUT}/`)
