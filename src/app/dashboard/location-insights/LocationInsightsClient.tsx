@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import HomeAndAway from "@/components/location/HomeAndAway"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -256,9 +257,16 @@ export default function LocationInsightsClient() {
       <div>
         <h1 className="text-2xl font-bold">Location Insights</h1>
         <p className="text-muted-foreground text-sm mt-0.5">
-          How your health metrics compare on nights after visiting each location
+          Where you were, and what it did to how you slept and felt
         </p>
       </div>
+
+      {/* ── The coarse picture first: home, out, or away ── */}
+      <HomeAndAway />
+
+      <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground pt-2">
+        By place
+      </h2>
 
       {/* ── Metric picker ── */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">

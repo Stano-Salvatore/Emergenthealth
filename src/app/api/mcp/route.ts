@@ -10,6 +10,7 @@ import {
 } from "@/lib/oura"
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTimer, stopTimer } from "@/lib/toggl"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { estimateHome, summariseDays, detectTrips, awayVsHome, type DatedPoint, type DayMetrics } from "@/lib/day-location"
 
 export const runtime = "nodejs"
 
@@ -738,6 +739,81 @@ function buildMcpServer(userId: string): McpServer {
 
       results.sort((a, b) => b.visits_last_90d - a.visits_last_90d)
       return ok({ places: results, disclaimer: "Correlation ≠ causation. Deltas compare visit days vs non-visit days over the last 90 days." })
+    },
+  )
+
+  server.tool(
+    "get_trips",
+    "Where the user has been at the coarse, day-by-day level: which days were spent at home, which away, the trips away from home (with dates, nights and distance), and how sleep, readiness, HRV and mood compare on away nights/days versus home ones. Use this for questions about travel, being away, or whether a trip affected how they slept or felt. Home is inferred from where nights are spent — no saved place needed, and it works retroactively over history.",
+    { days: z.number().optional().describe("How far back to look, in days. Default 180.") },
+    async ({ days }) => {
+      const window = Math.min(Math.max(days ?? 180, 7), 730)
+      const since = new Date(Date.now() - window * 24 * 60 * 60 * 1000)
+
+      const [timezone, points, healthLogs, moodLogs] = await Promise.all([
+        getUserTimezone(userId),
+        prisma.locationPoint.findMany({
+          where: { userId, trackedAt: { gte: since } },
+          select: { lat: true, lng: true, trackedAt: true },
+          orderBy: { trackedAt: "asc" },
+          take: 40_000,
+        }).catch(() => []),
+        prisma.healthLog.findMany({
+          where: { userId, date: { gte: since } },
+          select: { date: true, readinessScore: true, sleepDuration: true, hrv: true },
+        }).catch(() => []),
+        prisma.moodLog.findMany({
+          where: { userId, date: { gte: since } },
+          select: { date: true, mood: true },
+        }).catch(() => []),
+      ])
+
+      const dated: DatedPoint[] = points.map(p => ({ lat: p.lat, lng: p.lng, at: p.trackedAt }))
+      const home = estimateHome(dated, timezone)
+      if (!home) return msg("No location history yet, so there is nothing to say about home or away. Background location tracking has to run through a few nights first.")
+
+      const dayRows = summariseDays(dated, timezone, home)
+      const iso = (d: Date) => d.toISOString().slice(0, 10)
+      const metrics = new Map<string, DayMetrics>()
+      for (const h of healthLogs) {
+        metrics.set(iso(h.date), {
+          sleepHours: h.sleepDuration == null ? null : h.sleepDuration / 60,
+          readiness: h.readinessScore,
+          hrv: h.hrv,
+          mood: null,
+        })
+      }
+      for (const m of moodLogs) {
+        const row = metrics.get(iso(m.date))
+        if (row) row.mood = m.mood
+        else metrics.set(iso(m.date), { sleepHours: null, readiness: null, hrv: null, mood: m.mood })
+      }
+
+      const round = (n: number | null, d = 1) => n == null ? null : Math.round(n * 10 ** d) / 10 ** d
+      const sideOut = (s: { n: number; sleepHours: number | null; readiness: number | null; hrv: number | null; mood: number | null }) => ({
+        n: s.n, sleep_hours: round(s.sleepHours), readiness: round(s.readiness, 0), hrv_ms: round(s.hrv, 0), mood_out_of_5: round(s.mood),
+      })
+      const c = awayVsHome(dayRows, metrics)
+
+      return ok({
+        window_days: window,
+        days_with_location_data: dayRows.length,
+        home: { lat: round(home.lat, 4), lng: round(home.lng, 4), nights_seen: home.nights },
+        day_counts: {
+          home_all_day: dayRows.filter(d => d.presence === "home").length,
+          out_locally: dayRows.filter(d => d.presence === "local").length,
+          away: dayRows.filter(d => d.presence === "away").length,
+        },
+        trips: detectTrips(dayRows).map(t => ({
+          start: t.start, end: t.end, nights: t.nights,
+          max_km_from_home: Math.round(t.maxKmFromHome),
+          lat: round(t.lat, 3), lng: round(t.lng, 3),
+          days_unrecorded: t.gapDays,
+        })),
+        away_nights_vs_home_nights: { away: sideOut(c.nights.away), home: sideOut(c.nights.home) },
+        away_days_vs_home_days: { away: sideOut(c.days.away), home: sideOut(c.days.home) },
+        notes: "Days with no location fixes are excluded from both sides rather than counted as home. Trips are named only by coordinates here — reverse-geocode or ask the user for the place name. Correlation is not causation, and a handful of trips is not a sample.",
+      })
     },
   )
 
