@@ -338,11 +338,16 @@ function HabitsSection({ habits }: { habits: HabitItem[] }) {
       </div>
       <div className="flex flex-wrap gap-1.5 pt-0.5">
         {habits.map((h, i) => (
+          // A struck-out habit means DONE everywhere else in the app —
+          // QuickHabits, Daily Quests, the reminders list. Here it was on the
+          // ones NOT done, so a day with nothing ticked read as a day with
+          // everything ticked, under a counter saying 0/4. The filled pill is
+          // what marks completion; the outline is enough for the rest.
           <span key={i} className={cn(
             "text-xs px-2.5 py-1 rounded-full border transition-all",
             h.completed
               ? "border-transparent text-white"
-              : "border-border text-muted-foreground/60 line-through"
+              : "border-border text-muted-foreground/60"
           )} style={h.completed ? { background: h.color } : {}}>
             {h.emoji && <span className="mr-1">{h.emoji}</span>}
             {h.name}
