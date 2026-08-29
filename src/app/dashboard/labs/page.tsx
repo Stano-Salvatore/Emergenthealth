@@ -322,7 +322,7 @@ export default function LabsPage() {
               className="bg-background/50"
             />
             <Input
-              placeholder="Notes (optional)"
+              placeholder="Notes"
               value={notes}
               onChange={e => setNotes(e.target.value)}
               className="bg-background/50"
@@ -331,14 +331,14 @@ export default function LabsPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <Input
-              placeholder="Ref min (optional)"
+              placeholder="Ref min"
               type="number"
               value={refMin}
               onChange={e => setRefMin(e.target.value)}
               className="bg-background/50"
             />
             <Input
-              placeholder="Ref max (optional)"
+              placeholder="Ref max"
               type="number"
               value={refMax}
               onChange={e => setRefMax(e.target.value)}
