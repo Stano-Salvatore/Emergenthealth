@@ -33,6 +33,9 @@ function fmtDate(dateStr: string) {
   }
 }
 
+// Last.fm's recent-tracks endpoint carries no track durations, so every
+// "listening time" here is three minutes a scrobble. Shown with a ~ rather
+// than quietly presented as measured.
 function fmtHours(mins: number) {
   const h = Math.floor(mins / 60)
   const m = mins % 60
@@ -337,8 +340,8 @@ function Dashboard({
             </Card>
             <Card>
               <CardContent className="pt-4 pb-3 text-center">
-                <p className="text-2xl font-black text-primary">{fmtHours(totalMins)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Listening time</p>
+                <p className="text-2xl font-black text-primary">~{fmtHours(totalMins)}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Listening time (est.)</p>
               </CardContent>
             </Card>
             <Card>
@@ -433,7 +436,7 @@ function Dashboard({
                         {row.tracksPlayed}
                       </td>
                       <td className="py-2.5 pr-4 text-right text-xs text-muted-foreground whitespace-nowrap">
-                        {fmtHours(row.listeningMin)}
+                        ~{fmtHours(row.listeningMin)}
                       </td>
                       <td className="py-2.5 pr-4 max-w-[140px]">
                         <span className="truncate block text-xs" title={row.topArtist ?? ""}>

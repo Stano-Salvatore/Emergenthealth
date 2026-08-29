@@ -43,7 +43,8 @@ type DayData = {
   remSleepMin?: number
   workoutMin?: number      // Strava moving time that day
   focusMin?: number        // completed focus-session minutes
-  listeningMin?: number    // Last.fm music listening
+  listeningMin?: number    // Last.fm music listening (estimated: tracks × 3min)
+  lateTracks?: number      // scrobbles between 22:00 and 04:00 local
   spendEur?: number        // card spending (outgoing, transfers excluded)
   uvIndex?: number
   fastH?: number           // longest completed fast ending this day
@@ -371,10 +372,10 @@ export async function computeCorrelations(
     }).catch(() => [] as { endedAt: Date; durationMin: number }[]),
 
     // Last.fm lives in a raw-DDL table with no Prisma model
-    prisma.$queryRaw<{ date: string; listeningMin: number }[]>`
-      SELECT "date", "listeningMin" FROM "LastfmLog"
+    prisma.$queryRaw<{ date: string; listeningMin: number; lateTracks: number | null }[]>`
+      SELECT "date", "listeningMin", "lateTracks" FROM "LastfmLog"
       WHERE "userId" = ${userId} AND "date" >= ${since60str}
-    `.catch(() => [] as { date: string; listeningMin: number }[]),
+    `.catch(() => [] as { date: string; listeningMin: number; lateTracks: number | null }[]),
 
     prisma.transaction.findMany({
       where: { userId, date: { gte: since60 }, isTransfer: false, amount: { lt: 0 } },
@@ -567,6 +568,7 @@ export async function computeCorrelations(
 
   for (const l of lastfmRows) {
     if (l.listeningMin != null) getOrCreate(l.date).listeningMin = Number(l.listeningMin)
+    if (l.lateTracks != null) getOrCreate(l.date).lateTracks = Number(l.lateTracks)
   }
 
   for (const t of txRows) {
@@ -1673,6 +1675,62 @@ export async function computeCorrelations(
           : `Music days aren't your most focused — ${Math.round(h)}min vs ${Math.round(l)}min of deep work`,
     })
     if (ins_music_focus) insights.push(ins_music_focus)
+  }
+
+  // 17b. Late-night listening → the night that follows.
+  //
+  // The other three music insights split on how MUCH was played, which is a
+  // daytime fact. This one is about WHEN: scrobbles after 22:00 belong to the
+  // night, and the night is the thing sleep is measured over. Compared against
+  // the NEXT day's numbers, because a night is reported on the morning it ends.
+  //
+  // Days with one to four late tracks are deliberately in neither group — a
+  // couple of songs while brushing your teeth is not a late night, and lumping
+  // them either way is what turns a real effect into noise.
+  const lateDays = days.filter(d => d.lateTracks != null)
+  if (lateDays.length >= 10) {
+    const lateSleepHigh: number[] = [], lateSleepLow: number[] = []
+    const lateDurHigh: number[] = [], lateDurLow: number[] = []
+    const lateReadyHigh: number[] = [], lateReadyLow: number[] = []
+    for (const d of lateDays) {
+      const late = d.lateTracks as number
+      if (late > 0 && late < 5) continue
+      const isLate = late >= 5
+      const next = byDate[nextDateStr(d.date)]
+      if (next?.sleepScore != null) { if (isLate) lateSleepHigh.push(next.sleepScore); else lateSleepLow.push(next.sleepScore) }
+      if (next?.sleepDuration != null) { if (isLate) lateDurHigh.push(next.sleepDuration); else lateDurLow.push(next.sleepDuration) }
+      if (next?.readiness != null) { if (isLate) lateReadyHigh.push(next.readiness); else lateReadyLow.push(next.readiness) }
+    }
+    const ins_late_music_sleep = compareGroups({
+      id: "late_music_sleep", category: "music", emoji: "🌙", title: "Late-night music & sleep",
+      highGroupLabel: "nights you listened past 22:00", lowGroupLabel: "quiet evenings",
+      highValues: lateSleepHigh, lowValues: lateSleepLow,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `After evenings with music past 22:00, sleep scores ${h} vs ${l} after quiet ones`
+          : `Music past 22:00 doesn't cost you sleep quality — ${h} vs ${l}`,
+    })
+    if (ins_late_music_sleep) insights.push(ins_late_music_sleep)
+    const ins_late_music_dur = compareGroups({
+      id: "late_music_duration", category: "music", emoji: "🎧", title: "Late-night music & sleep length",
+      highGroupLabel: "nights you listened past 22:00", lowGroupLabel: "quiet evenings",
+      highValues: lateDurHigh, lowValues: lateDurLow,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `You sleep ${h}h after listening past 22:00, against ${l}h after quiet evenings`
+          : `Listening past 22:00 goes with ${h}h of sleep, against ${l}h after quiet evenings`,
+    })
+    if (ins_late_music_dur) insights.push(ins_late_music_dur)
+    const ins_late_music_ready = compareGroups({
+      id: "late_music_readiness", category: "music", emoji: "🔋", title: "Late-night music & next-day readiness",
+      highGroupLabel: "mornings after late listening", lowGroupLabel: "mornings after quiet evenings",
+      highValues: lateReadyHigh, lowValues: lateReadyLow,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `Readiness comes in at ${h} after a late-listening evening, ${l} otherwise`
+          : `Readiness holds at ${h} after late listening, against ${l} otherwise`,
+    })
+    if (ins_late_music_ready) insights.push(ins_late_music_ready)
   }
 
   // 18. Spending — also ported from /api/stats. Only days with transactions

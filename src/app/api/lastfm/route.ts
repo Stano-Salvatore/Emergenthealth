@@ -66,7 +66,17 @@ export async function POST(req: NextRequest) {
     if (!keyRow) return NextResponse.json({ error: "Not connected" }, { status: 400 })
 
     try {
-      const result = await syncLastfm(userId, keyRow.apiKey, keyRow.username)
+      // The first sync after connecting reaches back a year; every later one
+      // only needs the recent window. Without this the history starts on the
+      // day the key was pasted, and a correlation needs more days than that.
+      const existing = await prisma.$queryRaw<{ n: bigint }[]>`
+        SELECT COUNT(*) AS n FROM "LastfmLog" WHERE "userId" = ${userId}
+      `.catch(() => [{ n: BigInt(1) }])
+      const first = Number(existing[0]?.n ?? 1) === 0
+
+      const result = await syncLastfm(userId, keyRow.apiKey, keyRow.username, {
+        days: first ? 365 : 30,
+      })
       return NextResponse.json(result)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Sync failed"
