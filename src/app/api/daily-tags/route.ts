@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userToday } from "@/lib/user-timezone"
 
 async function ensureTable() {
   await prisma.$executeRaw`
@@ -14,8 +15,9 @@ async function ensureTable() {
   `
 }
 
-function todayStr(): string {
-  return new Date().toISOString().split("T")[0]
+// Kept as a function so both handlers share it; it needs the user now.
+async function todayStr(userId: string): Promise<string> {
+  return userToday(userId)
 }
 
 export async function GET(req: NextRequest) {
@@ -24,7 +26,7 @@ export async function GET(req: NextRequest) {
   const userId = session.user.id
 
   const { searchParams } = new URL(req.url)
-  const date = searchParams.get("date") ?? todayStr()
+  const date = searchParams.get("date") ?? await todayStr(userId)
 
   await ensureTable()
 
@@ -45,7 +47,7 @@ export async function POST(req: NextRequest) {
   const userId = session.user.id
 
   const body = await req.json() as { date?: unknown; tags?: unknown }
-  const date = typeof body.date === "string" ? body.date : todayStr()
+  const date = typeof body.date === "string" ? body.date : await todayStr(userId)
   if (!Array.isArray(body.tags)) {
     return NextResponse.json({ error: "tags must be an array" }, { status: 400 })
   }

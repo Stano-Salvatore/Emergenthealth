@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userToday } from "@/lib/user-timezone"
 
 async function ensureTable() {
   await prisma.$executeRaw`
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
   const clientDate = new URL(req.url).searchParams.get("date")
   const today = clientDate && /^\d{4}-\d{2}-\d{2}$/.test(clientDate)
     ? clientDate
-    : new Date().toISOString().slice(0, 10)
+    : await userToday(session.user.id)
 
   await ensureTable()
 
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { energy, mood, intention, waterGoalMl, date } = await req.json()
-  const today = date ?? new Date().toISOString().slice(0, 10)
+  const today = date ?? await userToday(session.user.id)
   const id = `mci_${session.user.id}_${today}`
 
   await ensureTable()

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getUserTimezone } from "@/lib/user-timezone"
 
 export type CorrelationConfidence = "insufficient" | "low" | "moderate" | "good"
 
@@ -65,6 +66,10 @@ type CheckInRow = { checkedAt: Date; savedPlaceId: string }
 type HealthRow = { date: Date; readinessScore: number | null; sleepDuration: number | null; hrv: number | null; steps: number | null; restingHR: number | null }
 type MoodRow = { date: Date; mood: number }
 
+// HealthLog.date and MoodLog.date are date-only columns, which Prisma hands
+// back at UTC midnight — slicing those is exact. CheckIn.checkedAt is a real
+// instant, and slicing that files an evening visit under the day before for
+// anyone east of Greenwich, which is the half of the comparison that matters.
 const day = (d: Date) => new Date(d).toISOString().split("T")[0]
 
 // One place's correlation, given data already loaded for the whole account.
@@ -75,8 +80,9 @@ function correlatePlace(
   placeCheckIns: CheckInRow[],
   health: HealthRow[],
   moods: MoodRow[],
+  localDay: (at: Date) => string,
 ): PlaceCorrelation {
-  const visitDates = new Set(placeCheckIns.map(c => day(c.checkedAt)))
+  const visitDates = new Set(placeCheckIns.map(c => localDay(c.checkedAt)))
   const postVisitDates = new Set(Array.from(visitDates).map(d => nextDay(d)))
 
   const healthByDate = new Map(health.map(h => [day(h.date), h]))
@@ -157,6 +163,9 @@ export async function GET(req: NextRequest) {
       : NextResponse.json([])
   }
 
+  const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
+  const localDay = (at: Date) => dayFmt.format(at)
+
   const [checkIns, healthLogs, moodLogs] = await Promise.all([
     prisma.$queryRaw<CheckInRow[]>`
       SELECT "checkedAt", "savedPlaceId" FROM "CheckIn"
@@ -183,7 +192,7 @@ export async function GET(req: NextRequest) {
   }
 
   const results = places.map(place =>
-    correlatePlace(place, byPlace.get(place.id) ?? [], healthLogs as HealthRow[], moodLogs as MoodRow[])
+    correlatePlace(place, byPlace.get(place.id) ?? [], healthLogs as HealthRow[], moodLogs as MoodRow[], localDay)
   )
 
   return NextResponse.json(single ? results[0] : results)

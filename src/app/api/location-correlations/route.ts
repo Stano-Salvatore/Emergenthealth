@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { readFileSync } from "fs"
 import path from "path"
 
@@ -135,6 +136,12 @@ export async function GET(req: NextRequest) {
       : Promise.resolve([]),
   ])
 
+  // Visit starts and ends are instants, so they need the user's day; the
+  // HealthLog and MoodLog dates below are date-only columns Prisma returns at
+  // UTC midnight, where slicing is exact.
+  const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
+  const localDay = (at: Date) => dayFmt.format(at)
+
   // ── Build date → metric value map ─────────────────────────────────────────
   const dateMetricMap = new Map<string, number>()
 
@@ -173,11 +180,11 @@ export async function GET(req: NextRequest) {
       // Walk day by day from visit start to visit end
       let cursor = startMs
       while (cursor <= endMs) {
-        visitDays.add(new Date(cursor).toISOString().slice(0, 10))
+        visitDays.add(localDay(new Date(cursor)))
         cursor += 24 * 60 * 60 * 1000
       }
       // Always include the end date even if less than a full extra day
-      visitDays.add(new Date(endMs).toISOString().slice(0, 10))
+      visitDays.add(localDay(new Date(endMs)))
     }
 
     // Collect metric values on visit days

@@ -9,7 +9,7 @@ import {
   getWeight, getDistance, getActivitySessions, getDailySummary,
 } from "@/lib/oura"
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTimer, stopTimer } from "@/lib/toggl"
-import { getUserTimezone } from "@/lib/user-timezone"
+import { getUserTimezone, userToday } from "@/lib/user-timezone"
 import { estimateHome, summariseDays, detectTrips, awayVsHome, type DayMetrics } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
 
@@ -33,7 +33,10 @@ async function resolveUser(req: NextRequest): Promise<string | null> {
   return null
 }
 
-function today() { return new Date().toISOString().slice(0, 10) }
+// The user's today, not the server's. Emergy answering "how much did I drink
+// today" with yesterday's total between midnight and 02:00 is the whole point
+// of this being async.
+async function todayFor(userId: string) { return userToday(userId) }
 function startOfDay(dateStr: string) { return new Date(dateStr + "T00:00:00.000Z") }
 function endOfDay(dateStr: string) { return new Date(dateStr + "T23:59:59.999Z") }
 function fmtSec(s: number) {
@@ -199,7 +202,7 @@ function buildMcpServer(userId: string): McpServer {
     "List all habits with today's completion status and current streak",
     {},
     async () => {
-      const todayDate = startOfDay(today())
+      const todayDate = startOfDay(await todayFor(userId))
       const habits = await prisma.habit.findMany({
         where: { userId, isArchived: false },
         include: {
@@ -232,7 +235,7 @@ function buildMcpServer(userId: string): McpServer {
       })
       if (!habits.length) return msg(`No habit found matching "${habit_name}". Use get_habits to see all habits.`)
       const habit = habits[0]
-      const todayDate = startOfDay(today())
+      const todayDate = startOfDay(await todayFor(userId))
       await prisma.habitCompletion.upsert({
         where: { habitId_date: { habitId: habit.id, date: todayDate } },
         create: { habitId: habit.id, userId, date: todayDate },
@@ -271,7 +274,7 @@ function buildMcpServer(userId: string): McpServer {
     "Read the journal/daily note for a specific date",
     { date: z.string().describe("YYYY-MM-DD, or 'today'") },
     async ({ date }) => {
-      const d = date === "today" ? today() : date
+      const d = date === "today" ? await todayFor(userId) : date
       const note = await prisma.dailyNote.findUnique({
         where: { userId_date: { userId, date: startOfDay(d) } },
       })
@@ -300,7 +303,7 @@ function buildMcpServer(userId: string): McpServer {
     "Write or update the journal/daily note for today. Replaces the existing entry.",
     { content: z.string().describe("The journal entry text to save") },
     async ({ content }) => {
-      const date = startOfDay(today())
+      const date = startOfDay(await todayFor(userId))
       await prisma.dailyNote.upsert({
         where: { userId_date: { userId, date } },
         create: { userId, date, content },
@@ -383,7 +386,7 @@ function buildMcpServer(userId: string): McpServer {
       note: z.string().optional().describe("Optional note about the mood"),
     },
     async ({ mood, note }) => {
-      const date = startOfDay(today())
+      const date = startOfDay(await todayFor(userId))
       await prisma.moodLog.upsert({
         where: { userId_date: { userId, date } },
         create: { userId, date, mood, note: note ?? null },
@@ -443,8 +446,8 @@ function buildMcpServer(userId: string): McpServer {
     "Get all intake logs for today (water, coffee, etc.)",
     {},
     async () => {
-      const todayStart = startOfDay(today())
-      const todayEnd = endOfDay(today())
+      const todayStart = startOfDay(await todayFor(userId))
+      const todayEnd = endOfDay(await todayFor(userId))
       const logs = await prisma.intakeLog.findMany({
         where: { userId, loggedAt: { gte: todayStart, lte: todayEnd } },
         orderBy: { loggedAt: "asc" },
@@ -464,7 +467,7 @@ function buildMcpServer(userId: string): McpServer {
     "Get photo-analyzed meals and drinks from the Food tab for a day: per-meal calories/macros, each recognized item with its portion and whether its nutrition came from the USDA database (db) or was model-estimated (est), plus notable vitamins/minerals",
     { date: z.string().optional().describe("Day as YYYY-MM-DD, defaults to today") },
     async ({ date }) => {
-      const day = date ?? today()
+      const day = date ?? await todayFor(userId)
       const logs = await prisma.foodLog.findMany({
         where: { userId, loggedAt: { gte: startOfDay(day), lte: endOfDay(day) } },
         orderBy: { loggedAt: "asc" },
@@ -663,6 +666,7 @@ function buildMcpServer(userId: string): McpServer {
       if (!savedPlaces.length) return msg("No saved places found. Add places in the Location page to track health correlations.")
 
       const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+      const corrDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
 
       const [healthLogs, moodLogs] = await Promise.all([
         prisma.healthLog.findMany({
@@ -694,7 +698,9 @@ function buildMcpServer(userId: string): McpServer {
             AND "isAuto" = true AND "checkedAt" >= ${since}
         `.catch(() => [] as CheckInRow[])
 
-        const visitDates = new Set(checkIns.map(c => new Date(c.checkedAt).toISOString().split("T")[0]))
+        // checkedAt is an instant: slicing it in UTC files an evening visit
+        // under the previous day, against health rows keyed by the local one.
+        const visitDates = new Set(checkIns.map(c => corrDayFmt.format(new Date(c.checkedAt))))
         const visitH    = healthLogs.filter(h =>  visitDates.has(h.date.toISOString().split("T")[0]))
         const nonVisitH = healthLogs.filter(h => !visitDates.has(h.date.toISOString().split("T")[0]))
         const visitM    = moodLogs.filter(m =>  visitDates.has(m.date.toISOString().split("T")[0]))
@@ -821,7 +827,7 @@ function buildMcpServer(userId: string): McpServer {
     "Get a full personal briefing for today or a specific date: health, habits, reminders, intake, focus, and mood all in one call. Use this when the user asks 'how am I doing today?' or wants a summary.",
     { date: z.string().optional().describe("YYYY-MM-DD, defaults to today") },
     async ({ date }) => {
-      const d = date ?? today()
+      const d = date ?? await todayFor(userId)
       const todayStart = startOfDay(d)
       const todayEnd = endOfDay(d)
 

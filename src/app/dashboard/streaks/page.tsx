@@ -166,9 +166,11 @@ export default function StreaksPage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-8">
-      {/* Achievement toasts */}
+      {/* Achievement toasts. Cleared over the bottom nav, which only exists
+          below lg — the toast used to land squarely on top of it. Same offsets
+          the What's New banner uses. */}
       {toasts.length > 0 && (
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 pointer-events-none">
+        <div className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-50 flex flex-col gap-2 pointer-events-none">
           {toasts.map((t, i) => (
             <div
               key={t.id}

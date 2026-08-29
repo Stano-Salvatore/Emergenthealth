@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userToday } from "@/lib/user-timezone"
 import { randomUUID } from "crypto"
 
 export async function POST(req: Request) {
@@ -11,7 +12,7 @@ export async function POST(req: Request) {
   const { metricId, date, value, note } = await req.json()
   if (!metricId || value == null) return NextResponse.json({ error: "metricId and value required" }, { status: 400 })
 
-  const dateStr = date ?? new Date().toISOString().slice(0, 10)
+  const dateStr = date ?? await userToday(userId)
 
   // Verify ownership
   const owns = await prisma.$queryRaw<{ id: string }[]>`

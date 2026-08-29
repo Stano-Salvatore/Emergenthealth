@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userToday } from "@/lib/user-timezone"
 
 export interface VacationPeriod {
   active: boolean
@@ -30,10 +31,11 @@ export async function POST(req: Request) {
   const userId = session.user.id
 
   const body: Partial<VacationPeriod> = await req.json()
+  const today = await userToday(userId)
   const value = JSON.stringify({
     active: body.active ?? false,
-    from:   body.from  ?? new Date().toISOString().split("T")[0],
-    until:  body.until ?? new Date().toISOString().split("T")[0],
+    from:   body.from  ?? today,
+    until:  body.until ?? today,
   })
 
   await prisma.$executeRaw`

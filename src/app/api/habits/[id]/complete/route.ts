@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userToday } from "@/lib/user-timezone"
 
 export async function POST(
   req: NextRequest,
@@ -16,7 +17,7 @@ export async function POST(
   if (!habit) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
   const body = await req.json().catch(() => ({}))
-  const dateStr = body.date ?? new Date().toISOString().split("T")[0]
+  const dateStr = body.date ?? await userToday(session.user.id)
   const dateObj = new Date(dateStr)
   dateObj.setUTCHours(0, 0, 0, 0)
 
@@ -38,7 +39,7 @@ export async function DELETE(
 
   const { id } = await params
   const body = await req.json().catch(() => ({}))
-  const dateStr = body.date ?? new Date().toISOString().split("T")[0]
+  const dateStr = body.date ?? await userToday(session.user.id)
   const dateObj = new Date(dateStr)
   dateObj.setUTCHours(0, 0, 0, 0)
 

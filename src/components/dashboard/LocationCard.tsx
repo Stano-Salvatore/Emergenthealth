@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 import { MapPin, ChevronRight } from "lucide-react"
 import { format } from "date-fns"
+import { getUserTimezone } from "@/lib/user-timezone"
+import { localDateStr, zonedDayRange } from "@/lib/local-date"
 
 function TrackSvg({ points }: { points: { lat: number; lon: number }[] }) {
   // A glyph, not a map — see TrackFit. This strip is 3.1:1, and a north-south
@@ -31,9 +33,12 @@ export async function LocationCard() {
   const session = await auth()
   if (!session?.user?.id) return null
 
-  const today = new Date().toISOString().split("T")[0]
-  const dayStart = new Date(`${today}T00:00:00Z`)
-  const dayEnd   = new Date(`${today}T23:59:59Z`)
+  // Both the day and its boundaries in the user's timezone. Taken from UTC,
+  // the card showed yesterday's track for the first hours of every morning,
+  // and cut the evening off the one it did show.
+  const timezone = await getUserTimezone(session.user.id)
+  const today = localDateStr(timezone)
+  const { start: dayStart, end: dayEnd } = zonedDayRange(timezone, today)
 
   const [track, ownTracksRows] = await Promise.all([
     getGpxTrackForDate(session.user.id, today).catch(() => null),

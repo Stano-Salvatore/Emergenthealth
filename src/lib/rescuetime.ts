@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { randomUUID } from "crypto"
+import { userToday } from "@/lib/user-timezone"
 
 export async function ensureRescuetimeTable(): Promise<void> {
   await prisma.$executeRaw`
@@ -40,7 +41,10 @@ interface RescuetimeRow {
 }
 
 export async function syncRescuetime(userId: string, apiKey: string): Promise<{ synced: number }> {
-  const today = new Date().toISOString().slice(0, 10)
+  // The user's day, not the server's: an end bound of UTC-today is yesterday
+  // for the first hours of every morning east of Greenwich, which drops the
+  // day being looked at from the window.
+  const today = await userToday(userId)
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
 
   const url = `https://www.rescuetime.com/anapi/data?key=${encodeURIComponent(apiKey)}&perspective=interval&resolution_time=day&format=json&restrict_kind=overview&restrict_begin=${thirtyDaysAgo}&restrict_end=${today}`

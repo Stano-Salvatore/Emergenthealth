@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { userToday } from "@/lib/user-timezone"
 
 export const LEVEL_THRESHOLDS = [0, 100, 250, 500, 900, 1500, 2500, 4000, 6000, 9000, 13000]
 
@@ -55,10 +56,13 @@ export interface GithubStats {
 }
 
 // Consecutive-day streak ending today or yesterday, over YYYY-MM-DD strings.
-export function currentDayStreak(sortedDates: string[]): number {
+//
+// `today` is passed in rather than read from the clock: the server's UTC day
+// is not the user's, and a streak that silently resets at midnight-plus-two
+// is the most visible way that difference shows up.
+export function currentDayStreak(sortedDates: string[], today: string): number {
   if (!sortedDates.length) return 0
-  const today = new Date().toISOString().slice(0, 10)
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+  const yesterday = new Date(Date.parse(today + "T12:00:00Z") - 86400000).toISOString().slice(0, 10)
   const set = new Set(sortedDates)
   const start = set.has(today) ? today : set.has(yesterday) ? yesterday : null
   if (!start) return 0
@@ -121,7 +125,7 @@ export async function getGithubStats(userId: string): Promise<GithubStats> {
   const commitDays = Object.keys(commitsByDay).filter(d => (commitsByDay[d] ?? 0) > 0)
   const statsValue: GithubStats = {
     commitDays: commitDays.length,
-    streak: currentDayStreak(commitDays.sort()),
+    streak: currentDayStreak(commitDays.sort(), await userToday(userId)),
     xp: commitDays.length * 8,
   }
 

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userToday } from "@/lib/user-timezone"
 
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { searchParams } = new URL(req.url)
-  const date = searchParams.get("date") ?? new Date().toISOString().split("T")[0]
+  const date = searchParams.get("date") ?? await userToday(session.user.id)
   const dateObj = new Date(date + "T00:00:00.000Z")
 
   const note = await prisma.dailyNote.findUnique({
@@ -22,7 +23,7 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const { content, date } = await req.json()
-  const dateStr = date ?? new Date().toISOString().split("T")[0]
+  const dateStr = date ?? await userToday(session.user.id)
   const dateObj = new Date(dateStr + "T00:00:00.000Z")
 
   if (!content?.trim()) {

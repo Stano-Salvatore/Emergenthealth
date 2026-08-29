@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userToday } from "@/lib/user-timezone"
 
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -28,7 +29,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "mood must be 1–5" }, { status: 400 })
   }
 
-  const dateObj = date ? new Date(date + "T00:00:00.000Z") : new Date(new Date().toISOString().split("T")[0] + "T00:00:00.000Z")
+  const day = date ?? await userToday(session.user.id)
+  const dateObj = new Date(day + "T00:00:00.000Z")
 
   const log = await prisma.moodLog.upsert({
     where: { userId_date: { userId: session.user.id, date: dateObj } },

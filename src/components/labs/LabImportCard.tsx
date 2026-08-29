@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { FileUp, X } from "lucide-react"
+import { todayLocalISO } from "@/lib/local-date"
 
 // Photograph the printout or drop in the lab's PDF. Nothing is saved until
 // every row has been seen next to the original and confirmed — a transcription
@@ -93,7 +94,7 @@ export function LabImportCard({ onSaved }: { onSaved: () => void }) {
       setParsed(data)
       setRows(data.results ?? [])
       setKeep((data.results ?? []).map(() => true))
-      setDate(data.date ?? new Date().toISOString().slice(0, 10))
+      setDate(data.date ?? todayLocalISO())
     } catch {
       setError("Couldn't read that file.")
     } finally {
