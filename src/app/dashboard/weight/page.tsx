@@ -60,11 +60,14 @@ function TrendBadge({ diff, range }: { diff: number | null; range: WeightRange |
   )
 }
 
-function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: {value: number}[]; label?: string }) {
+function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: {value: number}[]; label?: number | string }) {
   if (!active || !payload?.length) return null
+  // `label` is the epoch millisecond the axis is keyed on now, not the date
+  // string it used to be.
+  const when = typeof label === "number" ? format(new Date(label), "d MMM yyyy") : String(label ?? "")
   return (
     <div className="bg-popover border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
-      <p className="font-semibold mb-1">{label}</p>
+      <p className="font-semibold mb-1">{when}</p>
       <p className="text-blue-400">{payload[0].value.toFixed(1)} kg</p>
     </div>
   )
@@ -152,6 +155,20 @@ export default function WeightPage() {
   // which is what 78.1 is in binary floating point — made the domain
   // 77.10000000000001, and recharts derived its ticks from that: the axis
   // printed "77.60000000000001", clipped by its own width to "0000001".
+  // Plotted against TIME, not against position in the list.
+  //
+  // The axis was categorical: every reading got an equal slice of width, so a
+  // four-month gap between two weigh-ins looked exactly like an overnight one.
+  // On a 180-day view with a spring cluster and one August reading, that drew
+  // a cliff where there had been a slow drift, and printed "22 Apr" next to
+  // "29 Aug" as if they were neighbours.
+  const series = entries.map(e => ({ ts: parseISO(e.date).getTime(), weight: e.weight }))
+  const spanDays = series.length > 1
+    ? (series[series.length - 1].ts - series[0].ts) / 864e5
+    : 0
+  // Over a long span the day is noise and the month is the story.
+  const tickFmt = spanDays > 120 ? "MMM yyyy" : "d MMM"
+
   const chartMin  = entries.length ? Math.floor(Math.min(...entries.map(e => e.weight)) - 1) : 50
   const chartMax  = entries.length ? Math.ceil(Math.max(...entries.map(e => e.weight)) + 1) : 100
 
@@ -252,7 +269,7 @@ export default function WeightPage() {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <ComposedChart data={entries} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
+              <ComposedChart data={series} margin={{ top: 8, right: 8, left: -10, bottom: 0 }}>
                 <defs>
                   <linearGradient id="weightGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.3} />
@@ -260,9 +277,10 @@ export default function WeightPage() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="#1e1e2e" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false}
-                  interval="preserveStartEnd"
-                  tickFormatter={d => { try { return format(parseISO(d), "d MMM") } catch { return d } }} />
+                <XAxis
+                  dataKey="ts" type="number" scale="time" domain={["dataMin", "dataMax"]}
+                  tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false}
+                  tickFormatter={t => { try { return format(new Date(t), tickFmt) } catch { return "" } }} />
                 <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} axisLine={false} tickLine={false}
                   domain={[chartMin, chartMax]} tickFormatter={v => Number(v).toFixed(1)} />
                 <Tooltip content={<CustomTooltip />} />
