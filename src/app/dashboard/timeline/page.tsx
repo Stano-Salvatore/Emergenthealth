@@ -5,6 +5,7 @@ import { format, parseISO, subDays, addDays } from "date-fns"
 import { ChevronLeft, ChevronRight, Moon, Footprints, Heart, Shield, Zap, RefreshCw, X, Plus, Camera } from "lucide-react"
 import { capturePhoto } from "@/lib/native/camera"
 import { Card, CardContent } from "@/components/ui/card"
+import MonthGlyphs from "@/components/timeline/MonthGlyphs"
 import { cn } from "@/lib/utils"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -54,13 +55,13 @@ const WORKOUT_EMOJI: Record<string, string> = {
   Workout:"💪", Yoga:"🧘", VirtualRide:"🚴", NordicSki:"⛷️", AlpineSki:"🎿",
 }
 
-function fmtSec(s: number | null): string {
-  if (!s) return "—"
-  const h = Math.floor(s / 3600)
-  const m = Math.round((s % 3600) / 60)
-  return h > 0 ? `${h}h ${m}m` : `${m}m`
-}
-
+// There was a seconds formatter here too, and every sleep value on the page
+// was going through it. Each of those columns is MINUTES — `deepSleepMin` is
+// what the sync route calls its input, and `awakeTime` documents itself as
+// "minutes spent awake" — so a 7h 20m night rendered as "7m". The two Oura
+// counters that did want the seconds version multiplied their minutes up by
+// sixty to reach it, which is the tell nobody read. It is gone: the only
+// duration formatter on this page now takes what the database actually holds.
 function fmtMin(m: number | null): string {
   if (m == null) return "—"
   return m >= 60 ? `${Math.floor(m/60)}h ${m%60}m` : `${m}m`
@@ -85,7 +86,7 @@ function isoToHour(iso: string): number {
 function SummaryStrip({ log, mood }: { log: HealthLog | null; mood: { mood: number; note: string | null } | null }) {
   const chips = [
     log?.readinessScore != null && { icon: <Shield className="h-3 w-3" />, label: `${log.readinessScore}`, sub: "readiness", color: "text-blue-400" },
-    log?.sleepDuration   != null && { icon: <Moon className="h-3 w-3" />,  label: fmtSec(log.sleepDuration), sub: "sleep", color: "text-primary" },
+    log?.sleepDuration   != null && { icon: <Moon className="h-3 w-3" />,  label: fmtMin(log.sleepDuration), sub: "sleep", color: "text-primary" },
     log?.steps           != null && { icon: <Footprints className="h-3 w-3" />, label: log.steps.toLocaleString(), sub: "steps", color: "text-amber-400" },
     log?.hrv             != null && { icon: <Heart className="h-3 w-3" />,  label: `${Math.round(log.hrv)}ms`, sub: "HRV", color: "text-rose-400" },
     log?.activityScore   != null && { icon: <Zap className="h-3 w-3" />,   label: `${log.activityScore}`, sub: "activity", color: "text-green-400" },
@@ -132,17 +133,17 @@ function SleepBlock({ log }: { log: HealthLog }) {
       {/* Stage bar */}
       {total > 0 && (
         <div className="h-3 rounded-full overflow-hidden flex">
-          {deep  > 0 && <div title={`Deep ${fmtSec(deep)}`}   style={{ width: `${(deep/total)*100}%`  }} className="bg-indigo-600" />}
-          {rem   > 0 && <div title={`REM ${fmtSec(rem)}`}    style={{ width: `${(rem/total)*100}%`   }} className="bg-violet-500" />}
-          {light > 0 && <div title={`Light ${fmtSec(light)}`} style={{ width: `${(light/total)*100}%` }} className="bg-blue-400/60" />}
-          {awake > 0 && <div title={`Awake ${fmtSec(awake)}`} style={{ width: `${(awake/total)*100}%` }} className="bg-secondary" />}
+          {deep  > 0 && <div title={`Deep ${fmtMin(deep)}`}   style={{ width: `${(deep/total)*100}%`  }} className="bg-indigo-600" />}
+          {rem   > 0 && <div title={`REM ${fmtMin(rem)}`}    style={{ width: `${(rem/total)*100}%`   }} className="bg-violet-500" />}
+          {light > 0 && <div title={`Light ${fmtMin(light)}`} style={{ width: `${(light/total)*100}%` }} className="bg-blue-400/60" />}
+          {awake > 0 && <div title={`Awake ${fmtMin(awake)}`} style={{ width: `${(awake/total)*100}%` }} className="bg-secondary" />}
         </div>
       )}
       <div className="flex gap-3 text-[10px] flex-wrap">
-        {deep  > 0 && <span className="text-indigo-400">■ Deep {fmtSec(deep)}</span>}
-        {rem   > 0 && <span className="text-violet-400">■ REM {fmtSec(rem)}</span>}
-        {light > 0 && <span className="text-blue-400">■ Light {fmtSec(light)}</span>}
-        {awake > 0 && <span className="text-muted-foreground">■ Awake {fmtSec(awake)}</span>}
+        {deep  > 0 && <span className="text-indigo-400">■ Deep {fmtMin(deep)}</span>}
+        {rem   > 0 && <span className="text-violet-400">■ REM {fmtMin(rem)}</span>}
+        {light > 0 && <span className="text-blue-400">■ Light {fmtMin(light)}</span>}
+        {awake > 0 && <span className="text-muted-foreground">■ Awake {fmtMin(awake)}</span>}
         {log.sleepEfficiency != null && <span className="text-muted-foreground/60 ml-auto">{log.sleepEfficiency}% efficiency</span>}
       </div>
     </div>
@@ -296,7 +297,7 @@ function Timeline({ data, onDelete }: { data: DayData; onDelete?: (id: string) =
               <div className="w-px h-2 bg-border/30 mt-0.5" />
             </div>
             <p className="text-xs font-semibold text-primary flex items-center gap-1">
-              <Moon className="h-3 w-3" /> Sleep · {fmtSec(data.healthLog.sleepDuration)}
+              <Moon className="h-3 w-3" /> Sleep · {fmtMin(data.healthLog.sleepDuration)}
             </p>
           </div>
           <div className="ml-[52px] bg-primary/5 border border-primary/15 rounded-xl p-3">
@@ -370,8 +371,8 @@ function StatGrid({ log }: { log: HealthLog }) {
     log.spo2          != null && ["SpO₂",           `${log.spo2.toFixed(1)}%`,             "🫁"],
     log.breathingRate != null && ["Breath rate",    `${log.breathingRate.toFixed(1)}/min`,  "💨"],
     log.skinTemp      != null && ["Skin temp",      `${log.skinTemp > 0 ? "+" : ""}${log.skinTemp.toFixed(1)}°`,  "🌡️"],
-    log.stressHigh    != null && ["Stress",         fmtSec(log.stressHigh * 60),           "😤"],
-    log.recoveryHigh  != null && ["Recovery",       fmtSec(log.recoveryHigh * 60),         "🛡️"],
+    log.stressHigh    != null && ["Stress",         fmtMin(log.stressHigh)      ,           "😤"],
+    log.recoveryHigh  != null && ["Recovery",       fmtMin(log.recoveryHigh)      ,         "🛡️"],
   ].filter(Boolean) as [string, string, string][]
 
   if (!rows.length) return null
@@ -498,6 +499,14 @@ export default function TimelinePage() {
           </button>
         </div>
       </div>
+
+      {/* The month, before the day. The page could always tell you everything
+          about one date and nothing about the shape of the weeks around it. */}
+      <MonthGlyphs
+        selectedDate={date}
+        today={format(new Date(), "yyyy-MM-dd")}
+        onPick={d => { setDate(d); load(d) }}
+      />
 
       {/* Date heading */}
       <p className="text-xs font-semibold text-muted-foreground/50 uppercase tracking-widest">

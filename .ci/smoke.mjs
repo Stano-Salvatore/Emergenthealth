@@ -148,7 +148,7 @@ for (const route of ROUTES) {
       // would still count something — turning a merely slow screen into a
       // reported failure, which is the fault this whole change is undoing.
       const pulsing = await page.evaluate(() =>
-        [...document.querySelectorAll("[class*='animate-pulse']")]
+        [...document.querySelectorAll("[class*='animate-pulse']:not([data-pulse])")]
           .filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 })
           .length,
       ).catch(() => 1)
@@ -205,7 +205,12 @@ for (const route of ROUTES) {
 
     // 2. A skeleton still animating long after the page settled is a loading
     //    state with no path out of it.
-    for (const el of document.querySelectorAll("[class*='animate-pulse']")) {
+    // `data-pulse` opts an element out: a pulse that MEANS something — the
+    // red badge on the Emergy button saying he has something for you — is not
+    // a skeleton, and reporting it as one is the fourth false alarm this file
+    // exists to prevent. Anything that pulses without declaring itself still
+    // fails, which is the right default: say what your animation is for.
+    for (const el of document.querySelectorAll("[class*='animate-pulse']:not([data-pulse])")) {
       const r = el.getBoundingClientRect()
       if (r.width > 0 && r.height > 0) out.pulsing.push(String(el.className).slice(0, 80))
     }

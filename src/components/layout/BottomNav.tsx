@@ -79,7 +79,14 @@ export function BottomNav() {
           )}>
             <EmergyAvatar mood={emergyState} fit="icon" size={46} />
             {needsAttention && !chatActive && (
-              <span className="absolute top-0.5 right-2.5 w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+              // data-pulse: a deliberate attention badge, not a loading
+              // skeleton. The smoke check treats an undeclared pulse as a
+              // screen stuck loading, and it was right to.
+              <span
+                data-pulse="attention"
+                aria-label="Emergy has something for you"
+                className="absolute top-0.5 right-2.5 w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"
+              />
             )}
           </div>
           <span className={cn(

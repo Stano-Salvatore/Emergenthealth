@@ -65,3 +65,21 @@ export function sleepVerdictText(adequate: boolean | null | undefined, hours: nu
   if (adequate === false && (hours ?? 0) >= 6) return STATUS_TEXT.watch
   return STATUS_TEXT.off
 }
+
+/**
+ * Mood on the same three-step scale as everything else.
+ *
+ * There are two five-step mood ramps in this codebase already (red → orange →
+ * yellow → green → emerald), and adding a third for the month grid would be
+ * the exact drift the top of this file exists to stop. Five steps are legible
+ * in a bar chart with room to breathe; in a 24-pixel disc they are three
+ * indistinguishable greens and two indistinguishable reds.
+ *
+ * So the disc uses the sanctioned three: 1–2 off, 3 watch, 4–5 on. The bar
+ * chart keeps its five, deliberately — it can carry them.
+ */
+export function moodStatus(mood: number): ScoreStatus {
+  if (mood >= 4) return "on"
+  if (mood === 3) return "watch"
+  return "off"
+}
