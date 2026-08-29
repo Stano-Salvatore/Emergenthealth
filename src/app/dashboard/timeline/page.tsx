@@ -287,23 +287,29 @@ function Timeline({ data, onDelete }: { data: DayData; onDelete?: (id: string) =
 
   return (
     <div className="relative pt-1">
-      {/* Sleep block at top if it exists */}
+      {/* Sleep, in the same three columns as every other row: time in the
+          gutter, dot on the line, content to the right. It used to sit inside
+          a `pl-13` wrapper with two hardcoded `ml-[52px]` offsets on top,
+          which pushed it a clear 50 pixels right of the events below and left
+          its label further right again than its own card. Sleep is an event
+          that started at a time, like the rest of them. */}
       {data.healthLog?.sleepDuration && (
-        <div className="mb-4 pl-13">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 shrink-0" />
-            <div className="flex flex-col items-center shrink-0">
-              <div className="w-2 h-2 rounded-full bg-primary" />
-              <div className="w-px h-2 bg-border/30 mt-0.5" />
-            </div>
+        <div className="flex items-start gap-3">
+          <div className="w-10 text-right text-[10px] text-muted-foreground/50 pt-0.5 shrink-0 tabular-nums">
+            {timeLabel(data.healthLog.sleepStart)}
+          </div>
+          <div className="flex flex-col items-center shrink-0">
+            <div className="w-2 h-2 rounded-full bg-primary mt-1" />
+            <div className="w-px flex-1 bg-border/30 mt-0.5" />
+          </div>
+          <div className="pb-3 min-w-0 flex-1">
             <p className="text-xs font-semibold text-primary flex items-center gap-1">
               <Moon className="h-3 w-3" /> Sleep · {fmtMin(data.healthLog.sleepDuration)}
             </p>
+            <div className="mt-2 bg-primary/5 border border-primary/15 rounded-xl p-3">
+              <SleepBlock log={data.healthLog} />
+            </div>
           </div>
-          <div className="ml-[52px] bg-primary/5 border border-primary/15 rounded-xl p-3">
-            <SleepBlock log={data.healthLog} />
-          </div>
-          <div className="ml-[58px] w-px h-3 bg-border/30" />
         </div>
       )}
 
