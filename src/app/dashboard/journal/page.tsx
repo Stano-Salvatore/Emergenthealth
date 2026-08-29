@@ -172,12 +172,14 @@ export default function JournalPage() {
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       {/* header + date nav */}
-      <div className="flex items-center justify-between">
+      {/* Wraps: the subtitle, the streak and the day picker together are wider
+          than a phone, and the subtitle was breaking to three lines to fit. */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <BookOpen className="h-6 w-6 text-primary" /> Journal
           </h1>
-          <div className="flex items-center gap-3 mt-0.5">
+          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
             <p className="text-muted-foreground text-sm">Daily reflection & location log</p>
             {journalStreak !== null && journalStreak > 0 && (
               <span className="text-xs text-amber-400 font-medium flex items-center gap-1">
