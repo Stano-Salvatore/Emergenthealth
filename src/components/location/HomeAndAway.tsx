@@ -204,6 +204,8 @@ function Sources({ sources }: { sources: { app: SourceSummary; timeline: SourceS
 export default function HomeAndAway({ days = 180 }: { days?: number }) {
   const [data, setData] = useState<DaysResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /** Trip start date → place name, filled in after the card has rendered. */
+  const [names, setNames] = useState<Record<string, string>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -219,6 +221,30 @@ export default function HomeAndAway({ days = 180 }: { days?: number }) {
     })()
     return () => { cancelled = true }
   }, [days])
+
+  // Names arrive one at a time, after the dates and distances are already on
+  // screen. Sequential on purpose: the geocoder asks for one request a second,
+  // and every answer is cached server-side, so a trip is only ever looked up
+  // once however many times this card is opened.
+  useEffect(() => {
+    if (!data || data.trips.length === 0) return
+    let cancelled = false
+    void (async () => {
+      for (const trip of data.trips) {
+        if (cancelled) return
+        try {
+          const res = await fetch(`/api/location/place-name?lat=${trip.lat}&lng=${trip.lng}`)
+          if (!res.ok) continue
+          const { label } = await res.json() as { label: string | null }
+          if (cancelled) return
+          if (label) setNames(prev => ({ ...prev, [trip.start]: label }))
+        } catch {
+          // A name is a nicety; the trip is still a trip without one.
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [data])
 
   return (
     <Card className="border-border/50 bg-card">
@@ -268,12 +294,24 @@ export default function HomeAndAway({ days = 180 }: { days?: number }) {
               ) : (
                 <ul className="space-y-1.5">
                   {data.trips.slice().reverse().map(t => (
-                    <li key={t.start} className="flex items-baseline justify-between gap-3 text-sm">
-                      <span className="font-medium">{dateRange(t.start, t.end)}</span>
-                      <span className="text-xs text-muted-foreground tabular-nums">
+                    <li key={t.start} className="text-sm">
+                      {/* Two lines rather than one: a place name is any length,
+                          and letting it share a row with the dates and the
+                          distance made both wrap unpredictably on a phone. */}
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="font-medium truncate">
+                          {names[t.start] ?? dateRange(t.start, t.end)}
+                        </span>
+                        {names[t.start] && (
+                          <span className="text-xs text-muted-foreground shrink-0">
+                            {dateRange(t.start, t.end)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground tabular-nums">
                         {t.nights} night{t.nights === 1 ? "" : "s"} · {Math.round(t.maxKmFromHome)} km
                         {t.gapDays > 0 && ` · ${t.gapDays} day${t.gapDays === 1 ? "" : "s"} unrecorded`}
-                      </span>
+                      </div>
                     </li>
                   ))}
                 </ul>
