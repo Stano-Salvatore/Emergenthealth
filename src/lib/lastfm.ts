@@ -41,9 +41,20 @@ export async function ensureLastfmTables(): Promise<void> {
   `
   // Added after the table existed, so it needs its own statement — CREATE
   // TABLE IF NOT EXISTS does nothing to a table that is already there.
+  //
+  // NULLABLE, and with no default, on purpose. Every row written before this
+  // column existed has no idea how much of its listening was late; filling
+  // those in with 0 would tell the correlation engine they were quiet
+  // evenings, which is the same mistake as reading a day with no location
+  // fixes as a day spent at home. Unknown has to stay unknown until a sync
+  // rewrites the day.
   await prisma.$executeRaw`
-    ALTER TABLE "LastfmLog" ADD COLUMN IF NOT EXISTS "lateTracks" INTEGER NOT NULL DEFAULT 0
+    ALTER TABLE "LastfmLog" ADD COLUMN IF NOT EXISTS "lateTracks" INTEGER
   `
+  // No-ops unless an earlier build of this file already added the column as
+  // NOT NULL DEFAULT 0.
+  await prisma.$executeRaw`ALTER TABLE "LastfmLog" ALTER COLUMN "lateTracks" DROP DEFAULT`
+  await prisma.$executeRaw`ALTER TABLE "LastfmLog" ALTER COLUMN "lateTracks" DROP NOT NULL`
 }
 
 export async function getLastfmKey(userId: string): Promise<{ apiKey: string; username: string } | null> {
