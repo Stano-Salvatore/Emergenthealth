@@ -9,6 +9,7 @@ import {
   CartesianGrid, Tooltip, ReferenceLine,
 } from "recharts"
 import { cn } from "@/lib/utils"
+import { healthyWeightRange, weightChangeVerdict, type WeightRange } from "@/lib/targets"
 
 interface WeightEntry { date: string; weight: number }
 
@@ -24,14 +25,35 @@ function delta(current: number | null, prev: number | null) {
   return Math.round((current - prev) * 10) / 10
 }
 
-function TrendBadge({ diff }: { diff: number | null }) {
+/**
+ * Down was green and up was orange, for everybody.
+ *
+ * That is only true above the healthy band. Below it every kilogram lost is a
+ * kilogram in the wrong direction, and an app congratulating you for it is
+ * worse than one that says nothing. The arrow still points where the weight
+ * went; the colour now says whether that was towards the band or away from it,
+ * and stays neutral when there is no band to judge against — which is what a
+ * missing height means.
+ */
+function TrendBadge({ diff, range }: { diff: number | null; range: WeightRange | null }) {
   if (diff == null) return <span className="text-muted-foreground text-xs">—</span>
   if (Math.abs(diff) < 0.1) return (
     <span className="flex items-center gap-1 text-xs text-muted-foreground"><Minus className="h-3 w-3" /> no change</span>
   )
   const down = diff < 0
+  const verdict = weightChangeVerdict(range, diff)
+  const tone = verdict === "better" ? "text-emerald-400"
+    : verdict === "worse" ? "text-red-400"
+    : "text-muted-foreground"
   return (
-    <span className={cn("flex items-center gap-1 text-xs font-medium", down ? "text-green-400" : "text-orange-400")}>
+    <span
+      className={cn("flex items-center gap-1 text-xs font-medium", tone)}
+      title={
+        verdict === "better" ? "towards your healthy range"
+          : verdict === "worse" ? "away from your healthy range"
+          : range ? "inside your healthy range" : "set your height to judge this"
+      }
+    >
       {down ? <TrendingDown className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
       {diff > 0 ? "+" : ""}{diff} kg
     </span>
@@ -70,6 +92,23 @@ export default function WeightPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Height, so the page can say what a healthy weight is for this body rather
+  // than assuming down is good. It lives with the goals, and is the only thing
+  // needed from them here.
+  const [heightCm, setHeightCm] = useState<number | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch("/api/goals")
+        if (!res.ok) return
+        const g = await res.json() as { heightCm?: number | null }
+        if (!cancelled) setHeightCm(g.heightCm ?? null)
+      } catch { /* no height, no band — the badges stay neutral */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   function switchRange(days: number) {
     setRange(days)
     load(days)
@@ -107,6 +146,7 @@ export default function WeightPage() {
   const weekDiff  = delta(latest, weekAgo)
   const monthDiff = delta(latest, monthAgo)
   const totalDiff = delta(latest, allTime)
+  const range_ = healthyWeightRange(heightCm, latest)
 
   // Floored and ceiled, not just padded by 1. A weight of 78.10000000000001 —
   // which is what 78.1 is in binary floating point — made the domain
@@ -133,13 +173,41 @@ export default function WeightPage() {
         </button>
       </div>
 
+      {/* The band, said out loud. A number on its own ("47.0 kg") carries no
+          judgement; the same number against 56.7–76.3 does. */}
+      {range_ && (
+        <div className={cn(
+          "rounded-xl border px-4 py-3 text-sm",
+          range_.position === "inside"
+            ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-300"
+            : "border-amber-500/25 bg-amber-500/10 text-amber-300",
+        )}>
+          <p className="font-medium">
+            Healthy range for {heightCm} cm: <span className="tabular-nums">{range_.minKg}–{range_.maxKg} kg</span>
+          </p>
+          <p className="text-xs mt-0.5 opacity-90">
+            {range_.position === "inside"
+              ? `You're inside it, at BMI ${range_.bmi}.`
+              : range_.position === "under"
+              ? `You're ${(range_.minKg - (latest ?? 0)).toFixed(1)} kg below it, at BMI ${range_.bmi} — so losing is the wrong way, and this page colours it that way.`
+              : `You're ${((latest ?? 0) - range_.maxKg).toFixed(1)} kg above it, at BMI ${range_.bmi}.`}
+          </p>
+        </div>
+      )}
+      {!range_ && latest != null && (
+        <p className="text-xs text-muted-foreground">
+          Set your height on the Body tab and this page can say whether a change
+          is towards a healthy weight or away from it. Without it, down is just down.
+        </p>
+      )}
+
       {/* Stats strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           { label: "Current", value: latest != null ? `${latest.toFixed(1)} kg` : "—", sub: null },
-          { label: "vs 7 days ago", value: latest != null ? `${latest.toFixed(1)} kg` : "—", sub: <TrendBadge diff={weekDiff} /> },
-          { label: "vs 30 days ago", value: latest != null ? `${latest.toFixed(1)} kg` : "—", sub: <TrendBadge diff={monthDiff} /> },
-          { label: `vs ${range}d ago`, value: latest != null ? `${latest.toFixed(1)} kg` : "—", sub: <TrendBadge diff={totalDiff} /> },
+          { label: "vs 7 days ago", value: latest != null ? `${latest.toFixed(1)} kg` : "—", sub: <TrendBadge diff={weekDiff} range={range_} /> },
+          { label: "vs 30 days ago", value: latest != null ? `${latest.toFixed(1)} kg` : "—", sub: <TrendBadge diff={monthDiff} range={range_} /> },
+          { label: `vs ${range}d ago`, value: latest != null ? `${latest.toFixed(1)} kg` : "—", sub: <TrendBadge diff={totalDiff} range={range_} /> },
         ].map((s, i) => (
           <Card key={i}>
             <CardContent className="pt-4 pb-4">
@@ -275,7 +343,7 @@ export default function WeightPage() {
                       {format(parseISO(e.date), "EEE, MMM d")}
                     </span>
                     <div className="flex items-center gap-3">
-                      {diff != null && <TrendBadge diff={diff} />}
+                      {diff != null && <TrendBadge diff={diff} range={range_} />}
                       <span className="text-sm font-semibold tabular-nums w-16 text-right">{e.weight.toFixed(1)} kg</span>
                     </div>
                   </div>

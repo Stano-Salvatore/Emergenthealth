@@ -12,10 +12,12 @@ import { Progress } from "@/components/ui/progress"
 import {
   Moon, Footprints, Activity, Shield, CheckSquare, Droplets, Timer, TrendingUp, TrendingDown, Minus,
 } from "lucide-react"
+import { getGoals } from "@/lib/goals"
+import { hydrationMl } from "@/lib/hydration"
 
-const STEP_GOAL = 8000
-const SLEEP_GOAL_H = 7.5
-const WATER_GOAL = 2000
+// The goals a user actually set, not three numbers chosen here. At 47 kg a
+// fixed 2 L target is not the same ask as it is at 90 kg, and the app already
+// knows the difference — it was only this page that didn't.
 
 function avg(arr: (number | null)[]) {
   const v = arr.filter((x): x is number => x != null)
@@ -48,6 +50,11 @@ export default async function WeekPage() {
   const weekStartStr = format(weekStart, "yyyy-MM-dd")
   const todayStr = format(today, "yyyy-MM-dd")
 
+  const goals = await getGoals(userId)
+  const SLEEP_GOAL_H = goals.sleepH
+  const STEP_GOAL = goals.steps
+  const WATER_GOAL = goals.waterMl
+
   const [thisWeekLogs, prevWeekLogs, thisWeekHabits, thisWeekIntake, thisWeekFocus, moodLogs, checkinRows] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: weekStart, lte: today } },
@@ -72,10 +79,14 @@ export default async function WeekPage() {
         completions: { where: { date: { gte: weekStart, lte: today } } },
       },
     }),
+    // Every drink, not just the ones typed "water". lib/hydration exists
+    // because filtering on that one type scored a litre of coffee as zero;
+    // this page was still doing it, so a week that ran on coffee and mate
+    // reported a fraction of what was actually drunk.
     prisma.intakeLog.findMany({
-      where: { userId, type: "water", loggedAt: { gte: weekStart, lte: today } },
-      select: { amountMl: true, loggedAt: true },
-    }).catch(() => [] as { amountMl: number; loggedAt: Date }[]),
+      where: { userId, loggedAt: { gte: weekStart, lte: today } },
+      select: { amountMl: true, loggedAt: true, type: true },
+    }).catch(() => [] as { amountMl: number; loggedAt: Date; type: string }[]),
     prisma.focusSession.findMany({
       where: { userId, type: "focus", endedAt: { gte: weekStart, lte: today } },
       select: { durationMin: true },
@@ -132,7 +143,7 @@ export default async function WeekPage() {
   const waterByDay: Record<string, number> = {}
   for (const w of thisWeekIntake) {
     const d = format(new Date(w.loggedAt), "yyyy-MM-dd")
-    waterByDay[d] = (waterByDay[d] ?? 0) + w.amountMl
+    waterByDay[d] = (waterByDay[d] ?? 0) + hydrationMl(w.type, w.amountMl)
   }
   const waterGoalDays = Object.values(waterByDay).filter(v => v >= WATER_GOAL).length
   const totalWaterMl = Object.values(waterByDay).reduce((a,b) => a+b, 0)
@@ -329,7 +340,7 @@ export default async function WeekPage() {
             </div>
             <div>
               <div className="flex justify-between text-xs mb-1 text-muted-foreground">
-                <span>Goal days ({WATER_GOAL/1000}L+)</span>
+                <span>Goal days ({(WATER_GOAL / 1000).toFixed(1)}L+)</span>
                 <span>{waterGoalDays}/{totalDays}</span>
               </div>
               <Progress value={totalDays > 0 ? (waterGoalDays/totalDays)*100 : 0} className="h-1.5" />
