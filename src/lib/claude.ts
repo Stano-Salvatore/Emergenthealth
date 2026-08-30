@@ -21,6 +21,7 @@ import { addFact, forgetFact, MEMORY_KEY, parseFacts, renderFacts, serialiseFact
 import { detectStops } from "@/lib/day-stops"
 import { buildJourney } from "@/lib/day-journeys"
 import { matchSavedPlace, placeNameKey } from "@/lib/places"
+import { DAILY_MAX_DAYS, renderWeek, rollupWeeks, type DailyMetrics } from "@/lib/health-rollup"
 import { parseDose, formatDose } from "@/lib/dose"
 
 /** Fold whatever the model called it onto a type the app stores. */
@@ -243,13 +244,15 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "get_health_range",
-    description: "Read the user's full daily history over the last N days: health metrics (sleep, resting HR, HRV, readiness, steps), Oura Ring tags (coffee, supplements, meds, alcohol — the user logs these in the Oura app), morning check-ins (energy/mood/intention), mood logs, journal notes, and logged water/coffee. Use this to answer questions about trends and causes — e.g. 'does coffee affect my sleep', 'how did I feel that week'. Reason over the returned data instead of guessing.",
+    description: "Read the user's daily history: health metrics (sleep, resting HR, HRV, readiness, steps), Oura Ring tags (coffee, supplements, meds, alcohol — the user logs these in the Oura app), morning check-ins (energy/mood/intention), mood logs, journal notes, and logged water/coffee. Use this to answer questions about trends and causes — e.g. 'does coffee affect my sleep', 'how did I feel that week'. Reason over the returned data instead of guessing. Either pass `days` to look back from today, or `from`/`to` for a specific stretch — imported history goes back years, so a question about last autumn is answerable. Ranges longer than about four months come back as weekly averages instead of daily rows; narrow the window when you need a particular day.",
     input_schema: {
       type: "object" as const,
       properties: {
-        days: { type: "number", description: "How many days back to fetch (1-90)" },
+        days: { type: "number", description: "How many days back from today (1-365). Ignored if from/to are given." },
+        from: { type: "string", description: "Start of a specific window, YYYY-MM-DD in the user's local time" },
+        to: { type: "string", description: "End of that window, YYYY-MM-DD. Defaults to today." },
       },
-      required: ["days"],
+      required: [],
     },
   },
   {
@@ -756,15 +759,30 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   }
 
   if (name === "get_health_range") {
-    const days = Math.min(90, Math.max(1, parseInt(String(input.days), 10) || 7))
     // The window starts on the user's day, not the server's, and `since` is
     // that day's local midnight rather than the server's.
     const rangeTz = await getUserTimezone(userId)
-    const sinceStr = addDaysISO(localDateStr(rangeTz), -days)
+    const isDay = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    const todayStr = localDateStr(rangeTz)
+
+    // Either an explicit window or the last N days. Explicit wins, because
+    // "how was last autumn" is not expressible as a number of days back and
+    // was the question this could not answer at all.
+    const toStr = isDay(input.to) ? String(input.to) : todayStr
+    const fromStr = isDay(input.from)
+      ? String(input.from)
+      : addDaysISO(toStr, -Math.min(365, Math.max(1, parseInt(String(input.days), 10) || 7)))
+    const sinceStr = fromStr <= toStr ? fromStr : toStr
+    const untilStr = fromStr <= toStr ? toStr : fromStr
+
     const since = zonedDayRange(rangeTz, sinceStr).start
+    const until = zonedDayRange(rangeTz, untilStr).end
+    const days = Math.round(
+      (Date.parse(`${untilStr}T00:00:00Z`) - Date.parse(`${sinceStr}T00:00:00Z`)) / 86_400_000,
+    ) + 1
     const [logs, tags, checkins, notes, moods, intake] = await Promise.all([
       prisma.healthLog.findMany({
-        where: { userId, date: { gte: since } },
+        where: { userId, date: { gte: since, lte: until } },
         orderBy: { date: "desc" },
         select: {
           date: true, sleepDuration: true, sleepScore: true, restingHR: true,
@@ -773,22 +791,22 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       }).catch(() => [] as any[]),
       prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
         SELECT "day","tagName","text" FROM "OuraTag"
-        WHERE "userId" = ${userId} AND "day" >= ${sinceStr} ORDER BY "timestamp"
+        WHERE "userId" = ${userId} AND "day" >= ${sinceStr} AND "day" <= ${untilStr} ORDER BY "timestamp"
       `.catch(() => []),
       prisma.$queryRaw<{ date: string; energy: number; mood: number; intention: string | null }[]>`
         SELECT "date","energy","mood","intention" FROM "MorningCheckIn"
-        WHERE "userId" = ${userId} AND "date" >= ${sinceStr}
+        WHERE "userId" = ${userId} AND "date" >= ${sinceStr} AND "date" <= ${untilStr}
       `.catch(() => []),
       prisma.dailyNote.findMany({
-        where: { userId, date: { gte: since } },
+        where: { userId, date: { gte: since, lte: until } },
         select: { date: true, content: true },
       }).catch(() => [] as { date: Date; content: string }[]),
       prisma.moodLog.findMany({
-        where: { userId, date: { gte: since } },
+        where: { userId, date: { gte: since, lte: until } },
         select: { date: true, mood: true },
       }).catch(() => [] as { date: Date; mood: number }[]),
       prisma.intakeLog.findMany({
-        where: { userId, loggedAt: { gte: since } },
+        where: { userId, loggedAt: { gte: since, lte: until } },
         select: { loggedAt: true, type: true, amountMl: true },
       }).catch(() => [] as { loggedAt: Date; type: string; amountMl: number }[]),
     ])
@@ -821,7 +839,36 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       ...healthByDay.keys(), ...tagsByDay.keys(), ...checkinByDay.keys(),
       ...noteByDay.keys(), ...moodByDay.keys(), ...intakeByDay.keys(),
     ])].sort().reverse()
-    if (allDays.length === 0) return `No data in the last ${days} days.`
+    if (allDays.length === 0) {
+      return `No data between ${sinceStr} and ${untilStr}.`
+    }
+
+    // A year of daily rows is three hundred lines of noise, and the noise is
+    // exactly what hides a season. Past four months this answers by week.
+    if (days > DAILY_MAX_DAYS) {
+      const daily: DailyMetrics[] = allDays.map(d => {
+        const l = healthByDay.get(d)
+        return {
+          date: d,
+          sleepH: l?.sleepDuration != null ? l.sleepDuration / 60 : null,
+          restingHR: l?.restingHR ?? null,
+          hrv: l?.hrv ?? null,
+          readiness: l?.readinessScore ?? null,
+          steps: l?.steps ?? null,
+          mood: moodByDay.get(d) ?? checkinByDay.get(d)?.mood ?? null,
+        }
+      })
+      const weeks = rollupWeeks(daily)
+      const noted = allDays.filter(d => noteByDay.has(d) || (tagsByDay.get(d)?.length ?? 0) > 0).length
+      return [
+        `${sinceStr} to ${untilStr}, by week (${weeks.length} weeks, ${allDays.length} days with data).`,
+        `Weekly averages — ask for a narrower window to see individual days.`,
+        ...weeks.map(renderWeek),
+        noted > 0
+          ? `\n${noted} of those days also have a journal note or Oura tags; a shorter range returns them.`
+          : "",
+      ].filter(Boolean).join("\n")
+    }
 
     const rows = allDays.map(d => {
       const l = healthByDay.get(d)
@@ -844,7 +891,10 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       if (note) parts.push(`journal: "${note.length > 160 ? note.slice(0, 160) + "…" : note}"`)
       return `${d}: ${parts.join(" | ")}`
     }).join("\n")
-    return `Last ${days} days (most recent first — health, Oura tags, intake, check-ins, mood, journal):\n${rows}`
+    // Named by the window rather than "last N days": with from/to it may not
+    // end today at all, and telling him a stretch of last autumn was "the last
+    // 30 days" is how a right answer gets attached to the wrong dates.
+    return `${sinceStr} to ${untilStr} (most recent first — health, Oura tags, intake, check-ins, mood, journal):\n${rows}`
   }
 
   if (name === "get_day_journey") {

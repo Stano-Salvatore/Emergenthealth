@@ -162,10 +162,19 @@ export async function GET(req: Request) {
       SELECT DISTINCT to_char(("trackedAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timezone}, 'YYYY-MM-DD') AS day
       FROM "LocationPoint" WHERE "userId" = ${session.user.id}
     `.catch(() => [] as { day: string }[])
+    // Every day with tracking, not the most recent thirty.
+    //
+    // A Google Timeline import is years of history, and the page reached it
+    // through a list of thirty chips and a one-day-back arrow — so anything
+    // older than a month was present in the database and unreachable without
+    // several hundred clicks. The page shows the recent ones as chips and
+    // offers the rest through a date picker bounded by this list, which needs
+    // to know the real extent of the data to bound anything.
+    //
+    // One string per tracked day: a decade of daily tracking is under 40 KB.
     const merged = [...new Set([...gpxDates, ...pointDays.map(r => r.day)])]
       .sort()
       .reverse()
-      .slice(0, 30)
     return NextResponse.json(merged)
   }
 

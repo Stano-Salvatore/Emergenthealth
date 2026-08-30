@@ -77,7 +77,16 @@ export type InsightResult = {
   weekendDriven?: boolean
 }
 
-export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall: 90 }
+/**
+ * The windows a user can ask for.
+ *
+ * "year" exists because 90 days cannot see a season. A Samsung Health export
+ * goes back years and all of it is stored, but the longest window on offer was
+ * a quarter — so "am I worse in winter", the question a year of data is for,
+ * could not be asked at all. The engine is window-agnostic; only this list
+ * decided how far it was allowed to look.
+ */
+export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall: 90, year: 365 }
 
 /**
  * Bump when the insight battery gains or loses sources. Cached runs stamped
