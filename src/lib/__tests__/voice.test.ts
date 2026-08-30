@@ -44,3 +44,139 @@ describe("speakableText", () => {
     expect(speakableText("before\n```js\nconst x = 1\n```\nafter")).toBe("before after")
   })
 })
+
+describe("speak — noticing when the device only pretends", () => {
+  // speechSynthesis.speak() queues an utterance and reports nothing back. On a
+  // platform with no working engine — an Android WebView with no TTS service
+  // bound is the case that prompted this — it is accepted and never spoken:
+  // onstart never fires, onend never fires, and a caller that trusted the
+  // queue lights a speaker icon over silence for ever.
+  class FakeUtterance {
+    text: string
+    voice: unknown = null
+    lang = ""
+    rate = 1
+    onstart: (() => void) | null = null
+    onend: (() => void) | null = null
+    onerror: ((e: { error: string }) => void) | null = null
+    constructor(text: string) { this.text = text }
+  }
+
+  function withSynth(behaviour: "speaks" | "silent" | "fails" | "cancelled") {
+    const spoken: FakeUtterance[] = []
+    const synth = {
+      getVoices: () => [],
+      cancel: vi.fn(),
+      speak: (u: FakeUtterance) => {
+        spoken.push(u)
+        if (behaviour === "speaks") u.onstart?.()
+        // The engine refusing, promptly — what headless Chromium actually does,
+        // and what an Android WebView with no TTS service bound may do.
+        if (behaviour === "fails") u.onerror?.({ error: "synthesis-failed" })
+        if (behaviour === "cancelled") u.onerror?.({ error: "canceled" })
+      },
+    }
+    vi.stubGlobal("window", { speechSynthesis: synth, SpeechSynthesisUtterance: FakeUtterance })
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance)
+    return { spoken, synth }
+  }
+
+  it("reports silence when nothing ever starts", async () => {
+    vi.useFakeTimers()
+    const { synth } = withSynth("silent")
+    const { speak, SPEECH_START_TIMEOUT_MS } = await import("@/lib/voice")
+
+    const onSilent = vi.fn()
+    const onStart = vi.fn()
+    expect(speak("hello there", { onStart, onSilent })).toBe(true)
+
+    expect(onSilent).not.toHaveBeenCalled()
+    vi.advanceTimersByTime(SPEECH_START_TIMEOUT_MS + 10)
+    expect(onSilent).toHaveBeenCalledTimes(1)
+    expect(onStart).not.toHaveBeenCalled()
+    // The dead utterance is cleared, or it would play later over whatever is
+    // being said by then: once on entry, once by the watchdog.
+    expect(synth.cancel).toHaveBeenCalledTimes(2)
+
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it("does not cry silence when the device does speak", async () => {
+    vi.useFakeTimers()
+    withSynth("speaks")
+    const { speak, SPEECH_START_TIMEOUT_MS } = await import("@/lib/voice")
+
+    const onSilent = vi.fn()
+    const onStart = vi.fn()
+    speak("hello there", { onStart, onSilent })
+
+    expect(onStart).toHaveBeenCalledTimes(1)
+    vi.advanceTimersByTime(SPEECH_START_TIMEOUT_MS * 2)
+    expect(onSilent).not.toHaveBeenCalled()
+
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it("has nothing to say about text that is only emoji and markdown", async () => {
+    withSynth("speaks")
+    const { speak } = await import("@/lib/voice")
+    expect(speak("**** 🌱🌱", {})).toBe(false)
+    expect(speak("   ", {})).toBe(false)
+    vi.unstubAllGlobals()
+  })
+})
+
+describe("speak — an engine that refuses outright", () => {
+  class FakeUtterance {
+    text: string
+    voice: unknown = null
+    lang = ""
+    rate = 1
+    onstart: (() => void) | null = null
+    onend: (() => void) | null = null
+    onerror: ((e: { error: string }) => void) | null = null
+    constructor(text: string) { this.text = text }
+  }
+
+  /** An engine that answers immediately with `error` instead of speaking. */
+  function refusingSynth(error: string) {
+    vi.stubGlobal("window", {
+      speechSynthesis: {
+        getVoices: () => [],
+        cancel: () => {},
+        speak: (u: FakeUtterance) => u.onerror?.({ error }),
+      },
+      SpeechSynthesisUtterance: FakeUtterance,
+    })
+    vi.stubGlobal("SpeechSynthesisUtterance", FakeUtterance)
+  }
+
+  it("reports a synthesis failure rather than treating it as a finished reply", async () => {
+    // The watchdog alone misses this: the error arrives in milliseconds, well
+    // inside the timeout, so mapping onerror straight to onEnd cleared the
+    // watchdog and looked like a normal finish — the icon went dark over
+    // silence and nothing said why. Headless Chromium does exactly this.
+    refusingSynth("synthesis-failed")
+    const { speak } = await import("@/lib/voice")
+    const onSilent = vi.fn(); const onEnd = vi.fn()
+    speak("hello there", { onEnd, onSilent })
+    expect(onSilent).toHaveBeenCalledTimes(1)
+    expect(onEnd).toHaveBeenCalledTimes(1)
+    vi.unstubAllGlobals()
+  })
+
+  it("stays quiet when the error is our own cancel", async () => {
+    // stopSpeaking(), or the cancel() at the top of the next utterance. Saying
+    // "your device cannot speak" every time the user hits stop would train
+    // them to ignore the one time it is true.
+    refusingSynth("canceled")
+    const { speak } = await import("@/lib/voice")
+    const onSilent = vi.fn(); const onEnd = vi.fn()
+    speak("hello there", { onEnd, onSilent })
+    expect(onSilent).not.toHaveBeenCalled()
+    expect(onEnd).toHaveBeenCalledTimes(1)
+    vi.unstubAllGlobals()
+  })
+})
