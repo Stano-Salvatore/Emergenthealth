@@ -48,6 +48,13 @@ extra_permissions = """
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!--
+      Motion classification (walking / running / cycling / in a vehicle) from
+      the OS's Activity Recognition — what upgrades the journey view's travel
+      modes from speed guesses on days the app itself tracks. Runtime
+      permission from Android 10; requested from Settings, never at launch.
+    -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <!--
       SCHEDULE_EXACT_ALARM, not USE_EXACT_ALARM.
 
       USE_EXACT_ALARM is granted at install with no prompt, but Play restricts
@@ -256,6 +263,8 @@ widget_copies = [
     (f"{widget_src}/emergy_widget_info.xml",    f"{res_xml}/emergy_widget_info.xml"),
     # Bubble — Emergy floating over other apps (Android 11+)
     (f"{widget_src}/EmergyBubblePlugin.java",   f"{pkg_java_dir}/EmergyBubblePlugin.java"),
+    # Activity Recognition — motion transitions caught while the app is closed
+    (f"{widget_src}/EmergyActivityReceiver.java", f"{pkg_java_dir}/EmergyActivityReceiver.java"),
     (f"{widget_src}/BubbleActivity.java",       f"{pkg_java_dir}/BubbleActivity.java"),
     # Chat head — the Messenger kind: an overlay window this app draws itself,
     # which is the only version that can work on a build with no Bubbles.
@@ -373,6 +382,41 @@ if widget_ok:
         print("✓ AndroidManifest.xml updated with BubbleActivity")
     else:
         print("ℹ️  BubbleActivity already present")
+
+    # The transition receiver. Not exported and with no intent-filter: the
+    # only sender is the explicit PendingIntent the plugin registers.
+    with open(manifest_path) as f:
+        m = f.read()
+    if "EmergyActivityReceiver" not in m:
+        receiver = """
+        <receiver
+            android:name=".EmergyActivityReceiver"
+            android:exported="false" />
+"""
+        m = m.replace("</application>", receiver + "    </application>", 1)
+        with open(manifest_path, "w") as f:
+            f.write(m)
+        print("✓ AndroidManifest.xml updated with EmergyActivityReceiver")
+    else:
+        print("ℹ️  EmergyActivityReceiver already present")
+
+    # Activity Recognition lives in play-services-location, which only the
+    # background-geolocation plugin's own module depends on — that does not
+    # put it on the app module's compile classpath, so the plugin code here
+    # would not build without it. Unconditional, unlike Firebase: it needs no
+    # config file and pulls no service alive by existing.
+    with open(app_gradle_path) as f:
+        g = f.read()
+    if "play-services-location" not in g:
+        g = g.replace(
+            "dependencies {",
+            "dependencies {\n    implementation 'com.google.android.gms:play-services-location:21.3.0'",
+            1)
+        with open(app_gradle_path, "w") as f:
+            f.write(g)
+        print("✓ app/build.gradle given play-services-location for activity recognition")
+    else:
+        print("ℹ️  play-services-location already present")
 
     # The chat head's service. Android 14+ refuses to start a foreground
     # service with no declared type, and specialUse needs the property below

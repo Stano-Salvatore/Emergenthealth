@@ -3,7 +3,7 @@
 import { useRef, useState } from "react"
 import { Upload, CheckCircle2, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { extractVisits, parseLatLngString } from "@/lib/timeline-visits"
+import { extractActivities, extractVisits, parseLatLngString } from "@/lib/timeline-visits"
 
 // Import a Google Takeout of Timeline / Location History.
 //
@@ -115,7 +115,7 @@ type Phase =
   | { kind: "idle" }
   | { kind: "parsing" }
   | { kind: "uploading"; done: number; total: number }
-  | { kind: "done"; imported: number; total: number; from: string; to: string; checkIns: number }
+  | { kind: "done"; imported: number; total: number; from: string; to: string; checkIns: number; activitySpans: number }
   | { kind: "error"; message: string }
 
 export function TimelineImport({ onImported }: { onImported?: () => void }) {
@@ -138,6 +138,21 @@ export function TimelineImport({ onImported }: { onImported?: () => void }) {
         throw new Error("No GPS points found in this file. Expected a Google Timeline export — \"Timeline Edits.json\", \"Records.json\", or a phone \"Timeline.json\".")
       }
 
+      // The travel modes Google already worked out — IN_BUS, WALKING,
+      // IN_PASSENGER_VEHICLE. Sent first and in their own batches: they are
+      // what lets the day journey say "on a bus" as a fact instead of a
+      // speed guess, and a failure uploading points should not lose them.
+      const activities = extractActivities(doc)
+      let activitySpans = 0
+      for (let i = 0; i < activities.length; i += BATCH) {
+        const res = await fetch("/api/import/timeline", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ activities: activities.slice(i, i + BATCH) }),
+        })
+        if (res.ok) activitySpans += (await res.json()).activitySpans ?? 0
+      }
+
       let imported = 0
       let checkIns = 0
       for (let i = 0; i < points.length; i += BATCH) {
@@ -157,6 +172,7 @@ export function TimelineImport({ onImported }: { onImported?: () => void }) {
         kind: "done",
         imported,
         checkIns,
+        activitySpans,
         total: points.length,
         from: points[0].trackedAt.slice(0, 10),
         to: points[points.length - 1].trackedAt.slice(0, 10),
@@ -217,7 +233,8 @@ export function TimelineImport({ onImported }: { onImported?: () => void }) {
           {phase.imported > 0
             ? `Imported ${phase.imported.toLocaleString()} GPS points (${phase.from} → ${phase.to})`
             : `All ${phase.total.toLocaleString()} points were already imported (${phase.from} → ${phase.to})`}
-          {phase.checkIns > 0 ? ` · ${phase.checkIns} visits to your saved places logged.` : "."}
+          {phase.checkIns > 0 ? ` · ${phase.checkIns} visits to your saved places logged` : ""}
+          {phase.activitySpans > 0 ? ` · ${phase.activitySpans} travel modes (walks, buses, drives) learned` : ""}.
         </p>
       )}
       {phase.kind === "error" && (

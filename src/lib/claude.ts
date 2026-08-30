@@ -19,7 +19,8 @@ import { randomUUID } from "crypto"
 import { rankRecallHits, recallTerms, RECALL_MAX_HITS, trimForRecall } from "@/lib/chat-recall"
 import { addFact, forgetFact, MEMORY_KEY, parseFacts, renderFacts, serialiseFacts } from "@/lib/emergy-memory"
 import { detectStops } from "@/lib/day-stops"
-import { buildJourney } from "@/lib/day-journeys"
+import { loadKnownModes } from "@/lib/journey-known"
+import { applyKnownModes, buildJourney } from "@/lib/day-journeys"
 import { matchSavedPlace, placeNameKey } from "@/lib/places"
 import { DAILY_MAX_DAYS, renderWeek, rollupWeeks, type DailyMetrics } from "@/lib/health-rollup"
 import { parseDose, formatDose } from "@/lib/dose"
@@ -913,7 +914,11 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     if (rows.length < 2) return `No location was tracked on ${jDate}.`
 
     const points = rows.map(r => ({ lat: r.lat, lon: r.lng, time: r.trackedAt }))
-    const segments = buildJourney(points, detectStops(points))
+    // The same overlay the location page applies: Strava, imported Timeline
+    // activities, the phone's recognition. Without it his description of a
+    // day and the page's drawing of it could name different modes.
+    const known = await loadKnownModes(userId, jStart, jEnd).catch(() => [])
+    const segments = applyKnownModes(buildJourney(points, detectStops(points)), known)
     if (segments.length === 0) return `Nothing worth calling a stay or a journey on ${jDate}.`
 
     const savedPlaces = await prisma.savedPlace.findMany({

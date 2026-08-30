@@ -72,6 +72,7 @@ model User {
   rescuetimeKey        RescuetimeKey?
   rescuetimeLogs       RescuetimeLog[]
   togglToken           TogglToken?
+  activitySpans        ActivitySpan[]
 }
 
 model Account {
@@ -1175,4 +1176,30 @@ model TruelayerToken {
   accountName  String?
   currency     String?
   updatedAt    DateTime  @default(now()) @db.Timestamptz
+}
+
+// How a stretch of time was travelled, from a source that actually knows.
+//
+// The day journey infers travel modes from GPS speed, and speed genuinely
+// cannot tell a bus from a car. Two sources can do better and both land here:
+// Google Timeline's activity segments (matched against transit-line maps, so
+// they distinguish IN_BUS from IN_PASSENGER_VEHICLE — the one thing no phone
+// sensor can) and Android's Activity Recognition transitions from the phone
+// itself. lib/day-journeys overlays these onto inferred moves as "known".
+model ActivitySpan {
+  id     String   @id
+  userId String
+  start  DateTime @db.Timestamptz
+  end    DateTime @db.Timestamptz
+  /// lib/day-journeys TravelMode: walk|run|cycle|transit|drive|train|flight
+  mode   String
+  /// The recogniser could only say "in a vehicle" — bus vs car stays open,
+  /// so the overlay refines the guess instead of asserting a mode.
+  vehicleOnly Boolean @default(false)
+  /// "timeline" (Google export) or "phone" (Activity Recognition)
+  source String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, start])
 }

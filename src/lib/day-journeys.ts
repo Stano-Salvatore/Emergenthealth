@@ -114,6 +114,10 @@ export interface JourneyMove {
   topKmh: number
   /** Door to door, stops at lights included. */
   avgKmh: number
+  /** Brief interior halts — a bus's stops, a car's red lights. Kept on the
+   *  segment because the bus/car lean needs it again when an activity span
+   *  later says "vehicle" over a move speed had called something else. */
+  pauses: number
 }
 
 export interface JourneyGap {
@@ -235,6 +239,29 @@ export function moveStats(points: TimedPoint[]): MoveStats {
 }
 
 /**
+ * Transit or drive, for a move known to be a road vehicle.
+ *
+ * A bus and a car are indistinguishable by speed, so this leans on the one
+ * thing that differs: a bus stops for passengers every few hundred metres,
+ * all the way along, and a car only stops where the lights are. It is a lean,
+ * not a determination — every caller keeps the confidence at "guess".
+ *
+ * Shared between inference and the known-mode overlay: when an activity span
+ * says only "in a vehicle", this is what turns that into a label without
+ * pretending the bus/car question got answered.
+ */
+export function roadVehicleLean(
+  distanceM: number,
+  topKmh: number,
+  pauses: number,
+  dense: boolean,
+): TravelMode {
+  const km = Math.max(0.3, distanceM / 1000)
+  const urban = distanceM < 15_000 && topKmh <= 50
+  return dense && urban && pauses / km >= 0.6 ? "transit" : "drive"
+}
+
+/**
  * How a stretch of movement was probably travelled.
  *
  * Speed does the work, because speed is the only thing a GPS trace measures
@@ -260,15 +287,7 @@ export function inferMode(s: MoveStats): { mode: TravelMode; confidence: ModeCon
   }
 
   if (top < ROAD_MAX_KMH) {
-    // A bus and a car are indistinguishable by speed, so this leans on the one
-    // thing that differs: a bus stops for passengers every few hundred metres,
-    // all the way along, and a car only stops where the lights are. It is a
-    // lean, not a determination — hence "guess" whichever way it falls.
-    const km = Math.max(0.3, s.distanceM / 1000)
-    const pausesPerKm = s.pauses / km
-    const urban = s.distanceM < 15_000 && top <= 50
-    if (dense && urban && pausesPerKm >= 0.6) return { mode: "transit", confidence: "guess" }
-    return { mode: "drive", confidence: "guess" }
+    return { mode: roadVehicleLean(s.distanceM, top, s.pauses, dense), confidence: "guess" }
   }
 
   // Far as well as fast. A handful of scattered fixes across a city can
@@ -310,6 +329,7 @@ function movesFrom(points: TimedPoint[], gapMin: number): JourneySegment[] {
         distanceM: Math.round(stats.distanceM),
         topKmh: Math.round(stats.topKmh * 10) / 10,
         avgKmh: Math.round(stats.avgKmh * 10) / 10,
+        pauses: stats.pauses,
       })
     }
     run = []
@@ -396,6 +416,14 @@ export interface KnownMode {
   start: Date
   end: Date
   mode: TravelMode
+  /**
+   * The source could only say "in a vehicle" — the phone's sensors, or a
+   * Timeline segment whose map-matching gave up. Bus vs car stays open, so
+   * the overlay refines the move rather than asserting a mode: a walk that
+   * was really a tram gets corrected, a transit lean stays a transit lean,
+   * and the confidence stays "guess" because the question is still open.
+   */
+  vehicleOnly?: boolean
 }
 
 /** Strava's activity types, in this vocabulary. Unknown types stay unknown. */
@@ -445,13 +473,36 @@ export function applyKnownModes(
   if (known.length === 0) return segments
   return segments.map(seg => {
     if (seg.kind !== "move") return seg
-    let best: { mode: TravelMode; fraction: number } | null = null
+    let best: { known: KnownMode; fraction: number } | null = null
     for (const k of known) {
       const fraction = overlapFraction(seg, k)
       if (fraction < minOverlap) continue
-      if (!best || fraction > best.fraction) best = { mode: k.mode, fraction }
+      // A definite mode beats a vehicle-only claim at any overlap that
+      // qualifies: "IN_BUS" from Timeline outranks "in some vehicle" from the
+      // accelerometer even when the latter covers a little more of the move.
+      if (!best) { best = { known: k, fraction }; continue }
+      const bestDefinite = !best.known.vehicleOnly
+      const thisDefinite = !k.vehicleOnly
+      if (thisDefinite && !bestDefinite) best = { known: k, fraction }
+      else if (thisDefinite === bestDefinite && fraction > best.fraction) best = { known: k, fraction }
     }
-    return best ? { ...seg, mode: best.mode, confidence: "known" as const } : seg
+    if (!best) return seg
+
+    if (!best.known.vehicleOnly) {
+      return { ...seg, mode: best.known.mode, confidence: "known" as const }
+    }
+
+    // Vehicle-only: the one certainty is that this was NOT on foot or a
+    // bicycle. A move already labelled as a vehicle keeps its label and its
+    // lean; one speed had called walking or cycling — the tram crawling
+    // through traffic — becomes a vehicle, with transit-vs-drive decided by
+    // the same pause lean inference uses, and stays a guess because that is
+    // what it still is.
+    if (seg.mode === "transit" || seg.mode === "drive" || seg.mode === "train" || seg.mode === "flight") {
+      return seg
+    }
+    const mode = roadVehicleLean(seg.distanceM, seg.topKmh, seg.pauses, true)
+    return { ...seg, mode, confidence: "guess" as const }
   })
 }
 

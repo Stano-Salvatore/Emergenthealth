@@ -104,6 +104,66 @@ export function extractVisits(doc: any): TimelineVisit[] {
     return true
   })
 }
+/**
+ * The activity segments the importer used to throw away.
+ *
+ * Every export shape carries them beside the visits: "you travelled from
+ * 14:02 to 14:31, and it was IN_BUS" — Google's own classification, matched
+ * against transit-line maps, which is how it can distinguish a bus from a car
+ * when no phone sensor can. Parsing these gives every imported day real
+ * travel modes retroactively, with no new permission and no battery cost.
+ */
+export interface TimelineActivity {
+  start: string
+  end: string
+  /** Google's type string, e.g. IN_BUS, WALKING — mapped by lib/activity-modes. */
+  type: string
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+function pushActivity(out: TimelineActivity[], seg: any, activity: any): void {
+  const type = activity?.topCandidate?.type
+  if (typeof type !== "string" || !type.trim()) return
+  const start = seg?.startTime, end = seg?.endTime
+  if (typeof start !== "string" || typeof end !== "string") return
+  if (!Number.isFinite(Date.parse(start)) || !Number.isFinite(Date.parse(end))) return
+  if (Date.parse(end) <= Date.parse(start)) return
+  out.push({ start, end, type: type.trim() })
+}
+
+/** Every activity segment, from all the shapes extractVisits reads visits from. */
+export function extractActivities(doc: any): TimelineActivity[] {
+  const out: TimelineActivity[] = []
+
+  if (Array.isArray(doc?.semanticSegments)) {
+    for (const seg of doc.semanticSegments) {
+      if (seg?.activity) pushActivity(out, seg, seg.activity)
+    }
+  }
+
+  if (Array.isArray(doc?.timelineEdits)) {
+    for (const e of doc.timelineEdits) {
+      for (const holder of [e?.userEditedSemanticSegment, e?.inferredSemanticSegment]) {
+        const activity = holder?.segment?.activity
+        if (activity) pushActivity(out, holder, activity)
+      }
+    }
+  }
+
+  // Same dedupe rule as the visits: a Takeout carries the same segment as
+  // both an inferred and a user-edited entry, and the two must not count
+  // twice. The user-edited one comes first in the holder order above, so it
+  // is the one that survives.
+  const seen = new Set<string>()
+  return out.filter(a => {
+    const key = `${a.start}_${a.type}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 /**
