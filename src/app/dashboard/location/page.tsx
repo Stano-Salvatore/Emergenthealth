@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils"
 import LocationInsightsClient from "../location-insights/LocationInsightsClient"
 import { TimelineImport } from "@/components/location/TimelineImport"
 import { SuggestedPlaces } from "@/components/location/SuggestedPlaces"
+import { DayJourney, type JourneySegment } from "@/components/location/DayJourney"
 
 interface CheckIn {
   id: string
@@ -568,6 +569,13 @@ function PlacesSection({ autoTagged }: { autoTagged: { name: string; emoji: stri
   )
 }
 
+/**
+ * How many days get a chip. The API returns every tracked day now, because the
+ * date picker has to know the range — but a year of chips is a wall, so the
+ * strip stays a strip and the picker covers the rest.
+ */
+const RECENT_DAY_CHIPS = 30
+
 type TrackData = {
   points:      { lat: number; lon: number }[]
   distanceKm:  number
@@ -579,6 +587,7 @@ type TrackData = {
   endTime:     string | null
   autoTagged:  { id: string; name: string; emoji: string; isNew: boolean }[]
   stops?:      { lat: number; lon: number; start: string; end: string; minutes: number }[]
+  journey?:    JourneySegment[]
 }
 
 /**
@@ -769,6 +778,20 @@ export default function LocationPage() {
           <Button size="icon" variant="outline" className="h-8 w-8" onClick={nextDay} disabled={isToday}>
             <ChevronRight className="h-4 w-4"/>
           </Button>
+          {/* Any tracked day in one tap. A Timeline import is years of history,
+              and the arrows plus a thirty-chip list reached the last month of
+              it — everything before that was in the database and needed several
+              hundred clicks. Bounded by the real extent of the data, so the
+              picker cannot land on a day that has none. */}
+          <input
+            type="date"
+            value={date}
+            min={availDates.length > 0 ? availDates[availDates.length - 1] : undefined}
+            max={_todayStr}
+            onChange={e => { if (e.target.value) setDate(e.target.value) }}
+            aria-label="Jump to a date"
+            className="h-8 rounded-md border border-border bg-background px-2 text-xs text-muted-foreground"
+          />
           {!isToday && (
             <Button size="sm" variant="outline" onClick={() => { const _t = new Date(); setDate([_t.getFullYear(), String(_t.getMonth()+1).padStart(2,"0"), String(_t.getDate()).padStart(2,"0")].join("-")) }}>Today</Button>
           )}
@@ -816,26 +839,20 @@ export default function LocationPage() {
             </p>
           )}
 
-          {/* The day in words. The map shows where; this says when and how
-              long, which is the half a route trace cannot carry. */}
-          {track.stops && track.stops.length > 0 && (
-            <div className="rounded-2xl border border-border bg-card/40 divide-y divide-border/60">
-              <p className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          {/* The day in words. The map shows where; this says what happened —
+              which stops were which places, and how the gaps between them were
+              travelled. It replaced a numbered list of stop times that could
+              say neither, and keeps the numbering so the map still keys to it. */}
+          {track.journey && track.journey.length > 0 && (
+            <div className="rounded-2xl border border-border bg-card/40 px-4 py-3.5">
+              <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Where the day went
               </p>
-              {track.stops.map((st, i) => (
-                <div key={`${st.start}-${i}`} className="flex items-center gap-3 px-4 py-2.5">
-                  <span className="shrink-0 h-6 w-6 rounded-full border-2 border-primary bg-card grid place-items-center text-[10px] font-semibold">
-                    {i + 1}
-                  </span>
-                  <span className="text-sm tabular-nums">
-                    {format(parseISO(st.start), "HH:mm")} – {format(parseISO(st.end), "HH:mm")}
-                  </span>
-                  <span className="ml-auto text-sm font-medium tabular-nums">
-                    {formatDuration(st.minutes)}
-                  </span>
-                </div>
-              ))}
+              <DayJourney
+                date={date}
+                journey={track.journey}
+                onPlaceSaved={() => { load(date); setPlacesKey(k => k + 1) }}
+              />
             </div>
           )}
         </>
@@ -843,9 +860,16 @@ export default function LocationPage() {
 
       {availDates.length > 1 && (
         <div>
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Recent days</p>
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Recent days
+            {availDates.length > RECENT_DAY_CHIPS && (
+              <span className="ml-2 font-normal normal-case tracking-normal text-muted-foreground/60">
+                · {availDates.length} days tracked, use the date picker for older
+              </span>
+            )}
+          </p>
           <div className="flex flex-wrap gap-2">
-            {availDates.map(d => (
+            {availDates.slice(0, RECENT_DAY_CHIPS).map(d => (
               <button key={d} onClick={() => setDate(d)}
                 className={cn(
                   "text-xs px-3 py-1.5 rounded-lg border transition-all",

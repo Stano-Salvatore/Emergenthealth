@@ -191,6 +191,10 @@ const PERIODS = [
   { key: "week", label: "7 days" },
   { key: "month", label: "30 days" },
   { key: "overall", label: "90 days" },
+  // A quarter cannot see a season. Imported history goes back years, so the
+  // question a year of data exists for — "am I worse in winter" — is finally
+  // askable. It is the slowest to compute and deliberately not the default.
+  { key: "year", label: "1 year" },
 ] as const
 type Period = (typeof PERIODS)[number]["key"]
 

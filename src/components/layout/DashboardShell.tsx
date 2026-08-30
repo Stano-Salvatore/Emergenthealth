@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { Menu } from "lucide-react"
 import { Sidebar } from "./Sidebar"
 import { CommandPalette } from "./CommandPalette"
@@ -63,6 +63,14 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  // Swipe from the left edge to open the drawer, swipe left to close it.
+  //
+  // Edge-only on purpose: this app has horizontal scrollers in it — the week
+  // table, the garden's card strip, the report's tables — and a gesture that
+  // started anywhere would fight them for every drag. Twenty-four pixels is
+  // narrower than any of them begin.
+  const touch = useRef<{ x: number; y: number; live: boolean } | null>(null)
+
   const toggle = () => {
     const next = !open
     try { localStorage.setItem(STORAGE_KEY, String(next)) } catch { /* */ }
@@ -79,8 +87,34 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     </div>
   )
 
+  function onTouchStart(e: React.TouchEvent) {
+    if (webMode) return
+    const t = e.touches[0]
+    if (!t) return
+    // Closed: only the edge starts a drag. Open: anywhere can close it.
+    touch.current = { x: t.clientX, y: t.clientY, live: open || t.clientX <= 24 }
+  }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    const start = touch.current
+    touch.current = null
+    if (!start?.live) return
+    const t = e.changedTouches[0]
+    if (!t) return
+    const dx = t.clientX - start.x
+    const dy = t.clientY - start.y
+    // A drag that moved further up or down than sideways was a scroll.
+    if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy)) return
+    if (!open && dx > 0) toggle()
+    if (open && dx < 0) toggle()
+  }
+
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-background">
+    <div
+      className="flex h-[100dvh] overflow-hidden bg-background"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
+    >
       {/* Mobile backdrop — only in mobile mode when sidebar is open */}
       {open && !webMode && (
         <div
@@ -140,7 +174,12 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           "transition-[padding] duration-300",
           // Extra bottom padding on mobile so content clears the fixed bottom
           // tab bar (hidden at lg and in web mode).
-          webMode ? "p-6" : cn("p-3 lg:p-6 pb-20 lg:pb-6", !open && "lg:pl-6 pl-12")
+          // The hamburger floats at the top-left. Reserving a 48px column
+          // down the WHOLE page to clear a 32px button at the top of it cost
+          // 12% of a 390px screen on every screen; clearing it vertically
+          // costs one row, once. Horizontal space is the scarce one on a
+          // phone.
+          webMode ? "p-6" : cn("p-3 lg:p-6 pb-20 lg:pb-6", !open && "lg:pt-6 lg:pl-6 pt-12")
         )}>
           {webMode ? (
             // Web mode zooms out to a much wider layout viewport than any

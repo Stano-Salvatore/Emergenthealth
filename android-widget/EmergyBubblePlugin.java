@@ -448,10 +448,37 @@ public class EmergyBubblePlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * What the chat head last said, handed to the web layer once and then
+     * forgotten.
+     *
+     * The head speaks while the app is closed, so the sentence has to wait
+     * somewhere until something opens and asks for it. Reading it clears it:
+     * this is a handover, not a mailbox, and a message collected twice would
+     * start the same conversation twice.
+     *
+     * Deliberately not passed as a URL parameter. The web layer renders this
+     * as something Emergy said, in an app that talks about medication — a
+     * `?say=` link would let anyone who could get this user to tap a link put
+     * words in his mouth. Out of the app's own private storage, nothing can.
+     */
+    @PluginMethod
+    public void takePendingSay(PluginCall call) {
+        android.content.SharedPreferences prefs =
+            getContext().getSharedPreferences(POP_PREFS, Context.MODE_PRIVATE);
+        String message = prefs.getString(PENDING_SAY, null);
+        if (message != null) prefs.edit().remove(PENDING_SAY).apply();
+        JSObject out = new JSObject();
+        out.put("message", message);
+        call.resolve(out);
+    }
+
     /** Reserved, well clear of the sequential ids the real pops are given. */
     private static final int TEST_POP_ID = 999_999;
 
     private static final String POP_PREFS = "emergy_head_pops";
+    /** Shared with EmergyHeadService, which is what writes it. */
+    static final String PENDING_SAY = "pending_say";
     private static final String POP_LIST = "pops";
 
     private static boolean canScheduleExact(android.app.AlarmManager am) {

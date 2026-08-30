@@ -13,15 +13,9 @@ import android.os.IBinder;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewGroup;
 import android.view.WindowManager;
-import android.webkit.CookieManager;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
-import android.widget.LinearLayout;
 import android.widget.TextView;
 
 /**
@@ -47,8 +41,6 @@ public class EmergyHeadService extends Service {
 
     private static final String CHANNEL_ID = "emergy_head";
     private static final int NOTIFICATION_ID = 920002;
-    private static final String CHAT_URL = "https://emergenthealth.vercel.app/dashboard/chat";
-    private static final String ALLOWED_PREFIX = "https://emergenthealth.vercel.app";
 
     /** Whether a head is on screen right now, so the UI can say so honestly. */
     private static boolean running = false;
@@ -56,8 +48,13 @@ public class EmergyHeadService extends Service {
 
     private WindowManager windows;
     private View head;
-    private View panel;
-    private WebView web;
+    /**
+     * The sentence currently on screen beside the head, or null.
+     *
+     * Handed to the app when the head is tapped, so the chat opens on what was
+     * actually said rather than on a blank thread.
+     */
+    private String spokenMessage;
     private WindowManager.LayoutParams headParams;
     private View speech;
     private View dropTarget;
@@ -178,7 +175,7 @@ public class EmergyHeadService extends Service {
                         stopSelf();
                         return true;
                     }
-                    if (!dragged) { v.performClick(); togglePanel(); }
+                    if (!dragged) { v.performClick(); openApp(); }
                     return true;
                 }
                 default:
@@ -253,7 +250,7 @@ public class EmergyHeadService extends Service {
         bubble.setMaxLines(4);
         bubble.setElevation(dp(8));
         bubble.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { removeSpeech(); togglePanel(); }
+            @Override public void onClick(View v) { openApp(); }
         });
 
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
@@ -270,6 +267,7 @@ public class EmergyHeadService extends Service {
         params.y = clamp(headParams.y, dp(8), heightPx() - dp(120));
 
         speech = bubble;
+        spokenMessage = message;
         windows.addView(speech, params);
         // Also written onto the ongoing notification. The speech clears itself
         // after half a minute, so without this a pop that happened while the
@@ -288,130 +286,74 @@ public class EmergyHeadService extends Service {
 
     private void removeSpeech() {
         main.removeCallbacks(hideSpeech);
+        // Cleared with the bubble: tapping the bare head half an hour after a
+        // pop has faded should open the app, not reopen a conversation about
+        // something said and forgotten. openApp() reads this before calling in.
+        spokenMessage = null;
         if (speech == null) return;
         try { windows.removeView(speech); } catch (Exception ignored) {}
         speech = null;
     }
 
-    // --------------------------------------------------------------- the panel
-
-    private void togglePanel() {
-        if (panel != null) { removePanel(); return; }
-
-        // Focusable, so Back reaches this window rather than the app behind it.
-        // Without handling it here Back would appear to do nothing, which is
-        // the first thing anyone presses to get rid of a floating window.
-        LinearLayout column = new LinearLayout(new android.view.ContextThemeWrapper(
-                this, android.R.style.Theme_DeviceDefault)) {
-            @Override
-            public boolean dispatchKeyEvent(android.view.KeyEvent event) {
-                if (event.getKeyCode() == android.view.KeyEvent.KEYCODE_BACK
-                        && event.getAction() == android.view.KeyEvent.ACTION_UP) {
-                    removePanel();
-                    return true;
-                }
-                return super.dispatchKeyEvent(event);
-            }
-        };
-        column.setOrientation(LinearLayout.VERTICAL);
-        column.setBackgroundResource(R.drawable.head_panel);
-        column.setElevation(dp(10));
-
-        // A close control, because a floating window with no visible way out is
-        // the thing people uninstall an app over.
-        TextView close = new TextView(this);
-        close.setText("✕");
-        close.setTextSize(16);
-        // Set explicitly: the default text colour against this panel's #13122B
-        // is near-invisible, and an invisible close button is not one.
-        close.setTextColor(0xFFC7D2FE);
-        close.setPadding(dp(14), dp(8), dp(14), dp(8));
-        close.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { removePanel(); }
-        });
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.END);
-        header.addView(close);
-        column.addView(header, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-        web = buildWebView();
-        column.addView(web, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
-
-        WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-            dp(330), dp(460),
-            overlayType(),
-            // Focusable, or the keyboard never opens and the chat cannot be
-            // typed into. NOT_TOUCH_MODAL keeps taps outside going to the app
-            // underneath instead of being swallowed by a transparent window.
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            PixelFormat.TRANSLUCENT);
-        params.gravity = Gravity.TOP | Gravity.START;
-        params.x = Math.max(dp(8), Math.min(headParams.x, widthPx() - dp(338)));
-        params.y = Math.max(dp(8), headParams.y - dp(470));
-        params.softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
-
-        panel = column;
-        windows.addView(panel, params);
-        web.loadUrl(CHAT_URL);
-    }
+    // ------------------------------------------------------------------ geometry
+    //
+    // These sat among the panel's own code and went out with it, which broke the
+    // head's positioning: it is the thing that has to stay on screen while being
+    // dragged, and it clamps against both.
 
     private int widthPx() {
         return getResources().getDisplayMetrics().widthPixels;
     }
 
+
     private int heightPx() {
         return getResources().getDisplayMetrics().heightPixels;
     }
+
 
     private static int clamp(int value, int min, int max) {
         return Math.max(min, Math.min(value, Math.max(min, max)));
     }
 
-    @android.annotation.SuppressLint("SetJavaScriptEnabled")
-    private WebView buildWebView() {
-        WebView v = new WebView(new android.view.ContextThemeWrapper(
-            this, android.R.style.Theme_DeviceDefault));
-        WebSettings ws = v.getSettings();
-        ws.setJavaScriptEnabled(true);
-        ws.setDomStorageEnabled(true);
-        ws.setUseWideViewPort(true);
-        ws.setLoadWithOverviewMode(true);
+    // ----------------------------------------------------------- opening the app
 
-        // The same cookie jar as the app, so this opens signed in rather than
-        // at a login screen inside a 330dp window.
-        CookieManager cm = CookieManager.getInstance();
-        cm.setAcceptCookie(true);
-        cm.setAcceptThirdPartyCookies(v, true);
+    /**
+     * Open the real app, on what Emergy just said.
+     *
+     * This used to expand into a panel the service drew itself: a 220dp window
+     * with its own WebView, loading the chat. It was the wrong size for a
+     * conversation and, worse, it opened on an EMPTY one — the single sentence
+     * you had tapped in order to read was the one thing not on screen, and
+     * there was nothing there to reply to.
+     *
+     * So the head is a doorway now rather than a room. The sentence is handed
+     * over through the app's own storage (EmergyBubblePlugin.takePendingSay),
+     * and the web layer turns it into a real conversation and opens it, so the
+     * reply lands in a thread where Emergy has genuinely already spoken.
+     */
+    private void openApp() {
+        String message = spokenMessage;
+        removeSpeech();
 
-        // This window floats over other apps while holding our session. A link
-        // to anywhere else belongs in a browser, not here.
-        v.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
-                String url = request.getUrl() == null ? "" : request.getUrl().toString();
-                return !url.startsWith(ALLOWED_PREFIX);
-            }
-        });
-        return v;
-    }
-
-    private void removePanel() {
-        if (panel == null) return;
-        try { windows.removeView(panel); } catch (Exception ignored) {}
-        if (web != null) {
-            ViewGroup parent = (ViewGroup) web.getParent();
-            if (parent != null) parent.removeView(web);
-            // Destroyed every time, not hidden: a WebView left alive in a
-            // service keeps the page — and its timers — running behind
-            // everything else on the phone.
-            web.destroy();
-            web = null;
+        if (message != null && !message.trim().isEmpty()) {
+            getSharedPreferences("emergy_head_pops", Context.MODE_PRIVATE)
+                .edit().putString(EmergyBubblePlugin.PENDING_SAY, message.trim()).apply();
         }
-        panel = null;
+
+        try {
+            Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            if (launch == null) return;
+            // SINGLE_TOP rather than a fresh task: the app is usually already
+            // running behind whatever is in front, and a second copy of it
+            // would lose the session's scroll, drafts and open conversation.
+            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(launch);
+        } catch (Exception ignored) {
+            // Nothing to launch, or the system refused. The head stays put and
+            // the message stays pending, so the next open still collects it.
+        }
     }
+
 
     // -------------------------------------------------------- foreground notice
 
@@ -467,7 +409,6 @@ public class EmergyHeadService extends Service {
 
     @Override
     public void onDestroy() {
-        removePanel();
         removeSpeech();
         hideDropTarget();
         if (head != null) {

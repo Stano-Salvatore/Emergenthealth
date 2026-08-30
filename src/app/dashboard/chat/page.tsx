@@ -195,6 +195,24 @@ export default function ChatPage() {
     window.history.replaceState({}, "", window.location.pathname)
   }, [])
 
+  // ?conversation=<id> — arriving at a specific thread rather than a blank one.
+  //
+  // This is how a tapped chat head lands on what Emergy actually said. The
+  // native bridge turns the phone's pending message into a real conversation
+  // and sends us here; without this the app opened on an empty chat and the
+  // one sentence you tapped in order to read was the one thing missing.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const id = new URLSearchParams(window.location.search).get("conversation")
+    if (!id) return
+    window.history.replaceState({}, "", window.location.pathname)
+    void openConversation(id)
+  // Once, for the id the page was opened with. openConversation is redefined
+  // every render and depending on it would reopen the thread on each one,
+  // throwing away anything typed since.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // ?listen=1 — the home-screen widget's whole reason to exist. The cost of
   // logging something isn't the typing, it's the unlock, the launch, the tab
   // and the keyboard; arriving already listening removes all four.

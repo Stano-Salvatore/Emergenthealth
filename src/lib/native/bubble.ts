@@ -50,6 +50,7 @@ type EmergyBubblePlugin = {
   cancelHeadPops(): Promise<void>
   testHeadPop(options: { seconds: number }): Promise<{ at: number; exact: boolean }>
   fcmToken(): Promise<{ token: string | null; available: boolean }>
+  takePendingSay(): Promise<{ message: string | null }>
   setPopsEnabled(options: { enabled: boolean }): Promise<void>
 }
 
@@ -298,4 +299,30 @@ export async function registerNativePush(): Promise<"registered" | "no-token" | 
 export async function setNativePopsEnabled(enabled: boolean): Promise<void> {
   if (!Capacitor.isNativePlatform()) return
   try { await plugin.setPopsEnabled({ enabled }) } catch { /* older APK */ }
+}
+
+
+/**
+ * What Emergy popped up to say, if it has not been collected yet.
+ *
+ * The head speaks while the app is closed, so the sentence lives in the
+ * phone's own storage until something opens and asks for it. Reading it
+ * clears it: it is a handover, not a mailbox, and a message collected twice
+ * would start the same conversation twice.
+ *
+ * Deliberately NOT a URL parameter. The text would then be attacker-supplied
+ * to a page whose job is to render it as something Emergy said — and this app
+ * talks about medication. Coming out of native storage, the only thing that
+ * can put words in his mouth is the app itself.
+ */
+export async function takePendingSay(): Promise<string | null> {
+  if (!Capacitor.isNativePlatform()) return null
+  try {
+    const { message } = await plugin.takePendingSay()
+    const trimmed = typeof message === "string" ? message.trim() : ""
+    return trimmed || null
+  } catch {
+    // An APK older than this method. Nothing pending, as far as we can tell.
+    return null
+  }
 }

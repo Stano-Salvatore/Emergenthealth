@@ -7,6 +7,10 @@ import { getUserTimezone } from "@/lib/user-timezone"
 import { localDateStr, zonedDayRange } from "@/lib/local-date"
 import { detectStops, summariseTrack } from "@/lib/day-stops"
 import { detectDwells, recordVisits } from "@/lib/place-visits"
+import {
+  applyKnownModes, buildJourney, modeFixKey, MODE_FIX_PREFIX, stravaMode, type KnownMode,
+} from "@/lib/day-journeys"
+import { matchSavedPlace, type PlaceLike } from "@/lib/places"
 
 
 /**
@@ -27,16 +31,113 @@ import { detectDwells, recordVisits } from "@/lib/place-visits"
 async function tagPlacesFromTrack(
   userId: string,
   points: { lat: number; lng: number; accuracyM: number | null; trackedAt: Date }[],
+  places: SavedPlaceRow[],
 ): Promise<{ id: string; name: string; emoji: string; isNew: boolean }[]> {
   if (points.length === 0) return []
-  const places = await prisma.savedPlace.findMany({
-    where: { userId },
-    select: { id: true, name: true, emoji: true, lat: true, lng: true, radiusM: true },
-  })
   if (places.length === 0) return []
 
   const { places: touched } = await recordVisits(userId, detectDwells(points, places))
   return touched
+}
+
+type SavedPlaceRow = PlaceLike
+
+/**
+ * The day as a sentence rather than a shape: at home, walking, on a bus, at
+ * the café. lib/day-journeys fills in what happened between the stops the map
+ * already draws, and everything below is about making those segments say a
+ * name instead of a coordinate.
+ *
+ * Three sources of truth, in ascending order of how much they should be
+ * believed, each overriding the last:
+ *
+ *  1. inference from the track — always available, sometimes wrong
+ *  2. a Strava activity covering the move — the phone knew, we just asked late
+ *  3. the user's own correction — final, and the only way a bus becomes a bus
+ *
+ * Names work the same way: a saved place wins outright, and everything else is
+ * left null for the client to reverse-geocode lazily. Naming a stay here would
+ * put a Nominatim round trip per stop inside this page load, and its courtesy
+ * limit is one request a second — five stops would cost the day view five
+ * seconds it does not otherwise need.
+ */
+async function describeJourney(
+  userId: string,
+  date: string,
+  timedPoints: { lat: number; lon: number; time: Date }[],
+  stops: ReturnType<typeof detectStops>,
+  places: SavedPlaceRow[],
+  dayStart: Date,
+  dayEnd: Date,
+) {
+  const segments = buildJourney(timedPoints, stops)
+  if (segments.length === 0) return []
+
+  // Strava, by the times it actually happened rather than by its `day` column:
+  // that column is a string, and an evening ride either side of midnight is
+  // exactly the case where a stored day and the user's day disagree.
+  const activities = await prisma.stravaActivity.findMany({
+    where: { userId, startDate: { gte: dayStart, lte: dayEnd } },
+    select: { type: true, startDate: true, elapsedTimeSec: true },
+  }).catch(() => [])
+
+  const known: KnownMode[] = []
+  for (const a of activities) {
+    const mode = stravaMode(a.type)
+    if (!mode) continue
+    known.push({
+      start: a.startDate,
+      end: new Date(a.startDate.getTime() + a.elapsedTimeSec * 1000),
+      mode,
+    })
+  }
+
+  // Corrections, keyed by the local day so a lookup stays one day's worth
+  // however many years of them accumulate.
+  const corrections = await prisma.userPreference.findMany({
+    where: { userId, key: { startsWith: `${MODE_FIX_PREFIX}${date}:` } },
+    select: { key: true, value: true },
+  }).catch(() => [])
+
+  const fixed = applyKnownModes(segments, known)
+  const byStart = new Map(corrections.map(c => [c.key.slice(modeFixKey(date, "").length), c.value]))
+
+  return fixed.map(seg => {
+    if (seg.kind === "stay") {
+      const match = matchSavedPlace(seg.lat, seg.lon, places)
+      return {
+        kind: "stay" as const,
+        start: seg.start.toISOString(),
+        end: seg.end.toISOString(),
+        minutes: seg.minutes,
+        lat: seg.lat,
+        lon: seg.lon,
+        label: match?.place.name ?? null,
+        emoji: match?.place.emoji ?? null,
+        savedPlaceId: match?.place.id ?? null,
+      }
+    }
+    if (seg.kind === "gap") {
+      return {
+        kind: "gap" as const,
+        start: seg.start.toISOString(),
+        end: seg.end.toISOString(),
+        minutes: seg.minutes,
+      }
+    }
+    const corrected = byStart.get(seg.start.toISOString())
+    return {
+      kind: "move" as const,
+      start: seg.start.toISOString(),
+      end: seg.end.toISOString(),
+      minutes: seg.minutes,
+      mode: corrected ?? seg.mode,
+      confidence: corrected ? ("known" as const) : seg.confidence,
+      distanceM: seg.distanceM,
+      topKmh: seg.topKmh,
+      avgKmh: seg.avgKmh,
+    }
+  })
 }
 
 export async function GET(req: Request) {
@@ -61,10 +162,19 @@ export async function GET(req: Request) {
       SELECT DISTINCT to_char(("trackedAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timezone}, 'YYYY-MM-DD') AS day
       FROM "LocationPoint" WHERE "userId" = ${session.user.id}
     `.catch(() => [] as { day: string }[])
+    // Every day with tracking, not the most recent thirty.
+    //
+    // A Google Timeline import is years of history, and the page reached it
+    // through a list of thirty chips and a one-day-back arrow — so anything
+    // older than a month was present in the database and unreachable without
+    // several hundred clicks. The page shows the recent ones as chips and
+    // offers the rest through a date picker bounded by this list, which needs
+    // to know the real extent of the data to bound anything.
+    //
+    // One string per tracked day: a decade of daily tracking is under 40 KB.
     const merged = [...new Set([...gpxDates, ...pointDays.map(r => r.day)])]
       .sort()
       .reverse()
-      .slice(0, 30)
     return NextResponse.json(merged)
   }
 
@@ -104,7 +214,14 @@ export async function GET(req: Request) {
       .map(p => ({ lat: p.lat, lng: p.lon, accuracyM: null, trackedAt: new Date(p.time as unknown as Date) })),
     ...ownTracksRows.map(r => ({ lat: r.lat, lng: r.lng, accuracyM: r.accuracyM, trackedAt: r.trackedAt })),
   ].sort((a, b) => a.trackedAt.getTime() - b.trackedAt.getTime())
-  const autoTagged = await tagPlacesFromTrack(session.user.id, allForTagging).catch(() => [])
+  // Fetched once and shared: the auto check-ins and the journey's stay names
+  // are asking the same question of the same handful of rows.
+  const savedPlaces = await prisma.savedPlace.findMany({
+    where: { userId: session.user.id },
+    select: { id: true, name: true, emoji: true, lat: true, lng: true, radiusM: true },
+  }).catch(() => [] as SavedPlaceRow[])
+
+  const autoTagged = await tagPlacesFromTrack(session.user.id, allForTagging, savedPlaces).catch(() => [])
 
   // Where the day was actually spent. Computed on the FULL timestamped series,
   // never the downsampled one: dropping every second fix leaves the shape
@@ -118,6 +235,10 @@ export async function GET(req: Request) {
     .map(p => ({ lat: p.lat, lon: p.lon, time: new Date(p.time as unknown as Date) }))
   const timedPoints = gpxTimed.length >= 2 ? gpxTimed : ownTracksPoints
   const stops = detectStops(timedPoints)
+
+  const journey = await describeJourney(
+    session.user.id, date, timedPoints, stops, savedPlaces, dayStart, dayEnd,
+  ).catch(() => [])
 
   const summary = summariseTrack(ownTracksPoints, stops)
   const totalMin = calcDurationMin(ownTracksPoints)
@@ -140,6 +261,7 @@ export async function GET(req: Request) {
       end: st.end.toISOString(),
       minutes: st.minutes,
     })),
+    journey,
     autoTagged,
     source: gpxPoints.length >= 2 ? "gpx" : "owntracks",
   })

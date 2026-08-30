@@ -1,75 +1,45 @@
 package app.emergenthealth;
 
-import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.Intent;
 import android.os.Bundle;
-import android.view.ViewGroup;
-import android.webkit.CookieManager;
-import android.webkit.WebSettings;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 
 /**
- * What the floating bubble expands into: Emergy's chat, in a small window the
- * system hosts over whatever app is in front.
+ * What the floating bubble expands into: the real app.
  *
- * A plain Activity rather than a second BridgeActivity. Capacitor's bridge is
- * built to be the app's single host, and running a second one here would mean
- * two bridges racing over the same plugins and the same WebView state for the
- * sake of a chat window. The session is what actually matters, and cookies are
- * process-wide — the same login the main app holds is already here.
+ * This used to be a WebView of its own, loading the chat into the small window
+ * the system hosts over whatever app is in front. Two things were wrong with
+ * that. It was a 300dp-wide window for a conversation — and it opened on an
+ * EMPTY chat, so the sentence you tapped in order to read was the one thing
+ * not on screen and there was nothing there to reply to.
+ *
+ * So it hands off instead. The bubble is a doorway; the app is the room. What
+ * Emergy said is waiting in the app's own storage (EmergyBubblePlugin's
+ * pending say), and the web layer turns it into a real conversation and opens
+ * it, so a reply lands in a thread where he has genuinely already spoken.
+ *
+ * A side benefit: this activity no longer runs a second WebView holding the
+ * session cookie over other apps' windows.
  */
 public class BubbleActivity extends Activity {
 
-    private static final String CHAT_URL = "https://emergenthealth.vercel.app/dashboard/chat";
-
-    private WebView web;
-
     @Override
-    @SuppressLint("SetJavaScriptEnabled")
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        web = new WebView(this);
-        web.setLayoutParams(new ViewGroup.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        WebSettings ws = web.getSettings();
-        ws.setJavaScriptEnabled(true);
-        ws.setDomStorageEnabled(true);
-        ws.setUseWideViewPort(true);
-        ws.setLoadWithOverviewMode(true);
-
-        // Same cookie jar as the main app, so this opens already signed in
-        // rather than at a login screen inside a 300dp window.
-        CookieManager cm = CookieManager.getInstance();
-        cm.setAcceptCookie(true);
-        cm.setAcceptThirdPartyCookies(web, true);
-
-        // Keep this window on the app. A link to somewhere else belongs in a
-        // browser, not floating over someone's banking app with our cookies.
-        web.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
-                String url = request.getUrl() == null ? "" : request.getUrl().toString();
-                return !url.startsWith("https://emergenthealth.vercel.app");
+        try {
+            Intent launch = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            if (launch != null) {
+                // SINGLE_TOP rather than a fresh task: the app is usually
+                // already running behind whatever is in front, and a second
+                // copy would lose the session's drafts and open conversation.
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                startActivity(launch);
             }
-        });
-
-        setContentView(web);
-        web.loadUrl(CHAT_URL);
-    }
-
-    @Override
-    protected void onDestroy() {
-        if (web != null) {
-            // A WebView left attached leaks the activity, and this one is
-            // created and destroyed every time the bubble is opened.
-            ViewGroup parent = (ViewGroup) web.getParent();
-            if (parent != null) parent.removeView(web);
-            web.destroy();
-            web = null;
+        } catch (Exception ignored) {
+            // Nothing to launch, or the system refused. Falling through to
+            // finish() leaves the bubble collapsed rather than showing a blank
+            // window that does nothing.
         }
-        super.onDestroy();
+        finish();
     }
 }

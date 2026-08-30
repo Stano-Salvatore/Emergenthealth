@@ -13,9 +13,15 @@ import {
   chipsFromClaim, chipsFromTools, createSourceFilter, mergeChips, SOURCE_KEYS,
   type SourceChip, type SourceManifest,
 } from "@/lib/chat-sources"
-import { addDaysISO, localDateStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
+import { addDaysISO, localDateStr, localTimeStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { randomUUID } from "crypto"
+import { rankRecallHits, recallTerms, RECALL_MAX_HITS, trimForRecall } from "@/lib/chat-recall"
+import { addFact, forgetFact, MEMORY_KEY, parseFacts, renderFacts, serialiseFacts } from "@/lib/emergy-memory"
+import { detectStops } from "@/lib/day-stops"
+import { buildJourney } from "@/lib/day-journeys"
+import { matchSavedPlace, placeNameKey } from "@/lib/places"
+import { DAILY_MAX_DAYS, renderWeek, rollupWeeks, type DailyMetrics } from "@/lib/health-rollup"
 import { parseDose, formatDose } from "@/lib/dose"
 
 /** Fold whatever the model called it onto a type the app stores. */
@@ -238,13 +244,39 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "get_health_range",
-    description: "Read the user's full daily history over the last N days: health metrics (sleep, resting HR, HRV, readiness, steps), Oura Ring tags (coffee, supplements, meds, alcohol — the user logs these in the Oura app), morning check-ins (energy/mood/intention), mood logs, journal notes, and logged water/coffee. Use this to answer questions about trends and causes — e.g. 'does coffee affect my sleep', 'how did I feel that week'. Reason over the returned data instead of guessing.",
+    description: "Read the user's daily history: health metrics (sleep, resting HR, HRV, readiness, steps), Oura Ring tags (coffee, supplements, meds, alcohol — the user logs these in the Oura app), morning check-ins (energy/mood/intention), mood logs, journal notes, and logged water/coffee. Use this to answer questions about trends and causes — e.g. 'does coffee affect my sleep', 'how did I feel that week'. Reason over the returned data instead of guessing. Either pass `days` to look back from today, or `from`/`to` for a specific stretch — imported history goes back years, so a question about last autumn is answerable. Ranges longer than about four months come back as weekly averages instead of daily rows; narrow the window when you need a particular day.",
     input_schema: {
       type: "object" as const,
       properties: {
-        days: { type: "number", description: "How many days back to fetch (1-90)" },
+        days: { type: "number", description: "How many days back from today (1-365). Ignored if from/to are given." },
+        from: { type: "string", description: "Start of a specific window, YYYY-MM-DD in the user's local time" },
+        to: { type: "string", description: "End of that window, YYYY-MM-DD. Defaults to today." },
       },
-      required: ["days"],
+      required: [],
+    },
+  },
+  {
+    name: "get_day_journey",
+    description: "Retrace where the user actually spent a day: the places they stayed, how long at each, and how they travelled between them. The daily summaries you already have say only how far they moved and when tracking started and stopped — this says where. Use it when the day itself is the question ('what did I do on Saturday', 'was I out much last week'), and when somewhere they were might explain how they felt. Travel modes are inferred and some are guesses; they are marked, and a guess should not be stated as fact.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD in the user's local time. Defaults to today." },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "search_chat_history",
+    description: "Search what the user and you have said to each other in PAST conversations. Emergy's own memory of talking to them. Use it whenever the user refers back to something you discussed before — 'do you remember when I told you about…', 'what did we say that day', 'you suggested something for my headaches' — and before ever saying you do not recall a conversation. Pass `query` with the distinctive words to look for (a name, a place, a symptom), and/or `date` to read a particular day back. Matching is on whole words, so a name the user spells differently now than they did then (Sofia/Sophia) will not match on its own — if nothing comes back, try again with other words from the same memory, or with a date, before telling them you cannot find it. Searching the current conversation is unnecessary; it is already in front of you.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "Distinctive words to look for, e.g. 'church tower Sofia'. Common words are ignored. Omit to read a whole day." },
+        date: { type: "string", description: "YYYY-MM-DD in the user's local time, to read one day back. Omit to search all time." },
+        days: { type: "number", description: "Only look at the last N days. Omit for all time." },
+      },
+      required: [],
     },
   },
   {
@@ -254,6 +286,17 @@ const TOOLS: Anthropic.Tool[] = [
       type: "object" as const,
       properties: {
         fact: { type: "string", description: "The fact to remember, in a short sentence" },
+      },
+      required: ["fact"],
+    },
+  },
+  {
+    name: "forget",
+    description: "Remove something you remember about the user that is no longer true, or that they ask you to forget. Use it whenever a saved fact is contradicted — they stopped training, changed jobs, no longer avoids dairy — because a stale fact is not merely unhelpful, it keeps steering what you say. Pass enough of the fact to identify it. If several could match you are told which, and nothing is removed until you say which one.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        fact: { type: "string", description: "The fact to forget, or enough of it to identify which one" },
       },
       required: ["fact"],
     },
@@ -716,15 +759,30 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   }
 
   if (name === "get_health_range") {
-    const days = Math.min(90, Math.max(1, parseInt(String(input.days), 10) || 7))
     // The window starts on the user's day, not the server's, and `since` is
     // that day's local midnight rather than the server's.
     const rangeTz = await getUserTimezone(userId)
-    const sinceStr = addDaysISO(localDateStr(rangeTz), -days)
+    const isDay = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    const todayStr = localDateStr(rangeTz)
+
+    // Either an explicit window or the last N days. Explicit wins, because
+    // "how was last autumn" is not expressible as a number of days back and
+    // was the question this could not answer at all.
+    const toStr = isDay(input.to) ? String(input.to) : todayStr
+    const fromStr = isDay(input.from)
+      ? String(input.from)
+      : addDaysISO(toStr, -Math.min(365, Math.max(1, parseInt(String(input.days), 10) || 7)))
+    const sinceStr = fromStr <= toStr ? fromStr : toStr
+    const untilStr = fromStr <= toStr ? toStr : fromStr
+
     const since = zonedDayRange(rangeTz, sinceStr).start
+    const until = zonedDayRange(rangeTz, untilStr).end
+    const days = Math.round(
+      (Date.parse(`${untilStr}T00:00:00Z`) - Date.parse(`${sinceStr}T00:00:00Z`)) / 86_400_000,
+    ) + 1
     const [logs, tags, checkins, notes, moods, intake] = await Promise.all([
       prisma.healthLog.findMany({
-        where: { userId, date: { gte: since } },
+        where: { userId, date: { gte: since, lte: until } },
         orderBy: { date: "desc" },
         select: {
           date: true, sleepDuration: true, sleepScore: true, restingHR: true,
@@ -733,22 +791,22 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       }).catch(() => [] as any[]),
       prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
         SELECT "day","tagName","text" FROM "OuraTag"
-        WHERE "userId" = ${userId} AND "day" >= ${sinceStr} ORDER BY "timestamp"
+        WHERE "userId" = ${userId} AND "day" >= ${sinceStr} AND "day" <= ${untilStr} ORDER BY "timestamp"
       `.catch(() => []),
       prisma.$queryRaw<{ date: string; energy: number; mood: number; intention: string | null }[]>`
         SELECT "date","energy","mood","intention" FROM "MorningCheckIn"
-        WHERE "userId" = ${userId} AND "date" >= ${sinceStr}
+        WHERE "userId" = ${userId} AND "date" >= ${sinceStr} AND "date" <= ${untilStr}
       `.catch(() => []),
       prisma.dailyNote.findMany({
-        where: { userId, date: { gte: since } },
+        where: { userId, date: { gte: since, lte: until } },
         select: { date: true, content: true },
       }).catch(() => [] as { date: Date; content: string }[]),
       prisma.moodLog.findMany({
-        where: { userId, date: { gte: since } },
+        where: { userId, date: { gte: since, lte: until } },
         select: { date: true, mood: true },
       }).catch(() => [] as { date: Date; mood: number }[]),
       prisma.intakeLog.findMany({
-        where: { userId, loggedAt: { gte: since } },
+        where: { userId, loggedAt: { gte: since, lte: until } },
         select: { loggedAt: true, type: true, amountMl: true },
       }).catch(() => [] as { loggedAt: Date; type: string; amountMl: number }[]),
     ])
@@ -781,7 +839,36 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       ...healthByDay.keys(), ...tagsByDay.keys(), ...checkinByDay.keys(),
       ...noteByDay.keys(), ...moodByDay.keys(), ...intakeByDay.keys(),
     ])].sort().reverse()
-    if (allDays.length === 0) return `No data in the last ${days} days.`
+    if (allDays.length === 0) {
+      return `No data between ${sinceStr} and ${untilStr}.`
+    }
+
+    // A year of daily rows is three hundred lines of noise, and the noise is
+    // exactly what hides a season. Past four months this answers by week.
+    if (days > DAILY_MAX_DAYS) {
+      const daily: DailyMetrics[] = allDays.map(d => {
+        const l = healthByDay.get(d)
+        return {
+          date: d,
+          sleepH: l?.sleepDuration != null ? l.sleepDuration / 60 : null,
+          restingHR: l?.restingHR ?? null,
+          hrv: l?.hrv ?? null,
+          readiness: l?.readinessScore ?? null,
+          steps: l?.steps ?? null,
+          mood: moodByDay.get(d) ?? checkinByDay.get(d)?.mood ?? null,
+        }
+      })
+      const weeks = rollupWeeks(daily)
+      const noted = allDays.filter(d => noteByDay.has(d) || (tagsByDay.get(d)?.length ?? 0) > 0).length
+      return [
+        `${sinceStr} to ${untilStr}, by week (${weeks.length} weeks, ${allDays.length} days with data).`,
+        `Weekly averages — ask for a narrower window to see individual days.`,
+        ...weeks.map(renderWeek),
+        noted > 0
+          ? `\n${noted} of those days also have a journal note or Oura tags; a shorter range returns them.`
+          : "",
+      ].filter(Boolean).join("\n")
+    }
 
     const rows = allDays.map(d => {
       const l = healthByDay.get(d)
@@ -804,25 +891,205 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       if (note) parts.push(`journal: "${note.length > 160 ? note.slice(0, 160) + "…" : note}"`)
       return `${d}: ${parts.join(" | ")}`
     }).join("\n")
-    return `Last ${days} days (most recent first — health, Oura tags, intake, check-ins, mood, journal):\n${rows}`
+    // Named by the window rather than "last N days": with from/to it may not
+    // end today at all, and telling him a stretch of last autumn was "the last
+    // 30 days" is how a right answer gets attached to the wrong dates.
+    return `${sinceStr} to ${untilStr} (most recent first — health, Oura tags, intake, check-ins, mood, journal):\n${rows}`
+  }
+
+  if (name === "get_day_journey") {
+    // The same stay/move segmentation the location page draws, so the two
+    // never disagree about what a day looked like.
+    const jTz = await getUserTimezone(userId)
+    const raw = String(input.date ?? "").trim()
+    const jDate = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : localDateStr(jTz)
+    const { start: jStart, end: jEnd } = zonedDayRange(jTz, jDate)
+
+    const rows = await prisma.locationPoint.findMany({
+      where: { userId, trackedAt: { gte: jStart, lte: jEnd } },
+      orderBy: { trackedAt: "asc" },
+      select: { lat: true, lng: true, trackedAt: true },
+    }).catch(() => [])
+    if (rows.length < 2) return `No location was tracked on ${jDate}.`
+
+    const points = rows.map(r => ({ lat: r.lat, lon: r.lng, time: r.trackedAt }))
+    const segments = buildJourney(points, detectStops(points))
+    if (segments.length === 0) return `Nothing worth calling a stay or a journey on ${jDate}.`
+
+    const savedPlaces = await prisma.savedPlace.findMany({
+      where: { userId },
+      select: { id: true, name: true, emoji: true, lat: true, lng: true, radiusM: true },
+    }).catch(() => [])
+
+    // Street names already looked up for the day view are sitting in the same
+    // cache; reading them costs one query and no network. A stay with neither
+    // a saved place nor a cached street stays anonymous rather than being
+    // described by its coordinates, which tell nobody anything.
+    const stays = segments.filter(seg => seg.kind === "stay")
+    const cached = stays.length === 0 ? [] : await prisma.userPreference.findMany({
+      where: { userId, key: { in: stays.map(st => placeNameKey(st.lat, st.lon, "street")) } },
+      select: { key: true, value: true },
+    }).catch(() => [])
+    const streets = new Map(cached.map(c => [c.key, c.value]))
+
+    const at = (d: Date) => localTimeStr(jTz, d)
+    const dur = (m: number) => (m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`)
+    const lines = segments.map(seg => {
+      if (seg.kind === "gap") return `${at(seg.start)}–${at(seg.end)} no tracking (${dur(seg.minutes)})`
+      if (seg.kind === "move") {
+        const km = seg.distanceM >= 1000
+          ? `${(seg.distanceM / 1000).toFixed(1)} km`
+          : `${seg.distanceM} m`
+        const how = { walk: "walking", run: "running", cycle: "cycling", transit: "by bus or tram",
+          drive: "driving", train: "by train", flight: "flying", unknown: "travelling" }[seg.mode]
+        return `${at(seg.start)}–${at(seg.end)} ${how}, ${km} (${dur(seg.minutes)}${
+          seg.confidence === "guess" ? ", mode is a guess" : ""})`
+      }
+      const saved = matchSavedPlace(seg.lat, seg.lon, savedPlaces)
+      const street = streets.get(placeNameKey(seg.lat, seg.lon, "street"))
+      const where = saved ? `at ${saved.place.name}`
+        : street ? `at an unnamed place near ${street}`
+        : "somewhere unnamed"
+      return `${at(seg.start)}–${at(seg.end)} ${where} (${dur(seg.minutes)})`
+    })
+
+    return `Where ${jDate} went:\n${lines.join("\n")}`
+  }
+
+  if (name === "search_chat_history") {
+    // Emergy's own recall. Everything he and the user have ever said is in
+    // ChatMessage; until this existed, nothing ever read it back, so a new
+    // conversation began with no knowledge that the previous ones happened —
+    // and he would say, truthfully but uselessly, that he keeps no transcript.
+    const rawQuery = String(input.query ?? "").trim()
+    const date = String(input.date ?? "").trim()
+    const days = parseInt(String(input.days ?? ""), 10)
+
+    const tz = await getUserTimezone(userId)
+    let range: { gte?: Date; lte?: Date } | undefined
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const { start, end } = zonedDayRange(tz, date)
+      range = { gte: start, lte: end }
+    } else if (Number.isFinite(days) && days > 0) {
+      range = { gte: zonedDayRange(tz, addDaysISO(localDateStr(tz), -Math.min(365, days))).start }
+    }
+
+    // Stop words stripped: see lib/chat-recall.
+    const terms = recallTerms(rawQuery)
+
+    if (terms.length === 0 && !range) {
+      return "Give me something to search for — a word from the conversation, or a date."
+    }
+
+    const hits = await prisma.chatMessage.findMany({
+      where: {
+        userId,
+        ...(range && { createdAt: range }),
+        ...(terms.length > 0 && {
+          OR: terms.map(t => ({ content: { contains: t, mode: "insensitive" as const } })),
+        }),
+      },
+      orderBy: { createdAt: "desc" },
+      take: terms.length > 0 ? 40 : 60,
+      select: { id: true, role: true, content: true, createdAt: true, conversationId: true },
+    }).catch(() => [])
+
+    if (hits.length === 0) {
+      return terms.length > 0
+        ? `Nothing in our past conversations mentions ${terms.map(t => `"${t}"`).join(" or ")}${range ? " in that window" : ""}.`
+        : "We did not talk on that day."
+    }
+
+    // Prisma's OR ranks every partial match equally and newest-first, which
+    // puts a message that merely says "church" above the one that says church
+    // AND tower AND Sofia. lib/chat-recall re-ranks by how many terms hit.
+    const scored = rankRecallHits(hits, terms, RECALL_MAX_HITS)
+
+    // A user's question without the answer to it is half a memory, so each hit
+    // brings the reply that followed it in the same conversation.
+    //
+    // Emitted ids are tracked because that reply is very often a hit in its own
+    // right — the words being searched for appear in both halves of the
+    // exchange — and quoting it twice, once as an answer and once as its own
+    // entry, made a three-message conversation read as five.
+    const lines: string[] = []
+    const emitted = new Set<string>()
+    for (const m of scored) {
+      if (emitted.has(m.id)) continue
+      emitted.add(m.id)
+      const when = `${localDateStr(tz, m.createdAt)} ${localTimeStr(tz, m.createdAt)}`
+      lines.push(`[${when}] ${m.role === "user" ? "You" : "Me"}: ${trimForRecall(m.content)}`)
+
+      if (m.role === "user" && m.conversationId) {
+        const reply = await prisma.chatMessage.findFirst({
+          where: {
+            userId,
+            conversationId: m.conversationId,
+            role: "assistant",
+            createdAt: { gt: m.createdAt },
+          },
+          orderBy: { createdAt: "asc" },
+          select: { id: true, content: true },
+        }).catch(() => null)
+        if (reply && !emitted.has(reply.id)) {
+          emitted.add(reply.id)
+          lines.push(`          Me: ${trimForRecall(reply.content)}`)
+        }
+      }
+    }
+
+    return `From our past conversations:\n${lines.join("\n")}`
   }
 
   if (name === "remember") {
-    const fact = String(input.fact ?? "").trim().slice(0, 280)
+    const fact = String(input.fact ?? "").trim()
     if (!fact) return "Nothing to remember."
+    // Dated, and replacing anything it restates rather than sitting beside it.
+    // Exact-string dedupe kept "I hate mornings" and "hates mornings" as two
+    // memories, spending two of fifty slots to say one thing.
+    const today = localDateStr(await getUserTimezone(userId))
     const existing = await prisma.userPreference.findUnique({
-      where: { userId_key: { userId, key: "emergy_memory" } },
+      where: { userId_key: { userId, key: MEMORY_KEY } },
+      select: { value: true },
     }).catch(() => null)
-    let facts: string[] = []
-    try { facts = existing ? JSON.parse(existing.value) : [] } catch { facts = [] }
-    if (!facts.includes(fact)) facts.push(fact)
-    facts = facts.slice(-50) // keep the 50 most recent
+    const facts = addFact(parseFacts(existing?.value), fact, today)
     await prisma.userPreference.upsert({
-      where: { userId_key: { userId, key: "emergy_memory" } },
-      create: { userId, key: "emergy_memory", value: JSON.stringify(facts) },
-      update: { value: JSON.stringify(facts) },
+      where: { userId_key: { userId, key: MEMORY_KEY } },
+      create: { userId, key: MEMORY_KEY, value: serialiseFacts(facts) },
+      update: { value: serialiseFacts(facts) },
     }).catch(() => null)
     return `Got it — I'll remember that: "${fact}".`
+  }
+
+  if (name === "forget") {
+    // The counterpart `remember` never had. Told a year ago about marathon
+    // training and told today that it stopped, he kept both, and the dead one
+    // went on shaping every conversation after. Nothing in the chat could
+    // remove it — only Settings, which means noticing and going to look.
+    const query = String(input.fact ?? "").trim()
+    if (!query) return "Forget what?"
+    const row = await prisma.userPreference.findUnique({
+      where: { userId_key: { userId, key: MEMORY_KEY } },
+      select: { value: true },
+    }).catch(() => null)
+    const before = parseFacts(row?.value)
+    if (before.length === 0) return "There is nothing saved about them yet."
+
+    const { facts, removed, ambiguous } = forgetFact(before, query)
+    if (ambiguous.length > 0) {
+      // Deleting the wrong memory is worse than deleting none: nobody finds
+      // out until something odd gets said weeks later.
+      return `That could be any of these — ask which one, then call again with its wording:\n${
+        ambiguous.map(f => `- ${f.fact}`).join("\n")}`
+    }
+    if (!removed) return `Nothing saved matches "${query}", so there is nothing to forget.`
+
+    await prisma.userPreference.upsert({
+      where: { userId_key: { userId, key: MEMORY_KEY } },
+      create: { userId, key: MEMORY_KEY, value: serialiseFacts(facts) },
+      update: { value: serialiseFacts(facts) },
+    }).catch(() => null)
+    return `Forgotten: "${removed.fact}".`
   }
 
   if (name === "complete_reminder") {
@@ -1229,10 +1496,9 @@ export async function buildSystemPrompt(
 
   // Long-term memory — facts Emergy has saved about the user across conversations
   const memoryRow = await prisma.userPreference.findUnique({
-    where: { userId_key: { userId, key: "emergy_memory" } },
+    where: { userId_key: { userId, key: MEMORY_KEY } },
   }).catch(() => null)
-  let memories: string[] = []
-  try { memories = memoryRow ? JSON.parse(memoryRow.value) : [] } catch { memories = [] }
+  const memories = parseFacts(memoryRow?.value)
 
   const habitsWithStreaks = habits.map((h) => {
     let streak = 0
@@ -1643,8 +1909,8 @@ You can see their medications, symptoms and lab results. You may describe what's
 
 FORMATTING: your replies render as markdown. Use **bold** sparingly for the words a sentence turns on, "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
-You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and offering to record them, a medication box means the name and strength, a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
-${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
+You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and offering to record them, a medication box means the name and strength, a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
+${memories.length > 0 ? `\n## What I remember about you\n${renderFacts(memories)}\nIf they say one of these is no longer true, call forget — a fact that has gone stale still steers what you say until it is gone.\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}

@@ -5,17 +5,24 @@ import { Card, CardContent } from "@/components/ui/card"
 import { X } from "lucide-react"
 
 // What Emergy remembers about the user, with the power to make it forget.
-// Facts land here via the chat `remember` tool; deleting one removes it
-// from every future conversation's context.
+// Facts land here via the chat `remember` tool and leave via `forget` or the
+// cross below; either way they stop reaching every future conversation.
+//
+// Each carries the date it was learned, where one is known. Facts saved before
+// dates existed have none, and are shown without rather than with a guess —
+// how old a belief is, is exactly the thing you want when deciding whether it
+// is still true.
+
+interface Entry { fact: string; at: string | null }
 
 export function EmergyMemory() {
-  const [facts, setFacts] = useState<string[] | null>(null)
+  const [facts, setFacts] = useState<Entry[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   useEffect(() => {
     fetch("/api/emergy/memory")
       .then(r => r.json())
-      .then(d => setFacts(Array.isArray(d.facts) ? d.facts : []))
+      .then(d => setFacts(Array.isArray(d.entries) ? d.entries : []))
       .catch(() => setFacts([]))
   }, [])
 
@@ -28,7 +35,7 @@ export function EmergyMemory() {
         body: JSON.stringify({ fact }),
       })
       const d = await res.json().catch(() => null)
-      if (res.ok && d?.facts) setFacts(d.facts)
+      if (res.ok && Array.isArray(d?.entries)) setFacts(d.entries)
     } catch { /* leave the list as-is */ }
     setBusy(null)
   }
@@ -54,12 +61,15 @@ export function EmergyMemory() {
           </p>
         ) : (
           <ul className="space-y-1.5">
-            {facts.map(fact => (
+            {facts.map(({ fact, at }) => (
               <li
                 key={fact}
                 className="flex items-start justify-between gap-2 rounded-lg bg-secondary/60 px-3 py-2"
               >
-                <span className="text-sm leading-snug min-w-0 break-words">{fact}</span>
+                <span className="min-w-0 text-sm leading-snug break-words">
+                  {fact}
+                  {at && <span className="ml-2 text-xs text-muted-foreground/70">· {at}</span>}
+                </span>
                 <button
                   onClick={() => forget(fact)}
                   disabled={busy === fact}

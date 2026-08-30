@@ -75,3 +75,63 @@ export function computeTargets(opts: TargetInputs): DailyTargets {
     calorieBasis,
   }
 }
+
+// ─── A healthy weight is a span, not a number ────────────────────────────────
+
+/** The WHO's normal-BMI band. Both ends matter; most apps only draw the top. */
+const BMI_LOW = 18.5
+const BMI_HIGH = 24.9
+
+export interface WeightRange {
+  minKg: number
+  maxKg: number
+  /** Where the current weight sits relative to the band. */
+  position: "under" | "inside" | "over"
+  bmi: number
+}
+
+/**
+ * The healthy weight band for a height, and where a weight sits in it.
+ *
+ * This exists because "lost 2 kg" was being painted green regardless of who
+ * lost it. Down is not a synonym for better: at 47 kg on a frame that wants
+ * 55–75, every kilogram lost is a kilogram in the wrong direction, and an app
+ * that congratulates you for it is worse than one that says nothing.
+ *
+ * Returns null without a plausible height — a band invented from nothing would
+ * be a confident wrong answer, which is the only thing worse than no answer.
+ */
+export function healthyWeightRange(heightCm: number | null | undefined, weightKg: number | null | undefined): WeightRange | null {
+  if (!heightCm || heightCm < 120 || heightCm > 230) return null
+  if (!weightKg || weightKg < 20 || weightKg > 400) return null
+  const m = heightCm / 100
+  const minKg = Math.round(BMI_LOW * m * m * 10) / 10
+  const maxKg = Math.round(BMI_HIGH * m * m * 10) / 10
+  const bmi = Math.round((weightKg / (m * m)) * 10) / 10
+  return {
+    minKg,
+    maxKg,
+    bmi,
+    position: weightKg < minKg ? "under" : weightKg > maxKg ? "over" : "inside",
+  }
+}
+
+/**
+ * Whether a change in weight moved towards the healthy band or away from it.
+ *
+ * `null` when there is no band to judge against, or when the change is too
+ * small to mean anything — 100 grams is a glass of water, not a trend, and
+ * colouring it either way invents a verdict.
+ */
+export function weightChangeVerdict(
+  range: WeightRange | null,
+  deltaKg: number | null | undefined,
+): "better" | "worse" | "neutral" | null {
+  if (!range || deltaKg == null || !Number.isFinite(deltaKg)) return null
+  if (Math.abs(deltaKg) < 0.2) return "neutral"
+  // Inside the band, drifting is drifting: neither direction is a win, and
+  // only leaving it is a loss.
+  if (range.position === "inside") return "neutral"
+  const towards = range.position === "under" ? deltaKg > 0 : deltaKg < 0
+  return towards ? "better" : "worse"
+}
