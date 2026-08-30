@@ -13,9 +13,10 @@ import {
   chipsFromClaim, chipsFromTools, createSourceFilter, mergeChips, SOURCE_KEYS,
   type SourceChip, type SourceManifest,
 } from "@/lib/chat-sources"
-import { addDaysISO, localDateStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
+import { addDaysISO, localDateStr, localTimeStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { randomUUID } from "crypto"
+import { rankRecallHits, recallTerms, RECALL_MAX_HITS, trimForRecall } from "@/lib/chat-recall"
 import { parseDose, formatDose } from "@/lib/dose"
 
 /** Fold whatever the model called it onto a type the app stores. */
@@ -245,6 +246,19 @@ const TOOLS: Anthropic.Tool[] = [
         days: { type: "number", description: "How many days back to fetch (1-90)" },
       },
       required: ["days"],
+    },
+  },
+  {
+    name: "search_chat_history",
+    description: "Search what the user and you have said to each other in PAST conversations. Emergy's own memory of talking to them. Use it whenever the user refers back to something you discussed before — 'do you remember when I told you about…', 'what did we say that day', 'you suggested something for my headaches' — and before ever saying you do not recall a conversation. Pass `query` with the distinctive words to look for (a name, a place, a symptom), and/or `date` to read a particular day back. Searching the current conversation is unnecessary; it is already in front of you.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "Distinctive words to look for, e.g. 'church tower Sofia'. Common words are ignored. Omit to read a whole day." },
+        date: { type: "string", description: "YYYY-MM-DD in the user's local time, to read one day back. Omit to search all time." },
+        days: { type: "number", description: "Only look at the last N days. Omit for all time." },
+      },
+      required: [],
     },
   },
   {
@@ -805,6 +819,91 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       return `${d}: ${parts.join(" | ")}`
     }).join("\n")
     return `Last ${days} days (most recent first — health, Oura tags, intake, check-ins, mood, journal):\n${rows}`
+  }
+
+  if (name === "search_chat_history") {
+    // Emergy's own recall. Everything he and the user have ever said is in
+    // ChatMessage; until this existed, nothing ever read it back, so a new
+    // conversation began with no knowledge that the previous ones happened —
+    // and he would say, truthfully but uselessly, that he keeps no transcript.
+    const rawQuery = String(input.query ?? "").trim()
+    const date = String(input.date ?? "").trim()
+    const days = parseInt(String(input.days ?? ""), 10)
+
+    const tz = await getUserTimezone(userId)
+    let range: { gte?: Date; lte?: Date } | undefined
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const { start, end } = zonedDayRange(tz, date)
+      range = { gte: start, lte: end }
+    } else if (Number.isFinite(days) && days > 0) {
+      range = { gte: zonedDayRange(tz, addDaysISO(localDateStr(tz), -Math.min(365, days))).start }
+    }
+
+    // Stop words stripped: see lib/chat-recall.
+    const terms = recallTerms(rawQuery)
+
+    if (terms.length === 0 && !range) {
+      return "Give me something to search for — a word from the conversation, or a date."
+    }
+
+    const hits = await prisma.chatMessage.findMany({
+      where: {
+        userId,
+        ...(range && { createdAt: range }),
+        ...(terms.length > 0 && {
+          OR: terms.map(t => ({ content: { contains: t, mode: "insensitive" as const } })),
+        }),
+      },
+      orderBy: { createdAt: "desc" },
+      take: terms.length > 0 ? 40 : 60,
+      select: { id: true, role: true, content: true, createdAt: true, conversationId: true },
+    }).catch(() => [])
+
+    if (hits.length === 0) {
+      return terms.length > 0
+        ? `Nothing in our past conversations mentions ${terms.map(t => `"${t}"`).join(" or ")}${range ? " in that window" : ""}.`
+        : "We did not talk on that day."
+    }
+
+    // Prisma's OR ranks every partial match equally and newest-first, which
+    // puts a message that merely says "church" above the one that says church
+    // AND tower AND Sofia. lib/chat-recall re-ranks by how many terms hit.
+    const scored = rankRecallHits(hits, terms, RECALL_MAX_HITS)
+
+    // A user's question without the answer to it is half a memory, so each hit
+    // brings the reply that followed it in the same conversation.
+    //
+    // Emitted ids are tracked because that reply is very often a hit in its own
+    // right — the words being searched for appear in both halves of the
+    // exchange — and quoting it twice, once as an answer and once as its own
+    // entry, made a three-message conversation read as five.
+    const lines: string[] = []
+    const emitted = new Set<string>()
+    for (const m of scored) {
+      if (emitted.has(m.id)) continue
+      emitted.add(m.id)
+      const when = `${localDateStr(tz, m.createdAt)} ${localTimeStr(tz, m.createdAt)}`
+      lines.push(`[${when}] ${m.role === "user" ? "You" : "Me"}: ${trimForRecall(m.content)}`)
+
+      if (m.role === "user" && m.conversationId) {
+        const reply = await prisma.chatMessage.findFirst({
+          where: {
+            userId,
+            conversationId: m.conversationId,
+            role: "assistant",
+            createdAt: { gt: m.createdAt },
+          },
+          orderBy: { createdAt: "asc" },
+          select: { id: true, content: true },
+        }).catch(() => null)
+        if (reply && !emitted.has(reply.id)) {
+          emitted.add(reply.id)
+          lines.push(`          Me: ${trimForRecall(reply.content)}`)
+        }
+      }
+    }
+
+    return `From our past conversations:\n${lines.join("\n")}`
   }
 
   if (name === "remember") {
@@ -1643,7 +1742,7 @@ You can see their medications, symptoms and lab results. You may describe what's
 
 FORMATTING: your replies render as markdown. Use **bold** sparingly for the words a sentence turns on, "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
-You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), and REMEMBER durable facts about the user (remember) — use them when relevant. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and offering to record them, a medication box means the name and strength, a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
+You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and offering to record them, a medication box means the name and strength, a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
 ## Today's snapshot
