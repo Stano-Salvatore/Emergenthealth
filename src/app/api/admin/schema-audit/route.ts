@@ -63,24 +63,32 @@ export async function GET(req: NextRequest) {
   )
 
   const [dbTables, columns, indexes, foreignKeys] = await Promise.all([
+    // Every identifier column below is cast ::text. In the catalogs they are
+    // Postgres's `name` type, which Prisma's driver adapter cannot
+    // deserialise — the whole route answered 500 on its first query, from the
+    // day it was written until the first time anyone actually opened it.
+    // The same bug was found and fixed in the stats route earlier; this file
+    // never got the cast because nothing ever exercised it.
     prisma.$queryRaw<{ table_name: string }[]>`
-      SELECT table_name FROM information_schema.tables
+      SELECT table_name::text AS table_name FROM information_schema.tables
       WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
       ORDER BY table_name
     `,
     prisma.$queryRaw<ColumnRow[]>`
-      SELECT table_name, column_name, data_type, is_nullable, column_default, character_maximum_length
+      SELECT table_name::text AS table_name, column_name::text AS column_name,
+             data_type::text AS data_type, is_nullable::text AS is_nullable,
+             column_default::text AS column_default, character_maximum_length::int AS character_maximum_length
       FROM information_schema.columns
       WHERE table_schema = 'public'
       ORDER BY table_name, ordinal_position
     `,
     prisma.$queryRaw<{ tablename: string; indexname: string; indexdef: string }[]>`
-      SELECT tablename, indexname, indexdef FROM pg_indexes
+      SELECT tablename::text AS tablename, indexname::text AS indexname, indexdef FROM pg_indexes
       WHERE schemaname = 'public'
       ORDER BY tablename, indexname
     `,
     prisma.$queryRaw<{ table_name: string; constraint_name: string; definition: string }[]>`
-      SELECT rel.relname AS table_name, con.conname AS constraint_name,
+      SELECT rel.relname::text AS table_name, con.conname::text AS constraint_name,
              pg_get_constraintdef(con.oid) AS definition
       FROM pg_constraint con
       JOIN pg_class rel ON rel.oid = con.conrelid
