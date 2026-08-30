@@ -14,21 +14,21 @@ import { join } from "node:path"
 // request path is emptied on every deploy, then silently recreated by the next
 // request that needs it. Integration credentials and health logs both.
 //
-// The fifteen below are the ones that already exist. They cannot simply be
-// added to the schema from these CREATE statements: the live columns may have
-// drifted from them, and a model that disagrees with reality does not fail
-// under --accept-data-loss, it rewrites reality. /api/admin/schema-audit exists
-// to report the ground truth they must be written from.
+// The fifteen that used to be frozen here were adopted into schema.prisma on
+// 2026-08-30, so the debt this set once carried is paid and it is empty. The
+// worry that stopped a straight transcription — "the live columns may have
+// drifted from the CREATE statements" — turned out to be impossible: the wipe
+// itself guaranteed freshness, because every deploy dropped the tables and the
+// deployed code's own DDL recreated them. The adoption was transcribed from
+// that DDL and verified the only way that counts: seed rows through the raw
+// path, run `prisma db push --accept-data-loss`, watch the rows survive, and
+// run it again to see "already in sync".
 //
-// Until that happens, this test freezes the debt. It does not fail on what is
-// already broken; it fails when a SIXTEENTH appears.
+// The set stays, empty, because the guard is about the NEXT table: a new raw
+// CREATE TABLE IF NOT EXISTS without a matching model is data that will not
+// survive its first deploy, and this is what says so before production does.
 
-const KNOWN_RAW_ONLY = new Set([
-  "BloodPressureLog", "BodyMeasurementLog", "CustomMetric", "CustomMetricLog",
-  "FcmToken", "GitHubProfile", "GocardlessConnection", "LastfmKey", "LastfmLog",
-  "NewsletterSubscriber", "RescuetimeKey", "RescuetimeLog", "SaltedgeConnection",
-  "TogglToken", "TruelayerToken",
-])
+const KNOWN_RAW_ONLY = new Set<string>([])
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
