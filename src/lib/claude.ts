@@ -17,6 +17,7 @@ import { addDaysISO, localDateStr, localTimeStr, zonedDateTime, zonedDayRange } 
 import { getUserTimezone } from "@/lib/user-timezone"
 import { randomUUID } from "crypto"
 import { rankRecallHits, recallTerms, RECALL_MAX_HITS, trimForRecall } from "@/lib/chat-recall"
+import { addFact, forgetFact, MEMORY_KEY, parseFacts, renderFacts, serialiseFacts } from "@/lib/emergy-memory"
 import { parseDose, formatDose } from "@/lib/dose"
 
 /** Fold whatever the model called it onto a type the app stores. */
@@ -268,6 +269,17 @@ const TOOLS: Anthropic.Tool[] = [
       type: "object" as const,
       properties: {
         fact: { type: "string", description: "The fact to remember, in a short sentence" },
+      },
+      required: ["fact"],
+    },
+  },
+  {
+    name: "forget",
+    description: "Remove something you remember about the user that is no longer true, or that they ask you to forget. Use it whenever a saved fact is contradicted — they stopped training, changed jobs, no longer avoids dairy — because a stale fact is not merely unhelpful, it keeps steering what you say. Pass enough of the fact to identify it. If several could match you are told which, and nothing is removed until you say which one.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        fact: { type: "string", description: "The fact to forget, or enough of it to identify which one" },
       },
       required: ["fact"],
     },
@@ -907,21 +919,54 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   }
 
   if (name === "remember") {
-    const fact = String(input.fact ?? "").trim().slice(0, 280)
+    const fact = String(input.fact ?? "").trim()
     if (!fact) return "Nothing to remember."
+    // Dated, and replacing anything it restates rather than sitting beside it.
+    // Exact-string dedupe kept "I hate mornings" and "hates mornings" as two
+    // memories, spending two of fifty slots to say one thing.
+    const today = localDateStr(await getUserTimezone(userId))
     const existing = await prisma.userPreference.findUnique({
-      where: { userId_key: { userId, key: "emergy_memory" } },
+      where: { userId_key: { userId, key: MEMORY_KEY } },
+      select: { value: true },
     }).catch(() => null)
-    let facts: string[] = []
-    try { facts = existing ? JSON.parse(existing.value) : [] } catch { facts = [] }
-    if (!facts.includes(fact)) facts.push(fact)
-    facts = facts.slice(-50) // keep the 50 most recent
+    const facts = addFact(parseFacts(existing?.value), fact, today)
     await prisma.userPreference.upsert({
-      where: { userId_key: { userId, key: "emergy_memory" } },
-      create: { userId, key: "emergy_memory", value: JSON.stringify(facts) },
-      update: { value: JSON.stringify(facts) },
+      where: { userId_key: { userId, key: MEMORY_KEY } },
+      create: { userId, key: MEMORY_KEY, value: serialiseFacts(facts) },
+      update: { value: serialiseFacts(facts) },
     }).catch(() => null)
     return `Got it — I'll remember that: "${fact}".`
+  }
+
+  if (name === "forget") {
+    // The counterpart `remember` never had. Told a year ago about marathon
+    // training and told today that it stopped, he kept both, and the dead one
+    // went on shaping every conversation after. Nothing in the chat could
+    // remove it — only Settings, which means noticing and going to look.
+    const query = String(input.fact ?? "").trim()
+    if (!query) return "Forget what?"
+    const row = await prisma.userPreference.findUnique({
+      where: { userId_key: { userId, key: MEMORY_KEY } },
+      select: { value: true },
+    }).catch(() => null)
+    const before = parseFacts(row?.value)
+    if (before.length === 0) return "There is nothing saved about them yet."
+
+    const { facts, removed, ambiguous } = forgetFact(before, query)
+    if (ambiguous.length > 0) {
+      // Deleting the wrong memory is worse than deleting none: nobody finds
+      // out until something odd gets said weeks later.
+      return `That could be any of these — ask which one, then call again with its wording:\n${
+        ambiguous.map(f => `- ${f.fact}`).join("\n")}`
+    }
+    if (!removed) return `Nothing saved matches "${query}", so there is nothing to forget.`
+
+    await prisma.userPreference.upsert({
+      where: { userId_key: { userId, key: MEMORY_KEY } },
+      create: { userId, key: MEMORY_KEY, value: serialiseFacts(facts) },
+      update: { value: serialiseFacts(facts) },
+    }).catch(() => null)
+    return `Forgotten: "${removed.fact}".`
   }
 
   if (name === "complete_reminder") {
@@ -1328,10 +1373,9 @@ export async function buildSystemPrompt(
 
   // Long-term memory — facts Emergy has saved about the user across conversations
   const memoryRow = await prisma.userPreference.findUnique({
-    where: { userId_key: { userId, key: "emergy_memory" } },
+    where: { userId_key: { userId, key: MEMORY_KEY } },
   }).catch(() => null)
-  let memories: string[] = []
-  try { memories = memoryRow ? JSON.parse(memoryRow.value) : [] } catch { memories = [] }
+  const memories = parseFacts(memoryRow?.value)
 
   const habitsWithStreaks = habits.map((h) => {
     let streak = 0
@@ -1743,7 +1787,7 @@ You can see their medications, symptoms and lab results. You may describe what's
 FORMATTING: your replies render as markdown. Use **bold** sparingly for the words a sentence turns on, "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
 You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and offering to record them, a medication box means the name and strength, a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
-${memories.length > 0 ? `\n## What I remember about you\n${memories.map(m => `- ${m}`).join("\n")}\n` : ""}
+${memories.length > 0 ? `\n## What I remember about you\n${renderFacts(memories)}\nIf they say one of these is no longer true, call forget — a fact that has gone stale still steers what you say until it is gone.\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}

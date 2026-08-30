@@ -67,7 +67,8 @@ export function chipsFromClaim(claimed: string[], manifest: SourceManifest): Sou
 
 /**
  * Tools that READ. Calling one is proof he looked, so these chips need no
- * claim — the stream saw the call. Tools that write (log_*, create_*, remember)
+ * claim — the stream saw the call. Tools that write (log_*, create_*, remember,
+ * forget)
  * are actions, not sources, and deliberately have no entry here.
  */
 const TOOL_SOURCES: Record<string, { label: string; domain: SourceDomain }> = {
@@ -122,6 +123,7 @@ const TOOL_ACTIVITY: Record<string, string> = {
   log_morning_checkin: "saving your check-in",
   write_daily_note:   "writing that in your journal",
   remember:           "remembering that",
+  forget:             "forgetting that",
 }
 
 export function toolActivity(name: string): string {
