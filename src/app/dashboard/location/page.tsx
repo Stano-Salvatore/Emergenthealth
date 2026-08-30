@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils"
 import LocationInsightsClient from "../location-insights/LocationInsightsClient"
 import { TimelineImport } from "@/components/location/TimelineImport"
 import { SuggestedPlaces } from "@/components/location/SuggestedPlaces"
+import { DayJourney, type JourneySegment } from "@/components/location/DayJourney"
 
 interface CheckIn {
   id: string
@@ -579,6 +580,7 @@ type TrackData = {
   endTime:     string | null
   autoTagged:  { id: string; name: string; emoji: string; isNew: boolean }[]
   stops?:      { lat: number; lon: number; start: string; end: string; minutes: number }[]
+  journey?:    JourneySegment[]
 }
 
 /**
@@ -816,26 +818,20 @@ export default function LocationPage() {
             </p>
           )}
 
-          {/* The day in words. The map shows where; this says when and how
-              long, which is the half a route trace cannot carry. */}
-          {track.stops && track.stops.length > 0 && (
-            <div className="rounded-2xl border border-border bg-card/40 divide-y divide-border/60">
-              <p className="px-4 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          {/* The day in words. The map shows where; this says what happened —
+              which stops were which places, and how the gaps between them were
+              travelled. It replaced a numbered list of stop times that could
+              say neither, and keeps the numbering so the map still keys to it. */}
+          {track.journey && track.journey.length > 0 && (
+            <div className="rounded-2xl border border-border bg-card/40 px-4 py-3.5">
+              <p className="mb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 Where the day went
               </p>
-              {track.stops.map((st, i) => (
-                <div key={`${st.start}-${i}`} className="flex items-center gap-3 px-4 py-2.5">
-                  <span className="shrink-0 h-6 w-6 rounded-full border-2 border-primary bg-card grid place-items-center text-[10px] font-semibold">
-                    {i + 1}
-                  </span>
-                  <span className="text-sm tabular-nums">
-                    {format(parseISO(st.start), "HH:mm")} – {format(parseISO(st.end), "HH:mm")}
-                  </span>
-                  <span className="ml-auto text-sm font-medium tabular-nums">
-                    {formatDuration(st.minutes)}
-                  </span>
-                </div>
-              ))}
+              <DayJourney
+                date={date}
+                journey={track.journey}
+                onPlaceSaved={() => { load(date); setPlacesKey(k => k + 1) }}
+              />
             </div>
           )}
         </>
