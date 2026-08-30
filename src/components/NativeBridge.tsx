@@ -12,7 +12,7 @@
 import { useEffect } from "react"
 import { registerNotificationActionHandler, resyncNotifications } from "@/lib/native/notifications"
 import { syncScreenTime } from "@/lib/native/screen-time"
-import { registerNativePush } from "@/lib/native/bubble"
+import { registerNativePush, takePendingSay } from "@/lib/native/bubble"
 
 const THROTTLE_MS = 30 * 60 * 1000
 const LS_KEY = "native_reminder_sync_at"
@@ -43,9 +43,31 @@ export function NativeBridge() {
     // session, or button taps made while the app was closed are lost.
     registerNotificationActionHandler().catch(() => {})
 
+    // Whatever the chat head said while the app was shut. Turning it into a
+    // real conversation and opening that is what makes a tapped nudge land on
+    // the sentence you tapped, rather than on an empty chat.
+    //
+    // Not throttled either, and checked on every foreground: the pop that
+    // matters is the one that just happened.
+    async function collectPendingSay() {
+      if (document.visibilityState !== "visible") return
+      const message = await takePendingSay().catch(() => null)
+      if (!message) return
+      const res = await fetch("/api/emergy/say", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      }).catch(() => null)
+      const data = res?.ok ? await res.json().catch(() => null) : null
+      if (!data?.conversationId) return
+      window.location.assign(`/dashboard/chat?conversation=${encodeURIComponent(data.conversationId)}`)
+    }
+    collectPendingSay().catch(() => {})
+
     sync()
-    document.addEventListener("visibilitychange", sync)
-    return () => document.removeEventListener("visibilitychange", sync)
+    const onVisible = () => { sync(); collectPendingSay().catch(() => {}) }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => document.removeEventListener("visibilitychange", onVisible)
   }, [])
 
   return null
