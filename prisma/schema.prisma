@@ -62,6 +62,16 @@ model User {
   timelineEvents       TimelineEvent[]
   screenTimeLogs       ScreenTimeLog[]
   deviceCalendarEvents DeviceCalendarEvent[]
+  bloodPressureLogs    BloodPressureLog[]
+  customMetrics        CustomMetric[]
+  customMetricLogs     CustomMetricLog[]
+  fcmTokens            FcmToken[]
+  githubProfile        GitHubProfile?
+  lastfmKey            LastfmKey?
+  lastfmLogs           LastfmLog[]
+  rescuetimeKey        RescuetimeKey?
+  rescuetimeLogs       RescuetimeLog[]
+  togglToken           TogglToken?
 }
 
 model Account {
@@ -961,4 +971,208 @@ model ExperimentDay {
 
   @@unique([experimentId, date])
   @@index([userId, date])
+}
+
+// ─── Adopted shadow tables ───────────────────────────────────────────────────
+//
+// Every model below was, until now, a table created only by raw
+// `CREATE TABLE IF NOT EXISTS` on the request path — invisible to this file,
+// to the typed client, and to review. The build runs
+// `prisma db push --accept-data-loss`, which treats any table not described
+// here as an accident to remove: every deploy dropped all fifteen, and the
+// raw DDL quietly recreated them empty the next time a request touched them.
+// A Last.fm API key, a year of scrobbles, custom metrics with their whole
+// history, blood pressure — gone on every push, which is why nobody ever
+// caught it: the tables always existed by the time anyone looked.
+//
+// The shapes below are transcribed from that raw DDL, not from memory — and
+// because the tables were recreated from the deployed code on every cycle,
+// the code's DDL and the live database cannot have drifted apart. A model
+// that disagreed with the live table would not fail, it would rewrite the
+// table; that is why every column here matches the CREATE statement exactly,
+// down to @db.Real vs Float and which columns carry no foreign key.
+//
+// The raw CREATE TABLE IF NOT EXISTS call sites are left in place: they
+// no-op against the tables db push now maintains, and removing them is a
+// separate cleanup with no urgency.
+
+model BloodPressureLog {
+  id        String   @id
+  userId    String
+  systolic  Int
+  diastolic Int
+  pulse     Int?
+  loggedAt  DateTime @default(now()) @db.Timestamptz
+  notes     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// No foreign key on userId, faithfully: the raw DDL never declared one, and
+// adopting a table is not the moment to change its behaviour.
+model BodyMeasurementLog {
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId     String
+  loggedAt   DateTime @default(now()) @db.Timestamptz
+  waistCm    Float?   @db.Real
+  chestCm    Float?   @db.Real
+  hipsCm     Float?   @db.Real
+  neckCm     Float?   @db.Real
+  bicepCm    Float?   @db.Real
+  bodyFatPct Float?   @db.Real
+  notes      String?
+}
+
+model CustomMetric {
+  id        String   @id
+  userId    String
+  name      String
+  unit      String?
+  type      String   @default("number")
+  color     String   @default("#6366f1")
+  emoji     String   @default("📊")
+  minVal    Float?   @db.Real
+  maxVal    Float?   @db.Real
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  user User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  logs CustomMetricLog[]
+
+  @@index([userId])
+}
+
+model CustomMetricLog {
+  id       String   @id
+  userId   String
+  metricId String
+  date     DateTime @db.Date
+  value    Float    @db.Real
+  note     String?
+  loggedAt DateTime @default(now()) @db.Timestamptz
+
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  metric CustomMetric @relation(fields: [metricId], references: [id], onDelete: Cascade)
+
+  @@unique([metricId, date])
+  @@index([userId, date])
+}
+
+model FcmToken {
+  token     String   @id
+  userId    String
+  updatedAt DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model GitHubProfile {
+  userId      String   @id
+  username    String
+  accessToken String?
+  updatedAt   DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// userId is the key but carries no foreign key — see BodyMeasurementLog.
+model GocardlessConnection {
+  userId        String   @id
+  requisitionId String?
+  accountId     String?
+  accountName   String?
+  currency      String?
+  updatedAt     DateTime @default(now()) @db.Timestamptz
+}
+
+model LastfmKey {
+  userId    String   @id
+  apiKey    String
+  username  String
+  updatedAt DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model LastfmLog {
+  id           String  @id
+  userId       String
+  date         String
+  tracksPlayed Int     @default(0)
+  listeningMin Int     @default(0)
+  topArtist    String?
+  topTrack     String?
+  // Added by ALTER, deliberately nullable with no default: null means "this
+  // day was imported before late-evening tracks were counted", which must
+  // stay distinguishable from a genuinely quiet evening's 0.
+  lateTracks   Int?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+}
+
+model NewsletterSubscriber {
+  id        String   @id @default(dbgenerated("gen_random_uuid()"))
+  email     String   @unique
+  createdAt DateTime @default(now()) @db.Timestamp(6)
+}
+
+model RescuetimeKey {
+  userId    String   @id
+  apiKey    String
+  updatedAt DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RescuetimeLog {
+  id                String @id
+  userId            String
+  date              String
+  productivityScore Int?
+  totalActiveH      Float?
+  productiveH       Float?
+  neutralH          Float?
+  distractingH      Float?
+  topCategory       String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+}
+
+// See GocardlessConnection — keyed by userId, no foreign key in the DDL.
+model SaltedgeConnection {
+  userId       String   @id
+  customerId   String
+  connectionId String?
+  accountId    String?
+  accountName  String?
+  currency     String?
+  updatedAt    DateTime @default(now()) @db.Timestamptz
+}
+
+model TogglToken {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  userId      String   @unique
+  apiToken    String
+  workspaceId Int?
+  createdAt   DateTime @default(now()) @db.Timestamptz
+  updatedAt   DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// See GocardlessConnection — keyed by userId, no foreign key in the DDL.
+model TruelayerToken {
+  userId       String    @id
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime? @db.Timestamptz
+  accountId    String?
+  accountName  String?
+  currency     String?
+  updatedAt    DateTime  @default(now()) @db.Timestamptz
 }
