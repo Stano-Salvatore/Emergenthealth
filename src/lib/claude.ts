@@ -250,7 +250,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "search_chat_history",
-    description: "Search what the user and you have said to each other in PAST conversations. Emergy's own memory of talking to them. Use it whenever the user refers back to something you discussed before — 'do you remember when I told you about…', 'what did we say that day', 'you suggested something for my headaches' — and before ever saying you do not recall a conversation. Pass `query` with the distinctive words to look for (a name, a place, a symptom), and/or `date` to read a particular day back. Searching the current conversation is unnecessary; it is already in front of you.",
+    description: "Search what the user and you have said to each other in PAST conversations. Emergy's own memory of talking to them. Use it whenever the user refers back to something you discussed before — 'do you remember when I told you about…', 'what did we say that day', 'you suggested something for my headaches' — and before ever saying you do not recall a conversation. Pass `query` with the distinctive words to look for (a name, a place, a symptom), and/or `date` to read a particular day back. Matching is on whole words, so a name the user spells differently now than they did then (Sofia/Sophia) will not match on its own — if nothing comes back, try again with other words from the same memory, or with a date, before telling them you cannot find it. Searching the current conversation is unnecessary; it is already in front of you.",
     input_schema: {
       type: "object" as const,
       properties: {
