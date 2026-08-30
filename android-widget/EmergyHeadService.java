@@ -295,6 +295,26 @@ public class EmergyHeadService extends Service {
         speech = null;
     }
 
+    // ------------------------------------------------------------------ geometry
+    //
+    // These sat among the panel's own code and went out with it, which broke the
+    // head's positioning: it is the thing that has to stay on screen while being
+    // dragged, and it clamps against both.
+
+    private int widthPx() {
+        return getResources().getDisplayMetrics().widthPixels;
+    }
+
+
+    private int heightPx() {
+        return getResources().getDisplayMetrics().heightPixels;
+    }
+
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(value, Math.max(min, max)));
+    }
+
     // ----------------------------------------------------------- opening the app
 
     /**
