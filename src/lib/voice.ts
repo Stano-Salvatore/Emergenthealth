@@ -267,7 +267,32 @@ export function speakableText(raw: string): string {
     .trim()
 }
 
-export function speak(text: string, opts?: { voice?: SpeechSynthesisVoice | null; rate?: number; onEnd?: () => void }): boolean {
+/**
+ * How long to wait for the device to actually START speaking before calling it
+ * a failure.
+ *
+ * `speechSynthesis.speak()` returns nothing and throws nothing: it queues an
+ * utterance. Where the platform has no working speech engine — an Android
+ * WebView with no TTS service bound is the case that matters here — the
+ * utterance is accepted and simply never spoken. `onstart` never fires,
+ * `onend` never fires, and a caller that trusted the queue shows a speaker
+ * icon lit up for ever over silence.
+ *
+ * This is the same shape of failure as the microphone on the chat page:
+ * an API that exists, accepts the call, and does nothing. Two and a half
+ * seconds is far longer than any real engine takes to begin.
+ */
+export const SPEECH_START_TIMEOUT_MS = 2500
+
+export function speak(text: string, opts?: {
+  voice?: SpeechSynthesisVoice | null
+  rate?: number
+  onEnd?: () => void
+  /** Fired when sound actually begins. */
+  onStart?: () => void
+  /** Fired when nothing began within SPEECH_START_TIMEOUT_MS. */
+  onSilent?: () => void
+}): boolean {
   if (!speechSupported()) return false
   const body = speakableText(text)
   if (!body) return false
@@ -275,10 +300,52 @@ export function speak(text: string, opts?: { voice?: SpeechSynthesisVoice | null
   const u = new SpeechSynthesisUtterance(body)
   if (opts?.voice) { u.voice = opts.voice; u.lang = opts.voice.lang }
   u.rate = Math.max(0.5, Math.min(2, opts?.rate ?? 1))
-  if (opts?.onEnd) { u.onend = opts.onEnd; u.onerror = opts.onEnd }
+
+  let settled = false
+  const watchdog = opts?.onSilent
+    ? setTimeout(() => {
+        if (settled) return
+        settled = true
+        // Clear the queue: an utterance that never started would otherwise sit
+        // there and play later, over whatever is being said by then.
+        try { window.speechSynthesis.cancel() } catch { /* nothing queued */ }
+        opts.onSilent?.()
+      }, SPEECH_START_TIMEOUT_MS)
+    : null
+
+  u.onstart = () => {
+    if (settled) return
+    settled = true
+    if (watchdog) clearTimeout(watchdog)
+    opts?.onStart?.()
+  }
+  const finish = () => {
+    if (watchdog) clearTimeout(watchdog)
+    settled = true
+    opts?.onEnd?.()
+  }
+  u.onend = finish
+
+  u.onerror = (e: SpeechSynthesisErrorEvent) => {
+    const wasSpeaking = settled
+    finish()
+    // "canceled" and "interrupted" are us: stopSpeaking(), or the cancel() at
+    // the top of the next utterance. Everything else is the engine saying it
+    // could not do it, and must not be reported as a normal finish.
+    //
+    // This is the case the watchdog alone misses. A platform with no working
+    // engine does not always stay quiet — headless Chromium answers
+    // "synthesis-failed" within milliseconds, which cleared the watchdog and
+    // ran onEnd, so the speaker icon went dark and nothing said why.
+    if (!wasSpeaking && !SELF_INFLICTED_SPEECH_ERRORS.has(e.error)) opts?.onSilent?.()
+  }
+
   window.speechSynthesis.speak(u)
   return true
 }
+
+/** Errors we caused by cancelling, as opposed to the engine failing. */
+const SELF_INFLICTED_SPEECH_ERRORS = new Set(["canceled", "cancelled", "interrupted"])
 
 export function stopSpeaking(): void {
   if (speechSupported()) window.speechSynthesis.cancel()

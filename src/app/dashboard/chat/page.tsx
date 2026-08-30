@@ -3,8 +3,12 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { startDictation, type DictationHandle } from "@/lib/voice"
-import { Send, User, Mic, Square, History, Plus, Trash2, X, Sunrise, Copy, Check, RotateCcw } from "lucide-react"
+import { cn } from "@/lib/utils"
+import {
+  getAutoSpeak, getSavedVoiceUri, getVoiceRate, listVoices, resolveVoice, saveAutoSpeak,
+  speak, speechSupported, startDictation, stopSpeaking, type DictationHandle,
+} from "@/lib/voice"
+import { Send, User, Mic, Square, History, Plus, Trash2, X, Sunrise, Copy, Check, RotateCcw, Volume2, VolumeX } from "lucide-react"
 import { EmergyAvatar, type EmergyState } from "@/components/emergy/EmergyAvatar"
 import { useEmergyState, refreshEmergy } from "@/lib/emergy-store"
 import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
@@ -152,6 +156,13 @@ export default function ChatPage() {
   const emergyState = useEmergyState()
   const [listening, setListening] = useState(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  // Reading replies aloud. lib/voice has done this all along and the floating
+  // panel has used it all along; this page — the one the Emergy tab opens —
+  // imported the microphone and nothing else, so a voice chosen in Settings
+  // said its sample and was never heard again. Same preference key as the
+  // panel and Settings, so the three cannot disagree about whether it is on.
+  const [autoSpeak, setAutoSpeak] = useState(false)
+  const [speaking, setSpeaking] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
@@ -194,6 +205,54 @@ export default function ChatPage() {
     // Drop the query so a refresh doesn't paste it a second time.
     window.history.replaceState({}, "", window.location.pathname)
   }, [])
+
+  useEffect(() => { setAutoSpeak(getAutoSpeak()) }, [])
+
+  // Nothing should still be talking after this page is gone.
+  useEffect(() => () => stopSpeaking(), [])
+
+  /**
+   * Read a reply aloud, and notice when the device only pretends to.
+   *
+   * speechSynthesis.speak() queues an utterance and reports nothing back, so
+   * on a platform with no working speech engine the icon lights up over
+   * silence for ever. If sound has not started within a couple of seconds,
+   * that is said out loud rather than left to look like it worked — the same
+   * mistake the microphone on this page used to make.
+   */
+  const speakReply = useCallback(async (text: string) => {
+    if (!speechSupported() || !text.trim()) return
+    const voices = await listVoices()
+    const voice = resolveVoice(voices, getSavedVoiceUri(), navigator.language)
+    setSpeaking(true)
+    const queued = speak(text, {
+      voice,
+      rate: getVoiceRate(),
+      onStart: () => setVoiceError(null),
+      onEnd: () => setSpeaking(false),
+      onSilent: () => {
+        setSpeaking(false)
+        setVoiceError("Your device accepted the speech but never played it — spoken replies are off.")
+        setAutoSpeak(false)
+        saveAutoSpeak(false)
+      },
+    })
+    if (!queued) setSpeaking(false)
+  }, [])
+
+  function toggleSpeech() {
+    setVoiceError(null)
+    if (speaking) { stopSpeaking(); setSpeaking(false); return }
+    const next = !autoSpeak
+    setAutoSpeak(next)
+    saveAutoSpeak(next)
+    // Turning it on reads the answer already on screen, rather than making the
+    // user ask something again to find out whether it works.
+    if (next) {
+      const last = [...messages].reverse().find(m => m.role === "assistant" && !m.streaming)
+      if (last?.content) void speakReply(last.content)
+    }
+  }
 
   // ?conversation=<id> — arriving at a specific thread rather than a blank one.
   //
@@ -349,6 +408,9 @@ export default function ChatPage() {
       let buffer = ""
       let received = false
       let wroteSomething = false
+      // The reply as one string. The messages array has it too, but reading it
+      // back from state here would see the value from before this turn.
+      let spoken = ""
 
       while (true) {
         const { done, value } = await reader.read()
@@ -378,6 +440,7 @@ export default function ChatPage() {
               setConversationId(parsed.conversationId)
             } else if (parsed.type === "text" && parsed.text) {
               received = true
+              spoken += parsed.text
               setMessages((m) =>
                 m.map((msg, i) =>
                   // Text resuming means the tool has come back: drop the
@@ -403,6 +466,9 @@ export default function ChatPage() {
       // A stream that ended without a single token would also leave a blank
       // bubble — say something instead.
       if (!received) throw new ChatError("I went quiet there, sorry — ask me again?")
+      // Only the finished reply is read aloud: speaking each token as it
+      // arrives would stutter and restart on every chunk.
+      if (autoSpeak && spoken.trim()) void speakReply(spoken)
       refreshConversations()
       // Anything he logged this turn moves his mood — water before 4pm is the
       // difference between wilting and fine — so let his face catch up rather
@@ -501,6 +567,20 @@ export default function ChatPage() {
             title="Past chats"
           >
             {historyOpen ? <X className="h-4 w-4" /> : <History className="h-4 w-4" />}
+          </Button>
+          <Button
+            onClick={toggleSpeech}
+            size="icon"
+            variant="outline"
+            className={cn(
+              "h-9 w-9 shrink-0",
+              speaking ? "border-primary/50 bg-primary/15 text-primary"
+                : autoSpeak ? "border-primary/40 text-primary" : "",
+            )}
+            aria-label={speaking ? "Stop speaking" : autoSpeak ? "Turn off spoken replies" : "Read replies aloud"}
+            title={speaking ? "Stop speaking" : autoSpeak ? "Spoken replies on" : "Read replies aloud"}
+          >
+            {autoSpeak || speaking ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </Button>
           <Button
             onClick={newChat}
@@ -603,6 +683,17 @@ export default function ChatPage() {
         )}
       </div>
 
+      {/* Whatever went wrong has to reach the screen. A mic that fails in
+          silence is the bug this whole page just had — and a voice that fails
+          in silence is indistinguishable from one that was never switched on.
+
+          Above the composer, not below the hint under it. Down there it was
+          the last element on the page and the bottom nav sat over it, so the
+          one sentence explaining the failure was itself half invisible. */}
+      {voiceError && (
+        <p className="mt-3 px-4 text-center text-xs text-amber-400">{voiceError}</p>
+      )}
+
       <div className="mt-4 flex gap-2 items-end">
         <Textarea
           ref={textareaRef}
@@ -639,11 +730,6 @@ export default function ChatPage() {
       <p className="text-xs text-muted-foreground text-center mt-2">
         {listening ? "Listening… speak now" : "Enter to send · Shift+Enter for new line · 🎤 for voice"}
       </p>
-      {/* Whatever went wrong has to reach the screen. A mic that fails in
-          silence is the bug this whole page just had. */}
-      {voiceError && (
-        <p className="text-center text-xs text-amber-400 mt-1 px-4">{voiceError}</p>
-      )}
     </div>
   )
 }
