@@ -18,6 +18,9 @@ import { getUserTimezone } from "@/lib/user-timezone"
 import { randomUUID } from "crypto"
 import { rankRecallHits, recallTerms, RECALL_MAX_HITS, trimForRecall } from "@/lib/chat-recall"
 import { addFact, forgetFact, MEMORY_KEY, parseFacts, renderFacts, serialiseFacts } from "@/lib/emergy-memory"
+import { detectStops } from "@/lib/day-stops"
+import { buildJourney } from "@/lib/day-journeys"
+import { matchSavedPlace, placeNameKey } from "@/lib/places"
 import { parseDose, formatDose } from "@/lib/dose"
 
 /** Fold whatever the model called it onto a type the app stores. */
@@ -247,6 +250,17 @@ const TOOLS: Anthropic.Tool[] = [
         days: { type: "number", description: "How many days back to fetch (1-90)" },
       },
       required: ["days"],
+    },
+  },
+  {
+    name: "get_day_journey",
+    description: "Retrace where the user actually spent a day: the places they stayed, how long at each, and how they travelled between them. The daily summaries you already have say only how far they moved and when tracking started and stopped — this says where. Use it when the day itself is the question ('what did I do on Saturday', 'was I out much last week'), and when somewhere they were might explain how they felt. Travel modes are inferred and some are guesses; they are marked, and a guess should not be stated as fact.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD in the user's local time. Defaults to today." },
+      },
+      required: [],
     },
   },
   {
@@ -831,6 +845,65 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       return `${d}: ${parts.join(" | ")}`
     }).join("\n")
     return `Last ${days} days (most recent first — health, Oura tags, intake, check-ins, mood, journal):\n${rows}`
+  }
+
+  if (name === "get_day_journey") {
+    // The same stay/move segmentation the location page draws, so the two
+    // never disagree about what a day looked like.
+    const jTz = await getUserTimezone(userId)
+    const raw = String(input.date ?? "").trim()
+    const jDate = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : localDateStr(jTz)
+    const { start: jStart, end: jEnd } = zonedDayRange(jTz, jDate)
+
+    const rows = await prisma.locationPoint.findMany({
+      where: { userId, trackedAt: { gte: jStart, lte: jEnd } },
+      orderBy: { trackedAt: "asc" },
+      select: { lat: true, lng: true, trackedAt: true },
+    }).catch(() => [])
+    if (rows.length < 2) return `No location was tracked on ${jDate}.`
+
+    const points = rows.map(r => ({ lat: r.lat, lon: r.lng, time: r.trackedAt }))
+    const segments = buildJourney(points, detectStops(points))
+    if (segments.length === 0) return `Nothing worth calling a stay or a journey on ${jDate}.`
+
+    const savedPlaces = await prisma.savedPlace.findMany({
+      where: { userId },
+      select: { id: true, name: true, emoji: true, lat: true, lng: true, radiusM: true },
+    }).catch(() => [])
+
+    // Street names already looked up for the day view are sitting in the same
+    // cache; reading them costs one query and no network. A stay with neither
+    // a saved place nor a cached street stays anonymous rather than being
+    // described by its coordinates, which tell nobody anything.
+    const stays = segments.filter(seg => seg.kind === "stay")
+    const cached = stays.length === 0 ? [] : await prisma.userPreference.findMany({
+      where: { userId, key: { in: stays.map(st => placeNameKey(st.lat, st.lon, "street")) } },
+      select: { key: true, value: true },
+    }).catch(() => [])
+    const streets = new Map(cached.map(c => [c.key, c.value]))
+
+    const at = (d: Date) => localTimeStr(jTz, d)
+    const dur = (m: number) => (m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`)
+    const lines = segments.map(seg => {
+      if (seg.kind === "gap") return `${at(seg.start)}–${at(seg.end)} no tracking (${dur(seg.minutes)})`
+      if (seg.kind === "move") {
+        const km = seg.distanceM >= 1000
+          ? `${(seg.distanceM / 1000).toFixed(1)} km`
+          : `${seg.distanceM} m`
+        const how = { walk: "walking", run: "running", cycle: "cycling", transit: "by bus or tram",
+          drive: "driving", train: "by train", flight: "flying", unknown: "travelling" }[seg.mode]
+        return `${at(seg.start)}–${at(seg.end)} ${how}, ${km} (${dur(seg.minutes)}${
+          seg.confidence === "guess" ? ", mode is a guess" : ""})`
+      }
+      const saved = matchSavedPlace(seg.lat, seg.lon, savedPlaces)
+      const street = streets.get(placeNameKey(seg.lat, seg.lon, "street"))
+      const where = saved ? `at ${saved.place.name}`
+        : street ? `at an unnamed place near ${street}`
+        : "somewhere unnamed"
+      return `${at(seg.start)}–${at(seg.end)} ${where} (${dur(seg.minutes)})`
+    })
+
+    return `Where ${jDate} went:\n${lines.join("\n")}`
   }
 
   if (name === "search_chat_history") {

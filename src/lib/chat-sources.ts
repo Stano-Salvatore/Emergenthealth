@@ -75,6 +75,7 @@ const TOOL_SOURCES: Record<string, { label: string; domain: SourceDomain }> = {
   get_health_range:    { label: "Health history", domain: "sleep" },
   find_my_logs:        { label: "Logs",           domain: "life"  },
   search_chat_history: { label: "Past chats",     domain: "life"  },
+  get_day_journey:     { label: "Where you were", domain: "life"  },
 }
 
 export function chipsFromTools(toolNames: string[]): SourceChip[] {
@@ -102,6 +103,7 @@ const TOOL_ACTIVITY: Record<string, string> = {
   get_health_range:   "reading your health history",
   find_my_logs:       "looking through your logs",
   search_chat_history: "looking back through our chats",
+  get_day_journey:    "retracing that day",
   correct_log:        "fixing that entry",
   delete_log:         "checking what that would remove",
   create_habit:       "setting up that habit",

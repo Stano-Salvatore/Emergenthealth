@@ -10,29 +10,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { placeNameKey, type NamePrecision } from "@/lib/places"
 
 const UA = "emergenthealth/1.0 (health dashboard)"
-
-/**
- * Two precisions, because two questions are being asked here.
- *
- * A trip wants the city — "Prague" — and rounding to ~1 km means every trip to
- * the same city shares one cache entry and one lookup. A stay on the day
- * journey wants the street it happened on, which needs ~10 m and its own cache
- * namespace: rounded to 1 km, the café and the bar two streets away would
- * collide on one entry and the second one to be looked up would inherit the
- * first one's name.
- */
-type Precision = "city" | "street"
-
-const ZOOM: Record<Precision, number> = { city: 10, street: 17 }
-const CACHE_DP: Record<Precision, number> = { city: 2, street: 4 }
-
-function cacheKey(lat: number, lng: number, precision: Precision): string {
-  const dp = CACHE_DP[precision]
-  const prefix = precision === "city" ? "place_name" : "street_name"
-  return `${prefix}:${lat.toFixed(dp)},${lng.toFixed(dp)}`
-}
 
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -45,8 +25,12 @@ export async function GET(req: NextRequest) {
   if (!Number.isFinite(lat) || Math.abs(lat) > 90) return NextResponse.json({ error: "bad lat" }, { status: 400 })
   if (!Number.isFinite(lng) || Math.abs(lng) > 180) return NextResponse.json({ error: "bad lng" }, { status: 400 })
 
-  const precision: Precision = searchParams.get("precision") === "street" ? "street" : "city"
-  const key = cacheKey(lat, lng, precision)
+  // Two precisions, because two questions are asked here: a trip wants the
+  // city it was in, a stay on the day journey wants the street it happened on.
+  // The key and its rounding live in lib/places, shared with everything that
+  // READS this cache — see placeNameKey.
+  const precision: NamePrecision = searchParams.get("precision") === "street" ? "street" : "city"
+  const key = placeNameKey(lat, lng, precision)
   const cached = await prisma.userPreference.findUnique({
     where: { userId_key: { userId, key } },
     select: { value: true },
@@ -60,7 +44,7 @@ export async function GET(req: NextRequest) {
   // accept-language=en because the default is the LOCAL language: a trip to
   // Athens came back as "Αθήνα, Ελλάς", which is correct and unreadable in a
   // list of English labels.
-  const url = `https://nominatim.openstreetmap.org/reverse?format=json&zoom=${ZOOM[precision]}`
+  const url = `https://nominatim.openstreetmap.org/reverse?format=json&zoom=${precision === "street" ? 17 : 10}`
     + `&addressdetails=1&accept-language=en&lat=${lat}&lon=${lng}`
   const res = await fetch(url, { headers: { "User-Agent": UA } }).catch(() => null)
   if (!res?.ok) return NextResponse.json({ label: null, error: "lookup failed" }, { status: 502 })
