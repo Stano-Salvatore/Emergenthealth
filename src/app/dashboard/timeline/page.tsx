@@ -7,6 +7,7 @@ import { capturePhoto } from "@/lib/native/camera"
 import { Card, CardContent } from "@/components/ui/card"
 import MonthGlyphs from "@/components/timeline/MonthGlyphs"
 import { cn } from "@/lib/utils"
+import type { JourneySegment, TravelMode } from "@/components/location/DayJourney"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -53,6 +54,23 @@ const INTAKE_EMOJI: Record<string, string> = {
 const WORKOUT_EMOJI: Record<string, string> = {
   Run:"🏃", Ride:"🚴", Walk:"🚶", Hike:"🥾", Swim:"🏊", WeightTraining:"🏋️",
   Workout:"💪", Yoga:"🧘", VirtualRide:"🚴", NordicSki:"⛷️", AlpineSki:"🎿",
+}
+
+// The day-journey's travel modes, worded exactly as the location page words
+// them so the same bus ride reads the same in both places.
+const JOURNEY_MODE: Record<TravelMode, { emoji: string; label: string }> = {
+  walk:    { emoji:"🚶", label:"Walking" },
+  run:     { emoji:"🏃", label:"Running" },
+  cycle:   { emoji:"🚴", label:"Cycling" },
+  transit: { emoji:"🚌", label:"On a bus or tram" },
+  drive:   { emoji:"🚗", label:"Driving" },
+  train:   { emoji:"🚆", label:"On a train" },
+  flight:  { emoji:"✈️", label:"Flying" },
+  unknown: { emoji:"🧭", label:"On the move" },
+}
+
+function fmtKm(metres: number): string {
+  return metres < 1000 ? `${Math.round(metres)} m` : `${(metres / 1000).toFixed(1)} km`
 }
 
 // There was a seconds formatter here too, and every sleep value on the page
@@ -208,8 +226,38 @@ function EventRow({ ev, onDelete }: { ev: TLEvent; onDelete?: (id: string) => vo
 
 // ── Main timeline ──────────────────────────────────────────────────────────────
 
-function Timeline({ data, onDelete }: { data: DayData; onDelete?: (id: string) => void }) {
+function Timeline({ data, journey, onDelete }: { data: DayData; journey?: JourneySegment[]; onDelete?: (id: string) => void }) {
   const events: TLEvent[] = []
+
+  // Where the day was spent and how it moved between places — the same journey
+  // the location page draws, threaded in beside the meds, meals and workouts so
+  // one rail tells the whole day. Gaps ("No tracking") are left out: they're
+  // useful on the map, only noise on a mixed timeline.
+  for (const seg of journey ?? []) {
+    if (seg.kind === "stay") {
+      events.push({
+        hour: isoToHour(seg.start),
+        color: "#14b8a6",
+        emoji: seg.emoji ?? "📍",
+        label: seg.label ?? "Stayed nearby",
+        pill: fmtMin(seg.minutes),
+      })
+    } else if (seg.kind === "move") {
+      const m = JOURNEY_MODE[seg.mode] ?? JOURNEY_MODE.unknown
+      const bits = [
+        seg.distanceM > 0 ? fmtKm(seg.distanceM) : null,
+        seg.confidence === "guess" ? "guess" : null,
+      ].filter(Boolean)
+      events.push({
+        hour: isoToHour(seg.start),
+        color: "#0ea5e9",
+        emoji: m.emoji,
+        label: m.label,
+        pill: fmtMin(seg.minutes),
+        sub: bits.length ? bits.join(" · ") : undefined,
+      })
+    }
+  }
 
   // Focus sessions
   for (const s of data.focusSessions) {
@@ -403,6 +451,7 @@ const QUICK_EMOJI = ["📌", "🍺", "🍷", "🍔", "💊", "🏋️", "🚗", 
 export default function TimelinePage() {
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"))
   const [data, setData] = useState<DayData | null>(null)
+  const [journey, setJourney] = useState<JourneySegment[]>([])
   const [loading, setLoading] = useState(true)
 
   // Quick-add custom event form
@@ -416,9 +465,18 @@ export default function TimelinePage() {
   const load = useCallback(async (d = date) => {
     setLoading(true)
     setData(null)
+    setJourney([])
     try {
-      const res = await fetch(`/api/timeline?date=${d}`)
+      // The day's events and the day's journey, fetched together. The journey
+      // is best-effort — a day with no location tracking just has no places to
+      // add, and must never blank the rest of the timeline.
+      const [res, locRes] = await Promise.all([
+        fetch(`/api/timeline?date=${d}`),
+        fetch(`/api/location?date=${d}`).catch(() => null),
+      ])
       setData(await res.json())
+      const loc = locRes && locRes.ok ? await locRes.json().catch(() => null) : null
+      setJourney(Array.isArray(loc?.journey) ? loc.journey : [])
     } finally {
       setLoading(false)
     }
@@ -661,7 +719,7 @@ export default function TimelinePage() {
                 </div>
               )}
 
-              <Timeline data={data} onDelete={deleteEvent} />
+              <Timeline data={data} journey={journey} onDelete={deleteEvent} />
             </CardContent>
           </Card>
 

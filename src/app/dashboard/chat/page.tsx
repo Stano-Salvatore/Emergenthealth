@@ -551,7 +551,10 @@ export default function ChatPage() {
     // URL bar is hidden), minus the shell's own padding, so the composer can
     // never end up underneath the bottom nav.
     <div className="flex flex-col h-[calc(100dvh_-_5.75rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] lg:h-[calc(100dvh_-_3rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))]">
-      <div className="flex items-center gap-3 mb-4">
+      {/* Clear the floating ☰ menu toggle at the top-left on mobile: without
+          this indent Emergy's avatar sat right under it. Gone at lg, where the
+          sidebar replaces the toggle. */}
+      <div className="flex items-center gap-3 mb-4 pl-9 lg:pl-0">
         <EmergyAvatar mood={emergyState} fit="icon" size={52}/>
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold">Emergy</h1>
