@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Touc
 import {
   addDays, addWeeks, subWeeks, addMonths, subMonths,
   startOfWeek, endOfWeek, startOfMonth, endOfMonth,
-  format, isToday, parseISO,
+  format, isToday, isSameDay, isSameMonth, parseISO,
   eachDayOfInterval,
 } from "date-fns"
 import { ChevronLeft, ChevronRight, RefreshCw, MapPin, X, Clock, Link as LinkIcon, Smartphone, Plus } from "lucide-react"
@@ -665,6 +665,59 @@ function WeekView({ weekStart, dayCount, events, now, onEventClick, onDayClick, 
   )
 }
 
+// ── Mini month picker ─────────────────────────────────────────────────────────
+
+// The little calendar that drops from the title, the way Google's and Samsung's
+// do: page through months, tap a day to jump the current view straight to it.
+function MiniMonthPicker({ initial, selected, onPick }: {
+  initial: Date
+  selected: Date
+  onPick: (day: Date) => void
+}) {
+  const [month, setMonth] = useState(() => startOfMonth(initial))
+  const gridStart = startOfWeek(startOfMonth(month), { weekStartsOn: 1 })
+  const gridEnd = endOfWeek(endOfMonth(month), { weekStartsOn: 1 })
+  const days = eachDayOfInterval({ start: gridStart, end: gridEnd })
+
+  return (
+    <div className="absolute left-0 top-full mt-2 z-40 w-64 rounded-2xl border border-border bg-background shadow-xl shadow-black/30 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <button onClick={() => setMonth(m => subMonths(m, 1))} aria-label="Previous month"
+          className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="text-sm font-semibold">{format(month, "MMMM yyyy")}</span>
+        <button onClick={() => setMonth(m => addMonths(m, 1))} aria-label="Next month"
+          className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="grid grid-cols-7 gap-0.5 mb-1">
+        {["M", "T", "W", "T", "F", "S", "S"].map((d, i) => (
+          <div key={i} className="text-center text-[10px] font-semibold text-muted-foreground/60 select-none">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-0.5">
+        {days.map(day => {
+          const inMonth = isSameMonth(day, month)
+          const today = isToday(day)
+          const sel = isSameDay(day, selected)
+          return (
+            <button key={day.toISOString()} onClick={() => onPick(day)}
+              className={`h-8 rounded-lg text-xs font-medium transition-colors
+                ${sel ? "bg-primary text-white"
+                  : today ? "text-primary font-bold hover:bg-secondary"
+                  : inMonth ? "hover:bg-secondary"
+                  : "text-muted-foreground/40 hover:bg-secondary/50"}`}>
+              {format(day, "d")}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
@@ -676,6 +729,9 @@ export default function CalendarPage() {
   const [canCreate, setCanCreate] = useState(false)
   // When set, the new-event sheet is open on this day (and optionally hour).
   const [composeAt, setComposeAt] = useState<{ day: Date; hour?: number } | null>(null)
+  // The mini month-picker that drops from the title.
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pickerRef = useRef<HTMLDivElement>(null)
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [currentMonth, setCurrentMonth] = useState(() => new Date())
   const [events, setEvents] = useState<CalendarEvent[]>([])
@@ -801,6 +857,25 @@ export default function CalendarPage() {
     chooseView("day")
   }
 
+  // Jump the current view to contain a date picked in the mini month-picker,
+  // without changing which view you're in — month moves month, the day-anchored
+  // views move to that day (week snaps to its Monday).
+  function goToDate(day: Date) {
+    if (view === "month") setCurrentMonth(day)
+    else setWeekStart(view === "week" ? startOfWeek(day, { weekStartsOn: 1 }) : day)
+    setPickerOpen(false)
+  }
+
+  // Close the month-picker on any click outside the title + popover.
+  useEffect(() => {
+    if (!pickerOpen) return
+    function onDown(e: MouseEvent) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false)
+    }
+    document.addEventListener("mousedown", onDown)
+    return () => document.removeEventListener("mousedown", onDown)
+  }, [pickerOpen])
+
   // Horizontal swipes page the calendar; the touch start is remembered so the
   // end can measure total travel (see swipeAction).
   const touchStart = useRef<{ x: number; y: number } | null>(null)
@@ -838,7 +913,20 @@ export default function CalendarPage() {
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
-          <span className="text-lg font-bold">{periodLabel}</span>
+          <div className="relative" ref={pickerRef}>
+            <button onClick={() => setPickerOpen(o => !o)}
+              className="text-lg font-bold hover:text-primary transition-colors whitespace-nowrap"
+              aria-label="Jump to a date">
+              {periodLabel}
+            </button>
+            {pickerOpen && (
+              <MiniMonthPicker
+                initial={view === "month" ? currentMonth : weekStart}
+                selected={view === "month" ? currentMonth : weekStart}
+                onPick={goToDate}
+              />
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
