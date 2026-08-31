@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react"
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type TouchEvent as ReactTouchEvent } from "react"
 import {
   addDays, addWeeks, subWeeks, addMonths, subMonths,
   startOfWeek, endOfWeek, startOfMonth, endOfMonth,
@@ -10,6 +10,7 @@ import {
 import { ChevronLeft, ChevronRight, RefreshCw, MapPin, X, Clock, Link as LinkIcon, Smartphone, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createDeviceEvent, isNativeApp as isNativeCalendarApp } from "@/lib/native/device-calendar"
+import { swipeAction } from "@/lib/calendar-nav"
 
 interface CalendarEvent {
   id: string
@@ -26,13 +27,15 @@ interface CalendarEvent {
   kind?: string
 }
 
-type ViewMode = "agenda" | "3day" | "week" | "month"
+type ViewMode = "day" | "agenda" | "3day" | "week" | "month"
 
 const VIEW_KEY = "calendar_view"
-const DAY_COUNT: Record<string, number> = { "3day": 3, week: 7 }
+const DAY_COUNT: Record<string, number> = { day: 1, "3day": 3, week: 7 }
 // Agenda runs a fortnight — long enough to plan around, short enough to scan.
 const AGENDA_DAYS = 14
-const VIEW_LABEL: Record<ViewMode, string> = { agenda: "Agenda", "3day": "3 days", week: "Week", month: "Month" }
+const VIEW_LABEL: Record<ViewMode, string> = { day: "Day", agenda: "Agenda", "3day": "3 days", week: "Week", month: "Month" }
+// The order the toggle shows them in — shortest span first, like Google's.
+const VIEW_ORDER: ViewMode[] = ["day", "3day", "week", "month", "agenda"]
 
 const HOUR_HEIGHT = 56
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
@@ -258,15 +261,18 @@ function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => 
 // the composer only exists in the app. On the web the calendar stays a
 // read-only view of what other systems hold, which is worth showing plainly
 // rather than offering a button that cannot work.
-function NewEventSheet({ day, onClose, onCreated }: {
+function NewEventSheet({ day, startHour, onClose, onCreated }: {
   day: Date
+  /** Hour tapped in a grid view, so the composer opens on that slot. */
+  startHour?: number
   onClose: () => void
   onCreated: () => void
 }) {
+  const hh = (h: number) => `${String(Math.max(0, Math.min(23, h))).padStart(2, "0")}:00`
   const [title, setTitle] = useState("")
   const [date, setDate] = useState(format(day, "yyyy-MM-dd"))
-  const [startTime, setStartTime] = useState("09:00")
-  const [endTime, setEndTime] = useState("10:00")
+  const [startTime, setStartTime] = useState(startHour != null ? hh(startHour) : "09:00")
+  const [endTime, setEndTime] = useState(startHour != null ? hh(startHour + 1) : "10:00")
   const [allDay, setAllDay] = useState(false)
   const [location, setLocation] = useState("")
   const [saving, setSaving] = useState(false)
@@ -396,10 +402,12 @@ function AgendaView({ from, days, events, now, onEventClick }: {
   )
 }
 
-function MonthView({ currentMonth, events, onEventClick }: {
+function MonthView({ currentMonth, events, onEventClick, onDayClick }: {
   currentMonth: Date
   events: CalendarEvent[]
   onEventClick: (e: CalendarEvent) => void
+  /** Tap a day cell to open just that day. */
+  onDayClick?: (day: Date) => void
 }) {
   const monthStart = startOfMonth(currentMonth)
   const monthEnd = endOfMonth(currentMonth)
@@ -436,9 +444,13 @@ function MonthView({ currentMonth, events, onEventClick }: {
               const isWeekend = di >= 5
               const dayEvents = eventsOnDay(day)
               return (
-                <div key={di} className={`border-r last:border-r-0 p-1.5 min-h-[90px] transition-colors
+                // The cell drills into that day; the event chips inside stop the
+                // click so they open the event instead. "+N more" also drills in.
+                <div key={di}
+                  onClick={onDayClick ? () => onDayClick(day) : undefined}
+                  className={`border-r last:border-r-0 p-1.5 min-h-[90px] transition-colors
                   ${today ? "bg-primary/[0.05]" : isWeekend ? "bg-secondary/20" : ""}
-                  ${!inMonth ? "opacity-35" : ""}`}>
+                  ${!inMonth ? "opacity-35" : ""} ${onDayClick ? "cursor-pointer hover:bg-secondary/30" : ""}`}>
                   <div className={`w-7 h-7 flex items-center justify-center rounded-full mb-1 text-[13px] font-semibold select-none
                     ${today ? "bg-primary text-white shadow-sm shadow-primary/40" : isWeekend ? "text-muted-foreground/60" : "text-foreground/80"}`}>
                     {format(day, "d")}
@@ -447,7 +459,7 @@ function MonthView({ currentMonth, events, onEventClick }: {
                     {dayEvents.slice(0, 3).map(evt => {
                       const v = eventVisual(evt, "chip")
                       return (
-                        <button key={evt.id} onClick={() => onEventClick(evt)}
+                        <button key={evt.id} onClick={e => { e.stopPropagation(); onEventClick(evt) }}
                           className={`w-full text-left text-[11px] font-medium px-1.5 py-[3px] rounded-[4px] truncate transition-all hover:brightness-110 ${v.className ?? "text-foreground/90"}`}
                           style={v.style}>
                           {!evt.isAllDay && evt.start && (
@@ -473,12 +485,16 @@ function MonthView({ currentMonth, events, onEventClick }: {
 
 // ── Week View ─────────────────────────────────────────────────────────────────
 
-function WeekView({ weekStart, dayCount, events, now, onEventClick }: {
+function WeekView({ weekStart, dayCount, events, now, onEventClick, onDayClick, onSlotClick }: {
   weekStart: Date
   dayCount: number
   events: CalendarEvent[]
   now: Date
   onEventClick: (e: CalendarEvent) => void
+  /** Tap a day's header to open just that day, like Google/Samsung. */
+  onDayClick?: (day: Date) => void
+  /** Tap an empty hour to start a new event there (native only). */
+  onSlotClick?: (day: Date, hour: number) => void
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const days = Array.from({ length: dayCount }, (_, i) => addDays(weekStart, i))
@@ -509,9 +525,17 @@ function WeekView({ weekStart, dayCount, events, now, onEventClick }: {
         {days.map((day, i) => {
           const today = isToday(day)
           const isWeekend = dayCount === 7 && i >= 5
+          // Single-day view has nowhere narrower to drill into, so its header
+          // isn't a button; the multi-day views open the tapped day.
+          const drillable = dayCount > 1 && onDayClick
           return (
-            <div key={i} className={`flex-1 flex flex-col items-center py-2.5 border-r last:border-r-0 select-none
-              ${today ? "bg-primary/5" : ""}`}>
+            <button
+              key={i}
+              type="button"
+              disabled={!drillable}
+              onClick={drillable ? () => onDayClick!(day) : undefined}
+              className={`flex-1 flex flex-col items-center py-2.5 border-r last:border-r-0 select-none
+                ${today ? "bg-primary/5" : ""} ${drillable ? "cursor-pointer hover:bg-secondary/40 transition-colors" : ""}`}>
               <span className={`text-[10px] font-bold uppercase tracking-widest
                 ${today ? "text-primary" : isWeekend ? "text-muted-foreground/50" : "text-muted-foreground/70"}`}>
                 {format(day, dayCount <= 3 ? "EEEE" : "EEE")}
@@ -520,7 +544,7 @@ function WeekView({ weekStart, dayCount, events, now, onEventClick }: {
                 ${today ? "bg-primary text-white shadow-sm shadow-primary/40" : isWeekend ? "text-muted-foreground/60" : "text-foreground"}`}>
                 {format(day, "d")}
               </span>
-            </div>
+            </button>
           )
         })}
       </div>
@@ -580,6 +604,20 @@ function WeekView({ weekStart, dayCount, events, now, onEventClick }: {
                   <div key={`h${h}`} className="absolute left-0 right-0 border-t border-border/8" style={{ top: h * HOUR_HEIGHT + HOUR_HEIGHT / 2 }} />
                 ))}
 
+                {/* tap an empty hour to start an event there. These sit beneath
+                    the event blocks (z-0 vs z-10), so tapping an event still
+                    opens it and only bare grid starts a new one. */}
+                {onSlotClick && HOURS.map(h => (
+                  <button
+                    key={`slot${h}`}
+                    type="button"
+                    aria-label={`New event at ${String(h).padStart(2, "0")}:00`}
+                    onClick={() => onSlotClick(day, h)}
+                    className="absolute left-0 right-0 z-0 hover:bg-primary/[0.04] transition-colors"
+                    style={{ top: h * HOUR_HEIGHT, height: HOUR_HEIGHT }}
+                  />
+                ))}
+
                 {/* current time indicator */}
                 {today && todayInWeek && (
                   <div className="absolute left-0 right-0 z-20 flex items-center pointer-events-none" style={{ top: nowTop }}>
@@ -636,7 +674,8 @@ export default function CalendarPage() {
   // Creating events needs the phone's calendar, so the button only exists in
   // the app — read the shell synchronously rather than awaiting the bridge.
   const [canCreate, setCanCreate] = useState(false)
-  const [composing, setComposing] = useState(false)
+  // When set, the new-event sheet is open on this day (and optionally hour).
+  const [composeAt, setComposeAt] = useState<{ day: Date; hour?: number } | null>(null)
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
   const [currentMonth, setCurrentMonth] = useState(() => new Date())
   const [events, setEvents] = useState<CalendarEvent[]>([])
@@ -653,8 +692,11 @@ export default function CalendarPage() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(VIEW_KEY)
-      if (saved === "agenda" || saved === "3day" || saved === "week" || saved === "month") setView(saved)
+      if (VIEW_ORDER.includes(saved as ViewMode)) { setView(saved as ViewMode); return }
     } catch { /* private mode */ }
+    // First visit: seven columns are too tight to read on a phone, so a narrow
+    // screen opens on three days — the same call Google and Samsung make.
+    if (typeof window !== "undefined" && window.innerWidth < 640) setView("3day")
   }, [])
 
   useEffect(() => { setCanCreate(isNativeCalendarApp()) }, [])
@@ -723,28 +765,57 @@ export default function CalendarPage() {
   }, [visibleFrom.getTime(), visibleTo.getTime()])
 
   const dayCount = DAY_COUNT[view] ?? 7
-  const weekEndDay = addDays(weekStart, dayCount - 1)
-  const weekLabel =
-    view === "3day"
-      ? `${format(weekStart, "d MMM")} – ${format(weekEndDay, "d MMM")}`
-      : format(weekStart, "MMMM") === format(weekEndDay, "MMMM")
-        ? format(weekStart, "MMMM yyyy")
-        : `${format(weekStart, "MMM")} – ${format(weekEndDay, "MMM yyyy")}`
-  const monthLabel = format(currentMonth, "MMMM yyyy")
+  const spanEndDay = addDays(weekStart, (view === "agenda" ? AGENDA_DAYS : dayCount) - 1)
+  const sameMonth = format(weekStart, "MMMM") === format(spanEndDay, "MMMM")
+  // One label that reads right in every view — a single day names itself, a
+  // span reads "d – d MMM", a whole week collapses to its month.
+  const periodLabel =
+    view === "month" ? format(currentMonth, "MMMM yyyy")
+      : view === "day" ? format(weekStart, "EEE, d MMM yyyy")
+      : view === "week" && sameMonth ? format(weekStart, "MMMM yyyy")
+      : sameMonth ? `${format(weekStart, "d")} – ${format(spanEndDay, "d MMM yyyy")}`
+      : `${format(weekStart, "d MMM")} – ${format(spanEndDay, "d MMM yyyy")}`
 
   function prevPeriod() {
     if (view === "month") setCurrentMonth(m => subMonths(m, 1))
+    else if (view === "day") setWeekStart(w => addDays(w, -1))
     else if (view === "3day") setWeekStart(w => addDays(w, -3))
     else setWeekStart(w => subWeeks(w, 1))
   }
   function nextPeriod() {
     if (view === "month") setCurrentMonth(m => addMonths(m, 1))
+    else if (view === "day") setWeekStart(w => addDays(w, 1))
     else if (view === "3day") setWeekStart(w => addDays(w, 3))
     else setWeekStart(w => addWeeks(w, 1))
   }
   function goToday() {
-    setWeekStart(view === "3day" ? new Date() : startOfWeek(new Date(), { weekStartsOn: 1 }))
+    // Week snaps to its Monday; the day-anchored views (day, 3-day, agenda)
+    // open on today itself.
+    setWeekStart(view === "week" ? startOfWeek(new Date(), { weekStartsOn: 1 }) : new Date())
     setCurrentMonth(new Date())
+  }
+
+  // Drill from a month cell or a day header straight into that single day.
+  function openDay(day: Date) {
+    setWeekStart(day)
+    chooseView("day")
+  }
+
+  // Horizontal swipes page the calendar; the touch start is remembered so the
+  // end can measure total travel (see swipeAction).
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
+  function onTouchStart(e: ReactTouchEvent) {
+    const t = e.touches[0]
+    touchStart.current = { x: t.clientX, y: t.clientY }
+  }
+  function onTouchEnd(e: ReactTouchEvent) {
+    const s = touchStart.current
+    touchStart.current = null
+    if (!s) return
+    const t = e.changedTouches[0]
+    const action = swipeAction(t.clientX - s.x, t.clientY - s.y)
+    if (action === "next") nextPeriod()
+    else if (action === "prev") prevPeriod()
   }
 
   return (
@@ -767,13 +838,14 @@ export default function CalendarPage() {
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
-          <span className="text-lg font-bold">{view === "week" ? weekLabel : monthLabel}</span>
+          <span className="text-lg font-bold">{periodLabel}</span>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* view toggle — pill style */}
-          <div className="flex rounded-lg border bg-secondary/40 p-0.5 gap-0.5">
-            {(["agenda", "3day", "week", "month"] as ViewMode[]).map(v => (
+          {/* view toggle — pill style. Scrolls sideways rather than wrapping
+              when five options are too wide for a narrow phone. */}
+          <div className="flex rounded-lg border bg-secondary/40 p-0.5 gap-0.5 overflow-x-auto scrollbar-thin max-w-full">
+            {VIEW_ORDER.map(v => (
               <button key={v} onClick={() => chooseView(v)}
                 className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap
                   ${view === v ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}>
@@ -782,7 +854,7 @@ export default function CalendarPage() {
             ))}
           </div>
           {canCreate && (
-            <Button size="sm" variant="ghost" onClick={() => setComposing(true)} className="gap-1.5 h-8 text-xs text-muted-foreground hover:text-foreground">
+            <Button size="sm" variant="ghost" onClick={() => setComposeAt({ day: view === "month" ? currentMonth : weekStart })} className="gap-1.5 h-8 text-xs text-muted-foreground hover:text-foreground">
               <Plus className="h-3.5 w-3.5" />
               New
             </Button>
@@ -800,18 +872,28 @@ export default function CalendarPage() {
         </p>
       )}
 
-      {view === "agenda" ? (
-        <AgendaView from={weekStart} days={AGENDA_DAYS} events={events} now={now} onEventClick={setSelectedEvent} />
-      ) : view !== "month" ? (
-        <WeekView weekStart={weekStart} dayCount={dayCount} events={events} now={now} onEventClick={setSelectedEvent} />
-      ) : (
-        <MonthView currentMonth={currentMonth} events={events} onEventClick={setSelectedEvent} />
-      )}
+      {/* Swipe left/right anywhere on the grid to page — a vertical scroll
+          through the day never counts (see swipeAction). */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-y-auto scrollbar-thin" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+        {view === "agenda" ? (
+          <AgendaView from={weekStart} days={AGENDA_DAYS} events={events} now={now} onEventClick={setSelectedEvent} />
+        ) : view !== "month" ? (
+          <WeekView
+            weekStart={weekStart} dayCount={dayCount} events={events} now={now}
+            onEventClick={setSelectedEvent}
+            onDayClick={openDay}
+            onSlotClick={canCreate ? (day, hour) => setComposeAt({ day, hour }) : undefined}
+          />
+        ) : (
+          <MonthView currentMonth={currentMonth} events={events} onEventClick={setSelectedEvent} onDayClick={openDay} />
+        )}
+      </div>
 
-      {composing && (
+      {composeAt && (
         <NewEventSheet
-          day={view === "month" ? currentMonth : weekStart}
-          onClose={() => setComposing(false)}
+          day={composeAt.day}
+          startHour={composeAt.hour}
+          onClose={() => setComposeAt(null)}
           onCreated={() => load(visibleFrom, visibleTo, true)}
         />
       )}
