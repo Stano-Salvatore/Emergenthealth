@@ -639,10 +639,11 @@ export default function ChatPage() {
         className="flex-1 overflow-y-auto space-y-4 scrollbar-thin pr-1 -ml-9 lg:ml-0"
       >
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center space-y-3 py-12">
-            {/* No oversized mascot here — the avatar in the header above already
-                names who you're talking to; this screen leads with the greeting
-                and the things worth tapping. */}
+          <div className="flex flex-col items-center justify-start text-center space-y-3 pt-6 pb-12">
+            {/* Top-aligned, not centred: with no mascot the centred version left
+                a big empty gap up top and pushed the greeting to mid-screen.
+                The header avatar above already names who you're talking to;
+                this screen leads with the greeting and the things worth tapping. */}
             <div>
               <p className="font-semibold text-base">Hi!! I&apos;m Emergy 🌱</p>
               <p className="text-sm text-muted-foreground mt-1 max-w-xs">{intro}</p>

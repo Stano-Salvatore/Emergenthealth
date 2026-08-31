@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Sparkles, RefreshCw } from "lucide-react"
+import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
 
 // Emergy's weekly review. The Sunday-evening cron writes the canonical one
 // (and pushes + emails it); this card shows it instantly and offers a
@@ -63,7 +64,12 @@ export function WeekReviewAI() {
           </div>
         ) : review ? (
           <div className="space-y-3">
-            <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">{review.narrative}</p>
+            {/* Emergy writes the review in the same markdown his chat replies
+                use (**bold** figures, bullets); render it so the markers show
+                as formatting, not literal asterisks. */}
+            <div className="text-sm leading-relaxed text-foreground/90">
+              <ChatMarkdown text={review.narrative} />
+            </div>
             <div className="flex items-center justify-between pt-2 border-t border-border/50">
               <p className="text-[10px] text-muted-foreground">
                 Week of {review.weekOf} · {new Date(review.generatedAt).toLocaleDateString([], { month: "short", day: "numeric" })}
