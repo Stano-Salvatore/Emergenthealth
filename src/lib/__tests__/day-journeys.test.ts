@@ -318,6 +318,7 @@ describe("applyKnownModes", () => {
     distanceM: 6000,
     topKmh: 30,
     avgKmh: 24,
+    pauses: 0,
   })
 
   it("replaces a guess with what Strava recorded", () => {

@@ -3,6 +3,7 @@ import { optionalNumber } from "@/lib/optional-number"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { recordPlaceVisits } from "@/lib/place-visits"
+import { googleActivityMode, spanId } from "@/lib/activity-modes"
 
 export const runtime = "nodejs"
 export const maxDuration = 30
@@ -30,15 +31,52 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  let body: { points?: InPoint[] }
+  let body: { points?: InPoint[]; activities?: { start?: string; end?: string; type?: string }[] }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   }
 
+  // Activity segments ride the same endpoint as the points they belong to.
+  // Google's own travel-mode classification — the only source that can tell
+  // IN_BUS from IN_PASSENGER_VEHICLE — used to be parsed and thrown away;
+  // stored as ActivitySpans it retroactively gives every imported day real
+  // modes on the journey view. Types we have no word for are skipped, and
+  // the deterministic ids make a re-import a no-op, same as the points.
+  const rawActivities = Array.isArray(body.activities) ? body.activities.slice(0, MAX_BATCH) : []
+  let activitySpans = 0
+  if (rawActivities.length > 0) {
+    const spans = []
+    for (const a of rawActivities) {
+      const startMs = Date.parse(String(a.start ?? ""))
+      const endMs = Date.parse(String(a.end ?? ""))
+      if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) continue
+      const mapped = googleActivityMode(String(a.type ?? ""))
+      if (!mapped) continue
+      spans.push({
+        id: spanId(userId, "timeline", startMs, mapped.mode),
+        userId,
+        start: new Date(startMs),
+        end: new Date(endMs),
+        mode: mapped.mode,
+        vehicleOnly: mapped.vehicleOnly,
+        source: "timeline",
+      })
+    }
+    if (spans.length > 0) {
+      const r = await prisma.activitySpan.createMany({ data: spans, skipDuplicates: true })
+      activitySpans = r.count
+    }
+  }
+
   const raw = Array.isArray(body.points) ? body.points.slice(0, MAX_BATCH) : []
-  if (raw.length === 0) return NextResponse.json({ error: "No points" }, { status: 400 })
+  if (raw.length === 0) {
+    if (rawActivities.length > 0) {
+      return NextResponse.json({ ok: true, inserted: 0, received: 0, activitySpans })
+    }
+    return NextResponse.json({ error: "No points" }, { status: 400 })
+  }
 
   const data = []
   for (const p of raw) {
@@ -78,5 +116,5 @@ export async function POST(req: NextRequest) {
     checkIns = visits.created
   }
 
-  return NextResponse.json({ ok: true, inserted: res.count, received: raw.length, checkIns })
+  return NextResponse.json({ ok: true, inserted: res.count, received: raw.length, checkIns, activitySpans })
 }

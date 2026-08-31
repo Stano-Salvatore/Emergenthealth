@@ -51,6 +51,11 @@ type EmergyBubblePlugin = {
   testHeadPop(options: { seconds: number }): Promise<{ at: number; exact: boolean }>
   fcmToken(): Promise<{ token: string | null; available: boolean }>
   takePendingSay(): Promise<{ message: string | null }>
+  activityStatus(): Promise<{ available: boolean; permitted: boolean; tracking: boolean }>
+  requestActivityPermission(): Promise<{ granted: boolean }>
+  startActivityTransitions(): Promise<void>
+  stopActivityTransitions(): Promise<void>
+  drainActivityEvents(): Promise<{ events: string }>
   setPopsEnabled(options: { enabled: boolean }): Promise<void>
 }
 
@@ -324,5 +329,73 @@ export async function takePendingSay(): Promise<string | null> {
   } catch {
     // An APK older than this method. Nothing pending, as far as we can tell.
     return null
+  }
+}
+
+
+/* ─────────────────────── Activity recognition ─────────────────────────── */
+//
+// Motion classification from the OS — walking, running, cycling, in a
+// vehicle — which is what upgrades the day journey's travel modes from
+// speed guesses on days this app itself tracks. Events are caught by a
+// native receiver while the app is closed and drained here on foreground;
+// the server pairs them into spans.
+
+export type ActivityStatus = { available: boolean; permitted: boolean; tracking: boolean }
+
+export async function activityStatus(): Promise<ActivityStatus> {
+  const none: ActivityStatus = { available: false, permitted: false, tracking: false }
+  if (!Capacitor.isNativePlatform()) return none
+  try {
+    return await plugin.activityStatus()
+  } catch {
+    // An APK older than the method: absent, not broken.
+    return none
+  }
+}
+
+export async function requestActivityPermission(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false
+  try {
+    const { granted } = await plugin.requestActivityPermission()
+    return !!granted
+  } catch {
+    return false
+  }
+}
+
+/** Start (or re-assert — it is idempotent) transition tracking. */
+export async function startActivityTracking(): Promise<string | null> {
+  if (!Capacitor.isNativePlatform()) return "Motion tracking only works in the Android app."
+  try {
+    await plugin.startActivityTransitions()
+    return null
+  } catch (e) {
+    return e instanceof Error ? e.message : "Couldn't start motion tracking."
+  }
+}
+
+export async function stopActivityTracking(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try { await plugin.stopActivityTransitions() } catch { /* nothing running */ }
+}
+
+/**
+ * The queued transition events, cleared on read — a handover, not a mailbox,
+ * because an event drained twice becomes the same journey twice.
+ */
+export async function drainActivityEvents(): Promise<{ type: number; transition: number; at: number }[]> {
+  if (!Capacitor.isNativePlatform()) return []
+  try {
+    const { events } = await plugin.drainActivityEvents()
+    const parsed = JSON.parse(events || "[]")
+    if (!Array.isArray(parsed)) return []
+    return parsed
+      .map((e: { t?: unknown; e?: unknown; at?: unknown }) => ({
+        type: Number(e?.t), transition: Number(e?.e), at: Number(e?.at),
+      }))
+      .filter(e => Number.isFinite(e.type) && Number.isFinite(e.transition) && Number.isFinite(e.at))
+  } catch {
+    return []
   }
 }

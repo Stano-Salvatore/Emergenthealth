@@ -15,7 +15,10 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 import java.util.Arrays;
 
 /**
@@ -38,7 +41,11 @@ import java.util.Arrays;
  * which is the failure this app keeps finding elsewhere: something that
  * works enough to look fine and never does the thing it was for.
  */
-@CapacitorPlugin(name = "EmergyBubble")
+@CapacitorPlugin(
+    name = "EmergyBubble",
+    permissions = {
+        @Permission(alias = "activity", strings = { android.Manifest.permission.ACTIVITY_RECOGNITION })
+    })
 public class EmergyBubblePlugin extends Plugin {
 
     // v2 deliberately. A NotificationChannel's settings are fixed once it has
@@ -446,6 +453,136 @@ public class EmergyBubblePlugin extends Plugin {
         getContext().getSharedPreferences("emergy_head_pops", Context.MODE_PRIVATE)
             .edit().putBoolean("pops_enabled", enabled).apply();
         call.resolve();
+    }
+
+    // ------------------------------------------------ activity recognition
+
+    /**
+     * Motion classification from the phone's own sensors, via the OS.
+     *
+     * Not the raw gyroscope: Android's Activity Recognition fuses
+     * accelerometer, gyro and step counter at system level and answers the
+     * question the journey view guesses at from GPS speed — walking, running,
+     * cycling, or in a vehicle. Transition events land in
+     * EmergyActivityReceiver whatever the app is doing; the web layer drains
+     * them on foreground and the server pairs them into spans.
+     *
+     * Registration does not survive a reboot, so the web layer re-registers
+     * on every foreground — FLAG_UPDATE_CURRENT makes that a no-op when the
+     * registration is already live.
+     */
+    @PluginMethod
+    public void activityStatus(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("available", Build.VERSION.SDK_INT >= 29);
+        out.put("permitted", getPermissionState("activity") == PermissionState.GRANTED);
+        out.put("tracking", getContext()
+            .getSharedPreferences(EmergyActivityReceiver.PREFS, Context.MODE_PRIVATE)
+            .getBoolean("tracking", false));
+        call.resolve(out);
+    }
+
+    @PluginMethod
+    public void requestActivityPermission(PluginCall call) {
+        if (getPermissionState("activity") == PermissionState.GRANTED) {
+            activityPermissionDone(call);
+            return;
+        }
+        requestPermissionForAlias("activity", call, "activityPermissionDone");
+    }
+
+    @PermissionCallback
+    private void activityPermissionDone(PluginCall call) {
+        JSObject out = new JSObject();
+        out.put("granted", getPermissionState("activity") == PermissionState.GRANTED);
+        call.resolve(out);
+    }
+
+    @PluginMethod
+    public void startActivityTransitions(PluginCall call) {
+        if (Build.VERSION.SDK_INT < 29) {
+            call.reject("Activity recognition needs Android 10 or newer.");
+            return;
+        }
+        if (getPermissionState("activity") != PermissionState.GRANTED) {
+            call.reject("Motion permission not granted yet.");
+            return;
+        }
+        try {
+            java.util.List<com.google.android.gms.location.ActivityTransition> transitions =
+                new java.util.ArrayList<>();
+            int[] types = {
+                com.google.android.gms.location.DetectedActivity.WALKING,
+                com.google.android.gms.location.DetectedActivity.RUNNING,
+                com.google.android.gms.location.DetectedActivity.ON_BICYCLE,
+                com.google.android.gms.location.DetectedActivity.IN_VEHICLE,
+            };
+            for (int type : types) {
+                transitions.add(new com.google.android.gms.location.ActivityTransition.Builder()
+                    .setActivityType(type)
+                    .setActivityTransition(
+                        com.google.android.gms.location.ActivityTransition.ACTIVITY_TRANSITION_ENTER)
+                    .build());
+                transitions.add(new com.google.android.gms.location.ActivityTransition.Builder()
+                    .setActivityType(type)
+                    .setActivityTransition(
+                        com.google.android.gms.location.ActivityTransition.ACTIVITY_TRANSITION_EXIT)
+                    .build());
+            }
+
+            Context ctx = getContext();
+            Intent intent = new Intent(ctx, EmergyActivityReceiver.class);
+            // MUTABLE, required for activity recognition PendingIntents on 31+:
+            // the system writes the transition result into the intent.
+            PendingIntent pi = PendingIntent.getBroadcast(
+                ctx, 920010, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+
+            com.google.android.gms.location.ActivityRecognition.getClient(ctx)
+                .requestActivityTransitionUpdates(
+                    new com.google.android.gms.location.ActivityTransitionRequest(transitions), pi)
+                .addOnSuccessListener(unused -> {
+                    ctx.getSharedPreferences(EmergyActivityReceiver.PREFS, Context.MODE_PRIVATE)
+                        .edit().putBoolean("tracking", true).apply();
+                    call.resolve();
+                })
+                .addOnFailureListener(e ->
+                    call.reject(e.getMessage() == null ? "Couldn't start motion tracking" : e.getMessage()));
+        } catch (Exception e) {
+            call.reject(e.getMessage() == null ? "Couldn't start motion tracking" : e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopActivityTransitions(PluginCall call) {
+        try {
+            Context ctx = getContext();
+            Intent intent = new Intent(ctx, EmergyActivityReceiver.class);
+            PendingIntent pi = PendingIntent.getBroadcast(
+                ctx, 920010, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+            com.google.android.gms.location.ActivityRecognition.getClient(ctx)
+                .removeActivityTransitionUpdates(pi);
+            ctx.getSharedPreferences(EmergyActivityReceiver.PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean("tracking", false).apply();
+        } catch (Exception ignored) { }
+        call.resolve();
+    }
+
+    /**
+     * Hand over the queued transition events and clear them — a handover, not
+     * a mailbox, like takePendingSay: an event drained twice would become the
+     * same journey twice.
+     */
+    @PluginMethod
+    public void drainActivityEvents(PluginCall call) {
+        android.content.SharedPreferences prefs = getContext()
+            .getSharedPreferences(EmergyActivityReceiver.PREFS, Context.MODE_PRIVATE);
+        String raw = prefs.getString(EmergyActivityReceiver.KEY_EVENTS, "[]");
+        prefs.edit().remove(EmergyActivityReceiver.KEY_EVENTS).apply();
+        JSObject out = new JSObject();
+        out.put("events", raw);
+        call.resolve(out);
     }
 
     /**

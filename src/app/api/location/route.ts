@@ -7,9 +7,8 @@ import { getUserTimezone } from "@/lib/user-timezone"
 import { localDateStr, zonedDayRange } from "@/lib/local-date"
 import { detectStops, summariseTrack } from "@/lib/day-stops"
 import { detectDwells, recordVisits } from "@/lib/place-visits"
-import {
-  applyKnownModes, buildJourney, modeFixKey, MODE_FIX_PREFIX, stravaMode, type KnownMode,
-} from "@/lib/day-journeys"
+import { applyKnownModes, buildJourney, modeFixKey, MODE_FIX_PREFIX } from "@/lib/day-journeys"
+import { loadKnownModes } from "@/lib/journey-known"
 import { matchSavedPlace, type PlaceLike } from "@/lib/places"
 
 
@@ -73,24 +72,10 @@ async function describeJourney(
   const segments = buildJourney(timedPoints, stops)
   if (segments.length === 0) return []
 
-  // Strava, by the times it actually happened rather than by its `day` column:
-  // that column is a string, and an evening ride either side of midnight is
-  // exactly the case where a stored day and the user's day disagree.
-  const activities = await prisma.stravaActivity.findMany({
-    where: { userId, startDate: { gte: dayStart, lte: dayEnd } },
-    select: { type: true, startDate: true, elapsedTimeSec: true },
-  }).catch(() => [])
-
-  const known: KnownMode[] = []
-  for (const a of activities) {
-    const mode = stravaMode(a.type)
-    if (!mode) continue
-    known.push({
-      start: a.startDate,
-      end: new Date(a.startDate.getTime() + a.elapsedTimeSec * 1000),
-      mode,
-    })
-  }
+  // Strava, imported Timeline activity segments, and the phone's own
+  // recognition — everything that actually knows, via the loader Emergy's
+  // day-journey tool shares, so the two never disagree about a day.
+  const known = await loadKnownModes(userId, dayStart, dayEnd)
 
   // Corrections, keyed by the local day so a lookup stays one day's worth
   // however many years of them accumulate.

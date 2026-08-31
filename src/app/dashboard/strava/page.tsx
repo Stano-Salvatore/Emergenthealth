@@ -253,11 +253,9 @@ function PageHeader({ connected }: { connected: boolean | null }) {
           Your workout history and training trends
         </p>
       </div>
-      {connected === false && (
-        <Button asChild size="sm" className="shrink-0">
-          <a href="/api/strava/auth">Connect Strava</a>
-        </Button>
-      )}
+      {/* When disconnected the big empty-state card carries the Connect CTA, so
+          the header doesn't repeat it. Only the connected state needs its own
+          (Reconnect) action here. */}
       {connected === true && (
         <Button asChild variant="outline" size="sm" className="shrink-0">
           <a href="/api/strava/auth">Reconnect</a>

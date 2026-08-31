@@ -640,7 +640,9 @@ export default function ChatPage() {
       >
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center space-y-3 py-12">
-            <EmergyAvatar mood={emergyState} fit="full" size={100} height={125}/>
+            {/* No oversized mascot here — the avatar in the header above already
+                names who you're talking to; this screen leads with the greeting
+                and the things worth tapping. */}
             <div>
               <p className="font-semibold text-base">Hi!! I&apos;m Emergy 🌱</p>
               <p className="text-sm text-muted-foreground mt-1 max-w-xs">{intro}</p>
