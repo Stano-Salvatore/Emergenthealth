@@ -140,12 +140,21 @@ jobs:
             echo "ANDROID_KEYSTORE_PATH=/tmp/emergenthealth-release.jks" >> $GITHUB_ENV
             echo "APK_VARIANT=release" >> $GITHUB_ENV
             echo "✓ Keystore decoded"
+          elif [ "$GITHUB_REF_NAME" = "main" ]; then
+            # A main build exists to ship a signed release: it publishes the
+            # rolling `latest-android` Release below. Without the keystore it can
+            # only make an unsigned debug APK, and the publish steps are gated on
+            # the release variant — so they'd be skipped and the Release would
+            # quietly freeze at its last signed build. That went unnoticed for
+            # days once precisely because the run still went green. Fail here,
+            # loudly, so a missing signing secret can never again silently stop
+            # shipping without turning a main build red.
+            echo "::error::ANDROID_KEYSTORE_BASE64 is not set, so this main build cannot produce or publish a signed release (it would fall back to an unsigned debug APK and skip the Release). Add the signing secrets — ANDROID_KEYSTORE_BASE64, ANDROID_STORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD — under Settings → Secrets and variables → Actions, then re-run this workflow."
+            exit 1
           else
-            # An UNSIGNED release APK cannot be installed on Android at all, so
-            # building one produces an artifact nobody can use and says nothing
-            # about it. A debug build is signed with the SDK's own debug key and
-            # installs fine, which is what someone without a keystore actually
-            # wants: something they can put on a phone and try.
+            # Off main (branch and PR builds), an unsigned release APK cannot be
+            # installed on Android at all, so a debug build is what's useful:
+            # signed with the SDK's own debug key, it installs on a phone to try.
             #
             # It is not a substitute for the release build — a different
             # signature means it installs alongside, not over, an existing
