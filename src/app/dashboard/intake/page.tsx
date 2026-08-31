@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,7 +9,6 @@ import { format, subDays } from "date-fns"
 import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight, Pencil, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
-import CaffeinePage from "@/app/dashboard/caffeine/page"
 import MedicationsPage from "@/app/dashboard/medications/page"
 import { FoodTab } from "@/components/intake/FoodTab"
 import { OverviewTab } from "@/components/intake/OverviewTab"
@@ -119,14 +118,13 @@ function localDateStr(d: Date = new Date()): string {
   ].join("-")
 }
 
-type Tab = "overview" | "body" | "meds" | "intake" | "caffeine" | "food"
+type Tab = "overview" | "body" | "meds" | "intake" | "food"
 
 const TAB_META: Record<Tab, { title: string; subtitle: string; icon: string }> = {
   overview: { title: "Today",       subtitle: "Water, caffeine, food & vitamins at a glance", icon: "📊" },
-  body:     { title: "In my body",  subtitle: "What's still circulating right now", icon: "🫀" },
+  body:     { title: "In my body",  subtitle: "Caffeine and everything else still circulating", icon: "🫀" },
   meds:     { title: "Medications", subtitle: "Meds & supplements",         icon: "💊" },
   intake:   { title: "Intake",      subtitle: "Water, coffee & more",       icon: "🥤" },
-  caffeine: { title: "Caffeine",    subtitle: "Intake and its half-life",   icon: "☕" },
   food:     { title: "Food",        subtitle: "Meals, snapped & analyzed",  icon: "🍽️" },
 }
 
@@ -135,8 +133,12 @@ export default function IntakePage() {
   const searchParams = useSearchParams()
   // The tab is part of the address, so refreshing or pressing back keeps you
   // where you were instead of silently returning to Intake.
-  const tabParam = searchParams.get("tab")
-  const activeTab: Tab = tabParam === "meds" || tabParam === "caffeine" || tabParam === "food" || tabParam === "intake" || tabParam === "body" ? tabParam : "overview"
+  // "caffeine" is the retired tab's name — the proxy redirects it, but a
+  // client-side navigation can still arrive with it, so it lands where the
+  // content went rather than falling back to Today.
+  const rawTab = searchParams.get("tab")
+  const tabParam = rawTab === "caffeine" ? "body" : rawTab
+  const activeTab: Tab = tabParam === "meds" || tabParam === "food" || tabParam === "intake" || tabParam === "body" ? tabParam : "overview"
 
   const setActiveTab = useCallback((tab: string) => {
     router.replace(tab === "overview" ? "/dashboard/intake" : `/dashboard/intake?tab=${tab}`, { scroll: false })
@@ -151,6 +153,13 @@ export default function IntakePage() {
   const [caffeineMg, setCaffeineMg] = useState<number | null>(null)
   const [lateCoffeeMg, setLateCoffeeMg] = useState<number | null>(null)
   const isToday = date === localDateStr()
+
+  // With the strip's scrollbar hidden, this is what keeps a deep-linked or
+  // just-tapped tab visible instead of parked off the right edge.
+  const activeTabRef = useRef<HTMLButtonElement | null>(null)
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ inline: "center", block: "nearest" })
+  }, [activeTab])
 
   // Today's caffeine total (auto-fed from these drinks) shown on the coffee
   // card. Returns the full state so addEntry can check the bedtime projection.
@@ -341,18 +350,21 @@ export default function IntakePage() {
         )}
       </div>
 
-      {/* Tab bar — four tabs now, so let it scroll rather than clip at 390px */}
-      <div className="flex border-b border-border overflow-x-auto scrollbar-thin">
+      {/* Tab bar — more tabs than a 390px screen fits, so it swipes. No
+          scrollbar: the thumb drew a second long bar under the row, fighting
+          the active tab's underline; keeping the active tab scrolled into view
+          is what says there's more to the side. */}
+      <div className="flex border-b border-border overflow-x-auto scrollbar-none">
         {([
           { key: "overview", label: "Today", emoji: "📊" },
           { key: "body", label: "In my body", emoji: "🫀" },
           { key: "meds", label: "Meds", emoji: "💊" },
           { key: "intake", label: "Intake", emoji: "🥤" },
-          { key: "caffeine", label: "Caffeine", emoji: "☕" },
           { key: "food", label: "Food", emoji: "🍽️" },
         ] as const).map(t => (
           <button
             key={t.key}
+            ref={activeTab === t.key ? activeTabRef : undefined}
             onClick={() => setActiveTab(t.key)}
             className={cn(
               "px-4 py-2 text-sm transition-colors whitespace-nowrap shrink-0",
@@ -366,7 +378,7 @@ export default function IntakePage() {
         ))}
       </div>
 
-      {activeTab === "overview" ? <OverviewTab onGoTo={setActiveTab} /> : activeTab === "body" ? <BodyLoadTab /> : activeTab === "meds" ? <MedicationsPage /> : activeTab === "caffeine" ? <CaffeinePage /> : activeTab === "food" ? <FoodTab date={date} isToday={isToday} onSaved={() => { load(); loadCaffeine() }} /> : (<>
+      {activeTab === "overview" ? <OverviewTab onGoTo={setActiveTab} /> : activeTab === "body" ? <BodyLoadTab /> : activeTab === "meds" ? <MedicationsPage /> : activeTab === "food" ? <FoodTab date={date} isToday={isToday} onSaved={() => { load(); loadCaffeine() }} /> : (<>
 
       {/* gentle late-caffeine heads-up */}
       {lateCoffeeMg != null && (

@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Loader2, RefreshCw } from "lucide-react"
 import { hoursToBedtime } from "@/lib/caffeine"
 import { PHARMA_DISCLAIMER } from "@/lib/supplement-info"
+import { useCaffeine, CaffeineStatusCards, CaffeineLogTools } from "@/app/dashboard/caffeine/page"
 
 interface ActiveSubstance {
   kind: "caffeine" | "alcohol" | "med"
@@ -88,6 +89,10 @@ export function BodyLoadTab() {
 
   useEffect(() => { load() }, [load])
 
+  // Caffeine used to be its own tab; it lives here now. One hook holds today's
+  // caffeine, and a logged or deleted dose refreshes the circulating list too.
+  const caf = useCaffeine(() => load(true))
+
   const bedH = hoursToBedtime()
   // What's still on board at 23:00 — the question that actually changes a decision
   const atBedtime = substances.filter(s => {
@@ -105,6 +110,10 @@ export function BodyLoadTab() {
 
   return (
     <div className="space-y-4">
+      {/* Caffeine status first — the two cards worth glancing at: what's in
+          your system now (with its decay curve) and today's total. */}
+      {!caf.loading && <CaffeineStatusCards data={caf.data} />}
+
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           {substances.length === 0
@@ -233,6 +242,18 @@ export function BodyLoadTab() {
             {atBedtime.length > 1 && " — sedating substances stack, and so do their effects on sleep stages"}
           </p>
         </div>
+      )}
+
+      {/* Caffeine logging — compound quick-add and today's log, below the
+          status the tab is really for. */}
+      {!caf.loading && (
+        <CaffeineLogTools
+          data={caf.data}
+          adding={caf.adding}
+          deleting={caf.deleting}
+          onAdd={caf.add}
+          onDelete={caf.remove}
+        />
       )}
 
       <p className="text-[10px] text-muted-foreground/50">

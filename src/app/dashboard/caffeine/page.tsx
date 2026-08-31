@@ -10,6 +10,11 @@ import { format } from "date-fns"
 import { COMPOUNDS, COMPOUND_LABELS, LIMIT_MG, decayed, hoursToBedtime } from "@/lib/caffeine"
 import { cutoffHoursBeforeBed } from "@/lib/caffeine-personal"
 
+// Caffeine's own tab is gone: "In my body" hosts these pieces now, with its
+// circulating list slotted between the status cards and the logging tools.
+// The state lives in one hook so an add or delete updates every piece at once,
+// wherever the host page chose to put them.
+
 // Entries created automatically from intake drinks / Oura tags carry a
 // deterministic id prefix; the log marks them so manual ones stand apart.
 const isAutoEntry = (id: string) => id.startsWith("intake_") || id.startsWith("oura_caf_")
@@ -31,7 +36,7 @@ interface PersonalHalfLife {
   summary: string
 }
 
-interface CaffeineData {
+export interface CaffeineData {
   logs: CaffeineLog[]
   totalMg: number
   activeMg?: number
@@ -44,6 +49,57 @@ function progressColor(mg: number): string {
   if (mg < 200) return "bg-green-500"
   if (mg <= 350) return "bg-amber-500"
   return "bg-red-500"
+}
+
+/** Today's caffeine — data, and the add/delete actions every piece shares. */
+export function useCaffeine(onChanged?: () => void) {
+  const [data, setData] = useState<CaffeineData>({ logs: [], totalMg: 0, limitMg: LIMIT_MG })
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+
+  const loadData = useCallback(async () => {
+    const res = await fetch("/api/caffeine")
+    if (res.ok) {
+      const d = await res.json() as CaffeineData
+      setData(d)
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    // loadData's setState calls all follow an await, so nothing cascades — the
+    // rule just can't see through the useCallback boundary to know that.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadData()
+  }, [loadData])
+
+  async function add(compound: string) {
+    setAdding(compound)
+    const res = await fetch("/api/caffeine", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ compound, servings: 1 }),
+    })
+    if (res.ok) {
+      const d = await res.json() as CaffeineData
+      setData(d)
+      onChanged?.()
+    }
+    setAdding(null)
+  }
+
+  async function remove(id: string) {
+    setDeleting(id)
+    const res = await fetch(`/api/caffeine?id=${encodeURIComponent(id)}`, { method: "DELETE" })
+    if (res.ok) {
+      await loadData()
+      onChanged?.()
+    }
+    setDeleting(null)
+  }
+
+  return { data, loading, adding, deleting, add, remove }
 }
 
 function ActiveNowCard({ activeMg, halfLifeH, personal }: { activeMg: number; halfLifeH: number; personal?: PersonalHalfLife }) {
@@ -118,94 +174,17 @@ function ActiveNowCard({ activeMg, halfLifeH, personal }: { activeMg: number; ha
   )
 }
 
-export default function CaffeinePage() {
-  const [data, setData] = useState<CaffeineData>({ logs: [], totalMg: 0, limitMg: LIMIT_MG })
-  const [loading, setLoading] = useState(true)
-  const [adding, setAdding] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState<string | null>(null)
-
-  const loadData = useCallback(async () => {
-    const res = await fetch("/api/caffeine")
-    if (res.ok) {
-      const d = await res.json() as CaffeineData
-      setData(d)
-    }
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    // loadData's setState calls all follow an await, so nothing cascades — the
-    // rule just can't see through the useCallback boundary to know that.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadData()
-  }, [loadData])
-
-  async function handleAdd(compound: string) {
-    setAdding(compound)
-    const res = await fetch("/api/caffeine", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ compound, servings: 1 }),
-    })
-    if (res.ok) {
-      const d = await res.json() as CaffeineData
-      setData(d)
-    }
-    setAdding(null)
-  }
-
-  async function handleDelete(id: string) {
-    setDeleting(id)
-    const res = await fetch(`/api/caffeine?id=${encodeURIComponent(id)}`, { method: "DELETE" })
-    if (res.ok) {
-      await loadData()
-    }
-    setDeleting(null)
-  }
-
+/** The two status cards: what's active now (with decay curve) and today's total. */
+export function CaffeineStatusCards({ data }: { data: CaffeineData }) {
   const pct = Math.min((data.totalMg / LIMIT_MG) * 100, 100)
   const barColor = progressColor(data.totalMg)
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
-        Loading…
-      </div>
-    )
-  }
-
   return (
-    <div className="space-y-6 max-w-2xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            ☕ Caffeine
-          </h1>
-          <p className="text-muted-foreground text-sm mt-0.5">Track your daily caffeine intake by compound</p>
-        </div>
-        <div className="ml-auto">
-          <Badge
-            variant="secondary"
-            className={`text-sm font-bold px-3 py-1 ${
-              data.totalMg < 200
-                ? "bg-green-500/15 text-green-400"
-                : data.totalMg <= 350
-                ? "bg-amber-500/15 text-amber-400"
-                : "bg-red-500/15 text-red-400"
-            }`}
-          >
-            {data.totalMg} mg
-          </Badge>
-        </div>
-      </div>
-
-      {/* Active caffeine + decay projection */}
+    <>
       {(data.activeMg ?? 0) > 0 && (
         <ActiveNowCard activeMg={data.activeMg!} halfLifeH={data.halfLifeH ?? 5} personal={data.personal} />
       )}
 
-      {/* Progress bar */}
       <Card className="rounded-2xl border border-border bg-card">
         <CardContent className="pt-4 pb-4 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
@@ -226,12 +205,24 @@ export default function CaffeinePage() {
           </div>
         </CardContent>
       </Card>
+    </>
+  )
+}
 
-      {/* Quick-add buttons */}
+/** The logging tools: compound quick-add and today's caffeine log. */
+export function CaffeineLogTools({ data, adding, deleting, onAdd, onDelete }: {
+  data: CaffeineData
+  adding: string | null
+  deleting: string | null
+  onAdd: (compound: string) => void
+  onDelete: (id: string) => void
+}) {
+  return (
+    <>
       <Card className="rounded-2xl border border-border bg-card">
         <CardHeader className="pb-2 pt-4">
           <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            Quick add
+            Caffeine quick add
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0 pb-4">
@@ -242,7 +233,7 @@ export default function CaffeinePage() {
                 variant="outline"
                 size="sm"
                 disabled={adding !== null}
-                onClick={() => handleAdd(key)}
+                onClick={() => onAdd(key)}
                 className={`flex flex-col h-auto py-3 gap-1 rounded-xl border-border/60 hover:border-primary/40 hover:bg-primary/5 transition-all ${
                   adding === key ? "opacity-60" : ""
                 }`}
@@ -256,11 +247,10 @@ export default function CaffeinePage() {
         </CardContent>
       </Card>
 
-      {/* Today's log */}
       <Card className="rounded-2xl border border-border bg-card">
         <CardHeader className="pb-2 pt-4">
           <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            Today&apos;s log
+            Today&apos;s caffeine log
           </CardTitle>
         </CardHeader>
         <CardContent className="pt-0 pb-4 space-y-1.5">
@@ -292,7 +282,7 @@ export default function CaffeinePage() {
                     {format(new Date(log.loggedAt), "HH:mm")}
                   </span>
                   <button
-                    onClick={() => handleDelete(log.id)}
+                    onClick={() => onDelete(log.id)}
                     disabled={deleting === log.id}
                     className="text-muted-foreground/50 hover:text-destructive transition-colors disabled:opacity-30 shrink-0"
                     aria-label="Delete entry"
@@ -305,8 +295,36 @@ export default function CaffeinePage() {
           )}
         </CardContent>
       </Card>
+    </>
+  )
+}
 
-      {/* Tips */}
+// The standalone route. Unreachable in normal navigation — the proxy folds
+// /dashboard/caffeine into the intake page's "In my body" tab — but kept
+// working so nothing that renders it directly ever meets a broken page.
+export default function CaffeinePage() {
+  const caf = useCaffeine()
+
+  if (caf.loading) {
+    return (
+      <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
+        Loading…
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6 max-w-2xl mx-auto">
+      <div>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          ☕ Caffeine
+        </h1>
+        <p className="text-muted-foreground text-sm mt-0.5">Track your daily caffeine intake by compound</p>
+      </div>
+
+      <CaffeineStatusCards data={caf.data} />
+      <CaffeineLogTools data={caf.data} adding={caf.adding} deleting={caf.deleting} onAdd={caf.add} onDelete={caf.remove} />
+
       <p className="text-xs text-muted-foreground/60 text-center px-4">
         Caffeine half-life is ~5h. Last coffee before 2pm avoids sleep disruption.
       </p>

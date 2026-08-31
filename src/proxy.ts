@@ -16,7 +16,8 @@ import { isRouteEnabled } from "@/lib/features"
 // just the body. It stands on its own route now.
 const MERGED_ROUTES: Record<string, string> = {
   "/dashboard/medications": "/dashboard/intake?tab=meds",
-  "/dashboard/caffeine":    "/dashboard/intake?tab=caffeine",
+  // Caffeine's own tab was folded into "In my body", which now leads with it.
+  "/dashboard/caffeine":    "/dashboard/intake?tab=body",
   "/dashboard/weight":      "/dashboard/health?tab=weight",
   "/dashboard/body":        "/dashboard/health?tab=body",
   "/dashboard/labs":        "/dashboard/health?tab=labs",
@@ -27,6 +28,7 @@ const MERGED_ROUTES: Record<string, string> = {
 // with nothing behind it.
 const RETIRED_TABS: { path: string; tab: string; to: string }[] = [
   { path: "/dashboard/health", tab: "correlations", to: "/dashboard/insights" },
+  { path: "/dashboard/intake", tab: "caffeine",     to: "/dashboard/intake?tab=body" },
 ]
 
 // Held-back V3 features redirect to the dashboard until they launch (see lib/features.ts).
