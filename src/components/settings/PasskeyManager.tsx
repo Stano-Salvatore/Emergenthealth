@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { Fingerprint, Trash2, Plus } from "lucide-react"
 import { startRegistration } from "@simplewebauthn/browser"
+import { isNativeShell } from "@/lib/native/shell"
 
 interface PasskeyRecord {
   id: string
@@ -19,6 +20,14 @@ export function PasskeyManager() {
   const [registering, setRegistering] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [newName, setNewName] = useState("")
+  // The Android app runs in a WebView, which has no WebAuthn — offering the
+  // Add button there only ever produces an error. Passkeys added from a real
+  // browser still work account-wide, so the list stays managed here.
+  const [canRegister, setCanRegister] = useState(true)
+
+  useEffect(() => {
+    setCanRegister(!isNativeShell() && typeof window.PublicKeyCredential !== "undefined")
+  }, [])
 
   const load = useCallback(async () => {
     const res = await fetch("/api/passkey/list")
@@ -106,23 +115,30 @@ export function PasskeyManager() {
         </div>
       )}
 
-      <div className="flex gap-2 pt-1">
-        <input
-          type="text"
-          placeholder='Name (e.g. "Pixel 9")'
-          value={newName}
-          onChange={e => setNewName(e.target.value)}
-          className="flex-1 min-w-0 rounded-lg border border-border bg-secondary px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-        />
-        <button
-          onClick={registerPasskey}
-          disabled={registering}
-          className="flex items-center gap-1.5 rounded-lg bg-primary/15 text-primary px-3 py-2 text-sm font-medium hover:bg-primary/25 transition-colors disabled:opacity-50 shrink-0"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          {registering ? "Registering…" : "Add"}
-        </button>
-      </div>
+      {canRegister ? (
+        <div className="flex gap-2 pt-1">
+          <input
+            type="text"
+            placeholder='Name (e.g. "Pixel 9")'
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            className="flex-1 min-w-0 rounded-lg border border-border bg-secondary px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+          />
+          <button
+            onClick={registerPasskey}
+            disabled={registering}
+            className="flex items-center gap-1.5 rounded-lg bg-primary/15 text-primary px-3 py-2 text-sm font-medium hover:bg-primary/25 transition-colors disabled:opacity-50 shrink-0"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {registering ? "Registering…" : "Add"}
+          </button>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground rounded-lg bg-secondary/60 px-3 py-2">
+          The app&apos;s built-in browser can&apos;t create passkeys. Open Emergent Health in Chrome
+          on this phone to add one — it then works for your whole account.
+        </p>
+      )}
 
       {error && <p className="text-xs text-red-400">{error}</p>}
     </div>

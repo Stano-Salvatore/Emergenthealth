@@ -551,7 +551,10 @@ export default function ChatPage() {
     // URL bar is hidden), minus the shell's own padding, so the composer can
     // never end up underneath the bottom nav.
     <div className="flex flex-col h-[calc(100dvh_-_5.75rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))] lg:h-[calc(100dvh_-_3rem_-_env(safe-area-inset-top)_-_env(safe-area-inset-bottom))]">
-      <div className="flex items-center gap-3 mb-4">
+      {/* Clear the floating ☰ menu toggle at the top-left on mobile: without
+          this indent Emergy's avatar sat right under it. Gone at lg, where the
+          sidebar replaces the toggle. */}
+      <div className="flex items-center gap-3 mb-4 pl-9 lg:pl-0">
         <EmergyAvatar mood={emergyState} fit="icon" size={52}/>
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold">Emergy</h1>
@@ -639,10 +642,11 @@ export default function ChatPage() {
         className="flex-1 overflow-y-auto space-y-4 scrollbar-thin pr-1 -ml-9 lg:ml-0"
       >
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center space-y-3 py-12">
-            {/* No oversized mascot here — the avatar in the header above already
-                names who you're talking to; this screen leads with the greeting
-                and the things worth tapping. */}
+          <div className="flex flex-col items-center justify-start text-center space-y-3 pt-6 pb-12">
+            {/* Top-aligned, not centred: with no mascot the centred version left
+                a big empty gap up top and pushed the greeting to mid-screen.
+                The header avatar above already names who you're talking to;
+                this screen leads with the greeting and the things worth tapping. */}
             <div>
               <p className="font-semibold text-base">Hi!! I&apos;m Emergy 🌱</p>
               <p className="text-sm text-muted-foreground mt-1 max-w-xs">{intro}</p>

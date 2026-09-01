@@ -295,6 +295,12 @@ body {
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
+/* A scroller that shows no bar at all — for swipeable tab strips, where the
+   active tab's underline is the indicator and a scrollbar thumb under the row
+   reads as a second, meaningless bar. */
+.scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
 /* Let vertical page scrolling work over dashboard widgets while editing on a
    touch device: dragging is initiated only from the .drag-handle bar, so the
    widget body can keep panning the page instead of trapping the gesture. */

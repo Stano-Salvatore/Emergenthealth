@@ -137,7 +137,7 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
 
       {/* caffeine */}
       <GoalRow
-        emoji="☕" label="Caffeine" onClick={() => onGoTo("caffeine")}
+        emoji="☕" label="Caffeine" onClick={() => onGoTo("body")}
         value={caffeine?.totalMg ?? 0} goal={t.caffeineMaxMg}
         display={`${caffeine?.totalMg ?? 0} of max ${t.caffeineMaxMg} mg${caffeine?.activeMg ? ` · ≈${caffeine.activeMg} mg active now` : ""}`}
         color="bg-amber-500" overIsBad
