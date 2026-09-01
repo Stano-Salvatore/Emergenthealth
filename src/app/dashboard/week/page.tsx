@@ -174,7 +174,7 @@ export default async function WeekPage() {
     <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="text-2xl font-bold">Weekly Review</h1>
-        <p className="text-muted-foreground text-sm mt-0.5">{weekLabel} · {daysInWeek} days of data</p>
+        <p className="text-muted-foreground text-sm mt-0.5">{weekLabel} · {daysInWeek} {daysInWeek === 1 ? "day" : "days"} of data</p>
       </div>
 
       {/* mood patterns */}

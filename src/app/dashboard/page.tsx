@@ -390,7 +390,11 @@ export default async function DashboardPage() {
           {/* Score chip — desktop only; the mobile Today view has the gauge */}
           <div className="hidden md:flex items-center gap-2.5 bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50 self-start sm:self-auto">
             <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>
-            <p className={`text-[11px] font-semibold uppercase tracking-wider ${scoreColor}`}>{scoreEmoji} {scoreLabel}</p>
+            <div>
+              {/* A bare red number reads as an alarming mystery — say what it is. */}
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Day score</p>
+              <p className={`text-[11px] font-semibold uppercase tracking-wider ${scoreColor}`}>{scoreEmoji} {scoreLabel}</p>
+            </div>
           </div>
           <div className="flex-1 min-w-0 bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50">
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">How do you feel?</p>

@@ -16,8 +16,17 @@ interface WeeklyReview {
   narrative: string
 }
 
+// The Sunday cron can miss a week (empty data, a failed run) and this card
+// would then present an old write-up under a page header describing the
+// current week. A fresh canonical review is at most ~7 days old; past 8 the
+// mismatch gets called out instead of whispered in the footer.
+function isStale(review: WeeklyReview): boolean {
+  return Date.now() - new Date(review.generatedAt).getTime() > 8 * 86_400_000
+}
+
 export function WeekReviewAI() {
   const [review, setReview] = useState<WeeklyReview | null>(null)
+  const [stale, setStale] = useState(false)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -25,7 +34,7 @@ export function WeekReviewAI() {
   useEffect(() => {
     fetch("/api/week-review")
       .then(r => r.json())
-      .then(d => { if (d.review) setReview(d.review) })
+      .then(d => { if (d.review) { setReview(d.review); setStale(isStale(d.review)) } })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [])
@@ -40,6 +49,7 @@ export function WeekReviewAI() {
         setError(d.error ?? "Failed to generate")
       } else if (d.review) {
         setReview(d.review)
+        setStale(false) // just written — fresh by construction
       }
     } catch {
       setError("Network error. Please try again.")
@@ -64,6 +74,15 @@ export function WeekReviewAI() {
           </div>
         ) : review ? (
           <div className="space-y-3">
+            {stale && (
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                <span>This write-up is from the week of {review.weekOf} — nothing newer has been written yet.</span>
+                <Button size="sm" variant="ghost" className="h-6 text-xs gap-1 text-amber-400 hover:text-amber-300 px-2" onClick={generate} disabled={generating}>
+                  <RefreshCw className={`h-3 w-3 ${generating ? "animate-spin" : ""}`} />
+                  Write this week&apos;s
+                </Button>
+              </div>
+            )}
             {/* Emergy writes the review in the same markdown his chat replies
                 use (**bold** figures, bullets); render it so the markers show
                 as formatting, not literal asterisks. */}

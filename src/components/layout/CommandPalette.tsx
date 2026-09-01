@@ -5,47 +5,12 @@ import { useRouter } from "next/navigation"
 import { Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { isRouteEnabled } from "@/lib/features"
+import { NAV_ITEMS, TAB_ITEMS } from "@/lib/nav-items"
 
-interface NavItem {
-  href: string
-  label: string
-  emoji: string
-  group: string
-}
-
-const NAV_ITEMS: NavItem[] = [
-  // Dashboard
-  { href: "/dashboard",               label: "Overview",       emoji: "🏠", group: "Dashboard" },
-  { href: "/dashboard/week",          label: "This Week",      emoji: "📅", group: "Dashboard" },
-  { href: "/dashboard/timeline",      label: "Timeline",       emoji: "🕐", group: "Dashboard" },
-  { href: "/dashboard/stats",         label: "Insights",       emoji: "💡", group: "Dashboard" },
-  { href: "/dashboard/streaks",       label: "Streaks & XP",   emoji: "🔥", group: "Dashboard" },
-  // Health
-  { href: "/dashboard/checkin",       label: "Morning Check-in", emoji: "🌅", group: "Health" },
-  { href: "/dashboard/health",        label: "Health",           emoji: "❤️",  group: "Health" },
-  { href: "/dashboard/weight",        label: "Weight",           emoji: "⚖️",  group: "Health" },
-  { href: "/dashboard/habits",        label: "Habits",           emoji: "✅", group: "Health" },
-  { href: "/dashboard/intake?tab=meds", label: "Medications",    emoji: "💊", group: "Health" },
-  { href: "/dashboard/health?tab=body", label: "Body & Trackers", emoji: "📏", group: "Health" },
-  { href: "/dashboard/intake",        label: "Intake",           emoji: "🥤", group: "Health" },
-  { href: "/dashboard/focus",         label: "Focus",            emoji: "🎯", group: "Health" },
-  { href: "/dashboard/toggl",         label: "Toggl",            emoji: "⏱️", group: "Health" },
-  { href: "/dashboard/custom",        label: "Trackers",         emoji: "📐", group: "Health" },
-  { href: "/dashboard/reading",       label: "Reading",          emoji: "📚", group: "Health" },
-  { href: "/dashboard/journal",       label: "Journal",          emoji: "📝", group: "Health" },
-  // Life
-  { href: "/dashboard/finances",      label: "Finances",         emoji: "💰", group: "Life" },
-  { href: "/dashboard/subscriptions", label: "Subscriptions",    emoji: "🔄", group: "Life" },
-  { href: "/dashboard/bills",         label: "Bills",            emoji: "🧾", group: "Life" },
-  { href: "/dashboard/calendar",      label: "Calendar",         emoji: "🗓️", group: "Life" },
-  { href: "/dashboard/reminders",     label: "Reminders",        emoji: "🔔", group: "Life" },
-  { href: "/dashboard/gmail",         label: "Gmail",            emoji: "📬", group: "Life" },
-  { href: "/dashboard/location",      label: "Location",         emoji: "📍", group: "Life" },
-  { href: "/dashboard/home",          label: "Home",             emoji: "🏡", group: "Life" },
-  // Tools
-  { href: "/dashboard/chat",          label: "Claude AI",        emoji: "🤖", group: "Tools" },
-  { href: "/dashboard/settings",      label: "Settings",         emoji: "⚙️",  group: "Tools" },
-]
+// The palette searches the same manifest the sidebar renders (it used to keep
+// its own copy, which drifted until the two disagreed about what the app
+// contains — different pages, names and groups, "Claude AI" for Emergy), plus
+// the tab-level destinations that deliberately have no sidebar row.
 
 /** Any button can ask for the palette by dispatching this. */
 export const OPEN_PALETTE_EVENT = "eh:open-palette"
@@ -54,7 +19,7 @@ export function openCommandPalette() {
   window.dispatchEvent(new Event(OPEN_PALETTE_EVENT))
 }
 
-const ALL_ITEMS = NAV_ITEMS.filter(i => isRouteEnabled(i.href))
+const ALL_ITEMS = [...NAV_ITEMS, ...TAB_ITEMS].filter(i => isRouteEnabled(i.href))
 
 function fuzzy(query: string, target: string): boolean {
   if (!query) return true
@@ -77,7 +42,7 @@ export function CommandPalette() {
   const router = useRouter()
 
   const results = ALL_ITEMS.filter(
-    (item) => fuzzy(query, item.label) || fuzzy(query, item.group)
+    (item) => fuzzy(query, item.label) || fuzzy(query, item.section)
   )
 
   // ⌘K was the only way in, which meant that on a phone this did not exist:
@@ -190,7 +155,7 @@ export function CommandPalette() {
               >
                 <span className="text-base w-5 text-center shrink-0">{item.emoji}</span>
                 <span className="text-sm font-medium">{item.label}</span>
-                <span className="ml-auto text-xs text-muted-foreground">{item.group}</span>
+                <span className="ml-auto text-xs text-muted-foreground">{item.section}</span>
               </button>
             ))
           )}
