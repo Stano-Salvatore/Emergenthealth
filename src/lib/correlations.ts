@@ -47,6 +47,7 @@ type DayData = {
   focusMin?: number        // completed focus-session minutes
   listeningMin?: number    // Last.fm music listening (estimated: tracks × 3min)
   lateTracks?: number      // scrobbles between 22:00 and 04:00 local
+  musicGenre?: string      // genre of the day's top artist (ArtistGenre lookup)
   spendEur?: number        // card spending (outgoing, transfers excluded)
   uvIndex?: number
   fastH?: number           // longest completed fast ending this day
@@ -102,7 +103,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * so a new family (like custom trackers) appears immediately rather than
  * after the cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 3
+export const ENGINE_VERSION = 4
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -389,10 +390,10 @@ export async function computeCorrelations(
     }).catch(() => [] as { endedAt: Date; durationMin: number }[]),
 
     // Last.fm lives in a raw-DDL table with no Prisma model
-    prisma.$queryRaw<{ date: string; listeningMin: number; lateTracks: number | null }[]>`
-      SELECT "date", "listeningMin", "lateTracks" FROM "LastfmLog"
+    prisma.$queryRaw<{ date: string; listeningMin: number; lateTracks: number | null; topArtist: string | null }[]>`
+      SELECT "date", "listeningMin", "lateTracks", "topArtist" FROM "LastfmLog"
       WHERE "userId" = ${userId} AND "date" >= ${since60str}
-    `.catch(() => [] as { date: string; listeningMin: number; lateTracks: number | null }[]),
+    `.catch(() => [] as { date: string; listeningMin: number; lateTracks: number | null; topArtist: string | null }[]),
 
     prisma.transaction.findMany({
       where: { userId, date: { gte: since60 }, isTransfer: false, amount: { lt: 0 } },
@@ -442,6 +443,17 @@ export async function computeCorrelations(
       select: { loggedAt: true, systolic: true },
     }).catch(() => [] as { loggedAt: Date; systolic: number }[]),
   ])
+
+  // Genres for the artists this user's days were topped by — the ArtistGenre
+  // table is global (an artist is the same band for everyone), filled in by
+  // the Last.fm sync and the YT Music import.
+  const genreRows = await prisma.$queryRaw<{ artist: string; genre: string }[]>`
+    SELECT "artist", "genre" FROM "ArtistGenre"
+    WHERE "genre" IS NOT NULL AND "artist" IN (
+      SELECT DISTINCT LOWER("topArtist") FROM "LastfmLog"
+      WHERE "userId" = ${userId} AND "topArtist" IS NOT NULL AND "date" >= ${since60str}
+    )
+  `.catch(() => [] as { artist: string; genre: string }[])
 
   const dayMap = new Map<string, DayData>()
 
@@ -607,9 +619,14 @@ export async function computeCorrelations(
     d.focusMin = (d.focusMin ?? 0) + f.durationMin
   }
 
+  const genreByArtist = new Map(genreRows.map(g => [g.artist, g.genre]))
   for (const l of lastfmRows) {
     if (l.listeningMin != null) getOrCreate(l.date).listeningMin = Number(l.listeningMin)
     if (l.lateTracks != null) getOrCreate(l.date).lateTracks = Number(l.lateTracks)
+    if (l.topArtist) {
+      const genre = genreByArtist.get(l.topArtist.toLowerCase())
+      if (genre) getOrCreate(l.date).musicGenre = genre
+    }
   }
 
   for (const t of txRows) {
@@ -1819,6 +1836,53 @@ export async function computeCorrelations(
           : `Readiness holds at ${h} after late listening, against ${l} otherwise`,
     })
     if (ins_late_music_ready) insights.push(ins_late_music_ready)
+  }
+
+  // 17c. Genre — not how much music, but what KIND. Each day is labelled with
+  // its top artist's genre (community tags via ArtistGenre), and the user's
+  // own most-common genres are auto-discovered, like calendar activities and
+  // supplements are. Compared against OTHER listening days, never against
+  // silent ones — otherwise every genre would just rediscover "listened at
+  // all", which the volume insights above already test.
+  const genreDayCount = new Map<string, number>()
+  for (const d of days) {
+    if (d.musicGenre) genreDayCount.set(d.musicGenre, (genreDayCount.get(d.musicGenre) ?? 0) + 1)
+  }
+  const topGenres = [...genreDayCount.entries()]
+    .filter(([, n]) => n >= 5)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([g]) => g)
+  for (const genre of topGenres) {
+    const gSlug = suppSlug(genre)
+    const gMood: number[] = [], otherMood: number[] = []
+    const gSleep: number[] = [], otherSleep: number[] = []
+    for (const d of days) {
+      if (d.listeningMin == null || d.musicGenre == null) continue
+      const hit = d.musicGenre === genre
+      if (d.mood != null) { if (hit) gMood.push(d.mood); else otherMood.push(d.mood) }
+      if (d.sleepScore != null) { if (hit) gSleep.push(d.sleepScore); else otherSleep.push(d.sleepScore) }
+    }
+    const ins_genre_mood = compareGroups({
+      id: `music_genre_${gSlug}_mood`, category: "music", emoji: "🎼", title: `${genre} days & Mood`,
+      highGroupLabel: `days topped by ${genre}`, lowGroupLabel: "other listening days",
+      highValues: gMood, lowValues: otherMood,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On days your listening leans ${genre}, mood averages ${h} vs ${l} on other music days`
+          : `${genre} days run a mood of ${h} vs ${l} on other music days`,
+    })
+    if (ins_genre_mood) insights.push(ins_genre_mood)
+    const ins_genre_sleep = compareGroups({
+      id: `music_genre_${gSlug}_sleep`, category: "music", emoji: "🎚️", title: `${genre} days & Sleep`,
+      highGroupLabel: `days topped by ${genre}`, lowGroupLabel: "other listening days",
+      highValues: gSleep, lowValues: otherSleep,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On ${genre} days, sleep score averages ${h} vs ${l} on other music days`
+          : `${genre} days link to a sleep score of ${h} vs ${l} on other music days`,
+    })
+    if (ins_genre_sleep) insights.push(ins_genre_sleep)
   }
 
   // 18. Spending — also ported from /api/stats. Only days with transactions

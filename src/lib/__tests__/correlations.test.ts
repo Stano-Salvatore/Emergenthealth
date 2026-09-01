@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from "vitest"
 // Mood comes only from standalone MoodLog rows (check-ins carry none) to
 // prove the engine reads the mood table it used to ignore.
 
-const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows, alcoholRows, symptomRows, rescueRows } = vi.hoisted(() => {
+const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows, alcoholRows, symptomRows, rescueRows, lastfmRows, genreRows } = vi.hoisted(() => {
   const DAYS = 40
   const dates: string[] = []
   const now = new Date()
@@ -77,6 +77,20 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
       productiveH: i > 0 && isEven(i - 1) ? 6 : 1,
       distractingH: i > 0 && isEven(i - 1) ? 0.5 : 4,
     })),
+    // Every day has music; the GENRE tracks the mood rhythm. Ambient tops the
+    // days mood lands on 5, black metal the days it lands on 2 — so the genre
+    // family has a planted contrast that the volume family can't see (volume
+    // is identical everywhere).
+    lastfmRows: dates.map((ds, i) => ({
+      date: ds,
+      listeningMin: 90,
+      lateTracks: null,
+      topArtist: i > 0 && isEven(i - 1) ? "Ambient Guy" : "DG 307",
+    })),
+    genreRows: [
+      { artist: "ambient guy", genre: "ambient" },
+      { artist: "dg 307", genre: "black metal" },
+    ],
     ouraTags: [
       ...dates.filter((_, i) => !isEven(i)).map(ds => ({
         day: ds, tagName: "Magnesium", text: null,
@@ -116,6 +130,9 @@ vi.mock("@/lib/prisma", () => ({
       const sql = strings.join("?")
       if (sql.includes("MorningCheckIn")) return Promise.resolve(checkIns)
       if (sql.includes("alcohol")) return Promise.resolve(alcoholRows)
+      // ArtistGenre first: its query also names LastfmLog in a subselect.
+      if (sql.includes("ArtistGenre")) return Promise.resolve(genreRows)
+      if (sql.includes("LastfmLog")) return Promise.resolve(lastfmRows)
       return Promise.resolve([])
     }),
   },
@@ -163,6 +180,14 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     expect(workout).toBeDefined()
     expect(workout.category).toBe("fitness")
     expect(workout.highGroupAvg).toBeGreaterThan(workout.lowGroupAvg)
+
+    // Genre: ambient tops the good-mood days, black metal the low ones —
+    // volume is flat everywhere, so only the genre split can see this
+    const ambient = byId["music_genre_ambient_mood"]
+    expect(ambient).toBeDefined()
+    expect(ambient.category).toBe("music")
+    expect(ambient.highGroupAvg).toBeGreaterThan(ambient.lowGroupAvg) // ~5 vs ~2
+    expect(byId["music_genre_black_metal_mood"]).toBeDefined()
 
     // Mood arrives only via standalone MoodLog rows here — if the engine still
     // ignored that table, no mood-outcome insight could exist at all

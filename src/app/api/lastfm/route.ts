@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { ensureLastfmTables, getLastfmKey, syncLastfm } from "@/lib/lastfm"
+import { ensureLastfmTables, getLastfmKey, syncLastfm, syncArtistGenres } from "@/lib/lastfm"
 
 interface LastfmLogRow {
   id: string
@@ -85,7 +85,10 @@ export async function POST(req: NextRequest) {
         : first ? 365 : 30
 
       const result = await syncLastfm(userId, keyRow.apiKey, keyRow.username, { days })
-      return NextResponse.json(result)
+      // Fill in genres for any artists the sync surfaced — best-effort, capped,
+      // and cumulative: a library of hundreds completes over a few syncs.
+      const genres = await syncArtistGenres(userId, keyRow.apiKey).catch(() => null)
+      return NextResponse.json({ ...result, genresTagged: genres?.tagged ?? 0 })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Sync failed"
       return NextResponse.json({ error: message }, { status: 500 })
