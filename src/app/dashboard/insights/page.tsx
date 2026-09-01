@@ -12,7 +12,7 @@ import { DailyScoreCard } from "@/components/dashboard/DailyScoreCard"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart"
+type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart" | "week"
 
 interface InsightResult {
   id: string
@@ -31,6 +31,7 @@ interface InsightResult {
   pValue?: number
   tier?: "strong" | "suggestive" | "noise"
   weekendDriven?: boolean
+  weekdayDelta?: number
 }
 
 interface CorrelationsData {
@@ -46,6 +47,7 @@ const CATEGORY_META: Record<Category, { label: string; emoji: string; color: str
   sleep:       { label: "Sleep",    emoji: "🌙", color: "text-indigo-400" },
   recovery:    { label: "Recovery", emoji: "❤️", color: "text-rose-400" },
   heart:       { label: "Blood Pressure", emoji: "🩺", color: "text-red-400" },
+  week:        { label: "Weekend Rhythm", emoji: "📆", color: "text-amber-400" },
   places:      { label: "Places & Travel", emoji: "🧳", color: "text-sky-400" },
   work:        { label: "Work", emoji: "💼", color: "text-slate-400" },
   stress:      { label: "Stress",   emoji: "😤", color: "text-orange-400" },
@@ -66,7 +68,7 @@ const CATEGORY_META: Record<Category, { label: string; emoji: string; color: str
   tags:        { label: "Tags",     emoji: "🏷️", color: "text-primary" },
 }
 
-const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "heart", "stress", "food", "symptoms", "supplements", "interactions", "fitness", "places", "fasting", "habits", "custom", "focus", "caffeine", "screen", "work", "music", "money", "calendar", "tags"]
+const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "heart", "stress", "food", "symptoms", "supplements", "interactions", "fitness", "places", "week", "fasting", "habits", "custom", "focus", "caffeine", "screen", "work", "music", "money", "calendar", "tags"]
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
@@ -141,8 +143,12 @@ function InsightCard({ insight }: { insight: InsightResult }) {
                 : insight.confident ? "Strong" : "Early"}
             </Badge>
             {insight.weekendDriven && (
+              // Not just suspicion — say how much survives without weekends,
+              // so "the weekend did most of this" is a number, not a vibe.
               <Badge variant="secondary" className="text-[10px] font-semibold px-1.5 text-sky-400">
                 Weekend pattern?
+                {insight.weekdayDelta != null &&
+                  ` · weekdays only ${insight.weekdayDelta >= 0 ? "+" : ""}${insight.weekdayDelta.toFixed(1)}%`}
               </Badge>
             )}
           </div>

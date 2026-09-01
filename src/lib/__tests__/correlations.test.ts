@@ -181,6 +181,17 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     expect(workout.category).toBe("fitness")
     expect(workout.highGroupAvg).toBeGreaterThan(workout.lowGroupAvg)
 
+    // The week family exists whenever both sides have enough days — the
+    // planted even/odd rhythm is independent of the calendar, so only
+    // presence and category are stable claims here
+    const weekendMood = byId["weekend_mood"]
+    expect(weekendMood).toBeDefined()
+    expect(weekendMood.category).toBe("week")
+    expect(byId["weekend_sleep_score"]).toBeDefined()
+    // ...and it can never flag itself as weekend-driven: its weekday-only
+    // twin has an empty group by construction
+    expect(weekendMood.weekendDriven).toBeUndefined()
+
     // Genre: ambient tops the good-mood days, black metal the low ones —
     // volume is flat everywhere, so only the genre split can see this
     const ambient = byId["music_genre_ambient_mood"]
