@@ -21,64 +21,15 @@ import { CSS } from "@dnd-kit/utilities"
 import { isRouteEnabled } from "@/lib/features"
 import { EmergyAvatar } from "@/components/emergy/EmergyAvatar"
 import { useEmergyState } from "@/lib/emergy-store"
+import { NAV_ITEMS, type NavItem } from "@/lib/nav-items"
 
 // Four rooms rather than one 27-item list: where you are now, what your body
 // is doing, the rest of life, and what the data means. Headers only render
 // while the order is untouched — once someone drags an item the grouping is
 // theirs, not ours, so it steps out of the way.
-type NavSection = "Today" | "Body" | "Life" | "Patterns"
-type NavItem = { href: string; label: string; emoji: string; section: NavSection }
-
-const NAV_ITEMS: NavItem[] = [
-  { href: "/dashboard",             label: "Overview",        emoji: "🏠", section: "Today" },
-  { href: "/dashboard/brief",       label: "Brief",           emoji: "🗞️", section: "Today" },
-  { href: "/dashboard/chat",        label: "Emergy",          emoji: "🌱", section: "Today" },
-  { href: "/dashboard/checkin",     label: "Check-in",        emoji: "🌅", section: "Today" },
-  { href: "/dashboard/habits",      label: "Habits",          emoji: "✅", section: "Today" },
-  { href: "/dashboard/garden",      label: "Garden",          emoji: "🌻", section: "Today" },
-
-  // Medications live as a tab inside Intake, Body & Trackers as a tab inside
-  // Health — one nav entry each instead of two.
-  { href: "/dashboard/intake",      label: "Intake & Meds",   emoji: "🥤", section: "Body" },
-  { href: "/dashboard/health",      label: "Health & Body",   emoji: "❤️", section: "Body" },
-  { href: "/dashboard/medications", label: "Medications",     emoji: "💊", section: "Body" },
-  { href: "/dashboard/symptoms",    label: "Symptoms",        emoji: "🩹", section: "Body" },
-  { href: "/dashboard/labs",        label: "Blood work",      emoji: "🧪", section: "Body" },
-  { href: "/dashboard/report",      label: "Health report",   emoji: "📄", section: "Body" },
-  { href: "/dashboard/body",        label: "Body composition", emoji: "📐", section: "Body" },
-  { href: "/dashboard/weight",      label: "Weight",          emoji: "⚖️", section: "Body" },
-  { href: "/dashboard/caffeine",    label: "Caffeine",        emoji: "☕", section: "Body" },
-  { href: "/dashboard/fasting",     label: "Fasting",         emoji: "⏳", section: "Body" },
-  { href: "/dashboard/strava",      label: "Strava",          emoji: "🏃", section: "Body" },
-
-  { href: "/dashboard/calendar",    label: "Calendar",        emoji: "🗓️", section: "Life" },
-  { href: "/dashboard/reminders",   label: "Reminders",       emoji: "🔔", section: "Life" },
-  { href: "/dashboard/focus",       label: "Focus",           emoji: "🎯", section: "Life" },
-  { href: "/dashboard/toggl",       label: "Toggl",           emoji: "⏱️", section: "Life" },
-  { href: "/dashboard/journal",     label: "Journal",         emoji: "📝", section: "Life" },
-  { href: "/dashboard/location",    label: "Location",        emoji: "📍", section: "Life" },
-  { href: "/dashboard/reading",     label: "Reading",         emoji: "📚", section: "Life" },
-  { href: "/dashboard/finances",    label: "Finances",        emoji: "💰", section: "Life" },
-  { href: "/dashboard/bills",       label: "Bills",           emoji: "🧾", section: "Life" },
-  { href: "/dashboard/subscriptions", label: "Subscriptions", emoji: "🔄", section: "Life" },
-  { href: "/dashboard/gmail",       label: "Gmail",           emoji: "📬", section: "Life" },
-  { href: "/dashboard/home",        label: "Home",            emoji: "🏡", section: "Life" },
-
-  // The correlation engine's own page had no nav entry at all — it was
-  // reachable only through a small link on a dashboard card.
-  { href: "/dashboard/insights",    label: "Insights",        emoji: "🔍", section: "Patterns" },
-  { href: "/dashboard/experiments",  label: "Experiments",     emoji: "🧪", section: "Patterns" },
-  { href: "/dashboard/location-insights", label: "Place patterns", emoji: "🗺️", section: "Patterns" },
-  { href: "/dashboard/custom",      label: "Custom metrics",  emoji: "🧮", section: "Patterns" },
-  { href: "/dashboard/week",        label: "This Week",       emoji: "📅", section: "Patterns" },
-  { href: "/dashboard/timeline",    label: "Timeline",        emoji: "🕐", section: "Patterns" },
-  { href: "/dashboard/stats",       label: "Trends",          emoji: "💡", section: "Patterns" },
-  { href: "/dashboard/streaks",     label: "Streaks",         emoji: "🔥", section: "Patterns" },
-  { href: "/dashboard/lastfm",      label: "Last.fm",         emoji: "🎵", section: "Patterns" },
-  { href: "/dashboard/rescuetime",  label: "RescueTime",      emoji: "⏱️", section: "Patterns" },
-
-  { href: "/dashboard/settings",    label: "Settings",        emoji: "⚙️", section: "Life" },
-]
+//
+// The list itself lives in lib/nav-items so the ⌘K palette renders the exact
+// same map of the app instead of a drifted copy.
 
 const ALL_ITEMS = NAV_ITEMS.filter(i => isRouteEnabled(i.href))
 
@@ -313,9 +264,11 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
 
   // Section headers are only honest while the list is still in its default
   // order — after a manual reorder they'd label groups the user didn't make.
+  // Retired routes linger in saved orders; they don't count as a reorder.
+  const knownOrder = order.filter(href => ALL_ITEMS.some(i => i.href === href))
   const showSections = !editing &&
-    order.length === DEFAULT_ORDER.length &&
-    order.every((href, i) => href === DEFAULT_ORDER[i])
+    knownOrder.length === DEFAULT_ORDER.length &&
+    knownOrder.every((href, i) => href === DEFAULT_ORDER[i])
 
   // Respect stored order, append any new items not yet saved
   const orderedItems = [
@@ -353,7 +306,7 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
         {/* Nav — icons only */}
         <nav className="flex-1 py-2 overflow-y-auto scrollbar-none flex flex-col items-center gap-0.5">
           {displayItems.map(item => {
-            const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href))
+            const active = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"))
             return (
               <Link
                 key={item.href}
@@ -441,7 +394,10 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
                   )}
                   <SortableItem
                     item={item}
-                    active={pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href))}
+                    /* "/" appended so /location doesn't also light for
+                       /location-insights — a prefix is only a parent when a
+                       path separator follows it. */
+                    active={pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href + "/"))}
                     isHidden={hidden.has(item.href)}
                     editing={editing}
                     onToggleHidden={() => toggleHidden(item.href)}

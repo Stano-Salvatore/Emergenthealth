@@ -29,7 +29,7 @@ const rightTabs: Tab[] = [
 
 function NavTab({ href, label, Icon, exact }: Tab) {
   const pathname = usePathname()
-  const active = exact ? pathname === href : pathname.startsWith(href)
+  const active = exact ? pathname === href : pathname === href || pathname.startsWith(href + "/")
   return (
     <Link href={href} className="flex flex-col items-center gap-0.5 flex-1 min-w-0 relative">
       <div className={cn(

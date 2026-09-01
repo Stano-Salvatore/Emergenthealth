@@ -30,11 +30,17 @@ interface StatsData {
   dataPoints: number
 }
 
+// The track must have BOTH dimensions imposed from outside: `flex-1` only
+// resolves against a column that is itself h-full, and the width has to be
+// w-full because the centering column would otherwise shrink it to nothing.
+// (This exact combination once rendered every chart as bare weekday labels.)
 function MiniBar({ value, max, color }: { value: number | null; max: number; color: string }) {
   const pct = value != null ? Math.min(100, (value / max) * 100) : 0
   return (
-    <div className="flex-1 h-5 bg-secondary rounded-sm overflow-hidden flex items-end">
-      <div className={`w-full rounded-sm transition-all ${color}`} style={{ height: `${Math.max(4, pct)}%` }} />
+    <div className="w-full flex-1 bg-secondary rounded-sm overflow-hidden flex items-end">
+      {value != null && (
+        <div className={`w-full rounded-sm transition-all ${color}`} style={{ height: `${Math.max(4, pct)}%` }} />
+      )}
     </div>
   )
 }
@@ -245,9 +251,9 @@ export default function StatsPage() {
                 <p className="text-sm text-muted-foreground py-4 text-center">No data yet</p>
               ) : (
                 <>
-                  <div className="flex items-end gap-1 h-24">
+                  <div className="flex gap-1 h-24">
                     {data.map((d, i) => (
-                      <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
+                      <div key={d.day} className="flex-1 h-full flex flex-col items-center gap-1">
                         <MiniBar value={d.val} max={max} color={i === today ? activeColor : color} />
                         <span className={`text-[9px] ${i === today ? `${activeColor.replace("bg-", "text-")} font-bold` : "text-muted-foreground"}`}>{d.day}</span>
                       </div>
