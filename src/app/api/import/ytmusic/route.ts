@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { ensureLastfmTables, bucketScrobbles, MINUTES_PER_TRACK, type DayBucket } from "@/lib/lastfm"
+import { ensureLastfmTables, bucketScrobbles, getLastfmKey, syncArtistGenres, MINUTES_PER_TRACK, type DayBucket } from "@/lib/lastfm"
 import { randomUUID } from "crypto"
 
 // YouTube Music history from a Takeout, folded into the same per-day rows
@@ -82,6 +82,12 @@ export async function POST(req: NextRequest) {
     if (wrote > 0) inserted++
     else skipped++
   }
+
+  // The import can bring months of artists the genre table has never seen.
+  // Tagging needs a Last.fm API key; without one connected this quietly waits
+  // for the first Last.fm sync to catch the same artists up.
+  const keyRow = await getLastfmKey(userId).catch(() => null)
+  if (keyRow) await syncArtistGenres(userId, keyRow.apiKey).catch(() => null)
 
   return NextResponse.json({
     days: inserted,

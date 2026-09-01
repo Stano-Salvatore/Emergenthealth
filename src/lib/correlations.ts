@@ -4,6 +4,8 @@ import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { supplementInfoFor } from "@/lib/supplement-info"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
+import { estimateHome, summariseDays, AWAY_KM } from "@/lib/day-location"
+import { loadCoarsePoints } from "@/lib/day-location-load"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
 // (interactive dashboard) and the correlation-watch cron (pin & watch alerts).
@@ -45,14 +47,21 @@ type DayData = {
   focusMin?: number        // completed focus-session minutes
   listeningMin?: number    // Last.fm music listening (estimated: tracks × 3min)
   lateTracks?: number      // scrobbles between 22:00 and 04:00 local
+  musicGenre?: string      // genre of the day's top artist (ArtistGenre lookup)
   spendEur?: number        // card spending (outgoing, transfers excluded)
   uvIndex?: number
   fastH?: number           // longest completed fast ending this day
+  presence?: "home" | "local" | "away" // coarse GPS day-fact (lib/day-location)
+  sleptAway?: boolean      // where the night ENDING this morning was spent
+  walkMin?: number         // minutes recognised as walking (ActivitySpan); 0 on tracked days
+  productiveH?: number     // RescueTime productive hours
+  distractingH?: number    // RescueTime distracting hours
+  systolic?: number        // blood pressure — the day's average systolic
 }
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart"
   emoji: string
   title: string
   finding: string
@@ -94,7 +103,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * so a new family (like custom trackers) appears immediately rather than
  * after the cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 2
+export const ENGINE_VERSION = 4
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -364,7 +373,7 @@ export async function computeCorrelations(
 
   // Sources that used to live only in the /api/stats mini-engine (music, money,
   // focus) or nowhere at all (standalone mood logs, Strava, fasting).
-  const [moodRows, stravaRows, focusRows, lastfmRows, txRows, fastPref, symptomRows, customMetricRows, customLogRows] = await Promise.all([
+  const [moodRows, stravaRows, focusRows, lastfmRows, txRows, fastPref, symptomRows, customMetricRows, customLogRows, locPoints, travelSpans, rescueRows, bpRows] = await Promise.all([
     prisma.moodLog.findMany({
       where: { userId, date: { gte: since60 } },
       select: { date: true, mood: true },
@@ -381,10 +390,10 @@ export async function computeCorrelations(
     }).catch(() => [] as { endedAt: Date; durationMin: number }[]),
 
     // Last.fm lives in a raw-DDL table with no Prisma model
-    prisma.$queryRaw<{ date: string; listeningMin: number; lateTracks: number | null }[]>`
-      SELECT "date", "listeningMin", "lateTracks" FROM "LastfmLog"
+    prisma.$queryRaw<{ date: string; listeningMin: number; lateTracks: number | null; topArtist: string | null }[]>`
+      SELECT "date", "listeningMin", "lateTracks", "topArtist" FROM "LastfmLog"
       WHERE "userId" = ${userId} AND "date" >= ${since60str}
-    `.catch(() => [] as { date: string; listeningMin: number; lateTracks: number | null }[]),
+    `.catch(() => [] as { date: string; listeningMin: number; lateTracks: number | null; topArtist: string | null }[]),
 
     prisma.transaction.findMany({
       where: { userId, date: { gte: since60 }, isTransfer: false, amount: { lt: 0 } },
@@ -409,7 +418,42 @@ export async function computeCorrelations(
       SELECT "metricId", "date"::text as "date", "value" FROM "CustomMetricLog"
       WHERE "userId" = ${userId} AND "date" >= ${since60str}
     `.catch(() => [] as { metricId: string; date: string; value: number }[]),
+
+    // GPS fixes, thinned to one per source per quarter hour — enough to say
+    // home / in town / away and where the night was spent (lib/day-location),
+    // which is the grain sleep and mood are recorded at anyway.
+    loadCoarsePoints(userId, since60).catch(() => ({ points: [], countsBySource: {}, truncated: false })),
+
+    // Recognised movement spans. All modes are loaded, not just walking: a day
+    // with spans but no walk is a real zero-walking day, while a day with no
+    // spans at all just wasn't tracked — and only the spans themselves can
+    // tell those apart.
+    prisma.activitySpan.findMany({
+      where: { userId, start: { gte: since60 } },
+      select: { start: true, end: true, mode: true },
+    }).catch(() => [] as { start: Date; end: Date; mode: string }[]),
+
+    prisma.rescuetimeLog.findMany({
+      where: { userId, date: { gte: since60str } },
+      select: { date: true, productiveH: true, distractingH: true },
+    }).catch(() => [] as { date: string; productiveH: number | null; distractingH: number | null }[]),
+
+    prisma.bloodPressureLog.findMany({
+      where: { userId, loggedAt: { gte: since60 } },
+      select: { loggedAt: true, systolic: true },
+    }).catch(() => [] as { loggedAt: Date; systolic: number }[]),
   ])
+
+  // Genres for the artists this user's days were topped by — the ArtistGenre
+  // table is global (an artist is the same band for everyone), filled in by
+  // the Last.fm sync and the YT Music import.
+  const genreRows = await prisma.$queryRaw<{ artist: string; genre: string }[]>`
+    SELECT "artist", "genre" FROM "ArtistGenre"
+    WHERE "genre" IS NOT NULL AND "artist" IN (
+      SELECT DISTINCT LOWER("topArtist") FROM "LastfmLog"
+      WHERE "userId" = ${userId} AND "topArtist" IS NOT NULL AND "date" >= ${since60str}
+    )
+  `.catch(() => [] as { artist: string; genre: string }[])
 
   const dayMap = new Map<string, DayData>()
 
@@ -575,9 +619,14 @@ export async function computeCorrelations(
     d.focusMin = (d.focusMin ?? 0) + f.durationMin
   }
 
+  const genreByArtist = new Map(genreRows.map(g => [g.artist, g.genre]))
   for (const l of lastfmRows) {
     if (l.listeningMin != null) getOrCreate(l.date).listeningMin = Number(l.listeningMin)
     if (l.lateTracks != null) getOrCreate(l.date).lateTracks = Number(l.lateTracks)
+    if (l.topArtist) {
+      const genre = genreByArtist.get(l.topArtist.toLowerCase())
+      if (genre) getOrCreate(l.date).musicGenre = genre
+    }
   }
 
   for (const t of txRows) {
@@ -600,6 +649,53 @@ export async function computeCorrelations(
       }
     }
   } catch { /* malformed blob — skip fasting */ }
+
+  // Where each day was, coarsely. "unknown" days stay unset — silence is a gap
+  // in tracking, never evidence of a day at home (see lib/day-location).
+  const home = estimateHome(locPoints.points, tz)
+  for (const dl of summariseDays(locPoints.points, tz, home)) {
+    if (dl.date < since60str) continue
+    const d = getOrCreate(dl.date)
+    if (dl.presence !== "unknown") d.presence = dl.presence
+    if (dl.slept !== "unknown") d.sleptAway = dl.slept === "away"
+  }
+
+  // Walking minutes — but only on days movement recognition was running at
+  // all. A tracked day without a walk span is a genuine 0; an untracked day
+  // is unknown and stays out of both groups.
+  const walkByDay = new Map<string, number>()
+  const movementTracked = new Set<string>()
+  for (const s of travelSpans) {
+    const dateStr = localDay(s.start)
+    if (dateStr < since60str) continue
+    movementTracked.add(dateStr)
+    if (s.mode === "walk") {
+      walkByDay.set(dateStr, (walkByDay.get(dateStr) ?? 0) + Math.max(0, (s.end.getTime() - s.start.getTime()) / 60_000))
+    }
+  }
+  for (const dateStr of movementTracked) {
+    getOrCreate(dateStr).walkMin = Math.round(walkByDay.get(dateStr) ?? 0)
+  }
+
+  for (const r of rescueRows) {
+    const d = getOrCreate(r.date)
+    if (r.productiveH != null) d.productiveH = r.productiveH
+    if (r.distractingH != null) d.distractingH = r.distractingH
+  }
+
+  // Blood pressure: a day's average systolic. Multiple readings a day are
+  // common (morning + evening cuffs) and averaging beats picking one.
+  const bpAgg = new Map<string, { sum: number; n: number }>()
+  for (const b of bpRows) {
+    const dateStr = localDay(b.loggedAt)
+    const a = bpAgg.get(dateStr) ?? { sum: 0, n: 0 }
+    a.sum += b.systolic
+    a.n += 1
+    bpAgg.set(dateStr, a)
+  }
+  for (const [dateStr, a] of bpAgg) {
+    getOrCreate(dateStr).systolic = Math.round(a.sum / a.n)
+  }
 
   const allDays = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date))
   const totalDays = allDays.length
@@ -1742,6 +1838,53 @@ export async function computeCorrelations(
     if (ins_late_music_ready) insights.push(ins_late_music_ready)
   }
 
+  // 17c. Genre — not how much music, but what KIND. Each day is labelled with
+  // its top artist's genre (community tags via ArtistGenre), and the user's
+  // own most-common genres are auto-discovered, like calendar activities and
+  // supplements are. Compared against OTHER listening days, never against
+  // silent ones — otherwise every genre would just rediscover "listened at
+  // all", which the volume insights above already test.
+  const genreDayCount = new Map<string, number>()
+  for (const d of days) {
+    if (d.musicGenre) genreDayCount.set(d.musicGenre, (genreDayCount.get(d.musicGenre) ?? 0) + 1)
+  }
+  const topGenres = [...genreDayCount.entries()]
+    .filter(([, n]) => n >= 5)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([g]) => g)
+  for (const genre of topGenres) {
+    const gSlug = suppSlug(genre)
+    const gMood: number[] = [], otherMood: number[] = []
+    const gSleep: number[] = [], otherSleep: number[] = []
+    for (const d of days) {
+      if (d.listeningMin == null || d.musicGenre == null) continue
+      const hit = d.musicGenre === genre
+      if (d.mood != null) { if (hit) gMood.push(d.mood); else otherMood.push(d.mood) }
+      if (d.sleepScore != null) { if (hit) gSleep.push(d.sleepScore); else otherSleep.push(d.sleepScore) }
+    }
+    const ins_genre_mood = compareGroups({
+      id: `music_genre_${gSlug}_mood`, category: "music", emoji: "🎼", title: `${genre} days & Mood`,
+      highGroupLabel: `days topped by ${genre}`, lowGroupLabel: "other listening days",
+      highValues: gMood, lowValues: otherMood,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On days your listening leans ${genre}, mood averages ${h} vs ${l} on other music days`
+          : `${genre} days run a mood of ${h} vs ${l} on other music days`,
+    })
+    if (ins_genre_mood) insights.push(ins_genre_mood)
+    const ins_genre_sleep = compareGroups({
+      id: `music_genre_${gSlug}_sleep`, category: "music", emoji: "🎚️", title: `${genre} days & Sleep`,
+      highGroupLabel: `days topped by ${genre}`, lowGroupLabel: "other listening days",
+      highValues: gSleep, lowValues: otherSleep,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On ${genre} days, sleep score averages ${h} vs ${l} on other music days`
+          : `${genre} days link to a sleep score of ${h} vs ${l} on other music days`,
+    })
+    if (ins_genre_sleep) insights.push(ins_genre_sleep)
+  }
+
   // 18. Spending — also ported from /api/stats. Only days with transactions
   // count (a day with no synced card activity isn't a €0 day, just unknown).
   const spendVals = days.filter(d => d.spendEur != null).map(d => d.spendEur!)
@@ -1905,6 +2048,217 @@ export async function computeCorrelations(
         : `Drinking isn't cutting your REM sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
   })
   if (ins_alcohol_rem) insights.push(ins_alcohol_rem)
+
+  // 23. Places — the coarse GPS day-facts, finally in the same battery as
+  // everything else (per-place comparisons stay on the Insights page's own
+  // "By place" section; these are the whole-day facts with the full
+  // permutation + FDR treatment).
+  //
+  // slept joins to the SAME day's sleep record — both describe the night that
+  // ended that morning. presence describes the waking day, so its sleep
+  // consequence is the night that follows (the next day's record).
+  const sleptAwaySleep: number[] = [], sleptHomeSleep: number[] = []
+  const sleptAwayDur: number[] = [], sleptHomeDur: number[] = []
+  const awayDayMood: number[] = [], townDayMood: number[] = []
+  const awayDaySleep: number[] = [], townDaySleep: number[] = []
+  for (const d of days) {
+    if (d.sleptAway != null) {
+      if (d.sleepScore != null) { if (d.sleptAway) sleptAwaySleep.push(d.sleepScore); else sleptHomeSleep.push(d.sleepScore) }
+      if (d.sleepDuration != null) { if (d.sleptAway) sleptAwayDur.push(d.sleepDuration); else sleptHomeDur.push(d.sleepDuration) }
+    }
+    if (d.presence != null) {
+      const isAway = d.presence === "away"
+      if (d.mood != null) { if (isAway) awayDayMood.push(d.mood); else townDayMood.push(d.mood) }
+      const next = byDate[nextDateStr(d.date)]
+      if (next?.sleepScore != null) { if (isAway) awayDaySleep.push(next.sleepScore); else townDaySleep.push(next.sleepScore) }
+    }
+  }
+  const ins_slept_away = compareGroups({
+    id: "slept_away_sleep", category: "places", emoji: "🛏️", title: "Sleeping Away & Sleep Quality",
+    highGroupLabel: "nights away from your own bed", lowGroupLabel: "nights at home",
+    highValues: sleptAwaySleep, lowValues: sleptHomeSleep,
+    findingTemplate: (h, l) =>
+      h < l
+        ? `Nights away from your own bed score ${h} vs ${l} at home`
+        : `You sleep fine away from home — score ${h} vs ${l} in your own bed`,
+  })
+  if (ins_slept_away) insights.push(ins_slept_away)
+  const ins_slept_away_dur = compareGroups({
+    id: "slept_away_duration", category: "places", emoji: "⏰", title: "Sleeping Away & Sleep Length",
+    highGroupLabel: "nights away from your own bed", lowGroupLabel: "nights at home",
+    highValues: sleptAwayDur, lowValues: sleptHomeDur,
+    findingTemplate: (h, l) =>
+      h < l
+        ? `Away from home you sleep ${h}h vs ${l}h in your own bed`
+        : `You sleep ${h}h away from home, against ${l}h in your own bed`,
+  })
+  if (ins_slept_away_dur) insights.push(ins_slept_away_dur)
+  const ins_away_mood = compareGroups({
+    id: "away_day_mood", category: "places", emoji: "🧳", title: "Days Away & Mood",
+    highGroupLabel: `days away from home (${AWAY_KM}km+)`, lowGroupLabel: "days in your own town",
+    highValues: awayDayMood, lowValues: townDayMood,
+    findingTemplate: (h, l) =>
+      h > l
+        ? `On days away from home, mood averages ${h} vs ${l} in your own town`
+        : `Days away don't lift your mood — ${h} vs ${l} at home`,
+  })
+  if (ins_away_mood) insights.push(ins_away_mood)
+  const ins_away_sleep = compareGroups({
+    id: "away_day_sleep", category: "places", emoji: "🗺️", title: "Days Away & That Night's Sleep",
+    highGroupLabel: `days away from home (${AWAY_KM}km+)`, lowGroupLabel: "days in your own town",
+    highValues: awayDaySleep, lowValues: townDaySleep,
+    findingTemplate: (h, l) =>
+      h < l
+        ? `Nights that end a day away score ${h} vs ${l} after ordinary days`
+        : `Travel days don't cost you sleep — ${h} vs ${l} after ordinary days`,
+  })
+  if (ins_away_sleep) insights.push(ins_away_sleep)
+
+  // 23b. Walking — recognised walking minutes, not steps: this is time actually
+  // spent moving through the world, and it exists for imported history too.
+  const walkVals = days.filter(d => d.walkMin != null).map(d => d.walkMin!)
+  if (walkVals.length >= 10) {
+    const walkMedian = median(walkVals)
+    const fmtWalk = walkMedian >= 60 ? `${(walkMedian / 60).toFixed(1)}h` : `${Math.round(walkMedian)}min`
+    const walkMoodHigh: number[] = [], walkMoodLow: number[] = []
+    const walkSleepHigh: number[] = [], walkSleepLow: number[] = []
+    for (const d of days) {
+      if (d.walkMin == null) continue
+      const isHigh = d.walkMin >= walkMedian
+      if (d.mood != null) { if (isHigh) walkMoodHigh.push(d.mood); else walkMoodLow.push(d.mood) }
+      const next = byDate[nextDateStr(d.date)]
+      if (next?.sleepScore != null) { if (isHigh) walkSleepHigh.push(next.sleepScore); else walkSleepLow.push(next.sleepScore) }
+    }
+    const ins_walk_mood = compareGroups({
+      id: "walking_mood", category: "places", emoji: "🚶", title: "Walking & Mood",
+      highGroupLabel: `bigger walking days (${fmtWalk}+)`, lowGroupLabel: "less-walked days",
+      highValues: walkMoodHigh, lowValues: walkMoodLow,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On days you walk ${fmtWalk}+, mood averages ${h} vs ${l} on less-walked days`
+          : `Bigger walking days don't show a mood lift — ${h} vs ${l}`,
+    })
+    if (ins_walk_mood) insights.push(ins_walk_mood)
+    const ins_walk_sleep = compareGroups({
+      id: "walking_sleep", category: "places", emoji: "🌆", title: "Walking & That Night's Sleep",
+      highGroupLabel: `bigger walking days (${fmtWalk}+)`, lowGroupLabel: "less-walked days",
+      highValues: walkSleepHigh, lowValues: walkSleepLow,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `Nights after ${fmtWalk}+ of walking score ${h} vs ${l} after stiller days`
+          : `Walking more doesn't move your sleep score — ${h} vs ${l}`,
+    })
+    if (ins_walk_sleep) insights.push(ins_walk_sleep)
+  }
+
+  // 24. Work (RescueTime) — synced daily for months and never correlated with
+  // anything. Productive hours and distracting hours are separate questions:
+  // a deep-work day and a doomscrolling day can have the same screen total.
+  const prodVals = days.filter(d => d.productiveH != null).map(d => d.productiveH!)
+  if (prodVals.length >= 10) {
+    const prodMedian = median(prodVals)
+    const prodMoodHigh: number[] = [], prodMoodLow: number[] = []
+    const prodSleepHigh: number[] = [], prodSleepLow: number[] = []
+    for (const d of days) {
+      if (d.productiveH == null) continue
+      const isHigh = d.productiveH >= prodMedian
+      if (d.mood != null) { if (isHigh) prodMoodHigh.push(d.mood); else prodMoodLow.push(d.mood) }
+      const next = byDate[nextDateStr(d.date)]
+      if (next?.sleepScore != null) { if (isHigh) prodSleepHigh.push(next.sleepScore); else prodSleepLow.push(next.sleepScore) }
+    }
+    const ins_prod_mood = compareGroups({
+      id: "work_productive_mood", category: "work", emoji: "💼", title: "Productive Hours & Mood",
+      highGroupLabel: `${r1(prodMedian)}h+ productive days`, lowGroupLabel: "lighter work days",
+      highValues: prodMoodHigh, lowValues: prodMoodLow,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On ${r1(prodMedian)}h+ productive days, mood averages ${h} vs ${l} on lighter days`
+          : `Big work days don't come with better mood — ${h} vs ${l}`,
+    })
+    if (ins_prod_mood) insights.push(ins_prod_mood)
+    const ins_prod_sleep = compareGroups({
+      id: "work_productive_sleep", category: "work", emoji: "🌜", title: "Productive Hours & That Night's Sleep",
+      highGroupLabel: `${r1(prodMedian)}h+ productive days`, lowGroupLabel: "lighter work days",
+      highValues: prodSleepHigh, lowValues: prodSleepLow,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `Nights after ${r1(prodMedian)}h+ of productive work score ${h} vs ${l} after lighter days`
+          : `Long productive days don't cost you sleep — ${h} vs ${l}`,
+    })
+    if (ins_prod_sleep) insights.push(ins_prod_sleep)
+  }
+  const distVals = days.filter(d => d.distractingH != null).map(d => d.distractingH!)
+  if (distVals.length >= 10) {
+    const distMedian = median(distVals)
+    const distMoodHigh: number[] = [], distMoodLow: number[] = []
+    for (const d of days) {
+      if (d.distractingH == null || d.mood == null) continue
+      if (d.distractingH >= distMedian) distMoodHigh.push(d.mood)
+      else distMoodLow.push(d.mood)
+    }
+    const ins_dist_mood = compareGroups({
+      id: "work_distracting_mood", category: "work", emoji: "🕳️", title: "Distracting Hours & Mood",
+      highGroupLabel: `${r1(distMedian)}h+ distracted days`, lowGroupLabel: "more focused days",
+      highValues: distMoodHigh, lowValues: distMoodLow,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `On ${r1(distMedian)}h+ distracted days, mood averages ${h} vs ${l} on more focused days`
+          : `Distracted days don't show up in your mood — ${h} vs ${l}`,
+    })
+    if (ins_dist_mood) insights.push(ins_dist_mood)
+  }
+
+  // 25. Blood pressure — the one log where the OUTCOME is the number itself.
+  // Systolic against the classic levers: last night's sleep, yesterday's
+  // alcohol, today's caffeine. Only days with a cuff reading count.
+  const bpDays = days.filter(d => d.systolic != null)
+  if (bpDays.length >= 10) {
+    const bpShortSleep: number[] = [], bpGoodSleep: number[] = []
+    const bpAfterDrinks: number[] = [], bpSober: number[] = []
+    const bpHighCaf: number[] = [], bpLowCaf: number[] = []
+    const prevDateStr2 = (dateStr: string): string => {
+      const dt = new Date(dateStr + "T12:00:00Z")
+      dt.setUTCDate(dt.getUTCDate() - 1)
+      return dt.toISOString().slice(0, 10)
+    }
+    for (const d of bpDays) {
+      const sys = d.systolic!
+      if (d.sleepDuration != null) { if (d.sleepDuration < 7) bpShortSleep.push(sys); else bpGoodSleep.push(sys) }
+      const prev = byDate[prevDateStr2(d.date)]
+      if (prev) { if ((prev.alcoholMl ?? 0) > 50) bpAfterDrinks.push(sys); else bpSober.push(sys) }
+      if (d.caffeineMg != null) { if (d.caffeineMg >= 200) bpHighCaf.push(sys); else bpLowCaf.push(sys) }
+    }
+    const ins_bp_sleep = compareGroups({
+      id: "bp_short_sleep", category: "heart", emoji: "🩺", title: "Short Sleep & Blood Pressure",
+      highGroupLabel: "after under 7h sleep", lowGroupLabel: "after 7h+ sleep",
+      highValues: bpShortSleep, lowValues: bpGoodSleep, higherIsBetter: false,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `After short nights, systolic averages ${Math.round(h)} vs ${Math.round(l)} after 7h+ sleep`
+          : `Short nights don't raise your systolic — ${Math.round(h)} vs ${Math.round(l)}`,
+    })
+    if (ins_bp_sleep) insights.push(ins_bp_sleep)
+    const ins_bp_alcohol = compareGroups({
+      id: "bp_alcohol", category: "heart", emoji: "🍷", title: "Alcohol & Next-Day Blood Pressure",
+      highGroupLabel: "the day after drinking", lowGroupLabel: "after sober days",
+      highValues: bpAfterDrinks, lowValues: bpSober, higherIsBetter: false,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `The day after drinking, systolic averages ${Math.round(h)} vs ${Math.round(l)} after sober days`
+          : `Drinking doesn't show in your next-day systolic — ${Math.round(h)} vs ${Math.round(l)}`,
+    })
+    if (ins_bp_alcohol) insights.push(ins_bp_alcohol)
+    const ins_bp_caffeine = compareGroups({
+      id: "bp_caffeine", category: "heart", emoji: "☕", title: "Caffeine & Blood Pressure",
+      highGroupLabel: "200mg+ caffeine days", lowGroupLabel: "under 200mg days",
+      highValues: bpHighCaf, lowValues: bpLowCaf, higherIsBetter: false,
+      findingTemplate: (h, l) =>
+        h > l
+          ? `On 200mg+ caffeine days, systolic averages ${Math.round(h)} vs ${Math.round(l)} on lighter days`
+          : `Caffeine doesn't show in your systolic — ${Math.round(h)} vs ${Math.round(l)}`,
+    })
+    if (ins_bp_caffeine) insights.push(ins_bp_caffeine)
+  }
 
   // 22. Custom trackers — the one family the retired Pearson card on Trends
   // had that this engine didn't. Same treatment as every built-in source:

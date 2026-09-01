@@ -1114,6 +1114,16 @@ model LastfmLog {
   @@unique([userId, date])
 }
 
+// Genre of an artist, from Last.fm community tags. Global rather than
+// per-user — an artist is the same band for everyone — keyed by the
+// lowercased name. A null genre records "looked up, nothing usable", which
+// must stay distinguishable from "never tried".
+model ArtistGenre {
+  artist    String   @id
+  genre     String?
+  fetchedAt DateTime @default(now()) @db.Timestamptz
+}
+
 model NewsletterSubscriber {
   id        String   @id @default(dbgenerated("gen_random_uuid()"))
   email     String   @unique

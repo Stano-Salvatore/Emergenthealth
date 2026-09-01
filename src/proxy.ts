@@ -21,6 +21,9 @@ const MERGED_ROUTES: Record<string, string> = {
   "/dashboard/weight":      "/dashboard/health?tab=weight",
   "/dashboard/body":        "/dashboard/health?tab=body",
   "/dashboard/labs":        "/dashboard/health?tab=labs",
+  // Place patterns split in two: correlations joined Insights, trips and the
+  // home/away history joined Location. Old links land on the patterns half.
+  "/dashboard/location-insights": "/dashboard/insights",
 }
 
 // The reverse of the above: the tab is gone, so anything still pointing at it —

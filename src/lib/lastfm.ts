@@ -55,6 +55,18 @@ export async function ensureLastfmTables(): Promise<void> {
   // NOT NULL DEFAULT 0.
   await prisma.$executeRaw`ALTER TABLE "LastfmLog" ALTER COLUMN "lateTracks" DROP DEFAULT`
   await prisma.$executeRaw`ALTER TABLE "LastfmLog" ALTER COLUMN "lateTracks" DROP NOT NULL`
+
+  // What an artist IS, not just that they were played. Global rather than
+  // per-user — "DG 307" is the same band for everyone — keyed by the
+  // lowercased name. A NULL genre means the lookup ran and Last.fm had no
+  // usable tag; a missing row means it hasn't been tried yet.
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS "ArtistGenre" (
+      "artist"    TEXT PRIMARY KEY,
+      "genre"     TEXT,
+      "fetchedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
 }
 
 export async function getLastfmKey(userId: string): Promise<{ apiKey: string; username: string } | null> {
@@ -184,6 +196,78 @@ export async function fetchRecentTracks(
   }
 
   return { tracks, pages: read, truncated: totalPages > MAX_PAGES }
+}
+
+// ─── Artist genres ───────────────────────────────────────────────────────────
+
+/** Community tags that describe the LISTENER, not the music. */
+const NON_GENRE_TAGS = new Set([
+  "seen live", "favorites", "favourites", "favorite", "favourite",
+  "albums i own", "under 2000 listeners", "all", "spotify", "check out",
+  "my music", "love", "awesome", "beautiful", "epic",
+])
+
+/**
+ * The first tag that actually names a style. Last.fm normalises tag counts to
+ * 0–100 per artist; anything under 20 is one person's shelf label, not a
+ * consensus about the music.
+ */
+export function pickGenreTag(tags: { name?: string; count?: number }[]): string | null {
+  for (const t of tags) {
+    const name = (t.name ?? "").trim().toLowerCase()
+    if (!name || name.length > 40) continue
+    if (NON_GENRE_TAGS.has(name)) continue
+    if ((t.count ?? 0) < 20) continue
+    return name
+  }
+  return null
+}
+
+/**
+ * Look up genres for artists this user has played that nobody has tagged yet.
+ *
+ * Runs after a sync or an import, best-effort and capped: the mapping is
+ * global and an artist only ever needs one lookup, so a library of hundreds
+ * fills in over a handful of syncs without ever hammering the API. A NULL
+ * genre records "asked, nothing usable" so hopeless artists aren't re-asked;
+ * a network failure stores nothing and is retried next time.
+ */
+export async function syncArtistGenres(
+  userId: string,
+  apiKey: string,
+  cap = 40,
+): Promise<{ looked: number; tagged: number }> {
+  const missing = await prisma.$queryRaw<{ artist: string }[]>`
+    SELECT DISTINCT LOWER("topArtist") AS artist FROM "LastfmLog"
+    WHERE "userId" = ${userId} AND "topArtist" IS NOT NULL
+      AND LOWER("topArtist") NOT IN (SELECT "artist" FROM "ArtistGenre")
+    LIMIT ${cap}
+  `.catch(() => [] as { artist: string }[])
+
+  let looked = 0
+  let tagged = 0
+  for (const { artist } of missing) {
+    let genre: string | null = null
+    try {
+      const url = `https://ws.audioscrobbler.com/2.0/?method=artist.gettoptags`
+        + `&artist=${encodeURIComponent(artist)}&autocorrect=1`
+        + `&api_key=${encodeURIComponent(apiKey)}&format=json`
+      const res = await fetch(url)
+      if (!res.ok) continue // transient — leave unrecorded so it's retried
+      const data = await res.json() as { toptags?: { tag?: { name?: string; count?: number }[] } }
+      genre = pickGenreTag(data.toptags?.tag ?? [])
+    } catch {
+      continue
+    }
+    await prisma.$executeRaw`
+      INSERT INTO "ArtistGenre" ("artist", "genre")
+      VALUES (${artist}, ${genre})
+      ON CONFLICT ("artist") DO NOTHING
+    `.catch(() => null)
+    looked++
+    if (genre) tagged++
+  }
+  return { looked, tagged }
 }
 
 export interface LastfmSyncResult {

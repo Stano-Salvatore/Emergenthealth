@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest"
-import { bucketScrobbles, fetchRecentTracks } from "../lastfm"
+import { bucketScrobbles, fetchRecentTracks, pickGenreTag } from "../lastfm"
 
 const TZ = "Europe/Bratislava" // UTC+2 in August
 
@@ -122,5 +122,31 @@ describe("fetchRecentTracks", () => {
     const out = await fetchRecentTracks("k", "u", 0)
     expect(out.truncated).toBe(true)
     expect(out.pages).toBe(50)
+  })
+})
+
+describe("pickGenreTag", () => {
+  it("takes the first consensus tag that names a style", () => {
+    expect(pickGenreTag([
+      { name: "seen live", count: 100 },
+      { name: "black metal", count: 87 },
+      { name: "metal", count: 60 },
+    ])).toBe("black metal")
+  })
+
+  it("skips one-person shelf labels below the consensus floor", () => {
+    expect(pickGenreTag([
+      { name: "songs my cat likes", count: 3 },
+      { name: "ambient", count: 45 },
+    ])).toBe("ambient")
+  })
+
+  it("normalises case", () => {
+    expect(pickGenreTag([{ name: "Post-Punk", count: 90 }])).toBe("post-punk")
+  })
+
+  it("returns null when nothing usable is tagged", () => {
+    expect(pickGenreTag([])).toBeNull()
+    expect(pickGenreTag([{ name: "favorites", count: 100 }, { name: "x", count: 2 }])).toBeNull()
   })
 })

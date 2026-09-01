@@ -43,9 +43,10 @@ export const NAV_ITEMS: NavItem[] = [
 
   // The correlation engine's own page had no nav entry at all — it was
   // reachable only through a small link on a dashboard card.
+  // Place patterns is gone as a page: its per-place correlations live on
+  // Insights, its trips and home/away history on Location.
   { href: "/dashboard/insights",    label: "Insights",        emoji: "🔍", section: "Patterns" },
   { href: "/dashboard/experiments",  label: "Experiments",     emoji: "🔬", section: "Patterns" },
-  { href: "/dashboard/location-insights", label: "Place patterns", emoji: "🗺️", section: "Patterns" },
   { href: "/dashboard/custom",      label: "Custom metrics",  emoji: "🧮", section: "Patterns" },
   { href: "/dashboard/week",        label: "This Week",       emoji: "📅", section: "Patterns" },
   { href: "/dashboard/timeline",    label: "Timeline",        emoji: "🕐", section: "Patterns" },

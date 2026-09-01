@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { trackToSvgPath } from "@/lib/gpx"
 import { cn } from "@/lib/utils"
-import LocationInsightsClient from "../location-insights/LocationInsightsClient"
+import HomeAndAway from "@/components/location/HomeAndAway"
 import { TimelineImport } from "@/components/location/TimelineImport"
 import { SuggestedPlaces } from "@/components/location/SuggestedPlaces"
 import { DayJourney, type JourneySegment } from "@/components/location/DayJourney"
@@ -888,14 +888,14 @@ export default function LocationPage() {
       <PlacesSection key={placesKey} autoTagged={track?.autoTagged ?? []}/>
       <PlaceHealthImpact />
 
-      {/* Was a tab. Two tabs meant half the page was a place you had to know to
-          go and look at, and nobody looks: the day and the patterns it belongs
-          to are the same subject, so they are now the same scroll. */}
-      {/* No heading of its own: LocationInsightsClient already titles itself,
-          and adding one stacked two headings saying the same thing. Just the
-          rule, to part it from the section above. */}
+      {/* The descriptive half of the retired Place patterns page: the home /
+          out / away strip, away-vs-home summary, trips, and the data-source
+          provenance block. Location history belongs with location. The
+          CORRELATIONAL half (per-place deltas, the away/walking/slept-away
+          patterns) lives on Insights now, with the rest of "what predicts
+          what". */}
       <section id="insights" className="border-t border-border pt-5 scroll-mt-4">
-        <LocationInsightsClient />
+        <HomeAndAway />
       </section>
 
       <TimelineImport onImported={() => {

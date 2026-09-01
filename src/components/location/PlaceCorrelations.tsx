@@ -4,7 +4,13 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import HomeAndAway from "@/components/location/HomeAndAway"
+
+// The per-place half of the retired Place patterns page: for each saved place,
+// visit-night averages vs the all-days baseline, per metric. It lives on the
+// Insights page now — same question ("what predicts what"), different grain
+// than the whole-day place facts the main engine tests. These deltas carry a
+// simple n-based confidence label, not the battery's permutation test, and the
+// footnote says so.
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -205,9 +211,9 @@ function EmptyState() {
   )
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// ─── Section ──────────────────────────────────────────────────────────────────
 
-export default function LocationInsightsClient() {
+export default function PlaceCorrelations() {
   const [metric, setMetric] = useState<Metric>("hrv")
   const [data, setData] = useState<LocationCorrelationResult[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -252,22 +258,7 @@ export default function LocationInsightsClient() {
   const stepsCaveat = data?.find(r => r.caveat)?.caveat
 
   return (
-    <div className="space-y-6">
-      {/* ── Header ── */}
-      <div>
-        <h1 className="text-2xl font-bold">Location Insights</h1>
-        <p className="text-muted-foreground text-sm mt-0.5">
-          Where you were, and what it did to how you slept and felt
-        </p>
-      </div>
-
-      {/* ── The coarse picture first: home, out, or away ── */}
-      <HomeAndAway />
-
-      <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground pt-2">
-        By place
-      </h2>
-
+    <div className="space-y-4">
       {/* ── Metric picker ── */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
         {METRICS.map(m => (
@@ -331,7 +322,8 @@ export default function LocationInsightsClient() {
       {/* ── Footnote ── */}
       {!loading && !error && !allEmpty && (
         <p className="text-xs text-muted-foreground text-center">
-          Delta = visit-night average vs. all-days baseline · baseline n = {(data ?? [])[0]?.baselineAvg != null ? "available" : "unavailable"}
+          Delta = visit-night average vs your all-days baseline. Simpler statistics than the
+          patterns above — a confidence label from visit count, not a permutation test.
         </p>
       )}
     </div>
