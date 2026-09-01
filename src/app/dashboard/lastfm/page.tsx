@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { RefreshCw, Trash2, Music, AlertCircle, Radio, History, Moon } from "lucide-react"
+import { YtMusicImport } from "@/components/lastfm/YtMusicImport"
 
 interface LastfmLogRow {
   id: string
@@ -545,9 +546,10 @@ export default function LastfmPage() {
 
   if (!data) return null
 
-  if (!data.hasKey) {
-    return <ConnectForm onSaved={load} />
-  }
-
-  return <Dashboard data={data} onRefresh={load} />
+  return (
+    <div className="space-y-5 max-w-3xl">
+      {!data.hasKey ? <ConnectForm onSaved={load} /> : <Dashboard data={data} onRefresh={load} />}
+      <YtMusicImport onImported={load} />
+    </div>
+  )
 }
