@@ -214,6 +214,7 @@ function Dashboard({
   const [syncing, setSyncing] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [genreNote, setGenreNote] = useState<string | null>(null)
 
   const logs = data.logs
 
@@ -246,15 +247,27 @@ function Dashboard({
   async function handleSync(days?: number) {
     setSyncing(true)
     setError(null)
+    setGenreNote(null)
     try {
       const res = await fetch("/api/lastfm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(days ? { action: "sync", days } : { action: "sync" }),
       })
+      const d = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
         throw new Error(d.error ?? "Sync failed")
+      }
+      // Genre tagging is capped per sync, so say where it stands — otherwise
+      // "genres exist" is invisible until an insight happens to appear.
+      if (typeof d.genresTagged === "number" && (d.genresTagged > 0 || d.genresRemaining > 0)) {
+        setGenreNote(
+          d.genresRemaining > 0
+            ? `Tagged genres for ${d.genresTagged} artists — ${d.genresRemaining} to go, sync again to continue.`
+            : d.genresTagged > 0
+              ? `Tagged genres for ${d.genresTagged} artists — your whole library is labelled now.`
+              : null
+        )
       }
       onRefresh()
     } catch (err: unknown) {
@@ -333,6 +346,13 @@ function Dashboard({
         <div className="flex items-start gap-2 text-sm text-red-400 bg-red-500/10 px-4 py-3 rounded-xl border border-red-500/20">
           <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {genreNote && (
+        <div className="flex items-start gap-2 text-sm text-emerald-400 bg-emerald-500/10 px-4 py-3 rounded-xl border border-emerald-500/20">
+          <Music className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>{genreNote}</span>
         </div>
       )}
 

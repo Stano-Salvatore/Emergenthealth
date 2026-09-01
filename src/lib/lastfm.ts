@@ -235,18 +235,24 @@ export function pickGenreTag(tags: { name?: string; count?: number }[]): string 
 export async function syncArtistGenres(
   userId: string,
   apiKey: string,
-  cap = 40,
-): Promise<{ looked: number; tagged: number }> {
+  opts: { cap?: number; budgetMs?: number } = {},
+): Promise<{ looked: number; tagged: number; remaining: number }> {
+  const cap = opts.cap ?? 40
+  // Stop with time to spare rather than letting the platform kill the whole
+  // function — a partial pass records everything it managed; a killed one
+  // records nothing and loses the sync response with it.
+  const deadline = Date.now() + (opts.budgetMs ?? 25_000)
+
   const missing = await prisma.$queryRaw<{ artist: string }[]>`
     SELECT DISTINCT LOWER("topArtist") AS artist FROM "LastfmLog"
     WHERE "userId" = ${userId} AND "topArtist" IS NOT NULL
       AND LOWER("topArtist") NOT IN (SELECT "artist" FROM "ArtistGenre")
-    LIMIT ${cap}
   `.catch(() => [] as { artist: string }[])
 
   let looked = 0
   let tagged = 0
-  for (const { artist } of missing) {
+  for (const { artist } of missing.slice(0, cap)) {
+    if (Date.now() > deadline) break
     let genre: string | null = null
     try {
       const url = `https://ws.audioscrobbler.com/2.0/?method=artist.gettoptags`
@@ -254,8 +260,12 @@ export async function syncArtistGenres(
         + `&api_key=${encodeURIComponent(apiKey)}&format=json`
       const res = await fetch(url)
       if (!res.ok) continue // transient — leave unrecorded so it's retried
-      const data = await res.json() as { toptags?: { tag?: { name?: string; count?: number }[] } }
-      genre = pickGenreTag(data.toptags?.tag ?? [])
+      const data = await res.json() as { toptags?: { tag?: unknown } }
+      // Same API quirk as recenttracks: one tag arrives as an object, not a
+      // one-element array.
+      const raw = data.toptags?.tag
+      const tags = (Array.isArray(raw) ? raw : raw ? [raw] : []) as { name?: string; count?: number }[]
+      genre = pickGenreTag(tags)
     } catch {
       continue
     }
@@ -267,7 +277,7 @@ export async function syncArtistGenres(
     looked++
     if (genre) tagged++
   }
-  return { looked, tagged }
+  return { looked, tagged, remaining: missing.length - looked }
 }
 
 export interface LastfmSyncResult {

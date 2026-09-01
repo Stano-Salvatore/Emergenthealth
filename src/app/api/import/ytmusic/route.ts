@@ -14,6 +14,11 @@ import { randomUUID } from "crypto"
 // where the two overlap, and re-importing the same Takeout must not
 // double-count anything. Backfill fills silence; it does not argue.
 
+export const runtime = "nodejs"
+// Months of day-rows plus a genre-tagging pass — more than the default
+// function budget allows.
+export const maxDuration = 60
+
 interface IncomingPlay { name: string; artist: string; uts: number }
 
 const MAX_PLAYS = 200_000

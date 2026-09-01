@@ -3,6 +3,12 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { ensureLastfmTables, getLastfmKey, syncLastfm, syncArtistGenres } from "@/lib/lastfm"
 
+export const runtime = "nodejs"
+// The sync pages the Last.fm API, and the genre pass behind it makes one
+// request per untagged artist. On the default function budget that pass was
+// killed mid-loop, which read as "genres silently don't work".
+export const maxDuration = 60
+
 interface LastfmLogRow {
   id: string
   userId: string
@@ -88,7 +94,11 @@ export async function POST(req: NextRequest) {
       // Fill in genres for any artists the sync surfaced — best-effort, capped,
       // and cumulative: a library of hundreds completes over a few syncs.
       const genres = await syncArtistGenres(userId, keyRow.apiKey).catch(() => null)
-      return NextResponse.json({ ...result, genresTagged: genres?.tagged ?? 0 })
+      return NextResponse.json({
+        ...result,
+        genresTagged: genres?.tagged ?? 0,
+        genresRemaining: genres?.remaining ?? 0,
+      })
     } catch (err) {
       const message = err instanceof Error ? err.message : "Sync failed"
       return NextResponse.json({ error: message }, { status: 500 })
