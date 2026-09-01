@@ -61,7 +61,7 @@ type DayData = {
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart" | "week"
   emoji: string
   title: string
   finding: string
@@ -84,6 +84,9 @@ export type InsightResult = {
   tier: "strong" | "suggestive" | "noise"
   /** True when the effect collapses or flips once weekends are excluded — the classic confounder. */
   weekendDriven?: boolean
+  /** The same comparison on weekdays only — set alongside weekendDriven so the
+   * card can show HOW MUCH of the effect was the weekend, not just that some was. */
+  weekdayDelta?: number
 }
 
 /**
@@ -103,7 +106,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * so a new family (like custom trackers) appears immediately rather than
  * after the cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 4
+export const ENGINE_VERSION = 5
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -2260,6 +2263,65 @@ export async function computeCorrelations(
     if (ins_bp_caffeine) insights.push(ins_bp_caffeine)
   }
 
+  // 26. The week itself — weekends vs weekdays, straight from the calendar.
+  // Every other family treats the weekend as a CONFOUNDER to guard against;
+  // this one asks the plain question directly. Sleep records dated Sat/Sun
+  // describe the nights ending those mornings — Friday and Saturday night,
+  // which is exactly what "weekend nights" means. This family has no
+  // weekday-only twin by construction (that pass has one empty group), so it
+  // can never carry its own weekend flag.
+  const weSleep: number[] = [], wdSleep: number[] = []
+  const weDur: number[] = [], wdDur: number[] = []
+  const weMood: number[] = [], wdMood: number[] = []
+  const weSteps: number[] = [], wdSteps: number[] = []
+  for (const d of days) {
+    const we = isWeekendDate(d.date)
+    if (d.sleepScore != null) { if (we) weSleep.push(d.sleepScore); else wdSleep.push(d.sleepScore) }
+    if (d.sleepDuration != null) { if (we) weDur.push(d.sleepDuration); else wdDur.push(d.sleepDuration) }
+    if (d.mood != null) { if (we) weMood.push(d.mood); else wdMood.push(d.mood) }
+    if (d.steps != null) { if (we) weSteps.push(d.steps); else wdSteps.push(d.steps) }
+  }
+  const ins_weekend_sleep = compareGroups({
+    id: "weekend_sleep_score", category: "week", emoji: "🛋️", title: "Weekend Nights & Sleep Quality",
+    highGroupLabel: "Friday & Saturday nights", lowGroupLabel: "school nights",
+    highValues: weSleep, lowValues: wdSleep,
+    findingTemplate: (h, l) =>
+      h > l
+        ? `Friday and Saturday nights score ${h} vs ${l} on school nights`
+        : `Weekend nights score ${h} vs ${l} on school nights — the lie-in isn't buying quality`,
+  })
+  if (ins_weekend_sleep) insights.push(ins_weekend_sleep)
+  const ins_weekend_dur = compareGroups({
+    id: "weekend_sleep_duration", category: "week", emoji: "⏰", title: "Weekend Nights & Sleep Length",
+    highGroupLabel: "Friday & Saturday nights", lowGroupLabel: "school nights",
+    highValues: weDur, lowValues: wdDur,
+    findingTemplate: (h, l) =>
+      h > l
+        ? `You sleep ${h}h on weekend nights vs ${l}h on school nights`
+        : `Weekend nights run ${h}h vs ${l}h on school nights`,
+  })
+  if (ins_weekend_dur) insights.push(ins_weekend_dur)
+  const ins_weekend_mood = compareGroups({
+    id: "weekend_mood", category: "week", emoji: "📆", title: "Weekends & Mood",
+    highGroupLabel: "weekend days", lowGroupLabel: "weekdays",
+    highValues: weMood, lowValues: wdMood,
+    findingTemplate: (h, l) =>
+      h > l
+        ? `Weekend mood averages ${h} vs ${l} on weekdays`
+        : `Weekends don't lift your mood — ${h} vs ${l} on weekdays`,
+  })
+  if (ins_weekend_mood) insights.push(ins_weekend_mood)
+  const ins_weekend_steps = compareGroups({
+    id: "weekend_steps", category: "week", emoji: "🚶", title: "Weekends & Movement",
+    highGroupLabel: "weekend days", lowGroupLabel: "weekdays",
+    highValues: weSteps, lowValues: wdSteps,
+    findingTemplate: (h, l) =>
+      h > l
+        ? `You walk ${Math.round(h).toLocaleString()} steps on weekends vs ${Math.round(l).toLocaleString()} on weekdays`
+        : `Weekdays move you more — ${Math.round(l).toLocaleString()} steps vs ${Math.round(h).toLocaleString()} on weekends`,
+  })
+  if (ins_weekend_steps) insights.push(ins_weekend_steps)
+
   // 22. Custom trackers — the one family the retired Pearson card on Trends
   // had that this engine didn't. Same treatment as every built-in source:
   // group split (did/didn't for boolean trackers, personal-median otherwise —
@@ -2332,6 +2394,9 @@ export async function computeCorrelations(
     const wk = weekdayVersions.get(ins.id)
     if (wk && (Math.sign(wk.delta) !== Math.sign(ins.delta) || Math.abs(wk.delta) < Math.abs(ins.delta) * 0.35)) {
       ins.weekendDriven = true
+      // The weekday-only number was always computed and thrown away; keeping
+      // it lets the card show how much of the effect the weekend was.
+      ins.weekdayDelta = wk.delta
     }
   }
 
