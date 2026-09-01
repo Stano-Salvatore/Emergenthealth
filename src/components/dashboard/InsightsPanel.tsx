@@ -262,7 +262,7 @@ function PeriodTab({
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">🗺️ by location (HRV)</p>
-            <Link href="/dashboard/location-insights" className="text-[10px] text-primary/70 hover:text-primary flex items-center gap-0.5 transition-colors">
+            <Link href="/dashboard/insights" className="text-[10px] text-primary/70 hover:text-primary flex items-center gap-0.5 transition-colors">
               Full view <ChevronRight className="h-3 w-3" />
             </Link>
           </div>

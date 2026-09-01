@@ -6,12 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { WatchedPatterns } from "@/components/dashboard/WatchedPatterns"
+import PlaceCorrelations from "@/components/location/PlaceCorrelations"
 import { BaselineAlerts } from "@/components/dashboard/BaselineAlerts"
 import { DailyScoreCard } from "@/components/dashboard/DailyScoreCard"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom"
+type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart"
 
 interface InsightResult {
   id: string
@@ -44,6 +45,9 @@ interface CorrelationsData {
 const CATEGORY_META: Record<Category, { label: string; emoji: string; color: string }> = {
   sleep:       { label: "Sleep",    emoji: "🌙", color: "text-indigo-400" },
   recovery:    { label: "Recovery", emoji: "❤️", color: "text-rose-400" },
+  heart:       { label: "Blood Pressure", emoji: "🩺", color: "text-red-400" },
+  places:      { label: "Places & Travel", emoji: "🧳", color: "text-sky-400" },
+  work:        { label: "Work", emoji: "💼", color: "text-slate-400" },
   stress:      { label: "Stress",   emoji: "😤", color: "text-orange-400" },
   food:        { label: "Food & Hydration", emoji: "🍽️", color: "text-orange-400" },
   supplements: { label: "Supplements", emoji: "💊", color: "text-violet-400" },
@@ -62,7 +66,7 @@ const CATEGORY_META: Record<Category, { label: string; emoji: string; color: str
   tags:        { label: "Tags",     emoji: "🏷️", color: "text-primary" },
 }
 
-const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "stress", "food", "symptoms", "supplements", "interactions", "fitness", "fasting", "habits", "custom", "focus", "caffeine", "screen", "music", "money", "calendar", "tags"]
+const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "heart", "stress", "food", "symptoms", "supplements", "interactions", "fitness", "places", "fasting", "habits", "custom", "focus", "caffeine", "screen", "work", "music", "money", "calendar", "tags"]
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
@@ -366,6 +370,19 @@ export default function InsightsPage() {
           )}
         </div>
       )}
+
+      {/* ── By place — visit-night deltas per saved place, from the retired
+          Place patterns page. Below the battery deliberately: these carry a
+          simpler confidence label, and the footnote inside says so. ── */}
+      <section>
+        <CardHeader className="px-0 pb-3 pt-0">
+          <CardTitle className="text-sm font-semibold uppercase tracking-widest flex items-center gap-2 text-sky-400">
+            <span role="img">📍</span>
+            By place
+          </CardTitle>
+        </CardHeader>
+        <PlaceCorrelations />
+      </section>
     </div>
   )
 }

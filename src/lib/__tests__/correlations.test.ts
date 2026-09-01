@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from "vitest"
 // Mood comes only from standalone MoodLog rows (check-ins carry none) to
 // prove the engine reads the mood table it used to ignore.
 
-const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows, alcoholRows, symptomRows } = vi.hoisted(() => {
+const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows, alcoholRows, symptomRows, rescueRows } = vi.hoisted(() => {
   const DAYS = 40
   const dates: string[] = []
   const now = new Date()
@@ -70,6 +70,13 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
       loggedAt: new Date(ds + "T12:00:00Z"),
       amountMl: isEven(i) ? 2500 : 1000,
     })),
+    // Productive hours track the same rhythm as mood (high on the days mood
+    // is 5), so the work family has a planted effect to rediscover.
+    rescueRows: dates.map((ds, i) => ({
+      date: ds,
+      productiveH: i > 0 && isEven(i - 1) ? 6 : 1,
+      distractingH: i > 0 && isEven(i - 1) ? 0.5 : 4,
+    })),
     ouraTags: [
       ...dates.filter((_, i) => !isEven(i)).map(ds => ({
         day: ds, tagName: "Magnesium", text: null,
@@ -98,6 +105,9 @@ vi.mock("@/lib/prisma", () => ({
     symptomLog: { findMany: vi.fn().mockResolvedValue(symptomRows) },
     focusSession: { findMany: vi.fn().mockResolvedValue([]) },
     transaction: { findMany: vi.fn().mockResolvedValue([]) },
+    activitySpan: { findMany: vi.fn().mockResolvedValue([]) },
+    rescuetimeLog: { findMany: vi.fn().mockResolvedValue(rescueRows) },
+    bloodPressureLog: { findMany: vi.fn().mockResolvedValue([]) },
     // Serves both the timezone key and fast:history — "UTC" fails the
     // history's JSON.parse, correctly exercising the malformed-blob guard.
     userPreference: { findUnique: vi.fn().mockResolvedValue({ value: "UTC" }) },
@@ -192,6 +202,16 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     expect(interaction.category).toBe("interactions")
     expect(interaction.highGroupAvg).toBe(70)
     expect(interaction.lowGroupAvg).toBe(90)
+
+    // Productive hours track the mood plant — the RescueTime family reads
+    // its table and finds the effect with the right sign
+    const prodMood = byId["work_productive_mood"]
+    expect(prodMood).toBeDefined()
+    expect(prodMood.category).toBe("work")
+    expect(prodMood.highGroupAvg).toBeGreaterThan(prodMood.lowGroupAvg) // 5 vs 2
+    const distMood = byId["work_distracting_mood"]
+    expect(distMood).toBeDefined()
+    expect(distMood.highGroupAvg).toBeLessThan(distMood.lowGroupAvg) // 2 vs 5
 
     // Statistics: cleanly planted separations beat chance and survive
     // false-discovery control...
