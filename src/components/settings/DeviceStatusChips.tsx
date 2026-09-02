@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Capacitor } from "@capacitor/core"
 import { headStatus, activityStatus } from "@/lib/native/bubble"
 import { getNotificationPermission } from "@/lib/native/notifications"
@@ -17,67 +17,78 @@ import type { StatusRow } from "@/lib/status-rows"
 export function DeviceStatusChips() {
   const [rows, setRows] = useState<StatusRow[] | null>(null)
 
+  const load = useCallback(async () => {
+    if (!Capacitor.isNativePlatform()) return
+    const [notif, head, loc, svc, motion] = await Promise.all([
+      getNotificationPermission().catch(() => "unavailable" as const),
+      headStatus().catch(() => null),
+      readBackgroundLocationEnabled().catch(() => ({ enabled: false, failure: null })),
+      nativeLocationStatus().catch(() => null),
+      activityStatus().catch(() => ({ available: false, permitted: false, tracking: false })),
+    ])
+    const out: StatusRow[] = []
+    out.push(notif === "granted"
+      ? { id: "d-notif", group: "Notifications", label: "This phone", tone: "ok", value: "notifications allowed" }
+      : { id: "d-notif", group: "Notifications", label: "This phone", tone: "warn", value: notif === "denied" ? "notifications blocked" : "notifications not allowed yet" })
+    if (head) {
+      out.push(!head.granted
+        ? { id: "d-head", group: "Emergy", label: "Chat head", tone: "off", value: "overlay permission off" }
+        : head.running
+          ? { id: "d-head", group: "Emergy", label: "Chat head", tone: "ok", value: head.keep ? "floating, stays after close" : "floating" }
+          : { id: "d-head", group: "Emergy", label: "Chat head", tone: head.keep ? "warn" : "off", value: head.keep ? "should be floating but isn't" : "put away" })
+      if (head.batteryUnrestricted === false) {
+        out.push({ id: "d-batt", group: "Emergy", label: "Battery", tone: "warn", value: "optimised — Android may kill him", detail: "Settings → Emergy floating → Allow background" })
+      }
+    }
+    if (!loc.enabled) {
+      out.push({ id: "d-loc", group: "Data", label: "Background location", tone: "off", value: "off" })
+    } else if (svc) {
+      // The native service can say whether it is actually running, which the
+      // saved switch position cannot.
+      out.push(svc.running
+        ? { id: "d-loc", group: "Data", label: "Background location", tone: "ok", value: "tracking, survives closing the app" }
+        : { id: "d-loc", group: "Data", label: "Background location", tone: "warn", value: "should be tracking but isn't" })
+      if (svc.fine && !svc.background) {
+        out.push({ id: "d-loc-bg", group: "Data", label: "Location permission", tone: "warn", value: "only while using the app", detail: "Set it to Allow all the time" })
+      }
+      if (!svc.batteryUnrestricted && !out.some(r => r.id === "d-batt")) {
+        out.push({ id: "d-batt", group: "Data", label: "Battery", tone: "warn", value: "optimised — Android may stop tracking", detail: "Settings → Automatic place check-ins → Allow background" })
+      }
+    } else {
+      out.push({ id: "d-loc", group: "Data", label: "Background location", tone: loc.failure ? "warn" : "ok", value: loc.failure ? loc.failure : "tracking while the app is open" })
+    }
+    // Emergy has been able to speak all along — lib/voice reads his replies
+    // through the phone's own text-to-speech, and the manifest already
+    // declares the engine so the WebView can find it. It is off by default,
+    // and the only two switches are a speaker icon in the chat header and a
+    // toggle far down this page, so "he doesn't have a voice" is what it
+    // looks like from outside. A row that says so is the cheapest fix.
+    if (speechSupported()) {
+      out.push(getAutoSpeak()
+        ? { id: "d-voice", group: "Emergy", label: "Voice", tone: "ok", value: "reads replies aloud" }
+        : { id: "d-voice", group: "Emergy", label: "Voice", tone: "off", value: "silent", detail: "Settings → Voice → Read replies aloud" })
+    }
+    if (motion.available) {
+      out.push({ id: "d-motion", group: "Data", label: "Motion", tone: motion.tracking ? "ok" : "off", value: motion.tracking ? "tracking" : motion.permitted ? "off" : "no permission" })
+    }
+    setRows(out)
+  }, [])
+
+  // Read once now, and again on every return to the foreground.
+  //
+  // Half of what this card reports is decided in Android's own settings, and
+  // the only moment the app can learn about a change there is coming back.
+  // Reading once at mount meant the card went on describing the permissions as
+  // they were BEFORE the trip to settings — so it sat beside the location card
+  // saying the opposite thing about the same phone, and the stale one looked
+  // exactly as confident as the one that was right.
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return
-    let cancelled = false
-    ;(async () => {
-      const [notif, head, loc, svc, motion] = await Promise.all([
-        getNotificationPermission().catch(() => "unavailable" as const),
-        headStatus().catch(() => null),
-        readBackgroundLocationEnabled().catch(() => ({ enabled: false, failure: null })),
-        nativeLocationStatus().catch(() => null),
-        activityStatus().catch(() => ({ available: false, permitted: false, tracking: false })),
-      ])
-      if (cancelled) return
-      const out: StatusRow[] = []
-      out.push(notif === "granted"
-        ? { id: "d-notif", group: "Notifications", label: "This phone", tone: "ok", value: "notifications allowed" }
-        : { id: "d-notif", group: "Notifications", label: "This phone", tone: "warn", value: notif === "denied" ? "notifications blocked" : "notifications not allowed yet" })
-      if (head) {
-        out.push(!head.granted
-          ? { id: "d-head", group: "Emergy", label: "Chat head", tone: "off", value: "overlay permission off" }
-          : head.running
-            ? { id: "d-head", group: "Emergy", label: "Chat head", tone: "ok", value: head.keep ? "floating, stays after close" : "floating" }
-            : { id: "d-head", group: "Emergy", label: "Chat head", tone: head.keep ? "warn" : "off", value: head.keep ? "should be floating but isn't" : "put away" })
-        if (head.batteryUnrestricted === false) {
-          out.push({ id: "d-batt", group: "Emergy", label: "Battery", tone: "warn", value: "optimised — Android may kill him", detail: "Settings → Emergy floating → Allow background" })
-        }
-      }
-      if (!loc.enabled) {
-        out.push({ id: "d-loc", group: "Data", label: "Background location", tone: "off", value: "off" })
-      } else if (svc) {
-        // The native service can say whether it is actually running, which the
-        // saved switch position cannot.
-        out.push(svc.running
-          ? { id: "d-loc", group: "Data", label: "Background location", tone: "ok", value: "tracking, survives closing the app" }
-          : { id: "d-loc", group: "Data", label: "Background location", tone: "warn", value: "should be tracking but isn't" })
-        if (svc.fine && !svc.background) {
-          out.push({ id: "d-loc-bg", group: "Data", label: "Location permission", tone: "warn", value: "only while using the app", detail: "Set it to Allow all the time" })
-        }
-        if (!svc.batteryUnrestricted && !out.some(r => r.id === "d-batt")) {
-          out.push({ id: "d-batt", group: "Data", label: "Battery", tone: "warn", value: "optimised — Android may stop tracking", detail: "Settings → Automatic place check-ins → Allow background" })
-        }
-      } else {
-        out.push({ id: "d-loc", group: "Data", label: "Background location", tone: loc.failure ? "warn" : "ok", value: loc.failure ? loc.failure : "tracking while the app is open" })
-      }
-      // Emergy has been able to speak all along — lib/voice reads his replies
-      // through the phone's own text-to-speech, and the manifest already
-      // declares the engine so the WebView can find it. It is off by default,
-      // and the only two switches are a speaker icon in the chat header and a
-      // toggle far down this page, so "he doesn't have a voice" is what it
-      // looks like from outside. A row that says so is the cheapest fix.
-      if (speechSupported()) {
-        out.push(getAutoSpeak()
-          ? { id: "d-voice", group: "Emergy", label: "Voice", tone: "ok", value: "reads replies aloud" }
-          : { id: "d-voice", group: "Emergy", label: "Voice", tone: "off", value: "silent", detail: "Settings → Voice → Read replies aloud" })
-      }
-      if (motion.available) {
-        out.push({ id: "d-motion", group: "Data", label: "Motion", tone: motion.tracking ? "ok" : "off", value: motion.tracking ? "tracking" : motion.permitted ? "off" : "no permission" })
-      }
-      setRows(out)
-    })()
-    return () => { cancelled = true }
-  }, [])
+    void (async () => { await load() })()
+    const onVisible = () => { if (document.visibilityState === "visible") void load() }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => document.removeEventListener("visibilitychange", onVisible)
+  }, [load])
 
   if (!rows || rows.length === 0) return null
   return (

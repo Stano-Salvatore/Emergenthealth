@@ -168,6 +168,24 @@ export function BackgroundLocationCard() {
     return () => document.removeEventListener("visibilitychange", onVisible)
   }, [engine, refreshNative])
 
+  /**
+   * Start the service again without touching the wish.
+   *
+   * "Turn it off and on again" was the advice this card gave, and it is advice
+   * the app can simply follow itself: the switch is already on, the service
+   * merely is not up, and startBackgroundLocation is idempotent. Telling
+   * someone to do a thing you can do for them is a bug with good manners.
+   */
+  const restart = useCallback(async () => {
+    setBusy(true)
+    try {
+      await startBackgroundLocation(() => { setEnabled(false); setRefused(true) })
+      await refreshNative()
+    } finally {
+      setBusy(false)
+    }
+  }, [refreshNative])
+
   const toggle = useCallback(async () => {
     setBusy(true)
     setRefused(false)
@@ -192,6 +210,16 @@ export function BackgroundLocationCard() {
       setBusy(false)
     }
   }, [enabled, engine, refreshNative])
+
+  // The two things below that are worth pointing at, decided BEFORE the prose
+  // that points at them. The "not running" warning used to end with "the two
+  // settings below are usually why" unconditionally, and on a phone where both
+  // permissions were already right that sentence sent you looking for advice
+  // that was not on the screen. A pointer to nothing is worse than no pointer.
+  const nativeOn = enabled && engine === "native" && native !== null
+  const needsAllTheTime = nativeOn && native.fine && !native.background
+  const needsBattery = nativeOn && !native.batteryUnrestricted
+  const hasRemedy = needsAllTheTime || needsBattery
 
   return (
     <Card>
@@ -248,13 +276,18 @@ export function BackgroundLocationCard() {
               </p>
             )}
             {enabled && health && <TrackingHealth {...health} />}
-            {enabled && engine === "native" && native && !native.running && (
-              <p className="text-xs text-amber-400">
-                Tracking is switched on but the service isn&apos;t running. Turn it off and on
-                again; if it keeps dying, the two settings below are usually why.
-              </p>
+            {nativeOn && !native.running && (
+              <div className="space-y-1">
+                <p className="text-xs text-amber-400">
+                  Tracking is switched on but the service isn&apos;t running
+                  {hasRemedy ? " — and the settings below are usually why." : "."}
+                </p>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => { void restart() }}>
+                  Start it again
+                </Button>
+              </div>
             )}
-            {enabled && engine === "native" && native && native.fine && !native.background && (
+            {needsAllTheTime && (
               <p className="text-xs text-amber-400">
                 Location is only allowed while the app is open, so Android stops the fixes
                 the moment you leave. Set it to <b>Allow all the time</b>.{" "}
@@ -264,7 +297,7 @@ export function BackgroundLocationCard() {
                 → Permissions → Location.
               </p>
             )}
-            {enabled && engine === "native" && native && !native.batteryUnrestricted && (
+            {needsBattery && (
               <div className="space-y-1">
                 <p className="text-xs text-amber-400">
                   Battery optimisation still applies to Emergy, which is how Samsung phones

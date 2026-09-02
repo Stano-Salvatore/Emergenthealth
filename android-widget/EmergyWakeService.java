@@ -175,9 +175,13 @@ public class EmergyWakeService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             setKeep(this, false);
+            if (!EmergyLocationService.keep(this)) HeadAlarmReceiver.cancelWatchdog(this);
             stopSelf();
             return START_NOT_STICKY;
         }
+        // See HeadAlarmReceiver.scheduleWatchdog: the heartbeat that notices
+        // this being killed without anyone being told.
+        if (keep(this)) HeadAlarmReceiver.scheduleWatchdog(this);
         if (intent != null && ACTION_TEST_FIRE.equals(intent.getAction())) {
             // The whole chain, without a model: pretend the name was heard.
             fire();
