@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { Resend } from "resend"
+import { EMAIL_FROM } from "@/lib/email"
 
 function avg(arr: (number | null | undefined)[]): number | null {
   const vals = arr.filter((x): x is number => x != null)
@@ -179,7 +180,7 @@ export async function sendDigestForUser(userId: string, email: string): Promise<
 
   const resend = new Resend(process.env.RESEND_API_KEY)
   const { error } = await resend.emails.send({
-    from: "Emergenthealth <onboarding@resend.dev>",
+    from: EMAIL_FROM,
     to: email,
     subject: "Your weekly health digest 📊",
     html,

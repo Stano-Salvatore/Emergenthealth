@@ -14,12 +14,19 @@ on:
       - "public/icons/**"
   workflow_dispatch:
 
+# The build job only reads. Publishing the Release is its own job below with
+# its own write grant, so the step that decodes the signing keystore never
+# runs with a token that can write to the repository.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      variant: ${{ steps.variant.outputs.variant }}
+      version_code: ${{ steps.variant.outputs.version_code }}
     steps:
       - uses: actions/checkout@v4
 
@@ -221,12 +228,21 @@ jobs:
           fi
           grep -E "FAILED|error:|BUILD" /tmp/gradle.log | tail -20 || true
 
+      - name: Record variant and versionCode for the publish job
+        id: variant
+        run: |
+          echo "variant=${APK_VARIANT}" >> "$GITHUB_OUTPUT"
+          echo "version_code=$(grep -oP 'versionCode \K\d+' android/app/build.gradle | head -1)" >> "$GITHUB_OUTPUT"
+
+      # `error`, not `warn`: a Gradle run that "succeeds" without an output
+      # used to leave the run green and the rolling Release frozen on the
+      # previous build — the exact failure the keystore guard was written for.
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: emergenthealth-${{ env.APK_VARIANT }}
           path: android/app/build/outputs/apk/${{ env.APK_VARIANT }}/app-${{ env.APK_VARIANT }}.apk
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
 
       # Play Store uploads require an Android App Bundle, not an APK.
@@ -236,7 +252,7 @@ jobs:
         with:
           name: emergenthealth-release-aab
           path: android/app/build/outputs/bundle/release/app-release.aab
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 90
 
       # Publish both artifacts to a rolling GitHub Release. Bookmark these —
@@ -246,25 +262,41 @@ jobs:
       #   .../releases/latest/download/emergenthealth.aab   upload to Play Console
       # The APK is only for sideloading; Play will not accept it. Same keystore
       # ⇒ APK installs update in place (local data kept). main only.
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main' && needs.build.outputs.variant == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: emergenthealth-release
+          path: apk
+      - uses: actions/download-artifact@v4
+        with:
+          name: emergenthealth-release-aab
+          path: aab
+
       - name: Publish APK + AAB to GitHub Release
-        if: github.ref == 'refs/heads/main' && env.APK_VARIANT == 'release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION_CODE: ${{ needs.build.outputs.version_code }}
         run: |
-          APK=android/app/build/outputs/apk/release/app-release.apk
-          AAB=android/app/build/outputs/bundle/release/app-release.aab
-
           FILES=""
-          [ -f "$APK" ] && cp "$APK" emergenthealth.apk && FILES="$FILES emergenthealth.apk"
-          [ -f "$AAB" ] && cp "$AAB" emergenthealth.aab && FILES="$FILES emergenthealth.aab"
+          [ -f apk/app-release.apk ] && cp apk/app-release.apk emergenthealth.apk && FILES="$FILES emergenthealth.apk"
+          [ -f aab/app-release.aab ] && cp aab/app-release.aab emergenthealth.aab && FILES="$FILES emergenthealth.aab"
           if [ -z "$FILES" ]; then
-            echo "::warning::Neither APK nor AAB found — skipping Release publish."
-            exit 0
+            # Red, not a warning: a green run that publishes nothing leaves the
+            # rolling Release frozen on an old build with nobody the wiser.
+            echo "::error::Neither APK nor AAB reached the publish job."
+            exit 1
           fi
 
           # Play rejects a bundle whose versionCode it has already seen, so the
           # notes carry it: it's the number to expect in the Play upload.
-          VERSION_CODE=$(grep -oP 'versionCode \K\d+' android/app/build.gradle | head -1)
 
           # Recreate the rolling tag so the Release always reflects the latest build.
           gh release delete latest-android --yes --cleanup-tag || true

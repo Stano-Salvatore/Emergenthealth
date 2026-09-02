@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma"
 import { streamChatEvents } from "@/lib/claude"
 import { checkRateLimit } from "@/lib/rate-limit"
 
+export const maxDuration = 120 // Opus with up to eight tool turns; the default limit cut long replies off mid-tool
+
 function titleFromMessage(message: string): string {
   const collapsed = message.replace(/\s+/g, " ").trim()
   return collapsed.length > 60 ? collapsed.slice(0, 60) + "…" : collapsed || "New chat"

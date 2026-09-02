@@ -8,6 +8,7 @@ import type { Anomaly } from "@/lib/anomalies"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+export const maxDuration = 120 // one 45-day scan per subscribed user
 
 // "Is today unusual for me?" — pushed once, not nagged.
 //

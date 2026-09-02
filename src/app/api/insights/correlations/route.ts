@@ -3,6 +3,8 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { computeCorrelations, ENGINE_VERSION, PERIOD_DAYS } from "@/lib/correlations"
 
+export const maxDuration = 60 // a year-window run is ~100 families × 1000 permutations
+
 // A full correlation run is now genuinely expensive: ~15 queries, then the
 // whole insight battery twice (once over all days, once weekdays-only for the
 // weekend guard), with a 1000-shuffle permutation test behind every single

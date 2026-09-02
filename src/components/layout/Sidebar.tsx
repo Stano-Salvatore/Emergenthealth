@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { openCommandPalette } from "./CommandPalette"
-import { signOut } from "next-auth/react"
+import { signOutAndForget } from "@/lib/sign-out"
 import { X, Settings2, GripVertical, Eye, EyeOff, Search } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useState, useEffect, useCallback } from "react"
@@ -329,7 +329,7 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
         {/* Sign out */}
         <div className="p-2 border-t border-border/60 flex justify-center">
           <button
-            onClick={() => signOut({ callbackUrl: "/signin" })}
+            onClick={() => signOutAndForget("/signin")}
             title="Sign out"
             className="flex items-center justify-center w-9 h-9 rounded-lg text-base text-muted-foreground hover:bg-secondary/60 transition-all"
           >
@@ -448,7 +448,7 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
           </div>
         )}
         <button
-          onClick={() => signOut({ callbackUrl: "/signin" })}
+          onClick={() => signOutAndForget("/signin")}
           className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm w-full text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-all"
         >
           <span className="text-base leading-none w-5 text-center shrink-0">👋</span>

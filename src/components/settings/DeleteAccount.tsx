@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { signOut } from "next-auth/react"
+import { signOutAndForget } from "@/lib/sign-out"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -24,7 +24,7 @@ export function DeleteAccount() {
         setLoading(false)
         return
       }
-      await signOut({ callbackUrl: "/" })
+      await signOutAndForget("/")
     } catch {
       setError("Something went wrong. Please try again.")
       setLoading(false)

@@ -1,0 +1,9 @@
+# Keeps the Actions this repo runs on current. SHA-pinning them by hand is the
+# next step; until then a weekly bump at least means a compromised tag is not
+# followed for long.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

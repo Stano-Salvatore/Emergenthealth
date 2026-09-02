@@ -3,6 +3,7 @@ package app.emergenthealth;
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -42,7 +43,8 @@ public class RemindersWidget extends AppWidgetProvider {
         if (ACTION_DONE.equals(intent.getAction())) {
             String id = intent.getStringExtra(EXTRA_REMINDER_ID);
             if (id == null) return;
-            completeAndRefresh(context, id);
+            // Keep the process alive until the POST has landed (see QuickLogWidget).
+            completeAndRefresh(context, id, goAsync());
         }
     }
 
@@ -141,7 +143,8 @@ public class RemindersWidget extends AppWidgetProvider {
         }).start();
     }
 
-    static void completeAndRefresh(final Context context, final String reminderId) {
+    static void completeAndRefresh(final Context context, final String reminderId,
+                                   final BroadcastReceiver.PendingResult pr) {
         new Thread(() -> {
             try {
                 String[] c = creds(context);
@@ -161,6 +164,7 @@ public class RemindersWidget extends AppWidgetProvider {
                 }
             } catch (Exception ignored) { /* never crash the widget */ }
             refreshAll(context);
+            if (pr != null) pr.finish();
         }).start();
     }
 }

@@ -8,6 +8,7 @@ import { localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 import { generateWeeklyReview, saveWeeklyReview, type WeeklyReview } from "@/lib/weekly-review"
 import { isReviewWindow, parseSchedule } from "@/lib/weekly-review-schedule"
+import { EMAIL_FROM } from "@/lib/email"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -176,7 +177,7 @@ export async function GET(req: NextRequest) {
     if (resend && user.email) {
       try {
         await resend.emails.send({
-          from: "Emergenthealth <onboarding@resend.dev>",
+          from: EMAIL_FROM,
           to: user.email,
           subject: `🌱 Your week, by Emergy — week of ${review.weekOf}`,
           html: reviewEmail(user.name?.split(" ")[0] ?? "there", review, appUrl, prefsByUser.get(user.id) ?? parseDigestPrefs(undefined)),

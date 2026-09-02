@@ -15,11 +15,15 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
     steps:
       - name: Sync server-side data sources
         env:
           APP_URL: https://emergenthealth.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_SYNC_URL }}
         run: |
           # A missing secret used to fail silently: every call 401'd while the
           # job still reported success, so months of "green" runs synced
@@ -39,10 +43,12 @@ jobs:
           # tomorrow — which is what made it look neglected on the sync screen.
           auth_failed=0
           for path in oura strava ynab truelayer; do
-            code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
+            code=$(curl -sS --max-time 300 -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${path}") || true
-            echo "[${path}] HTTP $code"; cat /tmp/out.txt || true; echo
+            # Status and size only: bodies name users and quote provider errors,
+            # and these logs are public.
+            echo "[${path}] HTTP $code ($(wc -c < /tmp/out.txt | tr -d ' ') bytes)"
             if [ "$code" = "401" ] || [ "$code" = "403" ]; then
               echo "::error::${path} rejected the CRON_SECRET (HTTP $code) — it does not match Vercel's."
               auth_failed=1
@@ -51,4 +57,15 @@ jobs:
               echo "::warning::${path} sync returned $code"
             fi
           done
+
+          # A dead-man's switch. GitHub disables a scheduled workflow after 60
+          # days without a push to the default branch, and a slipped or hung
+          # schedule looks exactly like a quiet one. A free healthchecks.io
+          # check with a grace period longer than the schedule pages when this
+          # ping stops arriving — the one failure nothing else here reports.
+          # Optional: unset means no ping.
+          if [ -n "${HEALTHCHECKS_URL:-}" ]; then
+            suffix=""; [ "$auth_failed" = "1" ] && suffix="/fail"
+            curl -fsS -m 10 --retry 3 "${HEALTHCHECKS_URL}${suffix}" >/dev/null || echo "::warning::healthchecks ping failed"
+          fi
           exit $auth_failed

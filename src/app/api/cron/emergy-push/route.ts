@@ -7,6 +7,7 @@ import { localDateStr, localTimeStr, zonedDayRange } from "@/lib/local-date"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+export const maxDuration = 60 // an all-user loop
 
 const SCREAM_WATER = [
   "PLEASE DRINK WATER I AM BEGGING YOU 💧💧💧",

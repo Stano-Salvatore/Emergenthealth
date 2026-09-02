@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { getUpcomingEvents, getEventsInRange } from "@/lib/google-calendar"
 
+export const maxDuration = 60 // Google Calendar pages
+
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

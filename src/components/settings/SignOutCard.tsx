@@ -1,6 +1,6 @@
 "use client"
 
-import { signOut } from "next-auth/react"
+import { signOutAndForget } from "@/lib/sign-out"
 import { LogOut } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -19,7 +19,7 @@ export function SignOutCard({ email }: { email?: string | null }) {
           size="sm"
           variant="outline"
           className="shrink-0 gap-1.5"
-          onClick={() => signOut({ callbackUrl: "/signin" })}
+          onClick={() => signOutAndForget("/signin")}
         >
           <LogOut className="h-3.5 w-3.5" /> Sign out
         </Button>
