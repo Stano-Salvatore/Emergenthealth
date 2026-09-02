@@ -45,7 +45,14 @@ public class EmergyWakeService extends Service {
 
     static final String PREFS = "emergy_wake";
     private static final String KEEP_KEY = "keep";
-    /** Only listen while plugged in. On by default: the honest setting. */
+    /**
+     * Only listen while plugged in.
+     *
+     * Off by default: a wake word that only answers at a desk is not a wake
+     * word, it is a desk accessory. The option stays because battery cost is
+     * real and this is the one lever against it — but the default has to be
+     * the thing that actually works.
+     */
     private static final String CHARGING_ONLY_KEY = "charging_only";
     /** What the service leaves for the app to find. Read via the plugin. */
     static final String PENDING_WAKE = "pending_wake";
@@ -81,7 +88,7 @@ public class EmergyWakeService extends Service {
     }
 
     static boolean chargingOnly(Context ctx) {
-        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(CHARGING_ONLY_KEY, true);
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(CHARGING_ONLY_KEY, false);
     }
 
     static void setChargingOnly(Context ctx, boolean on) {

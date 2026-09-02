@@ -669,7 +669,7 @@ public class EmergyBubblePlugin extends Plugin {
     @PluginMethod
     public void setWakeChargingOnly(PluginCall call) {
         Context ctx = getContext();
-        EmergyWakeService.setChargingOnly(ctx, Boolean.TRUE.equals(call.getBoolean("enabled", true)));
+        EmergyWakeService.setChargingOnly(ctx, Boolean.TRUE.equals(call.getBoolean("enabled", false)));
         // Nudge the service so the microphone opens or closes to match now,
         // rather than at whatever moment the charger is next touched.
         if (EmergyWakeService.isRunning()) {

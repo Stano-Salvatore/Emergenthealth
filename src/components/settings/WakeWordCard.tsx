@@ -127,8 +127,9 @@ export function WakeWordCard() {
                 Only while charging.
                 {" "}
                 <span className="text-muted-foreground/70">
-                  Holding the microphone open costs battery all day; overnight and at a desk
-                  it costs nothing you notice. Start here.
+                  Off by default — a wake word that only answers at a desk isn&apos;t much of
+                  one. Turn it on if holding the microphone open all day costs you more
+                  battery than it&apos;s worth.
                 </span>
               </span>
             </label>
