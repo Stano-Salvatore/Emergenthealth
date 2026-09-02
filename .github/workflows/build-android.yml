@@ -28,10 +28,10 @@ jobs:
       variant: ${{ steps.variant.outputs.variant }}
       version_code: ${{ steps.variant.outputs.version_code }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
 
@@ -55,7 +55,7 @@ jobs:
           distribution: "temurin"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
 
       - name: Install Android SDK platform & build-tools
         run: sdkmanager "platforms;android-36" "build-tools;34.0.0"
@@ -238,7 +238,7 @@ jobs:
       # used to leave the run green and the rolling Release frozen on the
       # previous build — the exact failure the keystore guard was written for.
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: emergenthealth-${{ env.APK_VARIANT }}
           path: android/app/build/outputs/apk/${{ env.APK_VARIANT }}/app-${{ env.APK_VARIANT }}.apk
@@ -248,7 +248,7 @@ jobs:
       # Play Store uploads require an Android App Bundle, not an APK.
       - name: Upload release AAB (Play Store)
         if: env.APK_VARIANT == 'release'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: emergenthealth-release-aab
           path: android/app/build/outputs/bundle/release/app-release.aab
@@ -270,11 +270,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: emergenthealth-release
           path: apk
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: emergenthealth-release-aab
           path: aab
