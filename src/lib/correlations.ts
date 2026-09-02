@@ -106,7 +106,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * so a new family (like custom trackers) appears immediately rather than
  * after the cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 5
+export const ENGINE_VERSION = 6
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -151,6 +151,11 @@ function hashString(s: string): number {
 }
 
 const PERMUTATIONS = 1000
+
+// Off during the weekday-only guard pass (see the end of computeCorrelations):
+// that pass exists for its deltas alone, and 1000 shuffles per family for
+// p-values nobody reads was most of the engine's run time.
+let permutationsOn = true
 
 /**
  * Permutation test: shuffle the values between the two groups PERMUTATIONS
@@ -258,7 +263,7 @@ function compareGroups(opts: {
     highGroupN: highValues.length,
     lowGroupN: lowValues.length,
     confident: highValues.length >= 10 && lowValues.length >= 10,
-    pValue: permutationP(highValues, lowValues, id),
+    pValue: permutationsOn ? permutationP(highValues, lowValues, id) : 1,
     tier: "noise", // provisional — assignTiers() sets the real tier per run
   }
 }
@@ -305,26 +310,19 @@ export async function computeCorrelations(
       select: { date: true },
     }).catch(() => [] as { date: Date }[]),
 
-    prisma.$queryRaw<{ date: string; totalMg: number }[]>`
-      SELECT
-        DATE("loggedAt" AT TIME ZONE 'UTC')::text AS date,
-        SUM("caffeineMg") AS "totalMg"
-      FROM "CaffeineLog"
-      WHERE "userId" = ${userId}
-        AND "loggedAt" >= ${since60}
-      GROUP BY DATE("loggedAt" AT TIME ZONE 'UTC')
-    `.catch(() => [] as { date: string; totalMg: number }[]),
+    // Raw timestamps, summed per LOCAL day further down (next to water and
+    // meals). The SQL used to GROUP BY the UTC date, so a nightcap at 00:30
+    // Prague time counted for the day before — the one night it could not
+    // have affected.
+    prisma.caffeineLog.findMany({
+      where: { userId, loggedAt: { gte: since60 } },
+      select: { loggedAt: true, caffeineMg: true },
+    }).catch(() => [] as { loggedAt: Date; caffeineMg: number }[]),
 
-    prisma.$queryRaw<{ date: string; totalMl: number }[]>`
-      SELECT
-        DATE("loggedAt" AT TIME ZONE 'UTC')::text AS date,
-        SUM("amountMl") AS "totalMl"
-      FROM "IntakeLog"
-      WHERE "userId" = ${userId}
-        AND "type" = 'alcohol'
-        AND "loggedAt" >= ${since60}
-      GROUP BY DATE("loggedAt" AT TIME ZONE 'UTC')
-    `.catch(() => [] as { date: string; totalMl: number }[]),
+    prisma.intakeLog.findMany({
+      where: { userId, type: "alcohol", loggedAt: { gte: since60 } },
+      select: { loggedAt: true, amountMl: true },
+    }).catch(() => [] as { loggedAt: Date; amountMl: number }[]),
 
     prisma.$queryRaw<{ key: string; value: string }[]>`
       SELECT "key", "value"
@@ -510,15 +508,6 @@ export async function computeCorrelations(
     getOrCreate(dateStr).habitCount = count
   }
 
-  for (const row of caffeineRows) {
-    const d = getOrCreate(row.date)
-    d.caffeineMg = Number(row.totalMg)
-  }
-
-  for (const row of alcoholRows) {
-    const d = getOrCreate(row.date)
-    d.alcoholMl = Number(row.totalMl)
-  }
 
   for (const w of weatherLogs) {
     const d = getOrCreate(w.date)
@@ -563,17 +552,34 @@ export async function computeCorrelations(
   const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz })
   const localDay = (d: Date): string => dayFmt.format(d)
 
+  // The earliest synced event marks where calendar knowledge begins. A day
+  // with no events after that point is a genuinely quiet day; a day before it
+  // is simply unknown, and the calendar-load family must not file it under
+  // "quiet" — that turned every pre-sync day into the control group.
+  let calendarFrom: string | null = null
   for (const ev of (deviceEvents as { title: string; start: Date }[])) {
     const dateStr = localDay(ev.start)
     const d = getOrCreate(dateStr)
     d.eventCount = (d.eventCount ?? 0) + 1
     ;(d.eventTitles ??= []).push((ev.title ?? "").trim())
+    if (calendarFrom == null || dateStr < calendarFrom) calendarFrom = dateStr
   }
+  const calendarCovers = (date: string): boolean => calendarFrom != null && date >= calendarFrom
 
   for (const w of waterRows) {
     const dateStr = localDay(w.loggedAt)
     const d = getOrCreate(dateStr)
     d.waterMl = (d.waterMl ?? 0) + hydrationMl(w.type, w.amountMl)
+  }
+
+  for (const c of caffeineRows) {
+    const d = getOrCreate(localDay(c.loggedAt))
+    d.caffeineMg = (d.caffeineMg ?? 0) + Number(c.caffeineMg)
+  }
+
+  for (const a of alcoholRows) {
+    const d = getOrCreate(localDay(a.loggedAt))
+    d.alcoholMl = (d.alcoholMl ?? 0) + Number(a.amountMl)
   }
 
   // Food-tab meals: day totals, plus the local clock time of the day's last
@@ -732,18 +738,28 @@ export async function computeCorrelations(
   const insights: InsightResult[] = []
   const byDate = Object.fromEntries(days.map(d => [d.date, d]))
 
+  // Oura's sleep record dated D is the night that ENDED on morning D — the
+  // record, its resting HR, its deep/REM minutes, and the readiness derived
+  // from it all describe the night before day D. So for anything that
+  // happened DURING day D (a coffee, a workout, a stressful afternoon, an
+  // evening of screens), "that night's sleep" is the record dated D+1. Ten
+  // families used to read the record dated D instead, which scored the
+  // afternoon coffee against the sleep that had already happened.
+  const tonight = (d: DayData): DayData | undefined => byDate[nextDateStr(d.date)]
+
   // 1. Sleep duration → next-day energy / mood
   const sleepDurHighEnergy: number[] = []
   const sleepDurLowEnergy: number[] = []
   const sleepDurHighMood: number[] = []
   const sleepDurLowMood: number[] = []
+  // The check-in dated D is the morning that the sleep record dated D ended
+  // on — the same morning, not the next one. Reading the check-in from D+1
+  // compared each night with how the user felt after the FOLLOWING night.
   for (const d of days) {
     if (d.sleepDuration == null) continue
-    const next = byDate[nextDateStr(d.date)]
-    if (!next) continue
     const isHigh = d.sleepDuration >= 7
-    if (next.energy != null) { if (isHigh) sleepDurHighEnergy.push(next.energy); else sleepDurLowEnergy.push(next.energy) }
-    if (next.mood != null) { if (isHigh) sleepDurHighMood.push(next.mood); else sleepDurLowMood.push(next.mood) }
+    if (d.energy != null) { if (isHigh) sleepDurHighEnergy.push(d.energy); else sleepDurLowEnergy.push(d.energy) }
+    if (d.mood != null) { if (isHigh) sleepDurHighMood.push(d.mood); else sleepDurLowMood.push(d.mood) }
   }
   const ins_sleepDur_energy = compareGroups({
     id: "sleep_duration_energy", category: "sleep", emoji: "🌙", title: "Sleep Duration & Morning Energy",
@@ -767,24 +783,22 @@ export async function computeCorrelations(
   const sleepScoreLowMood: number[] = []
   for (const d of days) {
     if (d.sleepScore == null) continue
-    const next = byDate[nextDateStr(d.date)]
-    if (!next) continue
     const isHigh = d.sleepScore >= 80
-    if (next.energy != null) { if (isHigh) sleepScoreHighEnergy.push(next.energy); else sleepScoreLowEnergy.push(next.energy) }
-    if (next.mood != null) { if (isHigh) sleepScoreHighMood.push(next.mood); else sleepScoreLowMood.push(next.mood) }
+    if (d.energy != null) { if (isHigh) sleepScoreHighEnergy.push(d.energy); else sleepScoreLowEnergy.push(d.energy) }
+    if (d.mood != null) { if (isHigh) sleepScoreHighMood.push(d.mood); else sleepScoreLowMood.push(d.mood) }
   }
   const ins_sleepScore_energy = compareGroups({
     id: "sleep_score_energy", category: "sleep", emoji: "⚡", title: "Sleep Score & Morning Energy",
     highGroupLabel: "80+ sleep score nights", lowGroupLabel: "below 80 sleep score nights",
     highValues: sleepScoreHighEnergy, lowValues: sleepScoreLowEnergy,
-    findingTemplate: (h, l) => `On high sleep score nights (80+), next-day energy averages ${h} vs ${l}`,
+    findingTemplate: (h, l) => `On high sleep score nights (80+), morning energy averages ${h} vs ${l}`,
   })
   if (ins_sleepScore_energy) insights.push(ins_sleepScore_energy)
   const ins_sleepScore_mood = compareGroups({
     id: "sleep_score_mood", category: "sleep", emoji: "🌟", title: "Sleep Score & Morning Mood",
     highGroupLabel: "80+ sleep score nights", lowGroupLabel: "below 80 sleep score nights",
     highValues: sleepScoreHighMood, lowValues: sleepScoreLowMood,
-    findingTemplate: (h, l) => `On high sleep score nights (80+), next-day mood averages ${h} vs ${l}`,
+    findingTemplate: (h, l) => `On high sleep score nights (80+), morning mood averages ${h} vs ${l}`,
   })
   if (ins_sleepScore_mood) insights.push(ins_sleepScore_mood)
 
@@ -796,8 +810,8 @@ export async function computeCorrelations(
   for (const d of days) {
     if (d.stressHighMin == null) continue
     const isHigh = d.stressHighMin >= 60
-    if (d.sleepScore != null) { if (isHigh) stressHighSleep.push(d.sleepScore); else stressLowSleep.push(d.sleepScore) }
-    const next = byDate[nextDateStr(d.date)]
+    const next = tonight(d)
+    if (next?.sleepScore != null) { if (isHigh) stressHighSleep.push(next.sleepScore); else stressLowSleep.push(next.sleepScore) }
     if (next?.mood != null) { if (isHigh) stressHighMood.push(next.mood); else stressLowMood.push(next.mood) }
   }
   const ins_stress_sleep = compareGroups({
@@ -849,9 +863,10 @@ export async function computeCorrelations(
   const caffeineHighSleep: number[] = []
   const caffeineLowSleep: number[] = []
   for (const d of days) {
-    if (d.caffeineMg == null || d.sleepScore == null) continue
-    if (d.caffeineMg >= 200) caffeineHighSleep.push(d.sleepScore)
-    else caffeineLowSleep.push(d.sleepScore)
+    const night = tonight(d)
+    if (d.caffeineMg == null || night?.sleepScore == null) continue
+    if (d.caffeineMg >= 200) caffeineHighSleep.push(night.sleepScore)
+    else caffeineLowSleep.push(night.sleepScore)
   }
   const ins_caffeine_sleep = compareGroups({
     id: "caffeine_sleep", category: "caffeine", emoji: "☕", title: "Caffeine Intake & Sleep Quality",
@@ -903,12 +918,14 @@ export async function computeCorrelations(
   const alcoholRhrDrink: number[] = []
   const alcoholRhrSober: number[] = []
   for (const d of days) {
-    const next = byDate[nextDateStr(d.date)]
-    if (!next || next.restingHR == null) continue
-    if (d.sleepDuration != null) {
-      if (d.sleepDuration >= 7) sleepRhrHigh.push(next.restingHR)
-      else sleepRhrLow.push(next.restingHR)
+    // Resting HR on record D was measured during the night record D
+    // describes — the same night as its sleep duration, not the one after.
+    if (d.sleepDuration != null && d.restingHR != null) {
+      if (d.sleepDuration >= 7) sleepRhrHigh.push(d.restingHR)
+      else sleepRhrLow.push(d.restingHR)
     }
+    const next = tonight(d)
+    if (!next || next.restingHR == null) continue
     if (d.alcoholMl != null || d.sleepDuration != null) {
       const drank = (d.alcoholMl ?? 0) > 50
       if (drank) alcoholRhrDrink.push(next.restingHR)
@@ -945,8 +962,8 @@ export async function computeCorrelations(
   for (const d of days) {
     if (d.steps == null) continue
     const isActive = d.steps >= STEP_HIGH
-    if (d.sleepScore != null) { if (isActive) activeSleepHigh.push(d.sleepScore); else activeSleepLow.push(d.sleepScore) }
-    const next = byDate[nextDateStr(d.date)]
+    const next = tonight(d)
+    if (next?.sleepScore != null) { if (isActive) activeSleepHigh.push(next.sleepScore); else activeSleepLow.push(next.sleepScore) }
     if (next?.readiness != null) { if (isActive) activeReadinessHigh.push(next.readiness); else activeReadinessLow.push(next.readiness) }
   }
   const ins_active_sleep = compareGroups({
@@ -1053,8 +1070,8 @@ export async function computeCorrelations(
     for (const d of daysWithWeather) {
       if (d.precipMm == null) continue
       const isRainy = d.precipMm > 1
-      const next = byDate[nextDateStr(d.date)]
-      if (d.sleepScore != null) { if (isRainy) rainSleep.push(d.sleepScore); else noRainSleep.push(d.sleepScore) }
+      const next = tonight(d)
+      if (next?.sleepScore != null) { if (isRainy) rainSleep.push(next.sleepScore); else noRainSleep.push(next.sleepScore) }
       if (next?.mood != null) { if (isRainy) rainMood.push(next.mood); else noRainMood.push(next.mood) }
     }
     const ins_rain_sleep = compareGroups({
@@ -1112,8 +1129,8 @@ export async function computeCorrelations(
     for (const d of days) {
       if (d.screenTimeMin == null) continue
       const isHigh = d.screenTimeMin >= screenMedian
-      if (d.sleepScore != null) { if (isHigh) screenSleepHigh.push(d.sleepScore); else screenSleepLow.push(d.sleepScore) }
-      const next = byDate[nextDateStr(d.date)]
+      const next = tonight(d)
+      if (next?.sleepScore != null) { if (isHigh) screenSleepHigh.push(next.sleepScore); else screenSleepLow.push(next.sleepScore) }
       if (next?.energy != null) { if (isHigh) screenEnergyHigh.push(next.energy); else screenEnergyLow.push(next.energy) }
       if (next?.mood != null) { if (isHigh) screenMoodHigh.push(next.mood); else screenMoodLow.push(next.mood) }
       if (next?.readiness != null) { if (isHigh) screenReadinessHigh.push(next.readiness); else screenReadinessLow.push(next.readiness) }
@@ -1205,10 +1222,11 @@ export async function computeCorrelations(
     const busyEnergy: number[] = [], quietEnergy: number[] = []
     const busyMood: number[] = [], quietMood: number[] = []
     for (const d of days) {
+      if (d.eventCount == null && !calendarCovers(d.date)) continue // unknown, not quiet
       const load = d.eventCount ?? 0
       const isBusy = load >= loadMedian && load > 0
-      if (d.sleepScore != null) { if (isBusy) busySleep.push(d.sleepScore); else quietSleep.push(d.sleepScore) }
-      const next = byDate[nextDateStr(d.date)]
+      const next = tonight(d)
+      if (next?.sleepScore != null) { if (isBusy) busySleep.push(next.sleepScore); else quietSleep.push(next.sleepScore) }
       if (next?.energy != null) { if (isBusy) busyEnergy.push(next.energy); else quietEnergy.push(next.energy) }
       if (next?.mood != null) { if (isBusy) busyMood.push(next.mood); else quietMood.push(next.mood) }
     }
@@ -1700,9 +1718,9 @@ export async function computeCorrelations(
   const workoutHrv: number[] = [], restHrv: number[] = []
   for (const d of days) {
     const trained = (d.workoutMin ?? 0) >= 20
-    if (d.sleepScore != null) { if (trained) workoutSleep.push(d.sleepScore); else restSleep.push(d.sleepScore) }
-    const next = byDate[nextDateStr(d.date)]
+    const next = tonight(d)
     if (!next) continue
+    if (next.sleepScore != null) { if (trained) workoutSleep.push(next.sleepScore); else restSleep.push(next.sleepScore) }
     if (next.readiness != null) { if (trained) workoutReadiness.push(next.readiness); else restReadiness.push(next.readiness) }
     if (next.hrv != null) { if (trained) workoutHrv.push(next.hrv); else restHrv.push(next.hrv) }
   }
@@ -1749,7 +1767,8 @@ export async function computeCorrelations(
       if (d.listeningMin == null) continue
       const isHigh = d.listeningMin >= listenMedian
       if (d.mood != null) { if (isHigh) musicMoodHigh.push(d.mood); else musicMoodLow.push(d.mood) }
-      if (d.sleepScore != null) { if (isHigh) musicSleepHigh.push(d.sleepScore); else musicSleepLow.push(d.sleepScore) }
+      const night = tonight(d)
+      if (night?.sleepScore != null) { if (isHigh) musicSleepHigh.push(night.sleepScore); else musicSleepLow.push(night.sleepScore) }
       if (d.focusMin != null) { if (isHigh) musicFocusHigh.push(d.focusMin); else musicFocusLow.push(d.focusMin) }
     }
     const fmtListen = listenMedian >= 60 ? `${(listenMedian / 60).toFixed(1)}h` : `${Math.round(listenMedian)}min`
@@ -1864,7 +1883,8 @@ export async function computeCorrelations(
       if (d.listeningMin == null || d.musicGenre == null) continue
       const hit = d.musicGenre === genre
       if (d.mood != null) { if (hit) gMood.push(d.mood); else otherMood.push(d.mood) }
-      if (d.sleepScore != null) { if (hit) gSleep.push(d.sleepScore); else otherSleep.push(d.sleepScore) }
+      const night = tonight(d)
+      if (night?.sleepScore != null) { if (hit) gSleep.push(night.sleepScore); else otherSleep.push(night.sleepScore) }
     }
     const ins_genre_mood = compareGroups({
       id: `music_genre_${gSlug}_mood`, category: "music", emoji: "🎼", title: `${genre} days & Mood`,
@@ -2021,11 +2041,11 @@ export async function computeCorrelations(
   const caffeineDeepHigh: number[] = [], caffeineDeepLow: number[] = []
   const alcoholRemDrink: number[] = [], alcoholRemSober: number[] = []
   for (const d of days) {
-    if (d.caffeineMg != null && d.deepSleepMin != null) {
-      if (d.caffeineMg >= 200) caffeineDeepHigh.push(d.deepSleepMin)
-      else caffeineDeepLow.push(d.deepSleepMin)
+    const next = tonight(d)
+    if (d.caffeineMg != null && next?.deepSleepMin != null) {
+      if (d.caffeineMg >= 200) caffeineDeepHigh.push(next.deepSleepMin)
+      else caffeineDeepLow.push(next.deepSleepMin)
     }
-    const next = byDate[nextDateStr(d.date)]
     if (next?.remSleepMin != null && (d.alcoholMl != null || d.caffeineMg != null)) {
       if ((d.alcoholMl ?? 0) > 50) alcoholRemDrink.push(next.remSleepMin)
       else alcoholRemSober.push(next.remSleepMin)
@@ -2387,12 +2407,23 @@ export async function computeCorrelations(
   // Weekend guard: alcohol, late meals, spending, music and screen time all
   // cluster on weekends — and so does sleeping in. An effect that collapses or
   // flips once weekends are excluded is probably the weekend, not the habit.
-  const weekdayVersions = new Map(
-    deriveInsights(allDays.filter(d => !isWeekendDate(d.date))).map(i => [i.id, i]),
-  )
+  permutationsOn = false
+  let weekdayVersions: Map<string, InsightResult>
+  try {
+    weekdayVersions = new Map(
+      deriveInsights(allDays.filter(d => !isWeekendDate(d.date))).map(i => [i.id, i]),
+    )
+  } finally {
+    permutationsOn = true
+  }
   for (const ins of insights) {
     const wk = weekdayVersions.get(ins.id)
-    if (wk && (Math.sign(wk.delta) !== Math.sign(ins.delta) || Math.abs(wk.delta) < Math.abs(ins.delta) * 0.35)) {
+    // A handful of weekdays a side cannot call a collapse: with five values
+    // per group, a 35% shrink is what shuffling the same numbers produces.
+    // The flag claims "the weekend explains this", so it needs a footing of
+    // its own — eight per group keeps it reachable on a 30-day window.
+    if (!wk || wk.highGroupN < 8 || wk.lowGroupN < 8) continue
+    if (Math.sign(wk.delta) !== Math.sign(ins.delta) || Math.abs(wk.delta) < Math.abs(ins.delta) * 0.35) {
       ins.weekendDriven = true
       // The weekday-only number was always computed and thrown away; keeping
       // it lets the card show how much of the effect the weekend was.

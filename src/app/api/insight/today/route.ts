@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { subDays } from "date-fns"
+import { userToday } from "@/lib/user-timezone"
 
 export const runtime = "nodejs"
 
@@ -20,7 +21,7 @@ export async function GET() {
   const userId = session.user.id
 
   const now = new Date()
-  const todayStr = now.toISOString().slice(0, 10)
+  const todayStr = await userToday(userId)
   const since30 = subDays(now, 30)
 
   const [todayLog, baselineLogs, todayMood, baselineMoods] = await Promise.all([

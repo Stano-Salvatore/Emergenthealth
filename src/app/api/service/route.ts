@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { userDay } from "@/lib/user-timezone"
 
 // Service API — accepts Bearer CRON_SECRET for server-to-server operations.
 // Allows Claude Code (and other trusted callers) to act on behalf of a user
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
   if (action === "complete_habit") {
     const { habitId } = body
     if (!habitId) return NextResponse.json({ error: "habitId required" }, { status: 400 })
-    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const { dateColumn: today } = await userDay(user.id)
     await prisma.habitCompletion.upsert({
       where: { habitId_date: { habitId, date: today } },
       create: { habitId, userId: user.id, date: today },

@@ -1,5 +1,7 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userDay } from "@/lib/user-timezone"
+import { localTimeStr } from "@/lib/local-date"
 import { NextResponse } from "next/server"
 import { computeXp, getLevel } from "@/lib/xp"
 import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
@@ -46,8 +48,7 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const { timezone, dateColumn: today, start: dayStart } = await userDay(userId)
 
   const [[todayHealth, todayWater, todayHabitsDone, totalHabits], xpBreakdown] = await Promise.all([
     Promise.all([
@@ -56,7 +57,7 @@ export async function GET() {
         select: { sleepScore: true, readinessScore: true },
       }).catch(() => null),
       prisma.intakeLog.findMany({
-        where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: today } },
+        where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: dayStart } },
         select: { amountMl: true, type: true },
       }).catch(() => [] as { amountMl: number; type: string }[]),
       prisma.habitCompletion.count({ where: { userId, date: { gte: today } } }).catch(() => 0),
@@ -72,7 +73,8 @@ export async function GET() {
   const sleepScore = todayHealth?.sleepScore ?? null
   const readiness  = todayHealth?.readinessScore ?? null
   const habitsPct  = totalHabits > 0 ? (todayHabitsDone / totalHabits) * 100 : null
-  const hour       = new Date().getHours()
+  // The screaming thresholds are wall-clock hours — the user's wall clock.
+  const hour       = Number(localTimeStr(timezone).slice(0, 2))
 
   // ── Determine state ────────────────────────────────────────────────────
   let state: EmergyState

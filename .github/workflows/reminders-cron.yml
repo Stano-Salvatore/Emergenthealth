@@ -52,7 +52,10 @@ jobs:
           # wind-down-nudge and emergy-weekly-review are window-gated inside the
           # route (local evening hours; Sunday only for the review) and keep the
           # same per-day sent record, so the 10-minute tick is safe for them too.
-          for endpoint in habit-reminders med-reminders morning-reminder noon-reminder evening-reminder wind-down-nudge experiment-nudge emergy-weekly-review monthly-export re-engagement place-checkins; do
+          # emergy-push fires during each user's own 15:00 hour (it used to be
+          # 15:00 UTC for everyone) and marks the day sent, so it needs this
+          # tick to notice every timezone.
+          for endpoint in habit-reminders med-reminders morning-reminder noon-reminder evening-reminder wind-down-nudge experiment-nudge emergy-weekly-review emergy-push monthly-export re-engagement place-checkins; do
             code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${endpoint}") || true

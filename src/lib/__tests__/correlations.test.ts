@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from "vitest"
 // Mood comes only from standalone MoodLog rows (check-ins carry none) to
 // prove the engine reads the mood table it used to ignore.
 
-const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows, alcoholRows, symptomRows, rescueRows, lastfmRows, genreRows } = vi.hoisted(() => {
+const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows, alcoholLogs, caffeineLogs, caffeineLogsLate, symptomRows, rescueRows, lastfmRows, genreRows } = vi.hoisted(() => {
   const DAYS = 40
   const dates: string[] = []
   const now = new Date()
@@ -53,7 +53,15 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
     stravaRows: dates.filter((_, i) => isEven(i)).map(ds => ({
       day: ds, movingTimeSec: 3600,
     })),
-    alcoholRows: dates.filter((_, i) => drankOn(i)).map(ds => ({ date: ds, totalMl: 200 })),
+    // Raw intake rows — the engine sums them per local day itself now
+    alcoholLogs: dates.filter((_, i) => drankOn(i)).map(ds => ({ loggedAt: new Date(ds + "T20:00:00Z"), amountMl: 200 })),
+    // Strong coffee on the late-dinner days (their nights score 65), a small
+    // one otherwise (90) — a planted "caffeine hurts tonight's sleep" that
+    // only comes out if the coffee is joined to the night AFTER it, not the
+    // record dated the same day (which is the night before)
+    caffeineLogs: dates.map((ds, i) => ({ loggedAt: new Date(ds + "T15:00:00Z"), caffeineMg: isEven(i) ? 300 : 50 })),
+    // The same doses at 22:30 UTC — which is 00:30 the next day in Prague
+    caffeineLogsLate: dates.map((ds, i) => ({ loggedAt: new Date(ds + "T22:30:00Z"), caffeineMg: isEven(i) ? 300 : 50 })),
     // A headache the morning after every drinking day, and nothing otherwise —
     // days with no entry have to count as severity 0 for this to be findable.
     symptomRows: dates
@@ -111,7 +119,8 @@ vi.mock("@/lib/prisma", () => ({
     weatherLog: { findMany: vi.fn().mockResolvedValue([]) },
     screenTimeLog: { findMany: vi.fn().mockResolvedValue([]) },
     deviceCalendarEvent: { findMany: vi.fn().mockResolvedValue([]) },
-    intakeLog: { findMany: vi.fn().mockResolvedValue(waterLogs) },
+    intakeLog: { findMany: vi.fn((args: { where?: { type?: unknown } }) => Promise.resolve(args?.where?.type === "alcohol" ? alcoholLogs : waterLogs)) },
+    caffeineLog: { findMany: vi.fn().mockResolvedValue(caffeineLogs) },
     foodLog: { findMany: vi.fn().mockResolvedValue(foodLogs) },
     ouraTag: { findMany: vi.fn().mockResolvedValue(ouraTags) },
     moodLog: { findMany: vi.fn().mockResolvedValue(moodLogs) },
@@ -129,7 +138,6 @@ vi.mock("@/lib/prisma", () => ({
     $queryRaw: vi.fn((strings: TemplateStringsArray) => {
       const sql = strings.join("?")
       if (sql.includes("MorningCheckIn")) return Promise.resolve(checkIns)
-      if (sql.includes("alcohol")) return Promise.resolve(alcoholRows)
       // ArtistGenre first: its query also names LastfmLog in a subselect.
       if (sql.includes("ArtistGenre")) return Promise.resolve(genreRows)
       if (sql.includes("LastfmLog")) return Promise.resolve(lastfmRows)
@@ -174,6 +182,24 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     const mgHrv = byId["supplement_magnesium_hrv"]
     expect(mgHrv).toBeDefined()
     expect(mgHrv.highGroupAvg).toBeGreaterThan(mgHrv.lowGroupAvg) // 62 vs 40
+
+    // Caffeine → THAT night's sleep: the 300 mg days are the late-dinner days,
+    // whose following night scores 65. Joined to the same-dated record (the
+    // night before the coffee) this read the other way round.
+    const caffeine = byId["caffeine_sleep"]
+    expect(caffeine).toBeDefined()
+    expect(caffeine.highGroupAvg).toBe(65)
+    // (the light-coffee days include the alcohol nights at 70, so ~80 not 90)
+    expect(caffeine.lowGroupAvg).toBeGreaterThan(75)
+    expect(caffeine.delta).toBeLessThan(0)
+
+    // Sleep → the SAME morning's energy. In this fixture the 65-score nights
+    // are followed by energy-5 mornings (both hang off the late dinner), so
+    // the honest same-morning join reads low-sleep/high-energy here. Under
+    // the old next-day join it came out positive — a sign flip, not a nuance.
+    const sleepEnergy = byId["sleep_score_energy"]
+    expect(sleepEnergy).toBeDefined()
+    expect(sleepEnergy.highGroupAvg).toBeLessThan(sleepEnergy.lowGroupAvg) // 2 vs 5
 
     // Workout days → better next-day readiness (planted 85 vs 65)
     const workout = byId["workout_readiness"]
@@ -272,6 +298,25 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     expect(insights.find(i => i.id === "real2")!.tier).toBe("strong")
     expect(insights.find(i => i.id === "meh")!.tier).toBe("suggestive")
     expect(insights.find(i => i.id === "chance")!.tier).toBe("noise")
+  })
+
+  it("buckets a late-evening dose into the user's day, not the server's", async () => {
+    const { prisma } = await import("@/lib/prisma")
+    ;(prisma.caffeineLog.findMany as ReturnType<typeof vi.fn>).mockResolvedValueOnce(caffeineLogsLate)
+    ;(prisma.userPreference.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ value: "Europe/Prague" })
+    try {
+      const { insights } = await computeCorrelations("user_test", 60)
+      const caffeine = insights.find(i => i.id === "caffeine_sleep")
+      // 22:30 UTC is 00:30 in Prague: the 300 mg dose belongs to the NEXT
+      // local day (an early-dinner one, whose night scores 90), so the split
+      // flips relative to the 15:00 fixture above. GROUP BY the UTC date
+      // used to put it on the day before and read 65 here.
+      expect(caffeine).toBeDefined()
+      expect(caffeine!.highGroupAvg).toBeGreaterThan(75) // the 90s and the 70 alcohol nights
+      expect(caffeine!.lowGroupAvg).toBe(65)
+    } finally {
+      ;(prisma.userPreference.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ value: "UTC" })
+    }
   })
 
   it("stays silent on food insights when there are too few food days", async () => {

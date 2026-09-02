@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { userToday } from "@/lib/user-timezone"
+import { getUserTimezone, userToday } from "@/lib/user-timezone"
 
 export const LEVEL_THRESHOLDS = [0, 100, 250, 500, 900, 1500, 2500, 4000, 6000, 9000, 13000]
 
@@ -169,6 +169,7 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
     bookCount,
     workoutCount,
     ouraTagDays,
+    timezone,
   ] = await Promise.all([
     prisma.habitCompletion.count({ where: { userId, date: { gte: since } } }).catch(() => 0),
     prisma.healthLog.count({ where: { userId } }).catch(() => 0),
@@ -190,6 +191,7 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
         AND "tagName" NOT ILIKE '%kava%'   AND "tagName" NOT ILIKE '%káva%'
         AND "tagName" NOT ILIKE '%pivo%'   AND "tagName" NOT ILIKE '%víno%'
     `.catch(() => [] as { day: string }[]),
+    getUserTimezone(userId),
   ])
 
   // Morning check-ins: the completion screen has always promised +10 XP, but
@@ -214,7 +216,8 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
   let fedCount = 0
   try { fedCount = fedRow ? (JSON.parse(fedRow.value).count ?? 0) : 0 } catch { /* */ }
 
-  const intakeDays   = new Set(intakeLogs.map(l => (l.loggedAt as Date).toISOString().slice(0, 10))).size
+  const intakeDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: timezone })
+  const intakeDays   = new Set(intakeLogs.map(l => intakeDayFmt.format(l.loggedAt as Date))).size
   const suppDays     = (ouraTagDays as { day: string }[]).length
 
   const habits     = habitCount  * 10

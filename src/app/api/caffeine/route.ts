@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { COMPOUNDS, activeFromDoses } from "@/lib/caffeine"
 import { getGoals } from "@/lib/goals"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
+import { userDay } from "@/lib/user-timezone"
 
 // Today's log list + total, plus the caffeine still active right now. Active
 // looks back 24h (not just midnight) so a late espresso still counts at 7am,
@@ -24,8 +25,7 @@ async function caffeineState(userId: string) {
 
   const limitMg = goals.coffeeMax
 
-  const startOfDay = new Date()
-  startOfDay.setHours(0, 0, 0, 0)
+  const startOfDay = (await userDay(userId)).start
   const logs = logs24.filter(l => l.loggedAt >= startOfDay)
   const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
   const activeMg = activeFromDoses(logs24, now, personal.halfLifeH)

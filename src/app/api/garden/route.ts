@@ -42,12 +42,13 @@ export async function GET() {
   const userId = session.user.id
 
   const sixtyDaysAgo = new Date(Date.now() - 60 * 86400000)
+  const timezone = await getUserTimezone(userId)
 
   // Unlock requirements are counted, not reverse-engineered from XP. Dividing
   // xp.habits by 10 to recover a completion count silently moved every
   // threshold whenever an XP rate changed, and only ever saw the last year.
   const [
-    habits, prefs, checkinRows, xp, github, timezone, vacation,
+    habits, prefs, checkinRows, xp, github, vacation,
     completionCount, journalCount, focusCount, intakeDayRows,
   ] = await Promise.all([
     prisma.habit.findMany({
@@ -71,13 +72,13 @@ export async function GET() {
     // Cached (6h) GitHub commit XP — the streaks page counts it, so the garden
     // must too or the two pages show different levels for the same user.
     getGithubStats(userId),
-    getUserTimezone(userId),
     getVacationWindow(userId),
     prisma.habitCompletion.count({ where: { userId } }).catch(() => 0),
     prisma.dailyNote.count({ where: { userId } }).catch(() => 0),
     prisma.focusSession.count({ where: { userId, type: "focus" } }).catch(() => 0),
     prisma.$queryRaw<{ n: bigint }[]>`
-      SELECT COUNT(DISTINCT DATE("loggedAt"))::bigint AS n FROM "IntakeLog" WHERE "userId" = ${userId}
+      SELECT COUNT(DISTINCT DATE(("loggedAt" AT TIME ZONE 'UTC') AT TIME ZONE ${timezone}))::bigint AS n
+      FROM "IntakeLog" WHERE "userId" = ${userId}
     `.catch(() => [{ n: BigInt(0) }]),
   ])
 

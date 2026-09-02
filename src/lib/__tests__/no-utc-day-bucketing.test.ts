@@ -114,3 +114,67 @@ describe("today is the user's day, not the server's", () => {
     ].join("\n")).toEqual([])
   })
 })
+
+// ─── And one step earlier still: "midnight" ─────────────────────────────────
+//
+// `const d = new Date(); d.setHours(0, 0, 0, 0)` reads as "start of today" and
+// on Vercel is the start of the UTC day. Everything logged between local
+// midnight and the user's offset — the first coffee, a habit ticked before
+// bed at 00:10, the water the widget counts — fell off "today" and onto the
+// day before. The same mistake wearing a different coat is
+// `Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate())` and
+// `getUTCHours()` used as if it were the user's clock.
+//
+// Server code has userDay(userId) — the local date, the @db.Date value for it,
+// and the instants the day starts and ends — so no route has to work any of
+// this out again.
+
+const MIDNIGHT_PATTERN = [
+  `setHours\\(0, ?0, ?0, ?0\\)`,
+  `Date\\.UTC\\([a-zA-Z_]+\\.getUTCFullYear\\(\\)`,
+  `getUTCHours\\(\\)`,
+].join("|")
+
+/** file:line entries that are correct despite matching. Each needs a reason. */
+const MIDNIGHT_ALLOWED: string[] = [
+  // Six-month lower bound on a chart; the hours are irrelevant at that scale.
+  "src/app/api/transactions/monthly/route.ts",
+  // Seven-day lower bound on the email digest; likewise.
+  "src/lib/digest.ts",
+  // ISO-week label for a Strava activity — a few hours' drift at the Sunday
+  // boundary moves a run between adjacent week rows, nothing more.
+  "src/app/api/strava/activities/route.ts",
+  // The no-timezone fallback branch, documented at the call.
+  "src/lib/day-location.ts",
+]
+
+describe("midnight is the user's midnight, not the server's", () => {
+  it("finds no new occurrences", () => {
+    let out = ""
+    try {
+      out = execSync(
+        `grep -rnE '${MIDNIGHT_PATTERN}' src --include=*.ts --include=*.tsx || true`,
+        { encoding: "utf8", cwd: process.cwd() },
+      )
+    } catch {
+      out = ""
+    }
+
+    const hits = out
+      .split("\n")
+      .map(l => l.trim())
+      .filter(Boolean)
+      .filter(l => !l.includes("__tests__"))
+      .filter(l => !/^\S+?:\d+:\s*(\/\/|\*)/.test(l))
+      .filter(l => !MIDNIGHT_ALLOWED.some(a => l.startsWith(a)))
+
+    expect(hits, [
+      "Something is computing \"today\" from the server's clock.",
+      "",
+      "  const { today, dateColumn, start, end } = await userDay(userId)   // @/lib/user-timezone",
+      "",
+      "dateColumn for @db.Date columns (HabitCompletion.date, MoodLog.date…),",
+      "start/end for timestamp columns (IntakeLog.loggedAt…).",
+    ].join("\n")).toEqual([])
+  })
+})
