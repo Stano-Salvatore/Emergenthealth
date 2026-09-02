@@ -7,32 +7,6 @@ import { getUserTimezone } from "@/lib/user-timezone"
 import { randomUUID } from "crypto"
 import { parseDose } from "@/lib/dose"
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "OuraTag" (
-      "id"        TEXT PRIMARY KEY,
-      "userId"    TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-      "day"       TEXT NOT NULL,
-      "timestamp" TIMESTAMPTZ NOT NULL,
-      "tagName"   TEXT,
-      "text"      TEXT,
-      "tags"      TEXT[] NOT NULL DEFAULT '{}'
-    )
-  `
-  await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "OuraTag_userId_day_idx" ON "OuraTag"("userId","day")`
-  await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "tagName" TEXT`
-  await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "doseAmount" DOUBLE PRECISION`
-  await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "doseUnit" TEXT`
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "TagAlias" (
-      "userId"      TEXT NOT NULL,
-      "tagTypeUuid" TEXT NOT NULL,
-      "name"        TEXT NOT NULL,
-      PRIMARY KEY ("userId", "tagTypeUuid")
-    )
-  `
-}
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 function isUuid(s: string) { return UUID_RE.test(s.trim()) }
 
@@ -80,7 +54,6 @@ export async function GET(req: Request) {
   const category = searchParams.get("category") ?? ""
 
   try {
-    await ensureTable()
     const [rows, aliasRows] = await Promise.all([
       prisma.$queryRaw<
         { id: string; day: string; timestamp: Date; tagName: string | null; text: string | null; tags: string[]; doseAmount: number | null; doseUnit: string | null }[]
@@ -213,7 +186,6 @@ export async function POST(req: Request) {
   const tz = await getUserTimezone(userId)
   const day = localDateStr(tz, timestamp)
 
-  await ensureTable()
   const id = `manual_${randomUUID()}`
   await prisma.$executeRaw`
     INSERT INTO "OuraTag" ("id","userId","day","timestamp","tagName","text","tags","doseAmount","doseUnit")

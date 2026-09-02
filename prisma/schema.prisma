@@ -993,9 +993,10 @@ model ExperimentDay {
 // table; that is why every column here matches the CREATE statement exactly,
 // down to @db.Real vs Float and which columns carry no foreign key.
 //
-// The raw CREATE TABLE IF NOT EXISTS call sites are left in place: they
-// no-op against the tables db push now maintains, and removing them is a
-// separate cleanup with no urgency.
+// The raw CREATE TABLE IF NOT EXISTS call sites are gone: this file is the
+// only place a table is defined, and `prisma db push` (without
+// --accept-data-loss, so a destructive diff fails the build instead of being
+// applied unseen) keeps the database matching it on every deploy.
 
 model BloodPressureLog {
   id        String   @id
@@ -1007,6 +1008,10 @@ model BloodPressureLog {
   notes     String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // The runtime DDL created this index and db push dropped it again on every
+  // deploy, because the schema never declared it. Now it does.
+  @@index([userId, loggedAt(sort: Desc)])
 }
 
 // No foreign key on userId, faithfully: the raw DDL never declared one, and
@@ -1022,6 +1027,8 @@ model BodyMeasurementLog {
   bicepCm    Float?   @db.Real
   bodyFatPct Float?   @db.Real
   notes      String?
+
+  @@index([userId, loggedAt(sort: Desc)])
 }
 
 model CustomMetric {
@@ -1107,6 +1114,10 @@ model LastfmLog {
   // Added by ALTER, deliberately nullable with no default: null means "this
   // day was imported before late-evening tracks were counted", which must
   // stay distinguishable from a genuinely quiet evening's 0.
+  // NULLABLE, with no default, on purpose. Rows written before this column
+  // existed have no idea how much of their listening was late; filling them
+  // with 0 would tell the correlation engine they were quiet evenings — the
+  // same mistake as reading a day with no location fixes as a day at home.
   lateTracks   Int?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

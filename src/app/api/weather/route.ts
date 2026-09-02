@@ -3,24 +3,6 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { randomUUID } from "crypto"
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "WeatherLog" (
-      "id"          TEXT PRIMARY KEY,
-      "userId"      TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-      "date"        TEXT NOT NULL,
-      "tempMaxC"    DOUBLE PRECISION,
-      "tempMinC"    DOUBLE PRECISION,
-      "precipMm"    DOUBLE PRECISION,
-      "uvIndex"     DOUBLE PRECISION,
-      "weatherCode" INTEGER,
-      "lat"         DOUBLE PRECISION,
-      "lon"         DOUBLE PRECISION,
-      UNIQUE("userId", "date")
-    )
-  `
-}
-
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -29,7 +11,6 @@ export async function POST(req: NextRequest) {
   const { date, tempMaxC, tempMinC, precipMm, uvIndex, weatherCode, lat, lon } = await req.json()
   if (!date) return NextResponse.json({ error: "date required" }, { status: 400 })
 
-  await ensureTable()
 
   const id = randomUUID()
   await prisma.$executeRaw`
@@ -53,7 +34,6 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  await ensureTable()
 
   const rows = await prisma.$queryRaw<{
     id: string

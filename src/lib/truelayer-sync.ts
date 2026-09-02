@@ -61,22 +61,6 @@ interface TokenRow {
   accountId: string | null
 }
 
-export async function ensureTLTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "TruelayerToken" (
-      "userId"        TEXT NOT NULL PRIMARY KEY,
-      "accessToken"   TEXT NOT NULL,
-      "refreshToken"  TEXT,
-      "expiresAt"     TIMESTAMPTZ,
-      "accountId"     TEXT,
-      "accountName"   TEXT,
-      "currency"      TEXT,
-      "updatedAt"     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  await prisma.$executeRaw`CREATE UNIQUE INDEX IF NOT EXISTS "TruelayerToken_userId_key" ON "TruelayerToken"("userId")`
-}
-
 async function getFreshToken(userId: string, row: TokenRow): Promise<string> {
   if (!row.refreshToken) return row.accessToken
   if (row.expiresAt && row.expiresAt.getTime() - Date.now() > 5 * 60 * 1000) {

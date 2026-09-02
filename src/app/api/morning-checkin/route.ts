@@ -3,22 +3,6 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { userToday } from "@/lib/user-timezone"
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "MorningCheckIn" (
-      "id"          TEXT PRIMARY KEY,
-      "userId"      TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-      "date"        TEXT NOT NULL,
-      "energy"      INTEGER NOT NULL,
-      "mood"        INTEGER NOT NULL,
-      "intention"   TEXT,
-      "waterGoalMl" INTEGER NOT NULL DEFAULT 2000,
-      "createdAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE("userId", "date")
-    )
-  `
-}
-
 async function getStreak(userId: string, todayStr: string): Promise<number> {
   // Fetch last 60 dates with check-ins, walk backwards from today
   const rows = await prisma.$queryRaw<{ date: string }[]>`
@@ -48,7 +32,6 @@ export async function GET(req: NextRequest) {
     ? clientDate
     : await userToday(session.user.id)
 
-  await ensureTable()
 
   const rows = await prisma.$queryRaw<{
     id: string
@@ -78,7 +61,6 @@ export async function POST(req: NextRequest) {
   const today = date ?? await userToday(session.user.id)
   const id = `mci_${session.user.id}_${today}`
 
-  await ensureTable()
 
   await prisma.$executeRaw`
     INSERT INTO "MorningCheckIn" ("id", "userId", "date", "energy", "mood", "intention", "waterGoalMl")

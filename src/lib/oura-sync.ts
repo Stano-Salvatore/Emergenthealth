@@ -23,9 +23,6 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
     const endDate = format(new Date(), "yyyy-MM-dd")
     const startDate = format(subDays(new Date(), 29), "yyyy-MM-dd")
 
-    // Auto-provision sleepScore column (added after initial deploy)
-    await prisma.$executeRaw`ALTER TABLE "HealthLog" ADD COLUMN IF NOT EXISTS "sleepScore" INTEGER`
-
     const [sleepData, sleepScoreData, activityData, readinessData, spo2Data, stressData] = await Promise.allSettled([
       getDailySleep(userId, startDate, endDate),
       getDailySleepScores(userId, startDate, endDate),
@@ -151,19 +148,6 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
     const storedScope = ouraToken.scope?.trim()
     const scopeLooksMissingTag = !!storedScope && !storedScope.split(/[\s,]+/).includes("tag")
     try {
-      await prisma.$executeRaw`
-        CREATE TABLE IF NOT EXISTS "OuraTag" (
-          "id"        TEXT PRIMARY KEY,
-          "userId"    TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-          "day"       TEXT NOT NULL,
-          "timestamp" TIMESTAMPTZ NOT NULL,
-          "tagName"   TEXT,
-          "text"      TEXT,
-          "tags"      TEXT[] NOT NULL DEFAULT '{}'
-        )
-      `
-      await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "OuraTag_userId_day_idx" ON "OuraTag"("userId","day")`
-      await prisma.$executeRaw`ALTER TABLE "OuraTag" ADD COLUMN IF NOT EXISTS "tagName" TEXT`
       const tagData = await getOuraTags(userId, startDate, endDate)
       for (const t of tagData) {
         // A tag with no resolvable date can't be stored (the column is NOT

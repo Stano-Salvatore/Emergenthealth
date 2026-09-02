@@ -6,23 +6,10 @@ import { prisma } from "@/lib/prisma"
 // user's arrangement syncs across devices (web, phone, APK). Mirrors the
 // sidebar preferences route.
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "UserPreference" (
-      "userId" TEXT NOT NULL,
-      "key"    TEXT NOT NULL,
-      "value"  TEXT NOT NULL,
-      PRIMARY KEY ("userId", "key"),
-      CONSTRAINT "UserPreference_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
-    )
-  `
-}
-
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ layout: null, hidden: null }, { status: 401 })
   const userId = session.user.id
-  await ensureTable()
   const rows = await prisma.$queryRaw<{ key: string; value: string }[]>`
     SELECT "key", "value" FROM "UserPreference"
     WHERE "userId" = ${userId} AND "key" IN ('dashboard_layout', 'dashboard_hidden_v2')
@@ -43,7 +30,6 @@ export async function POST(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
   const body = await req.json().catch(() => ({}))
-  await ensureTable()
 
   if (Array.isArray(body.layout)) {
     const v = JSON.stringify(body.layout)

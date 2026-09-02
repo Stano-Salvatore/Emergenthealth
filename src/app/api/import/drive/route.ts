@@ -5,34 +5,10 @@ import { listRevolutStatements, downloadRevolutCsv } from "@/lib/google-drive"
 import { parseRevolutCsv, guessCategory, isInternalTransfer, rowKey } from "@/lib/revolut-csv"
 import { errorMessage } from "@/lib/utils"
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "DriveImportLog" (
-      "id" TEXT NOT NULL PRIMARY KEY,
-      "userId" TEXT NOT NULL,
-      "fileId" TEXT NOT NULL,
-      "fileName" TEXT NOT NULL,
-      "importedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      "rowCount" INTEGER NOT NULL,
-      CONSTRAINT "DriveImportLog_userId_fkey"
-        FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE
-    )
-  `
-  await prisma.$executeRaw`
-    CREATE UNIQUE INDEX IF NOT EXISTS "DriveImportLog_userId_fileId_key"
-    ON "DriveImportLog"("userId", "fileId")
-  `
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS "DriveImportLog_userId_idx"
-    ON "DriveImportLog"("userId")
-  `
-}
-
 // GET — list available Drive statement files and their import status
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  await ensureTable()
 
   const [files, logs] = await Promise.all([
     listRevolutStatements(session.user.id),
@@ -50,7 +26,6 @@ export async function GET() {
 export async function POST() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  await ensureTable()
   const userId = session.user.id
 
   // Find all statement files in Drive

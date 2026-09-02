@@ -1,3 +1,5 @@
+import { distanceM } from "@/lib/places"
+
 export interface GpxPoint {
   lat: number
   lon: number
@@ -14,16 +16,6 @@ export interface GpxTrack {
   endTime: Date | null
   maxSpeedKmh: number
   avgSpeedKmh: number
-}
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371
-  const dLat = (lat2 - lat1) * Math.PI / 180
-  const dLon = (lon2 - lon1) * Math.PI / 180
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
 export function parseGpx(xml: string): GpxTrack {
@@ -54,7 +46,7 @@ export function parseGpx(xml: string): GpxTrack {
   let maxSpeedKmh = 0
 
   for (let i = 1; i < points.length; i++) {
-    const d = haversineKm(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon)
+    const d = distanceM(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon) / 1000
     totalKm += d
     if (points[i].time && points[i - 1].time) {
       const dtSec = (points[i].time!.getTime() - points[i - 1].time!.getTime()) / 1000

@@ -2,20 +2,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 
-async function ensurePrefsTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "UserPreference" (
-      "userId" TEXT NOT NULL,
-      "key"    TEXT NOT NULL,
-      "value"  TEXT NOT NULL,
-      PRIMARY KEY ("userId", "key"),
-      CONSTRAINT "UserPreference_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
-    )
-  `
-}
-
 async function getHeightCm(userId: string): Promise<number | null> {
-  await ensurePrefsTable()
   const rows = await prisma.$queryRaw<{ value: string }[]>`
     SELECT "value" FROM "UserPreference" WHERE "userId" = ${userId} AND "key" = 'body_height_cm'
   `

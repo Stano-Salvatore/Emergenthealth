@@ -18,17 +18,6 @@ interface PushEvent {
   }
 }
 
-async function ensureGitHubTable(): Promise<void> {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "GitHubProfile" (
-      "userId"      TEXT PRIMARY KEY REFERENCES "User"("id") ON DELETE CASCADE,
-      "username"    TEXT NOT NULL,
-      "accessToken" TEXT,
-      "updatedAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-}
-
 function calcStreak(commitsByDay: Record<string, number>, today: string): number {
   const yesterday = new Date(Date.parse(today + "T12:00:00Z") - 86400000).toISOString().slice(0, 10)
   const start = commitsByDay[today] != null ? today : commitsByDay[yesterday] != null ? yesterday : null
@@ -47,7 +36,6 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  await ensureGitHubTable().catch(() => null)
 
   const rows = await prisma.$queryRaw<GitHubProfileRow[]>`
     SELECT "userId", "username", "accessToken" FROM "GitHubProfile" WHERE "userId" = ${userId}
@@ -106,7 +94,6 @@ export async function POST(req: NextRequest) {
     ? body.accessToken.trim()
     : null
 
-  await ensureGitHubTable().catch(() => null)
 
   if (!username) {
     // Disconnect

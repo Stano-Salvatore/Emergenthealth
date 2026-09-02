@@ -2,30 +2,6 @@ import { prisma } from "@/lib/prisma"
 import { randomUUID } from "crypto"
 import { userToday } from "@/lib/user-timezone"
 
-export async function ensureRescuetimeTable(): Promise<void> {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "RescuetimeKey" (
-      "userId"    TEXT PRIMARY KEY REFERENCES "User"("id") ON DELETE CASCADE,
-      "apiKey"    TEXT NOT NULL,
-      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "RescuetimeLog" (
-      "id"                TEXT PRIMARY KEY,
-      "userId"            TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-      "date"              TEXT NOT NULL,
-      "productivityScore" INTEGER,
-      "totalActiveH"      DOUBLE PRECISION,
-      "productiveH"       DOUBLE PRECISION,
-      "neutralH"          DOUBLE PRECISION,
-      "distractingH"      DOUBLE PRECISION,
-      "topCategory"       TEXT,
-      UNIQUE("userId", "date")
-    )
-  `
-}
-
 export async function getRescuetimeKey(userId: string): Promise<string | null> {
   const rows = await prisma.$queryRaw<{ apiKey: string }[]>`
     SELECT "apiKey" FROM "RescuetimeKey" WHERE "userId" = ${userId} LIMIT 1

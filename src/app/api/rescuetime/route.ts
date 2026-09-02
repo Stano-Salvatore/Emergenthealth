@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { ensureRescuetimeTable, getRescuetimeKey, syncRescuetime } from "@/lib/rescuetime"
+import { getRescuetimeKey, syncRescuetime } from "@/lib/rescuetime"
 
 interface RescuetimeLogRow {
   id: string
@@ -20,7 +20,6 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  await ensureRescuetimeTable().catch(() => null)
 
   const keyRows = await prisma.$queryRaw<{ userId: string }[]>`
     SELECT "userId" FROM "RescuetimeKey" WHERE "userId" = ${userId} LIMIT 1
@@ -46,7 +45,6 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const action: string = typeof body.action === "string" ? body.action : ""
 
-  await ensureRescuetimeTable().catch(() => null)
 
   if (action === "save_key") {
     const apiKey: string = typeof body.apiKey === "string" ? body.apiKey.trim() : ""

@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { ensureTLTable } from "@/lib/truelayer-sync"
 
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ connected: false }, { status: 401 })
-  await ensureTLTable()
   const rows = await prisma.$queryRaw<{ accountId: string | null; accountName: string | null; currency: string | null }[]>`
     SELECT "accountId","accountName","currency" FROM "TruelayerToken" WHERE "userId" = ${session.user.id}
   `.catch(() => [])
@@ -36,7 +34,6 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  await ensureTLTable()
   await prisma.$executeRaw`DELETE FROM "TruelayerToken" WHERE "userId" = ${session.user.id}`
   return NextResponse.json({ ok: true })
 }

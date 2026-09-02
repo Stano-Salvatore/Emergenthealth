@@ -3,18 +3,6 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { userToday } from "@/lib/user-timezone"
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "UserPreference" (
-      "userId" TEXT NOT NULL,
-      "key"    TEXT NOT NULL,
-      "value"  TEXT NOT NULL,
-      PRIMARY KEY ("userId", "key"),
-      CONSTRAINT "UserPreference_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
-    )
-  `
-}
-
 // Kept as a function so both handlers share it; it needs the user now.
 async function todayStr(userId: string): Promise<string> {
   return userToday(userId)
@@ -28,7 +16,6 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const date = searchParams.get("date") ?? await todayStr(userId)
 
-  await ensureTable()
 
   const key = `daily_tags:${date}`
   const rows = await prisma.$queryRaw<{ value: string }[]>`
@@ -57,7 +44,6 @@ export async function POST(req: NextRequest) {
     .filter(t => t.length > 0)
     .slice(0, 10)
 
-  await ensureTable()
 
   const key = `daily_tags:${date}`
   const value = JSON.stringify(tags)

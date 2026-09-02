@@ -42,23 +42,10 @@ export const defaultPrefs: DigestPrefs = {
   thresholds: { minDays: 3 },
 }
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "UserPreference" (
-      "userId" TEXT NOT NULL,
-      "key"    TEXT NOT NULL,
-      "value"  TEXT NOT NULL,
-      PRIMARY KEY ("userId", "key"),
-      CONSTRAINT "UserPreference_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
-    )
-  `
-}
-
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
-  await ensureTable()
   const rows = await prisma.$queryRaw<{ value: string }[]>`
     SELECT "value" FROM "UserPreference" WHERE "userId" = ${userId} AND "key" = 'digest_prefs' LIMIT 1
   `.catch(() => [] as { value: string }[])
@@ -71,7 +58,6 @@ export async function POST(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
   const body = await req.json().catch(() => ({}))
-  await ensureTable()
   const value = JSON.stringify(body)
   await prisma.$executeRaw`
     INSERT INTO "UserPreference" ("userId", "key", "value")

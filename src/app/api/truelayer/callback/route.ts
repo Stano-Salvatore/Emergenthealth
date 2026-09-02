@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { verifyState } from "@/lib/state-token"
-import { TL_AUTH, TL_API, ensureTLTable } from "@/lib/truelayer-sync"
+import { TL_AUTH, TL_API } from "@/lib/truelayer-sync"
 import { errorMessage } from "@/lib/utils"
 
 function appOrigin(req: NextRequest): string {
@@ -67,7 +67,6 @@ export async function GET(req: NextRequest) {
       console.error("[truelayer/callback] account fetch failed:", e)
     }
 
-    await ensureTLTable()
     await prisma.$executeRaw`
       INSERT INTO "TruelayerToken"("userId","accessToken","refreshToken","expiresAt","accountId","accountName","currency","updatedAt")
       VALUES (${userId}, ${access_token}, ${refresh_token ?? null}, ${expiresAt}, ${accountId}, ${accountName}, ${currency}, NOW())
