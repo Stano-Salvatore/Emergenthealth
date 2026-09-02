@@ -15,6 +15,7 @@ import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
 import { SourceTrail, ThinkingLine, ToolActivity } from "@/components/emergy/SourceTrail"
 import type { SourceChip } from "@/lib/chat-sources"
 import { isFeatureEnabled } from "@/lib/features"
+import { resyncNotifications } from "@/lib/native/notifications"
 
 // An error we already have a human sentence for — shown to the user verbatim
 // instead of the generic fallback.
@@ -127,6 +128,8 @@ function MessageBubble({ msg, emergyState, onRetry }: { msg: Message; emergyStat
 
 /** Tools that change something, and so can change how Emergy is feeling. */
 const WRITES = /^(log_|create_|complete_|write_|correct_|delete_|remember$)/
+/** Tools that change what the phone should be ringing about. */
+const REMINDER_TOOLS = /^(create_reminder|complete_reminder|create_med_schedule|create_habit)$/
 
 function safeChips(raw: string): SourceChip[] | undefined {
   try {
@@ -408,6 +411,11 @@ export default function ChatPage() {
       let buffer = ""
       let received = false
       let wroteSomething = false
+      // An alarm he set is a row on the server; the thing that actually rings
+      // is a notification scheduled on THIS phone. Every other way of making a
+      // reminder resyncs them, and asking him in chat was the one that didn't,
+      // so the alarm existed everywhere except where it had to go off.
+      let touchedReminders = false
       // The reply as one string. The messages array has it too, but reading it
       // back from state here would see the value from before this turn.
       let spoken = ""
@@ -452,6 +460,7 @@ export default function ChatPage() {
               )
             } else if (parsed.type === "tool") {
               if (WRITES.test(parsed.name)) wroteSomething = true
+              if (REMINDER_TOOLS.test(parsed.name)) touchedReminders = true
               setMessages((m) =>
                 m.map((msg, i) => (i === m.length - 1 ? { ...msg, activeTool: parsed.name } : msg))
               )
@@ -474,6 +483,8 @@ export default function ChatPage() {
       // difference between wilting and fine — so let his face catch up rather
       // than waiting out the five-minute poll.
       if (wroteSomething) void refreshEmergy()
+      // Put the new alarm on the phone's own schedule. No-op on the web.
+      if (touchedReminders) void resyncNotifications().catch(() => {})
     } catch (err) {
       const note = err instanceof ChatError
         ? err.message
