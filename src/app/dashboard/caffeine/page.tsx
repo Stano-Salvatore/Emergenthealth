@@ -43,6 +43,19 @@ export interface CaffeineData {
   halfLifeH?: number
   limitMg: number
   personal?: PersonalHalfLife
+  /** Median bedtime from the ring, "HH:MM", when there are enough nights. */
+  bedtime?: string | null
+  bedtimeMin?: number | null
+  /** "HH:MM" — when the last ordinary coffee should be to be clear by bedtime. */
+  lastCoffeeBy?: string | null
+}
+
+/** Hours from now until a clock time given as minutes after midnight (tomorrow if it has passed). */
+function hoursUntilClock(min: number): number {
+  const now = new Date()
+  let d = min - (now.getHours() * 60 + now.getMinutes())
+  if (d < 0) d += 24 * 60
+  return d / 60
 }
 
 function progressColor(mg: number): string {
@@ -102,8 +115,13 @@ export function useCaffeine(onChanged?: () => void) {
   return { data, loading, adding, deleting, add, remove }
 }
 
-function ActiveNowCard({ activeMg, halfLifeH, personal }: { activeMg: number; halfLifeH: number; personal?: PersonalHalfLife }) {
-  const bedH = hoursToBedtime()
+function ActiveNowCard({ activeMg, halfLifeH, personal, bedtime, bedtimeMin, lastCoffeeBy }: {
+  activeMg: number; halfLifeH: number; personal?: PersonalHalfLife
+  bedtime?: string | null; bedtimeMin?: number | null; lastCoffeeBy?: string | null
+}) {
+  // Their own bedtime when the ring has seen enough nights; 23:00 until then.
+  const bedH = bedtimeMin != null ? hoursUntilClock(bedtimeMin) : hoursToBedtime()
+  const bedLabel = bedtime ?? "23:00"
   const atBed = decayed(activeMg, bedH, halfLifeH)
   // When today's load falls under a sleep-irrelevant 30 mg, at whichever
   // half-life applies to this user — the actionable half of the estimate.
@@ -132,11 +150,17 @@ function ActiveNowCard({ activeMg, halfLifeH, personal }: { activeMg: number; ha
               {activeMg} <span className="text-sm font-semibold text-muted-foreground">mg</span>
             </p>
             <p className={`text-xs mt-1 ${atBed > 50 ? "text-amber-400" : "text-muted-foreground"}`}>
-              ≈{atBed} mg at 23:00 {atBed > 50 ? "— may affect sleep" : "— sleep-safe"}
+              ≈{atBed} mg at {bedLabel} {atBed > 50 ? "— may affect sleep" : "— sleep-safe"}
             </p>
             {clearAt && (
               <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                 Below 30 mg around {clearAt}
+              </p>
+            )}
+            {lastCoffeeBy && (
+              <p className="text-[11px] font-semibold text-primary mt-1">
+                ☕ Last coffee by {lastCoffeeBy}
+                <span className="font-normal text-muted-foreground/70"> — to be clear by your usual {bedLabel}</span>
               </p>
             )}
           </div>
@@ -151,7 +175,7 @@ function ActiveNowCard({ activeMg, halfLifeH, personal }: { activeMg: number; ha
             </svg>
             <div className="flex justify-between text-[9px] text-muted-foreground/60">
               <span>now</span>
-              {bedH <= 12 && <span>23:00</span>}
+              {bedH <= 12 && <span>{bedLabel}</span>}
               <span>+12h</span>
             </div>
           </div>
@@ -182,7 +206,8 @@ export function CaffeineStatusCards({ data }: { data: CaffeineData }) {
   return (
     <>
       {(data.activeMg ?? 0) > 0 && (
-        <ActiveNowCard activeMg={data.activeMg!} halfLifeH={data.halfLifeH ?? 5} personal={data.personal} />
+        <ActiveNowCard activeMg={data.activeMg!} halfLifeH={data.halfLifeH ?? 5} personal={data.personal}
+          bedtime={data.bedtime} bedtimeMin={data.bedtimeMin} lastCoffeeBy={data.lastCoffeeBy} />
       )}
 
       <Card className="rounded-2xl border border-border bg-card">

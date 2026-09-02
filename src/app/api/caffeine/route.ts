@@ -5,6 +5,7 @@ import { COMPOUNDS, activeFromDoses } from "@/lib/caffeine"
 import { getGoals } from "@/lib/goals"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { userDay } from "@/lib/user-timezone"
+import { hhmm, lastCoffeeBy, medianBedtimeMin } from "@/lib/caffeine-cutoff"
 
 // Today's log list + total, plus the caffeine still active right now. Active
 // looks back 24h (not just midnight) so a late espresso still counts at 7am,
@@ -12,7 +13,7 @@ import { userDay } from "@/lib/user-timezone"
 // one (cached daily) rather than the textbook 5 h for everybody.
 async function caffeineState(userId: string) {
   const now = Date.now()
-  const [logs24, personal, goals] = await Promise.all([
+  const [logs24, personal, goals, bedNights, day] = await Promise.all([
     prisma.caffeineLog.findMany({
       where: { userId, loggedAt: { gte: new Date(now - 24 * 3600_000) } },
       orderBy: { loggedAt: "desc" },
@@ -21,15 +22,31 @@ async function caffeineState(userId: string) {
     // The Settings "Caffeine max" goal — the limit here used to be the
     // hardcoded 400 regardless of what the user set.
     getGoals(userId),
+    // The last fortnight of bedtimes from the ring, for "last coffee by".
+    prisma.healthLog.findMany({
+      where: { userId, sleepStart: { not: null } },
+      orderBy: { date: "desc" }, take: 14,
+      select: { sleepStart: true },
+    }).catch(() => [] as { sleepStart: Date | null }[]),
+    userDay(userId),
   ])
 
   const limitMg = goals.coffeeMax
 
-  const startOfDay = (await userDay(userId)).start
+  const startOfDay = day.start
+  // "Last coffee by 14:10": their median bedtime minus the hours an ordinary
+  // coffee needs to fall under 30 mg at their own half-life.
+  const bedtimeMin = medianBedtimeMin(bedNights.map(n => n.sleepStart).filter((d): d is Date => d != null), day.timezone)
+  const cutoff = bedtimeMin != null ? lastCoffeeBy(bedtimeMin, personal.halfLifeH) : null
   const logs = logs24.filter(l => l.loggedAt >= startOfDay)
   const totalMg = logs.reduce((sum, r) => sum + r.caffeineMg, 0)
   const activeMg = activeFromDoses(logs24, now, personal.halfLifeH)
-  return { logs, totalMg, activeMg, halfLifeH: personal.halfLifeH, limitMg, personal }
+  return {
+    logs, totalMg, activeMg, halfLifeH: personal.halfLifeH, limitMg, personal,
+    bedtime: bedtimeMin != null ? hhmm(bedtimeMin) : null,
+    bedtimeMin,
+    lastCoffeeBy: cutoff ? hhmm(cutoff.cutoffMin) : null,
+  }
 }
 
 export async function GET() {

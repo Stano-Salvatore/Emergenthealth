@@ -49,6 +49,8 @@ export interface Anomaly {
   runLength: number
   date: string
   summary: string
+  /** Set on a composite: the metric keys it was built from (and stands in for). */
+  parts?: string[]
 }
 
 /** Minimum history before a baseline means anything. */
@@ -136,6 +138,55 @@ export function detectAnomaly(spec: MetricSpec, history: DayValue[]): Anomaly | 
   }
 }
 
+// ── Illness onset ─────────────────────────────────────────────────────────────
+//
+// Skin temperature, breathing rate and resting heart rate up, HRV down, on
+// the same night: the signature the ring sees a day before the throat does.
+// Reported one metric at a time it arrived as up to two separate "off your
+// baseline" pushes that the reader had to assemble; as one composite it is
+// the sentence a person actually wants: "you might be coming down with
+// something — take it easy today."
+
+const ILLNESS_PARTS: { key: string; direction: "above" | "below" }[] = [
+  { key: "skinTemp", direction: "above" },
+  { key: "breathingRate", direction: "above" },
+  { key: "restingHR", direction: "above" },
+  { key: "hrv", direction: "below" },
+]
+/** How many of the four have to move together. Two is a hard workout; three is a pattern. */
+export const ILLNESS_MIN_PARTS = 3
+
+function listWords(items: string[]): string {
+  if (items.length <= 1) return items.join("")
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`
+}
+
+export function illnessSignal(anomalies: Anomaly[]): Anomaly | null {
+  const hits = ILLNESS_PARTS
+    .map(p => anomalies.find(a => a.metric === p.key && a.direction === p.direction))
+    .filter((a): a is Anomaly => a != null)
+  if (hits.length < ILLNESS_MIN_PARTS) return null
+  // The same night, or it is two unrelated stories.
+  const date = hits[0].date
+  if (!hits.every(h => h.date === date)) return null
+  const names = hits.map(h => h.label.toLowerCase())
+  return {
+    metric: "illness",
+    label: "Coming down with something?",
+    emoji: "🤒",
+    unit: "",
+    value: hits.length,
+    baseline: ILLNESS_PARTS.length,
+    z: Math.max(...hits.map(h => Math.abs(h.z))),
+    direction: "above",
+    concerning: true,
+    runLength: Math.min(...hits.map(h => h.runLength)),
+    date,
+    summary: `${listWords(names)} all moved the way they do at the start of an infection last night (${hits.length} of ${ILLNESS_PARTS.length} signs) — take it easy today. A pattern the ring sees, not a diagnosis.`,
+    parts: hits.map(h => h.metric),
+  }
+}
+
 /** Run every tracked metric over a map of series, strongest first. */
 export function detectAll(seriesByMetric: Record<string, DayValue[]>): Anomaly[] {
   const found: Anomaly[] = []
@@ -146,6 +197,11 @@ export function detectAll(seriesByMetric: Record<string, DayValue[]>): Anomaly[]
     if (anomaly) found.push(anomaly)
   }
   // Concerning ones first, then by how far out they are
-  return found.sort((a, b) =>
+  found.sort((a, b) =>
     (Number(b.concerning) - Number(a.concerning)) || (Math.abs(b.z) - Math.abs(a.z)))
+  // One composite stands in for its parts, so a push says "coming down with
+  // something" once rather than "skin temp up" and "HRV down" separately.
+  const illness = illnessSignal(found)
+  if (!illness) return found
+  return [illness, ...found.filter(a => !illness.parts!.includes(a.metric))]
 }
