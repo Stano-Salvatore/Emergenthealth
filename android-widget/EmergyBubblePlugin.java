@@ -44,7 +44,11 @@ import java.util.Arrays;
 @CapacitorPlugin(
     name = "EmergyBubble",
     permissions = {
-        @Permission(alias = "activity", strings = { android.Manifest.permission.ACTIVITY_RECOGNITION })
+        @Permission(alias = "activity", strings = { android.Manifest.permission.ACTIVITY_RECOGNITION }),
+        @Permission(alias = "location", strings = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        })
     })
 public class EmergyBubblePlugin extends Plugin {
 
@@ -528,6 +532,76 @@ public class EmergyBubblePlugin extends Plugin {
             } catch (Exception e) {
                 call.reject("Couldn't open the battery settings");
             }
+        }
+    }
+
+    // ------------------------------------------------- background location
+    //
+    // The native tracker (EmergyLocationService). The Capacitor plugin the app
+    // used first handed every fix to the WebView to upload, so tracking lived
+    // and died with the app's process. This one does not.
+
+    @PluginMethod
+    public void locationStatus(PluginCall call) {
+        Context ctx = getContext();
+        JSObject out = new JSObject();
+        out.put("available", true);
+        out.put("running", EmergyLocationService.isRunning());
+        out.put("keep", EmergyLocationService.keep(ctx));
+        out.put("fine", EmergyLocationService.hasFineLocation(ctx));
+        out.put("background", EmergyLocationService.hasBackgroundLocation(ctx));
+        out.put("batteryUnrestricted", batteryUnrestricted(ctx));
+        call.resolve(out);
+    }
+
+    @PluginMethod
+    public void startLocationService(PluginCall call) {
+        if (getPermissionState("location") != PermissionState.GRANTED) {
+            requestPermissionForAlias("location", call, "locationPermissionDone");
+            return;
+        }
+        beginLocation(call);
+    }
+
+    @PermissionCallback
+    private void locationPermissionDone(PluginCall call) {
+        if (getPermissionState("location") != PermissionState.GRANTED) {
+            call.reject("NOT_AUTHORIZED");
+            return;
+        }
+        beginLocation(call);
+    }
+
+    private void beginLocation(PluginCall call) {
+        Context ctx = getContext();
+        EmergyLocationService.setKeep(ctx, true);
+        try {
+            ctx.startForegroundService(new Intent(ctx, EmergyLocationService.class));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(e.getMessage() == null ? "Couldn't start location tracking" : e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopLocationService(PluginCall call) {
+        Context ctx = getContext();
+        EmergyLocationService.setKeep(ctx, false);
+        ctx.stopService(new Intent(ctx, EmergyLocationService.class));
+        call.resolve();
+    }
+
+    /** The app's own settings page — where "Allow all the time" lives on Android 11+. */
+    @PluginMethod
+    public void openAppSettings(PluginCall call) {
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:" + getContext().getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Couldn't open the app's settings");
         }
     }
 

@@ -34,6 +34,9 @@ public class HeadBootReceiver extends BroadcastReceiver {
             EmergyBubblePlugin.rearmStoredPops(ctx);
             // And the head itself, if it was floating before the restart.
             EmergyBubblePlugin.ensureHeadRunning(ctx);
+            // And location tracking, if it was on. Needs "Allow all the time"
+            // to get fixes from here; otherwise the next app open starts it.
+            EmergyLocationService.ensureRunning(ctx);
         } catch (Exception ignored) {
             // Best effort. The notifications for the same reminders are
             // rescheduled by the app itself; the head popping out is the

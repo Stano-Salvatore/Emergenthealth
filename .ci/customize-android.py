@@ -46,6 +46,14 @@ with open(manifest_path) as f:
 extra_permissions = """
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!--
+      The native location tracker (EmergyLocationService) is a foreground
+      service of type location. ACCESS_BACKGROUND_LOCATION ("Allow all the
+      time") is what lets it come back by itself after a reboot; without it
+      the tracker still runs, but only once the app has been opened.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!--
       Motion classification (walking / running / cycling / in a vehicle) from
@@ -274,6 +282,7 @@ widget_copies = [
     (f"{widget_src}/EmergyHeadService.java",    f"{pkg_java_dir}/EmergyHeadService.java"),
     (f"{widget_src}/HeadAlarmReceiver.java",    f"{pkg_java_dir}/HeadAlarmReceiver.java"),
     (f"{widget_src}/HeadBootReceiver.java",     f"{pkg_java_dir}/HeadBootReceiver.java"),
+    (f"{widget_src}/EmergyLocationService.java", f"{pkg_java_dir}/EmergyLocationService.java"),
     (f"{widget_src}/head_circle.xml",           f"{res_drawable}/head_circle.xml"),
     (f"{widget_src}/head_panel.xml",            f"{res_drawable}/head_panel.xml"),
 ]
@@ -443,6 +452,24 @@ if widget_ok:
         print("✓ AndroidManifest.xml updated with EmergyHeadService")
     else:
         print("ℹ️  EmergyHeadService already present")
+
+    # The native location tracker. Type "location" is what lets a foreground
+    # service receive fixes while the app is in the background at all.
+    with open(manifest_path) as f:
+        m = f.read()
+    if "EmergyLocationService" not in m:
+        location_service = """
+        <service
+            android:name=".EmergyLocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+"""
+        m = m.replace("</application>", location_service + "    </application>", 1)
+        with open(manifest_path, "w") as f:
+            f.write(m)
+        print("✓ AndroidManifest.xml updated with EmergyLocationService")
+    else:
+        print("ℹ️  EmergyLocationService already present")
 
     # The alarm that makes a reminder pop the head. Not exported: nothing
     # outside this app has any business making it draw over the screen.

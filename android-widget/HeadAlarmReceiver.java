@@ -24,6 +24,8 @@ public class HeadAlarmReceiver extends BroadcastReceiver {
     public static final String ACTION_POP = "app.emergenthealth.HEAD_POP";
     /** Put the head back after the process died with the app (see EmergyHeadService.onTaskRemoved). */
     public static final String ACTION_RESTART = "app.emergenthealth.HEAD_RESTART";
+    /** Same again for the location tracker (see EmergyLocationService.onTaskRemoved). */
+    public static final String ACTION_LOCATION_RESTART = "app.emergenthealth.LOCATION_RESTART";
     public static final String EXTRA_MESSAGE = "message";
 
     @Override
@@ -31,6 +33,10 @@ public class HeadAlarmReceiver extends BroadcastReceiver {
         if (intent == null) return;
         if (ACTION_RESTART.equals(intent.getAction())) {
             EmergyBubblePlugin.ensureHeadRunning(ctx);
+            return;
+        }
+        if (ACTION_LOCATION_RESTART.equals(intent.getAction())) {
+            EmergyLocationService.ensureRunning(ctx);
             return;
         }
         if (!ACTION_POP.equals(intent.getAction())) return;

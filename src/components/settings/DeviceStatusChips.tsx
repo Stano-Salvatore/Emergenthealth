@@ -5,6 +5,7 @@ import { Capacitor } from "@capacitor/core"
 import { headStatus, activityStatus } from "@/lib/native/bubble"
 import { getNotificationPermission } from "@/lib/native/notifications"
 import { readBackgroundLocationEnabled } from "@/lib/native/background-location"
+import { nativeLocationStatus } from "@/lib/native/location-service"
 import type { StatusRow } from "@/lib/status-rows"
 
 /**
@@ -19,10 +20,11 @@ export function DeviceStatusChips() {
     if (!Capacitor.isNativePlatform()) return
     let cancelled = false
     ;(async () => {
-      const [notif, head, loc, motion] = await Promise.all([
+      const [notif, head, loc, svc, motion] = await Promise.all([
         getNotificationPermission().catch(() => "unavailable" as const),
         headStatus().catch(() => null),
         readBackgroundLocationEnabled().catch(() => ({ enabled: false, failure: null })),
+        nativeLocationStatus().catch(() => null),
         activityStatus().catch(() => ({ available: false, permitted: false, tracking: false })),
       ])
       if (cancelled) return
@@ -40,9 +42,23 @@ export function DeviceStatusChips() {
           out.push({ id: "d-batt", group: "Emergy", label: "Battery", tone: "warn", value: "optimised — Android may kill him", detail: "Settings → Emergy floating → Allow background" })
         }
       }
-      out.push(loc.enabled
-        ? { id: "d-loc", group: "Data", label: "Background location", tone: loc.failure ? "warn" : "ok", value: loc.failure ? loc.failure : "tracking" }
-        : { id: "d-loc", group: "Data", label: "Background location", tone: "off", value: "off" })
+      if (!loc.enabled) {
+        out.push({ id: "d-loc", group: "Data", label: "Background location", tone: "off", value: "off" })
+      } else if (svc) {
+        // The native service can say whether it is actually running, which the
+        // saved switch position cannot.
+        out.push(svc.running
+          ? { id: "d-loc", group: "Data", label: "Background location", tone: "ok", value: "tracking, survives closing the app" }
+          : { id: "d-loc", group: "Data", label: "Background location", tone: "warn", value: "should be tracking but isn't" })
+        if (svc.fine && !svc.background) {
+          out.push({ id: "d-loc-bg", group: "Data", label: "Location permission", tone: "warn", value: "only while using the app", detail: "Set it to Allow all the time" })
+        }
+        if (!svc.batteryUnrestricted && !out.some(r => r.id === "d-batt")) {
+          out.push({ id: "d-batt", group: "Data", label: "Battery", tone: "warn", value: "optimised — Android may stop tracking", detail: "Settings → Automatic place check-ins → Allow background" })
+        }
+      } else {
+        out.push({ id: "d-loc", group: "Data", label: "Background location", tone: loc.failure ? "warn" : "ok", value: loc.failure ? loc.failure : "tracking while the app is open" })
+      }
       if (motion.available) {
         out.push({ id: "d-motion", group: "Data", label: "Motion", tone: motion.tracking ? "ok" : "off", value: motion.tracking ? "tracking" : motion.permitted ? "off" : "no permission" })
       }

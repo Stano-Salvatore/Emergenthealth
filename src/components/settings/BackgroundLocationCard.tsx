@@ -6,7 +6,9 @@ import { MapPin, Loader2 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
+  type LocationEngine,
   type LocationSupport,
+  backgroundLocationEngine,
   backgroundLocationSupport,
   diagnoseBackgroundLocation,
   readBackgroundLocationEnabled,
@@ -14,6 +16,8 @@ import {
   startBackgroundLocation,
   stopBackgroundLocation,
 } from "@/lib/native/background-location"
+import { type NativeLocationStatus, nativeLocationStatus, openAppSettings } from "@/lib/native/location-service"
+import { requestBatteryUnrestricted } from "@/lib/native/bubble"
 
 /**
  * Both checks cross the Capacitor bridge, and a bridge call to a plugin the
@@ -79,6 +83,16 @@ export function BackgroundLocationCard() {
   const [detail, setDetail] = useState<string | null>(null)
   /** When the SERVER last heard a point, which is the only proof that counts. */
   const [health, setHealth] = useState<{ lastPointAt: string | null; lastDayCount: number; asOf: number } | null>(null)
+  /** Which engine this build tracks with; see backgroundLocationEngine. */
+  const [engine, setEngine] = useState<LocationEngine | null>(null)
+  /** What the native service reports about itself and its permissions. */
+  const [native, setNative] = useState<NativeLocationStatus | null>(null)
+
+  const refreshNative = useCallback(async () => {
+    const s = await nativeLocationStatus().catch(() => null)
+    setNative(s)
+    return s
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -110,6 +124,11 @@ export function BackgroundLocationCard() {
       const { enabled: on, failure } = await readBackgroundLocationEnabled()
       if (cancelled) return
       setEnabled(on)
+
+      const eng = await backgroundLocationEngine().catch(() => null)
+      if (cancelled) return
+      setEngine(eng)
+      if (eng === "native") await refreshNative()
       // Off is the safe default, and it is also a guess. Say when it was one:
       // this read hanging is the whole reason the card went blank, and a fix
       // that hides its own symptom leaves nothing to chase next time.
@@ -138,7 +157,16 @@ export function BackgroundLocationCard() {
       if (!cancelled && h && typeof h.lastDayCount === "number") setHealth({ ...h, asOf: Date.now() })
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [refreshNative])
+
+  // Permissions get changed in Android's own settings, and the only moment we
+  // learn about it is coming back. Re-read on every return to the foreground.
+  useEffect(() => {
+    if (engine !== "native") return
+    const onVisible = () => { if (document.visibilityState === "visible") void refreshNative() }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => document.removeEventListener("visibilitychange", onVisible)
+  }, [engine, refreshNative])
 
   const toggle = useCallback(async () => {
     setBusy(true)
@@ -159,10 +187,11 @@ export function BackgroundLocationCard() {
         })
         setEnabled(started)
       }
+      if (engine === "native") await refreshNative()
     } finally {
       setBusy(false)
     }
-  }, [enabled])
+  }, [enabled, engine, refreshNative])
 
   return (
     <Card>
@@ -219,10 +248,54 @@ export function BackgroundLocationCard() {
               </p>
             )}
             {enabled && health && <TrackingHealth {...health} />}
-            {enabled && (
+            {enabled && engine === "native" && native && !native.running && (
+              <p className="text-xs text-amber-400">
+                Tracking is switched on but the service isn&apos;t running. Turn it off and on
+                again; if it keeps dying, the two settings below are usually why.
+              </p>
+            )}
+            {enabled && engine === "native" && native && native.fine && !native.background && (
+              <p className="text-xs text-amber-400">
+                Location is only allowed while the app is open, so Android stops the fixes
+                the moment you leave. Set it to <b>Allow all the time</b>.{" "}
+                <button onClick={() => void openAppSettings()} className="underline">
+                  Open app settings
+                </button>{" "}
+                → Permissions → Location.
+              </p>
+            )}
+            {enabled && engine === "native" && native && !native.batteryUnrestricted && (
+              <div className="space-y-1">
+                <p className="text-xs text-amber-400">
+                  Battery optimisation still applies to Emergy, which is how Samsung phones
+                  quietly put tracking to sleep.
+                </p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { void requestBatteryUnrestricted().then(() => refreshNative()) }}
+                >
+                  Allow background
+                </Button>
+                <p className="text-[10px] text-muted-foreground/60">
+                  On Samsung also add Emergy to Settings → Battery → Background usage limits →
+                  Never sleeping apps.
+                </p>
+              </div>
+            )}
+            {enabled && engine === "native" && (
               <p className="text-[10px] text-muted-foreground/60">
                 A visit needs about 20 minutes in one place, so passing by logs nothing.
-                Tracking stops if the phone restarts — reopen the app to start it again.
+                Tracking runs in the phone itself: it keeps going after you close the app
+                and comes back after a restart.
+              </p>
+            )}
+            {enabled && engine === "webview" && (
+              <p className="text-[10px] text-muted-foreground/60">
+                A visit needs about 20 minutes in one place, so passing by logs nothing.
+                This app build stops tracking when the app is closed or the phone restarts —
+                a newer APK has a version that keeps going. Until then, reopen the app to
+                start it again.
               </p>
             )}
           </>

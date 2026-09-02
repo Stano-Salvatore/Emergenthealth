@@ -13,6 +13,7 @@ import { Capacitor, registerPlugin } from "@capacitor/core"
 import { distanceM } from "@/lib/places"
 import { Preferences } from "@capacitor/preferences"
 import type { BackgroundGeolocationPlugin, CallbackError, Location } from "@capacitor-community/background-geolocation"
+import { nativeLocationStatus, startNativeLocation, stopNativeLocation } from "@/lib/native/location-service"
 
 /**
  * The plugin ships NO JavaScript — its package.json has no main, no module and
@@ -216,7 +217,27 @@ export async function backgroundLocationSupport(): Promise<LocationSupport> {
   // this is the only thing that knows whether the native class is really
   // there. Without it the card offers a switch that answers every press with
   // "not implemented on android".
-  return Capacitor.isPluginAvailable("BackgroundGeolocation") ? "ready" : "plugin-missing"
+  if (Capacitor.isPluginAvailable("BackgroundGeolocation")) return "ready"
+  // Newer APKs carry the native service even if the community plugin were
+  // ever dropped; either one is enough to offer the switch.
+  return (await nativeLocationStatus()) ? "ready" : "plugin-missing"
+}
+
+/**
+ * Which of the two engines is doing the tracking on this build.
+ *
+ * "native" — EmergyLocationService, which keeps going after the app is closed
+ * and after a restart. "webview" — the community plugin's watcher, which lives
+ * and dies with the page. The card says which, because the two need opposite
+ * advice: one wants "Allow all the time" and a battery exemption, the other
+ * wants the app reopened.
+ */
+export type LocationEngine = "native" | "webview"
+
+export async function backgroundLocationEngine(): Promise<LocationEngine | null> {
+  if (loadPlugin() === null) return null
+  if (await nativeLocationStatus()) return "native"
+  return Capacitor.isPluginAvailable("BackgroundGeolocation") ? "webview" : null
 }
 
 /** Whether this build can track at all — false on the web. */
@@ -324,6 +345,18 @@ export async function startBackgroundLocation(onDenied?: () => void): Promise<bo
   // both sail past the guard and register a watcher each, leaving the first
   // with no handle: exactly the duplication WATCHER_KEY exists to prevent.
   if (starting) return starting
+  // The native service first, wherever the APK has it. It does not need this
+  // page to stay alive, which is the one thing the watcher below cannot offer.
+  const native = await startNativeLocation()
+  if (native === "started") {
+    starting = adoptNativeService().finally(() => { starting = null })
+    return starting
+  }
+  if (native === "denied") {
+    onDenied?.()
+    await Preferences.set({ key: ENABLED_KEY, value: "0" }).catch(() => {})
+    return false
+  }
   // A watcher we already hold — including one a failed stop could not remove —
   // is running, so say so AND put the flag back, or the button reads "Stop
   // following along" over a watcher nothing will resume after a restart.
@@ -333,6 +366,31 @@ export async function startBackgroundLocation(onDenied?: () => void): Promise<bo
   }
   starting = attachWatcher(onDenied).finally(() => { starting = null })
   return starting
+}
+
+/**
+ * The native service is running; make sure nothing else is.
+ *
+ * A watcher left over from before the APK carried the service would upload
+ * every fix a second time through the page. The ids make that harmless on
+ * the server, but it is two notifications and twice the battery for nothing.
+ * Its unsent backlog is still owed, so it goes up before the handle goes.
+ */
+async function adoptNativeService(): Promise<boolean> {
+  const plugin = loadPlugin()
+  try {
+    await restoreQueue()
+    if (queue.length > 0) await flush()
+    const { value: stale } = await Preferences.get({ key: WATCHER_KEY })
+    const id = watcherId ?? stale
+    if (plugin && id) await plugin.removeWatcher({ id }).catch(() => {})
+    await Preferences.remove({ key: WATCHER_KEY }).catch(() => {})
+    watcherId = null
+  } catch {
+    // Nothing above is needed for the service to work; it only tidies.
+  }
+  await Preferences.set({ key: ENABLED_KEY, value: "1" }).catch(() => {})
+  return true
 }
 
 async function attachWatcher(onDenied?: () => void): Promise<boolean> {
@@ -409,6 +467,9 @@ async function attachWatcher(onDenied?: () => void): Promise<boolean> {
 
 export async function stopBackgroundLocation(): Promise<void> {
   await Preferences.set({ key: ENABLED_KEY, value: "0" }).catch(() => {})
+  // Whichever engine is running. Stopping the service also clears its "keep"
+  // flag, or the boot receiver would bring it straight back.
+  await stopNativeLocation()
   const plugin = loadPlugin()
   // Prefer this context's id, but fall back to the stored one — after a reload
   // that is the only handle on the watcher still running.
@@ -506,12 +567,18 @@ export async function diagnoseBackgroundLocation(): Promise<string> {
 }
 
 /**
- * Re-attach the watcher on app start if it was on when the app last closed.
- * Android drops the foreground service on reboot and cannot legally start one
- * from the background, so the app opening is the moment tracking can resume.
+ * Put tracking back on app start if it was on when the app last closed.
+ *
+ * With the native service this is a repair, not the mechanism: the service
+ * restarts itself after being killed and at boot, and here we only notice the
+ * cases where that failed (a battery-optimised phone that killed it for good,
+ * or an "Allow all the time" the user withdrew). With the WebView watcher it
+ * is the mechanism, since nothing else can start it.
  */
 export async function resumeBackgroundLocation(): Promise<void> {
   if (!(await isBackgroundLocationEnabled())) return
+  const native = await nativeLocationStatus()
+  if (native?.running) return
   await startBackgroundLocation()
 }
 
