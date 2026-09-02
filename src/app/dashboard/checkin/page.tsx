@@ -7,6 +7,9 @@ import { Textarea } from "@/components/ui/textarea"
 import Link from "next/link"
 import { Flame, Zap, ArrowLeft, Pencil } from "lucide-react"
 import { DailyTags } from "@/components/dashboard/DailyTags"
+import { EveningCheckIn } from "@/components/checkin/EveningCheckIn"
+import { checkInModeFor, type CheckInMode } from "@/lib/checkin-mode"
+import { cn } from "@/lib/utils"
 
 type CheckIn = {
   energy: number
@@ -77,6 +80,19 @@ function ProgressBar({ step }: { step: Step }) {
 }
 
 export default function CheckInPage() {
+  // Which half of the day this tab opens on. One route and one nav row for
+  // both check-ins: a separate "Evening" entry would be wrong for most of the
+  // day, and the sidebar already lost five rows for exactly that reason. The
+  // clock only picks the default — the switch below overrides it, because
+  // "I'm doing tomorrow's tonight" is a normal thing to want.
+  // Null until mounted, then the clock decides. It cannot be a lazy useState
+  // initialiser: this component is server-rendered too, and the server's hour
+  // is not the user's, so the first paint would disagree with the hydration.
+  const [mode, setMode] = useState<CheckInMode | null>(null)
+  useEffect(() => {
+    void Promise.resolve().then(() => setMode(checkInModeFor(new Date().getHours())))
+  }, [])
+
   const [step, setStep] = useState<Step>(0)
   const [energy, setEnergy] = useState<number | null>(null)
   const [mood, setMood] = useState<number | null>(null)
@@ -234,6 +250,34 @@ export default function CheckInPage() {
       style={{ paddingBottom: "calc(2.5rem + env(safe-area-inset-bottom))" }}
     >
       <div className="w-full max-w-sm">
+        {/* Both check-ins live behind one tab. The label says which one you are
+            looking at and the other side of it is one tap away — without this
+            the evening flow would be reachable only between 17:00 and midnight,
+            and the morning one not at all after tea. */}
+        <div className="flex items-center justify-center gap-1 mb-4 rounded-lg border border-border/60 p-0.5">
+          <button
+            onClick={() => setMode("morning")}
+            className={cn(
+              "flex-1 rounded-md px-3 py-1.5 text-xs transition-colors",
+              mode === "morning" ? "bg-secondary text-foreground font-medium" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            🌅 Morning
+          </button>
+          <button
+            onClick={() => setMode("evening")}
+            className={cn(
+              "flex-1 rounded-md px-3 py-1.5 text-xs transition-colors",
+              mode === "evening" ? "bg-secondary text-foreground font-medium" : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            🌙 Evening
+          </button>
+        </div>
+
+        {mode === "evening" && <EveningCheckIn />}
+
+        {mode === "evening" ? null : <>
         {step !== "done" && <ProgressBar step={step} />}
 
         {step === 0 && (
@@ -472,6 +516,7 @@ export default function CheckInPage() {
             </div>
           </div>
         )}
+        </>}
       </div>
     </div>
   )
