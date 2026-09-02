@@ -13,6 +13,7 @@ import { useEffect } from "react"
 import { registerNotificationActionHandler, resyncNotifications } from "@/lib/native/notifications"
 import { syncScreenTime } from "@/lib/native/screen-time"
 import { registerNativePush, reviveHead, takePendingSay } from "@/lib/native/bubble"
+import { takePendingWake } from "@/lib/native/wake-word"
 
 const THROTTLE_MS = 30 * 60 * 1000
 const LS_KEY = "native_reminder_sync_at"
@@ -62,13 +63,31 @@ export function NativeBridge() {
       if (!data?.conversationId) return
       window.location.assign(`/dashboard/chat?conversation=${encodeURIComponent(data.conversationId)}`)
     }
+    // Heard his name while the app was shut.
+    //
+    // ?listen=1 is the widget's route into an already-listening chat, and it
+    // is exactly what a wake word wants too — arriving listening, with the
+    // six-second silence backstop to send it. Nothing new to build: the wake
+    // word only supplies the trigger.
+    async function collectPendingWake() {
+      if (document.visibilityState !== "visible") return
+      if (!(await takePendingWake().catch(() => false))) return
+      window.location.assign("/dashboard/chat?listen=1")
+    }
+
     collectPendingSay().catch(() => {})
+    collectPendingWake().catch(() => {})
     // If he was asked to stay floating and Android killed the process
     // meanwhile, this is where he comes back.
     reviveHead().catch(() => {})
 
     sync()
-    const onVisible = () => { sync(); collectPendingSay().catch(() => {}); reviveHead().catch(() => {}) }
+    const onVisible = () => {
+      sync()
+      collectPendingSay().catch(() => {})
+      collectPendingWake().catch(() => {})
+      reviveHead().catch(() => {})
+    }
     document.addEventListener("visibilitychange", onVisible)
     return () => document.removeEventListener("visibilitychange", onVisible)
   }, [])

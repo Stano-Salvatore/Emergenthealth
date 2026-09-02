@@ -26,6 +26,8 @@ public class HeadAlarmReceiver extends BroadcastReceiver {
     public static final String ACTION_RESTART = "app.emergenthealth.HEAD_RESTART";
     /** Same again for the location tracker (see EmergyLocationService.onTaskRemoved). */
     public static final String ACTION_LOCATION_RESTART = "app.emergenthealth.LOCATION_RESTART";
+    /** And for the wake-word listener (see EmergyWakeService.onTaskRemoved). */
+    public static final String ACTION_WAKE_RESTART = "app.emergenthealth.WAKE_RESTART";
     public static final String EXTRA_MESSAGE = "message";
 
     @Override
@@ -37,6 +39,10 @@ public class HeadAlarmReceiver extends BroadcastReceiver {
         }
         if (ACTION_LOCATION_RESTART.equals(intent.getAction())) {
             EmergyLocationService.ensureRunning(ctx);
+            return;
+        }
+        if (ACTION_WAKE_RESTART.equals(intent.getAction())) {
+            EmergyWakeService.ensureRunning(ctx);
             return;
         }
         if (!ACTION_POP.equals(intent.getAction())) return;

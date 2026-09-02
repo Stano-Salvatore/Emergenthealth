@@ -119,6 +119,15 @@ extra_permissions = """
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!--
+      Listening for the wake word. RECORD_AUDIO is already declared above for
+      dictation; from Android 14 a service that holds the microphone needs its
+      own foreground-service permission and type as well, and MICROPHONE is
+      the only type the platform will accept for this. That is also the honest
+      one: the notification it forces cannot be dismissed, so the microphone is
+      never open without something on screen saying so.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
@@ -283,6 +292,7 @@ widget_copies = [
     (f"{widget_src}/HeadAlarmReceiver.java",    f"{pkg_java_dir}/HeadAlarmReceiver.java"),
     (f"{widget_src}/HeadBootReceiver.java",     f"{pkg_java_dir}/HeadBootReceiver.java"),
     (f"{widget_src}/EmergyLocationService.java", f"{pkg_java_dir}/EmergyLocationService.java"),
+    (f"{widget_src}/EmergyWakeService.java",     f"{pkg_java_dir}/EmergyWakeService.java"),
     (f"{widget_src}/head_circle.xml",           f"{res_drawable}/head_circle.xml"),
     (f"{widget_src}/head_panel.xml",            f"{res_drawable}/head_panel.xml"),
 ]
@@ -468,6 +478,23 @@ if widget_ok:
         with open(manifest_path, "w") as f:
             f.write(m)
         print("✓ AndroidManifest.xml updated with EmergyLocationService")
+
+    # The wake-word listener. Type "microphone" is the only one Android 14
+    # accepts for a service that opens the mic, and it forces an ongoing
+    # notification — which is the right trade for something always listening.
+    with open(manifest_path) as f:
+        m = f.read()
+    if "EmergyWakeService" not in m:
+        wake_service = """
+        <service
+            android:name=".EmergyWakeService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+"""
+        m = m.replace("</application>", wake_service + "    </application>", 1)
+        with open(manifest_path, "w") as f:
+            f.write(m)
+        print("✓ AndroidManifest.xml updated with EmergyWakeService")
     else:
         print("ℹ️  EmergyLocationService already present")
 

@@ -48,7 +48,8 @@ import java.util.Arrays;
         @Permission(alias = "location", strings = {
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION
-        })
+        }),
+        @Permission(alias = "microphone", strings = { android.Manifest.permission.RECORD_AUDIO })
     })
 public class EmergyBubblePlugin extends Plugin {
 
@@ -603,6 +604,108 @@ public class EmergyBubblePlugin extends Plugin {
         } catch (Exception e) {
             call.reject("Couldn't open the app's settings");
         }
+    }
+
+    // ------------------------------------------------------- the wake word
+    //
+    // Milestone one: everything except the detector. See EmergyWakeService —
+    // the platform risk is the service surviving at all, not the model, so
+    // that is what ships first and what testFire exercises.
+
+    @PluginMethod
+    public void wakeStatus(PluginCall call) {
+        Context ctx = getContext();
+        JSObject out = new JSObject();
+        out.put("available", true);
+        // No model yet, and the card says so rather than implying it works.
+        out.put("hasDetector", false);
+        out.put("running", EmergyWakeService.isRunning());
+        out.put("listening", EmergyWakeService.isListening());
+        out.put("keep", EmergyWakeService.keep(ctx));
+        out.put("chargingOnly", EmergyWakeService.chargingOnly(ctx));
+        out.put("pluggedIn", EmergyWakeService.isPluggedIn(ctx));
+        out.put("microphone", EmergyWakeService.hasMicPermission(ctx));
+        out.put("batteryUnrestricted", batteryUnrestricted(ctx));
+        call.resolve(out);
+    }
+
+    @PluginMethod
+    public void startWake(PluginCall call) {
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            requestPermissionForAlias("microphone", call, "microphonePermissionDone");
+            return;
+        }
+        beginWake(call);
+    }
+
+    @PermissionCallback
+    private void microphonePermissionDone(PluginCall call) {
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            call.reject("NOT_AUTHORIZED");
+            return;
+        }
+        beginWake(call);
+    }
+
+    private void beginWake(PluginCall call) {
+        Context ctx = getContext();
+        EmergyWakeService.setKeep(ctx, true);
+        try {
+            ctx.startForegroundService(new Intent(ctx, EmergyWakeService.class));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(e.getMessage() == null ? "Couldn't start listening" : e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopWake(PluginCall call) {
+        Context ctx = getContext();
+        EmergyWakeService.setKeep(ctx, false);
+        ctx.stopService(new Intent(ctx, EmergyWakeService.class));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void setWakeChargingOnly(PluginCall call) {
+        Context ctx = getContext();
+        EmergyWakeService.setChargingOnly(ctx, Boolean.TRUE.equals(call.getBoolean("enabled", false)));
+        // Nudge the service so the microphone opens or closes to match now,
+        // rather than at whatever moment the charger is next touched.
+        if (EmergyWakeService.isRunning()) {
+            try { ctx.startForegroundService(new Intent(ctx, EmergyWakeService.class)); } catch (Exception ignored) {}
+        }
+        call.resolve();
+    }
+
+    /** Pretend the wake word was heard, so the handoff can be tested with no model. */
+    @PluginMethod
+    public void testWakeFire(PluginCall call) {
+        Context ctx = getContext();
+        try {
+            ctx.startForegroundService(new Intent(ctx, EmergyWakeService.class)
+                .setAction(EmergyWakeService.ACTION_TEST_FIRE));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Couldn't reach the listening service");
+        }
+    }
+
+    /**
+     * Drained once, like takePendingSay — and private for the same reason,
+     * doubled: what the app does with this is open the microphone.
+     */
+    @PluginMethod
+    public void takePendingWake(PluginCall call) {
+        android.content.SharedPreferences prefs =
+            getContext().getSharedPreferences(EmergyWakeService.PREFS, Context.MODE_PRIVATE);
+        long at = prefs.getLong(EmergyWakeService.PENDING_WAKE, 0L);
+        if (at != 0L) prefs.edit().remove(EmergyWakeService.PENDING_WAKE).apply();
+        JSObject out = new JSObject();
+        // Stale mailboxes are ignored: waking the mic because of something
+        // said an hour ago would be alarming rather than helpful.
+        out.put("heard", at != 0L && System.currentTimeMillis() - at < 60_000);
+        call.resolve(out);
     }
 
     // ------------------------------------------------ activity recognition
