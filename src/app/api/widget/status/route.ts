@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { userDay } from "@/lib/user-timezone"
 
 async function resolveUserByApiKey(apiKey: string): Promise<string | null> {
   const rows = await prisma.$queryRaw<{ userId: string }[]>`
@@ -25,11 +26,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Invalid API key" }, { status: 401 })
   }
 
-  const now = new Date()
-  const todayStart = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0)
-  )
-  const todayStr = todayStart.toISOString().split("T")[0]
+  const { today: todayStr, start: todayStart } = await userDay(userId)
 
   const logs = await prisma.intakeLog.findMany({
     where: {

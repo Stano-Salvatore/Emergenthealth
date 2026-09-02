@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { getUserTimezone, userToday } from "@/lib/user-timezone"
+import { getUserTimezone } from "@/lib/user-timezone"
+import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { NextResponse } from "next/server"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
@@ -11,21 +12,21 @@ export async function GET(req: Request) {
   const userId = session.user.id
 
   const url = new URL(req.url)
-  const date = url.searchParams.get("date") ?? await userToday(userId)
+  const timezone = await getUserTimezone(userId)
+  const date = url.searchParams.get("date") ?? localDateStr(timezone)
 
   // ?days=7 returns daily water totals for the last N days (for trend charts)
   const days = parseInt(url.searchParams.get("days") ?? "0")
   if (days > 0 && days <= 30) {
-    const end = new Date(date + "T23:59:59.999Z")
-    const start = new Date(end.getTime() - (days - 1) * 86400000)
-    start.setUTCHours(0, 0, 0, 0)
+    const end = zonedDayRange(timezone, date).end
+    const start = zonedDayRange(timezone, addDaysISO(date, -(days - 1))).start
     const logs = await prisma.intakeLog.findMany({
       where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: start, lte: end } },
       select: { amountMl: true, loggedAt: true, type: true },
     })
     // Grouped by the user's day, not the server's: loggedAt is a timestamp, so
     // slicing its ISO string put a late-night drink on the day before.
-    const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
+    const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: timezone })
     const byDay: Record<string, number> = {}
     for (const l of logs) {
       const day = dayFmt.format(l.loggedAt)
@@ -34,8 +35,9 @@ export async function GET(req: Request) {
     return NextResponse.json(byDay)
   }
 
-  const start = new Date(date + "T00:00:00.000Z")
-  const end = new Date(date + "T23:59:59.999Z")
+  // The day's bounds where the user lives — a UTC window dropped every drink
+  // between local midnight and 02:00 from "today" and showed it on the wrong day.
+  const { start, end } = zonedDayRange(timezone, date)
 
   const logs = await prisma.intakeLog.findMany({
     where: { userId, loggedAt: { gte: start, lte: end } },

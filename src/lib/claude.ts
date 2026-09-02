@@ -14,7 +14,7 @@ import {
   type SourceChip, type SourceManifest,
 } from "@/lib/chat-sources"
 import { addDaysISO, localDateStr, localTimeStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
-import { getUserTimezone } from "@/lib/user-timezone"
+import { getUserTimezone, userDay } from "@/lib/user-timezone"
 import { randomUUID } from "crypto"
 import { rankRecallHits, recallTerms, RECALL_MAX_HITS, trimForRecall } from "@/lib/chat-recall"
 import { addFact, forgetFact, MEMORY_KEY, parseFacts, renderFacts, serialiseFacts } from "@/lib/emergy-memory"
@@ -553,7 +553,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       where: { userId, name: { contains: input.habitName, mode: "insensitive" }, isArchived: false },
     })
     if (!habit) return `No habit found matching "${input.habitName}".`
-    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const { dateColumn: today } = await userDay(userId)
     await prisma.habitCompletion.upsert({
       where: { habitId_date: { habitId: habit.id, date: today } },
       create: { habitId: habit.id, userId, date: today },
@@ -705,7 +705,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
 
   if (name === "log_mood") {
     const mood = Math.min(5, Math.max(1, parseInt(String(input.mood), 10)))
-    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const { dateColumn: today } = await userDay(userId)
     await prisma.moodLog.upsert({
       where: { userId_date: { userId, date: today } },
       create: { userId, date: today, mood },
@@ -716,7 +716,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
 
   if (name === "log_weight") {
     const weight = parseFloat(String(input.weightKg))
-    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const { dateColumn: today } = await userDay(userId)
     await prisma.healthLog.upsert({
       where: { userId_date: { userId, date: today } },
       create: { userId, date: today, weight },
@@ -1360,7 +1360,10 @@ export async function buildSystemPrompt(
   const fmtDateISO = new Intl.DateTimeFormat("en-CA", { timeZone: tz }) // YYYY-MM-DD
 
   const todayStr = fmtDateISO.format(today)
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+  // The user's day starts at THEIR midnight; timestamp columns are compared
+  // against that instant, date-only columns against the date itself.
+  const dayStart = zonedDayRange(tz, todayStr).start
+  const monthStart = new Date(todayStr.slice(0, 7) + "-01T00:00:00Z")
 
   const since14 = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000)
   const since7 = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
@@ -1395,9 +1398,9 @@ export async function buildSystemPrompt(
         new Date(today.getTime() + CALENDAR_DAYS_AHEAD * 24 * 60 * 60 * 1000).toISOString(),
       ),
       prisma.moodLog.findFirst({ where: { userId, date: { gte: new Date(todayStr) } } }).catch(() => null),
-      prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: new Date(todayStr) } } }).catch(() => []),
+      prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: dayStart } } }).catch(() => []),
       prisma.foodLog.findMany({
-        where: { userId, loggedAt: { gte: new Date(todayStr) } },
+        where: { userId, loggedAt: { gte: dayStart } },
         select: { name: true, mealType: true, calories: true, proteinG: true, micros: true },
         orderBy: { loggedAt: "asc" },
       }).catch(() => [] as { name: string; mealType: string; calories: number; proteinG: number | null; micros: unknown }[]),
@@ -1556,7 +1559,7 @@ export async function buildSystemPrompt(
   const halfLifeIsPersonal = !!caffeineProfile && !caffeineProfile.usedDefault
 
   const todayCaffeineMg = (caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[])
-    .filter(d => d.loggedAt >= new Date(todayStr))
+    .filter(d => d.loggedAt >= dayStart)
     .reduce((s, d) => s + d.caffeineMg, 0)
   const activeCaffeineMg = activeFromDoses(
     caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[],

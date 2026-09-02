@@ -17,12 +17,11 @@ export async function GET() {
   const timezone = await getUserTimezone(session.user.id)
   const todayStr = localDateStr(timezone)
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const today = new Date(todayStr + "T00:00:00Z")
   const plan = await getUserPlan(session.user.id)
   const historyDays = plan === "pro" ? 730 : 30
   const historyFrom = new Date(today)
-  historyFrom.setDate(today.getDate() - historyDays - 1)
+  historyFrom.setUTCDate(today.getUTCDate() - historyDays - 1)
 
   const habits = await prisma.habit.findMany({
     where: { userId: session.user.id, isArchived: false },

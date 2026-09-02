@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { userDay } from "@/lib/user-timezone"
 
 async function resolveUser(req: NextRequest): Promise<string | null> {
   const auth = req.headers.get("authorization") ?? ""
@@ -15,9 +16,7 @@ export async function GET(req: NextRequest) {
   const userId = await resolveUser(req)
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const todayStr = today.toISOString().split("T")[0]
+  const { today: todayStr, dateColumn: today } = await userDay(userId)
   const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
 
   const [healthToday, healthYesterday, moodToday, habitsCompleted, habitsTotal, weather, checkin] = await Promise.all([

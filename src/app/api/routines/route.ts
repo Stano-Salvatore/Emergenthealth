@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userDay } from "@/lib/user-timezone"
 
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const { dateColumn: today } = await userDay(session.user.id)
 
   const routines = await prisma.habitRoutine.findMany({
     where: { userId: session.user.id },

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { userDay } from "@/lib/user-timezone"
 
 // Home-screen Habits widget API. Auth mirrors /api/widget/status: an x-widget-key
 // header (or ?key=) resolved to a user via the widget_api_key UserPreference row.
@@ -17,11 +18,9 @@ function keyFrom(req: NextRequest): string {
   return req.headers.get("x-widget-key") ?? new URL(req.url).searchParams.get("key") ?? ""
 }
 
-// Date-only at UTC midnight — matches HabitCompletion's @db.Date column and the
-// existing MCP complete_habit tool, so widget + app + MCP all agree on "today".
-function utcMidnight(d = new Date()): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0))
-}
+// "Today" is the user's calendar day (userDay), stored the way HabitCompletion's
+// @db.Date column expects — the same value the app and Emergy's tools write, so
+// widget + app + chat all agree on which day a tick belongs to.
 function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
@@ -33,9 +32,8 @@ export async function GET(req: NextRequest) {
   const userId = await resolveUserByApiKey(apiKey)
   if (!userId) return NextResponse.json({ error: "Invalid API key" }, { status: 401 })
 
-  const today = utcMidnight()
+  const { today: todayStr, dateColumn: today } = await userDay(userId)
   const since = new Date(today.getTime() - 60 * 24 * 60 * 60 * 1000)
-  const todayStr = isoDay(today)
 
   const habits = await prisma.habit.findMany({
     where: { userId, isArchived: false },
@@ -78,7 +76,7 @@ export async function POST(req: NextRequest) {
   const habit = await prisma.habit.findFirst({ where: { id: habitId, userId } })
   if (!habit) return NextResponse.json({ error: "Habit not found" }, { status: 404 })
 
-  const date = utcMidnight()
+  const { dateColumn: date } = await userDay(userId)
   const done = body.done !== false // default to marking complete
 
   if (done) {

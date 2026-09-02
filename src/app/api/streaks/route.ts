@@ -2,7 +2,8 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 import { getLevel, computeXp, getGithubStats, currentDayStreak } from "@/lib/xp"
-import { userToday } from "@/lib/user-timezone"
+import { getUserTimezone } from "@/lib/user-timezone"
+import { localDateStr } from "@/lib/local-date"
 
 function longestStreak(sortedDates: string[]): number {
   if (!sortedDates.length) return 0
@@ -73,7 +74,8 @@ export async function GET() {
   const githubStreak = github.streak
 
   // per-habit streaks
-  const today = await userToday(userId)
+  const timezone = await getUserTimezone(userId)
+  const today = localDateStr(timezone)
   const byHabit = new Map<string, string[]>()
   for (const c of completions) {
     const key = c.habitId
@@ -100,7 +102,8 @@ export async function GET() {
 
   // Counts the achievements below still need (XP itself comes from computeXp)
   const weightLogs = await prisma.healthLog.count({ where: { userId, weight: { not: null } } })
-  const intakeDateSet = new Set(intakeDays.map(l => (l.loggedAt as Date).toISOString().slice(0, 10)))
+  const intakeDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: timezone })
+  const intakeDateSet = new Set(intakeDays.map(l => intakeDayFmt.format(l.loggedAt as Date)))
   const supplementDays = (ouraTagDays as { day: string }[]).length
   const checkinDates = (checkinRows as { date: string }[]).map(r => r.date).sort()
   const checkinStreak = currentDayStreak(checkinDates, today)

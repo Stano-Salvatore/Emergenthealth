@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og"
 import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { userDay } from "@/lib/user-timezone"
 
 export const runtime = "nodejs"
 
@@ -9,9 +10,7 @@ async function getWidgetData(key: string) {
   if (!apiKey) return null
   const userId = apiKey.userId
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const todayStr = today.toISOString().split("T")[0]
+  const { today: todayStr, dateColumn: today } = await userDay(userId)
   const yesterday = new Date(today.getTime() - 86400000)
 
   const [healthToday, healthYesterday, moodToday, habitsCompleted, habitsTotal, checkin] = await Promise.all([

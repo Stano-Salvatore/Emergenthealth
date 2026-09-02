@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { estimateCaffeine } from "@/lib/caffeine"
+import { userDay } from "@/lib/user-timezone"
 
 async function resolveUser(req: NextRequest): Promise<string | null> {
   const auth = req.headers.get("authorization") ?? ""
@@ -14,8 +15,7 @@ export async function GET(req: NextRequest) {
   const userId = await resolveUser(req)
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const { start: today } = await userDay(userId)
 
   const logs = await prisma.intakeLog.findMany({
     where: { userId, loggedAt: { gte: today } },

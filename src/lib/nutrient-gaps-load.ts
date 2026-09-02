@@ -8,6 +8,7 @@
 // don't worry about it. Neither source is worth much alone.
 
 import { prisma } from "@/lib/prisma"
+import { getUserTimezone } from "@/lib/user-timezone"
 import {
   assessCoverage, nutrientGaps, LAB_MARKER_FOR,
   type CoverageVerdict, type DayCalories, type LoggedMicro, type NutrientGap,
@@ -36,12 +37,12 @@ export interface NutrientReport {
 
 interface MicroRow { name?: unknown; amount?: unknown; unit?: unknown }
 
-function dayOf(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
 export async function loadNutrientReport(userId: string): Promise<NutrientReport> {
   const since = new Date(Date.now() - WINDOW_DAYS * 86400000)
+  // Meals are bucketed into the user's days: a late supper is that day's, not
+  // (for anyone east of Greenwich) the day before's.
+  const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
+  const dayOf = (d: Date): string => dayFmt.format(d)
 
   const meals = await prisma.foodLog.findMany({
     where: { userId, loggedAt: { gte: since } },

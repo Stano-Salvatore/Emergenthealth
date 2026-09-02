@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { userDay } from "@/lib/user-timezone"
 
 // Home-screen Reminders widget API. Same x-widget-key auth as the other widget routes.
 
@@ -16,11 +17,6 @@ function keyFrom(req: NextRequest): string {
   return req.headers.get("x-widget-key") ?? new URL(req.url).searchParams.get("key") ?? ""
 }
 
-function startOfTodayUtc(): Date {
-  const n = new Date()
-  return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate(), 0, 0, 0, 0))
-}
-
 // GET — active reminders, each tagged overdue / today / upcoming.
 export async function GET(req: NextRequest) {
   const apiKey = keyFrom(req)
@@ -34,14 +30,14 @@ export async function GET(req: NextRequest) {
     take: 20,
   })
 
-  const todayStart = startOfTodayUtc()
-  const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000)
+  // "Today" on the widget is the day on the phone, not the UTC day.
+  const { start: todayStart, end: todayEnd } = await userDay(userId)
 
   const items = reminders.map(r => {
     let state: "overdue" | "today" | "upcoming" = "upcoming"
     if (r.dueDate) {
       if (r.dueDate < todayStart) state = "overdue"
-      else if (r.dueDate < todayEnd) state = "today"
+      else if (r.dueDate <= todayEnd) state = "today"
     }
     return {
       id: r.id,
