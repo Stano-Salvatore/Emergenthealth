@@ -11,6 +11,7 @@ import {
   headStatus,
   openBubbleSettings,
   registerNativePush,
+  requestBatteryUnrestricted,
   requestOverlayPermission,
   scheduleHeadPops,
   setHeadPopsEnabled,
@@ -200,6 +201,28 @@ export function BubbleCard() {
                 <Button size="sm" onClick={grantOverlay}>Allow it</Button>
               )}
             </div>
+            {head.granted && head.keep !== undefined && (
+              <p className="text-xs text-muted-foreground">
+                {head.keep
+                  ? "He stays: after you close the app, after Android kills it, and after a restart, he comes back by himself. Putting him away turns that off."
+                  : "Floating him means he stays until you put him away — through the app being closed and the phone restarting."}
+              </p>
+            )}
+            {head.granted && head.batteryUnrestricted === false && (
+              <div className="space-y-1.5 rounded-lg bg-amber-500/10 px-3 py-2">
+                <p className="text-xs text-amber-400">
+                  Battery optimisation still applies to this app. That is what quietly kills a floating head once the app is closed — especially on Samsung.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={async () => { await requestBatteryUnrestricted(); setHead(await headStatus()) }}>
+                    Allow background
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  On Samsung, also: Settings → Battery → Background usage limits → Never sleeping apps → add Emergenthealth.
+                </p>
+              </div>
+            )}
 
             {head.granted && typeof popsSet === "number" && popsSet > 0 && (
               <div className="space-y-1 pt-1">

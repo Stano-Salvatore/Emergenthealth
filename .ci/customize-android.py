@@ -97,8 +97,10 @@ extra_permissions = """
       Stop button.
 
       The service is FOREGROUND_SERVICE_TYPE_SPECIAL_USE — it is a window the
-      user opened, not location or media — and it is not sticky, so the system
-      killing the process ends the head rather than resurrecting it.
+      user opened, not location or media. It is sticky only while the user has
+      asked for the head to stay, and REQUEST_IGNORE_BATTERY_OPTIMIZATIONS lets
+      the app ask to be left out of the "sleeping apps" logic that otherwise
+      kills it the moment the app is closed.
     -->
     <!--
       Only to put the chat head's alarms back. Android clears every alarm an
@@ -109,6 +111,7 @@ extra_permissions = """
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />

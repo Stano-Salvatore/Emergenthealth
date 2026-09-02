@@ -25,6 +25,7 @@ import { CsvImport } from "@/components/settings/CsvImport"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
 import { SyncStatusCard } from "@/components/settings/SyncStatusCard"
+import { StatusOverview } from "@/components/settings/StatusOverview"
 import { TelegramCard } from "@/components/settings/TelegramCard"
 import { BubbleCard } from "@/components/settings/BubbleCard"
 import { MotionCard } from "@/components/settings/MotionCard"
@@ -163,6 +164,10 @@ export default async function SettingsPage({
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-muted-foreground text-sm mt-0.5">Your account, devices and preferences</p>
       </div>
+
+      {/* Everything connected and whether it is working — the quick look,
+          before the sections. */}
+      <StatusOverview userId={userId} />
 
       {/* ── Alerts (connection results & warnings) ── */}
       {upgraded && (

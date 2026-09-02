@@ -82,6 +82,8 @@ public class EmergyHeadService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
+            // The Stop button: an explicit "put him away", so he must not come back.
+            EmergyBubblePlugin.setKeepHead(this, false);
             stopSelf();
             return START_NOT_STICKY;
         }
@@ -92,10 +94,30 @@ public class EmergyHeadService extends Service {
             String message = intent.getStringExtra(HeadAlarmReceiver.EXTRA_MESSAGE);
             if (message != null && !message.trim().isEmpty()) showSpeech(message.trim());
         }
-        // Not sticky: a floating window that reappears by itself after the
-        // system killed the process is exactly the behaviour that makes people
-        // revoke the overlay permission.
-        return START_NOT_STICKY;
+        // Sticky only while the user has asked for him to stay. A floating
+        // window that reappears by itself when nobody asked is what makes
+        // people revoke the overlay permission; one that vanishes when they
+        // DID ask is what made "Emergy doesn't follow me" a complaint.
+        return EmergyBubblePlugin.keepHead(this) ? START_STICKY : START_NOT_STICKY;
+    }
+
+    /**
+     * The app was swiped out of recents. On many phones that ends this
+     * service with it, sticky or not. If the head was asked to stay, an alarm
+     * a moment later starts it again from outside the dying process.
+     */
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        if (EmergyBubblePlugin.keepHead(this)) {
+            Intent restart = new Intent(this, HeadAlarmReceiver.class).setAction(HeadAlarmReceiver.ACTION_RESTART);
+            PendingIntent pi = PendingIntent.getBroadcast(
+                this, 920003, restart, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            android.app.AlarmManager am = getSystemService(android.app.AlarmManager.class);
+            if (am != null) {
+                am.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + 1500, pi);
+            }
+        }
+        super.onTaskRemoved(rootIntent);
     }
 
     // ---------------------------------------------------------------- the head
@@ -172,6 +194,7 @@ public class EmergyHeadService extends Service {
                         // Dragged onto the ✕ — the Messenger gesture, and the
                         // one people try first. Put him away for real rather
                         // than snapping him back to an edge.
+                        EmergyBubblePlugin.setKeepHead(EmergyHeadService.this, false);
                         stopSelf();
                         return true;
                     }
