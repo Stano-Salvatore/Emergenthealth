@@ -159,6 +159,8 @@ export default function ChatPage() {
   const emergyState = useEmergyState()
   const [listening, setListening] = useState(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  /** Seconds until dictation sends itself; null when not counting. */
+  const [silenceLeft, setSilenceLeft] = useState<number | null>(null)
   // Reading replies aloud. lib/voice has done this all along and the floating
   // panel has used it all along; this page — the one the Emergy tab opens —
   // imported the microphone and nothing else, so a voice chosen in Settings
@@ -170,6 +172,10 @@ export default function ChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
   const recognitionRef = useRef<DictationHandle | null>(null)
+  // startListening has to stay referentially stable — an effect below starts
+  // dictation from it — but it needs to call the CURRENT sendMessage, which is
+  // redeclared every render. A ref is the join: stable identity, live target.
+  const sendRef = useRef<((text: string) => void) | null>(null)
 
   // This page had its own copy of the browser SpeechRecognition API, which does
   // not exist inside an Android WebView — so in the app the mic button hit
@@ -180,12 +186,28 @@ export default function ChatPage() {
   const startListening = useCallback(() => {
     setVoiceError(null)
     setListening(true)
+    setSilenceLeft(null)
     void startDictation({
-      // Words land in the box rather than sending themselves: a dictation that
-      // fires off a half-heard sentence is worse than typing it.
-      onPartial: text => setInput(text),
-      onFinal: text => { setInput(text); setListening(false); recognitionRef.current = null },
-      onError: message => { setVoiceError(message); setListening(false); recognitionRef.current = null },
+      // Six seconds of nothing, then it goes.
+      //
+      // This used to drop the words in the box and wait for a tap, on the
+      // reasoning that firing off a half-heard sentence is worse than typing
+      // it. That still holds for Android's own end-of-speech, which cuts in
+      // the gap where you are choosing the next word — but six seconds is not
+      // that gap. It is somebody who has finished. The last three seconds are
+      // counted down on screen and any tap cancels, so it never sends behind
+      // your back.
+      silenceMs: 6000,
+      onSilenceTick: left => setSilenceLeft(left),
+      onPartial: text => { setInput(text); setSilenceLeft(null) },
+      onFinal: (text, endedBy) => {
+        setInput(text)
+        setListening(false)
+        setSilenceLeft(null)
+        recognitionRef.current = null
+        if (endedBy === "silence" && text.trim()) sendRef.current?.(text)
+      },
+      onError: message => { setVoiceError(message); setListening(false); setSilenceLeft(null); recognitionRef.current = null },
     }).then(handle => {
       if (handle) recognitionRef.current = handle
       else setListening(false)
@@ -361,6 +383,9 @@ export default function ChatPage() {
     setConversations((c) => c.filter(conv => conv.id !== id))
     if (conversationId === id) newChat()
   }
+
+  // Keep the ref pointing at this render's sendMessage; see sendRef above.
+  useEffect(() => { sendRef.current = (text: string) => { void sendMessage(text) } })
 
   async function sendMessage(overrideText?: string) {
     const text = (overrideText ?? input).trim()
@@ -709,6 +734,18 @@ export default function ChatPage() {
           one sentence explaining the failure was itself half invisible. */}
       {voiceError && (
         <p className="mt-3 px-4 text-center text-xs text-amber-400">{voiceError}</p>
+      )}
+
+      {/* The countdown to sending itself. Tapping it calls off the send and
+          leaves the words in the box, which is the whole reason it is a button
+          and not a caption. */}
+      {listening && silenceLeft !== null && (
+        <button
+          onClick={() => { recognitionRef.current?.stop(); recognitionRef.current = null; setListening(false); setSilenceLeft(null) }}
+          className="mt-3 mx-auto block rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs text-primary"
+        >
+          Sending in {silenceLeft}… tap to keep talking
+        </button>
       )}
 
       <div className="mt-4 flex gap-2 items-end">

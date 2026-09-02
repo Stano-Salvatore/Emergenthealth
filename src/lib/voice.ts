@@ -65,14 +65,60 @@ export type DictationHandle = { stop: () => void }
  * arrive so the user can see it working — silence with no feedback is
  * indistinguishable from a broken microphone.
  */
+/**
+ * Why a reply might have stopped: the user pressed stop, or they simply
+ * stopped talking. The caller cares, because only one of those means "I have
+ * finished the sentence, send it".
+ */
+export type DictationEnd = "stopped" | "silence"
+
 export async function startDictation(opts: {
   lang?: string
   onPartial?: (text: string) => void
-  onFinal: (text: string) => void
+  onFinal: (text: string, endedBy?: DictationEnd) => void
   onError: (message: string) => void
+  /**
+   * Give up and finish after this long with no new words.
+   *
+   * Android's recognizer has its own end-of-speech detection, but it is
+   * short and eager: it cuts off in the gap where someone is thinking of the
+   * next word. This is a deliberately long backstop — a pause this size is
+   * somebody who has finished, not somebody mid-sentence — and it is what
+   * lets the chat screen send without a tap.
+   */
+  silenceMs?: number
+  /** Counts down the last seconds before silence finishes it, so it is never a surprise. */
+  onSilenceTick?: (secondsLeft: number) => void
 }): Promise<DictationHandle | null> {
   const support = await dictationSupport()
   const lang = opts.lang || (typeof navigator !== "undefined" ? navigator.language : "en-US") || "en-US"
+
+  // The silence backstop, shared by both the native and the web path.
+  //
+  // Restarted on every partial result, so it measures the gap since the last
+  // word rather than the length of the dictation. The final second or two are
+  // announced through onSilenceTick, because a message that sends itself with
+  // no warning is startling the first time and infuriating the first time it
+  // is wrong.
+  const silenceMs = opts.silenceMs ?? 0
+  let silenceTimer: ReturnType<typeof setTimeout> | null = null
+  let tickTimer: ReturnType<typeof setInterval> | null = null
+  const clearSilence = () => {
+    if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null }
+    if (tickTimer) { clearInterval(tickTimer); tickTimer = null }
+  }
+  /** Called with the function that ends this dictation as "finished by silence". */
+  const armSilence = (endBySilence: () => void) => {
+    if (silenceMs <= 0) return
+    clearSilence()
+    let left = Math.ceil(silenceMs / 1000)
+    tickTimer = setInterval(() => {
+      left -= 1
+      // Only the tail is worth announcing; a countdown from six is noise.
+      if (left <= 3 && left >= 0) opts.onSilenceTick?.(left)
+    }, 1000)
+    silenceTimer = setTimeout(() => { clearSilence(); endBySilence() }, silenceMs)
+  }
 
   if (support === "unsupported") {
     opts.onError(
@@ -104,6 +150,7 @@ export async function startDictation(opts: {
       // listeningState says when speech is over.
       let settled = false
       let latest = ""
+      let endedBy: DictationEnd = "stopped"
 
       // Collected in a list so cleanup never closes over a binding that might
       // not be initialised yet, and so only this call's listeners are removed
@@ -118,6 +165,8 @@ export async function startDictation(opts: {
         if (!text) return
         latest = text
         opts.onPartial?.(text)
+        // Each word pushes the deadline back.
+        armSilence(() => { endedBy = "silence"; stopNative() })
       }))
 
       // Idempotent: whichever of the stop event and the stop() call lands
@@ -126,8 +175,9 @@ export async function startDictation(opts: {
         if (settled) return
         settled = true
         if (graceTimer) clearTimeout(graceTimer)
+        clearSilence()
         cleanup()
-        if (latest) opts.onFinal(latest)
+        if (latest) opts.onFinal(latest, endedBy)
         else opts.onError("Didn't catch that — nothing was heard.")
       }
 
@@ -141,6 +191,12 @@ export async function startDictation(opts: {
       const finishAfterFinalResult = () => {
         if (settled || graceTimer) return
         graceTimer = setTimeout(finish, 700)
+      }
+      // Asking the recognizer to stop is what produces the polished result;
+      // finishing straight from the timer would settle on the last rough
+      // partial and throw the real answer away.
+      const stopNative = () => {
+        void SpeechRecognition.stop().catch(() => {}).finally(() => finishAfterFinalResult())
       }
 
       handles.push(await SpeechRecognition.addListener("listeningState", (data: { status?: string }) => {
@@ -160,8 +216,9 @@ export async function startDictation(opts: {
         // finishes. finish() is called anyway in case that event never lands,
         // so pressing stop always resolves to something.
         stop: () => {
+          clearSilence()
           // Same grace window: the final result may still be in flight.
-          void SpeechRecognition.stop().catch(() => {}).finally(() => finishAfterFinalResult())
+          stopNative()
         },
       }
     } catch {
@@ -176,25 +233,39 @@ export async function startDictation(opts: {
   rec.lang = lang
   rec.continuous = false
   rec.interimResults = true
+  let webLatest = ""
+  let webSettled = false
+  const webFinish = (endedBy: DictationEnd) => {
+    if (webSettled) return
+    webSettled = true
+    clearSilence()
+    try { rec.stop() } catch { /* already stopped */ }
+    if (webLatest) opts.onFinal(webLatest, endedBy)
+  }
   rec.onresult = e => {
     const parts: string[] = []
     for (let i = 0; i < e.results.length; i++) parts.push(e.results[i][0]?.transcript ?? "")
     const text = parts.join(" ").trim()
-    if (text) opts.onPartial?.(text)
+    if (text) {
+      webLatest = text
+      opts.onPartial?.(text)
+      armSilence(() => webFinish("silence"))
+    }
   }
   rec.onerror = e => {
+    clearSilence()
     opts.onError(e?.error === "not-allowed"
       ? "Microphone permission was denied."
       : "Dictation stopped unexpectedly.")
   }
-  rec.onend = () => { /* final text already delivered through onPartial */ }
+  rec.onend = () => { clearSilence() }
   try {
     rec.start()
   } catch {
     opts.onError("Couldn't start dictation.")
     return null
   }
-  return { stop: () => { try { rec.stop() } catch { /* already stopped */ } } }
+  return { stop: () => { clearSilence(); try { rec.stop() } catch { /* already stopped */ } } }
 }
 
 /* ─────────────────────────────── Speech ──────────────────────────────── */
