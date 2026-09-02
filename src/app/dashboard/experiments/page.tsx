@@ -130,6 +130,24 @@ export default function ExperimentsPage() {
   const [blockDays, setBlockDays] = useState(7)
   const [blocks, setBlocks] = useState(4)
 
+  // Arriving from a "Test this" link on a Patterns card: the form comes
+  // pre-filled and open, and the query is dropped so a refresh does not
+  // re-open it.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search)
+    const n = q.get("name"), a = q.get("action"), o = q.get("outcome")
+    if (!n && !a) return
+    // After the first paint, not during it: the URL is only readable on the
+    // client, so the server-rendered form is empty and this fills it in.
+    void Promise.resolve().then(() => {
+      if (n) setName(n.slice(0, 80))
+      if (a) setAction(a.slice(0, 200))
+      if (o && OUTCOMES.some(x => x.key === o)) setOutcome(o)
+      setCreating(true)
+      window.history.replaceState(null, "", window.location.pathname)
+    })
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     void (async () => {

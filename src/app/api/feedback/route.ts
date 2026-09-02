@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { Resend } from "resend"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { EMAIL_FROM } from "@/lib/email"
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 
@@ -21,7 +22,7 @@ async function notifyOwner(userName: string | null, userEmail: string | null, me
   if (!resend || !process.env.FEEDBACK_NOTIFY_EMAIL) return
   const emoji = TYPE_EMOJI[type] ?? "💬"
   await resend.emails.send({
-    from: "Emergenthealth <noreply@emergenthealth.app>",
+    from: EMAIL_FROM,
     to: process.env.FEEDBACK_NOTIFY_EMAIL,
     subject: `[Feedback] ${emoji} ${type} from ${userName ?? userEmail ?? "unknown"}`,
     html: `

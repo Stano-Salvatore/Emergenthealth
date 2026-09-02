@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { detectAnomaly, detectAll, median, mad, TRACKED_METRICS, type DayValue } from "@/lib/anomalies"
+import { detectAnomaly, detectAll, illnessSignal, median, mad, TRACKED_METRICS, type Anomaly, type DayValue } from "@/lib/anomalies"
 
 const spec = (key: string) => TRACKED_METRICS.find(m => m.key === key)!
 
@@ -93,5 +93,41 @@ describe("detectAll", () => {
     expect(found[0].metric).toBe("restingHR")
     expect(found[0].concerning).toBe(true)
     expect(found[1].concerning).toBe(false)
+  })
+})
+
+describe("illnessSignal", () => {
+  const mk = (metric: string, direction: "above" | "below", date = "2026-02-01"): Anomaly => ({
+    metric, label: TRACKED_METRICS.find(m => m.key === metric)!.label, emoji: "x", unit: "",
+    value: 1, baseline: 0, z: 2.5, direction, concerning: true, runLength: 1, date, summary: metric,
+  })
+
+  it("fires when three of the four infection signs move together on one night", () => {
+    const composite = illnessSignal([mk("skinTemp", "above"), mk("restingHR", "above"), mk("hrv", "below")])
+    expect(composite).not.toBeNull()
+    expect(composite!.metric).toBe("illness")
+    expect(composite!.parts).toEqual(["skinTemp", "restingHR", "hrv"])
+    expect(composite!.summary).toContain("not a diagnosis")
+  })
+
+  it("stays quiet for two signs (a hard workout looks like that) or the wrong direction", () => {
+    expect(illnessSignal([mk("skinTemp", "above"), mk("restingHR", "above")])).toBeNull()
+    expect(illnessSignal([mk("skinTemp", "above"), mk("restingHR", "above"), mk("hrv", "above")])).toBeNull()
+  })
+
+  it("does not join signs from different nights into one story", () => {
+    expect(illnessSignal([mk("skinTemp", "above"), mk("restingHR", "above"), mk("hrv", "below", "2026-01-30")])).toBeNull()
+  })
+
+  it("stands in for its parts in detectAll", () => {
+    const series = {
+      skinTemp: [...steady(20, 33.5, 0.1), { date: "2026-02-01", value: 34.6 }],
+      breathingRate: [...steady(20, 14, 0.2), { date: "2026-02-01", value: 16.5 }],
+      restingHR: [...steady(20, 54), { date: "2026-02-01", value: 63 }],
+      hrv: [...steady(20, 60, 2), { date: "2026-02-01", value: 38 }],
+    }
+    const all = detectAll(series)
+    expect(all[0].metric).toBe("illness")
+    expect(all.some(a => a.metric === "restingHR")).toBe(false)
   })
 })

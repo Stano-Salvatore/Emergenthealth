@@ -35,6 +35,7 @@ import { loadLabTrends } from "@/lib/lab-trends-load"
 import { loadNutrientReport } from "@/lib/nutrient-gaps-load"
 import { saveGoals } from "@/lib/goals"
 import { activeOn, matchKey } from "@/lib/med-schedule"
+import { hhmm, lastCoffeeBy, medianBedtimeMin } from "@/lib/caffeine-cutoff"
 
 /** Fold whatever the model called it onto a type the app stores. */
 function normalizeDrinkType(raw: string): string {
@@ -1761,7 +1762,7 @@ export async function buildSystemPrompt(
           id: true, date: true, sleepDuration: true, deepSleep: true, remSleep: true,
           steps: true, restingHR: true, weight: true, activeMinutes: true, caloriesBurned: true,
           readinessScore: true, hrv: true, spo2: true, activityScore: true, breathingRate: true,
-          sleepScore: true,
+          sleepScore: true, sleepStart: true,
         },
       }),
       prisma.transaction.findMany({ where: { userId, date: { gte: monthStart } }, orderBy: { date: "desc" }, take: 100 }),
@@ -1940,6 +1941,15 @@ export async function buildSystemPrompt(
   const caffeineProfile = await getPersonalCaffeineProfile(userId).catch(() => null)
   const halfLifeH = caffeineProfile?.halfLifeH ?? HALF_LIFE_H
   const halfLifeIsPersonal = !!caffeineProfile && !caffeineProfile.usedDefault
+  // "Last coffee by 14:10" — bedtime from the ring, clearance from the half-life.
+  const bedtimeMin = medianBedtimeMin(
+    (recentHealth as { sleepStart?: Date | null }[]).map(h => h.sleepStart).filter((d): d is Date => d != null),
+    tz,
+  )
+  const coffeeCutoff = bedtimeMin != null ? lastCoffeeBy(bedtimeMin, halfLifeH) : null
+  const caffeineCutoffStr = coffeeCutoff && bedtimeMin != null
+    ? `- Coffee cutoff: their usual bedtime is ~${hhmm(bedtimeMin)}; with their ${halfLifeH}h half-life an ordinary coffee (~100mg) should be the last one by ${hhmm(coffeeCutoff.cutoffMin)} to be under 30mg by then. Say the time, not the arithmetic.`
+    : null
 
   const todayCaffeineMg = (caffeineDoses24h as { caffeineMg: number; loggedAt: Date }[])
     .filter(d => d.loggedAt >= dayStart)
@@ -2335,6 +2345,7 @@ ${anomaliesStr ? `## Off their own baseline right now (45-day median/MAD scan of
 - Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml` : ""}
 ${foodLine}
 ${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today (${halfLifeIsPersonal ? `${halfLifeH}h half-life, fitted from their own sleep data` : `${halfLifeH}h half-life — the population default, not yet fitted to them, so don't state it as their personal figure`} — how much is still circulating right now is in the LIVE block; factor it into sleep/energy advice, e.g. discourage more coffee if a lot is still active late in the day)` : ""}
+${caffeineCutoffStr ?? ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
 ${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}
 ${fastingStr ?? ""}

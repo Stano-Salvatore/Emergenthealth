@@ -5,9 +5,11 @@ import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser, type Delivery } from "@/lib/push"
 import { sayAsEmergy } from "@/lib/emergy-say"
 import { computeCorrelations, ENGINE_VERSION } from "@/lib/correlations"
+import { EMAIL_FROM } from "@/lib/email"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+export const maxDuration = 300 // the engine runs once per subscribed user, in one call
 
 // Pin & watch: users star correlations they care about (insights_pinned). This
 // cron recomputes their correlations daily and alerts them — by push AND email,
@@ -200,7 +202,7 @@ export async function GET(req: NextRequest) {
     if (resend && u?.email) {
       try {
         await resend.emails.send({
-          from: "Emergenthealth <onboarding@resend.dev>",
+          from: EMAIL_FROM,
           to: u.email,
           subject: `📊 ${changes.length} pattern${changes.length === 1 ? "" : "s"} changed`,
           html: buildEmail(u.name, changes, appUrl),

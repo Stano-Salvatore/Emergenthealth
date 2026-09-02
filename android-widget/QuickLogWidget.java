@@ -3,6 +3,7 @@ package app.emergenthealth;
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -59,14 +60,19 @@ public class QuickLogWidget extends AppWidgetProvider {
         super.onReceive(context, intent);
         String action = intent.getAction();
         if (action == null) return;
+        // goAsync() keeps the process alive until finish() is called. Without
+        // it the receiver returns the moment the thread starts, and Android is
+        // free to kill the process before the request lands — which was the
+        // intermittent "NOT SAVED" tap the widget then had to explain.
+        final BroadcastReceiver.PendingResult pr = goAsync();
         switch (action) {
-            case ACTION_LOG_WATER_250: logAndUpdate(context, "water", 250); break;
-            case ACTION_LOG_WATER_500: logAndUpdate(context, "water", 500); break;
-            case ACTION_LOG_COFFEE:    logAndUpdate(context, "coffee", 240); break;
-            case ACTION_LOG_BEER:      logAndUpdate(context, "beer", 330); break;
-            case ACTION_LOG_WINE:      logAndUpdate(context, "wine", 150); break;
-            case ACTION_LOG_USUAL:     logUsual(context); break;
-            default: break;
+            case ACTION_LOG_WATER_250: logAndUpdate(context, "water", 250, pr); break;
+            case ACTION_LOG_WATER_500: logAndUpdate(context, "water", 500, pr); break;
+            case ACTION_LOG_COFFEE:    logAndUpdate(context, "coffee", 240, pr); break;
+            case ACTION_LOG_BEER:      logAndUpdate(context, "beer", 330, pr); break;
+            case ACTION_LOG_WINE:      logAndUpdate(context, "wine", 150, pr); break;
+            case ACTION_LOG_USUAL:     logUsual(context, pr); break;
+            default: pr.finish(); break;
         }
     }
 
@@ -167,14 +173,19 @@ public class QuickLogWidget extends AppWidgetProvider {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }
 
-    static void logAndUpdate(final Context context, final String type, final int amountMl) {
+    static void logAndUpdate(final Context context, final String type, final int amountMl,
+                             final BroadcastReceiver.PendingResult pr) {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                String body = postLog(context, "{\"type\":\"" + type + "\",\"amountMl\":" + amountMl + "}");
-                if (body != null) bumpLocalTotals(context, type, amountMl);
-                noteResult(context, body != null);
-                refreshAll(context);
+                try {
+                    String body = postLog(context, "{\"type\":\"" + type + "\",\"amountMl\":" + amountMl + "}");
+                    if (body != null) bumpLocalTotals(context, type, amountMl);
+                    noteResult(context, body != null);
+                    refreshAll(context);
+                } finally {
+                    if (pr != null) pr.finish();
+                }
             }
         }).start();
     }
@@ -185,18 +196,22 @@ public class QuickLogWidget extends AppWidgetProvider {
      * know either. The response says what was logged, which is what keeps the
      * local daily totals honest.
      */
-    static void logUsual(final Context context) {
+    static void logUsual(final Context context, final BroadcastReceiver.PendingResult pr) {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                String body = postLog(context, "{\"usual\":true}");
-                if (body != null) {
-                    String type = extractString(body, "type");
-                    int ml = extractInt(body, "amountMl");
-                    if (type != null && ml > 0) bumpLocalTotals(context, type, ml);
+                try {
+                    String body = postLog(context, "{\"usual\":true}");
+                    if (body != null) {
+                        String type = extractString(body, "type");
+                        int ml = extractInt(body, "amountMl");
+                        if (type != null && ml > 0) bumpLocalTotals(context, type, ml);
+                    }
+                    noteResult(context, body != null);
+                    refreshAll(context);
+                } finally {
+                    if (pr != null) pr.finish();
                 }
-                noteResult(context, body != null);
-                refreshAll(context);
             }
         }).start();
     }

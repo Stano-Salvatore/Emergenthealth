@@ -1,5 +1,7 @@
 import { auth } from "@/auth"
 import { scoreText } from "@/lib/score-color"
+import { loadDailyScore } from "@/lib/daily-score-load"
+import { scoreGrade as gradeDaily } from "@/lib/daily-score"
 import type { FocusSession, IntakeLog } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
@@ -359,7 +361,7 @@ export default async function DashboardPage() {
   const todayMood = todayMoodLogs[0]?.mood ?? null
 
   // ── wellness score
-  const { score: wellnessScore, components: scorePillars } = computeWellnessScore({
+  const { score: absoluteScore, components: scorePillars } = computeWellnessScore({
     sleepMin: latestHealth?.sleepDuration ?? null,
     steps: latestHealth?.steps ?? null,
     readiness: latestHealth?.readinessScore ?? null,
@@ -367,7 +369,17 @@ export default async function DashboardPage() {
     sleepGoalH: SLEEP_GOAL_H,
     stepGoal: STEP_GOAL,
   })
-  const { label: scoreLabel, color: scoreColor, emoji: scoreEmoji } = scoreGrade(wellnessScore)
+  // One number everywhere. The Patterns page scores the day against this
+  // person's own 45-day baselines (50 = a typical day for them); the gauge
+  // here used an absolute scale and disagreed with it every morning. The
+  // absolute score remains only as the fallback for the first ten days.
+  const daily = await loadDailyScore(userId).catch(() => null)
+  const wellnessScore = daily?.score ?? absoluteScore
+  const { label: scoreLabel, color: scoreColor, emoji: scoreEmoji } =
+    daily?.score != null ? gradeDaily(daily.score) : scoreGrade(absoluteScore)
+  const scoreDriver = daily?.driver
+    ? `${daily.driver.emoji} ${daily.driver.label} ${daily.driver.direction === "up" ? "carried it" : "pulled it down"}`
+    : null
 
   const header = (
     <>
@@ -392,8 +404,9 @@ export default async function DashboardPage() {
             <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>
             <div>
               {/* A bare red number reads as an alarming mystery — say what it is. */}
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Day score</p>
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Day score{daily?.score != null ? " · vs your usual" : ""}</p>
               <p className={`text-[11px] font-semibold uppercase tracking-wider ${scoreColor}`}>{scoreEmoji} {scoreLabel}</p>
+              {scoreDriver && <p className="text-[10px] text-muted-foreground mt-0.5">{scoreDriver}</p>}
             </div>
           </div>
           <div className="flex-1 min-w-0 bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50">

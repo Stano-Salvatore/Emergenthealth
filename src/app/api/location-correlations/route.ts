@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
 
 export const runtime = "nodejs"
+export const maxDuration = 60 // a year of visits joined to health rows
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

@@ -3,6 +3,7 @@ package app.emergenthealth;
 import android.app.PendingIntent;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProvider;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -43,7 +44,8 @@ public class HabitsWidget extends AppWidgetProvider {
         if (ACTION_TOGGLE.equals(intent.getAction())) {
             String id = intent.getStringExtra(EXTRA_HABIT_ID);
             if (id == null) return;
-            toggleAndRefresh(context, id, intent.getBooleanExtra(EXTRA_DONE, true));
+            // Keep the process alive until the POST has landed (see QuickLogWidget).
+            toggleAndRefresh(context, id, intent.getBooleanExtra(EXTRA_DONE, true), goAsync());
         }
     }
 
@@ -136,7 +138,8 @@ public class HabitsWidget extends AppWidgetProvider {
         }).start();
     }
 
-    static void toggleAndRefresh(final Context context, final String habitId, final boolean done) {
+    static void toggleAndRefresh(final Context context, final String habitId, final boolean done,
+                                 final BroadcastReceiver.PendingResult pr) {
         new Thread(() -> {
             try {
                 String[] c = creds(context);
@@ -156,6 +159,7 @@ public class HabitsWidget extends AppWidgetProvider {
                 }
             } catch (Exception ignored) { /* never crash the widget */ }
             refreshAll(context);
+            if (pr != null) pr.finish();
         }).start();
     }
 }

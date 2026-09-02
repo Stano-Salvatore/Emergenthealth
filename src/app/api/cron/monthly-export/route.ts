@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 import { buildExportBundle } from "@/lib/export"
+import { EMAIL_FROM } from "@/lib/email"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -80,7 +81,7 @@ export async function GET(req: NextRequest) {
       skippedSize++
       try {
         await resend.emails.send({
-          from: "Emergenthealth <onboarding@resend.dev>",
+          from: EMAIL_FROM,
           to: user.email!,
           subject: "💾 Your monthly backup is ready (too large to attach)",
           html: `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;color:#0f0f1a">
@@ -95,7 +96,7 @@ export async function GET(req: NextRequest) {
     const sizeMb = (bundle.bytes / 1024 / 1024).toFixed(1)
     try {
       await resend.emails.send({
-        from: "Emergenthealth <onboarding@resend.dev>",
+        from: EMAIL_FROM,
         to: user.email!,
         subject: `💾 Your monthly data backup — ${bundle.filename.replace("emergenthealth-export-", "").replace(".json", "")}`,
         html: `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;color:#0f0f1a">

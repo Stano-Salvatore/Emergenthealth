@@ -26,11 +26,17 @@ concurrency:
 jobs:
   deliver:
     runs-on: ubuntu-latest
+    # A hung function used to hold the job for six hours and queue every later
+    # tick behind it; now the job dies in twenty minutes and the next tick runs.
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - name: Deliver due reminders
         env:
           APP_URL: https://emergenthealth.vercel.app
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_REMINDERS_URL }}
         run: |
           if [ -z "${CRON_SECRET}" ]; then
             echo "::error::CRON_SECRET repository secret is not set — every run will 401 and no reminder will ever be delivered."
@@ -56,10 +62,12 @@ jobs:
           # 15:00 UTC for everyone) and marks the day sent, so it needs this
           # tick to notice every timezone.
           for endpoint in habit-reminders med-reminders morning-reminder noon-reminder evening-reminder wind-down-nudge experiment-nudge emergy-weekly-review emergy-push monthly-export re-engagement place-checkins; do
-            code=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
+            code=$(curl -sS --max-time 120 -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${endpoint}") || true
-            echo "== ${endpoint}: HTTP $code"; cat /tmp/out.txt || true; echo
+            # Status and size only. Response bodies carry user ids and provider
+            # error text, and these logs are public.
+            echo "== ${endpoint}: HTTP $code ($(wc -c < /tmp/out.txt | tr -d ' ') bytes)"
 
             case "$code" in
               200) ;;
@@ -74,4 +82,15 @@ jobs:
                 echo "::warning::${endpoint} returned $code" ;;
             esac
           done
+
+          # A dead-man's switch. GitHub disables a scheduled workflow after 60
+          # days without a push to the default branch, and a slipped or hung
+          # schedule looks exactly like a quiet one. A free healthchecks.io
+          # check with a grace period longer than the schedule pages when this
+          # ping stops arriving — the one failure nothing else here reports.
+          # Optional: unset means no ping.
+          if [ -n "${HEALTHCHECKS_URL:-}" ]; then
+            suffix=""; [ "$failed" = "1" ] && suffix="/fail"
+            curl -fsS -m 10 --retry 3 "${HEALTHCHECKS_URL}${suffix}" >/dev/null || echo "::warning::healthchecks ping failed"
+          fi
           exit $failed

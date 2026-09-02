@@ -5,6 +5,8 @@ import { listRevolutStatements, downloadRevolutCsv } from "@/lib/google-drive"
 import { parseRevolutCsv, guessCategory, isInternalTransfer, rowKey } from "@/lib/revolut-csv"
 import { errorMessage } from "@/lib/utils"
 
+export const maxDuration = 120 // Drive listing plus per-file parsing
+
 // GET — list available Drive statement files and their import status
 export async function GET() {
   const session = await auth()

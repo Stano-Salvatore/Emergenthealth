@@ -9,6 +9,7 @@ import { WatchedPatterns } from "@/components/dashboard/WatchedPatterns"
 import PlaceCorrelations from "@/components/location/PlaceCorrelations"
 import { BaselineAlerts } from "@/components/dashboard/BaselineAlerts"
 import { DailyScoreCard } from "@/components/dashboard/DailyScoreCard"
+import { experimentSuggestion } from "@/lib/experiment-suggest"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -115,6 +116,8 @@ function DeltaPill({ delta }: { delta: number }) {
 // ─── Insight Card ─────────────────────────────────────────────────────────────
 
 function InsightCard({ insight }: { insight: InsightResult }) {
+  // An association the user can act on gets a way to test it properly.
+  const suggestion = experimentSuggestion(insight)
   return (
     <Card className="border-border bg-card">
       <CardContent className="p-4 space-y-3">
@@ -156,6 +159,14 @@ function InsightCard({ insight }: { insight: InsightResult }) {
 
         {/* Finding text */}
         <p className="text-sm text-muted-foreground leading-relaxed">{insight.finding}</p>
+        {suggestion && (
+          <Link
+            href={`/dashboard/experiments?${new URLSearchParams({ name: suggestion.name, action: suggestion.action, outcome: suggestion.outcome })}`}
+            className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline underline-offset-2"
+          >
+            🧪 Test this properly
+          </Link>
+        )}
 
         {/* Stat chips */}
         <div className="grid grid-cols-2 gap-2">
