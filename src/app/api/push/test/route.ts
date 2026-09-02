@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 export async function POST() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
+
+  const rl = checkRateLimit(userId, "push_test", 10, 60 * 60 * 1000)
+  if (!rl.allowed) return NextResponse.json({ error: "Enough test pushes for now — try again later.", resetAt: rl.resetAt }, { status: 429 })
 
   if (!configurePush()) {
     return NextResponse.json({ error: "Push notifications not configured. Add VAPID keys to environment variables." }, { status: 503 })

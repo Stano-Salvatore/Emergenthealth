@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { analyzeLabDocument, LAB_IMPORT_DISCLAIMER } from "@/lib/lab-analyze"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -15,6 +16,10 @@ const MAX_CHARS = 9_500_000
 export async function POST(req: Request) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  // A multi-page lab document is the single most expensive call in the app.
+  const rl = checkRateLimit(session.user.id, "labs_import", 20, 60 * 60 * 1000)
+  if (!rl.allowed) return NextResponse.json({ error: "Too many imports this hour — try again later.", resetAt: rl.resetAt }, { status: 429 })
 
   const { document } = await req.json().catch(() => ({})) as { document?: unknown }
   if (typeof document !== "string" || !document.startsWith("data:")) {

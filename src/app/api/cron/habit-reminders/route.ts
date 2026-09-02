@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { localCoversNow, parseCoverage } from "@/lib/local-notifications"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
@@ -26,10 +27,8 @@ function minutesBefore(hhmm: string, minutes: number): string {
 const SENT_KEY = "reminders_sent"
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   if (!configurePush()) {
     return NextResponse.json({ error: "VAPID not configured" }, { status: 503 })

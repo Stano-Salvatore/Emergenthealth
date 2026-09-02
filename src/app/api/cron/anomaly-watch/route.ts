@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
@@ -33,13 +34,8 @@ function stateKey(a: Anomaly): string {
 }
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (secret) {
-    const authHeader = req.headers.get("authorization")
-    if (authHeader !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   if (!configurePush()) {
     return NextResponse.json({ ok: true, skipped: "push not configured" })

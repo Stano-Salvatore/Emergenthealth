@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { syncStravaForUser } from "@/lib/strava-sync"
 import { recordSync } from "@/lib/sync-status-store"
@@ -11,13 +12,8 @@ export const maxDuration = 300
 // activities only synced when the user pressed the button on the Strava page —
 // so workout correlations and timelines quietly ran on stale data.
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (secret) {
-    const auth = req.headers.get("authorization")
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   const tokens = await prisma.stravaToken.findMany({ select: { userId: true } }).catch(() => [])
 

@@ -54,3 +54,11 @@ __pycache__/
 
 # Smoke-test screenshots
 .ci/smoke-shots/
+
+# Every env file except the example; signing material; Firebase service files
+.env*
+!.env.example
+*.jks
+*.keystore
+google-services.json
+docker/ac-bridge/.env

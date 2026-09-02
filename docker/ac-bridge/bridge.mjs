@@ -15,15 +15,23 @@ import http from "node:http"
 import dgram from "node:dgram"
 import crypto from "node:crypto"
 
+// Device identity comes from the environment only. The MAC, LAN IP and the
+// per-device AES key used to be defaults in this file — in a public repo.
+function required(name) {
+  const v = process.env[name]
+  if (!v) { console.error(`${name} is required (see docker-compose.yml / .env)`); process.exit(1) }
+  return v
+}
+
 const PORT    = Number(process.env.PORT     ?? 8088)
 const AC_PORT = 7000
-const MAC     = (process.env.GREE_MAC ?? "9424b8badd3b").toLowerCase().replace(/:/g, "")
+const MAC     = required("GREE_MAC").toLowerCase().replace(/:/g, "")
 const NAME    = process.env.GREE_NAME ?? "Sinclair AC"
-const SCAN_NET = process.env.GREE_SCAN_NET ?? "192.168.100"   // e.g. "10.0.1"
+const SCAN_NET = process.env.GREE_SCAN_NET ?? "192.168.1"     // e.g. "10.0.1"
 const GKEY    = "a3K8Bx%2r8Y7#xDh"
 
 // ── Device key — obtained from EWPE Smart app, no LAN bind needed ─────────────
-let devKey = process.env.GREE_DEV_KEY ?? "60230602AA85C1BF"
+let devKey = required("GREE_DEV_KEY")
 
 // ── Dynamic IP discovery ────────────────────────────────────────────────────
 // Prefer env override; otherwise scan the LAN to find the AC's current IP
@@ -94,7 +102,7 @@ function udp(payload, ms = 4000) {
     s.on("error",   e => end(() => reject(e)))
     setTimeout(()  => end(() => reject(new Error("UDP timeout"))), ms)
     // IP may be null if AC not yet discovered — caller ensures discoverIp() ran first
-    s.send(Buffer.from(JSON.stringify(payload)), AC_PORT, IP ?? "192.168.100.49", e => { if (e) end(() => reject(e)) })
+    s.send(Buffer.from(JSON.stringify(payload)), AC_PORT, IP ?? `${SCAN_NET}.255`, e => { if (e) end(() => reject(e)) })
   })
 }
 

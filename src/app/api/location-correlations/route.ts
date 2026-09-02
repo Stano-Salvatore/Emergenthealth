@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { readFileSync } from "fs"
-import path from "path"
 
 export const runtime = "nodejs"
 
@@ -94,12 +92,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Corrupted timeline data in DB" }, { status: 500 })
     }
   } else {
-    try {
-      const filePath = path.join(process.cwd(), "data", "timeline-visits.json")
-      visitsData = JSON.parse(readFileSync(filePath, "utf-8")) as TimelineVisitsData
-    } catch {
-      return NextResponse.json([], { status: 200 })
-    }
+    // Nothing imported yet, nothing to correlate. This used to fall back to a
+    // JSON file committed to the repository — which held the owner's home
+    // address, coordinates and friends' places in a public tree. The import
+    // route stores the same data per user in the database.
+    return NextResponse.json([], { status: 200 })
   }
 
   // ── Fetch health & mood data ───────────────────────────────────────────────

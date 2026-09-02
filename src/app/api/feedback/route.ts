@@ -12,6 +12,11 @@ const TYPE_EMOJI: Record<string, string> = {
   love: "❤️",
 }
 
+/** User-supplied text goes into an HTML email; it must not be able to write HTML. */
+function esc(s: string): string {
+  return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string))
+}
+
 async function notifyOwner(userName: string | null, userEmail: string | null, message: string, type: string) {
   if (!resend || !process.env.FEEDBACK_NOTIFY_EMAIL) return
   const emoji = TYPE_EMOJI[type] ?? "💬"
@@ -20,10 +25,10 @@ async function notifyOwner(userName: string | null, userEmail: string | null, me
     to: process.env.FEEDBACK_NOTIFY_EMAIL,
     subject: `[Feedback] ${emoji} ${type} from ${userName ?? userEmail ?? "unknown"}`,
     html: `
-      <p><strong>Type:</strong> ${emoji} ${type}</p>
-      <p><strong>From:</strong> ${userName ?? "—"} (${userEmail ?? "—"})</p>
+      <p><strong>Type:</strong> ${emoji} ${esc(type)}</p>
+      <p><strong>From:</strong> ${esc(userName ?? "—")} (${esc(userEmail ?? "—")})</p>
       <hr/>
-      <p style="white-space:pre-wrap">${message}</p>
+      <p style="white-space:pre-wrap">${esc(message)}</p>
     `,
   }).catch(() => {})
 }
