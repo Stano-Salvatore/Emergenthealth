@@ -36,6 +36,14 @@ function Glyph({
   const num = day ? Number(day.date.slice(8)) : null
   const mood = day?.mood ?? null
   const recorded = day?.recorded ?? false
+  // A day that hasn't arrived is not a day nobody logged. dayGlyph already
+  // keeps the two apart — "not yet" rather than "0 of 4" — but the grid drew
+  // them identically, so on the 2nd of the month twenty-eight dashed circles
+  // said "nothing written down" about days that have not happened. The
+  // caption underneath read "0 of 2 days so far", and the picture disagreed
+  // with it. Same rule as the rest of this file: the absence of a future is
+  // not a failure in the present.
+  const future = day?.future ?? false
 
   // Filled only when the day actually happened. Mood colours it when there is
   // one; otherwise a neutral disc says "something was recorded here" without
@@ -48,15 +56,18 @@ function Glyph({
     <button
       type="button"
       onClick={onPick}
+      disabled={future}
       title={day?.summary ?? undefined}
       className={cn(
         "relative aspect-square w-full max-w-[38px] mx-auto rounded-full flex items-center justify-center",
         "text-[11px] transition-all",
-        recorded ? "font-semibold" : "border border-dashed border-border/70",
+        // No dashed ring on a future day: that outline is the "nothing was
+        // written down" mark, and there was nothing to write yet.
+        recorded ? "font-semibold" : !future && "border border-dashed border-border/70",
         selected && "ring-2 ring-primary ring-offset-2 ring-offset-background",
         isToday && !selected && "ring-1 ring-primary/50",
-        inMonth ? "opacity-100" : "opacity-25",
-        "hover:brightness-110 active:scale-95",
+        !inMonth ? "opacity-25" : future ? "opacity-30" : "opacity-100",
+        future ? "cursor-default" : "hover:brightness-110 active:scale-95",
       )}
       style={{
         background,

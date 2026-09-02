@@ -12,6 +12,7 @@ import {
 import { Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X, Zap, Bell, AlertTriangle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { isFeatureEnabled } from "@/lib/features"
+import { computeBestStreak, computeCompletionRate } from "@/lib/streak"
 import { format, subDays } from "date-fns"
 import { resyncNotifications } from "@/lib/native/notifications"
 
@@ -31,6 +32,8 @@ interface Habit {
   completedToday: boolean
   completions: { date: string }[]
   reminderTime: string | null
+  /** When the habit was made — a habit is not judged on days before it existed. */
+  createdAt?: string | null
 }
 
 interface RoutineHabit {
@@ -728,8 +731,22 @@ export default function HabitsPage() {
   const medHabits = habits.filter(h => h.icon === "💊" || h.icon === "🌿")
   const completed = habits.filter(h => h.completedToday).length
   const total = habits.length
-  const completionRate = total > 0 ? completed / total : 0
-  const topStreak = habits.reduce((max, h) => Math.max(max, h.streak), 0)
+  const doneTodayShare = total > 0 ? completed / total : 0
+
+  // The completions the heatmaps below already draw, read as numbers.
+  //
+  // "Best streak" used to be the largest CURRENT streak, so it read 0d on any
+  // day nothing had been ticked yet — directly above four weeks of squares
+  // saying otherwise. "Completion" used to be done-today ÷ habit-count, which
+  // is the number in the tile beside it, so the row stated one fact twice and
+  // called one of them a rate. Both now use the history.
+  const perHabitDays = habits.map(h => ({
+    completionDays: new Set(h.completions.map(c => c.date?.split("T")[0]).filter(Boolean) as string[]),
+    createdAt: h.createdAt ?? null,
+  }))
+  const todayStr = localDateStr()
+  const topStreak = perHabitDays.reduce((max, h) => Math.max(max, computeBestStreak(h.completionDays)), 0)
+  const completionRate = computeCompletionRate(perHabitDays, todayStr)
 
   return (
     <div className="space-y-6">
@@ -937,7 +954,7 @@ export default function HabitsPage() {
             <CardContent className="pt-4 pb-3 text-center">
               <p className="text-2xl font-black">{completed}<span className="text-base text-muted-foreground font-normal">/{total}</span></p>
               <p className="text-xs text-muted-foreground mt-0.5">Done today</p>
-              <Progress value={completionRate*100} className="h-1 mt-2" />
+              <Progress value={doneTodayShare*100} className="h-1 mt-2" />
             </CardContent>
           </Card>
           <Card>
@@ -948,8 +965,12 @@ export default function HabitsPage() {
           </Card>
           <Card>
             <CardContent className="pt-4 pb-3 text-center">
-              <p className="text-2xl font-black">{Math.round(completionRate*100)}<span className="text-base text-muted-foreground font-normal">%</span></p>
-              <p className="text-xs text-muted-foreground mt-0.5">Completion</p>
+              {completionRate === null ? (
+                <p className="text-2xl font-black text-muted-foreground">—</p>
+              ) : (
+                <p className="text-2xl font-black">{Math.round(completionRate*100)}<span className="text-base text-muted-foreground font-normal">%</span></p>
+              )}
+              <p className="text-xs text-muted-foreground mt-0.5">Last 30 days</p>
             </CardContent>
           </Card>
         </div>

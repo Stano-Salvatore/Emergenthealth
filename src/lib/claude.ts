@@ -15,6 +15,7 @@ import {
 } from "@/lib/chat-sources"
 import { addDaysISO, localDateStr, localTimeStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone, userDay } from "@/lib/user-timezone"
+import { resolveReminderWhen, parseHhMm } from "@/lib/reminder-when"
 import { distanceM } from "@/lib/places"
 import { randomUUID } from "crypto"
 import { rankRecallHits, recallTerms, RECALL_MAX_HITS, trimForRecall } from "@/lib/chat-recall"
@@ -113,13 +114,20 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "create_reminder",
-    description: "Create a reminder for the user",
+    description:
+      "Create a reminder, and set an alarm for it when the user names a time. " +
+      "Pass `time` as 24-hour HH:MM whenever they say when — 'wake me at six' is time '06:00', " +
+      "'in two hours' is the local time two hours from the clock in your context. " +
+      "Without a time it is only a list entry and the phone will never ring for it. " +
+      "With a time and no date it fires at the next occurrence of that clock reading (today if " +
+      "still ahead, otherwise tomorrow), so you rarely need to work the date out yourself.",
     input_schema: {
       type: "object" as const,
       properties: {
         title: { type: "string" },
         description: { type: "string" },
-        dueDate: { type: "string", description: "Date in YYYY-MM-DD format (optional)" },
+        dueDate: { type: "string", description: "Date in YYYY-MM-DD format (optional; only when they name a specific day)" },
+        time: { type: "string", description: "Alarm time, 24-hour HH:MM, e.g. '06:00' or '18:30'. Include this whenever the user says a time." },
         priority: { type: "string", enum: ["low", "normal", "high"] },
       },
       required: ["title"],
@@ -706,16 +714,37 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   }
 
   if (name === "create_reminder") {
+    // The phone's scheduler needs a date AND a time (see lib/reminder-when):
+    // no date and it is skipped entirely, no time and it rings at 09:00. This
+    // tool used to supply neither, so an alarm asked for in words was answered
+    // with "Created reminder" and then never went off.
+    const tz = await getUserTimezone(userId)
+    const today = localDateStr(tz)
+    const nowHhMm = localTimeStr(tz)
+    const when = resolveReminderWhen({
+      time: typeof input.time === "string" ? input.time : null,
+      dueDate: typeof input.dueDate === "string" ? input.dueDate : null,
+      today,
+      nowMinutes: parseHhMm(nowHhMm) ?? 0,
+    })
+
+    if (input.time && !when.reminderTime) {
+      return `I couldn't read "${input.time}" as a time — give it to me as HH:MM, like 18:30.`
+    }
+
     await prisma.reminder.create({
       data: {
         userId,
         title: input.title,
         description: input.description ?? null,
-        dueDate: input.dueDate ? new Date(input.dueDate) : null,
+        dueDate: when.dueDate ? new Date(when.dueDate + "T00:00:00Z") : null,
+        reminderTime: when.reminderTime,
         priority: input.priority ?? "normal",
       },
     })
-    return `Created reminder "${input.title}".`
+    // Say when it will go off. A confirmation that doesn't name the moment is
+    // how the silent version of this went unnoticed.
+    return `Reminder set: "${input.title}" — ${when.label}.`
   }
 
   if (name === "log_water") {

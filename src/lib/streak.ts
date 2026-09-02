@@ -70,3 +70,77 @@ export function computeMissedDays(
   }
   return missed
 }
+
+/**
+ * The longest run this habit has ever managed inside the history it has.
+ *
+ * The Habits page called `Math.max(...currentStreaks)` "Best streak", so it
+ * read 0 on any day nothing had been ticked yet — under four weeks of
+ * heatmap squares showing the opposite. A best is a record: missing today
+ * cannot lower it.
+ *
+ * Frozen days hold a run together without lengthening it, exactly as
+ * computeStreak treats them, so a fortnight away doesn't split one record
+ * into two.
+ */
+export function computeBestStreak(
+  completionDays: Set<string>,
+  isFrozen: (day: string) => boolean = () => false,
+): number {
+  if (completionDays.size === 0) return 0
+  const days = [...completionDays].sort()
+  let best = 0
+  let run = 0
+  let prev: string | null = null
+
+  for (const day of days) {
+    if (prev === null) {
+      run = 1
+    } else {
+      // Walk the gap: it keeps the run alive only if every day in it is frozen.
+      let cursor = addDaysISO(prev, 1)
+      let bridged = true
+      while (cursor < day) {
+        if (!isFrozen(cursor)) { bridged = false; break }
+        cursor = addDaysISO(cursor, 1)
+      }
+      run = bridged ? run + 1 : 1
+    }
+    if (run > best) best = run
+    prev = day
+  }
+  return best
+}
+
+/**
+ * What share of the last `days` days each habit was actually kept, averaged
+ * over the habits.
+ *
+ * The page showed `done today / habit count` under the label "Completion",
+ * which is the number already displayed beside it as "Done today" — the same
+ * fact twice, and a rate that reads 0% every morning before the first tick.
+ *
+ * A habit counts only from the day it was created: one added yesterday is not
+ * 3% adherent because it did not exist last month. Days before any habit
+ * existed are excluded rather than counted as missed.
+ */
+export function computeCompletionRate(
+  habits: { completionDays: Set<string>; createdAt?: string | null }[],
+  todayStr: string,
+  days = 30,
+): number | null {
+  let due = 0
+  let kept = 0
+  for (const habit of habits) {
+    for (let i = 0; i < days; i++) {
+      const day = addDaysISO(todayStr, -i)
+      // Today is still in progress — counting it as missed drags the rate
+      // down all morning for no reason.
+      if (i === 0) continue
+      if (habit.createdAt && day < habit.createdAt.slice(0, 10)) continue
+      due++
+      if (habit.completionDays.has(day)) kept++
+    }
+  }
+  return due === 0 ? null : kept / due
+}

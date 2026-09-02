@@ -6,6 +6,7 @@ import { headStatus, activityStatus } from "@/lib/native/bubble"
 import { getNotificationPermission } from "@/lib/native/notifications"
 import { readBackgroundLocationEnabled } from "@/lib/native/background-location"
 import { nativeLocationStatus } from "@/lib/native/location-service"
+import { getAutoSpeak, speechSupported } from "@/lib/voice"
 import type { StatusRow } from "@/lib/status-rows"
 
 /**
@@ -58,6 +59,17 @@ export function DeviceStatusChips() {
         }
       } else {
         out.push({ id: "d-loc", group: "Data", label: "Background location", tone: loc.failure ? "warn" : "ok", value: loc.failure ? loc.failure : "tracking while the app is open" })
+      }
+      // Emergy has been able to speak all along — lib/voice reads his replies
+      // through the phone's own text-to-speech, and the manifest already
+      // declares the engine so the WebView can find it. It is off by default,
+      // and the only two switches are a speaker icon in the chat header and a
+      // toggle far down this page, so "he doesn't have a voice" is what it
+      // looks like from outside. A row that says so is the cheapest fix.
+      if (speechSupported()) {
+        out.push(getAutoSpeak()
+          ? { id: "d-voice", group: "Emergy", label: "Voice", tone: "ok", value: "reads replies aloud" }
+          : { id: "d-voice", group: "Emergy", label: "Voice", tone: "off", value: "silent", detail: "Settings → Voice → Read replies aloud" })
       }
       if (motion.available) {
         out.push({ id: "d-motion", group: "Data", label: "Motion", tone: motion.tracking ? "ok" : "off", value: motion.tracking ? "tracking" : motion.permitted ? "off" : "no permission" })
