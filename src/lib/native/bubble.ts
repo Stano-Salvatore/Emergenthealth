@@ -57,6 +57,7 @@ type EmergyBubblePlugin = {
   stopActivityTransitions(): Promise<void>
   drainActivityEvents(): Promise<{ events: string }>
   setPopsEnabled(options: { enabled: boolean }): Promise<void>
+  requestBatteryUnrestricted(): Promise<void>
 }
 
 /** One moment at which Emergy should appear and say something. */
@@ -78,6 +79,10 @@ export type HeadPop = {
 export type HeadStatus = {
   granted: boolean   // the user has allowed drawing over other apps
   running: boolean   // a head is on screen right now
+  /** The user asked for him to stay: he comes back after the app is closed, killed or the phone restarts. Absent on older builds. */
+  keep?: boolean
+  /** False when Android's battery optimisation still applies to the app — the usual reason a floating head dies quietly. */
+  batteryUnrestricted?: boolean
 }
 
 const plugin = registerPlugin<EmergyBubblePlugin>("EmergyBubble")
@@ -180,6 +185,32 @@ export async function startHead(): Promise<string | null> {
 export async function stopHead(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return
   try { await plugin.stopHead() } catch { /* nothing running */ }
+}
+
+/**
+ * Ask Android to leave this app out of battery optimisation.
+ *
+ * A foreground service is allowed to keep running, and still gets killed on
+ * phones that "put apps to sleep" (Samsung most of all). Being exempt is the
+ * only thing that makes a floating head survive the app being closed. The
+ * system shows its own dialog; there is nothing to await.
+ */
+export async function requestBatteryUnrestricted(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try { await plugin.requestBatteryUnrestricted() } catch { /* older build */ }
+}
+
+/**
+ * Put the head back if it was asked to stay and is not on screen.
+ *
+ * The service is what floats him; the app is what asked. If Android killed
+ * the process while the app was closed, this is the first moment anyone can
+ * notice — so every foreground checks and repairs it.
+ */
+export async function reviveHead(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  const h = await headStatus().catch(() => null)
+  if (h?.keep && h.granted && !h.running) await startHead().catch(() => null)
 }
 
 /** Whether reminders should pop the head out. Off unless switched on. */

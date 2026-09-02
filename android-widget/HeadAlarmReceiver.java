@@ -22,11 +22,24 @@ import android.content.Intent;
 public class HeadAlarmReceiver extends BroadcastReceiver {
 
     public static final String ACTION_POP = "app.emergenthealth.HEAD_POP";
+    /** Put the head back after the process died with the app (see EmergyHeadService.onTaskRemoved). */
+    public static final String ACTION_RESTART = "app.emergenthealth.HEAD_RESTART";
+    /** Same again for the location tracker (see EmergyLocationService.onTaskRemoved). */
+    public static final String ACTION_LOCATION_RESTART = "app.emergenthealth.LOCATION_RESTART";
     public static final String EXTRA_MESSAGE = "message";
 
     @Override
     public void onReceive(Context ctx, Intent intent) {
-        if (intent == null || !ACTION_POP.equals(intent.getAction())) return;
+        if (intent == null) return;
+        if (ACTION_RESTART.equals(intent.getAction())) {
+            EmergyBubblePlugin.ensureHeadRunning(ctx);
+            return;
+        }
+        if (ACTION_LOCATION_RESTART.equals(intent.getAction())) {
+            EmergyLocationService.ensureRunning(ctx);
+            return;
+        }
+        if (!ACTION_POP.equals(intent.getAction())) return;
         // Revoked since this alarm was set: do nothing at all rather than
         // starting a service that would come up with an empty screen.
         if (!android.provider.Settings.canDrawOverlays(ctx)) return;

@@ -12,7 +12,7 @@
 import { useEffect } from "react"
 import { registerNotificationActionHandler, resyncNotifications } from "@/lib/native/notifications"
 import { syncScreenTime } from "@/lib/native/screen-time"
-import { registerNativePush, takePendingSay } from "@/lib/native/bubble"
+import { registerNativePush, reviveHead, takePendingSay } from "@/lib/native/bubble"
 
 const THROTTLE_MS = 30 * 60 * 1000
 const LS_KEY = "native_reminder_sync_at"
@@ -63,9 +63,12 @@ export function NativeBridge() {
       window.location.assign(`/dashboard/chat?conversation=${encodeURIComponent(data.conversationId)}`)
     }
     collectPendingSay().catch(() => {})
+    // If he was asked to stay floating and Android killed the process
+    // meanwhile, this is where he comes back.
+    reviveHead().catch(() => {})
 
     sync()
-    const onVisible = () => { sync(); collectPendingSay().catch(() => {}) }
+    const onVisible = () => { sync(); collectPendingSay().catch(() => {}); reviveHead().catch(() => {}) }
     document.addEventListener("visibilitychange", onVisible)
     return () => document.removeEventListener("visibilitychange", onVisible)
   }, [])

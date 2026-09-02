@@ -44,7 +44,11 @@ import java.util.Arrays;
 @CapacitorPlugin(
     name = "EmergyBubble",
     permissions = {
-        @Permission(alias = "activity", strings = { android.Manifest.permission.ACTIVITY_RECOGNITION })
+        @Permission(alias = "activity", strings = { android.Manifest.permission.ACTIVITY_RECOGNITION }),
+        @Permission(alias = "location", strings = {
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        })
     })
 public class EmergyBubblePlugin extends Plugin {
 
@@ -261,6 +265,8 @@ public class EmergyBubblePlugin extends Plugin {
         JSObject ret = new JSObject();
         ret.put("granted", android.provider.Settings.canDrawOverlays(getContext()));
         ret.put("running", EmergyHeadService.isRunning());
+        ret.put("keep", keepHead(getContext()));
+        ret.put("batteryUnrestricted", batteryUnrestricted(getContext()));
         call.resolve(ret);
     }
 
@@ -296,6 +302,9 @@ public class EmergyBubblePlugin extends Plugin {
             return;
         }
         try {
+            // Asked for by the user: from here on he is meant to stay, and the
+            // service, the boot receiver and every app foreground act on that.
+            setKeepHead(ctx, true);
             ctx.startForegroundService(new Intent(ctx, EmergyHeadService.class));
             call.resolve();
         } catch (Exception e) {
@@ -453,6 +462,147 @@ public class EmergyBubblePlugin extends Plugin {
         getContext().getSharedPreferences("emergy_head_pops", Context.MODE_PRIVATE)
             .edit().putBoolean("pops_enabled", enabled).apply();
         call.resolve();
+    }
+
+    // ------------------------------------------------------ keeping the head
+
+    /**
+     * Whether the user asked for the head to stay.
+     *
+     * "Float Emergy" used to mean "until the process dies" — and on a phone the
+     * process dies whenever the app is swiped away, memory runs short, or the
+     * phone restarts. The service was deliberately not sticky and nothing
+     * restarted it, so he vanished silently and the card went on saying he was
+     * floating. Now the wish is stored, and three things act on it: the
+     * service restarts itself if killed, the boot receiver starts it after a
+     * restart, and the app re-checks on every foreground.
+     */
+    static final String HEAD_PREFS = "emergy_head";
+    private static final String KEEP_KEY = "keep";
+
+    static boolean keepHead(Context ctx) {
+        return ctx.getSharedPreferences(HEAD_PREFS, Context.MODE_PRIVATE).getBoolean(KEEP_KEY, false);
+    }
+
+    static void setKeepHead(Context ctx, boolean keep) {
+        ctx.getSharedPreferences(HEAD_PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEEP_KEY, keep).apply();
+    }
+
+    /** Start the head if it was asked for, is allowed, and is not already up. */
+    static void ensureHeadRunning(Context ctx) {
+        if (!keepHead(ctx)) return;
+        if (!android.provider.Settings.canDrawOverlays(ctx)) return;
+        if (EmergyHeadService.isRunning()) return;
+        try {
+            ctx.startForegroundService(new Intent(ctx, EmergyHeadService.class));
+        } catch (Exception ignored) {
+            // Background start refused on this build. The next app foreground
+            // tries again from the foreground, where it is always allowed.
+        }
+    }
+
+    /**
+     * Is this app exempt from battery optimisation?
+     *
+     * A foreground service is allowed to run, and is still killed by the
+     * "sleeping apps" logic on many phones (Samsung above all) unless the app
+     * is exempt. This is the single most common reason a floating head dies.
+     */
+    static boolean batteryUnrestricted(Context ctx) {
+        android.os.PowerManager pm = (android.os.PowerManager) ctx.getSystemService(Context.POWER_SERVICE);
+        return pm == null || pm.isIgnoringBatteryOptimizations(ctx.getPackageName());
+    }
+
+    /** Ask the system to exempt this app — its own dialog, nothing to await. */
+    @PluginMethod
+    public void requestBatteryUnrestricted(PluginCall call) {
+        Context ctx = getContext();
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                android.net.Uri.parse("package:" + ctx.getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent);
+            call.resolve();
+        } catch (Exception first) {
+            try {
+                Intent list = new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                list.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(list);
+                call.resolve();
+            } catch (Exception e) {
+                call.reject("Couldn't open the battery settings");
+            }
+        }
+    }
+
+    // ------------------------------------------------- background location
+    //
+    // The native tracker (EmergyLocationService). The Capacitor plugin the app
+    // used first handed every fix to the WebView to upload, so tracking lived
+    // and died with the app's process. This one does not.
+
+    @PluginMethod
+    public void locationStatus(PluginCall call) {
+        Context ctx = getContext();
+        JSObject out = new JSObject();
+        out.put("available", true);
+        out.put("running", EmergyLocationService.isRunning());
+        out.put("keep", EmergyLocationService.keep(ctx));
+        out.put("fine", EmergyLocationService.hasFineLocation(ctx));
+        out.put("background", EmergyLocationService.hasBackgroundLocation(ctx));
+        out.put("batteryUnrestricted", batteryUnrestricted(ctx));
+        call.resolve(out);
+    }
+
+    @PluginMethod
+    public void startLocationService(PluginCall call) {
+        if (getPermissionState("location") != PermissionState.GRANTED) {
+            requestPermissionForAlias("location", call, "locationPermissionDone");
+            return;
+        }
+        beginLocation(call);
+    }
+
+    @PermissionCallback
+    private void locationPermissionDone(PluginCall call) {
+        if (getPermissionState("location") != PermissionState.GRANTED) {
+            call.reject("NOT_AUTHORIZED");
+            return;
+        }
+        beginLocation(call);
+    }
+
+    private void beginLocation(PluginCall call) {
+        Context ctx = getContext();
+        EmergyLocationService.setKeep(ctx, true);
+        try {
+            ctx.startForegroundService(new Intent(ctx, EmergyLocationService.class));
+            call.resolve();
+        } catch (Exception e) {
+            call.reject(e.getMessage() == null ? "Couldn't start location tracking" : e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopLocationService(PluginCall call) {
+        Context ctx = getContext();
+        EmergyLocationService.setKeep(ctx, false);
+        ctx.stopService(new Intent(ctx, EmergyLocationService.class));
+        call.resolve();
+    }
+
+    /** The app's own settings page — where "Allow all the time" lives on Android 11+. */
+    @PluginMethod
+    public void openAppSettings(PluginCall call) {
+        try {
+            Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:" + getContext().getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Couldn't open the app's settings");
+        }
     }
 
     // ------------------------------------------------ activity recognition
@@ -703,6 +853,7 @@ public class EmergyBubblePlugin extends Plugin {
     @PluginMethod
     public void stopHead(PluginCall call) {
         Context ctx = getContext();
+        setKeepHead(ctx, false);
         ctx.stopService(new Intent(ctx, EmergyHeadService.class));
         call.resolve();
     }

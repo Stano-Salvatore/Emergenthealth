@@ -46,6 +46,14 @@ with open(manifest_path) as f:
 extra_permissions = """
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!--
+      The native location tracker (EmergyLocationService) is a foreground
+      service of type location. ACCESS_BACKGROUND_LOCATION ("Allow all the
+      time") is what lets it come back by itself after a reboot; without it
+      the tracker still runs, but only once the app has been opened.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!--
       Motion classification (walking / running / cycling / in a vehicle) from
@@ -97,8 +105,10 @@ extra_permissions = """
       Stop button.
 
       The service is FOREGROUND_SERVICE_TYPE_SPECIAL_USE — it is a window the
-      user opened, not location or media — and it is not sticky, so the system
-      killing the process ends the head rather than resurrecting it.
+      user opened, not location or media. It is sticky only while the user has
+      asked for the head to stay, and REQUEST_IGNORE_BATTERY_OPTIMIZATIONS lets
+      the app ask to be left out of the "sleeping apps" logic that otherwise
+      kills it the moment the app is closed.
     -->
     <!--
       Only to put the chat head's alarms back. Android clears every alarm an
@@ -109,6 +119,7 @@ extra_permissions = """
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
@@ -271,6 +282,7 @@ widget_copies = [
     (f"{widget_src}/EmergyHeadService.java",    f"{pkg_java_dir}/EmergyHeadService.java"),
     (f"{widget_src}/HeadAlarmReceiver.java",    f"{pkg_java_dir}/HeadAlarmReceiver.java"),
     (f"{widget_src}/HeadBootReceiver.java",     f"{pkg_java_dir}/HeadBootReceiver.java"),
+    (f"{widget_src}/EmergyLocationService.java", f"{pkg_java_dir}/EmergyLocationService.java"),
     (f"{widget_src}/head_circle.xml",           f"{res_drawable}/head_circle.xml"),
     (f"{widget_src}/head_panel.xml",            f"{res_drawable}/head_panel.xml"),
 ]
@@ -440,6 +452,24 @@ if widget_ok:
         print("✓ AndroidManifest.xml updated with EmergyHeadService")
     else:
         print("ℹ️  EmergyHeadService already present")
+
+    # The native location tracker. Type "location" is what lets a foreground
+    # service receive fixes while the app is in the background at all.
+    with open(manifest_path) as f:
+        m = f.read()
+    if "EmergyLocationService" not in m:
+        location_service = """
+        <service
+            android:name=".EmergyLocationService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+"""
+        m = m.replace("</application>", location_service + "    </application>", 1)
+        with open(manifest_path, "w") as f:
+            f.write(m)
+        print("✓ AndroidManifest.xml updated with EmergyLocationService")
+    else:
+        print("ℹ️  EmergyLocationService already present")
 
     # The alarm that makes a reminder pop the head. Not exported: nothing
     # outside this app has any business making it draw over the screen.
