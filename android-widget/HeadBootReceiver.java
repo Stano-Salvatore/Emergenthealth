@@ -38,6 +38,12 @@ public class HeadBootReceiver extends BroadcastReceiver {
             // to get fixes from here; otherwise the next app open starts it.
             EmergyLocationService.ensureRunning(ctx);
             EmergyWakeService.ensureRunning(ctx);
+            // A reboot throws away every alarm this app holds, and the
+            // heartbeat is one of them. Without this line the watchdog dies
+            // at the first restart and nothing says so.
+            if (EmergyLocationService.keep(ctx) || EmergyWakeService.keep(ctx)) {
+                HeadAlarmReceiver.scheduleWatchdog(ctx);
+            }
         } catch (Exception ignored) {
             // Best effort. The notifications for the same reminders are
             // rescheduled by the app itself; the head popping out is the

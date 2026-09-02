@@ -166,9 +166,14 @@ public class EmergyLocationService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             setKeep(this, false);
+            if (!EmergyWakeService.keep(this)) HeadAlarmReceiver.cancelWatchdog(this);
             stopSelf();
             return START_NOT_STICKY;
         }
+        // Arm the next heartbeat every time the service starts. That covers the
+        // first start, a sticky restart, and a restart the heartbeat itself
+        // caused — so the chain re-arms from wherever it was picked up.
+        if (keep(this)) HeadAlarmReceiver.scheduleWatchdog(this);
         // Anything left over from before the process last died goes up first.
         main.removeCallbacks(flushNow);
         main.postDelayed(flushNow, 2_000);
