@@ -7,6 +7,7 @@ import { activeOn } from "@/lib/med-schedule"
 import { fold } from "@/lib/supplement-normalize"
 import { formatDose, sumDoses, type ParsedDose } from "@/lib/dose"
 import type { InsightResult } from "@/lib/correlations"
+import { OPUS } from "@/lib/models"
 
 // The clinical summary. Everything else this app produces is written for the
 // person living the data; this one is written for the fifteen minutes they get
@@ -425,7 +426,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     try {
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
       const res = await client.messages.create({
-        model: "claude-opus-4-8",
+        model: OPUS,
         max_tokens: 600,
         system: CLINICAL_SYSTEM,
         messages: [{ role: "user", content: `Write the summary section for this report.\n\n${context}` }],

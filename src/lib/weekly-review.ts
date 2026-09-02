@@ -4,6 +4,7 @@ import { format } from "date-fns"
 import { buildSystemPrompt } from "@/lib/claude"
 import { addDaysISO, localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { OPUS } from "@/lib/models"
 
 // The weekly review used to be three different things: a Sunday email with
 // bare averages, a dashboard button that asked Haiku for 200 generic words,
@@ -168,7 +169,7 @@ Keep it under 250 words.`
   const { prompt: systemPrompt } = await buildSystemPrompt(userId)
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const response = await client.messages.create({
-    model: "claude-opus-4-8",
+    model: OPUS,
     max_tokens: 700,
     system: systemPrompt,
     messages: [{ role: "user", content: instruction }],

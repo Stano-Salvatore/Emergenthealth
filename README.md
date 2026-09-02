@@ -8,7 +8,7 @@ Personal live dashboard with Health, Finances, Google Calendar, Habits, Reminder
 - **Tailwind CSS** + custom shadcn/ui components (dark theme)
 - **Prisma 7** + Neon PostgreSQL
 - **Auth.js v5** with Google OAuth (Calendar access)
-- **Anthropic claude-opus-4-6** for AI chat with full data context
+- **Anthropic Claude** (the current Opus for chat, reports and reviews; Haiku for one-line briefs — see `src/lib/models.ts`) with full data context
 - **@actual-app/api** for Actual Budget sync
 - **googleapis** for Google Calendar
 

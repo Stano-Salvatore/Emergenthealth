@@ -5,6 +5,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { searchFood, nutrientsForGrams, notableMicros, type DbNutrients } from "@/lib/nutrient-db"
 import { applyPortionPriors } from "@/lib/portion-priors"
+import { OPUS } from "@/lib/models"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -177,7 +178,7 @@ export async function analyzeMealPhoto(imageDataUrl: string, opts: AnalyzeOption
   })
 
   const response = await anthropic.messages.create({
-    model: "claude-opus-5",
+    model: OPUS,
     max_tokens: 8192,
     output_config: {
       // First pass optimizes the camera-to-result wait; a refine pass trades

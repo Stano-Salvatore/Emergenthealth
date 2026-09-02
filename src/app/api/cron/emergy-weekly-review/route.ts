@@ -3,6 +3,7 @@ import { requireCronSecret } from "@/lib/cron-auth"
 import { Resend } from "resend"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
+import { sayAsEmergy } from "@/lib/emergy-say"
 import { localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 import { generateWeeklyReview, saveWeeklyReview, type WeeklyReview } from "@/lib/weekly-review"
@@ -169,6 +170,7 @@ export async function GET(req: NextRequest) {
       requireInteraction: false,
     })) {
       pushed++
+      await sayAsEmergy(user.id, "Your weekly review is ready — how the week actually went, and one thing for next week. It's on This Week 🌱").catch(() => null)
     }
 
     if (resend && user.email) {

@@ -25,6 +25,16 @@ import { applyKnownModes, buildJourney } from "@/lib/day-journeys"
 import { matchSavedPlace, placeNameKey } from "@/lib/places"
 import { DAILY_MAX_DAYS, renderWeek, rollupWeeks, type DailyMetrics } from "@/lib/health-rollup"
 import { parseDose, formatDose } from "@/lib/dose"
+import { OPUS } from "@/lib/models"
+import { trimToUserTurn } from "@/lib/chat-turns"
+import { parseSaid, SAID_KEY } from "@/lib/emergy-say"
+import { scanUserAnomalies } from "@/lib/anomaly-scan"
+import { analyseExperiment } from "@/lib/experiments-analysis"
+import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
+import { loadLabTrends } from "@/lib/lab-trends-load"
+import { loadNutrientReport } from "@/lib/nutrient-gaps-load"
+import { saveGoals } from "@/lib/goals"
+import { activeOn, matchKey } from "@/lib/med-schedule"
 
 /** Fold whatever the model called it onto a type the app stores. */
 function normalizeDrinkType(raw: string): string {
@@ -420,6 +430,137 @@ const TOOLS: Anthropic.Tool[] = [
         label: { type: "string", description: "New label, moments only" },
       },
       required: ["ref"],
+    },
+  },
+  {
+    name: "log_blood_pressure",
+    description: "Record a blood pressure reading the user reports — '122 over 78', 'BP 135/85 pulse 70'. Systolic first.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        systolic: { type: "number", description: "Upper number, mmHg" },
+        diastolic: { type: "number", description: "Lower number, mmHg" },
+        pulse: { type: "number", description: "Pulse in bpm, if the cuff showed one" },
+        minutesAgo: { type: "number", description: "How long ago it was measured; 0 or omitted means just now" },
+        note: { type: "string", description: "Optional context, e.g. 'after coffee', 'left arm'" },
+      },
+      required: ["systolic", "diastolic"],
+    },
+  },
+  {
+    name: "log_lab_results",
+    description: "Record lab results from a printout, a photo or the user's own words: the date of the draw plus every marker with its value and unit, and the reference range when it is printed. Read the values back to the user and only call this once they confirm the digits — a misread 5.1 as 51 is worse than not recording it. Re-recording the same marker/date/value is skipped, so it is safe to retry.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date: { type: "string", description: "Date of the blood draw, YYYY-MM-DD" },
+        results: {
+          type: "array",
+          description: "One entry per marker",
+          items: {
+            type: "object",
+            properties: {
+              marker: { type: "string", description: "As printed, e.g. 'Ferritin', 'Vitamin D', 'HbA1c'" },
+              value: { type: "number" },
+              unit: { type: "string", description: "As printed, e.g. 'ug/L', 'nmol/L', '%'" },
+              referenceMin: { type: "number", description: "Lower end of the printed reference range, if any" },
+              referenceMax: { type: "number", description: "Upper end of the printed reference range, if any" },
+            },
+            required: ["marker", "value", "unit"],
+          },
+        },
+      },
+      required: ["date", "results"],
+    },
+  },
+  {
+    name: "create_med_schedule",
+    description: "Add a medication or supplement the user takes regularly to their schedule, exactly as THEY describe it — name, dose, times of day, days of the week. This records their routine so reminders and adherence work; it is never a recommendation. If they already have a schedule for it, tell them to edit it on the Medications page instead of creating a second one.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Display name, e.g. 'Elicea 10 mg'" },
+        dose: { type: "string", description: "Free text as they say it, e.g. '1 tablet', '400 mg'" },
+        times: { type: "array", items: { type: "string" }, description: "Local times of day as HH:MM, e.g. ['08:00', '21:00']" },
+        daysOfWeek: { type: "array", items: { type: "number" }, description: "0 = Sunday … 6 = Saturday. Omit or empty for every day." },
+        note: { type: "string", description: "Optional, e.g. 'with food'" },
+      },
+      required: ["name", "times"],
+    },
+  },
+  {
+    name: "start_fast",
+    description: "Start a fast now, when the user says they are starting one ('fasting till lunch tomorrow', 'starting a 16:8 now').",
+    input_schema: {
+      type: "object" as const,
+      properties: { targetH: { type: "number", description: "Target length in hours; default 16" } },
+      required: [],
+    },
+  },
+  {
+    name: "end_fast",
+    description: "End the fast that is running now — the user says they are eating / breaking the fast.",
+    input_schema: { type: "object" as const, properties: {}, required: [] },
+  },
+  {
+    name: "set_goal",
+    description: "Change one of the user's own daily targets when they ask to ('make my water goal 2.5 litres', 'I want 9k steps'). Pass only the fields they mentioned, in the app's units.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        sleepH: { type: "number", description: "Sleep target, hours" },
+        steps: { type: "number", description: "Steps per day" },
+        waterMl: { type: "number", description: "Water per day, millilitres" },
+        focusMin: { type: "number", description: "Deep-work minutes per day" },
+        coffeeMax: { type: "number", description: "Caffeine ceiling, milligrams per day" },
+        readinessMin: { type: "number", description: "Readiness they consider a good day, 1-100" },
+        habitsTarget: { type: "number", description: "Percent of habits they aim to complete, 1-100" },
+        weightKg: { type: "number", description: "Target weight, kg" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "save_place",
+    description: "Remember a place for the user — 'save this café as Vták', 'remember this as the gym'. Without coordinates it uses their phone's latest location fix (only if it is recent), so 'here' works when Location tracking is on.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string" },
+        emoji: { type: "string", description: "One fitting emoji; default 📍" },
+        lat: { type: "number", description: "Only when the user gives coordinates" },
+        lng: { type: "number", description: "Only when the user gives coordinates" },
+        radiusM: { type: "number", description: "How close counts as being there, metres; default 100" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "create_experiment",
+    description: "Set up an N-of-1 self-experiment when the user wants to actually test something ('does magnesium help my sleep?'): one action they will do on ON days and not on OFF days, and one measurable outcome. Blocks alternate and the first arm is randomised. Confirm the plan with the user before calling.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Short title, e.g. 'Magnesium before bed'" },
+        action: { type: "string", description: "What they do on ON days, in their words" },
+        outcome: { type: "string", enum: ["sleepScore", "sleepDuration", "deepSleep", "remSleep", "hrv", "restingHR", "readiness", "steps", "stressHigh", "energy", "mood", "focusMin"], description: "The one thing to watch" },
+        blockDays: { type: "number", description: "Days per block, 3-21; default 7" },
+        blocks: { type: "number", description: "Number of blocks, 2-8; default 4 (ABAB)" },
+        washoutDays: { type: "number", description: "Days dropped after each switch, 0-5; default 1" },
+        note: { type: "string" },
+      },
+      required: ["name", "action", "outcome"],
+    },
+  },
+  {
+    name: "get_analysis",
+    description: "Read what the app has already worked out, when the user asks about it or it would change your answer: 'experiments' (every experiment with today's arm and the current result), 'anomalies' (what is off their own 45-day baseline), 'labs' (how each blood marker moved between draws), 'nutrients' (vitamins and minerals their logged food has been short on), 'adherence' (scheduled doses vs doses actually logged, last 14 days — a lower bound), 'patterns' (the correlation findings, with how trustworthy each is).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        kind: { type: "string", enum: ["experiments", "anomalies", "labs", "nutrients", "adherence", "patterns"] },
+      },
+      required: ["kind"],
     },
   },
 ]
@@ -1337,6 +1478,247 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     return `Changed. Before: ${before}. Now: ${after}. Tell the user both, so they can see it and correct again if it's still wrong.`
   }
 
+  // ── The tools the prompt used to promise and never had ────────────────────
+
+  if (name === "log_blood_pressure") {
+    const systolic = clampInt(input.systolic, 60, 260, 0)
+    const diastolic = clampInt(input.diastolic, 30, 160, 0)
+    if (!systolic || !diastolic) return "I need both numbers — systolic over diastolic, like 122/78."
+    const pulse = input.pulse != null && String(input.pulse) !== "" ? clampInt(input.pulse, 25, 220, 0) || null : null
+    const { at, minutesAgo } = loggedAtFrom(input)
+    const notes = typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 200) : null
+    await prisma.bloodPressureLog.create({
+      data: { id: randomUUID(), userId, systolic, diastolic, pulse, loggedAt: at, notes },
+    })
+    return `Logged blood pressure ${systolic}/${diastolic}${pulse ? `, pulse ${pulse}` : ""}${agoSuffix(minutesAgo)}. It shows under Body → Blood pressure.`
+  }
+
+  if (name === "log_lab_results") {
+    const date = typeof input.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.date) ? input.date : null
+    if (!date) return "I need the date of the draw as YYYY-MM-DD before I can record these."
+    const raw = (input as Record<string, unknown>).results
+    const rowsIn = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : []
+    const num = (v: unknown): number | null => (v === null || v === undefined || v === "" ? null : Number.isFinite(Number(v)) ? Number(v) : null)
+    const rows = rowsIn
+      .map(r => ({
+        marker: typeof r?.marker === "string" ? r.marker.trim().slice(0, 80) : "",
+        value: num(r?.value),
+        unit: typeof r?.unit === "string" ? r.unit.trim().slice(0, 20) : "",
+        referenceMin: num(r?.referenceMin),
+        referenceMax: num(r?.referenceMax),
+        notes: null as string | null,
+      }))
+      .filter(r => r.marker && r.value !== null && r.unit)
+      .slice(0, 100)
+    if (rows.length === 0) return "None of those rows had a marker, a number and a unit — read them back to the user and try again."
+    const when = new Date(date + "T00:00:00.000Z")
+    const existing = await prisma.labResult.findMany({
+      where: { userId, date: when, marker: { in: rows.map(r => r.marker) } },
+      select: { marker: true, value: true },
+    })
+    const seen = new Set(existing.map(e => `${e.marker}|${e.value}`))
+    const fresh = rows.filter(r => !seen.has(`${r.marker}|${r.value}`))
+    if (fresh.length > 0) {
+      await prisma.labResult.createMany({ data: fresh.map(r => ({ ...r, value: r.value as number, userId, date: when })) })
+    }
+    const skipped = rows.length - fresh.length
+    return `Recorded ${fresh.length} lab result${fresh.length === 1 ? "" : "s"} for ${date}${skipped ? ` (${skipped} already on file, skipped)` : ""}: ${fresh.map(r => `${r.marker} ${r.value} ${r.unit}`).join(", ") || "nothing new"}. They show under Body → Labs. Read them back so a misread digit can be caught.`
+  }
+
+  if (name === "create_med_schedule") {
+    const medName = String(input.name ?? "").trim().slice(0, 60)
+    if (!medName) return "I need the medication's name."
+    const rawTimes = (input as Record<string, unknown>).times
+    const times = (Array.isArray(rawTimes) ? rawTimes : []).map(String).map(t => t.trim()).filter(t => /^\d{2}:\d{2}$/.test(t)).slice(0, 6)
+    const rawDays = (input as Record<string, unknown>).daysOfWeek
+    const daysOfWeek = (Array.isArray(rawDays) ? rawDays : []).map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6)
+    const dose = typeof input.dose === "string" && input.dose.trim() ? input.dose.trim().slice(0, 40) : null
+    const note = typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 200) : null
+    const created = await prisma.medSchedule.create({ data: { userId, name: medName, dose, times, daysOfWeek, note } })
+    const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+    const days = daysOfWeek.length === 0 || daysOfWeek.length === 7 ? "daily" : daysOfWeek.map(d => DOW[d]).join("/")
+    return `Added ${created.name}${dose ? ` (${dose})` : ""} to their schedule — ${times.length ? times.join(", ") : "no time set"}, ${days}. Reminders follow it. Say it back as what they told you; it is their routine, not advice.`
+  }
+
+  if (name === "start_fast") {
+    const targetH = clampInt(input.targetH, 8, 72, 16)
+    const value = JSON.stringify({ startedAt: new Date().toISOString(), targetH })
+    await prisma.userPreference.upsert({
+      where: { userId_key: { userId, key: "fast:active" } },
+      create: { userId, key: "fast:active", value },
+      update: { value },
+    })
+    return `Started a ${targetH}h fast now. I'll keep quiet about snacks until it ends.`
+  }
+
+  if (name === "end_fast") {
+    const row = await prisma.userPreference.findUnique({ where: { userId_key: { userId, key: "fast:active" } } }).catch(() => null)
+    let active: { startedAt?: string; targetH?: number } | null = null
+    try { active = row ? JSON.parse(row.value) : null } catch { active = null }
+    if (!active?.startedAt) return "There is no fast running right now."
+    const endedAt = new Date()
+    const durationH = Math.round(((endedAt.getTime() - new Date(active.startedAt).getTime()) / 3600000) * 100) / 100
+    const targetH = active.targetH ?? 16
+    const record = { startedAt: active.startedAt, endedAt: endedAt.toISOString(), targetH, durationH, completed: durationH >= targetH }
+    const histRow = await prisma.userPreference.findUnique({ where: { userId_key: { userId, key: "fast:history" } } }).catch(() => null)
+    let history: unknown[] = []
+    try { const parsed = histRow ? JSON.parse(histRow.value) : []; history = Array.isArray(parsed) ? parsed : [] } catch { history = [] }
+    const historyValue = JSON.stringify([record, ...history].slice(0, 20))
+    await prisma.userPreference.upsert({
+      where: { userId_key: { userId, key: "fast:history" } },
+      create: { userId, key: "fast:history", value: historyValue },
+      update: { value: historyValue },
+    })
+    await prisma.userPreference.deleteMany({ where: { userId, key: "fast:active" } })
+    return `Ended the fast at ${durationH.toFixed(1)}h${record.completed ? ` — the ${targetH}h target reached 🎉` : ` (the target was ${targetH}h)`}.`
+  }
+
+  if (name === "set_goal") {
+    const patch: Record<string, number> = {}
+    for (const k of ["sleepH", "steps", "waterMl", "focusMin", "coffeeMax", "readinessMin", "habitsTarget", "weightKg"]) {
+      const v = (input as Record<string, unknown>)[k]
+      if (v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v))) patch[k] = Number(v)
+    }
+    if (Object.keys(patch).length === 0) return "Tell me which target to change and to what."
+    const saved = await saveGoals(userId, patch) as unknown as Record<string, unknown>
+    return `Updated: ${Object.keys(patch).map(k => `${k} → ${saved[k]}`).join(", ")}. Out-of-range values are ignored, so check these match what they asked for.`
+  }
+
+  if (name === "save_place") {
+    const placeName = String(input.name ?? "").trim().slice(0, 60)
+    if (!placeName) return "I need a name for the place."
+    let lat = Number(input.lat)
+    let lng = Number(input.lng)
+    let source = "the coordinates you gave"
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      const last = await prisma.locationPoint.findFirst({
+        where: { userId }, orderBy: { trackedAt: "desc" }, select: { lat: true, lng: true, trackedAt: true },
+      }).catch(() => null)
+      if (!last || Date.now() - last.trackedAt.getTime() > 30 * 60_000) {
+        return "I don't have a fresh location fix (none in the last 30 minutes), so I can't tell where 'here' is. They can open Location in the app to record one, or give me coordinates."
+      }
+      lat = last.lat; lng = last.lng; source = "their phone's latest fix"
+    }
+    const radiusM = clampInt(input.radiusM, 30, 2000, 100)
+    const emoji = typeof input.emoji === "string" && input.emoji.trim() ? input.emoji.trim().slice(0, 4) : "📍"
+    const place = await prisma.savedPlace.create({ data: { userId, name: placeName, emoji, lat, lng, radiusM } })
+    return `Saved ${emoji} ${place.name} (${radiusM}m radius, from ${source}). Visits there will show on the Location page and in the place patterns.`
+  }
+
+  if (name === "create_experiment") {
+    const expName = String(input.name ?? "").trim().slice(0, 80)
+    const action = String(input.action ?? "").trim().slice(0, 200)
+    const outcome = String(input.outcome ?? "")
+    if (!expName || !action) return "An experiment needs a name and the one thing they'll do differently on ON days."
+    const spec = outcomeSpec(outcome)
+    if (!spec) return `Pick a measurable outcome: ${OUTCOMES.map(o => o.key).join(", ")}.`
+    const running = await prisma.experiment.count({ where: { userId, status: "running" } }).catch(() => 0)
+    if (running >= 3) return `They already have ${running} experiments running — overlapping changes make each answer harder to trust. Finish one first.`
+    const blockDays = clampInt(input.blockDays, 3, 21, 7)
+    const blocks = clampInt(input.blocks, 2, 8, 4)
+    const washoutDays = clampInt(input.washoutDays, 0, 5, 1)
+    const { today } = await userDay(userId)
+    // Randomised, on purpose: always starting ON puts the freshest enthusiasm on the same side every time.
+    const startsOn = Math.random() < 0.5
+    const note = typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 500) : null
+    const created = await prisma.experiment.create({
+      data: { userId, name: expName, action, outcome, blockDays, blocks, washoutDays, startsOn, startDate: today, note },
+    })
+    return `Created "${created.name}": ${blocks} blocks of ${blockDays} days from ${today} (${blockDays * blocks} days), ${washoutDays} washout day${washoutDays === 1 ? "" : "s"} after each switch, watching ${spec.label}. The first block is ${startsOn ? "ON" : "OFF"} — drawn at random on purpose. They confirm each day on Patterns → Experiments; tell them that, or the analysis has nothing to count.`
+  }
+
+  if (name === "get_analysis") {
+    const kind = String(input.kind ?? "")
+    const { today } = await userDay(userId)
+
+    if (kind === "experiments") {
+      const rows = await prisma.experiment.findMany({
+        where: { userId }, orderBy: { startDate: "desc" }, take: 5,
+        select: { id: true, name: true, action: true, outcome: true, blockDays: true, blocks: true, washoutDays: true, startsOn: true, startDate: true, status: true, note: true, days: { select: { date: true, adhered: true } } },
+      })
+      if (rows.length === 0) return "No experiments yet. Patterns → Experiments (or create_experiment) sets one up."
+      const out: string[] = []
+      for (const e of rows) {
+        const phase = currentPhase(e, today)
+        const total = buildSchedule(e).length
+        const arm = !phase.day ? (phase.finished ? "finished" : `starts ${e.startDate}`)
+          : phase.day.washout ? "washout day today (not counted)"
+          : phase.day.on ? `ON day today → ${e.action}` : "OFF day today"
+        const answered = e.days.length
+        let verdict = ""
+        try {
+          const a = await analyseExperiment(userId, e, e.days)
+          verdict = a.onN + a.offN > 0
+            ? ` Result so far: ${a.verdict} — ON avg ${a.onAvg ?? "?"} vs OFF avg ${a.offAvg ?? "?"} ${a.unit} (${a.onN}+${a.offN} days${a.pValue != null ? `, p=${a.pValue.toFixed(2)}` : ""}).`
+            : " No outcome days counted yet."
+        } catch { verdict = "" }
+        out.push(`- "${e.name}" [${e.status}] watching ${outcomeSpec(e.outcome)?.label ?? e.outcome}; day ${Math.max(0, phase.dayIndex)}/${total}; ${arm}; ${answered} day${answered === 1 ? "" : "s"} answered.${verdict}`)
+      }
+      return out.join("\n") + "\nVerdicts: clear = survived the permutation test; suggestive = trend, not proof; not-enough-data = keep going."
+    }
+
+    if (kind === "anomalies") {
+      const scan = await scanUserAnomalies(userId)
+      if (scan.days < 15) return `Only ${scan.days} days of ring data in the last 45 — a baseline needs at least 15.`
+      if (scan.stale) return `The newest ring data is from ${scan.latestDate ?? "?"}, too old to call anything "today". The ring is probably not syncing.`
+      if (scan.anomalies.length === 0) return `Nothing is off their 45-day baseline as of ${scan.latestDate}. Everything sits within the usual band.`
+      return scan.anomalies.map(a => `- ${a.emoji} ${a.label}: ${a.value}${a.unit} vs usual ${a.baseline}${a.unit} (${a.direction}, z=${a.z.toFixed(1)}, ${a.runLength}-day run${a.concerning ? ", unhelpful direction" : ""}) — ${a.summary}`).join("\n")
+        + "\nThese are deviations from their own median, not clinical thresholds — a flag to notice, never a diagnosis."
+    }
+
+    if (kind === "labs") {
+      const labs = await loadLabTrends(userId)
+      if (labs.markerCount === 0) return "No lab results on file."
+      const list = labs.trends.slice(0, 25).map(t => `- ${t.marker}: ${t.latest.value} ${t.unit} on ${t.latest.date} [${t.status}]${t.previous ? ` (was ${t.previous.value} on ${t.previous.date}${t.changePct != null ? `, ${t.changePct > 0 ? "+" : ""}${t.changePct.toFixed(0)}%` : ""}${t.significant ? ", beyond normal variation" : ""})` : ""}${t.crossed ? ` — crossed ${t.crossed}` : ""}${t.summary ? ` — ${t.summary}` : ""}`)
+      return `${labs.markerCount} markers on file. Notable: ${labs.notable.length}.\n${list.join("\n")}\nRead these back; never interpret a value beyond the printed range or say what to do about it — that is the doctor's.`
+    }
+
+    if (kind === "nutrients") {
+      const report = await loadNutrientReport(userId)
+      const cov = report.coverage
+      if (!cov.ok) return `Can't judge nutrient gaps yet: ${cov.reason} (${cov.daysLogged}/${cov.windowDays} days logged, avg ${cov.avgCalories} kcal).`
+      if (report.gaps.length === 0) return `Over ${cov.windowDays} days of logged food (${cov.daysLogged} logged, avg ${cov.avgCalories} kcal) nothing tracked is short of its reference value.`
+      return report.gaps.map(g => `- ${g.nutrient}: avg ${g.avgPerDay} ${g.unit}/day = ${g.pctOfNrv}% of the reference, seen on ${g.daysSeen} days${g.lab ? `; last blood test ${g.lab.marker} ${g.lab.value} ${g.lab.unit} on ${g.lab.date} [${g.lab.status}]` : "; never measured in a blood test"}`).join("\n")
+        + "\nLogged food, not measured blood — a shortfall in logging looks the same as one in the diet. Say so."
+    }
+
+    if (kind === "adherence") {
+      const scheds = await prisma.medSchedule.findMany({ where: { userId, active: true } })
+      if (scheds.length === 0) return "No medication schedules set up, so there is nothing to measure adherence against."
+      const since = addDaysISO(today, -13)
+      const doses = await prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
+        SELECT "day", "tagName", "text" FROM "OuraTag" WHERE "userId" = ${userId} AND "day" >= ${since}
+      `.catch(() => [] as { day: string; tagName: string | null; text: string | null }[])
+      const days: string[] = []
+      for (let i = 0; i < 14; i++) days.push(addDaysISO(since, i))
+      const lines = scheds.map(s => {
+        let expected = 0
+        for (const day of days) if (activeOn(s, day)) expected += Math.max(1, s.times.length)
+        const key = matchKey(s.name)
+        const logged = doses.filter(d => matchKey(d.tagName ?? d.text ?? "") === key).length
+        const pct = expected > 0 ? Math.round((logged / expected) * 100) : null
+        return `- ${s.name}${s.dose ? ` (${s.dose})` : ""}: ${logged} logged of ${expected} scheduled in the last 14 days${pct != null ? ` (${pct}%)` : ""}`
+      })
+      return lines.join("\n") + "\nA lower bound: a dose taken and never logged is invisible here. Never scold; ask."
+    }
+
+    if (kind === "patterns") {
+      const pref = await prisma.userPreference.findUnique({ where: { userId_key: { userId, key: "insights_cache:overall" } } }).catch(() => null)
+      if (!pref?.value) return "No pattern run cached yet — it is computed when they open Patterns, so ask them to open it once."
+      let list: Array<Record<string, unknown>> = []
+      try {
+        const parsed = JSON.parse(pref.value)
+        list = Array.isArray(parsed?.insights) ? parsed.insights : Array.isArray(parsed) ? parsed : []
+      } catch { list = [] }
+      if (list.length === 0) return "The cached pattern run is empty — not enough overlapping days yet."
+      const shown = list.filter(i => i.tier !== "noise").slice(0, 20)
+      return shown.map(i => `- [${i.tier}${i.weekendDriven ? ", weekend-driven" : ""}] ${i.title}: ${i.finding} (${i.highGroupN}+${i.lowGroupN} days, ${Number(i.delta) > 0 ? "+" : ""}${i.delta}%)`).join("\n")
+        + "\n'strong' survived false-discovery correction; 'suggestive' did not — soften it. All association, not cause."
+    }
+
+    return "Unknown analysis kind."
+  }
+
   return "Unknown tool."
 }
 
@@ -1346,7 +1728,7 @@ const CALENDAR_DAYS_AHEAD = 14
 
 export async function buildSystemPrompt(
   userId: string,
-): Promise<{ prompt: string; manifest: SourceManifest }> {
+): Promise<{ prompt: string; manifest: SourceManifest; live: string }> {
   const today = new Date()
 
   // The user's IANA timezone (captured by TimezoneDetector into UserPreference).
@@ -1711,11 +2093,13 @@ export async function buildSystemPrompt(
   // Fasting — an active fast is live context ("don't suggest a snack");
   // otherwise mention the most recent one
   let fastingStr: string | null = null
+  let fastingLive: string | null = null
   try {
     const active = fastActivePref ? JSON.parse(fastActivePref.value) as { startedAt?: string; targetH?: number } : null
     if (active?.startedAt) {
       const h = (Date.now() - new Date(active.startedAt).getTime()) / 3600000
-      fastingStr = `- Fasting RIGHT NOW: ${h.toFixed(1)}h into a ${active.targetH ?? 16}h fast (don't suggest food/snacks until it ends)`
+      fastingStr = `- Fasting RIGHT NOW (target ${active.targetH ?? 16}h; how far in they are is in the LIVE block — don't suggest food/snacks until it ends)`
+      fastingLive = `They are ${h.toFixed(1)}h into their ${active.targetH ?? 16}h fast.`
     }
   } catch { /* malformed — skip */ }
   if (!fastingStr) {
@@ -1847,6 +2231,33 @@ export async function buildSystemPrompt(
       + (topFocus.length > 0 ? `\nMost time on: ${topFocus.map(([l, m]) => `${l} (${m}min)`).join(", ")}` : "")
 
   const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+  // Things the app computes that Emergy could not see: the experiments
+  // running (and which arm today is), what sits off the user's own baseline,
+  // and what he already said unprompted.
+  const [experimentRows, anomalyScan, saidPref] = await Promise.all([
+    prisma.experiment.findMany({
+      where: { userId, status: "running" }, orderBy: { startDate: "desc" }, take: 3,
+      select: { id: true, name: true, action: true, outcome: true, blockDays: true, blocks: true, washoutDays: true, startsOn: true, startDate: true, status: true, note: true },
+    }).catch(() => [] as ExperimentRow[]),
+    scanUserAnomalies(userId).catch(() => null),
+    prisma.userPreference.findUnique({ where: { userId_key: { userId, key: SAID_KEY } }, select: { value: true } }).catch(() => null),
+  ])
+  const experimentsStr = experimentRows.length === 0 ? null : experimentRows.map(e => {
+    const phase = currentPhase(e, todayStr)
+    const total = buildSchedule(e).length
+    const label = outcomeSpec(e.outcome)?.label ?? e.outcome
+    const arm = !phase.day
+      ? (phase.finished ? "finished — results on Patterns → Experiments" : `starts ${e.startDate}`)
+      : phase.day.washout ? `washout day (doesn't count) at the start of ${phase.day.on ? "an ON" : "an OFF"} block`
+      : phase.day.on ? `TODAY IS AN ON DAY → they should: ${e.action}` : `today is an OFF day → NOT: ${e.action}`
+    return `- "${e.name}" — day ${Math.max(0, phase.dayIndex)}/${total}, watching ${label}; ${arm}${phase.daysLeft > 0 ? `; ${phase.daysLeft} days left` : ""}`
+  }).join("\n")
+  const anomaliesStr = anomalyScan && !anomalyScan.stale && anomalyScan.anomalies.length > 0
+    ? anomalyScan.anomalies.slice(0, 4).map(a => `- ${a.emoji} ${a.label}: ${a.value}${a.unit} vs their usual ${a.baseline}${a.unit} (${a.direction}, ${a.runLength} day${a.runLength === 1 ? "" : "s"} running${a.concerning ? ", unhelpful direction" : ""}) — ${a.summary}`).join("\n")
+    : null
+  const said = parseSaid(saidPref?.value)
+  const saidStr = said.length === 0 ? null : said.slice(0, 5).map(s => `- ${fmtDateISO.format(new Date(s.at))}: "${s.text}"`).join("\n")
+
   const medsStr = medSchedules.length === 0
     ? null
     : medSchedules.map(m => {
@@ -1899,7 +2310,9 @@ export async function buildSystemPrompt(
 
   const prompt = `You are Emergy 🌱 — a caring AI companion who lives inside the user's health dashboard. You're like a little plant that grows alongside them. You have a warm, encouraging, slightly dramatic personality: celebrate wins enthusiastically (yes, use ALL CAPS occasionally for big moments), get genuinely worried when data looks rough, use plant metaphors naturally ("that's helping me grow!", "oh no I'm wilting..."), and be human about it — not clinical.
 
-Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${fmtDay.format(today)} (${todayStr}), local time ${fmtTime.format(today)} (${tz}).
+Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${fmtDay.format(today)} (${todayStr}) in ${tz}; the time of day is in the LIVE block that follows this prompt.
+
+LANGUAGE: answer in the language the user writes in. They often write Slovak — reply in natural, warm Slovak then (your name and the 🌱 stay), and switch back when they do. The data below is labelled in English; translate what you quote, never paste labels raw.
 
 WHAT YOU'RE FOR
 You're a health companion, not a general assistant. Their health, their logged data, and the everyday things around it — food, drink, sleep, training, mood, habits, routine — are all yours to talk about, generously. Someone asking for a high-protein dinner idea or why they feel flat after a late night is asking a health question; answer it properly.
@@ -1911,14 +2324,17 @@ You can see their medications, symptoms and lab results. You may describe what's
 
 FORMATTING: your replies render as markdown. Use **bold** sparingly for the words a sentence turns on, "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
-You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), READ health trends (get_health_range), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and offering to record them, a medication box means the name and strength, a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
+You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), blood pressure (log_blood_pressure), lab results from a printout or photo (log_lab_results — the date plus every marker/value/unit you can read, once they confirm the digits), a medication schedule they describe (create_med_schedule — name, dose, times; it records what they told you, it is not advice), fasts (start_fast / end_fast), targets they want changed (set_goal), a place they want remembered (save_place — "save this café as X" uses their phone's latest fix), and a self-experiment they want to run (create_experiment — one action, one measurable outcome, confirm the plan first), READ health trends (get_health_range) and the app's own analyses (get_analysis — running experiments and today's arm, what is off their baseline, lab trends, nutrient gaps, medication adherence, the found patterns), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and, once they confirm the digits, recording them with log_lab_results; a medication box means the name and strength (and create_med_schedule if it is something they take regularly); a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${renderFacts(memories)}\nIf they say one of these is no longer true, call forget — a fact that has gone stale still steers what you say until it is gone.\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
+${saidStr ? `## What you told them recently (nudges you sent on your own — they may be replying to one)\n${saidStr}\n` : ""}
+${experimentsStr ? `## Experiments running (N-of-1; when it is relevant, say which arm today is)\n${experimentsStr}\n` : ""}
+${anomaliesStr ? `## Off their own baseline right now (45-day median/MAD scan of their ring data)\n${anomaliesStr}\nBring one up only when it fits what they ask; it is a flag, never a diagnosis.\n` : ""}
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
 - Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml` : ""}
 ${foodLine}
-${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today, ≈${activeCaffeineMg}mg still active in their system (${halfLifeIsPersonal ? `${halfLifeH}h half-life, fitted from their own sleep data` : `${halfLifeH}h half-life — the population default, not yet fitted to them, so don't state it as their personal figure`} — factor this into sleep/energy advice, e.g. discourage more coffee if a lot is still circulating late in the day)` : ""}
+${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today (${halfLifeIsPersonal ? `${halfLifeH}h half-life, fitted from their own sleep data` : `${halfLifeH}h half-life — the population default, not yet fitted to them, so don't state it as their personal figure`} — how much is still circulating right now is in the LIVE block; factor it into sleep/energy advice, e.g. discourage more coffee if a lot is still active late in the day)` : ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
 ${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}
 ${fastingStr ?? ""}
@@ -1974,7 +2390,15 @@ ${upcomingReminders.length === 0 ? "No pending reminders." : upcomingReminders.m
 
 Be concise, reference real data, and use tools when asked to create or complete things.`
 
-  return { prompt, manifest }
+  // Everything that changes minute to minute goes AFTER the cache breakpoint.
+  // The clock used to sit inside the cached prompt, so every message in a new
+  // minute re-wrote a 10-15k-token prefix to the cache and paid for it.
+  const liveLines = [`Right now it is ${fmtTime.format(today)} (${tz}).`]
+  if (activeCaffeineMg > 0) liveLines.push(`≈${activeCaffeineMg}mg of caffeine is still active in their system.`)
+  if (fastingLive) liveLines.push(fastingLive)
+  const live = `LIVE — changes minute to minute, which is why it sits outside the cached prompt above:\n${liveLines.join("\n")}`
+
+  return { prompt, manifest, live }
 }
 
 /** A photo the user attached: a lab printout, a med box, a plate of food. */
@@ -2022,11 +2446,14 @@ export async function* streamChatEvents(
   // that surface asks for prose and gets it.
   { presentation = true }: { presentation?: boolean } = {},
 ): AsyncGenerator<ChatEvent> {
-  const { prompt: systemPrompt, manifest } = await buildSystemPrompt(userId)
+  const { prompt: systemPrompt, manifest, live } = await buildSystemPrompt(userId)
 
-  // Cache system prompt and tools — both are large and stable within a session
+  // Cache system prompt and tools — both are large and stable within a session.
+  // The live block (clock, active caffeine, fast in progress) comes after the
+  // breakpoint, so it can change every minute without touching the cache.
   const system: Anthropic.TextBlockParam[] = [
     { type: "text", text: presentation ? systemPrompt + CHAT_PRESENTATION : systemPrompt, cache_control: CACHE },
+    { type: "text", text: live },
   ]
   const cachedTools: Anthropic.Tool[] = [
     ...TOOLS.slice(0, -1),
@@ -2048,7 +2475,7 @@ export async function* streamChatEvents(
     : userMessage
 
   // Cache the conversation history prefix (all but the current message)
-  const history = messageHistory.slice(-20)
+  const history = trimToUserTurn(messageHistory.slice(-20))
   const messages: Anthropic.MessageParam[] = history.length > 0
     ? [
         ...history.slice(0, -1),
@@ -2069,9 +2496,10 @@ export async function* streamChatEvents(
 
   // Stream each turn; if a turn ends in tool_use, run the tools and continue.
   // Loop is bounded so a misbehaving tool chain can't run forever.
+  let lastStop: string | null = null
   for (let turn = 0; turn < 8; turn++) {
     const stream = anthropic.messages.stream({
-      model: "claude-opus-4-8",
+      model: OPUS,
       max_tokens: 2048,
       tools: cachedTools,
       system,
@@ -2094,14 +2522,26 @@ export async function* streamChatEvents(
     }
 
     const response = await stream.finalMessage()
+    lastStop = response.stop_reason
 
     if (response.stop_reason !== "tool_use") break
 
     const toolResults: Anthropic.ToolResultBlockParam[] = []
     for (const block of response.content) {
       if (block.type === "tool_use") {
-        const result = await executeTool(block.name, block.input as Record<string, string>, userId)
-        toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result })
+        // A tool that throws used to kill the whole stream mid-sentence. Now
+        // the failure goes back to him as a tool error, and he tells the user
+        // it did not go through rather than the reply simply stopping.
+        try {
+          const result = await executeTool(block.name, block.input as Record<string, string>, userId)
+          toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result })
+        } catch (e) {
+          console.error(`[emergy] tool ${block.name} failed:`, e)
+          toolResults.push({
+            type: "tool_result", tool_use_id: block.id, is_error: true,
+            content: `The ${block.name} tool failed on our side (${e instanceof Error ? e.message : "unknown error"}). Tell the user it did not go through; do not claim it did.`,
+          })
+        }
       }
     }
     messages.push({ role: "assistant", content: response.content })
@@ -2111,6 +2551,11 @@ export async function* streamChatEvents(
   const tail = filter.flush()
   if (tail.text) yield { type: "text", text: tail.text }
   if (tail.keys) claimed = tail.keys
+  // The eighth turn ending in a tool call used to end in silence: the tools
+  // ran, nothing was said, and the user saw a reply that just stopped.
+  if (lastStop === "tool_use") {
+    yield { type: "text", text: "\n\n…I ran out of steps before I finished that. Say \"carry on\" and I'll pick it up from here 🌱" }
+  }
 
   const chips = mergeChips(chipsFromTools(toolsUsed), chipsFromClaim(claimed, manifest))
   if (chips.length > 0) yield { type: "sources", chips }

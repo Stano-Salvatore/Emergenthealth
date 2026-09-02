@@ -3,6 +3,7 @@ import { requireCronSecret } from "@/lib/cron-auth"
 import { Resend } from "resend"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser, type Delivery } from "@/lib/push"
+import { sayAsEmergy } from "@/lib/emergy-say"
 import { computeCorrelations, ENGINE_VERSION } from "@/lib/correlations"
 
 export const runtime = "nodejs"
@@ -191,6 +192,7 @@ export async function GET(req: NextRequest) {
       requireInteraction: false,
     })) {
       pushed++
+      await sayAsEmergy(userId, body).catch(() => null)
     }
 
     // ── Email ──
