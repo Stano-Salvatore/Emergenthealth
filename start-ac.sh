@@ -14,8 +14,8 @@ set -euo pipefail
 
 REPO="${HOME}/emergenthealth"
 BRIDGE="${REPO}/docker/ac-bridge/bridge.mjs"
-AC_MAC="${GREE_MAC:-9424b8badd3b}"
-AC_IP="${GREE_IP:-192.168.100.49}"
+AC_MAC="${GREE_MAC:?GREE_MAC is required}"
+AC_IP="${GREE_IP:-}"
 PORT="${PORT:-3001}"
 VERCEL_TOKEN="${VERCEL_TOKEN:-}"
 

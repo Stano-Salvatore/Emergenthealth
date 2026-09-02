@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireCronSecret } from "@/lib/cron-auth"
 import { Resend } from "resend"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
@@ -96,10 +97,8 @@ function reviewEmail(name: string, review: WeeklyReview, appUrl: string, prefs: 
 }
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   const users = await prisma.user.findMany({
     select: { id: true, name: true, email: true },

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireCronSecret } from "@/lib/cron-auth"
 import { Resend } from "resend"
 import { prisma } from "@/lib/prisma"
 import { localDateStr, localTimeStr } from "@/lib/local-date"
@@ -23,10 +24,8 @@ const SENT_ID = "monthly-export"
 const MAX_ATTACH_BYTES = 25 * 1024 * 1024
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   if (!process.env.RESEND_API_KEY) {
     return NextResponse.json({ skipped: true, reason: "RESEND_API_KEY not set" })

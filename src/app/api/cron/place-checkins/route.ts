@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { recordPlaceVisits, DETECTION_LOOKBACK_MIN } from "@/lib/place-visits"
 
@@ -22,10 +23,8 @@ export const maxDuration = 60
 const ACTIVE_HOURS = 12
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   const now = new Date()
   const active = new Date(now.getTime() - ACTIVE_HOURS * 3600_000)

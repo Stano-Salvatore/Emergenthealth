@@ -248,13 +248,13 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? "").split(",").map(e => e.trim
 export async function POST() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  if (ADMIN_EMAILS.length > 0 && !ADMIN_EMAILS.includes(session.user.email ?? "")) {
+  // An empty allow-list denies everyone — it used to mean "anyone signed in
+  // may run DDL", the opposite of what an unset admin list should do.
+  if (!ADMIN_EMAILS.includes(session.user.email ?? "")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 })
   }
   const results = await runMigrations()
   return NextResponse.json({ success: true, results })
 }
 
-export async function GET() {
-  return POST()
-}
+// No GET: a link click must never run migrations.

@@ -5,6 +5,7 @@ services:
     restart: unless-stopped
     environment:
       PORT:      8088
-      GREE_MAC:  "9424b8badd3b"   # your AC's MAC (no colons)
-      GREE_IP:   "192.168.100.49" # your AC's local IP
+      GREE_MAC:  "${GREE_MAC:?set in .env}"      # your AC's MAC (no colons)
+      GREE_IP:   "${GREE_IP:-}"                 # your AC's local IP (optional; scanned if empty)
+      GREE_DEV_KEY: "${GREE_DEV_KEY:?set in .env}" # from the EWPE Smart app — never commit it
       GREE_NAME: "Sinclair AC"

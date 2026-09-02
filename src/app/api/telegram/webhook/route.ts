@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { headerSecretMatches } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { streamChatResponse } from "@/lib/claude"
 import { checkRateLimit } from "@/lib/rate-limit"
@@ -47,9 +48,10 @@ async function telegramConversationId(userId: string): Promise<string | null> {
 export async function POST(req: NextRequest) {
   if (!telegramConfigured()) return NextResponse.json({ ok: true })
 
-  const expected = process.env.TELEGRAM_WEBHOOK_SECRET
-  if (expected && req.headers.get("x-telegram-bot-api-secret-token") !== expected) {
-    // Not from Telegram. Say nothing about why.
+  // Unconfigured means closed: without the secret, anyone who guesses a
+  // linked chat id (a small integer) could drive Emergy's write tools as that
+  // user. Say nothing about why either way.
+  if (!headerSecretMatches(req.headers.get("x-telegram-bot-api-secret-token"), process.env.TELEGRAM_WEBHOOK_SECRET)) {
     return NextResponse.json({ ok: true })
   }
 

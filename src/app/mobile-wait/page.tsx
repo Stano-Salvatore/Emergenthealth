@@ -1,10 +1,14 @@
+import { isAuthKey } from "@/lib/session-code"
+
 export default async function MobileWait({
   searchParams,
 }: {
   searchParams: Promise<{ auth_key?: string }>
 }) {
   const sp = await searchParams
-  const authKey = sp.auth_key ?? ""
+  // Only a UUID ever reaches the inline script below. JSON.stringify does not
+  // escape "</script>", so a crafted auth_key used to run on this origin.
+  const authKey = isAuthKey(sp.auth_key) ? sp.auth_key : ""
 
   return (
     <div

@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
         from: "Emergenthealth <noreply@emergenthealth.app>",
         to: process.env.FEEDBACK_NOTIFY_EMAIL,
         subject: `New newsletter signup: ${email}`,
-        html: `<p>${email} just signed up for updates.</p>`,
+        text: `${email} just signed up for updates.`,
       }).catch(() => {})
     }
   }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import { addDaysISO, localDateStr, localTimeStr } from "@/lib/local-date"
@@ -22,10 +23,8 @@ const SENT_ID = "wind-down"
 const LAST_SENT_KEY = "wind_down_last_sent" // sent log resets daily; two-day cap needs its own memory
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   if (!configurePush()) {
     return NextResponse.json({ error: "VAPID keys not configured" }, { status: 503 })

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadLocalCoverage, loadSubscriptionsByUser, phoneCovers, sendToUser } from "@/lib/push"
 import { localDateStr, localTimeStr } from "@/lib/local-date"
@@ -15,10 +16,8 @@ export const dynamic = "force-dynamic"
 const SENT_KEY = "daily_nudges_sent"
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (secret && req.headers.get("authorization") !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   if (!configurePush()) {
     return NextResponse.json({ error: "VAPID keys not configured" }, { status: 503 })

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadLocalCoverage, loadSubscriptionsByUser, phoneCovers, sendToUser } from "@/lib/push"
 import { localDateStr, localTimeStr } from "@/lib/local-date"
@@ -24,13 +25,8 @@ const MAX_LISTED = 3
 type Sent = Record<string, string> // "scheduleId|HH:mm" → YYYY-MM-DD it was sent for
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (secret) {
-    const authHeader = req.headers.get("authorization")
-    if (authHeader !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   if (!configurePush()) {
     return NextResponse.json({ ok: true, skipped: "push not configured" })

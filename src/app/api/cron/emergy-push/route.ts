@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { requireCronSecret } from "@/lib/cron-auth"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import { prisma } from "@/lib/prisma"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
@@ -18,13 +19,8 @@ const SCREAM_HABITS = [
 ]
 
 export async function GET(req: NextRequest) {
-  const secret = process.env.CRON_SECRET
-  if (secret) {
-    const authHeader = req.headers.get("authorization")
-    if (authHeader !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-  }
+  const denied = requireCronSecret(req)
+  if (denied) return denied
 
   const hour = new Date().getUTCHours()
   if (hour !== 15) return NextResponse.json({ ok: true, skipped: true, hour })

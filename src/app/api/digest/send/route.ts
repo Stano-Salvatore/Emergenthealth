@@ -1,6 +1,9 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
 import { sendDigestForUser } from "@/lib/digest"
+import { checkRateLimit } from "@/lib/rate-limit"
+
+export const maxDuration = 60
 
 export async function POST() {
   const session = await auth()
@@ -11,6 +14,13 @@ export async function POST() {
   const email = session.user.email
   if (!email) {
     return NextResponse.json({ error: "No email on account" }, { status: 400 })
+  }
+
+  // Sends real mail through a paid provider; a stuck retry loop shouldn't be
+  // able to do that forever.
+  const rl = checkRateLimit(session.user.id, "digest_send", 5, 60 * 60 * 1000)
+  if (!rl.allowed) {
+    return NextResponse.json({ error: "Digest already sent several times this hour — try again later.", resetAt: rl.resetAt }, { status: 429 })
   }
 
   try {

@@ -1,24 +1,39 @@
 import NextAuth from "next-auth"
 import Google from "next-auth/providers/google"
 import { PrismaAdapter } from "@auth/prisma-adapter"
+import { cookies } from "next/headers"
 import { prisma } from "@/lib/prisma"
+import { isAuthKey, MOBILE_AUTH_COOKIE } from "@/lib/session-code"
 import type { NextAuthConfig } from "next-auth"
 
-// Redirect callback helper: if a mobile OAuth flow is pending, force Chrome to
-// /api/mobile-auth-bridge so it can read its own session cookie and store it for
-// the WebView to redeem. This is the fallback when Auth.js v5 beta ignores the
-// callbackUrl set in mobile-auth-start (skipCSRFCheck suppresses the cookie).
+// Redirect callback helper: if THIS browser started a mobile sign-in, force
+// Chrome to /api/mobile-auth-bridge so it can read its own session cookie and
+// store it for the WebView to redeem. This is the fallback when Auth.js v5 beta
+// ignores the callbackUrl set in mobile-auth-start (skipCSRFCheck suppresses
+// the cookie).
+//
+// "This browser" is the whole point. The earlier version looked up ANY pending
+// marker, newest first — so anyone could plant a marker through the public
+// start route, wait for any account to sign in, and collect that account's
+// session through the poll + set-cookie pair. The marker is now bound to the
+// browser that created it by a cookie mobile-auth-start sets, and only a
+// marker matching that cookie is honoured.
 async function checkMobilePendingRedirect(baseUrl: string): Promise<string | null> {
+  let authKey: string | undefined
+  try {
+    authKey = (await cookies()).get(MOBILE_AUTH_COOKIE)?.value
+  } catch {
+    return null // not inside a request scope — nothing pending
+  }
+  if (!isAuthKey(authKey)) return null
+
+  const identifier = `mobile-auth-pending:${authKey}`
   const pending = await prisma.verificationToken.findFirst({
-    where: {
-      identifier: { startsWith: "mobile-auth-pending:" },
-      expires: { gt: new Date() },
-    },
-    orderBy: { expires: "desc" },
+    where: { identifier, expires: { gt: new Date() } },
+    select: { identifier: true },
   })
   if (!pending) return null
-  const authKey = pending.identifier.replace("mobile-auth-pending:", "")
-  await prisma.verificationToken.deleteMany({ where: { identifier: pending.identifier } })
+  await prisma.verificationToken.deleteMany({ where: { identifier } })
   return `${baseUrl}/api/mobile-auth-bridge?auth_key=${encodeURIComponent(authKey)}`
 }
 
@@ -32,10 +47,12 @@ export const authConfig: NextAuthConfig = {
     Google({
       clientId: process.env.AUTH_GOOGLE_ID!,
       clientSecret: process.env.AUTH_GOOGLE_SECRET!,
-      // State/PKCE cookies are set in WebView's cookie jar but the OAuth
-      // callback is processed by Chrome Custom Tab (separate cookie jar).
-      // Disable both so the callback isn't rejected for missing cookies.
-      checks: [],
+      // state + PKCE stay ON (the Auth.js default). They were once disabled
+      // for a cookie-jar split between the WebView and a Custom Tab, but the
+      // current mobile flow starts AND finishes inside the same Custom Tab
+      // (/mobile-signin → /api/mobile-auth-start → Google → callback → bridge),
+      // so the check cookies live where the callback reads them. Without the
+      // checks, a login-CSRF could sign a victim into an attacker's account.
       authorization: {
         params: {
           // Only ask for what this release actually uses. Gmail and smart home

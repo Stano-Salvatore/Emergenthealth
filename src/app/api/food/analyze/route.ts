@@ -1,13 +1,21 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
 import { analyzeMealPhoto } from "@/lib/food-analyze"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 // The compressed camera capture is ~50-150KB; anything past this is not one of ours.
 const MAX_IMAGE_CHARS = 2_000_000
 
+export const maxDuration = 60
+
 export async function POST(req: Request) {
   const session = await auth()
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  // Every call is a vision model call; a runaway client shouldn't be able to
+  // spend without a ceiling. Sixty photos an hour is more than any meal needs.
+  const rl = checkRateLimit(session.user.id, "food_analyze", 60, 60 * 60 * 1000)
+  if (!rl.allowed) return NextResponse.json({ error: "Too many photos this hour — try again later.", resetAt: rl.resetAt }, { status: 429 })
 
   const { image, hint, label, previous } = await req.json().catch(() => ({}))
   if (typeof image !== "string" || !image.startsWith("data:image/")) {

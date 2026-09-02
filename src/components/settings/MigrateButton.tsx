@@ -15,7 +15,7 @@ export function MigrateButton() {
     setError(null)
     setResults(null)
     try {
-      const res = await fetch("/api/admin/migrate")
+      const res = await fetch("/api/admin/migrate", { method: "POST" })
       const data = await res.json()
       if (data.results) setResults(data.results)
       else setError(data.error ?? "Unknown error")

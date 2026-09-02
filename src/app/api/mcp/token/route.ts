@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { checkRateLimit, clientIp } from "@/lib/rate-limit"
 
 export const runtime = "nodejs"
 
@@ -7,6 +8,12 @@ export const runtime = "nodejs"
 // Supports both authorization_code and client_credentials grants.
 // In both cases the MCP API key IS the token — we just validate it exists.
 export async function POST(req: NextRequest) {
+  // Unauthenticated by nature and it validates secrets: cap guesses per address.
+  const rl = checkRateLimit(clientIp(req), "mcp_token", 30, 10 * 60 * 1000)
+  if (!rl.allowed) {
+    return Response.json({ error: "slow_down", error_description: "Too many token requests" }, { status: 429 })
+  }
+
   const contentType = req.headers.get("content-type") ?? ""
 
   let params: URLSearchParams

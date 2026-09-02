@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { checkRateLimit, clientIp } from "@/lib/rate-limit"
 import { randomUUID, timingSafeEqual } from "crypto"
 
 // Username/password sign-in that issues a database session directly, without
@@ -51,6 +52,16 @@ export async function POST(request: Request) {
     return Response.json({ error: "Password sign-in is not enabled." }, { status: 404 })
   }
 
+  // Constant-time comparison was always here; a cap on attempts was not, so
+  // the owner's password could be guessed at whatever rate the network allowed.
+  const { allowed, resetAt } = checkRateLimit(clientIp(request), "credentials_signin", 5, 15 * 60 * 1000)
+  if (!allowed) {
+    return Response.json(
+      { error: "Too many attempts. Try again later.", resetAt },
+      { status: 429, headers: { "Retry-After": String(Math.ceil((resetAt - Date.now()) / 1000)) } },
+    )
+  }
+
   let username: string, password: string
   try {
     const body = await request.json()
@@ -69,6 +80,9 @@ export async function POST(request: Request) {
     if (userOk && passOk) matched = login
   }
   if (!matched) {
+    // A small fixed delay makes a brute force slower still without telling the
+    // caller anything about which field was wrong.
+    await new Promise(r => setTimeout(r, 400))
     return Response.json({ error: "Invalid username or password." }, { status: 401 })
   }
 
