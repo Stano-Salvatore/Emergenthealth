@@ -174,7 +174,17 @@ export default async function WeekPage() {
     <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="text-2xl font-bold">Weekly Review</h1>
-        <p className="text-muted-foreground text-sm mt-0.5">{weekLabel} · {daysInWeek} {daysInWeek === 1 ? "day" : "days"} of data</p>
+        {/* What this counts is wearable nights inside the calendar week, and it
+            said "0 days of data" directly above a mood chart reporting 2 logged
+            days and a seven-day average. The two are both right and measure
+            different things — this one is the ring, over Mon–today; the card
+            below rolls back seven days whatever the weekday — so each now says
+            which it is rather than appearing to disagree. */}
+        <p className="text-muted-foreground text-sm mt-0.5">
+          {weekLabel} · {daysInWeek === 0
+            ? "no ring nights yet this week"
+            : `${daysInWeek} ring ${daysInWeek === 1 ? "night" : "nights"}`}
+        </p>
       </div>
 
       {/* mood patterns */}
