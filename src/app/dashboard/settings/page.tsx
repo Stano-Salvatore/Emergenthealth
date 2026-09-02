@@ -28,6 +28,7 @@ import { SyncStatusCard } from "@/components/settings/SyncStatusCard"
 import { StatusOverview } from "@/components/settings/StatusOverview"
 import { TelegramCard } from "@/components/settings/TelegramCard"
 import { BubbleCard } from "@/components/settings/BubbleCard"
+import { WakeWordCard } from "@/components/settings/WakeWordCard"
 import { MotionCard } from "@/components/settings/MotionCard"
 import { DigestPreferences } from "@/components/settings/DigestPreferences"
 import { WeeklyReviewSchedule } from "@/components/settings/WeeklyReviewSchedule"
@@ -327,6 +328,7 @@ export default async function SettingsPage({
 
       {/* Emergy outside the app */}
       <BubbleCard />
+      <WakeWordCard />
       <MotionCard />
       <TelegramCard />
 
