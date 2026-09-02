@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback, useRef } from "react"
+import { distanceM } from "@/lib/places"
 import { useSearchParams } from "next/navigation"
 import { format, parseISO, subDays, addDays, formatDistanceToNow } from "date-fns"
 import { ChevronLeft, ChevronRight, MapPin, Clock, Zap, Navigation, RefreshCw, Trash2, Plus, Search, Settings2, X } from "lucide-react"
@@ -601,7 +602,7 @@ function groupStops(stops: { lat: number; lon: number; minutes: number }[]) {
   const SAME_PLACE_M = 150
   const groups: { lat: number; lon: number; minutes: number; indices: number[] }[] = []
   stops.forEach((st, i) => {
-    const hit = groups.find(g => metresApart(g.lat, g.lon, st.lat, st.lon) <= SAME_PLACE_M)
+    const hit = groups.find(g => distanceM(g.lat, g.lon, st.lat, st.lon) <= SAME_PLACE_M)
     if (hit) {
       hit.minutes += st.minutes
       hit.indices.push(i + 1)
@@ -610,16 +611,6 @@ function groupStops(stops: { lat: number; lon: number; minutes: number }[]) {
     groups.push({ lat: st.lat, lon: st.lon, minutes: st.minutes, indices: [i + 1] })
   })
   return groups
-}
-
-function metresApart(aLat: number, aLon: number, bLat: number, bLon: number): number {
-  const R = 6_371_000
-  const dLat = ((bLat - aLat) * Math.PI) / 180
-  const dLon = ((bLon - aLon) * Math.PI) / 180
-  const la1 = (aLat * Math.PI) / 180
-  const la2 = (bLat * Math.PI) / 180
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
 }
 
 function TrackSvg({ points, stops = [], width = 800, height = 400 }: {

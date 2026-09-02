@@ -1,3 +1,5 @@
+import { distanceM } from "@/lib/places"
+
 // Reading *visits* out of a Google Timeline export, and matching them to the
 // places a user actually cares about.
 //
@@ -24,15 +26,8 @@ export interface VisitTarget {
   emoji: string
 }
 
-/** Metres between two coordinates. */
-export function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6_371_000
-  const φ1 = (lat1 * Math.PI) / 180, φ2 = (lat2 * Math.PI) / 180
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180
-  const Δλ = ((lng2 - lng1) * Math.PI) / 180
-  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
+/** Metres between two coordinates — the one haversine in lib/places. */
+export const haversineM = distanceM
 
 /** `"48.1234567°, 17.1234567°"` — how the phone export encodes a coordinate. */
 export function parseLatLngString(s: unknown): { lat: number; lng: number } | null {

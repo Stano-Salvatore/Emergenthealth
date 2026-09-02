@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { ensureLastfmTables, getLastfmKey, syncLastfm, syncArtistGenres } from "@/lib/lastfm"
+import { getLastfmKey, syncLastfm, syncArtistGenres } from "@/lib/lastfm"
 
 export const runtime = "nodejs"
 // The sync pages the Last.fm API, and the genre pass behind it makes one
@@ -25,7 +25,6 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  await ensureLastfmTables().catch(() => null)
 
   const keyRow = await getLastfmKey(userId).catch(() => null)
   const hasKey = !!keyRow
@@ -50,7 +49,6 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const action: string = typeof body.action === "string" ? body.action : ""
 
-  await ensureLastfmTables().catch(() => null)
 
   if (action === "save") {
     const apiKey: string = typeof body.apiKey === "string" ? body.apiKey.trim() : ""

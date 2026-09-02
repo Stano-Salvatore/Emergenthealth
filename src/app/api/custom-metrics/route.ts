@@ -3,44 +3,12 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { randomUUID } from "crypto"
 
-async function ensureTables() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "CustomMetric" (
-      "id"        TEXT PRIMARY KEY,
-      "userId"    TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-      "name"      TEXT NOT NULL,
-      "unit"      TEXT,
-      "type"      TEXT NOT NULL DEFAULT 'number',
-      "color"     TEXT NOT NULL DEFAULT '#6366f1',
-      "emoji"     TEXT NOT NULL DEFAULT '📊',
-      "minVal"    REAL,
-      "maxVal"    REAL,
-      "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "CustomMetric_userId_idx" ON "CustomMetric"("userId")`
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "CustomMetricLog" (
-      "id"        TEXT PRIMARY KEY,
-      "userId"    TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-      "metricId"  TEXT NOT NULL REFERENCES "CustomMetric"("id") ON DELETE CASCADE,
-      "date"      DATE NOT NULL,
-      "value"     REAL NOT NULL,
-      "note"      TEXT,
-      "loggedAt"  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE("metricId","date")
-    )
-  `
-  await prisma.$executeRaw`CREATE INDEX IF NOT EXISTS "CustomMetricLog_userId_date_idx" ON "CustomMetricLog"("userId","date")`
-}
-
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
   try {
-    await ensureTables()
 
     const [metrics, logs] = await Promise.all([
       prisma.$queryRaw<{
@@ -81,7 +49,6 @@ export async function POST(req: Request) {
   const { name, unit, type, color, emoji, minVal, maxVal } = await req.json()
   if (!name?.trim()) return NextResponse.json({ error: "name required" }, { status: 400 })
 
-  await ensureTables()
   const id = randomUUID()
   await prisma.$executeRaw`
     INSERT INTO "CustomMetric"("id","userId","name","unit","type","color","emoji","minVal","maxVal")

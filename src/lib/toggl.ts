@@ -54,22 +54,7 @@ async function togglFetch<T = unknown>(
   return res.json() as Promise<T>
 }
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "TogglToken" (
-      "id"          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-      "userId"      TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-      "apiToken"    TEXT NOT NULL,
-      "workspaceId" INTEGER,
-      "createdAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      "updatedAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE("userId")
-    )
-  `
-}
-
 export async function getStoredToken(userId: string): Promise<{ apiToken: string; workspaceId: number | null } | null> {
-  await ensureTable()
   const rows = await prisma.$queryRaw<{ apiToken: string; workspaceId: number | null }[]>`
     SELECT "apiToken", "workspaceId" FROM "TogglToken" WHERE "userId" = ${userId} LIMIT 1
   `
@@ -77,7 +62,6 @@ export async function getStoredToken(userId: string): Promise<{ apiToken: string
 }
 
 export async function saveToken(userId: string, apiToken: string, workspaceId: number) {
-  await ensureTable()
   await prisma.$executeRaw`
     INSERT INTO "TogglToken"("userId","apiToken","workspaceId","updatedAt")
     VALUES (${userId}, ${apiToken}, ${workspaceId}, NOW())
@@ -89,7 +73,6 @@ export async function saveToken(userId: string, apiToken: string, workspaceId: n
 }
 
 export async function deleteToken(userId: string) {
-  await ensureTable()
   await prisma.$executeRaw`DELETE FROM "TogglToken" WHERE "userId" = ${userId}`
 }
 

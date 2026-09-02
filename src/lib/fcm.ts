@@ -183,19 +183,6 @@ export function fcmConfigured(): boolean {
  * added after its schema was set. One row per device, not per user: a token
  * identifies an install, and a person can have more than one.
  */
-export async function ensureFcmTable(): Promise<void> {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "FcmToken" (
-      "token"     TEXT PRIMARY KEY,
-      "userId"    TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS "FcmToken_userId_idx" ON "FcmToken"("userId")
-  `
-}
-
 /**
  * Register a device.
  *
@@ -206,9 +193,8 @@ export async function ensureFcmTable(): Promise<void> {
 /**
  * How many app installs this account can be reached at.
  *
- * FcmToken is a raw table created on demand by ensureTable, so a fresh
- * database has none — counting must survive that rather than erroring into a
- * settings screen.
+ * A database that has never registered a phone simply has no rows here —
+ * counting must survive that rather than erroring into a settings screen.
  */
 export async function countFcmTokens(userId: string): Promise<number> {
   try {
@@ -222,7 +208,6 @@ export async function countFcmTokens(userId: string): Promise<number> {
 }
 
 export async function saveFcmToken(userId: string, token: string): Promise<void> {
-  await ensureFcmTable()
   await prisma.$executeRaw`
     INSERT INTO "FcmToken" ("token", "userId", "updatedAt")
     VALUES (${token}, ${userId}, NOW())

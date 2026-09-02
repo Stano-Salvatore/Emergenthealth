@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { ensureLastfmTables, bucketScrobbles, getLastfmKey, syncArtistGenres, MINUTES_PER_TRACK, type DayBucket } from "@/lib/lastfm"
+import { bucketScrobbles, getLastfmKey, syncArtistGenres, MINUTES_PER_TRACK, type DayBucket } from "@/lib/lastfm"
 import { randomUUID } from "crypto"
 
 // YouTube Music history from a Takeout, folded into the same per-day rows
@@ -63,7 +63,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No usable plays in the file" }, { status: 400 })
   }
 
-  await ensureLastfmTables().catch(() => null)
   const timezone = await getUserTimezone(userId).catch(() => "UTC")
 
   // Same shape the Last.fm API returns, so the exact same bucketing runs —

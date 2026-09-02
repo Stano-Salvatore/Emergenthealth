@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { distanceM } from "@/lib/places"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
@@ -32,16 +33,6 @@ interface Candidate {
   lastSeen: string
   name: string
   address: string | null
-}
-
-function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6_371_000
-  const φ1 = (lat1 * Math.PI) / 180
-  const φ2 = (lat2 * Math.PI) / 180
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180
-  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
 async function reverseGeocode(lat: number, lng: number): Promise<{ name: string; address: string | null }> {
@@ -123,7 +114,7 @@ export async function GET(req: NextRequest) {
   // anything within MERGE_METERS into the stronger cluster.
   const merged: typeof cells = []
   for (const c of cells) {
-    const near = merged.find(m => haversineM(m.lat, m.lng, c.lat, c.lng) <= MERGE_METERS)
+    const near = merged.find(m => distanceM(m.lat, m.lng, c.lat, c.lng) <= MERGE_METERS)
     if (near) {
       near.points += c.points
       near.days = Math.max(near.days, c.days)
@@ -140,7 +131,7 @@ export async function GET(req: NextRequest) {
     select: { lat: true, lng: true, radiusM: true },
   }).catch(() => [])
   const fresh = merged.filter(c =>
-    !savedPlaces.some(sp => haversineM(sp.lat, sp.lng, c.lat, c.lng) <= Math.max(sp.radiusM, 150) + 50),
+    !savedPlaces.some(sp => distanceM(sp.lat, sp.lng, c.lat, c.lng) <= Math.max(sp.radiusM, 150) + 50),
   ).slice(0, MAX_CANDIDATES)
 
   // Nominatim asks for 1 req/s — sequential, and only for the shortlist.

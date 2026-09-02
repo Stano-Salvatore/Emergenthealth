@@ -2,27 +2,10 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
-// Per-user insights settings:
-//  - insights_counts: how many correlation rows to show per period ({week,month,overall})
-//  - insights_pinned: correlation ids the user "watches" (pin & watch alerts)
-// (insights_watch_state is written by the correlation-watch cron, not here.)
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "UserPreference" (
-      "userId" TEXT NOT NULL,
-      "key"    TEXT NOT NULL,
-      "value"  TEXT NOT NULL,
-      PRIMARY KEY ("userId", "key"),
-      CONSTRAINT "UserPreference_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE
-    )
-  `
-}
-
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ counts: {}, pinned: [] }, { status: 401 })
   const userId = session.user.id
-  await ensureTable()
   const rows = await prisma.$queryRaw<{ key: string; value: string }[]>`
     SELECT "key", "value" FROM "UserPreference"
     WHERE "userId" = ${userId} AND "key" IN ('insights_counts', 'insights_pinned')
@@ -43,7 +26,6 @@ export async function POST(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
   const body = await req.json().catch(() => ({}))
-  await ensureTable()
 
   if (body.counts && typeof body.counts === "object") {
     const v = JSON.stringify(body.counts)

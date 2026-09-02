@@ -2,29 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "BloodPressureLog" (
-      "id"        TEXT PRIMARY KEY,
-      "userId"    TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-      "systolic"  INTEGER NOT NULL,
-      "diastolic" INTEGER NOT NULL,
-      "pulse"     INTEGER,
-      "loggedAt"  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      "notes"     TEXT
-    )
-  `
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS "BloodPressureLog_userId_loggedAt_idx"
-    ON "BloodPressureLog" ("userId", "loggedAt" DESC)
-  `
-}
-
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  await ensureTable()
 
   const rows = await prisma.$queryRaw<{
     id: string
@@ -61,7 +42,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid blood pressure values" }, { status: 400 })
   }
 
-  await ensureTable()
 
   const id = `bp_${session.user.id}_${Date.now()}`
   const logTime = loggedAt ? new Date(loggedAt) : new Date()
@@ -83,7 +63,6 @@ export async function DELETE(req: NextRequest) {
   const { id } = await req.json()
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
 
-  await ensureTable()
 
   await prisma.$executeRaw`
     DELETE FROM "BloodPressureLog"

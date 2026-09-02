@@ -1,4 +1,5 @@
 import { auth } from "@/auth"
+import { distanceM } from "@/lib/places"
 import { getGpxTrackForDate } from "@/lib/google-drive"
 import { downsamplePoints, trackToSvgPath } from "@/lib/gpx"
 import { prisma } from "@/lib/prisma"
@@ -100,13 +101,7 @@ export async function LocationCard() {
 }
 
 function calcKm(pts: { lat: number; lon: number }[]): number {
-  let km = 0
-  for (let i = 1; i < pts.length; i++) {
-    const R = 6371, p = pts[i - 1], c = pts[i]
-    const dLat = (c.lat - p.lat) * Math.PI / 180
-    const dLon = (c.lon - p.lon) * Math.PI / 180
-    const a = Math.sin(dLat / 2) ** 2 + Math.cos(p.lat * Math.PI / 180) * Math.cos(c.lat * Math.PI / 180) * Math.sin(dLon / 2) ** 2
-    km += R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  }
-  return km
+  let m = 0
+  for (let i = 1; i < pts.length; i++) m += distanceM(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon)
+  return m / 1000
 }

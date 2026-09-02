@@ -1,3 +1,5 @@
+import { distanceM } from "@/lib/places"
+
 // Where the day was actually spent, as opposed to the line it traced.
 //
 // A route drawn on its own answers "which way did I go" and nothing else — an
@@ -44,16 +46,6 @@ export interface Stop {
   end: Date
   minutes: number
   points: number
-}
-
-function metresBetween(aLat: number, aLon: number, bLat: number, bLon: number): number {
-  const R = 6_371_000
-  const dLat = ((bLat - aLat) * Math.PI) / 180
-  const dLon = ((bLon - aLon) * Math.PI) / 180
-  const la1 = (aLat * Math.PI) / 180
-  const la2 = (bLat * Math.PI) / 180
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
 }
 
 /**
@@ -104,7 +96,7 @@ export function detectStops(points: TimedPoint[]): Stop[] {
     const gapMin = (p.time.getTime() - cluster[cluster.length - 1].time.getTime()) / 60_000
     const centreLat = sumLat / cluster.length
     const centreLon = sumLon / cluster.length
-    const near = metresBetween(centreLat, centreLon, p.lat, p.lon) <= STOP_RADIUS_M
+    const near = distanceM(centreLat, centreLon, p.lat, p.lon) <= STOP_RADIUS_M
 
     if (near && gapMin <= STOP_MAX_GAP_MIN) {
       cluster.push(p)
@@ -176,7 +168,7 @@ export function summariseTrack(pts: TimedPoint[], stops: Stop[] = []): {
     const seconds = (pts[i].time.getTime() - pts[i - 1].time.getTime()) / 1000
     if (seconds <= 0) continue
     if (insideAStop(pts[i - 1].time, pts[i].time)) continue
-    const leg = metresBetween(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon)
+    const leg = distanceM(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon)
     if (leg < NOISE_FLOOR_M) continue
 
     const kmh = (leg / seconds) * 3.6

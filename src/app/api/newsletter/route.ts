@@ -5,16 +5,6 @@ import { checkRateLimit } from "@/lib/rate-limit"
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "NewsletterSubscriber" (
-      "id" TEXT PRIMARY KEY DEFAULT gen_random_uuid(),
-      "email" TEXT NOT NULL UNIQUE,
-      "createdAt" TIMESTAMP NOT NULL DEFAULT now()
-    )
-  `.catch(() => {})
-}
-
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown"
   const rl = checkRateLimit(ip, "newsletter", 3, 60 * 60 * 1000) // 3/hr per IP
@@ -25,7 +15,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Valid email required" }, { status: 400 })
   }
 
-  await ensureTable()
 
   const inserted = await prisma.$executeRaw`
     INSERT INTO "NewsletterSubscriber" ("email")

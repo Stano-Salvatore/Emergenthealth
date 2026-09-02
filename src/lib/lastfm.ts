@@ -18,57 +18,6 @@ import { randomUUID } from "crypto"
 //    durations on this endpoint, and fetching them would be one extra request
 //    per track. Anything shown to the user says so.
 
-export async function ensureLastfmTables(): Promise<void> {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "LastfmKey" (
-      "userId"    TEXT PRIMARY KEY REFERENCES "User"("id") ON DELETE CASCADE,
-      "apiKey"    TEXT NOT NULL,
-      "username"  TEXT NOT NULL,
-      "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "LastfmLog" (
-      "id"           TEXT PRIMARY KEY,
-      "userId"       TEXT NOT NULL REFERENCES "User"("id") ON DELETE CASCADE,
-      "date"         TEXT NOT NULL,
-      "tracksPlayed" INTEGER NOT NULL DEFAULT 0,
-      "listeningMin" INTEGER NOT NULL DEFAULT 0,
-      "topArtist"    TEXT,
-      "topTrack"     TEXT,
-      UNIQUE("userId", "date")
-    )
-  `
-  // Added after the table existed, so it needs its own statement — CREATE
-  // TABLE IF NOT EXISTS does nothing to a table that is already there.
-  //
-  // NULLABLE, and with no default, on purpose. Every row written before this
-  // column existed has no idea how much of its listening was late; filling
-  // those in with 0 would tell the correlation engine they were quiet
-  // evenings, which is the same mistake as reading a day with no location
-  // fixes as a day spent at home. Unknown has to stay unknown until a sync
-  // rewrites the day.
-  await prisma.$executeRaw`
-    ALTER TABLE "LastfmLog" ADD COLUMN IF NOT EXISTS "lateTracks" INTEGER
-  `
-  // No-ops unless an earlier build of this file already added the column as
-  // NOT NULL DEFAULT 0.
-  await prisma.$executeRaw`ALTER TABLE "LastfmLog" ALTER COLUMN "lateTracks" DROP DEFAULT`
-  await prisma.$executeRaw`ALTER TABLE "LastfmLog" ALTER COLUMN "lateTracks" DROP NOT NULL`
-
-  // What an artist IS, not just that they were played. Global rather than
-  // per-user — "DG 307" is the same band for everyone — keyed by the
-  // lowercased name. A NULL genre means the lookup ran and Last.fm had no
-  // usable tag; a missing row means it hasn't been tried yet.
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "ArtistGenre" (
-      "artist"    TEXT PRIMARY KEY,
-      "genre"     TEXT,
-      "fetchedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `
-}
-
 export async function getLastfmKey(userId: string): Promise<{ apiKey: string; username: string } | null> {
   const rows = await prisma.$queryRaw<{ apiKey: string; username: string }[]>`
     SELECT "apiKey", "username" FROM "LastfmKey" WHERE "userId" = ${userId} LIMIT 1

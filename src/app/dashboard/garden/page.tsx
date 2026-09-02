@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react"
+import { weatherEmoji, weatherLabel } from "@/lib/weather-codes"
 import { RefreshCw, Leaf, X, Check, Send, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Garden3DCanvas } from "@/components/garden3d/Garden3DCanvas"
@@ -52,12 +53,7 @@ const ALL_DECORATIONS = [
 ] as const
 
 function weatherMeta(code: number | null): { icon: string; label: string } {
-  if (code == null || code <= 1) return { icon: "☀️", label: "Sunny" }
-  if (code <= 3)  return { icon: "⛅",  label: "Cloudy" }
-  if (code <= 48) return { icon: "🌫️", label: "Foggy" }
-  if (code <= 67) return { icon: "🌧️", label: "Rainy" }
-  if (code <= 77) return { icon: "❄️",  label: "Snowy" }
-  return { icon: "⛈️", label: "Stormy" }
+  return { icon: weatherEmoji(code), label: weatherLabel(code) }
 }
 
 // ─── Data types ───────────────────────────────────────────────────────────────

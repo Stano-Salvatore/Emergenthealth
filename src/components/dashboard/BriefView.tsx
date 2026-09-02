@@ -1,20 +1,11 @@
 "use client"
 
 import { useEffect, useState } from "react"
+import { weatherEmoji } from "@/lib/weather-codes"
 import { scoreText, sleepVerdictText } from "@/lib/score-color"
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Sparkles, Moon, Target, ChevronRight, Sun, Sunset, CloudSun } from "lucide-react"
-
-function weatherEmoji(code: number): string {
-  if (code <= 2) return "☀️"
-  if (code === 3) return "⛅"
-  if (code <= 48) return "🌫️"
-  if (code <= 67) return "🌧️"
-  if (code <= 77) return "❄️"
-  if (code <= 82) return "🌦️"
-  return "⛈️"
-}
 
 type Period = "morning" | "afternoon" | "evening"
 

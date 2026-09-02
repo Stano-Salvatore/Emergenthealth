@@ -10,6 +10,7 @@
 // rather than offering a switch that does nothing.
 
 import { Capacitor, registerPlugin } from "@capacitor/core"
+import { distanceM } from "@/lib/places"
 import { Preferences } from "@capacitor/preferences"
 import type { BackgroundGeolocationPlugin, CallbackError, Location } from "@capacitor-community/background-geolocation"
 
@@ -172,16 +173,6 @@ async function restoreQueue(): Promise<void> {
   }
 }
 
-function metresBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
-  const R = 6_371_000
-  const dLat = ((bLat - aLat) * Math.PI) / 180
-  const dLng = ((bLng - aLng) * Math.PI) / 180
-  const la1 = (aLat * Math.PI) / 180
-  const la2 = (bLat * Math.PI) / 180
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
-}
-
 /**
  * SYNCHRONOUS, and it must stay that way.
  *
@@ -288,7 +279,7 @@ function enqueue(location: Location): void {
   if (typeof lat !== "number" || typeof lng !== "number") return
 
   const movedFar = lastSent
-    ? metresBetween(lastSent.lat, lastSent.lng, lat, lng) >= MOVED_FAR_M
+    ? distanceM(lastSent.lat, lastSent.lng, lat, lng) >= MOVED_FAR_M
     : true
   const dueByTime = !lastSent || at - lastSent.at >= MIN_UPLOAD_GAP_MS
   if (!movedFar && !dueByTime) return

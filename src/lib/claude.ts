@@ -15,6 +15,7 @@ import {
 } from "@/lib/chat-sources"
 import { addDaysISO, localDateStr, localTimeStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone, userDay } from "@/lib/user-timezone"
+import { distanceM } from "@/lib/places"
 import { randomUUID } from "crypto"
 import { rankRecallHits, recallTerms, RECALL_MAX_HITS, trimForRecall } from "@/lib/chat-recall"
 import { addFact, forgetFact, MEMORY_KEY, parseFacts, renderFacts, serialiseFacts } from "@/lib/emergy-memory"
@@ -1804,15 +1805,8 @@ export async function buildSystemPrompt(
   // Raw pings say nothing on their own, so location becomes what a person
   // would actually notice: how far they moved each day and how long they were
   // out. Anything finer would be surveillance rather than context.
-  const haversineKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
-    const R = 6371
-    const dLat = ((b.lat - a.lat) * Math.PI) / 180
-    const dLng = ((b.lng - a.lng) * Math.PI) / 180
-    const la1 = (a.lat * Math.PI) / 180
-    const la2 = (b.lat * Math.PI) / 180
-    const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2
-    return 2 * R * Math.asin(Math.sqrt(h))
-  }
+  const haversineKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) =>
+    distanceM(a.lat, a.lng, b.lat, b.lng) / 1000
   const locByDay = new Map<string, { km: number; first: Date; last: Date; prev: { lat: number; lng: number } | null }>()
   for (const pt of locationPoints) {
     const day = fmtDateISO.format(pt.trackedAt)

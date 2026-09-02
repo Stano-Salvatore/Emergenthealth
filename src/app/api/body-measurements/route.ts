@@ -2,32 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 
-async function ensureTable() {
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS "BodyMeasurementLog" (
-      "id"         TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
-      "userId"     TEXT NOT NULL,
-      "loggedAt"   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      "waistCm"    REAL,
-      "chestCm"    REAL,
-      "hipsCm"     REAL,
-      "neckCm"     REAL,
-      "bicepCm"    REAL,
-      "bodyFatPct" REAL,
-      "notes"      TEXT
-    )
-  `
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS "BodyMeasurementLog_userId_loggedAt_idx"
-    ON "BodyMeasurementLog" ("userId", "loggedAt" DESC)
-  `
-}
-
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  await ensureTable()
 
   const rows = await prisma.$queryRaw<{
     id: string
@@ -79,7 +57,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "At least one measurement field is required" }, { status: 400 })
   }
 
-  await ensureTable()
 
   const id = `bml_${session.user.id}_${Date.now()}`
 
@@ -101,7 +78,6 @@ export async function DELETE(req: NextRequest) {
   const id = searchParams.get("id")
   if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
 
-  await ensureTable()
 
   await prisma.$executeRaw`
     DELETE FROM "BodyMeasurementLog"

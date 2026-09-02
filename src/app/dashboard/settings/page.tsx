@@ -14,7 +14,6 @@ import { NotificationNudges } from "@/components/settings/NotificationNudges"
 import { MorningBriefToggle } from "@/components/settings/MorningBriefToggle"
 import { SamsungHealthImporter } from "@/components/settings/SamsungHealthImporter"
 import { TimelineImporter } from "@/components/settings/TimelineImporter"
-import { MigrateButton } from "@/components/settings/MigrateButton"
 import { SeedDemoButton } from "@/components/settings/SeedDemoButton"
 import { GoalsEditor } from "@/components/settings/GoalsEditor"
 import { EmergyMemory } from "@/components/settings/EmergyMemory"
@@ -454,7 +453,6 @@ export default async function SettingsPage({
 
       {/* Owner-only tooling; both endpoints 403 for everyone else */}
       {isOwner && <SeedDemoButton />}
-      {isOwner && <MigrateButton />}
       </SettingsSection>
 
       {/* ══ Danger zone ══ */}
