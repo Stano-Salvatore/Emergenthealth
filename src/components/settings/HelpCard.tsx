@@ -12,7 +12,7 @@ const FAQS = [
   },
   {
     q: "Why isn't my bank connected?",
-    a: "Bank connections use TrueLayer, Salt Edge, or GoCardless depending on your region. If the connection fails, try disconnecting and reconnecting. Make sure to complete the bank's own authentication flow fully before being redirected back.",
+    a: "Bank connections go through TrueLayer. If the connection fails, try disconnecting and reconnecting. Make sure to complete the bank's own authentication flow fully before being redirected back.",
   },
   {
     q: "How does the habit streak work?",
