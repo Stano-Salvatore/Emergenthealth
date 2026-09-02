@@ -10,6 +10,7 @@
 
 import Anthropic from "@anthropic-ai/sdk"
 import { canonicalMarker } from "@/lib/lab-markers"
+import { OPUS } from "@/lib/models"
 
 const anthropic = new Anthropic()
 
@@ -110,7 +111,7 @@ export async function analyzeLabDocument(dataUrl: string): Promise<ParsedLabRepo
     : { type: "image" as const, source: { type: "base64" as const, media_type: doc.mediaType as "image/jpeg", data: doc.data } }
 
   const response = await anthropic.messages.create({
-    model: "claude-opus-5",
+    model: OPUS,
     max_tokens: 8192,
     output_config: {
       // Transcription accuracy is the whole product here; a slower, more

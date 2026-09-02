@@ -3,6 +3,7 @@ import { requireCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
+import { sayAsEmergy } from "@/lib/emergy-say"
 import type { Anomaly } from "@/lib/anomalies"
 
 export const runtime = "nodejs"
@@ -109,7 +110,11 @@ export async function GET(req: NextRequest) {
       tag: "anomaly-watch",
       requireInteraction: false,
     })
-    if (delivered) pushed++
+    if (delivered) {
+      pushed++
+      // The same words land in chat, so he knows he said them and the user can reply.
+      await sayAsEmergy(userId, body).catch(() => null)
+    }
   }
 
   return NextResponse.json({ ok: true, checked, pushed })

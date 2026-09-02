@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
+import { sayAsEmergy } from "@/lib/emergy-say"
 import { addDaysISO, localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 
@@ -106,7 +107,10 @@ export async function GET(req: NextRequest) {
       tag: "wind-down",
       requireInteraction: false,
     })
-    if (delivered) sent++
+    if (delivered) {
+      sent++
+      await sayAsEmergy(userId, body).catch(() => null)
+    }
 
     alreadySent.add(SENT_ID)
     await writeSentLog(userId, SENT_KEY, localDate, alreadySent)

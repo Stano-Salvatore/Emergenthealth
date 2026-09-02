@@ -10,6 +10,7 @@ import { supplementInfoFor } from "@/lib/supplement-info"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { loadLabTrends } from "@/lib/lab-trends-load"
 import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
+import { HAIKU } from "@/lib/models"
 
 const anthropic = new Anthropic()
 
@@ -237,7 +238,7 @@ export async function GET(req: NextRequest) {
   const context = lines.join(" ")
 
   const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
+    model: HAIKU,
     max_tokens: 200,
     messages: [
       {

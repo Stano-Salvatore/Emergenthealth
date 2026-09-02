@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import Anthropic from "@anthropic-ai/sdk"
+import { HAIKU } from "@/lib/models"
 
 const anthropic = new Anthropic()
 
@@ -43,7 +44,7 @@ Be specific about their actual habits when relevant. Never make up data not in t
   ]
 
   const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
+    model: HAIKU,
     max_tokens: 160,
     system,
     messages,

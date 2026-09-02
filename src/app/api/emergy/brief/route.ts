@@ -3,6 +3,8 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import Anthropic from "@anthropic-ai/sdk"
 import { getWeatherCoords } from "@/lib/weather-location"
+import { HAIKU } from "@/lib/models"
+import { userDay } from "@/lib/user-timezone"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -26,10 +28,11 @@ export async function GET(req: NextRequest) {
   const userId = session.user.id
   const firstName = session.user.name?.split(" ")[0] ?? "friend"
   const today = new Date()
-  const todayStr = today.toISOString().split("T")[0]
-  const dayStart = new Date(todayStr + "T00:00:00Z")
+  // The user's day, not the server's: this brief used to date itself by UTC,
+  // so the "morning" brief opened on yesterday's numbers until 02:00 Prague time.
+  const { timezone, today: todayStr, start: dayStart } = await userDay(userId)
 
-  const dateLabel = today.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
+  const dateLabel = today.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: timezone })
 
   const [intakeToday, habitsAll, completionsToday, recentHealth, moodToday] = await Promise.all([
     prisma.intakeLog.findMany({
@@ -128,7 +131,7 @@ export async function GET(req: NextRequest) {
   }
 
   const response = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
+    model: HAIKU,
     max_tokens: 200,
     messages: [{
       role: "user",
