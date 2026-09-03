@@ -293,6 +293,7 @@ widget_copies = [
     (f"{widget_src}/HeadBootReceiver.java",     f"{pkg_java_dir}/HeadBootReceiver.java"),
     (f"{widget_src}/EmergyLocationService.java", f"{pkg_java_dir}/EmergyLocationService.java"),
     (f"{widget_src}/EmergyWakeService.java",     f"{pkg_java_dir}/EmergyWakeService.java"),
+    (f"{widget_src}/SherpaWakeDetector.java",    f"{pkg_java_dir}/SherpaWakeDetector.java"),
     (f"{widget_src}/head_circle.xml",           f"{res_drawable}/head_circle.xml"),
     (f"{widget_src}/head_panel.xml",            f"{res_drawable}/head_panel.xml"),
 ]
@@ -496,7 +497,7 @@ if widget_ok:
             f.write(m)
         print("✓ AndroidManifest.xml updated with EmergyWakeService")
     else:
-        print("ℹ️  EmergyLocationService already present")
+        print("ℹ️  EmergyWakeService already present")
 
     # The alarm that makes a reminder pop the head. Not exported: nothing
     # outside this app has any business making it draw over the screen.
@@ -612,4 +613,115 @@ if widget_ok:
 else:
     print("ℹ️  Skipped widget install (source files not found)")
 
+# ── The wake word's ears: sherpa-onnx + KWS model ───────────────────────
+#
+# Neither artifact belongs in git (49 MB of AAR, 18 MB of model), so the
+# build downloads both from k2-fsa's GitHub releases and refuses to continue
+# if either doesn't hash to the pinned sha256. Pinning makes the download as
+# reproducible as a vendored copy; failing loudly is the point — an APK that
+# silently shipped without its ears would say "listening" and hear nothing,
+# which is the exact failure the wake card was built not to have.
+#
+# Both are Apache 2.0 (engine, JNI libs, and the gigaspeech model), which is
+# what made sherpa-onnx the shippable choice over the alternatives.
+
+import hashlib
+import tarfile
+import time
+import urllib.request
+
+SHERPA_AAR_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.7/sherpa-onnx-1.13.7.aar"
+SHERPA_AAR_SHA256 = "c4ef49e309f24fcee5c106b8a279481aaecaabb078cd37b2cd6e9a62cc8a73c8"
+KWS_MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2"
+KWS_MODEL_SHA256 = "f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a"
+KWS_MODEL_DIR = "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01"
+
+
+def fetch_pinned(url: str, sha256: str, dest: str) -> None:
+    """Download to dest unless a file with the right hash is already there."""
+    if os.path.exists(dest):
+        with open(dest, "rb") as f:
+            if hashlib.sha256(f.read()).hexdigest() == sha256:
+                print(f"✓ cached: {os.path.basename(dest)}")
+                return
+    last = None
+    for attempt in range(3):
+        if attempt:
+            time.sleep(5 * attempt)
+        try:
+            urllib.request.urlretrieve(url, dest)
+            with open(dest, "rb") as f:
+                got = hashlib.sha256(f.read()).hexdigest()
+            if got != sha256:
+                # A wrong hash is not a flaky network: the file changed under
+                # the pin. Retrying cannot help and pretending would ship it.
+                sys.exit(f"FATAL: {url} hashed {got}, pinned {sha256}")
+            print(f"✓ downloaded: {os.path.basename(dest)}")
+            return
+        except OSError as e:
+            last = e
+    sys.exit(f"FATAL: could not download {url}: {last}")
+
+
+kws_keywords_src = f"{widget_src}/kws-keywords.txt"
+if not os.path.exists(kws_keywords_src):
+    sys.exit(f"FATAL: {kws_keywords_src} missing — the wake word has nothing to listen for")
+
+cache_dir = os.environ.get("EMERGI_ANDROID_CACHE", ".ci-cache")
+os.makedirs(cache_dir, exist_ok=True)
+aar_cache = os.path.join(cache_dir, "sherpa-onnx-1.13.7.aar")
+model_cache = os.path.join(cache_dir, "kws-model.tar.bz2")
+fetch_pinned(SHERPA_AAR_URL, SHERPA_AAR_SHA256, aar_cache)
+fetch_pinned(KWS_MODEL_URL, KWS_MODEL_SHA256, model_cache)
+
+os.makedirs("android/app/libs", exist_ok=True)
+shutil.copyfile(aar_cache, "android/app/libs/sherpa-onnx.aar")
+
+kws_assets = "android/app/src/main/assets/kws"
+os.makedirs(kws_assets, exist_ok=True)
+with tarfile.open(model_cache, "r:bz2") as tar:
+    # Only the int8 set and the token table: 5.3 MB instead of 20. The fp32
+    # models, the BPE model and the test wavs stay out of the APK — keyword
+    # encoding happened at development time (see kws-keywords.README.md).
+    wanted = {
+        f"{KWS_MODEL_DIR}/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx": "encoder.int8.onnx",
+        f"{KWS_MODEL_DIR}/decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx": "decoder.int8.onnx",
+        f"{KWS_MODEL_DIR}/joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx": "joiner.int8.onnx",
+        f"{KWS_MODEL_DIR}/tokens.txt": "tokens.txt",
+    }
+    for member, out_name in wanted.items():
+        src = tar.extractfile(member)
+        if src is None:
+            sys.exit(f"FATAL: {member} missing from the KWS model tarball")
+        with open(os.path.join(kws_assets, out_name), "wb") as out:
+            shutil.copyfileobj(src, out)
+shutil.copyfile(kws_keywords_src, os.path.join(kws_assets, "keywords.txt"))
+print("✓ KWS model + keywords installed into assets/kws")
+
+with open(app_gradle_path) as f:
+    g = f.read()
+changed = False
+if "sherpa-onnx.aar" not in g:
+    g = g.replace(
+        "dependencies {",
+        "dependencies {\n    implementation files('libs/sherpa-onnx.aar')",
+        1)
+    changed = True
+if "abiFilters" not in g:
+    # The AAR carries x86 and x86_64 too — emulator architectures that no
+    # phone this app is sideloaded onto uses, at ~35 MB of .so. Filtered
+    # here rather than trimmed from the AAR so the pin stays byte-exact.
+    g = re.sub(
+        r'(versionName "[^"]*")',
+        "\\1\n        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }",
+        g, count=1)
+    changed = True
+if changed:
+    with open(app_gradle_path, "w") as f:
+        f.write(g)
+    print("✓ app/build.gradle given the sherpa-onnx AAR and abiFilters")
+else:
+    print("ℹ️  sherpa-onnx already wired into app/build.gradle")
+
 print("All Android customizations applied successfully.")
+

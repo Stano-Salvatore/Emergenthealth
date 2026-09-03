@@ -2,21 +2,22 @@ import { Capacitor, registerPlugin } from "@capacitor/core"
 
 // Listening for his name.
 //
-// Milestone one ships everything except the detector: the service, its
+// Milestone one shipped everything except the detector: the service, its
 // survival across the app closing and the phone restarting, the charging
-// rule, and the handoff into dictation. The engine that decides the name was
-// spoken lands next — sherpa-onnx, Apache 2.0 and open-vocabulary, so the
-// keyword is configuration rather than a model somebody has to train, which
-// is what makes it shippable to other people.
-//
-// Until then `hasDetector` is false and every surface says so. A feature that
-// claims to be listening and never hears anything is the exact failure this
-// project keeps finding.
+// rule, and the handoff into dictation. Milestone two put sherpa-onnx behind
+// it — Apache 2.0 and open-vocabulary, so the phrase is a text file rather
+// than a model somebody has to train, which is what makes it shippable to
+// other people. `hasDetector` says whether this APK carries the model;
+// `engine` says what is actually behind the microphone once something has
+// listened. An APK from before milestone two reports hasDetector false and
+// every surface still says so.
 
 export type WakeStatus = {
   available: boolean
-  /** False while the stub detector is in place — nothing will ever be heard. */
+  /** Whether this APK carries the recognition model at all. */
   hasDetector: boolean
+  /** "sherpa" once real ears fed a frame, "stub" if it fell back, "" before either. Absent on older APKs. */
+  engine?: "sherpa" | "stub" | ""
   running: boolean
   /** The microphone is actually open right now (charging-only can pause it). */
   listening: boolean

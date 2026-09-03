@@ -62,7 +62,7 @@ public class EmergyWakeService extends Service {
     private static final int RESTART_REQUEST = 920007;
 
     /** What every wake-word model in this class expects: 16 kHz mono PCM16. */
-    private static final int SAMPLE_RATE = 16_000;
+    static final int SAMPLE_RATE = 16_000;
     /** 100 ms of audio per frame — small enough to react, big enough to be cheap. */
     private static final int FRAME_SAMPLES = SAMPLE_RATE / 10;
 
@@ -131,13 +131,42 @@ public class EmergyWakeService extends Service {
     interface WakeDetector {
         /** @return true when the wake word was heard in or before this frame. */
         boolean accept(short[] frame, int length);
+        /** Which engine this is, for the status card: "sherpa" or "stub". */
+        String name();
         void close();
     }
 
-    /** Hears nothing, ever. Deliberate: see the class comment. */
+    /** Hears nothing, ever — the fallback for a build without the model. */
     static class StubDetector implements WakeDetector {
         @Override public boolean accept(short[] frame, int length) { return false; }
+        @Override public String name() { return "stub"; }
         @Override public void close() { }
+    }
+
+    /** What is actually behind the mic right now; "" until first listened. */
+    private static volatile String engineName = "";
+    static String engine() { return engineName; }
+
+    /**
+     * Real ears when the build carries them, the stub otherwise. Called on
+     * the audio thread, not in onCreate: loading a 5 MB model is work that a
+     * foreground service's five-second startForeground budget should not be
+     * asked to absorb, and the thread that feeds the detector is the natural
+     * place to pay for building it.
+     */
+    private WakeDetector buildDetector() {
+        try {
+            WakeDetector d = SherpaWakeDetector.tryCreate(this);
+            if (d != null) {
+                engineName = d.name();
+                return d;
+            }
+        } catch (Throwable ignored) {
+            // NoClassDefFoundError when the AAR is absent entirely. Deaf, not dead.
+        }
+        WakeDetector d = new StubDetector();
+        engineName = d.name();
+        return d;
     }
 
     // ---------------------------------------------------------- lifecycle
@@ -149,7 +178,6 @@ public class EmergyWakeService extends Service {
     public void onCreate() {
         super.onCreate();
         running = true;
-        detector = new StubDetector();
         startForegroundNotice(noticeText());
 
         // Plugged in or not decides whether the mic is open at all, and it can
@@ -263,6 +291,11 @@ public class EmergyWakeService extends Service {
             record.startRecording();
             listening = true;
             updateNotice(noticeText());
+
+            // Built here, on the thread that will feed it, and kept across
+            // listen sessions: the power receiver stops and starts listening
+            // freely, and the model should not be reloaded for each plug-in.
+            if (detector == null) detector = buildDetector();
 
             short[] frame = new short[FRAME_SAMPLES];
             while (!stopRequested && !Thread.currentThread().isInterrupted()) {
