@@ -38,6 +38,7 @@ type WakePlugin = {
   wakeStatus(): Promise<WakeStatus>
   startWake(): Promise<void>
   stopWake(): Promise<void>
+  resumeWake(): Promise<void>
   setWakeChargingOnly(options: { enabled: boolean }): Promise<void>
   testWakeFire(): Promise<void>
   takePendingWake(): Promise<{ heard: boolean }>
@@ -66,6 +67,20 @@ export async function startWake(): Promise<"started" | "denied" | "unavailable">
     const msg = e instanceof Error ? e.message : String(e)
     return /NOT_AUTHORIZED|denied|permission/i.test(msg) ? "denied" : "unavailable"
   }
+}
+
+/**
+ * Give the microphone back to the wake service after dictating.
+ *
+ * It released the mic when it heard his name — one microphone, and the
+ * recogniser needs it — and otherwise sits out a 90-second backstop before
+ * listening again. Safe to call always: it is a no-op when the wake word is
+ * off, on the web, or on an APK from before this existed.
+ */
+export async function resumeWake(): Promise<void> {
+  if (typeof window === "undefined" || !Capacitor.isNativePlatform()) return
+  if (!Capacitor.isPluginAvailable("EmergyBubble")) return
+  try { await plugin.resumeWake() } catch { /* older build */ }
 }
 
 export async function stopWake(): Promise<void> {

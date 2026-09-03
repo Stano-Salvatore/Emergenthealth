@@ -43,6 +43,8 @@ public class EmergyWakeService extends Service {
     public static final String ACTION_STOP = "app.emergenthealth.WAKE_STOP";
     /** "You are running, but check whether the microphone is actually open." */
     public static final String ACTION_NUDGE = "app.emergenthealth.WAKE_NUDGE";
+    /** "The app has finished dictating — the microphone is yours again." */
+    public static final String ACTION_RESUME = "app.emergenthealth.WAKE_RESUME";
     public static final String ACTION_TEST_FIRE = "app.emergenthealth.WAKE_TEST_FIRE";
 
     static final String PREFS = "emergy_wake";
@@ -76,6 +78,10 @@ public class EmergyWakeService extends Service {
 
     private Thread audioThread;
     private volatile boolean stopRequested = false;
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable resumeAfterHandoff = new Runnable() {
+        @Override public void run() { handoffUntil = 0L; syncListening(); }
+    };
     private WakeDetector detector;
     private BroadcastReceiver powerReceiver;
 
@@ -168,6 +174,27 @@ public class EmergyWakeService extends Service {
     static String error() { return lastError; }
 
     /**
+     * Until when this service must keep its hands off the microphone.
+     *
+     * Hearing the name is only half a handoff. The app it opens starts the
+     * phone's speech recogniser, and a microphone has one owner: with this
+     * service still holding AudioRecord, two captures fought over it and the
+     * dictation got silence. The wake word worked perfectly and produced an
+     * empty text box, which looked like the recogniser being broken.
+     *
+     * So firing releases the microphone and stays off it. The app hands it
+     * back the moment dictation ends (ACTION_RESUME); the deadline is only
+     * the backstop for an app that closed, crashed or never answered — a wake
+     * word that stays deaf because one handoff went unacknowledged would be a
+     * worse bug than the one being fixed.
+     */
+    private static volatile long handoffUntil = 0L;
+    private static boolean inHandoff() { return System.currentTimeMillis() < handoffUntil; }
+
+    /** Long enough for a sentence and the six seconds of quiet that send it. */
+    private static final long HANDOFF_MS = 90_000;
+
+    /**
      * Real ears when the build carries them, the stub otherwise. Called on
      * the audio thread, not in onCreate: loading a 5 MB model is work that a
      * foreground service's five-second startForeground budget should not be
@@ -230,6 +257,11 @@ public class EmergyWakeService extends Service {
         // See HeadAlarmReceiver.scheduleWatchdog: the heartbeat that notices
         // this being killed without anyone being told.
         if (keep(this)) HeadAlarmReceiver.scheduleWatchdog(this);
+        if (intent != null && ACTION_RESUME.equals(intent.getAction())) {
+            handoffUntil = 0L;
+            syncListening();
+            return keep(this) ? START_STICKY : START_NOT_STICKY;
+        }
         if (intent != null && ACTION_TEST_FIRE.equals(intent.getAction())) {
             // The whole chain, without a model: pretend the name was heard.
             fire();
@@ -260,6 +292,7 @@ public class EmergyWakeService extends Service {
 
     @Override
     public void onDestroy() {
+        main.removeCallbacks(resumeAfterHandoff);
         stopListening();
         if (powerReceiver != null) {
             try { unregisterReceiver(powerReceiver); } catch (Exception ignored) {}
@@ -276,7 +309,7 @@ public class EmergyWakeService extends Service {
     private synchronized void syncListening() {
         boolean permitted = hasMicPermission(this);
         if (!permitted) lastError = "microphone permission not granted";
-        boolean should = permitted && (!chargingOnly(this) || isPluggedIn(this));
+        boolean should = permitted && !inHandoff() && (!chargingOnly(this) || isPluggedIn(this));
         if (should && audioThread == null) startListening();
         else if (!should && audioThread != null) stopListening();
         updateNotice(noticeText());
@@ -377,6 +410,14 @@ public class EmergyWakeService extends Service {
      * and nothing outside the app should be able to ask it to do that.
      */
     void fire() {
+        // Let go of the microphone before opening the app, not after: the
+        // recogniser it starts needs the one microphone this service is
+        // holding. See handoffUntil.
+        handoffUntil = System.currentTimeMillis() + HANDOFF_MS;
+        stopListening();
+        main.postDelayed(resumeAfterHandoff, HANDOFF_MS + 500);
+        updateNotice(noticeText());
+
         getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putLong(PENDING_WAKE, System.currentTimeMillis()).apply();
         try {
@@ -395,6 +436,7 @@ public class EmergyWakeService extends Service {
 
     private String noticeText() {
         if (!hasMicPermission(this)) return "Microphone permission is off";
+        if (inHandoff()) return "Listening to what you say next";
         if (chargingOnly(this) && !isPluggedIn(this)) return "Paused — only listens while charging";
         return listening ? "Listening for your wake word" : "Starting…";
     }

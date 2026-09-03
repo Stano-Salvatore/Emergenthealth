@@ -8,6 +8,7 @@ import {
   getAutoSpeak, getSavedVoiceUri, getVoiceRate, listVoices, resolveVoice, saveAutoSpeak,
   speak, speechSupported, startDictation, stopSpeaking, type DictationHandle,
 } from "@/lib/voice"
+import { resumeWake } from "@/lib/native/wake-word"
 import { Send, User, Mic, Square, History, Plus, Trash2, X, Sunrise, Copy, Check, RotateCcw, Volume2, VolumeX } from "lucide-react"
 import { EmergyAvatar, type EmergyState } from "@/components/emergy/EmergyAvatar"
 import { useEmergyState, refreshEmergy } from "@/lib/emergy-store"
@@ -206,8 +207,13 @@ export default function ChatPage() {
         setSilenceLeft(null)
         recognitionRef.current = null
         if (endedBy === "silence" && text.trim()) sendRef.current?.(text)
+        // Hand the microphone back. When the wake word opened this page, the
+        // wake service let go of the mic so this recogniser could have it —
+        // there is only one — and it stays off until told otherwise or its
+        // backstop expires. No-op when the wake word isn't running.
+        void resumeWake()
       },
-      onError: message => { setVoiceError(message); setListening(false); setSilenceLeft(null); recognitionRef.current = null },
+      onError: message => { setVoiceError(message); setListening(false); setSilenceLeft(null); recognitionRef.current = null; void resumeWake() },
     }).then(handle => {
       if (handle) recognitionRef.current = handle
       else setListening(false)

@@ -663,6 +663,27 @@ public class EmergyBubblePlugin extends Plugin {
         }
     }
 
+    /**
+     * Dictation is over — the microphone is the wake service's again.
+     *
+     * It let go when it fired, because the recogniser the app starts needs the
+     * same microphone. Without this the service waits out its own backstop
+     * deadline instead, which is a minute and a half of not hearing his name.
+     */
+    @PluginMethod
+    public void resumeWake(PluginCall call) {
+        Context ctx = getContext();
+        if (EmergyWakeService.keep(ctx)) {
+            try {
+                ctx.startForegroundService(new Intent(ctx, EmergyWakeService.class)
+                    .setAction(EmergyWakeService.ACTION_RESUME));
+            } catch (Exception ignored) {
+                // The next app open or the watchdog picks it up instead.
+            }
+        }
+        call.resolve();
+    }
+
     @PluginMethod
     public void stopWake(PluginCall call) {
         Context ctx = getContext();
