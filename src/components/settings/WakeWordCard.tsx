@@ -148,7 +148,17 @@ export function WakeWordCard() {
                     : "Microphone open — nothing behind it in this build"
                   : status.chargingOnly && !status.pluggedIn
                     ? "Paused — only listens while charging"
-                    : status.error || "Should be listening but isn't"}
+                    // A service that is gone and a service that is up with the
+                    // microphone shut are different faults with different
+                    // fixes, and "should be listening but isn't" was the only
+                    // thing said about either. `running` has been in the status
+                    // object since the service existed; nothing ever rendered
+                    // it. Android ending the service — which a Samsung does
+                    // readily below about 15% battery — looked exactly like a
+                    // microphone that refused to open.
+                    : !status.running
+                      ? "The listening service isn't running — Android ended it"
+                      : status.error || "Should be listening but isn't"}
               </span>
             </div>
 
@@ -175,9 +185,18 @@ export function WakeWordCard() {
             )}
 
             {status.microphone && !status.listening && !(status.chargingOnly && !status.pluggedIn) && (
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => { void retry() }}>
-                Try starting it again
-              </Button>
+              <div className="space-y-1">
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => { void retry() }}>
+                  Try starting it again
+                </Button>
+                {!status.running && (
+                  <p className="text-[10px] text-muted-foreground/60">
+                    Starting it from here always works; the app is on screen, and Android
+                    only refuses a microphone service started from the background. If it
+                    keeps dying, that is battery optimisation rather than a fault.
+                  </p>
+                )}
+              </div>
             )}
 
             <label className="flex items-start gap-2 text-xs text-muted-foreground">
