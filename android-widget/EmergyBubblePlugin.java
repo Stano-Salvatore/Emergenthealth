@@ -622,6 +622,8 @@ public class EmergyBubblePlugin extends Plugin {
         // itself half-built the day both of these come back real.
         out.put("hasDetector", SherpaWakeDetector.assetsPresent(ctx));
         out.put("engine", EmergyWakeService.engine());
+        // Why the mic is shut when it should be open; "" when nothing is wrong.
+        out.put("error", EmergyWakeService.error());
         out.put("running", EmergyWakeService.isRunning());
         out.put("listening", EmergyWakeService.isListening());
         out.put("keep", EmergyWakeService.keep(ctx));

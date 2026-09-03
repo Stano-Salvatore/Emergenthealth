@@ -18,6 +18,12 @@ export type WakeStatus = {
   hasDetector: boolean
   /** "sherpa" once real ears fed a frame, "stub" if it fell back, "" before either. Absent on older APKs. */
   engine?: "sherpa" | "stub" | ""
+  /**
+   * Why the microphone is shut when it should be open — a permission never
+   * granted, a mic another app holds, a recogniser that failed to load. "" when
+   * nothing is wrong; absent on an APK from before this existed.
+   */
+  error?: string
   running: boolean
   /** The microphone is actually open right now (charging-only can pause it). */
   listening: boolean
