@@ -320,16 +320,29 @@ export default async function SettingsPage({
       <MorningBriefToggle />
       </SettingsSection>
 
+      {/* ══ Emergy on this phone ══ Everything that runs in the phone itself:
+          the chat head that survives closing the app, the ears that answer to
+          his name, the voice he replies in, the phone's own sensors. Grouped
+          together because "does he work when the app is shut" is one question
+          and it used to be answered in three different places. */}
+      <SettingsSection title="Emergy on this phone" emoji="🌱">
+      <BubbleCard />
+      <WakeWordCard />
+      <VoiceSettings />
+      <BackgroundLocationCard />
+      <MotionCard />
+      {/* Screen Time — Android only, reads native UsageStats */}
+      {isFeatureEnabled("screentime") && <ScreenTimeManager />}
+      {/* Android home screen widget */}
+      <WidgetSetupCapacitor />
+      </SettingsSection>
+
       {/* ══ Connected apps & devices ══ */}
-      <SettingsSection title="Connected apps & devices" emoji="🔗">
+      <SettingsSection title="Data connections" emoji="🔗">
       {/* What synced, when, and whether it worked — at the top of the section,
           because it is what you come here to find out when something is off. */}
       <SyncStatusCard />
 
-      {/* Emergy outside the app */}
-      <BubbleCard />
-      <WakeWordCard />
-      <MotionCard />
       <TelegramCard />
 
       {/* Oura Ring connection (client component) */}
@@ -340,8 +353,6 @@ export default async function SettingsPage({
       <DeviceCalendarManager lastSync={deviceCalLastSync} />
 
       <DeviceCalendarColors />
-      {/* Screen Time — Android only, reads native UsageStats */}
-      {isFeatureEnabled("screentime") && <ScreenTimeManager />}
       {/* Strava */}
       {isFeatureEnabled("strava") && <StravaManager isConnected={isStravaConnected} />}
       {/* GitHub */}
@@ -359,12 +370,11 @@ export default async function SettingsPage({
       )}
       </SettingsSection>
 
-      {/* ══ Widgets & location ══ */}
-      <SettingsSection title="Widgets & Location" emoji="📱">
-      {/* Android home screen widget */}
-      <WidgetSetupCapacitor />
-      {/* The app's own background tracking — no second app, no export. */}
-      <BackgroundLocationCard />
+      {/* ══ Location & weather ══ Where the app knows you are, and how it
+          knows. The switch that turns background tracking on lives with the
+          rest of the "Emergy on this phone" toggles; here are the sources
+          feeding the same map. */}
+      <SettingsSection title="Location & weather" emoji="📍">
       {/* OwnTracks live location */}
       {keys[0]?.token && (
         <Card>
@@ -395,9 +405,6 @@ export default async function SettingsPage({
 
       {/* Emergy's long-term memory, with delete */}
       <EmergyMemory />
-
-      {/* Voice: which one Emergy speaks in, and dictation status */}
-      <VoiceSettings />
 
       <Card>
         <CardContent className="pt-4 pb-4 space-y-4">

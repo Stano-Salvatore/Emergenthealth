@@ -67,9 +67,20 @@ export async function loadStatusOverview(userId: string): Promise<{ rows: Status
     const detail = s.id === "oura" && sync.newestHealthDate ? `data to ${dayLabel(sync.newestHealthDate, today)}` : undefined
     rows.push({ id: s.id, group: "Data", label: s.label, tone: late ? "warn" : "ok", value: `synced ${when}`, detail })
   }
-  const dayRow = (id: string, label: string, connected: boolean, day: string | null, warnAfter: number) => {
+  /**
+   * A source we know by "has any log ever landed": screen time, weather, and
+   * anything where the connection lives on the phone rather than as a key in
+   * a table. Ancient data is not proof of a live link — it is proof of an
+   * old one — so past staleAfterDays we call it what it is: went quiet.
+   */
+  const dayRow = (id: string, label: string, connected: boolean, day: string | null, warnAfter: number, staleAfterDays = 14) => {
     if (!connected) return rows.push({ id, group: "Data", label, tone: "off", value: "not connected" })
-    rows.push({ id, group: "Data", label, tone: freshnessTone(day, today, warnAfter), value: day ? `data ${dayLabel(day, today)}` : "connected, no data yet" })
+    if (!day) return rows.push({ id, group: "Data", label, tone: "warn", value: "connected, no data yet" })
+    const ageDays = Math.max(0, Math.round((Date.parse(today + "T12:00:00Z") - Date.parse(day + "T12:00:00Z")) / 86400000))
+    if (ageDays > staleAfterDays) {
+      return rows.push({ id, group: "Data", label, tone: "off", value: `went quiet ${dayLabel(day, today)}` })
+    }
+    rows.push({ id, group: "Data", label, tone: freshnessTone(day, today, warnAfter), value: `data ${dayLabel(day, today)}` })
   }
   dayRow("lastfm", "Last.fm", lastfmKey > 0, lastfmLog?.date ?? null, 2)
   dayRow("rescuetime", "RescueTime", rescueKey > 0, rescueLog?.date ?? null, 2)
