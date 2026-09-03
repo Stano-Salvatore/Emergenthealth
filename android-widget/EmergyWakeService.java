@@ -41,6 +41,10 @@ import android.os.IBinder;
 public class EmergyWakeService extends Service {
 
     public static final String ACTION_STOP = "app.emergenthealth.WAKE_STOP";
+    /** "You are running, but check whether the microphone is actually open." */
+    public static final String ACTION_NUDGE = "app.emergenthealth.WAKE_NUDGE";
+    /** "The app has finished dictating — the microphone is yours again." */
+    public static final String ACTION_RESUME = "app.emergenthealth.WAKE_RESUME";
     public static final String ACTION_TEST_FIRE = "app.emergenthealth.WAKE_TEST_FIRE";
 
     static final String PREFS = "emergy_wake";
@@ -74,6 +78,10 @@ public class EmergyWakeService extends Service {
 
     private Thread audioThread;
     private volatile boolean stopRequested = false;
+    private final android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable resumeAfterHandoff = new Runnable() {
+        @Override public void run() { handoffUntil = 0L; syncListening(); }
+    };
     private WakeDetector detector;
     private BroadcastReceiver powerReceiver;
 
@@ -109,9 +117,14 @@ public class EmergyWakeService extends Service {
 
     /** Start if asked for and allowed. Safe to call from anywhere. */
     static void ensureRunning(Context ctx) {
-        if (!keep(ctx) || !hasMicPermission(ctx) || running) return;
+        if (!keep(ctx) || !hasMicPermission(ctx)) return;
         try {
-            ctx.startForegroundService(new Intent(ctx, EmergyWakeService.class));
+            // Already up is not the same as already listening: the loop can end
+            // without the service doing so. Deliver a nudge instead of nothing,
+            // and onStartCommand re-runs syncListening.
+            Intent i = new Intent(ctx, EmergyWakeService.class);
+            if (running) i.setAction(ACTION_NUDGE);
+            ctx.startForegroundService(i);
         } catch (Exception ignored) {
             // A background start Android refused; the next app launch will do it.
         }
@@ -146,6 +159,40 @@ public class EmergyWakeService extends Service {
     /** What is actually behind the mic right now; "" until first listened. */
     private static volatile String engineName = "";
     static String engine() { return engineName; }
+
+    /**
+     * Why the microphone is shut, when it should be open.
+     *
+     * "Should be listening but isn't" was the only thing the card could say,
+     * and it covers four different faults with four different fixes — a
+     * permission never granted, a microphone another app holds, a device that
+     * refused the format, a recogniser that failed to load. A status that
+     * cannot tell them apart sends you looking in the wrong place, which is
+     * the failure this project keeps finding in its own screens.
+     */
+    private static volatile String lastError = "";
+    static String error() { return lastError; }
+
+    /**
+     * Until when this service must keep its hands off the microphone.
+     *
+     * Hearing the name is only half a handoff. The app it opens starts the
+     * phone's speech recogniser, and a microphone has one owner: with this
+     * service still holding AudioRecord, two captures fought over it and the
+     * dictation got silence. The wake word worked perfectly and produced an
+     * empty text box, which looked like the recogniser being broken.
+     *
+     * So firing releases the microphone and stays off it. The app hands it
+     * back the moment dictation ends (ACTION_RESUME); the deadline is only
+     * the backstop for an app that closed, crashed or never answered — a wake
+     * word that stays deaf because one handoff went unacknowledged would be a
+     * worse bug than the one being fixed.
+     */
+    private static volatile long handoffUntil = 0L;
+    private static boolean inHandoff() { return System.currentTimeMillis() < handoffUntil; }
+
+    /** Long enough for a sentence and the six seconds of quiet that send it. */
+    private static final long HANDOFF_MS = 90_000;
 
     /**
      * Real ears when the build carries them, the stub otherwise. Called on
@@ -210,6 +257,11 @@ public class EmergyWakeService extends Service {
         // See HeadAlarmReceiver.scheduleWatchdog: the heartbeat that notices
         // this being killed without anyone being told.
         if (keep(this)) HeadAlarmReceiver.scheduleWatchdog(this);
+        if (intent != null && ACTION_RESUME.equals(intent.getAction())) {
+            handoffUntil = 0L;
+            syncListening();
+            return keep(this) ? START_STICKY : START_NOT_STICKY;
+        }
         if (intent != null && ACTION_TEST_FIRE.equals(intent.getAction())) {
             // The whole chain, without a model: pretend the name was heard.
             fire();
@@ -240,6 +292,7 @@ public class EmergyWakeService extends Service {
 
     @Override
     public void onDestroy() {
+        main.removeCallbacks(resumeAfterHandoff);
         stopListening();
         if (powerReceiver != null) {
             try { unregisterReceiver(powerReceiver); } catch (Exception ignored) {}
@@ -254,7 +307,9 @@ public class EmergyWakeService extends Service {
 
     /** Open or close the microphone to match the charging rule. */
     private synchronized void syncListening() {
-        boolean should = hasMicPermission(this) && (!chargingOnly(this) || isPluggedIn(this));
+        boolean permitted = hasMicPermission(this);
+        if (!permitted) lastError = "microphone permission not granted";
+        boolean should = permitted && !inHandoff() && (!chargingOnly(this) || isPluggedIn(this));
         if (should && audioThread == null) startListening();
         else if (!should && audioThread != null) stopListening();
         updateNotice(noticeText());
@@ -287,15 +342,22 @@ public class EmergyWakeService extends Service {
                 MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT, bufferBytes);
-            if (record.getState() != AudioRecord.STATE_INITIALIZED) return;
+            if (record.getState() != AudioRecord.STATE_INITIALIZED) {
+                lastError = "the microphone wouldn't open — another app may be using it";
+                return;
+            }
             record.startRecording();
             listening = true;
+            lastError = "";
             updateNotice(noticeText());
 
             // Built here, on the thread that will feed it, and kept across
             // listen sessions: the power receiver stops and starts listening
             // freely, and the model should not be reloaded for each plug-in.
             if (detector == null) detector = buildDetector();
+            if ("stub".equals(engineName)) {
+                lastError = "the recogniser didn't load — this build may not carry the model";
+            }
 
             short[] frame = new short[FRAME_SAMPLES];
             while (!stopRequested && !Thread.currentThread().isInterrupted()) {
@@ -311,15 +373,29 @@ public class EmergyWakeService extends Service {
             }
         } catch (SecurityException e) {
             // Permission withdrawn while running. Nothing to listen with.
+            lastError = "microphone permission was withdrawn";
             setKeep(this, false);
             stopSelf();
-        } catch (Exception ignored) {
-            // A mic another app has taken, or a device that refused the format.
+        } catch (Exception e) {
+            lastError = "the microphone stopped: " + e.getClass().getSimpleName();
         } finally {
             listening = false;
             if (record != null) {
                 try { record.stop(); } catch (Exception ignored) {}
                 record.release();
+            }
+            // Let go of the handle, or nothing ever tries again.
+            //
+            // startListening stored this thread and only stopListening cleared
+            // it. So a loop that ended on its own — a microphone that refused
+            // to open, a format the device rejected — left a dead thread in the
+            // field, and syncListening's "should && audioThread == null" was
+            // false forever after. The service sat there saying it should be
+            // listening, with nothing left that could ever start it, until the
+            // process died. Clearing it here is what makes the nudge below, the
+            // charger, and the watchdog able to retry at all.
+            synchronized (this) {
+                if (audioThread == Thread.currentThread()) audioThread = null;
             }
         }
     }
@@ -334,6 +410,14 @@ public class EmergyWakeService extends Service {
      * and nothing outside the app should be able to ask it to do that.
      */
     void fire() {
+        // Let go of the microphone before opening the app, not after: the
+        // recogniser it starts needs the one microphone this service is
+        // holding. See handoffUntil.
+        handoffUntil = System.currentTimeMillis() + HANDOFF_MS;
+        stopListening();
+        main.postDelayed(resumeAfterHandoff, HANDOFF_MS + 500);
+        updateNotice(noticeText());
+
         getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit().putLong(PENDING_WAKE, System.currentTimeMillis()).apply();
         try {
@@ -352,6 +436,7 @@ public class EmergyWakeService extends Service {
 
     private String noticeText() {
         if (!hasMicPermission(this)) return "Microphone permission is off";
+        if (inHandoff()) return "Listening to what you say next";
         if (chargingOnly(this) && !isPluggedIn(this)) return "Paused — only listens while charging";
         return listening ? "Listening for your wake word" : "Starting…";
     }

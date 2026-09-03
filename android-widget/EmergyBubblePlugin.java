@@ -622,6 +622,8 @@ public class EmergyBubblePlugin extends Plugin {
         // itself half-built the day both of these come back real.
         out.put("hasDetector", SherpaWakeDetector.assetsPresent(ctx));
         out.put("engine", EmergyWakeService.engine());
+        // Why the mic is shut when it should be open; "" when nothing is wrong.
+        out.put("error", EmergyWakeService.error());
         out.put("running", EmergyWakeService.isRunning());
         out.put("listening", EmergyWakeService.isListening());
         out.put("keep", EmergyWakeService.keep(ctx));
@@ -659,6 +661,27 @@ public class EmergyBubblePlugin extends Plugin {
         } catch (Exception e) {
             call.reject(e.getMessage() == null ? "Couldn't start listening" : e.getMessage());
         }
+    }
+
+    /**
+     * Dictation is over — the microphone is the wake service's again.
+     *
+     * It let go when it fired, because the recogniser the app starts needs the
+     * same microphone. Without this the service waits out its own backstop
+     * deadline instead, which is a minute and a half of not hearing his name.
+     */
+    @PluginMethod
+    public void resumeWake(PluginCall call) {
+        Context ctx = getContext();
+        if (EmergyWakeService.keep(ctx)) {
+            try {
+                ctx.startForegroundService(new Intent(ctx, EmergyWakeService.class)
+                    .setAction(EmergyWakeService.ACTION_RESUME));
+            } catch (Exception ignored) {
+                // The next app open or the watchdog picks it up instead.
+            }
+        }
+        call.resolve();
     }
 
     @PluginMethod

@@ -40,6 +40,36 @@ export function WakeWordCard() {
     return () => document.removeEventListener("visibilitychange", onVisible)
   }, [refresh])
 
+  /**
+   * Ask for the microphone again, or start the loop again after it stopped.
+   *
+   * startWake is the same call the switch makes: it requests the permission if
+   * it is missing, and the service's own sync reopens the mic if the loop had
+   * ended. Two buttons rather than one because the two faults read completely
+   * differently to whoever is holding the phone.
+   */
+  const grantMic = useCallback(async () => {
+    setBusy(true)
+    setRefused(false)
+    try {
+      const r = await startWake()
+      if (r === "denied") setRefused(true)
+      await refresh()
+    } finally {
+      setBusy(false)
+    }
+  }, [refresh])
+
+  const retry = useCallback(async () => {
+    setBusy(true)
+    try {
+      await startWake()
+      await refresh()
+    } finally {
+      setBusy(false)
+    }
+  }, [refresh])
+
   const toggle = useCallback(async () => {
     setBusy(true)
     setRefused(false)
@@ -118,9 +148,56 @@ export function WakeWordCard() {
                     : "Microphone open — nothing behind it in this build"
                   : status.chargingOnly && !status.pluggedIn
                     ? "Paused — only listens while charging"
-                    : "Should be listening but isn't"}
+                    // A service that is gone and a service that is up with the
+                    // microphone shut are different faults with different
+                    // fixes, and "should be listening but isn't" was the only
+                    // thing said about either. `running` has been in the status
+                    // object since the service existed; nothing ever rendered
+                    // it. Android ending the service — which a Samsung does
+                    // readily below about 15% battery — looked exactly like a
+                    // microphone that refused to open.
+                    : !status.running
+                      ? "The listening service isn't running — Android ended it"
+                      : status.error || "Should be listening but isn't"}
               </span>
             </div>
+
+            {/*
+              The microphone is the one fault the app can do something about
+              from here, and it was the one the card never mentioned: without
+              the permission nothing starts, and the only line shown was
+              "should be listening but isn't", which points at nothing.
+            */}
+            {!status.microphone && (
+              <div className="space-y-1">
+                <p className="text-xs text-amber-400">
+                  Android hasn&apos;t granted the microphone, so there is nothing to listen
+                  with.
+                </p>
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => { void grantMic() }}>
+                  Ask again
+                </Button>
+                <p className="text-[10px] text-muted-foreground/60">
+                  If no prompt appears, it was refused permanently: Android settings →
+                  Emergenthealth → Permissions → Microphone.
+                </p>
+              </div>
+            )}
+
+            {status.microphone && !status.listening && !(status.chargingOnly && !status.pluggedIn) && (
+              <div className="space-y-1">
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => { void retry() }}>
+                  Try starting it again
+                </Button>
+                {!status.running && (
+                  <p className="text-[10px] text-muted-foreground/60">
+                    Starting it from here always works; the app is on screen, and Android
+                    only refuses a microphone service started from the background. If it
+                    keeps dying, that is battery optimisation rather than a fault.
+                  </p>
+                )}
+              </div>
+            )}
 
             <label className="flex items-start gap-2 text-xs text-muted-foreground">
               <input
