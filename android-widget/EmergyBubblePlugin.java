@@ -617,8 +617,11 @@ public class EmergyBubblePlugin extends Plugin {
         Context ctx = getContext();
         JSObject out = new JSObject();
         out.put("available", true);
-        // No model yet, and the card says so rather than implying it works.
-        out.put("hasDetector", false);
+        // Whether this APK carries the model, and which engine is actually
+        // behind the mic once something has listened. The card stops calling
+        // itself half-built the day both of these come back real.
+        out.put("hasDetector", SherpaWakeDetector.assetsPresent(ctx));
+        out.put("engine", EmergyWakeService.engine());
         out.put("running", EmergyWakeService.isRunning());
         out.put("listening", EmergyWakeService.isListening());
         out.put("keep", EmergyWakeService.keep(ctx));

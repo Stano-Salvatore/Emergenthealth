@@ -14,11 +14,12 @@ import { requestBatteryUnrestricted } from "@/lib/native/bubble"
 /**
  * The wake word, and what it can honestly claim.
  *
- * This is the first half of the feature: the service, its survival, the
- * charging rule and the handoff into dictation. There is no detector behind
- * it yet, so the card says exactly that rather than implying a microphone is
- * usefully listening. "Try it" fires the handoff by hand, which is how the
- * whole chain gets tested before a model is anywhere near the APK.
+ * Both halves exist now: the service (milestone one) and the sherpa-onnx
+ * recogniser behind it (milestone two). hasDetector is whether this APK
+ * carries the model — an install from before milestone two doesn't, and the
+ * card still says so instead of implying a microphone that hears. "Try it"
+ * fires the handoff by hand either way, because the chain after the ears is
+ * worth testing on its own.
  */
 export function WakeWordCard() {
   const [status, setStatus] = useState<WakeStatus | null | "loading">("loading")
@@ -71,16 +72,17 @@ export function WakeWordCard() {
 
         {!status.hasDetector && (
           <p className="text-xs text-amber-400">
-            Half built, and saying so: the listening service is here, but the part that
-            recognises a spoken name isn&apos;t in this build yet. Turning it on will show
-            you the notification and prove it survives closing the app — it will not
-            actually hear you. &ldquo;Try it&rdquo; below stands in for the real thing.
+            This install predates the recogniser: the listening service is here, but the
+            part that knows his name isn&apos;t in this build. Grab the latest APK and it
+            will be. Until then, turning it on proves the plumbing — it will not actually
+            hear you — and &ldquo;Try it&rdquo; stands in for the real thing.
           </p>
         )}
 
         <p className="text-xs text-muted-foreground">
-          When it lands, saying his name opens the chat already listening, and what you
-          say sends itself after six seconds of quiet.
+          Say <b>&ldquo;hey Emergy&rdquo;</b> and the chat opens already listening; what
+          you say next sends itself after six seconds of quiet. Recognition happens
+          entirely on the phone — audio never leaves it.
         </p>
 
         <Button
@@ -109,7 +111,11 @@ export function WakeWordCard() {
               )} />
               <span className={status.listening ? "text-muted-foreground" : "text-amber-400"}>
                 {status.listening
-                  ? "Microphone open"
+                  ? status.hasDetector
+                    ? status.engine === "stub"
+                      ? "Microphone open, but the recogniser failed to load"
+                      : "Listening for his name"
+                    : "Microphone open — nothing behind it in this build"
                   : status.chargingOnly && !status.pluggedIn
                     ? "Paused — only listens while charging"
                     : "Should be listening but isn't"}
