@@ -13,7 +13,7 @@ import { experimentSuggestion } from "@/lib/experiment-suggest"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart" | "week"
+type Category = "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart" | "week" | "consistency" | "streaks" | "absence"
 
 interface InsightResult {
   id: string
@@ -67,9 +67,12 @@ const CATEGORY_META: Record<Category, { label: string; emoji: string; color: str
   money:       { label: "Money",    emoji: "💸", color: "text-teal-400" },
   calendar:    { label: "Calendar", emoji: "🗓️", color: "text-blue-400" },
   tags:        { label: "Tags",     emoji: "🏷️", color: "text-primary" },
+  consistency: { label: "Regularity", emoji: "🎚️", color: "text-teal-300" },
+  streaks:     { label: "Streaks",  emoji: "🔁", color: "text-purple-400" },
+  absence:     { label: "Missing lately", emoji: "🕳️", color: "text-slate-400" },
 }
 
-const CATEGORY_ORDER: Category[] = ["sleep", "recovery", "heart", "stress", "food", "symptoms", "supplements", "interactions", "fitness", "places", "week", "fasting", "habits", "custom", "focus", "caffeine", "screen", "work", "music", "money", "calendar", "tags"]
+const CATEGORY_ORDER: Category[] = ["absence", "sleep", "consistency", "streaks", "recovery", "heart", "stress", "food", "symptoms", "supplements", "interactions", "fitness", "places", "week", "fasting", "habits", "custom", "focus", "caffeine", "screen", "work", "music", "money", "calendar", "tags"]
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
 
