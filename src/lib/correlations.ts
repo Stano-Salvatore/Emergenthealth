@@ -61,7 +61,7 @@ type DayData = {
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart" | "week"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart" | "week" | "consistency" | "streaks" | "absence"
   emoji: string
   title: string
   finding: string
@@ -2402,6 +2402,525 @@ export async function computeCorrelations(
   } // end deriveInsights
 
   const insights = deriveInsights(allDays)
+
+  // ── Consistency, streaks & absence ─────────────────────────────────
+  //
+  // Three families deliberately kept OUTSIDE deriveInsights, because that
+  // function is re-run on weekday-only days as the weekend guard — a filter
+  // that shreds every notion of "consecutive nights" or "last 14 days".
+  // Their ids are unique, so the guard below no-ops on them (`wk` undefined),
+  // which is what we want: these are already time-aware, they don't need a
+  // weekend twin.
+  //
+  // Consistency asks whether a metric being close to its usual value beats
+  // a scattered version of the same metric. Streaks ask whether the third
+  // short night hurts differently than the first. Absence notices what you
+  // used to do and haven't recently, and reports how that period reads
+  // against the days when you did do it. Onset (first weeks of a new habit)
+  // and withdrawal (weeks after stopping one) need pre-window history to be
+  // done honestly, so they wait for a future pass.
+
+  if (allDays.length >= 21) {
+    const byDate = new Map(allDays.map(d => [d.date, d]))
+    const firstDate = allDays[0].date
+    const lastDate = allDays[allDays.length - 1].date
+    const dense: DayData[] = []
+    for (
+      let ts = Date.parse(firstDate + "T12:00:00Z");
+      ts <= Date.parse(lastDate + "T12:00:00Z");
+      ts += 86400000
+    ) {
+      const dateStr = new Date(ts).toISOString().slice(0, 10)
+      dense.push(byDate.get(dateStr) ?? { date: dateStr })
+    }
+
+    // ── Consistency ────────────────────────────────────────────────
+    // Compare next-day energy/mood on days close to the personal median for
+    // a rhythm metric against days far from it. Uses median rather than mean
+    // for robustness — one outlier week shouldn't move the yardstick.
+    const consistencyFamily = (
+      id: string,
+      label: string,
+      emoji: string,
+      accessor: (d: DayData) => number | null | undefined,
+      regularWithin: number,
+      scatteredBeyond: number,
+    ) => {
+      const vals = dense.map(accessor).filter((v): v is number => v != null && Number.isFinite(v))
+      if (vals.length < 14) return
+      const centre = median(vals)
+      const regEnergy: number[] = [], scatEnergy: number[] = []
+      const regMood: number[] = [], scatMood: number[] = []
+      for (let i = 0; i < dense.length - 1; i++) {
+        const v = accessor(dense[i])
+        if (v == null || !Number.isFinite(v)) continue
+        const off = Math.abs(v - centre)
+        const isReg = off <= regularWithin
+        const isScat = off > scatteredBeyond
+        if (!isReg && !isScat) continue
+        const next = dense[i + 1]
+        if (next.energy != null) (isReg ? regEnergy : scatEnergy).push(next.energy)
+        if (next.mood != null) (isReg ? regMood : scatMood).push(next.mood)
+      }
+      const eIns = compareGroups({
+        id: `consistency_${id}_energy`, category: "consistency", emoji,
+        title: `${label} Consistency & Next-Day Energy`,
+        highGroupLabel: `regular ${label.toLowerCase()}`,
+        lowGroupLabel: `scattered ${label.toLowerCase()}`,
+        highValues: regEnergy, lowValues: scatEnergy,
+        findingTemplate: (h, l) =>
+          h > l
+            ? `Close to your usual ${label.toLowerCase()}, next-day energy averages ${h} vs ${l} on off-schedule days`
+            : `Regular ${label.toLowerCase()} isn't buying you energy — ${h} vs ${l} on scattered days`,
+      })
+      if (eIns) insights.push(eIns)
+      const mIns = compareGroups({
+        id: `consistency_${id}_mood`, category: "consistency", emoji,
+        title: `${label} Consistency & Next-Day Mood`,
+        highGroupLabel: `regular ${label.toLowerCase()}`,
+        lowGroupLabel: `scattered ${label.toLowerCase()}`,
+        highValues: regMood, lowValues: scatMood,
+        findingTemplate: (h, l) =>
+          h > l
+            ? `Close to your usual ${label.toLowerCase()}, next-day mood averages ${h} vs ${l} on scattered days`
+            : `Consistent ${label.toLowerCase()} doesn't lift your mood — ${h} vs ${l} on scattered days`,
+      })
+      if (mIns) insights.push(mIns)
+    }
+
+    // Sleep length in hours; wake time / meal time in minutes after midnight.
+    consistencyFamily("sleep_duration", "Sleep Length", "🌙",
+      d => d.sleepDuration, 0.5, 1.5)
+    consistencyFamily("wake_time", "Wake Time", "☀️",
+      d => d.firstUnlockMin, 30, 90)
+    consistencyFamily("meal_time", "Last-Meal Time", "🍽️",
+      d => d.lastMealMin, 60, 120)
+
+    // ── Streaks ────────────────────────────────────────────────────
+    // Count how many consecutive days a predicate held true, ending at each
+    // index. Then compare "the day after a long streak" with "the day after
+    // an isolated one" — a comparison invisible to the single-day families.
+    const streakLen = (predicate: (d: DayData) => boolean): number[] => {
+      const out = new Array<number>(dense.length).fill(0)
+      let run = 0
+      for (let i = 0; i < dense.length; i++) {
+        run = predicate(dense[i]) ? run + 1 : 0
+        out[i] = run
+      }
+      return out
+    }
+
+    const shortSleep = streakLen(d => d.sleepDuration != null && d.sleepDuration < 7)
+    const singleE: number[] = [], streakE: number[] = []
+    const singleM: number[] = [], streakM: number[] = []
+    for (let i = 0; i < dense.length - 1; i++) {
+      const n = shortSleep[i]
+      const next = dense[i + 1]
+      if (n === 1) {
+        if (next.energy != null) singleE.push(next.energy)
+        if (next.mood != null) singleM.push(next.mood)
+      } else if (n >= 3) {
+        if (next.energy != null) streakE.push(next.energy)
+        if (next.mood != null) streakM.push(next.mood)
+      }
+    }
+    const shortE = compareGroups({
+      id: "streak_short_sleep_energy", category: "streaks", emoji: "😩",
+      title: "Short-Sleep Streaks & Morning Energy",
+      highGroupLabel: "one short night", lowGroupLabel: "3+ short nights in a row",
+      highValues: singleE, lowValues: streakE,
+      findingTemplate: (h, l) =>
+        `Morning after one short night: energy ${h}. Morning after three or more in a row: ${l}`,
+    })
+    if (shortE) insights.push(shortE)
+    const shortM = compareGroups({
+      id: "streak_short_sleep_mood", category: "streaks", emoji: "🥀",
+      title: "Short-Sleep Streaks & Mood",
+      highGroupLabel: "one short night", lowGroupLabel: "3+ short nights in a row",
+      highValues: singleM, lowValues: streakM,
+      findingTemplate: (h, l) =>
+        `Morning mood after one short night: ${h}. After three or more in a row: ${l}`,
+    })
+    if (shortM) insights.push(shortM)
+
+    // Back-to-back drinking. The HRV recorded for the morning is the
+    // consequence of the night before it — so day D+1 records the effect of
+    // day D's alcohol.
+    const alc = streakLen(d => (d.alcoholMl ?? 0) > 0)
+    const alcSingle: number[] = [], alcStreak: number[] = []
+    for (let i = 0; i < dense.length - 1; i++) {
+      const n = alc[i]
+      const nextHrv = dense[i + 1].hrv
+      if (nextHrv == null) continue
+      if (n === 1) alcSingle.push(nextHrv)
+      else if (n >= 2) alcStreak.push(nextHrv)
+    }
+    const alcIns = compareGroups({
+      id: "streak_alcohol_hrv", category: "streaks", emoji: "🍷",
+      title: "Back-to-Back Drinking Nights & HRV",
+      highGroupLabel: "one drinking night", lowGroupLabel: "2+ nights in a row",
+      highValues: alcSingle, lowValues: alcStreak,
+      findingTemplate: (h, l) =>
+        `Morning HRV after a single drinking night: ${Math.round(h)}. After two or more nights in a row: ${Math.round(l)}`,
+    })
+    if (alcIns) insights.push(alcIns)
+
+    // ── Absence ────────────────────────────────────────────────────
+    // What you used to do most weeks and haven't in 14+ days. Frame it as
+    // "days you did it (older 90d)" vs "the recent gap": the card carries the
+    // familiar delta shape, but the story it tells is about a change in
+    // behaviour rather than a between-days comparison.
+    const GAP_DAYS = 14
+    const MIN_PRIOR = 8
+    const recentStart = Math.max(0, dense.length - GAP_DAYS)
+    const priorDays = dense.slice(0, recentStart)
+    const gapDays = dense.slice(recentStart)
+    if (gapDays.length >= 7) {
+      const absenceCheck = (
+        id: string, label: string, emoji: string,
+        predicate: (d: DayData) => boolean,
+        accessor: (d: DayData) => number | null | undefined,
+        metricLabel: string,
+      ) => {
+        const priorPresent = priorDays.filter(predicate)
+        if (priorPresent.length < MIN_PRIOR) return
+        const gapPresent = gapDays.filter(predicate)
+        // Absent = happened often before, barely at all in the recent window.
+        if (gapPresent.length > 1) return
+        const priorValues = priorPresent
+          .map(accessor)
+          .filter((v): v is number => v != null && Number.isFinite(v))
+        const gapValues = gapDays
+          .map(accessor)
+          .filter((v): v is number => v != null && Number.isFinite(v))
+        const ins = compareGroups({
+          id: `absence_${id}`, category: "absence", emoji,
+          title: `Missing: ${label}`,
+          highGroupLabel: `days you did (past 3 months)`,
+          lowGroupLabel: `the last ${GAP_DAYS} days without`,
+          highValues: priorValues, lowValues: gapValues,
+          findingTemplate: (h, l) =>
+            `You've barely done "${label}" in ${GAP_DAYS} days. When you did, ${metricLabel} averaged ${h} — since then it's ${l}`,
+        })
+        if (ins) insights.push(ins)
+      }
+
+      // Concrete absences from data already in DayData. Habit/tag names
+      // aren't in DayData (only counts), so the walker below picks tags.
+      absenceCheck("walking", "walking 20+ min", "🚶",
+        d => (d.walkMin ?? 0) >= 20, d => d.mood, "mood")
+      absenceCheck("workout", "a workout", "💪",
+        d => (d.workoutMin ?? 0) >= 20, d => d.energy, "morning energy")
+      absenceCheck("focus", "a focus session", "🎯",
+        d => (d.focusMin ?? 0) >= 25, d => d.mood, "mood")
+
+      // Top tags by prior frequency — up to three, only if each is common
+      // enough on its own to warrant a card.
+      const tagCounts = new Map<string, number>()
+      for (const d of priorDays) for (const t of d.tags ?? []) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1)
+      const topTags = [...tagCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+      for (const [tag] of topTags) {
+        absenceCheck(`tag_${tag}`, tag, "🏷️",
+          d => (d.tags ?? []).includes(tag), d => d.mood, "mood")
+      }
+    }
+
+    // ── Onset ──────────────────────────────────────────────────────
+    // Tags that started appearing inside the window — nothing for the first
+    // stretch, then a run of them. Compare the outcomes on the "new" days
+    // to a matched-length baseline of days before it entered your life.
+    // Withdrawal (the mirror — outcomes after you stop) needs pre-window
+    // context we don't load, so it waits for a future pass.
+    const ONSET_QUIET_HEAD = 14   // days that must be silent before the tag counts as new
+    const ONSET_MIN_ADOPTIONS = 6 // occurrences after the first — otherwise it's a one-off
+    const tagFirstIdx = new Map<string, number>()
+    const tagOccurrences = new Map<string, number>()
+    for (let i = 0; i < dense.length; i++) {
+      for (const t of dense[i].tags ?? []) {
+        if (!tagFirstIdx.has(t)) tagFirstIdx.set(t, i)
+        tagOccurrences.set(t, (tagOccurrences.get(t) ?? 0) + 1)
+      }
+    }
+    for (const [tag, firstIdx] of tagFirstIdx) {
+      if (firstIdx < ONSET_QUIET_HEAD) continue
+      if ((tagOccurrences.get(tag) ?? 0) < ONSET_MIN_ADOPTIONS) continue
+      // "After" = from first appearance to end; "before" = an equal-length
+      // window immediately preceding it (matched length keeps sample sizes
+      // comparable and puts the seasons close together too).
+      const afterDays = dense.slice(firstIdx)
+      const beforeStart = Math.max(0, firstIdx - afterDays.length)
+      const beforeDays = dense.slice(beforeStart, firstIdx)
+      const afterMood = afterDays.map(d => d.mood).filter((v): v is number => v != null)
+      const beforeMood = beforeDays.map(d => d.mood).filter((v): v is number => v != null)
+      const afterEnergy = afterDays.map(d => d.energy).filter((v): v is number => v != null)
+      const beforeEnergy = beforeDays.map(d => d.energy).filter((v): v is number => v != null)
+      const iMood = compareGroups({
+        id: `onset_${tag}_mood`, category: "streaks", emoji: "🌱",
+        title: `New in your life: ${tag} & Mood`,
+        highGroupLabel: `since "${tag}" appeared`,
+        lowGroupLabel: `the matched window before`,
+        highValues: afterMood, lowValues: beforeMood,
+        findingTemplate: (h, l) =>
+          h > l
+            ? `Since "${tag}" started showing up, mood averages ${h} vs ${l} in the matched window before`
+            : `"${tag}" hasn't lifted your mood — ${h} vs ${l} before it entered your life`,
+      })
+      if (iMood) insights.push(iMood)
+      const iEnergy = compareGroups({
+        id: `onset_${tag}_energy`, category: "streaks", emoji: "🌱",
+        title: `New in your life: ${tag} & Energy`,
+        highGroupLabel: `since "${tag}" appeared`,
+        lowGroupLabel: `the matched window before`,
+        highValues: afterEnergy, lowValues: beforeEnergy,
+        findingTemplate: (h, l) =>
+          h > l
+            ? `Since "${tag}" started, morning energy is ${h} vs ${l} before`
+            : `"${tag}" hasn't lifted your energy — ${h} vs ${l} before`,
+      })
+      if (iEnergy) insights.push(iEnergy)
+    }
+
+    // ── Two-way interactions ──────────────────────────────────────
+    //
+    // A curated set on purpose. Testing every pair (predictor × moderator)
+    // burns sample size (each split cuts n by roughly a quarter), fills the
+    // page with variants of the same story, and gives false-discovery
+    // control an impossible job. The tuples here are hypotheses worth
+    // asking of most people's data — "does exercise soften alcohol's HRV
+    // hit", "does a walk the next day rescue you from a short night".
+    //
+    // A card only appears when the moderator actually changes the story:
+    // either it flips the effect's sign, or it changes the size of the
+    // effect by at least a third. A finding that reproduces identically
+    // with and without the moderator is not an interaction — it is the
+    // main effect, which has its own card elsewhere.
+    //
+    // The lower-level "compareGroups" helper is deliberately not reused
+    // here — that helper reports one delta between two groups, and the
+    // story an interaction wants to tell is the difference between two
+    // deltas. So the code below builds the four-cell cross-tab itself
+    // and formats the finding around the contrast.
+
+    interface InteractionDef {
+      id: string
+      title: string
+      emoji: string
+      /** The behaviour being studied — measured on day D. */
+      predictor: { label: string; predicate: (d: DayData) => boolean }
+      /** The number being watched — measured on day D or D+1. */
+      outcome: {
+        label: string
+        nextDay: boolean
+        accessor: (d: DayData) => number | null | undefined
+        higherIsBetter: boolean
+      }
+      /** The condition that might change the effect. Measured on the day of
+       *  the predictor unless otherwise noted. */
+      moderator: {
+        key: string
+        onLabel: string
+        offLabel: string
+        predicate: (d: DayData) => boolean
+        /** false = moderator measured on the predictor day (D); true = on the outcome day (D+1). */
+        onOutcomeDay?: boolean
+      }
+    }
+
+    const INTERACTIONS: InteractionDef[] = [
+      {
+        id: "alcohol_hrv_by_workout",
+        title: "Alcohol → HRV × Workout that day",
+        emoji: "🍷",
+        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        outcome: { label: "morning HRV", nextDay: true, accessor: d => d.hrv, higherIsBetter: true },
+        moderator: { key: "workout", onLabel: "with a workout that day", offLabel: "without a workout",
+                     predicate: d => (d.workoutMin ?? 0) >= 20 },
+      },
+      {
+        id: "alcohol_sleep_by_early_dinner",
+        title: "Alcohol → Sleep × Early dinner",
+        emoji: "🌙",
+        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        moderator: { key: "early_dinner", onLabel: "when dinner was before 8pm", offLabel: "when it was later",
+                     predicate: d => d.lastMealMin != null && d.lastMealMin < 20 * 60 },
+      },
+      {
+        id: "short_sleep_mood_by_next_workout",
+        title: "Short sleep → Mood × Workout next day",
+        emoji: "💪",
+        predictor: { label: "night under 7h", predicate: d => d.sleepDuration != null && d.sleepDuration < 7 },
+        outcome: { label: "next-day mood", nextDay: true, accessor: d => d.mood, higherIsBetter: true },
+        moderator: { key: "workout_next", onLabel: "when you worked out that day",
+                     offLabel: "when you didn't",
+                     predicate: d => (d.workoutMin ?? 0) >= 20, onOutcomeDay: true },
+      },
+      {
+        id: "short_sleep_energy_by_next_workout",
+        title: "Short sleep → Energy × Workout next day",
+        emoji: "🏃",
+        predictor: { label: "night under 7h", predicate: d => d.sleepDuration != null && d.sleepDuration < 7 },
+        outcome: { label: "next-day energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
+        moderator: { key: "workout_next", onLabel: "when you worked out that day",
+                     offLabel: "when you didn't",
+                     predicate: d => (d.workoutMin ?? 0) >= 20, onOutcomeDay: true },
+      },
+      {
+        id: "caffeine_sleep_by_amount",
+        title: "Caffeine → Sleep × Heavy vs light",
+        emoji: "☕",
+        predictor: { label: "any caffeine day", predicate: d => (d.caffeineMg ?? 0) > 0 },
+        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        moderator: { key: "heavy_caffeine", onLabel: "on 300mg+ days", offLabel: "on lighter days",
+                     predicate: d => (d.caffeineMg ?? 0) >= 300 },
+      },
+      {
+        id: "long_calendar_sleep_by_workout",
+        title: "Busy day → Sleep × Workout",
+        emoji: "📅",
+        predictor: { label: "busy day (5+ events)", predicate: d => (d.eventCount ?? 0) >= 5 },
+        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        moderator: { key: "workout", onLabel: "with a workout that day", offLabel: "without one",
+                     predicate: d => (d.workoutMin ?? 0) >= 20 },
+      },
+      {
+        id: "workout_energy_by_sleep_prior",
+        title: "Workout → Energy × Slept well the night before",
+        emoji: "😴",
+        predictor: { label: "workout day", predicate: d => (d.workoutMin ?? 0) >= 20 },
+        outcome: { label: "same-day energy", nextDay: false, accessor: d => d.energy, higherIsBetter: true },
+        moderator: { key: "slept_well_prior", onLabel: "on well-rested days", offLabel: "on tired ones",
+                     predicate: d => (d.sleepDuration ?? 0) >= 7 },
+      },
+      {
+        id: "screen_sleep_by_late_use",
+        title: "Screen time → Sleep × Regular wake time",
+        emoji: "📱",
+        predictor: { label: "high-screen day (top third)", predicate: () => false /* set below */ },
+        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        moderator: { key: "regular_wake", onLabel: "on days with a regular wake time",
+                     offLabel: "on scattered ones", predicate: () => false /* set below */ },
+      },
+      {
+        id: "alcohol_energy_by_water",
+        title: "Alcohol → Next-day Energy × Water intake",
+        emoji: "💧",
+        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        outcome: { label: "next-day energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
+        moderator: { key: "hydrated", onLabel: "when you drank 2L+ of fluid",
+                     offLabel: "when you didn't",
+                     predicate: d => (d.waterMl ?? 0) >= 2000 },
+      },
+      {
+        id: "late_meal_sleep_by_alcohol",
+        title: "Late meals → Sleep × Alcohol that day",
+        emoji: "🍽️",
+        predictor: { label: "late-meal day (after 9pm)",
+                     predicate: d => d.lastMealMin != null && d.lastMealMin >= 21 * 60 },
+        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        moderator: { key: "alcohol", onLabel: "when alcohol was also involved",
+                     offLabel: "on dry late-meal days",
+                     predicate: d => (d.alcoholMl ?? 0) > 0 },
+      },
+    ]
+
+    // Personal thresholds for the interactions that need them, computed once.
+    const screenVals = dense.map(d => d.screenTimeMin).filter((v): v is number => v != null && v > 0)
+    const screenP66 = screenVals.length >= 10
+      ? [...screenVals].sort((a, b) => a - b)[Math.floor(screenVals.length * 0.66)]
+      : Number.POSITIVE_INFINITY
+    const wakeVals = dense.map(d => d.firstUnlockMin).filter((v): v is number => v != null)
+    const wakeMedian = wakeVals.length >= 10 ? median(wakeVals) : 0
+    // Point the two placeholders at the personal thresholds now they exist.
+    for (const def of INTERACTIONS) {
+      if (def.id === "screen_sleep_by_late_use") {
+        def.predictor.predicate = d => (d.screenTimeMin ?? 0) >= screenP66
+        def.moderator.predicate = d => d.firstUnlockMin != null &&
+          Math.abs(d.firstUnlockMin - wakeMedian) <= 30
+      }
+    }
+
+    const MIN_CELL = 4  // need this many days in each of the four cells
+    const CHANGE_THRESHOLD = 0.35  // effect size must shift ≥35% or flip sign
+    for (const def of INTERACTIONS) {
+      const cells: { on: { yes: number[]; no: number[] }, off: { yes: number[]; no: number[] } } = {
+        on:  { yes: [], no: [] },
+        off: { yes: [], no: [] },
+      }
+      for (let i = 0; i < dense.length - (def.outcome.nextDay ? 1 : 0); i++) {
+        const day = dense[i]
+        if (!def.predictor.predicate(day)) {
+          // Also need the "did NOT do predictor" side for comparison.
+          const outcomeDay = def.outcome.nextDay ? dense[i + 1] : day
+          const val = def.outcome.accessor(outcomeDay)
+          if (val == null || !Number.isFinite(val)) continue
+          const modDay = def.moderator.onOutcomeDay ? outcomeDay : day
+          const mod = def.moderator.predicate(modDay)
+          ;(mod ? cells.on : cells.off).no.push(val)
+          continue
+        }
+        const outcomeDay = def.outcome.nextDay ? dense[i + 1] : day
+        const val = def.outcome.accessor(outcomeDay)
+        if (val == null || !Number.isFinite(val)) continue
+        const modDay = def.moderator.onOutcomeDay ? outcomeDay : day
+        const mod = def.moderator.predicate(modDay)
+        ;(mod ? cells.on : cells.off).yes.push(val)
+      }
+
+      if (cells.on.yes.length < MIN_CELL || cells.on.no.length < MIN_CELL) continue
+      if (cells.off.yes.length < MIN_CELL || cells.off.no.length < MIN_CELL) continue
+
+      const onEffect = r1(avg(cells.on.yes) - avg(cells.on.no))
+      const offEffect = r1(avg(cells.off.yes) - avg(cells.off.no))
+      const swings = Math.sign(onEffect) !== Math.sign(offEffect)
+      const shrinks = Math.abs(offEffect) > 0 &&
+        Math.abs(offEffect - onEffect) / Math.abs(offEffect) >= CHANGE_THRESHOLD
+      if (!swings && !shrinks) continue
+
+      // Frame the story around whichever effect is larger — that's the story
+      // that changes when the moderator is present.
+      const dominant = Math.abs(offEffect) >= Math.abs(onEffect) ? "off" : "on"
+      const dominantLabel = dominant === "off" ? def.moderator.offLabel : def.moderator.onLabel
+      const otherLabel = dominant === "off" ? def.moderator.onLabel : def.moderator.offLabel
+      const dominantEffect = dominant === "off" ? offEffect : onEffect
+      const otherEffect = dominant === "off" ? onEffect : offEffect
+      const direction = dominantEffect >= 0 ? "lifts" : "drops"
+      const bigger = Math.abs(dominantEffect)
+      const smaller = Math.abs(otherEffect)
+
+      // A single "insight" value for the ordering: how much the moderator
+      // moves the effect. Use the difference between the two effects as the
+      // delta — that IS the interaction.
+      const interactionDelta = ((offEffect - onEffect) / (Math.abs(offEffect) || 1)) * 100
+
+      insights.push({
+        id: `interaction_${def.id}`,
+        category: "interactions",
+        emoji: def.emoji,
+        title: def.title,
+        finding: swings
+          ? `${def.predictor.label} ${direction} ${def.outcome.label} by ${bigger} ${dominantLabel} — but ${otherLabel} the effect flips to ${otherEffect > 0 ? "+" : ""}${otherEffect}`
+          : `${def.predictor.label} ${direction} ${def.outcome.label} by ${bigger} ${dominantLabel}; ${otherLabel} the same change is only ${smaller}`,
+        delta: Math.round(interactionDelta * 10) / 10,
+        highGroupLabel: dominantLabel,
+        lowGroupLabel: otherLabel,
+        highGroupAvg: r1(avg(dominant === "off" ? cells.off.yes : cells.on.yes)),
+        lowGroupAvg: r1(avg(dominant === "off" ? cells.on.yes : cells.off.yes)),
+        highGroupN: (dominant === "off" ? cells.off.yes.length : cells.on.yes.length),
+        lowGroupN: (dominant === "off" ? cells.on.yes.length : cells.off.yes.length),
+        confident: cells.on.yes.length + cells.off.yes.length >= 20,
+        // Interactions get a coarser p-value: we're checking a 4-cell shift,
+        // not a 2-group test. Leave permutation to the main families; the
+        // moderator threshold above is what earns the card its spot.
+        pValue: 1,
+        tier: "noise",
+      })
+    }
+  }
+
+  // Re-tier once the lag families are folded in, so FDR is fair across all.
   assignTiers(insights)
 
   // Weekend guard: alcohol, late meals, spending, music and screen time all
