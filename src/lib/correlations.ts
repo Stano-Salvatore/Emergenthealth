@@ -2681,6 +2681,243 @@ export async function computeCorrelations(
       })
       if (iEnergy) insights.push(iEnergy)
     }
+
+    // ── Two-way interactions ──────────────────────────────────────
+    //
+    // A curated set on purpose. Testing every pair (predictor × moderator)
+    // burns sample size (each split cuts n by roughly a quarter), fills the
+    // page with variants of the same story, and gives false-discovery
+    // control an impossible job. The tuples here are hypotheses worth
+    // asking of most people's data — "does exercise soften alcohol's HRV
+    // hit", "does a walk the next day rescue you from a short night".
+    //
+    // A card only appears when the moderator actually changes the story:
+    // either it flips the effect's sign, or it changes the size of the
+    // effect by at least a third. A finding that reproduces identically
+    // with and without the moderator is not an interaction — it is the
+    // main effect, which has its own card elsewhere.
+    //
+    // The lower-level "compareGroups" helper is deliberately not reused
+    // here — that helper reports one delta between two groups, and the
+    // story an interaction wants to tell is the difference between two
+    // deltas. So the code below builds the four-cell cross-tab itself
+    // and formats the finding around the contrast.
+
+    interface InteractionDef {
+      id: string
+      title: string
+      emoji: string
+      /** The behaviour being studied — measured on day D. */
+      predictor: { label: string; predicate: (d: DayData) => boolean }
+      /** The number being watched — measured on day D or D+1. */
+      outcome: {
+        label: string
+        nextDay: boolean
+        accessor: (d: DayData) => number | null | undefined
+        higherIsBetter: boolean
+      }
+      /** The condition that might change the effect. Measured on the day of
+       *  the predictor unless otherwise noted. */
+      moderator: {
+        key: string
+        onLabel: string
+        offLabel: string
+        predicate: (d: DayData) => boolean
+        /** false = moderator measured on the predictor day (D); true = on the outcome day (D+1). */
+        onOutcomeDay?: boolean
+      }
+    }
+
+    const INTERACTIONS: InteractionDef[] = [
+      {
+        id: "alcohol_hrv_by_workout",
+        title: "Alcohol → HRV × Workout that day",
+        emoji: "🍷",
+        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        outcome: { label: "morning HRV", nextDay: true, accessor: d => d.hrv, higherIsBetter: true },
+        moderator: { key: "workout", onLabel: "with a workout that day", offLabel: "without a workout",
+                     predicate: d => (d.workoutMin ?? 0) >= 20 },
+      },
+      {
+        id: "alcohol_sleep_by_early_dinner",
+        title: "Alcohol → Sleep × Early dinner",
+        emoji: "🌙",
+        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        moderator: { key: "early_dinner", onLabel: "when dinner was before 8pm", offLabel: "when it was later",
+                     predicate: d => d.lastMealMin != null && d.lastMealMin < 20 * 60 },
+      },
+      {
+        id: "short_sleep_mood_by_next_workout",
+        title: "Short sleep → Mood × Workout next day",
+        emoji: "💪",
+        predictor: { label: "night under 7h", predicate: d => d.sleepDuration != null && d.sleepDuration < 7 },
+        outcome: { label: "next-day mood", nextDay: true, accessor: d => d.mood, higherIsBetter: true },
+        moderator: { key: "workout_next", onLabel: "when you worked out that day",
+                     offLabel: "when you didn't",
+                     predicate: d => (d.workoutMin ?? 0) >= 20, onOutcomeDay: true },
+      },
+      {
+        id: "short_sleep_energy_by_next_workout",
+        title: "Short sleep → Energy × Workout next day",
+        emoji: "🏃",
+        predictor: { label: "night under 7h", predicate: d => d.sleepDuration != null && d.sleepDuration < 7 },
+        outcome: { label: "next-day energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
+        moderator: { key: "workout_next", onLabel: "when you worked out that day",
+                     offLabel: "when you didn't",
+                     predicate: d => (d.workoutMin ?? 0) >= 20, onOutcomeDay: true },
+      },
+      {
+        id: "caffeine_sleep_by_amount",
+        title: "Caffeine → Sleep × Heavy vs light",
+        emoji: "☕",
+        predictor: { label: "any caffeine day", predicate: d => (d.caffeineMg ?? 0) > 0 },
+        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        moderator: { key: "heavy_caffeine", onLabel: "on 300mg+ days", offLabel: "on lighter days",
+                     predicate: d => (d.caffeineMg ?? 0) >= 300 },
+      },
+      {
+        id: "long_calendar_sleep_by_workout",
+        title: "Busy day → Sleep × Workout",
+        emoji: "📅",
+        predictor: { label: "busy day (5+ events)", predicate: d => (d.eventCount ?? 0) >= 5 },
+        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        moderator: { key: "workout", onLabel: "with a workout that day", offLabel: "without one",
+                     predicate: d => (d.workoutMin ?? 0) >= 20 },
+      },
+      {
+        id: "workout_energy_by_sleep_prior",
+        title: "Workout → Energy × Slept well the night before",
+        emoji: "😴",
+        predictor: { label: "workout day", predicate: d => (d.workoutMin ?? 0) >= 20 },
+        outcome: { label: "same-day energy", nextDay: false, accessor: d => d.energy, higherIsBetter: true },
+        moderator: { key: "slept_well_prior", onLabel: "on well-rested days", offLabel: "on tired ones",
+                     predicate: d => (d.sleepDuration ?? 0) >= 7 },
+      },
+      {
+        id: "screen_sleep_by_late_use",
+        title: "Screen time → Sleep × Regular wake time",
+        emoji: "📱",
+        predictor: { label: "high-screen day (top third)", predicate: () => false /* set below */ },
+        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        moderator: { key: "regular_wake", onLabel: "on days with a regular wake time",
+                     offLabel: "on scattered ones", predicate: () => false /* set below */ },
+      },
+      {
+        id: "alcohol_energy_by_water",
+        title: "Alcohol → Next-day Energy × Water intake",
+        emoji: "💧",
+        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        outcome: { label: "next-day energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
+        moderator: { key: "hydrated", onLabel: "when you drank 2L+ of fluid",
+                     offLabel: "when you didn't",
+                     predicate: d => (d.waterMl ?? 0) >= 2000 },
+      },
+      {
+        id: "late_meal_sleep_by_alcohol",
+        title: "Late meals → Sleep × Alcohol that day",
+        emoji: "🍽️",
+        predictor: { label: "late-meal day (after 9pm)",
+                     predicate: d => d.lastMealMin != null && d.lastMealMin >= 21 * 60 },
+        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        moderator: { key: "alcohol", onLabel: "when alcohol was also involved",
+                     offLabel: "on dry late-meal days",
+                     predicate: d => (d.alcoholMl ?? 0) > 0 },
+      },
+    ]
+
+    // Personal thresholds for the interactions that need them, computed once.
+    const screenVals = dense.map(d => d.screenTimeMin).filter((v): v is number => v != null && v > 0)
+    const screenP66 = screenVals.length >= 10
+      ? [...screenVals].sort((a, b) => a - b)[Math.floor(screenVals.length * 0.66)]
+      : Number.POSITIVE_INFINITY
+    const wakeVals = dense.map(d => d.firstUnlockMin).filter((v): v is number => v != null)
+    const wakeMedian = wakeVals.length >= 10 ? median(wakeVals) : 0
+    // Point the two placeholders at the personal thresholds now they exist.
+    for (const def of INTERACTIONS) {
+      if (def.id === "screen_sleep_by_late_use") {
+        def.predictor.predicate = d => (d.screenTimeMin ?? 0) >= screenP66
+        def.moderator.predicate = d => d.firstUnlockMin != null &&
+          Math.abs(d.firstUnlockMin - wakeMedian) <= 30
+      }
+    }
+
+    const MIN_CELL = 4  // need this many days in each of the four cells
+    const CHANGE_THRESHOLD = 0.35  // effect size must shift ≥35% or flip sign
+    for (const def of INTERACTIONS) {
+      const cells: { on: { yes: number[]; no: number[] }, off: { yes: number[]; no: number[] } } = {
+        on:  { yes: [], no: [] },
+        off: { yes: [], no: [] },
+      }
+      for (let i = 0; i < dense.length - (def.outcome.nextDay ? 1 : 0); i++) {
+        const day = dense[i]
+        if (!def.predictor.predicate(day)) {
+          // Also need the "did NOT do predictor" side for comparison.
+          const outcomeDay = def.outcome.nextDay ? dense[i + 1] : day
+          const val = def.outcome.accessor(outcomeDay)
+          if (val == null || !Number.isFinite(val)) continue
+          const modDay = def.moderator.onOutcomeDay ? outcomeDay : day
+          const mod = def.moderator.predicate(modDay)
+          ;(mod ? cells.on : cells.off).no.push(val)
+          continue
+        }
+        const outcomeDay = def.outcome.nextDay ? dense[i + 1] : day
+        const val = def.outcome.accessor(outcomeDay)
+        if (val == null || !Number.isFinite(val)) continue
+        const modDay = def.moderator.onOutcomeDay ? outcomeDay : day
+        const mod = def.moderator.predicate(modDay)
+        ;(mod ? cells.on : cells.off).yes.push(val)
+      }
+
+      if (cells.on.yes.length < MIN_CELL || cells.on.no.length < MIN_CELL) continue
+      if (cells.off.yes.length < MIN_CELL || cells.off.no.length < MIN_CELL) continue
+
+      const onEffect = r1(avg(cells.on.yes) - avg(cells.on.no))
+      const offEffect = r1(avg(cells.off.yes) - avg(cells.off.no))
+      const swings = Math.sign(onEffect) !== Math.sign(offEffect)
+      const shrinks = Math.abs(offEffect) > 0 &&
+        Math.abs(offEffect - onEffect) / Math.abs(offEffect) >= CHANGE_THRESHOLD
+      if (!swings && !shrinks) continue
+
+      // Frame the story around whichever effect is larger — that's the story
+      // that changes when the moderator is present.
+      const dominant = Math.abs(offEffect) >= Math.abs(onEffect) ? "off" : "on"
+      const dominantLabel = dominant === "off" ? def.moderator.offLabel : def.moderator.onLabel
+      const otherLabel = dominant === "off" ? def.moderator.onLabel : def.moderator.offLabel
+      const dominantEffect = dominant === "off" ? offEffect : onEffect
+      const otherEffect = dominant === "off" ? onEffect : offEffect
+      const direction = dominantEffect >= 0 ? "lifts" : "drops"
+      const bigger = Math.abs(dominantEffect)
+      const smaller = Math.abs(otherEffect)
+
+      // A single "insight" value for the ordering: how much the moderator
+      // moves the effect. Use the difference between the two effects as the
+      // delta — that IS the interaction.
+      const interactionDelta = ((offEffect - onEffect) / (Math.abs(offEffect) || 1)) * 100
+
+      insights.push({
+        id: `interaction_${def.id}`,
+        category: "interactions",
+        emoji: def.emoji,
+        title: def.title,
+        finding: swings
+          ? `${def.predictor.label} ${direction} ${def.outcome.label} by ${bigger} ${dominantLabel} — but ${otherLabel} the effect flips to ${otherEffect > 0 ? "+" : ""}${otherEffect}`
+          : `${def.predictor.label} ${direction} ${def.outcome.label} by ${bigger} ${dominantLabel}; ${otherLabel} the same change is only ${smaller}`,
+        delta: Math.round(interactionDelta * 10) / 10,
+        highGroupLabel: dominantLabel,
+        lowGroupLabel: otherLabel,
+        highGroupAvg: r1(avg(dominant === "off" ? cells.off.yes : cells.on.yes)),
+        lowGroupAvg: r1(avg(dominant === "off" ? cells.on.yes : cells.off.yes)),
+        highGroupN: (dominant === "off" ? cells.off.yes.length : cells.on.yes.length),
+        lowGroupN: (dominant === "off" ? cells.on.yes.length : cells.off.yes.length),
+        confident: cells.on.yes.length + cells.off.yes.length >= 20,
+        // Interactions get a coarser p-value: we're checking a 4-cell shift,
+        // not a 2-group test. Leave permutation to the main families; the
+        // moderator threshold above is what earns the card its spot.
+        pValue: 1,
+        tier: "noise",
+      })
+    }
   }
 
   // Re-tier once the lag families are folded in, so FDR is fair across all.
