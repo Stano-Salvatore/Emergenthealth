@@ -57,11 +57,13 @@ type DayData = {
   productiveH?: number     // RescueTime productive hours
   distractingH?: number    // RescueTime distracting hours
   systolic?: number        // blood pressure — the day's average systolic
+  weightKg?: number        // a weigh-in recorded on this day (BodyMeasurement)
+  waistCm?: number
 }
 
 export type InsightResult = {
   id: string
-  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart" | "week" | "consistency" | "streaks" | "absence"
+  category: "sleep" | "stress" | "habits" | "caffeine" | "recovery" | "screen" | "tags" | "calendar" | "food" | "supplements" | "interactions" | "symptoms" | "fitness" | "music" | "money" | "focus" | "fasting" | "custom" | "places" | "work" | "heart" | "week" | "consistency" | "streaks" | "absence" | "body"
   emoji: string
   title: string
   finding: string
@@ -170,19 +172,71 @@ export function permutationP(high: number[], low: number[], seedKey: string): nu
   const rng = seededRng(hashString(seedKey))
   let atLeast = 0
   for (let p = 0; p < PERMUTATIONS; p++) {
-    // Fisher-Yates shuffle
-    for (let i = pool.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1))
-      ;[pool[i], pool[j]] = [pool[j], pool[i]]
-    }
-    let sumHigh = 0
-    for (let i = 0; i < nHigh; i++) sumHigh += pool[i]
-    let sumLow = 0
-    for (let i = nHigh; i < pool.length; i++) sumLow += pool[i]
-    const diff = Math.abs(sumHigh / nHigh - sumLow / (pool.length - nHigh))
+    shuffleInPlace(pool, rng)
+    const diff = Math.abs(meanOfSlice(pool, 0, nHigh) - meanOfSlice(pool, nHigh, pool.length))
     if (diff >= observed - 1e-12) atLeast++
   }
   // +1 correction: a permutation p-value is never exactly 0
+  return (atLeast + 1) / (PERMUTATIONS + 1)
+}
+
+function shuffleInPlace(arr: number[], rng: () => number): void {
+  // Fisher-Yates
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+}
+
+/** Mean of arr[from..to), without allocating a slice per permutation. */
+function meanOfSlice(arr: number[], from: number, to: number): number {
+  let sum = 0
+  for (let i = from; i < to; i++) sum += arr[i]
+  return sum / (to - from)
+}
+
+/**
+ * Permutation test for a two-way interaction: the difference between two
+ * differences, which is the thing an interaction card actually claims.
+ *
+ * The null here is narrower than the one `permutationP` tests, and the
+ * difference matters. "Nothing in this table matters" is easy to reject and
+ * would be the wrong question — a moderator with a large effect of its own
+ * (a workout lifts HRV whether or not you drank) would clear it every time
+ * and every interaction card would look significant. The null being tested
+ * is only "the moderator does not change the predictor's effect".
+ *
+ * So the shuffle moves the MODERATOR label within each predictor level
+ * separately, holding all four cell counts fixed. A main effect of either
+ * variable shifts both cells of a level equally and cancels in the
+ * difference-of-differences, so it cannot manufacture a small p-value; only
+ * a genuine change in the effect survives the shuffle.
+ *
+ * Where the moderator does have a main effect it stays in the pool being
+ * shuffled, widening the null distribution and pushing the p-value up. The
+ * test is conservative in exactly the cases most likely to fool a reader,
+ * which is the right direction to be wrong in.
+ */
+export function interactionPermutationP(
+  onYes: number[], onNo: number[],
+  offYes: number[], offNo: number[],
+  seedKey: string,
+): number {
+  const observed = Math.abs((avg(offYes) - avg(offNo)) - (avg(onYes) - avg(onNo)))
+  // One pool per predictor level; the first n entries stand in for "moderator on".
+  const yesPool = [...onYes, ...offYes]
+  const noPool = [...onNo, ...offNo]
+  const nOnYes = onYes.length
+  const nOnNo = onNo.length
+  const rng = seededRng(hashString(seedKey))
+  let atLeast = 0
+  for (let p = 0; p < PERMUTATIONS; p++) {
+    shuffleInPlace(yesPool, rng)
+    shuffleInPlace(noPool, rng)
+    const on = meanOfSlice(yesPool, 0, nOnYes) - meanOfSlice(noPool, 0, nOnNo)
+    const off = meanOfSlice(yesPool, nOnYes, yesPool.length) - meanOfSlice(noPool, nOnNo, noPool.length)
+    if (Math.abs(off - on) >= observed - 1e-12) atLeast++
+  }
   return (atLeast + 1) / (PERMUTATIONS + 1)
 }
 
@@ -374,7 +428,7 @@ export async function computeCorrelations(
 
   // Sources that used to live only in the /api/stats mini-engine (music, money,
   // focus) or nowhere at all (standalone mood logs, Strava, fasting).
-  const [moodRows, stravaRows, focusRows, lastfmRows, txRows, fastPref, symptomRows, customMetricRows, customLogRows, locPoints, travelSpans, rescueRows, bpRows] = await Promise.all([
+  const [moodRows, stravaRows, focusRows, lastfmRows, txRows, fastPref, symptomRows, customMetricRows, customLogRows, locPoints, travelSpans, rescueRows, bpRows, bodyRows] = await Promise.all([
     prisma.moodLog.findMany({
       where: { userId, date: { gte: since60 } },
       select: { date: true, mood: true },
@@ -443,6 +497,12 @@ export async function computeCorrelations(
       where: { userId, loggedAt: { gte: since60 } },
       select: { loggedAt: true, systolic: true },
     }).catch(() => [] as { loggedAt: Date; systolic: number }[]),
+
+    prisma.bodyMeasurement.findMany({
+      where: { userId, date: { gte: since60 } },
+      orderBy: { date: "asc" },
+      select: { date: true, weightKg: true, waistCm: true },
+    }).catch(() => [] as { date: Date; weightKg: number | null; waistCm: number | null }[]),
   ])
 
   // Genres for the artists this user's days were topped by — the ArtistGenre
@@ -704,6 +764,14 @@ export async function computeCorrelations(
   }
   for (const [dateStr, a] of bpAgg) {
     getOrCreate(dateStr).systolic = Math.round(a.sum / a.n)
+  }
+
+  // A weigh-in is a date-only column, so the UTC slice is the day it was
+  // recorded for — no timezone shift to undo.
+  for (const b of bodyRows) {
+    const d = getOrCreate(b.date.toISOString().slice(0, 10))
+    if (b.weightKg != null) d.weightKg = b.weightKg
+    if (b.waistCm != null) d.waistCm = b.waistCm
   }
 
   const allDays = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date))
@@ -2911,12 +2979,140 @@ export async function computeCorrelations(
         highGroupN: (dominant === "off" ? cells.off.yes.length : cells.on.yes.length),
         lowGroupN: (dominant === "off" ? cells.on.yes.length : cells.off.yes.length),
         confident: cells.on.yes.length + cells.off.yes.length >= 20,
-        // Interactions get a coarser p-value: we're checking a 4-cell shift,
-        // not a 2-group test. Leave permutation to the main families; the
-        // moderator threshold above is what earns the card its spot.
-        pValue: 1,
+        // The effect-change threshold above says the moderator moved the
+        // story enough to be worth a card; this says the move is bigger than
+        // shuffling the same days around produces. Both are needed — with
+        // four cells of four days, a 35% shift is well within what chance
+        // manages, and this family used to ship those as findings.
+        pValue: permutationsOn
+          ? interactionPermutationP(cells.on.yes, cells.on.no, cells.off.yes, cells.off.no,
+                                    `interaction_${def.id}`)
+          : 1,
         tier: "noise",
       })
+    }
+
+    // ── Body measurements ─────────────────────────────────────────
+    //
+    // Weight is not a day-level number. It moves a kilo on salt, water and
+    // the hour of the weigh-in, and today's reading is mostly yesterday's
+    // reading — which is precisely the autocorrelation a permutation test
+    // assumes away. Comparing weight LEVELS between two groups of days would
+    // produce confident nonsense: the groups would differ because weeks
+    // differ, not because the behaviour does.
+    //
+    // The question that survives is the other way round. Between two
+    // weigh-ins the number either rose or fell, and those stretches can be
+    // compared on what was going on during them. Each span is then one
+    // observation, spans never overlap, and the thing being compared is an
+    // ordinary behaviour average rather than a number carrying its own
+    // history.
+    //
+    // Body fat percentage is left out on purpose. Consumer scales measure
+    // impedance and infer the rest, and the inference tracks hydration more
+    // closely than fat, so a family built on it would mostly be reporting how
+    // much water someone had drunk that morning.
+
+    const bodySpans = (accessor: (d: DayData) => number | undefined, noiseFloor: number) => {
+      const MIN_GAP = 3   // any shorter and the change is the scale talking
+      const MAX_GAP = 21  // any longer and "what you were doing" stops meaning much
+      const marks: { i: number; v: number }[] = []
+      dense.forEach((d, i) => {
+        const v = accessor(d)
+        if (v != null && Number.isFinite(v)) marks.push({ i, v })
+      })
+      const spans: { from: number; to: number; change: number }[] = []
+      let anchor = marks[0]
+      if (!anchor) return spans
+      for (const m of marks.slice(1)) {
+        const gap = m.i - anchor.i
+        // Walking anchor to anchor keeps the spans non-overlapping, so no day
+        // is counted twice however often the scale gets stepped on.
+        if (gap < MIN_GAP) continue
+        if (gap <= MAX_GAP) spans.push({ from: anchor.i, to: m.i, change: m.v - anchor.v })
+        anchor = m
+      }
+      // A span inside the noise floor didn't rise or fall; it was the same
+      // number twice. Forcing it onto one side would fill both groups with
+      // days that belong to neither.
+      return spans.filter(sp => Math.abs(sp.change) >= noiseFloor)
+    }
+
+    // The mean of a behaviour over the days between two weigh-ins. Those are
+    // the days that could have moved the number; the anchor day already gave
+    // up its reading.
+    const spanMean = (
+      sp: { from: number; to: number },
+      per: (d: DayData) => number | null,
+    ): number | null => {
+      const vals: number[] = []
+      for (let i = sp.from + 1; i <= sp.to; i++) {
+        const v = per(dense[i])
+        if (v != null && Number.isFinite(v)) vals.push(v)
+      }
+      // Half the days have to carry the number, or a single logged lunch ends
+      // up standing in for a fortnight of eating. Behaviours that read absence
+      // as zero — you logged no drinks, so you drank nothing — always pass.
+      if (vals.length * 2 < sp.to - sp.from) return null
+      return avg(vals)
+    }
+
+    const BODY_MEASURES: {
+      key: string; label: string; emoji: string
+      accessor: (d: DayData) => number | undefined
+      /** Below this the two readings are the same number twice. */
+      noiseFloor: number
+    }[] = [
+      { key: "weight", label: "weight", emoji: "⚖️", accessor: d => d.weightKg, noiseFloor: 0.4 },
+      { key: "waist", label: "waist", emoji: "📏", accessor: d => d.waistCm, noiseFloor: 1 },
+    ]
+
+    // Curated for the same reason the interactions above are: every extra pair
+    // costs the whole run some of its false-discovery budget.
+    const BODY_BEHAVIOURS: {
+      key: string; label: string; unit: string
+      per: (d: DayData) => number | null
+      fmt?: (v: number) => string
+    }[] = [
+      { key: "calories", label: "Calories", unit: "kcal a day", per: d => d.calories ?? null },
+      { key: "protein", label: "Protein", unit: "g of protein a day", per: d => d.proteinG ?? null },
+      { key: "alcohol", label: "Alcohol", unit: "ml of alcohol a day", per: d => d.alcoholMl ?? 0 },
+      { key: "workout", label: "Workouts", unit: "minutes of exercise a day", per: d => d.workoutMin ?? 0 },
+      { key: "steps", label: "Steps", unit: "steps a day", per: d => d.steps ?? null },
+      { key: "sleep", label: "Sleep", unit: "hours of sleep a night", per: d => d.sleepDuration ?? null,
+        fmt: v => v.toFixed(1) },
+    ]
+
+    for (const measure of BODY_MEASURES) {
+      const spans = bodySpans(measure.accessor, measure.noiseFloor)
+      if (spans.length < 10) continue
+      for (const beh of BODY_BEHAVIOURS) {
+        const rose: number[] = [], fell: number[] = []
+        for (const sp of spans) {
+          const v = spanMean(sp, beh.per)
+          if (v == null) continue
+          ;(sp.change > 0 ? rose : fell).push(v)
+        }
+        const fmt = beh.fmt ?? ((v: number) => String(Math.round(v)))
+        // "Rose" is the high group so the percentage reads as "this much more
+        // of it on the stretches the number climbed" — a statement about the
+        // association and not about whether climbing is good. This app takes
+        // no view on that: healthyWeightRange has an under end as well as an
+        // over one, and the finding text below says which way round it is.
+        const ins = compareGroups({
+          id: `body_${measure.key}_${beh.key}`,
+          category: "body",
+          emoji: measure.emoji,
+          title: `${beh.label} & ${measure.label} change`,
+          highGroupLabel: `stretches your ${measure.label} rose`,
+          lowGroupLabel: "stretches it fell",
+          highValues: rose,
+          lowValues: fell,
+          findingTemplate: (hi, lo) =>
+            `Between weigh-ins where your ${measure.label} climbed you averaged ${fmt(hi)} ${beh.unit}; between the ones where it dropped, ${fmt(lo)}`,
+        })
+        if (ins) insights.push(ins)
+      }
     }
   }
 
