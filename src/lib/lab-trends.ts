@@ -33,6 +33,50 @@ export interface DayTags {
   name: string
 }
 
+/**
+ * One day's worth of the ordinary numbers the app already keeps, for the days
+ * it has any record of at all.
+ *
+ * "Any record at all" is the important part. A window where nothing was
+ * logged must not read as a window where nothing happened — a fortnight on
+ * holiday with the phone in a drawer would otherwise come back as two sober,
+ * sedentary weeks. So the caller supplies a row only for days it genuinely
+ * knows something about, and a metric that is absent on a known day is null
+ * rather than zero, except where zero is the real reading: no drink logged on
+ * a day the app was in use is a day without a drink.
+ */
+export interface DayFacts {
+  /** YYYY-MM-DD. */
+  day: string
+  alcoholMl?: number | null
+  workoutMin?: number | null
+  sleepH?: number | null
+  steps?: number | null
+  weightKg?: number | null
+}
+
+/**
+ * How one everyday number differed through the interval between two draws,
+ * measured against the same length of time before the earlier one.
+ *
+ * The comparison is the whole point. "You averaged 2 drinks a day" is trivia;
+ * "2 a day, up from half of one" is the thing a reader can put next to a liver
+ * marker — and, exactly like `IntervalHabit`, it is a co-occurrence and not a
+ * cause.
+ */
+export interface IntervalBehaviour {
+  key: string
+  label: string
+  /** Mean per day through the interval. */
+  during: number
+  /** Mean per day over the matching window before the earlier draw. */
+  before: number
+  changePct: number
+  direction: "up" | "down"
+  /** Ready to read: "38 min a day, up from 12". */
+  phrase: string
+}
+
 export type RangeStatus = "in-range" | "below" | "above" | "unknown"
 
 export interface IntervalHabit {
@@ -68,6 +112,8 @@ export interface MarkerTrend {
   intervalDays: number | null
   /** What was taken through the interval. Context, not cause. */
   taken: IntervalHabit[]
+  /** How daily life differed through the interval. Context, not cause. */
+  behaviours: IntervalBehaviour[]
   summary: string
   /**
    * The previous reading was printed in a different unit and was converted to
@@ -157,6 +203,69 @@ function intervalHabits(tags: DayTags[], from: string, to: string): IntervalHabi
 }
 
 const r1 = (n: number) => Math.round(n * 10) / 10
+const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
+
+// ── Everyday numbers through the interval ────────────────────────────────────
+
+/** Both windows need this many days carrying the number, and this much of the
+ *  window covered, before the two are worth comparing. Below either, the
+ *  comparison is between a fortnight and a Tuesday. */
+const BEHAVIOUR_MIN_DAYS = 5
+const BEHAVIOUR_MIN_COVERAGE = 0.4
+/** Smaller than this and it is the same life with a different rounding. */
+const BEHAVIOUR_MIN_CHANGE_PCT = 25
+const MAX_BEHAVIOURS = 3
+
+const BEHAVIOUR_METRICS: {
+  key: string
+  label: string
+  pick: (f: DayFacts) => number | null | undefined
+  say: (v: number) => string
+}[] = [
+  { key: "alcohol", label: "alcohol", pick: f => f.alcoholMl, say: v => `${Math.round(v)} ml a day` },
+  { key: "workout", label: "exercise", pick: f => f.workoutMin, say: v => `${Math.round(v)} min a day` },
+  { key: "sleep", label: "sleep", pick: f => f.sleepH, say: v => `${r1(v)} h a night` },
+  { key: "steps", label: "steps", pick: f => f.steps, say: v => `${Math.round(v).toLocaleString("en-US")} a day` },
+  { key: "weight", label: "weight", pick: f => f.weightKg, say: v => `${r1(v)} kg` },
+]
+
+function intervalBehaviours(facts: DayFacts[], from: string, to: string): IntervalBehaviour[] {
+  const span = Math.max(1, daysBetween(from, to))
+  const priorFrom = shiftDays(from, -span)
+  const during = facts.filter(f => f.day >= from && f.day < to)
+  const before = facts.filter(f => f.day >= priorFrom && f.day < from)
+
+  const out: IntervalBehaviour[] = []
+  for (const m of BEHAVIOUR_METRICS) {
+    const d = during.map(m.pick).filter((v): v is number => v != null && Number.isFinite(v))
+    const b = before.map(m.pick).filter((v): v is number => v != null && Number.isFinite(v))
+    if (d.length < BEHAVIOUR_MIN_DAYS || b.length < BEHAVIOUR_MIN_DAYS) continue
+    if (d.length < span * BEHAVIOUR_MIN_COVERAGE || b.length < span * BEHAVIOUR_MIN_COVERAGE) continue
+
+    const dm = mean(d), bm = mean(b)
+    // Measuring against whichever side is non-zero makes "didn't drink at all
+    // before, does now" a clean 100% rather than a division by zero.
+    const base = Math.abs(bm) || Math.abs(dm)
+    if (base === 0) continue
+    const changePct = ((dm - bm) / base) * 100
+    if (Math.abs(changePct) < BEHAVIOUR_MIN_CHANGE_PCT) continue
+
+    out.push({
+      key: m.key,
+      label: m.label,
+      during: r1(dm),
+      before: r1(bm),
+      changePct: Math.round(changePct),
+      direction: changePct > 0 ? "up" : "down",
+      phrase: `${m.say(dm)}, ${changePct > 0 ? "up" : "down"} from ${m.say(bm)}`,
+    })
+  }
+
+  // Biggest change first — that is the one worth a reader's attention.
+  return out
+    .sort((a, b) => Math.abs(b.changePct) - Math.abs(a.changePct))
+    .slice(0, MAX_BEHAVIOURS)
+}
 
 function buildSummary(t: Omit<MarkerTrend, "summary">): string {
   const u = t.unit ? ` ${t.unit}` : ""
@@ -214,14 +323,28 @@ function buildSummary(t: Omit<MarkerTrend, "summary">): string {
       : ` Through that window you logged ${list}.`
   }
 
+  // The same treatment for the numbers the app keeps anyway. Two at most: the
+  // summary is already a paragraph, and a list of five changes reads as a
+  // shrug rather than a signal.
+  if (t.behaviours.length > 0) {
+    const list = t.behaviours.slice(0, 2).map(b => `${b.label} ${b.phrase}`).join(", and ")
+    line += ` Over the same window, ${list}.`
+  }
+
   return line
 }
 
 /**
  * One trend per marker, newest reading first, most-recently-drawn markers
- * first. `tags` is every logged dose — Oura tags and manual ones alike.
+ * first. `tags` is every logged dose — Oura tags and manual ones alike;
+ * `facts` is the everyday numbers, one row per day the app knows anything
+ * about.
  */
-export function computeLabTrends(readings: LabReading[], tags: DayTags[] = []): MarkerTrend[] {
+export function computeLabTrends(
+  readings: LabReading[],
+  tags: DayTags[] = [],
+  facts: DayFacts[] = [],
+): MarkerTrend[] {
   const byMarker = new Map<string, LabReading[]>()
   for (const r of readings) {
     if (!r.marker || !Number.isFinite(r.value)) continue
@@ -278,14 +401,14 @@ export function computeLabTrends(readings: LabReading[], tags: DayTags[] = []): 
             : null
 
     const intervalDays = previous ? daysBetween(previous.date, latest.date) : null
-    const taken = previous && intervalDays != null && intervalDays > 0
-      ? intervalHabits(tags, previous.date, latest.date)
-      : []
+    const hasInterval = previous != null && intervalDays != null && intervalDays > 0
+    const taken = hasInterval ? intervalHabits(tags, previous!.date, latest.date) : []
+    const behaviours = hasInterval ? intervalBehaviours(facts, previous!.date, latest.date) : []
 
     const base = {
       marker, unit: latest.unit, latest, previous, status, previousStatus,
       changePct, direction, significant, rcvPct, crossed, intervalDays, taken,
-      converted, unitMismatch,
+      behaviours, converted, unitMismatch,
     }
     trends.push({ ...base, summary: buildSummary(base) })
   }

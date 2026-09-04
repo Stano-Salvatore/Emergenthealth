@@ -20,6 +20,14 @@ interface Habit {
   newSince: boolean
 }
 
+interface Behaviour {
+  key: string
+  label: string
+  changePct: number
+  direction: "up" | "down"
+  phrase: string
+}
+
 interface Trend {
   marker: string
   unit: string
@@ -33,6 +41,7 @@ interface Trend {
   crossed: "into range" | "out of range" | null
   intervalDays: number | null
   taken: Habit[]
+  behaviours: Behaviour[]
   summary: string
   converted: { from: string; to: string; previousAs: number } | null
   unitMismatch: boolean
@@ -91,7 +100,7 @@ export function LabTrendsCard() {
                 </span>
                 <p className="text-[11px] leading-snug flex-1">{t.summary}</p>
               </div>
-              {t.taken.length > 0 && (
+              {(t.taken.length > 0 || (t.behaviours ?? []).length > 0) && (
                 <div className="mt-1.5 ml-5 flex flex-wrap gap-1">
                   {t.taken.map(h => (
                     <span
@@ -104,6 +113,17 @@ export function LabTrendsCard() {
                       )}
                     >
                       {h.newSince && "new · "}{h.name} · {h.cadenceLabel}
+                    </span>
+                  ))}
+                  {/* What daily life was doing over the same window. The full
+                      phrase is in the tooltip; the chip is the headline. */}
+                  {(t.behaviours ?? []).map(b => (
+                    <span
+                      key={b.key}
+                      title={`${b.label} ${b.phrase}`}
+                      className="rounded-md border border-border bg-secondary/40 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                    >
+                      {b.label} {b.direction === "up" ? "↑" : "↓"}{Math.abs(b.changePct)}%
                     </span>
                   ))}
                 </div>

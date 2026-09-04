@@ -103,6 +103,28 @@ category to the union in `correlations.ts` **and** to `CATEGORY_META` +
 `CATEGORY_ORDER` in `src/app/dashboard/insights/page.tsx`. Missing the second
 one type-errors, which is the intent.
 
+Two families do not work on single days, and the reasons generalise:
+
+- **Interactions** compare two differences, so they get
+  `interactionPermutationP` rather than `permutationP`. It shuffles the
+  moderator label *within each predictor level*, which leaves main effects
+  cancelling in the difference-of-differences. Shuffling across the whole
+  table instead would hand a significant p-value to every moderator that
+  merely has an effect of its own.
+- **Body measurements** compare the stretches *between* weigh-ins, never the
+  weights themselves. Today's weight is mostly yesterday's weight, and that
+  autocorrelation is exactly what a permutation test assumes away — grouping
+  weight levels by behaviour produces confident nonsense. Spans are walked
+  anchor-to-anchor so they never overlap.
+
+Lab results stay out of this engine on purpose; the reasoning is at the top
+of `src/lib/lab-trends.ts`. A marker with three readings a year would get a
+p-value computed from three points. That module compares consecutive draws
+descriptively, and now carries the everyday numbers (alcohol, exercise,
+sleep, steps, weight) over the interval alongside the supplements — each
+measured against the same length of time before the earlier draw, because
+"2 drinks a day" is trivia and "up from half of one" is context.
+
 ## Standing guards
 
 `src/lib/__tests__/no-utc-day-bucketing.test.ts` is not a unit test — it greps
@@ -167,6 +189,9 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- Body measurements in the correlation engine, and everyday numbers as
+  context on lab draws
+- Two-way interactions given a real permutation p-value
 - Correlation families: consistency, streaks, absence, onset, two-way
   interactions
 - Settings regrouped by purpose ("Emergy on this phone" / "Data connections" /
@@ -180,11 +205,10 @@ Roughly in order, most recent first:
 
 - **Onset/withdrawal** in the correlation engine is half-done — onset ships,
   withdrawal needs pre-window history the engine doesn't load.
-- **Interaction p-values** are hardcoded to 1. The family earns its cards
-  through an effect-change threshold instead; a permutation design for
-  four-cell shifts would be better.
-- **Body measurements and lab results** are stored but never correlated.
-  Both were flagged as worth doing.
+- **Waist and body-fat correlations.** The body family runs on weight and
+  waist; body fat is deliberately excluded (impedance scales track hydration
+  more than fat). Waist rarely has enough weigh-ins to clear the gate, so in
+  practice only weight produces cards.
 - **Toggl** stores a token but no daily log table, so nothing correlates.
 - `EMAIL_FROM` is unset — the sender is Resend's sandbox, which only reaches
   the account owner. Needs a domain.
