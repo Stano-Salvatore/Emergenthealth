@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { computeLabTrends, notableTrends, rangeStatus, type DayTags, type LabReading } from "@/lib/lab-trends"
+import { computeLabTrends, notableTrends, rangeStatus, type DayFacts, type DayTags, type LabReading } from "@/lib/lab-trends"
 
 const reading = (over: Partial<LabReading> = {}): LabReading => ({
   marker: "Vitamin D", value: 42, unit: "ng/mL", date: "2026-03-01",
@@ -233,5 +233,78 @@ describe("notableTrends", () => {
     const notable = notableTrends(trends)
     expect(notable.map(t => t.marker)).toEqual(["CRP", "Ferritin"])
     expect(notable[0].crossed).toBe("out of range")
+  })
+})
+
+
+// ─── Everyday numbers through the interval ──────────────────────────────────
+
+/** A run of days carrying one metric, starting at `from`. */
+function facts(from: string, days: number, fill: (i: number) => Partial<DayFacts>): DayFacts[] {
+  const out: DayFacts[] = []
+  const d = new Date(from + "T00:00:00Z")
+  for (let i = 0; i < days; i++) {
+    out.push({ day: d.toISOString().slice(0, 10), ...fill(i) })
+    d.setUTCDate(d.getUTCDate() + 1)
+  }
+  return out
+}
+
+const twoDraws = (): LabReading[] => [
+  reading({ marker: "ALT", value: 25, unit: "U/L", date: "2026-01-01", referenceMin: 10, referenceMax: 50 }),
+  reading({ marker: "ALT", value: 48, unit: "U/L", date: "2026-01-31", referenceMin: 10, referenceMax: 50 }),
+]
+
+describe("interval behaviours", () => {
+  it("reports a number against the same stretch before the earlier draw", () => {
+    // 30 dry days up to the first draw, then 30 days at 200ml.
+    const before = facts("2025-12-02", 30, () => ({ alcoholMl: 0 }))
+    const during = facts("2026-01-01", 30, () => ({ alcoholMl: 200 }))
+
+    const [t] = computeLabTrends(twoDraws(), [], [...before, ...during])
+    const alcohol = t.behaviours.find(b => b.key === "alcohol")
+    expect(alcohol).toBeDefined()
+    expect(alcohol!.during).toBe(200)
+    expect(alcohol!.before).toBe(0)
+    expect(alcohol!.direction).toBe("up")
+    expect(t.summary).toContain("Over the same window")
+    expect(t.summary).toContain("alcohol")
+  })
+
+  it("stays quiet when the two windows are the same life", () => {
+    const before = facts("2025-12-02", 30, () => ({ steps: 8000 }))
+    const during = facts("2026-01-01", 30, () => ({ steps: 8400 })) // +5%
+    const [t] = computeLabTrends(twoDraws(), [], [...before, ...during])
+    expect(t.behaviours).toEqual([])
+    expect(t.summary).not.toContain("Over the same window")
+  })
+
+  it("refuses to compare a fortnight against a Tuesday", () => {
+    // Plenty of days during, but only two before the earlier draw — not
+    // enough of a baseline to call anything a change.
+    const before = facts("2025-12-30", 2, () => ({ workoutMin: 0 }))
+    const during = facts("2026-01-01", 30, () => ({ workoutMin: 60 }))
+    const [t] = computeLabTrends(twoDraws(), [], [...before, ...during])
+    expect(t.behaviours.find(b => b.key === "workout")).toBeUndefined()
+  })
+
+  it("says nothing at all with no day facts, and never on a first reading", () => {
+    const [t] = computeLabTrends(twoDraws(), [], [])
+    expect(t.behaviours).toEqual([])
+
+    const [first] = computeLabTrends([twoDraws()[0]], [], facts("2025-12-02", 60, () => ({ alcoholMl: 500 })))
+    expect(first.previous).toBeNull()
+    expect(first.behaviours).toEqual([])
+  })
+
+  it("keeps the loudest changes and caps the list", () => {
+    const before = facts("2025-12-02", 30, () => ({ alcoholMl: 10, workoutMin: 60, steps: 10000, sleepH: 8, weightKg: 80 }))
+    const during = facts("2026-01-01", 30, () => ({ alcoholMl: 200, workoutMin: 5, steps: 3000, sleepH: 5, weightKg: 88 }))
+    const [t] = computeLabTrends(twoDraws(), [], [...before, ...during])
+    expect(t.behaviours.length).toBe(3)
+    // Alcohol moved most (+1900%), so it leads.
+    expect(t.behaviours[0].key).toBe("alcohol")
+    expect(t.behaviours.map(b => Math.abs(b.changePct)))
+      .toEqual([...t.behaviours.map(b => Math.abs(b.changePct))].sort((a, b) => b - a))
   })
 })

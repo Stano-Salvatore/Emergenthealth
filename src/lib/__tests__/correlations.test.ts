@@ -131,6 +131,7 @@ vi.mock("@/lib/prisma", () => ({
     activitySpan: { findMany: vi.fn().mockResolvedValue([]) },
     rescuetimeLog: { findMany: vi.fn().mockResolvedValue(rescueRows) },
     bloodPressureLog: { findMany: vi.fn().mockResolvedValue([]) },
+    bodyMeasurement: { findMany: vi.fn().mockResolvedValue([]) },
     // Serves both the timezone key and fast:history — "UTC" fails the
     // history's JSON.parse, correctly exercising the malformed-blob guard.
     userPreference: { findUnique: vi.fn().mockResolvedValue({ value: "UTC" }) },
