@@ -74,7 +74,7 @@ export function YtMusicImport({ onImported }: { onImported: () => void }) {
           <p className="text-xs text-muted-foreground mt-0.5">
             Backfill days from before Last.fm: upload <span className="font-mono">watch-history.html</span> from
             a <a href="https://takeout.google.com" target="_blank" rel="noreferrer" className="text-rose-400 hover:underline">Google Takeout</a> of
-            YouTube and YouTube Music. Parsed on your device; days Last.fm already knows are left alone.
+            YouTube and YouTube Music. Parsed on your device; days that already have listening data are left alone.
           </p>
         </div>
         <button
@@ -99,8 +99,14 @@ export function YtMusicImport({ onImported }: { onImported: () => void }) {
           <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-0.5" />
           <p>
             Imported {result.tracks.toLocaleString()} plays into {result.days} day{result.days === 1 ? "" : "s"} ({fmtDate(result.from)} → {fmtDate(result.to)}).
+            {/* Not "already had Last.fm data": the server counts a skip on any
+                existing row, and LastfmLog carries no column saying which
+                source wrote it. Days inserted by an EARLIER run of this same
+                import land in the same counter, so a re-upload — the natural
+                way to check an import actually landed — used to report that
+                Last.fm covered days it had never touched. */}
             {result.skippedDays > 0 && (
-              <span className="text-muted-foreground"> {result.skippedDays} day{result.skippedDays === 1 ? "" : "s"} already had Last.fm data and were left untouched.</span>
+              <span className="text-muted-foreground"> {result.skippedDays} day{result.skippedDays === 1 ? "" : "s"} already had listening data and were left untouched.</span>
             )}
           </p>
         </div>

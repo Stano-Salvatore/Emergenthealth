@@ -103,12 +103,14 @@ export type InsightResult = {
 export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall: 90, year: 365 }
 
 /**
- * Bump when the insight battery gains or loses sources. Cached runs stamped
- * with an older version are recomputed on the next read instead of served,
- * so a new family (like custom trackers) appears immediately rather than
- * after the cache TTL happens to expire.
+ * Bump when the insight battery gains or loses sources, or when a group
+ * definition moves — a cached card carries the label it was computed with,
+ * so a stale run would advertise a threshold the engine no longer applies.
+ * Cached runs stamped with an older version are recomputed on the next read
+ * instead of served, so the change appears immediately rather than after the
+ * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 6
+export const ENGINE_VERSION = 7
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -128,6 +130,63 @@ function median(arr: number[]): number {
   const sorted = [...arr].sort((a, b) => a - b)
   const mid = Math.floor(sorted.length / 2)
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
+/**
+ * A day-level source split into "high" and "low", and whether the cut came
+ * from the user or from a textbook.
+ */
+type Cut = { at: number; personal: boolean }
+
+/**
+ * A cut needs this many days behind it before a personal median is trusted
+ * over a fixed one, and this share of them on its thinner side before the
+ * fixed one is trusted at all.
+ */
+const CUT_MIN_DAYS = 20
+const CUT_MIN_SIDE = 0.25
+
+/**
+ * Where to cut a source into high and low days.
+ *
+ * Some thresholds in this engine are borrowed from physiology rather than
+ * from the data: 200mg of caffeine, 25°C, an hour of high stress. While days
+ * fall on both sides of one, it is the better cut — it means something
+ * outside this dataset, and the card can say so.
+ *
+ * What it cannot survive is a climate or a habit it wasn't written for. In a
+ * Central European year, "25°C+" picks out seven days against fifty-seven;
+ * that isn't a comparison, it's an average of seven numbers, and no effect
+ * however real clears a permutation test from a group that size. The same
+ * borrowed number that carries meaning for one person quietly deletes the
+ * family for the next.
+ *
+ * So: keep the borrowed number while it splits the days somewhere near the
+ * middle, and fall back to the person's own median when it doesn't. Either
+ * way the label prints the number actually used, so a card never claims a
+ * threshold it didn't apply.
+ */
+export function balancedCut(raw: (number | undefined)[], fixed: number): Cut {
+  const vals = raw.filter((v): v is number => v != null)
+  const fixedCut: Cut = { at: fixed, personal: false }
+  if (vals.length < CUT_MIN_DAYS) return fixedCut
+
+  const thinnerSide = (cut: number): number => {
+    const high = vals.filter(v => v >= cut).length
+    return Math.min(high, vals.length - high)
+  }
+  if (thinnerSide(fixed) >= Math.max(8, vals.length * CUT_MIN_SIDE)) return fixedCut
+
+  const sorted = [...vals].sort((a, b) => a - b)
+  const mid = median(sorted)
+  // A median sitting on the floor of the distribution — the zero-caffeine
+  // days outnumbering the rest — splits nothing, because every value is
+  // ">= mid". Step up to the next distinct value so both sides have days.
+  const cut = mid > sorted[0] ? mid : sorted.find(v => v > sorted[0])
+  // Falling back to a median that is itself lopsided buys nothing, and costs
+  // the borrowed number's meaning. Keep the textbook.
+  if (cut == null || thinnerSide(cut) < 5) return fixedCut
+  return { at: cut, personal: true }
 }
 
 // Deterministic RNG (mulberry32) so permutation p-values are reproducible in
@@ -802,6 +861,23 @@ export async function computeCorrelations(
     }]
   })
 
+  // Three sources are still cut at a borrowed number rather than a personal
+  // one. Like customDefs above, the cut is decided on the FULL window and not
+  // per-pass — recomputing it on weekdays-only would let the weekend guard
+  // compare two structurally different splits.
+  const cuts = {
+    // The label already said "25°C+" while the code tested `> 25`; the cut is
+    // inclusive on both sides now.
+    heat: balancedCut(allDays.map(d => d.tempMaxC), 25),
+    caffeine: balancedCut(allDays.map(d => d.caffeineMg), 200),
+    stress: balancedCut(allDays.map(d => d.stressHighMin), 60),
+  }
+  const heatLabel = `${Math.round(cuts.heat.at)}°C+`
+  const cafLabel = `${Math.round(cuts.caffeine.at)}mg+`
+  const cafUnderLabel = `under ${Math.round(cuts.caffeine.at)}mg`
+  const stressLabel = `${Math.round(cuts.stress.at)}+ min high stress`
+  const stressMinLabel = `${Math.round(cuts.stress.at)}+ min`
+
   const deriveInsights = (days: DayData[]): InsightResult[] => {
   const insights: InsightResult[] = []
   const byDate = Object.fromEntries(days.map(d => [d.date, d]))
@@ -877,23 +953,23 @@ export async function computeCorrelations(
   const stressLowMood: number[] = []
   for (const d of days) {
     if (d.stressHighMin == null) continue
-    const isHigh = d.stressHighMin >= 60
+    const isHigh = d.stressHighMin >= cuts.stress.at
     const next = tonight(d)
     if (next?.sleepScore != null) { if (isHigh) stressHighSleep.push(next.sleepScore); else stressLowSleep.push(next.sleepScore) }
     if (next?.mood != null) { if (isHigh) stressHighMood.push(next.mood); else stressLowMood.push(next.mood) }
   }
   const ins_stress_sleep = compareGroups({
     id: "stress_sleep", category: "stress", emoji: "😤", title: "High Stress & Sleep Quality",
-    highGroupLabel: "60+ min high stress days", lowGroupLabel: "low stress days",
+    highGroupLabel: `${stressLabel} days`, lowGroupLabel: "low stress days",
     highValues: stressHighSleep, lowValues: stressLowSleep, higherIsBetter: true,
-    findingTemplate: (h, l) => `On high-stress days (60+ min), your sleep score averages ${h} vs ${l} on calmer days`,
+    findingTemplate: (h, l) => `On high-stress days (${stressMinLabel}), your sleep score averages ${h} vs ${l} on calmer days`,
   })
   if (ins_stress_sleep) insights.push(ins_stress_sleep)
   const ins_stress_mood = compareGroups({
     id: "stress_mood", category: "stress", emoji: "🧘", title: "High Stress & Next-Day Mood",
-    highGroupLabel: "60+ min high stress days", lowGroupLabel: "low stress days",
+    highGroupLabel: `${stressLabel} days`, lowGroupLabel: "low stress days",
     highValues: stressHighMood, lowValues: stressLowMood, higherIsBetter: true,
-    findingTemplate: (h, l) => `After high-stress days (60+ min), next-day mood averages ${h} vs ${l} after calm days`,
+    findingTemplate: (h, l) => `After high-stress days (${stressMinLabel}), next-day mood averages ${h} vs ${l} after calm days`,
   })
   if (ins_stress_mood) insights.push(ins_stress_mood)
 
@@ -933,17 +1009,17 @@ export async function computeCorrelations(
   for (const d of days) {
     const night = tonight(d)
     if (d.caffeineMg == null || night?.sleepScore == null) continue
-    if (d.caffeineMg >= 200) caffeineHighSleep.push(night.sleepScore)
+    if (d.caffeineMg >= cuts.caffeine.at) caffeineHighSleep.push(night.sleepScore)
     else caffeineLowSleep.push(night.sleepScore)
   }
   const ins_caffeine_sleep = compareGroups({
     id: "caffeine_sleep", category: "caffeine", emoji: "☕", title: "Caffeine Intake & Sleep Quality",
-    highGroupLabel: "200mg+ caffeine days", lowGroupLabel: "under 200mg caffeine days",
+    highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} caffeine days`,
     highValues: caffeineHighSleep, lowValues: caffeineLowSleep,
     findingTemplate: (h, l) =>
       h < l
-        ? `High caffeine days (200mg+) link to a sleep score of ${h} vs ${l} on lower-caffeine days`
-        : `Interestingly, high caffeine days (200mg+) don't hurt your sleep — avg score ${h} vs ${l}`,
+        ? `High caffeine days (${cafLabel}) link to a sleep score of ${h} vs ${l} on lower-caffeine days`
+        : `Interestingly, high caffeine days (${cafLabel}) don't hurt your sleep — avg score ${h} vs ${l}`,
   })
   if (ins_caffeine_sleep) insights.push(ins_caffeine_sleep)
 
@@ -1060,12 +1136,12 @@ export async function computeCorrelations(
   const stressHrvLow: number[] = []
   for (const d of days) {
     if (d.stressHighMin == null || d.hrv == null) continue
-    if (d.stressHighMin >= 60) stressHrvHigh.push(d.hrv)
+    if (d.stressHighMin >= cuts.stress.at) stressHrvHigh.push(d.hrv)
     else stressHrvLow.push(d.hrv)
   }
   const ins_stress_hrv = compareGroups({
     id: "stress_hrv", category: "recovery", emoji: "💓", title: "High Stress & HRV",
-    highGroupLabel: "60+ min high stress", lowGroupLabel: "calmer days",
+    highGroupLabel: stressLabel, lowGroupLabel: "calmer days",
     highValues: stressHrvHigh, lowValues: stressHrvLow, higherIsBetter: true,
     findingTemplate: (h, l) =>
       h < l
@@ -1081,16 +1157,16 @@ export async function computeCorrelations(
     if (d.caffeineMg == null) continue
     const next = byDate[nextDateStr(d.date)]
     if (next?.readiness == null) continue
-    if (d.caffeineMg >= 200) caffeineReadinessHigh.push(next.readiness)
+    if (d.caffeineMg >= cuts.caffeine.at) caffeineReadinessHigh.push(next.readiness)
     else caffeineReadinessLow.push(next.readiness)
   }
   const ins_caffeine_readiness = compareGroups({
     id: "caffeine_readiness", category: "recovery", emoji: "☕", title: "Caffeine & Next-Day Readiness",
-    highGroupLabel: "200mg+ caffeine days", lowGroupLabel: "under 200mg days",
+    highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} days`,
     highValues: caffeineReadinessHigh, lowValues: caffeineReadinessLow, higherIsBetter: true,
     findingTemplate: (h, l) =>
       h < l
-        ? `After 200mg+ caffeine, next-day readiness averages ${h} vs ${l} on lower-caffeine days`
+        ? `After ${cafLabel} caffeine, next-day readiness averages ${h} vs ${l} on lower-caffeine days`
         : `Higher caffeine days don't dent your readiness — ${h} vs ${l}`,
   })
   if (ins_caffeine_readiness) insights.push(ins_caffeine_readiness)
@@ -1166,12 +1242,12 @@ export async function computeCorrelations(
     const coolSteps: number[] = []
     for (const d of daysWithWeather) {
       if (d.tempMaxC == null || d.steps == null) continue
-      if (d.tempMaxC > 25) hotSteps.push(d.steps)
+      if (d.tempMaxC >= cuts.heat.at) hotSteps.push(d.steps)
       else coolSteps.push(d.steps)
     }
     const ins_heat_steps = compareGroups({
       id: "heat_steps", category: "tags", emoji: "🌡️", title: "Hot Days & Step Count",
-      highGroupLabel: "hot days (25°C+)", lowGroupLabel: "cooler days",
+      highGroupLabel: `hot days (${heatLabel})`, lowGroupLabel: "cooler days",
       highValues: hotSteps, lowValues: coolSteps, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h > l
@@ -1652,7 +1728,7 @@ export async function computeCorrelations(
   // genuinely enough overlap.
   const MODIFIERS: { key: string; label: string; test: (d: DayData) => boolean }[] = [
     { key: "alcohol",  label: "alcohol",          test: d => (d.alcoholMl ?? 0) > 50 },
-    { key: "caffeine", label: "200mg+ caffeine",  test: d => (d.caffeineMg ?? 0) >= 200 },
+    { key: "caffeine", label: `${cafLabel} caffeine`, test: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
   ]
   for (const supp of topSupps.slice(0, 3)) {
     for (const mod of MODIFIERS) {
@@ -1714,7 +1790,7 @@ export async function computeCorrelations(
     // a hangover headache belongs to last night's drinking, not this morning's.
     const SUSPECTS: { key: string; label: string; test: (d: DayData, prev?: DayData) => boolean | null }[] = [
       { key: "alcohol", label: "the day after drinking", test: (_d, prev) => prev ? (prev.alcoholMl ?? 0) > 50 : null },
-      { key: "caffeine", label: "200mg+ caffeine days", test: d => d.caffeineMg != null ? d.caffeineMg >= 200 : null },
+      { key: "caffeine", label: `${cafLabel} caffeine days`, test: d => d.caffeineMg != null ? d.caffeineMg >= cuts.caffeine.at : null },
       { key: "short_sleep", label: "after under 7h sleep", test: d => d.sleepDuration != null ? d.sleepDuration < 7 : null },
       { key: "poor_sleep", label: "after a sub-70 sleep score", test: d => d.sleepScore != null ? d.sleepScore < 70 : null },
       { key: "late_meal", label: "the day after a late dinner", test: (_d, prev) => prev?.lastMealMin != null ? prev.lastMealMin >= 20 * 60 : null },
@@ -2111,7 +2187,7 @@ export async function computeCorrelations(
   for (const d of days) {
     const next = tonight(d)
     if (d.caffeineMg != null && next?.deepSleepMin != null) {
-      if (d.caffeineMg >= 200) caffeineDeepHigh.push(next.deepSleepMin)
+      if (d.caffeineMg >= cuts.caffeine.at) caffeineDeepHigh.push(next.deepSleepMin)
       else caffeineDeepLow.push(next.deepSleepMin)
     }
     if (next?.remSleepMin != null && (d.alcoholMl != null || d.caffeineMg != null)) {
@@ -2121,11 +2197,11 @@ export async function computeCorrelations(
   }
   const ins_caffeine_deep = compareGroups({
     id: "caffeine_deep_sleep", category: "recovery", emoji: "🌊", title: "Caffeine & Deep Sleep",
-    highGroupLabel: "200mg+ caffeine days", lowGroupLabel: "under 200mg days",
+    highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} days`,
     highValues: caffeineDeepHigh, lowValues: caffeineDeepLow,
     findingTemplate: (h, l) =>
       h < l
-        ? `On 200mg+ caffeine days you get ${Math.round(h)}min of deep sleep vs ${Math.round(l)}min on lighter days`
+        ? `On ${cafLabel} caffeine days you get ${Math.round(h)}min of deep sleep vs ${Math.round(l)}min on lighter days`
         : `Caffeine isn't eating your deep sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
   })
   if (ins_caffeine_deep) insights.push(ins_caffeine_deep)
@@ -2317,7 +2393,7 @@ export async function computeCorrelations(
       if (d.sleepDuration != null) { if (d.sleepDuration < 7) bpShortSleep.push(sys); else bpGoodSleep.push(sys) }
       const prev = byDate[prevDateStr2(d.date)]
       if (prev) { if ((prev.alcoholMl ?? 0) > 50) bpAfterDrinks.push(sys); else bpSober.push(sys) }
-      if (d.caffeineMg != null) { if (d.caffeineMg >= 200) bpHighCaf.push(sys); else bpLowCaf.push(sys) }
+      if (d.caffeineMg != null) { if (d.caffeineMg >= cuts.caffeine.at) bpHighCaf.push(sys); else bpLowCaf.push(sys) }
     }
     const ins_bp_sleep = compareGroups({
       id: "bp_short_sleep", category: "heart", emoji: "🩺", title: "Short Sleep & Blood Pressure",
@@ -2341,11 +2417,11 @@ export async function computeCorrelations(
     if (ins_bp_alcohol) insights.push(ins_bp_alcohol)
     const ins_bp_caffeine = compareGroups({
       id: "bp_caffeine", category: "heart", emoji: "☕", title: "Caffeine & Blood Pressure",
-      highGroupLabel: "200mg+ caffeine days", lowGroupLabel: "under 200mg days",
+      highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} days`,
       highValues: bpHighCaf, lowValues: bpLowCaf, higherIsBetter: false,
       findingTemplate: (h, l) =>
         h > l
-          ? `On 200mg+ caffeine days, systolic averages ${Math.round(h)} vs ${Math.round(l)} on lighter days`
+          ? `On ${cafLabel} caffeine days, systolic averages ${Math.round(h)} vs ${Math.round(l)} on lighter days`
           : `Caffeine doesn't show in your systolic — ${Math.round(h)} vs ${Math.round(l)}`,
     })
     if (ins_bp_caffeine) insights.push(ins_bp_caffeine)
@@ -2841,8 +2917,8 @@ export async function computeCorrelations(
         emoji: "☕",
         predictor: { label: "any caffeine day", predicate: d => (d.caffeineMg ?? 0) > 0 },
         outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
-        moderator: { key: "heavy_caffeine", onLabel: "on 300mg+ days", offLabel: "on lighter days",
-                     predicate: d => (d.caffeineMg ?? 0) >= 300 },
+        moderator: { key: "heavy_caffeine", onLabel: `on ${cafLabel} days`, offLabel: "on lighter days",
+                     predicate: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
       },
       {
         id: "long_calendar_sleep_by_workout",
