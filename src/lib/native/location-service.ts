@@ -26,6 +26,14 @@ export type NativeLocationStatus = {
   background: boolean
   /** Exempt from battery optimisation; Samsung kills a foreground service otherwise. */
   batteryUnrestricted: boolean
+  /**
+   * Why the service last failed to start or stopped when it shouldn't have,
+   * in the service's own words. Empty once it is listening again; absent on
+   * an APK from before the service recorded it.
+   */
+  lastFault?: string
+  /** When that happened, ms since epoch; 0 when there is nothing on file. */
+  lastFaultAt?: number
 }
 
 type LocationPluginSubset = {

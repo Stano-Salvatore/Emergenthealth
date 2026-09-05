@@ -552,6 +552,10 @@ public class EmergyBubblePlugin extends Plugin {
         out.put("fine", EmergyLocationService.hasFineLocation(ctx));
         out.put("background", EmergyLocationService.hasBackgroundLocation(ctx));
         out.put("batteryUnrestricted", batteryUnrestricted(ctx));
+        // Why it last failed or stopped, and when. Empty once it is listening
+        // again — the service clears it the moment location updates open.
+        out.put("lastFault", EmergyLocationService.lastFault(ctx));
+        out.put("lastFaultAt", EmergyLocationService.lastFaultAt(ctx));
         call.resolve(out);
     }
 
