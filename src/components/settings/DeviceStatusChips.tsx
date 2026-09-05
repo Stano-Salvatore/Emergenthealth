@@ -63,12 +63,15 @@ export function DeviceStatusChips() {
         : {
             id: "d-loc", group: "Data", label: "Background location", tone: "warn",
             value: "should be tracking but isn't",
-            // The native layer's own reason wins over anything this file could
-            // guess. Only when there is no reason on file — nothing has tried
-            // to start it yet this session — is it worth saying that the
-            // permissions are not what's wrong, since their own rows appear
-            // below when they are.
+            // Most specific first. The native layer's own reason beats
+            // anything this file could guess; after that, a tracking flag the
+            // switch says should be on is a fact rather than a guess — the
+            // service clears it itself when it gives up, and a cleared one is
+            // why nothing retries. Only with neither on file is it worth
+            // saying the permissions are not what's wrong, since their own
+            // rows appear below when they are.
             detail: getLastLocationStartFailure()
+              || (!svc.keep ? "the phone's tracking flag is off — the service gave up rather than being stopped" : undefined)
               || (svc.background && svc.batteryUnrestricted ? "permissions are fine — it just stopped" : undefined),
             action: { label: "Start now", run: startBackgroundLocation },
           })

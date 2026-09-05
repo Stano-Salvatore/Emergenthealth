@@ -55,6 +55,9 @@ export async function nativeLocationStatus(): Promise<NativeLocationStatus | nul
   }
 }
 
+/** Long enough for onCreate to have run and, if it is going to, failed. */
+const SETTLE_MS = 1500
+
 let lastStartFailure = ""
 
 /**
@@ -86,14 +89,36 @@ export async function startNativeLocation(): Promise<"started" | "denied" | "una
   await ensureWidgetActivation().catch(() => "failed" as const)
   try {
     await plugin.startLocationService()
-    lastStartFailure = ""
-    return "started"
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     lastStartFailure = msg || "the service refused to start, without saying why"
     if (/NOT_AUTHORIZED|denied|permission/i.test(msg)) return "denied"
     return "unavailable"
   }
+
+  // A resolved call means Android ACCEPTED the request, not that anything is
+  // running. startForegroundService() returns before the service reaches
+  // startForeground(), so a service that throws in onCreate — a location
+  // client that won't open, a foreground type the system rejects — stops
+  // itself a moment later and this call still succeeded. That gap is why the
+  // card could only say "it just stopped": nothing had failed anywhere the
+  // app was looking.
+  const after = await new Promise<NativeLocationStatus | null>(resolve =>
+    setTimeout(() => { void nativeLocationStatus().then(resolve, () => resolve(null)) }, SETTLE_MS))
+
+  if (after && !after.running) {
+    // `keep` is the tell. The service clears it itself before giving up when
+    // it cannot open location updates, and a cleared wish is why nothing ever
+    // retries: the watchdog cancels itself and ensureRunning returns early
+    // for good. A wish that survived means it died some other way.
+    lastStartFailure = after.keep
+      ? "Android accepted the start, but the service stopped before it began listening"
+      : "the service stopped itself and cleared the tracking flag — it could not open location updates"
+    return "unavailable"
+  }
+
+  lastStartFailure = ""
+  return "started"
 }
 
 export async function stopNativeLocation(): Promise<void> {
