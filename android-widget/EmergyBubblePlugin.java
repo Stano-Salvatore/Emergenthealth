@@ -556,6 +556,14 @@ public class EmergyBubblePlugin extends Plugin {
         // again — the service clears it the moment location updates open.
         out.put("lastFault", EmergyLocationService.lastFault(ctx));
         out.put("lastFaultAt", EmergyLocationService.lastFaultAt(ctx));
+        // Why an automatic restart was refused, and why collected points are
+        // not arriving. Separate questions from "why did it stop", and from
+        // each other — a service can be running fine and unable to send.
+        out.put("restartFault", EmergyLocationService.lastRestartFault(ctx));
+        out.put("restartFaultAt", EmergyLocationService.lastRestartFaultAt(ctx));
+        out.put("uploadFault", EmergyLocationService.lastUploadFault(ctx));
+        out.put("uploadFaultAt", EmergyLocationService.lastUploadFaultAt(ctx));
+        out.put("queued", EmergyLocationService.queuedCount(ctx));
         call.resolve(out);
     }
 

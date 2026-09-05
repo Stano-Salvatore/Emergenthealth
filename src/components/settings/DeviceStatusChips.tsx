@@ -54,7 +54,17 @@ export function DeviceStatusChips() {
       }
     }
     if (!loc.enabled) {
-      out.push({ id: "d-loc", group: "Data", label: "Background location", tone: "off", value: "off" })
+      // "Off" and "couldn't find out" are different answers, and
+      // readBackgroundLocationEnabled goes to the trouble of separating them —
+      // it falls back to off so the card stays usable, and hands back the
+      // failure so the fallback is not mistaken for a fact. This read it as a
+      // fact anyway, which is how the card came to say "off" beside another
+      // card on the same screen saying tracking was switched on. A bridge
+      // call that times out is not a switch that is off.
+      out.push(loc.failure
+        ? { id: "d-loc", group: "Data", label: "Background location", tone: "warn",
+            value: "couldn't read the switch", detail: loc.failure }
+        : { id: "d-loc", group: "Data", label: "Background location", tone: "off", value: "off" })
     } else if (svc) {
       // The native service can say whether it is actually running, which the
       // saved switch position cannot.
@@ -72,11 +82,24 @@ export function DeviceStatusChips() {
             // not what's wrong, since their own rows appear below when they
             // are.
             detail: svc.lastFault
+              || svc.restartFault
               || getLastLocationStartFailure()
               || (!svc.keep ? "the phone's tracking flag is off — the service gave up rather than being stopped" : undefined)
               || (svc.background && svc.batteryUnrestricted ? "permissions are fine — it just stopped" : undefined),
             action: { label: "Start now", run: startBackgroundLocation },
           })
+      // Only when something is actually wrong. A handful of points waiting
+      // between flushes is the normal rhythm, not news — but a service that is
+      // tracking perfectly and cannot reach the server looks, from every other
+      // row on this card, exactly like one that never collected anything.
+      if (svc.uploadFault) {
+        const stuck = svc.queued ?? 0
+        out.push({
+          id: "d-loc-upload", group: "Data", label: "Location uploads", tone: "warn",
+          value: stuck > 0 ? `${stuck} point${stuck === 1 ? "" : "s"} stuck` : "not getting through",
+          detail: svc.uploadFault,
+        })
+      }
       if (svc.fine && !svc.background) {
         out.push({ id: "d-loc-bg", group: "Data", label: "Location permission", tone: "warn", value: "only while using the app", detail: "Set it to Allow all the time" })
       }
