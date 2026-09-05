@@ -55,8 +55,18 @@ export async function nativeLocationStatus(): Promise<NativeLocationStatus | nul
   }
 }
 
-/** Long enough for onCreate to have run and, if it is going to, failed. */
-const SETTLE_MS = 1500
+/**
+ * How long to keep asking before calling a start failed, and how often.
+ *
+ * A single look was wrong, and wrong in the worst direction: it reported a
+ * service that had not come up YET as one that had come up and died.
+ * startForegroundService() only queues the creation — Android runs onCreate
+ * when it gets to it, which on a loaded phone is well past a second and a
+ * half. Waiting for the answer instead of sampling once costs nothing when
+ * the service is healthy, because the loop stops the moment it is up.
+ */
+const CONFIRM_TIMEOUT_MS = 8000
+const POLL_MS = 400
 
 let lastStartFailure = ""
 
@@ -103,8 +113,13 @@ export async function startNativeLocation(): Promise<"started" | "denied" | "una
   // itself a moment later and this call still succeeded. That gap is why the
   // card could only say "it just stopped": nothing had failed anywhere the
   // app was looking.
-  const after = await new Promise<NativeLocationStatus | null>(resolve =>
-    setTimeout(() => { void nativeLocationStatus().then(resolve, () => resolve(null)) }, SETTLE_MS))
+  let after: NativeLocationStatus | null = null
+  const until = Date.now() + CONFIRM_TIMEOUT_MS
+  do {
+    await new Promise(r => setTimeout(r, POLL_MS))
+    after = await nativeLocationStatus().catch(() => null)
+    if (after?.running) break
+  } while (Date.now() < until)
 
   if (after && !after.running) {
     // `keep` is the tell. The service clears it itself before giving up when
