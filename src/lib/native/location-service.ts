@@ -34,6 +34,23 @@ export type NativeLocationStatus = {
   lastFault?: string
   /** When that happened, ms since epoch; 0 when there is nothing on file. */
   lastFaultAt?: number
+  /**
+   * Why an automatic restart was refused. Android 12 forbids starting a
+   * foreground service from the background in most states, and that is the
+   * watchdog's only move — so this being set every quarter of an hour would
+   * mean opening the app is the only recovery there has ever been.
+   */
+  restartFault?: string
+  restartFaultAt?: number
+  /**
+   * Why collected points are not arriving. The opposite situation to the
+   * others: the service is alive and doing its job, and the fixes still are
+   * not reaching the server.
+   */
+  uploadFault?: string
+  uploadFaultAt?: number
+  /** Points waiting to go up. */
+  queued?: number
 }
 
 type LocationPluginSubset = {

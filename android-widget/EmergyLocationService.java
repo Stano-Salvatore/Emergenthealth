@@ -70,9 +70,21 @@ public class EmergyLocationService extends Service {
     private static final String LAST_AT = "last_at";
     private static final String LAST_LAT = "last_lat";
     private static final String LAST_LNG = "last_lng";
-    /** Why the service last failed to start or stopped when it shouldn't have. */
+    /**
+     * Three faults, kept apart on purpose.
+     *
+     * They answer different questions — why it stopped, why it will not come
+     * back, why what it collected is not arriving — and collapsing them into
+     * one field would mean the newest overwrote the most useful. A service
+     * that died at 3am and a watchdog that has been refused every quarter of
+     * an hour since are both worth knowing, and neither replaces the other.
+     */
     private static final String FAULT_KEY = "fault";
     private static final String FAULT_AT = "fault_at";
+    private static final String RESTART_FAULT_KEY = "restart_fault";
+    private static final String RESTART_FAULT_AT = "restart_fault_at";
+    private static final String UPLOAD_FAULT_KEY = "upload_fault";
+    private static final String UPLOAD_FAULT_AT = "upload_fault_at";
 
     private static final String CHANNEL_ID = "emergy_location";
     private static final int NOTIFICATION_ID = 920004;
@@ -118,16 +130,55 @@ public class EmergyLocationService extends Service {
      * cause, and never anything to act on. A line of text costs nothing and
      * is the difference between a fix and another guess.
      */
-    static void noteFault(Context ctx, String what) {
-        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(FAULT_KEY, what)
-            .putLong(FAULT_AT, System.currentTimeMillis())
-            .apply();
+    static void noteFault(Context ctx, String what) { note(ctx, FAULT_KEY, FAULT_AT, what); }
+    static void clearFault(Context ctx) { clear(ctx, FAULT_KEY, FAULT_AT); }
+
+    /** Why an automatic restart was refused — the watchdog, or the boot receiver. */
+    static void noteRestartFault(Context ctx, String what) { note(ctx, RESTART_FAULT_KEY, RESTART_FAULT_AT, what); }
+    static void clearRestartFault(Context ctx) { clear(ctx, RESTART_FAULT_KEY, RESTART_FAULT_AT); }
+    static String lastRestartFault(Context ctx) { return read(ctx, RESTART_FAULT_KEY); }
+    static long lastRestartFaultAt(Context ctx) { return readAt(ctx, RESTART_FAULT_AT); }
+
+    /**
+     * Why collected points are not arriving.
+     *
+     * Separate from the others because it is the opposite situation: the
+     * service is alive and doing its job, and the fixes still are not
+     * reaching the server. Until now that was reported only in the
+     * notification, so from inside the app "no data for three days" looked
+     * identical whether nothing was collected or nothing could be sent.
+     */
+    static void noteUploadFault(Context ctx, String what) { note(ctx, UPLOAD_FAULT_KEY, UPLOAD_FAULT_AT, what); }
+    static void clearUploadFault(Context ctx) { clear(ctx, UPLOAD_FAULT_KEY, UPLOAD_FAULT_AT); }
+    static String lastUploadFault(Context ctx) { return read(ctx, UPLOAD_FAULT_KEY); }
+    static long lastUploadFaultAt(Context ctx) { return readAt(ctx, UPLOAD_FAULT_AT); }
+
+    /** How many points are waiting to go up. Readable without the service running. */
+    static int queuedCount(Context ctx) {
+        try {
+            return new JSONArray(ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getString(QUEUE_KEY, "[]")).length();
+        } catch (Exception e) {
+            return 0;
+        }
     }
 
-    static void clearFault(Context ctx) {
+    private static void note(Context ctx, String key, String atKey, String what) {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .remove(FAULT_KEY).remove(FAULT_AT).apply();
+            .putString(key, what).putLong(atKey, System.currentTimeMillis()).apply();
+    }
+
+    private static void clear(Context ctx, String key, String atKey) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(key).remove(atKey).apply();
+    }
+
+    private static String read(Context ctx, String key) {
+        String v = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(key, "");
+        return v == null ? "" : v;
+    }
+
+    private static long readAt(Context ctx, String atKey) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(atKey, 0L);
     }
 
     static String lastFault(Context ctx) {
@@ -158,9 +209,20 @@ public class EmergyLocationService extends Service {
         if (!keep(ctx) || !hasFineLocation(ctx) || running) return;
         try {
             ctx.startForegroundService(new Intent(ctx, EmergyLocationService.class));
-        } catch (Exception ignored) {
+            clearRestartFault(ctx);
+        } catch (Exception e) {
             // A background start the system refused. The next time the app is
-            // opened it starts from the foreground, which is always allowed.
+            // opened it starts from the foreground, which is always allowed —
+            // and that fallback is the whole reason this was left silent.
+            //
+            // But silence hid how often it happens. Android 12 forbids
+            // starting a foreground service from the background in most
+            // states, and this is the watchdog's only move, so it may be
+            // refused every quarter of an hour without a word — which would
+            // make the fifteen-minute watchdog decorative for location and
+            // opening the app the only recovery there has ever been. Whether
+            // that is true is worth knowing rather than assuming.
+            noteRestartFault(ctx, "an automatic restart was refused: " + describe(e));
         }
     }
 
@@ -312,7 +374,13 @@ public class EmergyLocationService extends Service {
             if (loc.hasSpeed()) point.put("speedKmh", loc.getSpeed() * 3.6);
             JSONArray queue = queue();
             queue.put(point);
-            while (queue.length() > MAX_QUEUED) queue.remove(0);
+            // Past the cap the oldest go, which is the right call — but it is
+            // data leaving for good and it used to happen without a word.
+            if (queue.length() > MAX_QUEUED) {
+                noteUploadFault(getApplicationContext(),
+                    "the backlog is full, so the oldest points are being dropped unsent");
+                while (queue.length() > MAX_QUEUED) queue.remove(0);
+            }
             saveQueue(queue);
             updateNotice(queue.length() + " waiting to upload");
         } catch (Exception ignored) {
@@ -405,14 +473,25 @@ public class EmergyLocationService extends Service {
                         uploading = false;
                         if (result >= 200 && result < 300) {
                             dropSent(count);
+                            clearUploadFault(getApplicationContext());
                             updateNotice("Logging the places you spend time at · last upload " + clock());
                         } else if (result == 401 || result == 403) {
                             // A key the server no longer knows refuses every batch the
                             // same way; holding them would repost forever.
                             dropSent(count);
+                            noteUploadFault(getApplicationContext(),
+                                "the server no longer accepts this phone's key — open the app once to relink it");
                             updateNotice("Not linked — open the app once to relink this phone");
                         } else {
                             // Offline or a server hiccup: keep the batch, try after the next fix.
+                            //
+                            // Reported in the notification alone until now, which meant a
+                            // service that was tracking perfectly well and simply could not
+                            // reach the server looked, from inside the app, exactly like one
+                            // that had died. Those need opposite responses.
+                            noteUploadFault(getApplicationContext(), result == 0
+                                ? "the phone could not reach the server — no network, or something between"
+                                : "the server answered " + result);
                             updateNotice(queue().length() + " waiting to upload");
                         }
                     }
