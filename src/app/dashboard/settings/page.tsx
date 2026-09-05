@@ -24,8 +24,8 @@ import { LayoutModeControl } from "@/components/settings/LayoutModeControl"
 import { CsvImport } from "@/components/settings/CsvImport"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
-import { SyncStatusCard } from "@/components/settings/SyncStatusCard"
 import { StatusOverview } from "@/components/settings/StatusOverview"
+import { PermissionSetup } from "@/components/settings/PermissionSetup"
 import { TelegramCard } from "@/components/settings/TelegramCard"
 import { BubbleCard } from "@/components/settings/BubbleCard"
 import { WakeWordCard } from "@/components/settings/WakeWordCard"
@@ -165,6 +165,11 @@ export default async function SettingsPage({
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-muted-foreground text-sm mt-0.5">Your account, devices and preferences</p>
       </div>
+
+      {/* Anything Android still has to grant, gathered rather than scattered
+          across the cards that happen to need each one. Renders nothing on the
+          web, and nothing on a phone with everything already granted. */}
+      <PermissionSetup />
 
       {/* Everything connected and whether it is working — the quick look,
           before the sections. */}
@@ -339,10 +344,6 @@ export default async function SettingsPage({
 
       {/* ══ Connected apps & devices ══ */}
       <SettingsSection title="Data connections" emoji="🔗">
-      {/* What synced, when, and whether it worked — at the top of the section,
-          because it is what you come here to find out when something is off. */}
-      <SyncStatusCard />
-
       <TelegramCard />
 
       {/* Oura Ring connection (client component) */}

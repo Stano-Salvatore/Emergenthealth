@@ -54,6 +54,19 @@ export function agoShort(iso: string | Date | null | undefined, now = Date.now()
   return `${d} days ago`
 }
 
+/**
+ * What a successful run actually brought back.
+ *
+ * "Synced 2 h ago" cannot say this, and the difference matters: a sync that
+ * succeeds and returns nothing looks exactly like a healthy one until the
+ * number is printed. Null when the source doesn't count rows — an absent
+ * count is not zero.
+ */
+export function broughtBackLabel(items: number | null | undefined): string | null {
+  if (items == null) return null
+  return items === 0 ? "nothing new" : `${items} updated`
+}
+
 /** A source that should refresh regularly: green until warnAfterDays, amber after. */
 export function freshnessTone(day: string | null, today: string, warnAfterDays: number): StatusTone {
   if (!day) return "off"

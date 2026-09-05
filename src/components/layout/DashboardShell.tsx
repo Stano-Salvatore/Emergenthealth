@@ -48,7 +48,21 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   // from the background, so the app opening is the only moment tracking can
   // come back. Here rather than the root layout because the upload needs a
   // session, and the sign-in page has none.
-  useEffect(() => { void resumeBackgroundLocation() }, [])
+  //
+  // "The app opening" has to include being RESUMED, not only cold-started. A
+  // phone app is almost always brought back from the background, which
+  // re-renders nothing and remounts nothing — so a mount-only effect fires on
+  // the first launch after a reboot and then never again. A service Android
+  // killed at lunchtime stayed dead until the next cold start, which can be
+  // days, and the status card said "should be tracking but isn't" the whole
+  // time with no way to act on it. AutoSync and DeviceStatusChips both learned
+  // this and listen for the same event.
+  useEffect(() => {
+    void resumeBackgroundLocation()
+    const onVisible = () => { if (document.visibilityState === "visible") void resumeBackgroundLocation() }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => document.removeEventListener("visibilitychange", onVisible)
+  }, [])
 
   // Write the width-derived choice down the first time, so it stays put if the
   // window is later resized. Display scale itself is rendered server-side (see

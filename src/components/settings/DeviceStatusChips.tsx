@@ -4,10 +4,22 @@ import { useCallback, useEffect, useState } from "react"
 import { Capacitor } from "@capacitor/core"
 import { headStatus, activityStatus } from "@/lib/native/bubble"
 import { getNotificationPermission } from "@/lib/native/notifications"
-import { readBackgroundLocationEnabled } from "@/lib/native/background-location"
+import { readBackgroundLocationEnabled, startBackgroundLocation } from "@/lib/native/background-location"
 import { nativeLocationStatus } from "@/lib/native/location-service"
 import { getAutoSpeak, speechSupported } from "@/lib/voice"
 import type { StatusRow } from "@/lib/status-rows"
+
+/**
+ * A row that can also do something about what it reports.
+ *
+ * "Should be tracking but isn't" was a diagnosis with no cure attached: the
+ * remedies it implied — the permission, the battery exemption — are rendered
+ * as their own rows, and once those are green the sentence blames the reader
+ * for something they have already done. Android refuses a background start of
+ * a foreground service, but a start from a button the user just pressed is
+ * always allowed, so the card can simply fix it.
+ */
+type DeviceRow = StatusRow & { action?: { label: string; run: () => Promise<unknown> } }
 
 /**
  * The part of the status card only the phone can answer: permissions, and
@@ -15,7 +27,8 @@ import type { StatusRow } from "@/lib/status-rows"
  * the web, because none of it exists there.
  */
 export function DeviceStatusChips() {
-  const [rows, setRows] = useState<StatusRow[] | null>(null)
+  const [rows, setRows] = useState<DeviceRow[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!Capacitor.isNativePlatform()) return
@@ -26,7 +39,7 @@ export function DeviceStatusChips() {
       nativeLocationStatus().catch(() => null),
       activityStatus().catch(() => ({ available: false, permitted: false, tracking: false })),
     ])
-    const out: StatusRow[] = []
+    const out: DeviceRow[] = []
     out.push(notif === "granted"
       ? { id: "d-notif", group: "Notifications", label: "This phone", tone: "ok", value: "notifications allowed" }
       : { id: "d-notif", group: "Notifications", label: "This phone", tone: "warn", value: notif === "denied" ? "notifications blocked" : "notifications not allowed yet" })
@@ -47,7 +60,14 @@ export function DeviceStatusChips() {
       // saved switch position cannot.
       out.push(svc.running
         ? { id: "d-loc", group: "Data", label: "Background location", tone: "ok", value: "tracking, survives closing the app" }
-        : { id: "d-loc", group: "Data", label: "Background location", tone: "warn", value: "should be tracking but isn't" })
+        : {
+            id: "d-loc", group: "Data", label: "Background location", tone: "warn",
+            value: "should be tracking but isn't",
+            // Only worth naming the permissions when one of them is actually
+            // the problem; their own rows appear below when they are.
+            detail: svc.background && svc.batteryUnrestricted ? "permissions are fine — it just stopped" : undefined,
+            action: { label: "Start now", run: startBackgroundLocation },
+          })
       if (svc.fine && !svc.background) {
         out.push({ id: "d-loc-bg", group: "Data", label: "Location permission", tone: "warn", value: "only while using the app", detail: "Set it to Allow all the time" })
       }
@@ -104,6 +124,23 @@ export function DeviceStatusChips() {
             <div className="text-right shrink-0 max-w-[55%]">
               <p className={`text-xs leading-snug ${r.tone === "warn" ? "text-amber-400" : r.tone === "bad" ? "text-red-400" : r.tone === "off" ? "text-muted-foreground" : "text-foreground"}`}>{r.value}</p>
               {r.detail && <p className="text-[10px] text-muted-foreground leading-snug">{r.detail}</p>}
+              {r.action && (
+                <button
+                  onClick={async () => {
+                    const run = r.action?.run
+                    if (!run) return
+                    setBusy(r.id)
+                    // Re-read either way: a start that failed has changed the
+                    // row's reason, and that is what the presser needs to see.
+                    try { await run() } catch { /* the reload reports it */ }
+                    finally { await load(); setBusy(null) }
+                  }}
+                  disabled={busy === r.id}
+                  className="mt-1 text-[11px] font-medium text-primary hover:underline disabled:opacity-50"
+                >
+                  {busy === r.id ? "Starting…" : r.action.label}
+                </button>
+              )}
             </div>
           </div>
         ))}

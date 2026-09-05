@@ -1,7 +1,8 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { loadStatusOverview } from "@/lib/status-overview"
-import type { StatusRow, StatusTone } from "@/lib/status-rows"
+import { dayLabel, type StatusRow, type StatusTone } from "@/lib/status-rows"
 import { DeviceStatusChips } from "@/components/settings/DeviceStatusChips"
+import { SyncNowButton } from "@/components/settings/SyncNowButton"
 
 const DOT: Record<StatusTone, string> = {
   ok: "bg-emerald-400",
@@ -37,9 +38,15 @@ export function StatusLine({ row }: { row: StatusRow }) {
  * database; the things only the phone knows (permissions, whether the chat
  * head is up, background location) are added by the device chips, which
  * render nothing on the web.
+ *
+ * This is also where sync status lives now. There used to be a second card
+ * further down repeating the same sources with the same times, which meant two
+ * places to look and two chances for them to disagree. Everything that card
+ * offered on its own — the button, what a run actually brought back, and the
+ * freshest day held — is here instead.
  */
 export async function StatusOverview({ userId }: { userId: string }) {
-  const { rows } = await loadStatusOverview(userId)
+  const { rows, today, cadenceMinutes, newestHealthDate, serverSources } = await loadStatusOverview(userId)
   const groups: StatusRow["group"][] = ["Data", "Notifications", "Emergy"]
   const attention = rows.filter(r => r.tone === "bad" || r.tone === "warn").length
 
@@ -48,9 +55,12 @@ export async function StatusOverview({ userId }: { userId: string }) {
       <CardContent className="pt-4 pb-4 space-y-3">
         <div className="flex items-baseline justify-between gap-3">
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">At a glance</p>
-          <p className="text-[11px] text-muted-foreground">
-            {attention === 0 ? "Everything connected is working." : `${attention} thing${attention === 1 ? "" : "s"} worth a look.`}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="text-[11px] text-muted-foreground">
+              {attention === 0 ? "Everything connected is working." : `${attention} thing${attention === 1 ? "" : "s"} worth a look.`}
+            </p>
+            {serverSources.length > 0 && <SyncNowButton sources={serverSources} />}
+          </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
           {groups.map(g => (
@@ -61,6 +71,16 @@ export async function StatusOverview({ userId }: { userId: string }) {
           ))}
           <DeviceStatusChips />
         </div>
+        {/* The times above are when a run last FINISHED, not when it was due —
+            GitHub schedules the server ones and can delay them. Phone sources
+            sync when you open the app and only record their successes. */}
+        <p className="text-[11px] text-muted-foreground/70 pt-1 leading-snug">
+          Server syncs run every {cadenceMinutes} minutes; phone syncs run when you open the app.
+          {newestHealthDate && (
+            <> Freshest health day held: <span className="text-foreground/80">{dayLabel(newestHealthDate, today)}</span>
+            {" — a second opinion, in case a sync reports success and brings back nothing."}</>
+          )}
+        </p>
       </CardContent>
     </Card>
   )

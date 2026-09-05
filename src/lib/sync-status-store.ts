@@ -3,7 +3,7 @@ import { parseSyncStatus, type SyncRun, type SyncStatus } from "@/lib/sync-statu
 
 // The database half of sync status. Server-only by construction: keeping it
 // out of sync-status.ts is what stops the Prisma client being traced into the
-// client bundle through SyncStatusCard. See the note there.
+// client bundle through the components that read them. See the note there.
 
 const KEY = "sync_status"
 

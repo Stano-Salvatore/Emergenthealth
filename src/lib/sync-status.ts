@@ -1,11 +1,11 @@
 
 // What synced, when, and whether it worked.
 //
-// DELIBERATELY FREE OF PRISMA. `SyncStatusCard` is a client component and
-// imports `agoLabel`/`isStale` from here, so anything this file pulls in gets
-// traced into the browser bundle — importing the database client for two pure
-// helpers shipped the whole Prisma runtime to every visitor. The reads and
-// writes live in sync-status-store.ts, which only the server imports.
+// DELIBERATELY FREE OF PRISMA. `agoLabel`/`isStale` are reached from client
+// components, so anything this file pulls in gets traced into the browser
+// bundle — importing the database client for two pure helpers shipped the
+// whole Prisma runtime to every visitor. The reads and writes live in
+// sync-status-store.ts, which only the server imports.
 //
 // Nothing recorded this before. A status screen could have inferred it from the
 // newest row each source produced, but that answers a different question: a
