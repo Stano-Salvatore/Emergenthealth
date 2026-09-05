@@ -55,6 +55,22 @@ export async function nativeLocationStatus(): Promise<NativeLocationStatus | nul
   }
 }
 
+let lastStartFailure = ""
+
+/**
+ * Why the last start attempt didn't take, in the native layer's own words.
+ *
+ * The service rejects with a real reason — a permission the system withdrew,
+ * a foreground start Android refused, a missing service type — and this file
+ * used to flatten all of it into "denied" or "unavailable" and drop the text.
+ * That left the card able to say only "should be tracking but isn't", which
+ * names the symptom and hides the one fact that would end the guessing. Same
+ * shape as getLastPluginFailure() in lib/native/notifications.
+ */
+export function getLastLocationStartFailure(): string {
+  return lastStartFailure
+}
+
 /**
  * Start the service.
  *
@@ -63,13 +79,18 @@ export async function nativeLocationStatus(): Promise<NativeLocationStatus | nul
  * otherwise collect points it can never send.
  */
 export async function startNativeLocation(): Promise<"started" | "denied" | "unavailable"> {
-  if ((await nativeLocationStatus()) === null) return "unavailable"
+  if ((await nativeLocationStatus()) === null) {
+    lastStartFailure = "this build has no native location service"
+    return "unavailable"
+  }
   await ensureWidgetActivation().catch(() => "failed" as const)
   try {
     await plugin.startLocationService()
+    lastStartFailure = ""
     return "started"
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
+    lastStartFailure = msg || "the service refused to start, without saying why"
     if (/NOT_AUTHORIZED|denied|permission/i.test(msg)) return "denied"
     return "unavailable"
   }

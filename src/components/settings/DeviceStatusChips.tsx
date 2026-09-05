@@ -5,7 +5,7 @@ import { Capacitor } from "@capacitor/core"
 import { headStatus, activityStatus } from "@/lib/native/bubble"
 import { getNotificationPermission } from "@/lib/native/notifications"
 import { readBackgroundLocationEnabled, startBackgroundLocation } from "@/lib/native/background-location"
-import { nativeLocationStatus } from "@/lib/native/location-service"
+import { getLastLocationStartFailure, nativeLocationStatus } from "@/lib/native/location-service"
 import { getAutoSpeak, speechSupported } from "@/lib/voice"
 import type { StatusRow } from "@/lib/status-rows"
 
@@ -63,9 +63,13 @@ export function DeviceStatusChips() {
         : {
             id: "d-loc", group: "Data", label: "Background location", tone: "warn",
             value: "should be tracking but isn't",
-            // Only worth naming the permissions when one of them is actually
-            // the problem; their own rows appear below when they are.
-            detail: svc.background && svc.batteryUnrestricted ? "permissions are fine — it just stopped" : undefined,
+            // The native layer's own reason wins over anything this file could
+            // guess. Only when there is no reason on file — nothing has tried
+            // to start it yet this session — is it worth saying that the
+            // permissions are not what's wrong, since their own rows appear
+            // below when they are.
+            detail: getLastLocationStartFailure()
+              || (svc.background && svc.batteryUnrestricted ? "permissions are fine — it just stopped" : undefined),
             action: { label: "Start now", run: startBackgroundLocation },
           })
       if (svc.fine && !svc.background) {
@@ -123,7 +127,7 @@ export function DeviceStatusChips() {
             </div>
             <div className="text-right shrink-0 max-w-[55%]">
               <p className={`text-xs leading-snug ${r.tone === "warn" ? "text-amber-400" : r.tone === "bad" ? "text-red-400" : r.tone === "off" ? "text-muted-foreground" : "text-foreground"}`}>{r.value}</p>
-              {r.detail && <p className="text-[10px] text-muted-foreground leading-snug">{r.detail}</p>}
+              {r.detail && <p className="text-[10px] text-muted-foreground leading-snug break-words">{r.detail}</p>}
               {r.action && (
                 <button
                   onClick={async () => {
