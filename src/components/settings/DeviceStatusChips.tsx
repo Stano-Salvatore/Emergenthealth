@@ -54,7 +54,17 @@ export function DeviceStatusChips() {
       }
     }
     if (!loc.enabled) {
-      out.push({ id: "d-loc", group: "Data", label: "Background location", tone: "off", value: "off" })
+      // "Off" and "couldn't find out" are different answers, and
+      // readBackgroundLocationEnabled goes to the trouble of separating them —
+      // it falls back to off so the card stays usable, and hands back the
+      // failure so the fallback is not mistaken for a fact. This read it as a
+      // fact anyway, which is how the card came to say "off" beside another
+      // card on the same screen saying tracking was switched on. A bridge
+      // call that times out is not a switch that is off.
+      out.push(loc.failure
+        ? { id: "d-loc", group: "Data", label: "Background location", tone: "warn",
+            value: "couldn't read the switch", detail: loc.failure }
+        : { id: "d-loc", group: "Data", label: "Background location", tone: "off", value: "off" })
     } else if (svc) {
       // The native service can say whether it is actually running, which the
       // saved switch position cannot.
