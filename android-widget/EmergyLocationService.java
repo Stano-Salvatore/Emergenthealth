@@ -70,6 +70,9 @@ public class EmergyLocationService extends Service {
     private static final String LAST_AT = "last_at";
     private static final String LAST_LAT = "last_lat";
     private static final String LAST_LNG = "last_lng";
+    /** Why the service last failed to start or stopped when it shouldn't have. */
+    private static final String FAULT_KEY = "fault";
+    private static final String FAULT_AT = "fault_at";
 
     private static final String CHANNEL_ID = "emergy_location";
     private static final int NOTIFICATION_ID = 920004;
@@ -105,6 +108,40 @@ public class EmergyLocationService extends Service {
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEEP_KEY, keep).apply();
     }
 
+    /**
+     * What went wrong, kept where something can read it back.
+     *
+     * Every failure in here used to be swallowed: a foreground start the
+     * system refused, a location client that would not open, a death nobody
+     * asked for. The service knew all three and told no one, so the app could
+     * only ever say "should be tracking but isn't" — the symptom, never the
+     * cause, and never anything to act on. A line of text costs nothing and
+     * is the difference between a fix and another guess.
+     */
+    static void noteFault(Context ctx, String what) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(FAULT_KEY, what)
+            .putLong(FAULT_AT, System.currentTimeMillis())
+            .apply();
+    }
+
+    static void clearFault(Context ctx) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(FAULT_KEY).remove(FAULT_AT).apply();
+    }
+
+    static String lastFault(Context ctx) {
+        // getString is nullable whatever default it is handed, and onDestroy
+        // calls isEmpty() on the result while the service is already dying —
+        // the worst possible place for a null.
+        String v = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(FAULT_KEY, "");
+        return v == null ? "" : v;
+    }
+
+    static long lastFaultAt(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(FAULT_AT, 0L);
+    }
+
     static boolean hasFineLocation(Context ctx) {
         return ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             || ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
@@ -135,7 +172,18 @@ public class EmergyLocationService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        startForegroundNotice("Logging the places you spend time at");
+        // Unprotected until now, and the quietest way this service could die:
+        // Android refuses a foreground start it considers out of turn, and
+        // from 14 it also rejects one whose type it will not grant. Either
+        // throws here, before `running` is ever set, so the service vanished
+        // without reaching a single line that could say so.
+        try {
+            startForegroundNotice("Logging the places you spend time at");
+        } catch (Exception e) {
+            noteFault(this, "Android refused the foreground start: " + describe(e));
+            stopSelf();
+            return;
+        }
         running = true;
 
         client = LocationServices.getFusedLocationProviderClient(this);
@@ -155,11 +203,28 @@ public class EmergyLocationService extends Service {
         };
         try {
             client.requestLocationUpdates(request, callback, Looper.getMainLooper());
+            // Up and listening. Anything held from an earlier attempt is
+            // history now, and leaving it would make the card describe a
+            // failure that has since been recovered from.
+            clearFault(this);
         } catch (SecurityException e) {
-            // Permission gone since the wish was stored. Nothing to track with.
-            setKeep(this, false);
+            // Permission gone since the wish was stored. Nothing to track
+            // with — but the wish STAYS. Clearing it here disabled tracking
+            // permanently for a condition that is often temporary: the
+            // watchdog stops re-arming, ensureRunning returns early for good,
+            // and re-granting the permission brings nothing back. ensureRunning
+            // already refuses to start without the permission, so the wish
+            // costs nothing while it is missing and is what revives this the
+            // moment it returns.
+            noteFault(this, "the location provider refused to open: " + describe(e));
             stopSelf();
         }
+    }
+
+    /** An exception in one short line: message where there is one, class where there isn't. */
+    private static String describe(Throwable e) {
+        String msg = e.getMessage();
+        return msg == null || msg.isEmpty() ? e.getClass().getSimpleName() : msg;
     }
 
     @Override
@@ -202,6 +267,13 @@ public class EmergyLocationService extends Service {
         main.removeCallbacks(flushNow);
         if (client != null && callback != null) {
             try { client.removeLocationUpdates(callback); } catch (Exception ignored) {}
+        }
+        // A stop nobody asked for. The wish is cleared whenever the user ends
+        // this deliberately, so a live wish here means the system took the
+        // service away — the overnight death that started all of this, and
+        // which until now left nothing at all behind to find in the morning.
+        if (keep(this) && lastFault(this).isEmpty()) {
+            noteFault(this, "the system stopped the service while tracking was still switched on");
         }
         running = false;
         super.onDestroy();
