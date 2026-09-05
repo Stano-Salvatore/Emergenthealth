@@ -5,7 +5,7 @@ import { loadSyncOverview } from "@/lib/sync-status-load"
 import { agoLabel } from "@/lib/sync-status"
 import { CHAT_ID_KEY } from "@/lib/telegram"
 import { SAID_KEY, parseSaid } from "@/lib/emergy-say"
-import { agoShort, dayLabel, freshnessTone, latestDayIn, type StatusRow } from "@/lib/status-rows"
+import { agoShort, broughtBackLabel, dayLabel, freshnessTone, latestDayIn, type StatusRow } from "@/lib/status-rows"
 
 // Everything the app is connected to, and when it last did its job — one
 // query batch, one screen. Every line is something that was recorded or an
@@ -16,7 +16,16 @@ const PREF_KEYS = [
   "reminders_sent", "daily_nudges_sent", "emergy_push:sent", "wind_down_last_sent", SAID_KEY,
 ]
 
-export async function loadStatusOverview(userId: string): Promise<{ rows: StatusRow[]; today: string }> {
+export async function loadStatusOverview(
+  userId: string,
+): Promise<{
+  rows: StatusRow[]
+  today: string
+  cadenceMinutes: number
+  newestHealthDate: string | null
+  /** Connected sources a "sync now" can actually drive from the server. */
+  serverSources: string[]
+}> {
   const timezone = await getUserTimezone(userId)
   const today = localDateStr(timezone)
 
@@ -64,7 +73,10 @@ export async function loadStatusOverview(userId: string): Promise<{ rows: Status
     // phone source only runs when the phone does, so it is never "late".
     const ageH = (Date.now() - Date.parse(s.run.at)) / 3600000
     const late = s.driver === "server" && ageH > 26
-    const detail = s.id === "oura" && sync.newestHealthDate ? `data to ${dayLabel(sync.newestHealthDate, today)}` : undefined
+    const brought = broughtBackLabel(s.run.items)
+    const detail = s.id === "oura" && sync.newestHealthDate
+      ? `data to ${dayLabel(sync.newestHealthDate, today)}`
+      : brought ?? undefined
     rows.push({ id: s.id, group: "Data", label: s.label, tone: late ? "warn" : "ok", value: `synced ${when}`, detail })
   }
   /**
@@ -134,5 +146,10 @@ export async function loadStatusOverview(userId: string): Promise<{ rows: Status
   rows.push({ id: "said", group: "Emergy", label: "Nudges from him", tone: said.length ? "ok" : "off", value: said.length ? `last ${agoShort(said[0].at)}` : "none yet" })
   rows.push({ id: "meds", group: "Emergy", label: "Medication schedules", tone: medSchedules ? "ok" : "off", value: medSchedules ? `${medSchedules} active` : "none" })
 
-  return { rows, today }
+  return {
+    rows, today,
+    cadenceMinutes: sync.cadenceMinutes,
+    newestHealthDate: sync.newestHealthDate,
+    serverSources: sync.sources.filter(s => s.connected && s.driver === "server").map(s => s.id),
+  }
 }

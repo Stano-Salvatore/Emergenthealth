@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { latestDayIn, daysBetween, dayLabel, agoShort, freshnessTone } from "@/lib/status-rows"
+import { latestDayIn, daysBetween, dayLabel, agoShort, freshnessTone, broughtBackLabel } from "@/lib/status-rows"
 
 describe("status rows", () => {
   it("finds the latest day in any stored shape", () => {
@@ -29,5 +29,19 @@ describe("status rows", () => {
     expect(freshnessTone("2026-09-02", "2026-09-02", 1)).toBe("ok")
     expect(freshnessTone("2026-08-31", "2026-09-02", 1)).toBe("warn")
     expect(freshnessTone(null, "2026-09-02", 1)).toBe("off")
+  })
+})
+
+describe("broughtBackLabel", () => {
+  it("keeps a run that returned nothing apart from one that returned rows", () => {
+    expect(broughtBackLabel(0)).toBe("nothing new")
+    expect(broughtBackLabel(3)).toBe("3 updated")
+  })
+
+  it("says nothing at all when the source doesn't count", () => {
+    // An absent count is not a count of zero. Printing "nothing new" for a
+    // source that never reports rows would invent a fact about the run.
+    expect(broughtBackLabel(null)).toBeNull()
+    expect(broughtBackLabel(undefined)).toBeNull()
   })
 })
