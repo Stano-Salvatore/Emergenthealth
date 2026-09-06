@@ -141,6 +141,13 @@ sleep, steps, weight) over the interval alongside the supplements — each
 measured against the same length of time before the earlier draw, because
 "2 drinks a day" is trivia and "up from half of one" is context.
 
+Every source marked `driver: "server"` in `sync-status.ts` must have a
+`/api/cron/<id>` on a schedule. That is what lets the status screen call its
+silence overdue; without a cron the claim is false, because the source syncs
+only when the app is opened. Last.fm and RescueTime lived that way for months —
+inside a `Promise.allSettled` that discarded the rejection, so a revoked key
+was indistinguishable from a quiet week.
+
 ## Standing guards
 
 `src/lib/__tests__/no-utc-day-bucketing.test.ts` is not a unit test — it greps
@@ -226,5 +233,8 @@ Roughly in order, most recent first:
   more than fat). Waist rarely has enough weigh-ins to clear the gate, so in
   practice only weight produces cards.
 - **Toggl** stores a token but no daily log table, so nothing correlates.
+- **The upload queue only retries on a new fix.** `flush()` is scheduled from
+  `onFix` and nowhere else, so points queued while stationary sit until the
+  next one arrives. Needs a timer, and an APK.
 - `EMAIL_FROM` is unset — the sender is Resend's sandbox, which only reaches
   the account owner. Needs a domain.
