@@ -4,6 +4,8 @@ import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { supplementInfoFor } from "@/lib/supplement-info"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
+import { getGoals } from "@/lib/goals"
+import { computeTargets } from "@/lib/targets"
 import { estimateHome, summariseDays, AWAY_KM } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
 
@@ -110,7 +112,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 7
+export const ENGINE_VERSION = 8
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -861,6 +863,24 @@ export async function computeCorrelations(
     }]
   })
 
+  // Water is the one source where the app already knows the right number and
+  // wasn't using it: computeTargets() scales the daily goal to body mass
+  // (35 ml/kg), the Intake screen shows that figure, and this engine used to
+  // group days at a flat 2000. At 80kg the target is 2800, so a 2.1L day was
+  // filed under "2L+ water days" on the same day Intake called it 700ml short.
+  // One app, two answers, and this was the half drawing conclusions.
+  //
+  // Only the two sites that mean "hit your daily goal" move. The symptom
+  // battery's "under 1.5L" is a dehydration marker, not a goal, and scaling it
+  // would be inventing a rule nobody wrote down.
+  const goals = await getGoals(userId).catch(() => null)
+  const targets = computeTargets({
+    weightKg: goals?.weightKg ?? null,
+    heightCm: goals?.heightCm ?? null,
+    birthYear: goals?.birthYear ?? null,
+    sex: goals?.sex === "male" || goals?.sex === "female" ? goals.sex : null,
+  })
+
   // Three sources are still cut at a borrowed number rather than a personal
   // one. Like customDefs above, the cut is decided on the FULL window and not
   // per-pass — recomputing it on weekdays-only would let the weekend guard
@@ -871,7 +891,13 @@ export async function computeCorrelations(
     heat: balancedCut(allDays.map(d => d.tempMaxC), 25),
     caffeine: balancedCut(allDays.map(d => d.caffeineMg), 200),
     stress: balancedCut(allDays.map(d => d.stressHighMin), 60),
+    // The borrowed number here is your own target, so `personal` stays false
+    // until even that fails to split the days and the median takes over.
+    water: balancedCut(allDays.map(d => d.waterMl), targets.waterMl),
   }
+  const waterLabel = cuts.water.at >= 1000
+    ? `${(cuts.water.at / 1000).toFixed(cuts.water.at % 1000 === 0 ? 0 : 1)}L`
+    : `${Math.round(cuts.water.at)}ml`
   const heatLabel = `${Math.round(cuts.heat.at)}°C+`
   const cafLabel = `${Math.round(cuts.caffeine.at)}mg+`
   const cafUnderLabel = `under ${Math.round(cuts.caffeine.at)}mg`
@@ -1559,34 +1585,33 @@ export async function computeCorrelations(
 
   // 14. Hydration → next-day energy & readiness (the app has always tracked
   // water; this is the first time it checks whether it matters)
-  const WATER_GOAL = 2000
   const hydratedEnergy: number[] = [], dryEnergy: number[] = []
   const hydratedReadiness: number[] = [], dryReadiness: number[] = []
   for (const d of days) {
     if (d.waterMl == null) continue
     const next = byDate[nextDateStr(d.date)]
     if (!next) continue
-    const hydrated = d.waterMl >= WATER_GOAL
+    const hydrated = d.waterMl >= cuts.water.at
     if (next.energy != null) { if (hydrated) hydratedEnergy.push(next.energy); else dryEnergy.push(next.energy) }
     if (next.readiness != null) { if (hydrated) hydratedReadiness.push(next.readiness); else dryReadiness.push(next.readiness) }
   }
   const ins_water_energy = compareGroups({
     id: "water_energy", category: "food", emoji: "💧", title: "Hydration & Next-Day Energy",
-    highGroupLabel: "2L+ water days", lowGroupLabel: "under 2L days",
+    highGroupLabel: `${waterLabel}+ water days`, lowGroupLabel: `under ${waterLabel} days`,
     highValues: hydratedEnergy, lowValues: dryEnergy,
     findingTemplate: (h, l) =>
       h > l
-        ? `After 2L+ water days, morning energy averages ${h} vs ${l} after drier days`
-        : `Hitting 2L doesn't move your morning energy — ${h} vs ${l}`,
+        ? `After ${waterLabel}+ water days, morning energy averages ${h} vs ${l} after drier days`
+        : `Hitting ${waterLabel} doesn't move your morning energy — ${h} vs ${l}`,
   })
   if (ins_water_energy) insights.push(ins_water_energy)
   const ins_water_readiness = compareGroups({
     id: "water_readiness", category: "food", emoji: "🚰", title: "Hydration & Next-Day Readiness",
-    highGroupLabel: "2L+ water days", lowGroupLabel: "under 2L days",
+    highGroupLabel: `${waterLabel}+ water days`, lowGroupLabel: `under ${waterLabel} days`,
     highValues: hydratedReadiness, lowValues: dryReadiness,
     findingTemplate: (h, l) =>
       h > l
-        ? `After 2L+ water days, next-day readiness averages ${h} vs ${l}`
+        ? `After ${waterLabel}+ water days, next-day readiness averages ${h} vs ${l}`
         : `Hydration doesn't show up in your readiness — ${h} vs ${l}`,
   })
   if (ins_water_readiness) insights.push(ins_water_readiness)
@@ -2953,9 +2978,9 @@ export async function computeCorrelations(
         emoji: "💧",
         predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
         outcome: { label: "next-day energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
-        moderator: { key: "hydrated", onLabel: "when you drank 2L+ of fluid",
+        moderator: { key: "hydrated", onLabel: `when you drank ${waterLabel}+ of fluid`,
                      offLabel: "when you didn't",
-                     predicate: d => (d.waterMl ?? 0) >= 2000 },
+                     predicate: d => (d.waterMl ?? 0) >= cuts.water.at },
       },
       {
         id: "late_meal_sleep_by_alcohol",
