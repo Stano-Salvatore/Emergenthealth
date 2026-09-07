@@ -10,6 +10,7 @@ import PlaceCorrelations from "@/components/location/PlaceCorrelations"
 import { BaselineAlerts } from "@/components/dashboard/BaselineAlerts"
 import { DailyScoreCard } from "@/components/dashboard/DailyScoreCard"
 import { experimentSuggestion } from "@/lib/experiment-suggest"
+import { weaknessReason } from "@/lib/insight-weakness"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -122,6 +123,10 @@ function DeltaPill({ delta }: { delta: number }) {
 function InsightCard({ insight }: { insight: InsightResult }) {
   // An association the user can act on gets a way to test it properly.
   const suggestion = experimentSuggestion(insight)
+  // A weak card says WHY it's weak: a group too thin to test (keep logging)
+  // is a different story from a gap that's simply within chance (if it's
+  // real, it's small) — and only one of them is an instruction.
+  const weakness = weaknessReason(insight)
   return (
     <Card className="border-border bg-card">
       <CardContent className="p-4 space-y-3">
@@ -163,6 +168,11 @@ function InsightCard({ insight }: { insight: InsightResult }) {
 
         {/* Finding text */}
         <p className="text-sm text-muted-foreground leading-relaxed">{insight.finding}</p>
+        {weakness && (
+          <p className="text-xs text-muted-foreground/80 leading-relaxed border-l-2 border-border pl-2">
+            {weakness}
+          </p>
+        )}
         {suggestion && (
           <Link
             href={`/dashboard/experiments?${new URLSearchParams({ name: suggestion.name, action: suggestion.action, outcome: suggestion.outcome })}`}
