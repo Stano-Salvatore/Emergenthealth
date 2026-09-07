@@ -32,6 +32,8 @@ export const SYNC_SOURCES = [
   { id: "strava", label: "Strava", what: "Workouts and routes", driver: "server" },
   { id: "ynab", label: "YNAB", what: "Budget and transactions", driver: "server" },
   { id: "truelayer", label: "TrueLayer", what: "Bank transactions", driver: "server" },
+  { id: "lastfm", label: "Last.fm", what: "Scrobbles and listening minutes", driver: "server" },
+  { id: "rescuetime", label: "RescueTime", what: "Productive and distracting hours", driver: "server" },
   { id: "health-connect", label: "Health Connect", what: "Steps and sleep from other apps", driver: "device" },
   { id: "device-calendar", label: "Phone calendar", what: "Events from the phone's calendars", driver: "device" },
 ] as const

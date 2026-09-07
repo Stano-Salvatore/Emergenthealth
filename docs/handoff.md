@@ -103,6 +103,22 @@ category to the union in `correlations.ts` **and** to `CATEGORY_META` +
 `CATEGORY_ORDER` in `src/app/dashboard/insights/page.tsx`. Missing the second
 one type-errors, which is the intent.
 
+**Where a family cuts high from low** is the single biggest lever on whether
+anything ever reads "Solid". Most families cut at the user's own median
+(screen time, spending, walking, productivity, distance, listening, custom
+trackers). Three were still cut at a borrowed number — 200mg of caffeine,
+25°C, an hour of high stress — and `balancedCut()` now decides between the
+two: it keeps the borrowed number while the days fall on both sides of it,
+and falls back to the personal median when they don't. In a Central European
+year "25°C+" picked out 7 days against 57, and no effect however real clears
+a permutation test from a group of seven. The label always prints the number
+actually applied, so a card never advertises a threshold it didn't use. The
+cut is computed on the full window, never per-pass — otherwise the weekend
+guard would compare two structurally different splits.
+
+Bump `ENGINE_VERSION` when a group definition moves, not just when a family
+is added: cached cards carry the label they were computed with.
+
 Two families do not work on single days, and the reasons generalise:
 
 - **Interactions** compare two differences, so they get
@@ -124,6 +140,13 @@ descriptively, and now carries the everyday numbers (alcohol, exercise,
 sleep, steps, weight) over the interval alongside the supplements — each
 measured against the same length of time before the earlier draw, because
 "2 drinks a day" is trivia and "up from half of one" is context.
+
+Every source marked `driver: "server"` in `sync-status.ts` must have a
+`/api/cron/<id>` on a schedule. That is what lets the status screen call its
+silence overdue; without a cron the claim is false, because the source syncs
+only when the app is opened. Last.fm and RescueTime lived that way for months —
+inside a `Promise.allSettled` that discarded the rejection, so a revoked key
+was indistinguishable from a quiet week.
 
 ## Standing guards
 
@@ -210,5 +233,8 @@ Roughly in order, most recent first:
   more than fat). Waist rarely has enough weigh-ins to clear the gate, so in
   practice only weight produces cards.
 - **Toggl** stores a token but no daily log table, so nothing correlates.
+- **The upload queue only retries on a new fix.** `flush()` is scheduled from
+  `onFix` and nowhere else, so points queued while stationary sit until the
+  next one arrives. Needs a timer, and an APK.
 - `EMAIL_FROM` is unset — the sender is Resend's sandbox, which only reaches
   the account owner. Needs a domain.

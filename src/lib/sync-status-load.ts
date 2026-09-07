@@ -22,7 +22,7 @@ export interface SyncOverview {
 // source you've hooked up than for one you haven't. Shared by the sync-status
 // API and the Settings overview, so the two can never disagree.
 export async function loadSyncOverview(userId: string): Promise<SyncOverview> {
-  const [status, oura, strava, ynab, truelayer, calendarCount, newest, devicePrefs] = await Promise.all([
+  const [status, oura, strava, ynab, truelayer, calendarCount, newest, devicePrefs, lastfm, rescuetime] = await Promise.all([
     readSyncStatus(userId),
     prisma.ouraToken.count({ where: { userId } }).catch(() => 0),
     prisma.stravaToken.count({ where: { userId } }).catch(() => 0),
@@ -44,6 +44,14 @@ export async function loadSyncOverview(userId: string): Promise<SyncOverview> {
       where: { userId, key: { in: ["health_connect_last_sync", "device_calendar_last_sync"] } },
       select: { key: true, value: true },
     }).catch(() => [] as { key: string; value: string }[]),
+    // Both key tables are read raw everywhere else in the codebase, so they
+    // are read raw here too rather than relying on a generated client model.
+    prisma.$queryRaw<{ n: number }[]>`
+      SELECT COUNT(*)::int AS n FROM "LastfmKey" WHERE "userId" = ${userId}
+    `.then(r => Number(r[0]?.n ?? 0)).catch(() => 0),
+    prisma.$queryRaw<{ n: number }[]>`
+      SELECT COUNT(*)::int AS n FROM "RescuetimeKey" WHERE "userId" = ${userId}
+    `.then(r => Number(r[0]?.n ?? 0)).catch(() => 0),
   ])
 
   // These keys are written only after a sync succeeds, so they can say when it
@@ -58,6 +66,8 @@ export async function loadSyncOverview(userId: string): Promise<SyncOverview> {
     strava: strava > 0,
     ynab: ynab > 0,
     truelayer: truelayer > 0,
+    lastfm: lastfm > 0,
+    rescuetime: rescuetime > 0,
     "health-connect": deviceRun("health_connect_last_sync") != null,
     "device-calendar": calendarCount > 0 || deviceRun("device_calendar_last_sync") != null,
   }
