@@ -112,7 +112,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 9
+export const ENGINE_VERSION = 10
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -267,10 +267,96 @@ const PERMUTATIONS = 1000
 let permutationsOn = true
 
 /**
- * Permutation test: shuffle the values between the two groups PERMUTATIONS
- * times and count how often chance alone produces a mean difference at least
- * as large as the observed one. Distribution-free — no normality assumptions,
- * works at the small n this engine deals in.
+ * A family's observations in DAY ORDER — the order is the point. Every family
+ * used to collect two bare arrays, which threw away how high and low days
+ * interleave in time; the block permutation test below needs that interleaving
+ * back, so families now collect one sequence and the split is derived.
+ */
+export class Split {
+  readonly obs: { v: number; hi: boolean }[] = []
+  add(hi: boolean, v: number): void {
+    this.obs.push({ v, hi })
+  }
+  get high(): number[] {
+    return this.obs.filter(o => o.hi).map(o => o.v)
+  }
+  get low(): number[] {
+    return this.obs.filter(o => !o.hi).map(o => o.v)
+  }
+}
+
+/**
+ * How long a block to hold together, given n observations. Longer blocks
+ * respect longer-range autocorrelation; more blocks give the null
+ * distribution enough distinct arrangements for small p-values to exist at
+ * all — with 3 blocks there are six orderings and nothing under ~0.17 is
+ * reachable. n/12 keeps at least ~12 blocks; 7 is enough for the
+ * correlation lengths daily physiology shows; 3 is the floor below which a
+ * "block" stops meaning anything.
+ */
+function blockLength(n: number): number {
+  return Math.max(3, Math.min(7, Math.floor(n / 12)))
+}
+
+/**
+ * Block permutation: shuffle week-scale runs of days, not days.
+ *
+ * The plain shuffle below assumes days are exchangeable, and they aren't —
+ * heat comes in waves, stress in weeks, HRV carries yesterday inside it.
+ * Shuffling single days destroys that structure in the null while the
+ * observed data keeps it, which makes coincidental alignment of two slow
+ * curves look like signal. Measured on AR(1) pairs at the autocorrelation
+ * daily weather and physiology actually show (phi 0.5–0.7), the day-shuffle
+ * rejects 9–17% of TRUE nulls at p<0.05 — two to three times its nominal
+ * rate. Shuffling contiguous blocks keeps the short-range structure in the
+ * null too, and the same measurement comes back at 5–8%.
+ *
+ * The cost is honest and small: ~98% power stays ~98% on strong effects;
+ * borderline ones lose most of the excess that was never real. The
+ * observations must arrive in day order — Split preserves it — and label
+ * counts are preserved by construction, so groups can never come back empty.
+ * Days a family skipped (nulls) compress out of the sequence, so a "block"
+ * is adjacent observations, not strictly adjacent dates; the approximation
+ * is noted rather than hidden.
+ */
+export function blockPermutationP(obs: { v: number; hi: boolean }[], seedKey: string): number {
+  const n = obs.length
+  const labels = obs.map(o => o.hi)
+  const values = obs.map(o => o.v)
+
+  const diffFor = (lab: boolean[]): number => {
+    let sh = 0, nh = 0, sl = 0, nl = 0
+    for (let i = 0; i < n; i++) {
+      if (lab[i]) { sh += values[i]; nh++ } else { sl += values[i]; nl++ }
+    }
+    return Math.abs(sh / nh - sl / nl)
+  }
+  const observed = diffFor(labels)
+
+  const b = blockLength(n)
+  const nBlocks = Math.ceil(n / b)
+  const idx = Array.from({ length: nBlocks }, (_, i) => i)
+  const rng = seededRng(hashString(seedKey))
+  const permuted: boolean[] = new Array(n)
+
+  let atLeast = 0
+  for (let p = 0; p < PERMUTATIONS; p++) {
+    shuffleInPlace(idx, rng)
+    let at = 0
+    for (const bi of idx) {
+      for (let k = bi * b; k < Math.min((bi + 1) * b, n); k++) permuted[at++] = labels[k]
+    }
+    if (diffFor(permuted) >= observed - 1e-12) atLeast++
+  }
+  // +1 correction: a permutation p-value is never exactly 0
+  return (atLeast + 1) / (PERMUTATIONS + 1)
+}
+
+/**
+ * Day-shuffle permutation test. No longer what compareGroups runs — it
+ * assumes exchangeable days, and blockPermutationP above documents the
+ * measured cost of that assumption — but kept exported as the honest
+ * baseline the calibration test compares against.
  */
 export function permutationP(high: number[], low: number[], seedKey: string): number {
   const observed = Math.abs(avg(high) - avg(low))
@@ -287,7 +373,7 @@ export function permutationP(high: number[], low: number[], seedKey: string): nu
   return (atLeast + 1) / (PERMUTATIONS + 1)
 }
 
-function shuffleInPlace(arr: number[], rng: () => number): void {
+function shuffleInPlace<T>(arr: T[], rng: () => number): void {
   // Fisher-Yates
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1))
@@ -378,8 +464,8 @@ function compareGroups(opts: {
   title: string
   highGroupLabel: string
   lowGroupLabel: string
-  highValues: number[]
-  lowValues: number[]
+  /** The family's observations in day order — see Split. */
+  series: Split
   higherIsBetter?: boolean
   findingTemplate: (highAvg: number, lowAvg: number) => string
   minN?: number
@@ -387,11 +473,13 @@ function compareGroups(opts: {
   const {
     id, category, emoji, title,
     highGroupLabel, lowGroupLabel,
-    highValues, lowValues,
+    series,
     higherIsBetter = true,
     findingTemplate,
     minN = 5,
   } = opts
+  const highValues = series.high
+  const lowValues = series.low
 
   if (highValues.length < minN || lowValues.length < minN) return null
 
@@ -424,7 +512,7 @@ function compareGroups(opts: {
     highGroupN: highValues.length,
     lowGroupN: lowValues.length,
     confident: highValues.length >= 10 && lowValues.length >= 10,
-    pValue: permutationsOn ? permutationP(highValues, lowValues, id) : 1,
+    pValue: permutationsOn ? blockPermutationP(series.obs, id) : 1,
     tier: "noise", // provisional — assignTiers() sets the real tier per run
   }
 }
@@ -968,83 +1056,77 @@ export async function computeCorrelations(
   const tonight = (d: DayData): DayData | undefined => byDate[nextDateStr(d.date)]
 
   // 1. Sleep duration → next-day energy / mood
-  const sleepDurHighEnergy: number[] = []
-  const sleepDurLowEnergy: number[] = []
-  const sleepDurHighMood: number[] = []
-  const sleepDurLowMood: number[] = []
+  const sleepDurEnergy = new Split()
+  const sleepDurMood = new Split()
   // The check-in dated D is the morning that the sleep record dated D ended
   // on — the same morning, not the next one. Reading the check-in from D+1
   // compared each night with how the user felt after the FOLLOWING night.
   for (const d of days) {
     if (d.sleepDuration == null) continue
     const isHigh = d.sleepDuration >= 7
-    if (d.energy != null) { if (isHigh) sleepDurHighEnergy.push(d.energy); else sleepDurLowEnergy.push(d.energy) }
-    if (d.mood != null) { if (isHigh) sleepDurHighMood.push(d.mood); else sleepDurLowMood.push(d.mood) }
+    if (d.energy != null) { if (isHigh) sleepDurEnergy.add(true, d.energy); else sleepDurEnergy.add(false, d.energy) }
+    if (d.mood != null) { if (isHigh) sleepDurMood.add(true, d.mood); else sleepDurMood.add(false, d.mood) }
   }
   const ins_sleepDur_energy = compareGroups({
     id: "sleep_duration_energy", category: "sleep", emoji: "🌙", title: "Sleep Duration & Morning Energy",
     highGroupLabel: "7h+ sleep nights", lowGroupLabel: "under 7h sleep nights",
-    highValues: sleepDurHighEnergy, lowValues: sleepDurLowEnergy,
+    series: sleepDurEnergy,
     findingTemplate: (h, l) => `After 7h+ sleep, your morning energy averages ${h} vs ${l} on shorter nights`,
   })
   if (ins_sleepDur_energy) insights.push(ins_sleepDur_energy)
   const ins_sleepDur_mood = compareGroups({
     id: "sleep_duration_mood", category: "sleep", emoji: "😊", title: "Sleep Duration & Morning Mood",
     highGroupLabel: "7h+ sleep nights", lowGroupLabel: "under 7h sleep nights",
-    highValues: sleepDurHighMood, lowValues: sleepDurLowMood,
+    series: sleepDurMood,
     findingTemplate: (h, l) => `After 7h+ sleep, your morning mood averages ${h} vs ${l} after shorter nights`,
   })
   if (ins_sleepDur_mood) insights.push(ins_sleepDur_mood)
 
   // 2. Sleep score → next-day energy & mood
-  const sleepScoreHighEnergy: number[] = []
-  const sleepScoreLowEnergy: number[] = []
-  const sleepScoreHighMood: number[] = []
-  const sleepScoreLowMood: number[] = []
+  const sleepScoreEnergy = new Split()
+  const sleepScoreMood = new Split()
   for (const d of days) {
     if (d.sleepScore == null) continue
     const isHigh = d.sleepScore >= 80
-    if (d.energy != null) { if (isHigh) sleepScoreHighEnergy.push(d.energy); else sleepScoreLowEnergy.push(d.energy) }
-    if (d.mood != null) { if (isHigh) sleepScoreHighMood.push(d.mood); else sleepScoreLowMood.push(d.mood) }
+    if (d.energy != null) { if (isHigh) sleepScoreEnergy.add(true, d.energy); else sleepScoreEnergy.add(false, d.energy) }
+    if (d.mood != null) { if (isHigh) sleepScoreMood.add(true, d.mood); else sleepScoreMood.add(false, d.mood) }
   }
   const ins_sleepScore_energy = compareGroups({
     id: "sleep_score_energy", category: "sleep", emoji: "⚡", title: "Sleep Score & Morning Energy",
     highGroupLabel: "80+ sleep score nights", lowGroupLabel: "below 80 sleep score nights",
-    highValues: sleepScoreHighEnergy, lowValues: sleepScoreLowEnergy,
+    series: sleepScoreEnergy,
     findingTemplate: (h, l) => `On high sleep score nights (80+), morning energy averages ${h} vs ${l}`,
   })
   if (ins_sleepScore_energy) insights.push(ins_sleepScore_energy)
   const ins_sleepScore_mood = compareGroups({
     id: "sleep_score_mood", category: "sleep", emoji: "🌟", title: "Sleep Score & Morning Mood",
     highGroupLabel: "80+ sleep score nights", lowGroupLabel: "below 80 sleep score nights",
-    highValues: sleepScoreHighMood, lowValues: sleepScoreLowMood,
+    series: sleepScoreMood,
     findingTemplate: (h, l) => `On high sleep score nights (80+), morning mood averages ${h} vs ${l}`,
   })
   if (ins_sleepScore_mood) insights.push(ins_sleepScore_mood)
 
   // 3. Stress → same-night sleep score & next-day mood
-  const stressHighSleep: number[] = []
-  const stressLowSleep: number[] = []
-  const stressHighMood: number[] = []
-  const stressLowMood: number[] = []
+  const stressSleep = new Split()
+  const stressMood = new Split()
   for (const d of days) {
     if (d.stressHighMin == null) continue
     const isHigh = d.stressHighMin >= cuts.stress.at
     const next = tonight(d)
-    if (next?.sleepScore != null) { if (isHigh) stressHighSleep.push(next.sleepScore); else stressLowSleep.push(next.sleepScore) }
-    if (next?.mood != null) { if (isHigh) stressHighMood.push(next.mood); else stressLowMood.push(next.mood) }
+    if (next?.sleepScore != null) { if (isHigh) stressSleep.add(true, next.sleepScore); else stressSleep.add(false, next.sleepScore) }
+    if (next?.mood != null) { if (isHigh) stressMood.add(true, next.mood); else stressMood.add(false, next.mood) }
   }
   const ins_stress_sleep = compareGroups({
     id: "stress_sleep", category: "stress", emoji: "😤", title: "High Stress & Sleep Quality",
     highGroupLabel: `${stressLabel} days`, lowGroupLabel: "low stress days",
-    highValues: stressHighSleep, lowValues: stressLowSleep, higherIsBetter: true,
+    series: stressSleep, higherIsBetter: true,
     findingTemplate: (h, l) => `On high-stress days (${stressMinLabel}), your sleep score averages ${h} vs ${l} on calmer days`,
   })
   if (ins_stress_sleep) insights.push(ins_stress_sleep)
   const ins_stress_mood = compareGroups({
     id: "stress_mood", category: "stress", emoji: "🧘", title: "High Stress & Next-Day Mood",
     highGroupLabel: `${stressLabel} days`, lowGroupLabel: "low stress days",
-    highValues: stressHighMood, lowValues: stressLowMood, higherIsBetter: true,
+    series: stressMood, higherIsBetter: true,
     findingTemplate: (h, l) => `After high-stress days (${stressMinLabel}), next-day mood averages ${h} vs ${l} after calm days`,
   })
   if (ins_stress_mood) insights.push(ins_stress_mood)
@@ -1053,45 +1135,42 @@ export async function computeCorrelations(
   const habitCounts = days.filter(d => d.habitCount != null).map(d => d.habitCount!)
   const habitMedian = habitCounts.length >= 3 ? median(habitCounts) : 3
   const habitThreshold = Math.max(3, habitMedian)
-  const habitHighMood: number[] = []
-  const habitLowMood: number[] = []
-  const habitHighEnergy: number[] = []
-  const habitLowEnergy: number[] = []
+  const habitMood = new Split()
+  const habitEnergy = new Split()
   for (const d of days) {
     if (d.habitCount == null) continue
     const isHigh = d.habitCount >= habitThreshold
-    if (d.mood != null) { if (isHigh) habitHighMood.push(d.mood); else habitLowMood.push(d.mood) }
-    if (d.energy != null) { if (isHigh) habitHighEnergy.push(d.energy); else habitLowEnergy.push(d.energy) }
+    if (d.mood != null) { if (isHigh) habitMood.add(true, d.mood); else habitMood.add(false, d.mood) }
+    if (d.energy != null) { if (isHigh) habitEnergy.add(true, d.energy); else habitEnergy.add(false, d.energy) }
   }
   const habitLabel = `${habitThreshold}+ habits completed`
   const ins_habit_mood = compareGroups({
     id: "habits_mood", category: "habits", emoji: "✅", title: "Habit Completion & Mood",
     highGroupLabel: habitLabel, lowGroupLabel: `fewer than ${habitThreshold} habits`,
-    highValues: habitHighMood, lowValues: habitLowMood,
+    series: habitMood,
     findingTemplate: (h, l) => `On days you complete ${habitThreshold}+ habits, mood averages ${h} vs ${l} on lower-completion days`,
   })
   if (ins_habit_mood) insights.push(ins_habit_mood)
   const ins_habit_energy = compareGroups({
     id: "habits_energy", category: "habits", emoji: "🎯", title: "Habit Completion & Energy",
     highGroupLabel: habitLabel, lowGroupLabel: `fewer than ${habitThreshold} habits`,
-    highValues: habitHighEnergy, lowValues: habitLowEnergy,
+    series: habitEnergy,
     findingTemplate: (h, l) => `On days you complete ${habitThreshold}+ habits, morning energy averages ${h} vs ${l}`,
   })
   if (ins_habit_energy) insights.push(ins_habit_energy)
 
   // 5. Caffeine → same-night sleep score
-  const caffeineHighSleep: number[] = []
-  const caffeineLowSleep: number[] = []
+  const caffeineSleep = new Split()
   for (const d of days) {
     const night = tonight(d)
     if (d.caffeineMg == null || night?.sleepScore == null) continue
-    if (d.caffeineMg >= cuts.caffeine.at) caffeineHighSleep.push(night.sleepScore)
-    else caffeineLowSleep.push(night.sleepScore)
+    if (d.caffeineMg >= cuts.caffeine.at) caffeineSleep.add(true, night.sleepScore)
+    else caffeineSleep.add(false, night.sleepScore)
   }
   const ins_caffeine_sleep = compareGroups({
     id: "caffeine_sleep", category: "caffeine", emoji: "☕", title: "Caffeine Intake & Sleep Quality",
     highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} caffeine days`,
-    highValues: caffeineHighSleep, lowValues: caffeineLowSleep,
+    series: caffeineSleep,
     findingTemplate: (h, l) =>
       h < l
         ? `High caffeine days (${cafLabel}) link to a sleep score of ${h} vs ${l} on lower-caffeine days`
@@ -1100,21 +1179,19 @@ export async function computeCorrelations(
   if (ins_caffeine_sleep) insights.push(ins_caffeine_sleep)
 
   // 6. Alcohol → next-day HRV and sleep
-  const alcoholHighHrv: number[] = []
-  const alcoholLowHrv: number[] = []
-  const alcoholHighSleepEff: number[] = []
-  const alcoholLowSleepEff: number[] = []
+  const alcoholHrv = new Split()
+  const alcoholSleepEff = new Split()
   for (const d of days) {
     const drank = (d.alcoholMl ?? 0) > 50
     const next = byDate[nextDateStr(d.date)]
     if (!next) continue
-    if (next.hrv != null) { if (drank) alcoholHighHrv.push(next.hrv); else alcoholLowHrv.push(next.hrv) }
-    if (next.sleepScore != null) { if (drank) alcoholHighSleepEff.push(next.sleepScore); else alcoholLowSleepEff.push(next.sleepScore) }
+    if (next.hrv != null) { if (drank) alcoholHrv.add(true, next.hrv); else alcoholHrv.add(false, next.hrv) }
+    if (next.sleepScore != null) { if (drank) alcoholSleepEff.add(true, next.sleepScore); else alcoholSleepEff.add(false, next.sleepScore) }
   }
   const ins_alcohol_hrv = compareGroups({
     id: "alcohol_hrv", category: "caffeine", emoji: "🍷", title: "Alcohol & Next-Day HRV",
     highGroupLabel: "drinking days (50ml+)", lowGroupLabel: "non-drinking days",
-    highValues: alcoholHighHrv, lowValues: alcoholLowHrv, higherIsBetter: false,
+    series: alcoholHrv, higherIsBetter: false,
     findingTemplate: (h, l) =>
       h < l
         ? `After drinking, your HRV drops to ${h}ms vs ${l}ms on sober nights`
@@ -1124,7 +1201,7 @@ export async function computeCorrelations(
   const ins_alcohol_sleep = compareGroups({
     id: "alcohol_sleep", category: "caffeine", emoji: "🍺", title: "Alcohol & Sleep Quality",
     highGroupLabel: "drinking days (50ml+)", lowGroupLabel: "non-drinking days",
-    highValues: alcoholHighSleepEff, lowValues: alcoholLowSleepEff, higherIsBetter: false,
+    series: alcoholSleepEff, higherIsBetter: false,
     findingTemplate: (h, l) =>
       h < l
         ? `After drinking, sleep score averages ${h} vs ${l} on sober nights`
@@ -1133,29 +1210,27 @@ export async function computeCorrelations(
   if (ins_alcohol_sleep) insights.push(ins_alcohol_sleep)
 
   // 6a/6b. Sleep duration & alcohol → next-day resting HR
-  const sleepRhrHigh: number[] = []
-  const sleepRhrLow: number[] = []
-  const alcoholRhrDrink: number[] = []
-  const alcoholRhrSober: number[] = []
+  const sleepRhr = new Split()
+  const alcoholRhrDrinkSplit = new Split()
   for (const d of days) {
     // Resting HR on record D was measured during the night record D
     // describes — the same night as its sleep duration, not the one after.
     if (d.sleepDuration != null && d.restingHR != null) {
-      if (d.sleepDuration >= 7) sleepRhrHigh.push(d.restingHR)
-      else sleepRhrLow.push(d.restingHR)
+      if (d.sleepDuration >= 7) sleepRhr.add(true, d.restingHR)
+      else sleepRhr.add(false, d.restingHR)
     }
     const next = tonight(d)
     if (!next || next.restingHR == null) continue
     if (d.alcoholMl != null || d.sleepDuration != null) {
       const drank = (d.alcoholMl ?? 0) > 50
-      if (drank) alcoholRhrDrink.push(next.restingHR)
-      else alcoholRhrSober.push(next.restingHR)
+      if (drank) alcoholRhrDrinkSplit.add(true, next.restingHR)
+      else alcoholRhrDrinkSplit.add(false, next.restingHR)
     }
   }
   const ins_sleep_rhr = compareGroups({
     id: "sleep_resting_hr", category: "recovery", emoji: "❤️", title: "Sleep Duration & Resting Heart Rate",
     highGroupLabel: "after 7h+ sleep", lowGroupLabel: "after under 7h",
-    highValues: sleepRhrHigh, lowValues: sleepRhrLow, higherIsBetter: false,
+    series: sleepRhr, higherIsBetter: false,
     findingTemplate: (h, l) =>
       h < l
         ? `After 7h+ sleep, your resting HR averages ${h} bpm vs ${l} bpm on shorter nights`
@@ -1165,7 +1240,7 @@ export async function computeCorrelations(
   const ins_alcohol_rhr = compareGroups({
     id: "alcohol_resting_hr", category: "recovery", emoji: "🍷", title: "Alcohol & Resting Heart Rate",
     highGroupLabel: "drinking days (50ml+)", lowGroupLabel: "non-drinking days",
-    highValues: alcoholRhrDrink, lowValues: alcoholRhrSober, higherIsBetter: false,
+    series: alcoholRhrDrinkSplit, higherIsBetter: false,
     findingTemplate: (h, l) =>
       h > l
         ? `After drinking, your resting HR rises to ${h} bpm vs ${l} bpm on sober nights`
@@ -1175,21 +1250,19 @@ export async function computeCorrelations(
 
   // 6c. Activity (steps) → that-night sleep & next-day readiness
   const STEP_HIGH = 8000
-  const activeSleepHigh: number[] = []
-  const activeSleepLow: number[] = []
-  const activeReadinessHigh: number[] = []
-  const activeReadinessLow: number[] = []
+  const activeSleep = new Split()
+  const activeReadiness = new Split()
   for (const d of days) {
     if (d.steps == null) continue
     const isActive = d.steps >= STEP_HIGH
     const next = tonight(d)
-    if (next?.sleepScore != null) { if (isActive) activeSleepHigh.push(next.sleepScore); else activeSleepLow.push(next.sleepScore) }
-    if (next?.readiness != null) { if (isActive) activeReadinessHigh.push(next.readiness); else activeReadinessLow.push(next.readiness) }
+    if (next?.sleepScore != null) { if (isActive) activeSleep.add(true, next.sleepScore); else activeSleep.add(false, next.sleepScore) }
+    if (next?.readiness != null) { if (isActive) activeReadiness.add(true, next.readiness); else activeReadiness.add(false, next.readiness) }
   }
   const ins_active_sleep = compareGroups({
     id: "activity_sleep", category: "recovery", emoji: "🚶", title: "Activity Load & Sleep Quality",
     highGroupLabel: "active days (8k+ steps)", lowGroupLabel: "lower-activity days",
-    highValues: activeSleepHigh, lowValues: activeSleepLow, higherIsBetter: true,
+    series: activeSleep, higherIsBetter: true,
     findingTemplate: (h, l) =>
       h > l
         ? `On active days (8k+ steps), your sleep score averages ${h} vs ${l} on quieter days`
@@ -1199,7 +1272,7 @@ export async function computeCorrelations(
   const ins_active_readiness = compareGroups({
     id: "activity_readiness", category: "recovery", emoji: "🔋", title: "Activity Load & Next-Day Readiness",
     highGroupLabel: "active days (8k+ steps)", lowGroupLabel: "lower-activity days",
-    highValues: activeReadinessHigh, lowValues: activeReadinessLow, higherIsBetter: true,
+    series: activeReadiness, higherIsBetter: true,
     findingTemplate: (h, l) =>
       h >= l
         ? `After active days (8k+ steps), next-day readiness averages ${h} vs ${l}`
@@ -1208,17 +1281,16 @@ export async function computeCorrelations(
   if (ins_active_readiness) insights.push(ins_active_readiness)
 
   // 6d. High stress → same-day HRV
-  const stressHrvHigh: number[] = []
-  const stressHrvLow: number[] = []
+  const stressHrv = new Split()
   for (const d of days) {
     if (d.stressHighMin == null || d.hrv == null) continue
-    if (d.stressHighMin >= cuts.stress.at) stressHrvHigh.push(d.hrv)
-    else stressHrvLow.push(d.hrv)
+    if (d.stressHighMin >= cuts.stress.at) stressHrv.add(true, d.hrv)
+    else stressHrv.add(false, d.hrv)
   }
   const ins_stress_hrv = compareGroups({
     id: "stress_hrv", category: "recovery", emoji: "💓", title: "High Stress & HRV",
     highGroupLabel: stressLabel, lowGroupLabel: "calmer days",
-    highValues: stressHrvHigh, lowValues: stressHrvLow, higherIsBetter: true,
+    series: stressHrv, higherIsBetter: true,
     findingTemplate: (h, l) =>
       h < l
         ? `On high-stress days, your HRV averages ${h}ms vs ${l}ms on calmer days`
@@ -1227,19 +1299,18 @@ export async function computeCorrelations(
   if (ins_stress_hrv) insights.push(ins_stress_hrv)
 
   // 6e. Caffeine → next-day readiness
-  const caffeineReadinessHigh: number[] = []
-  const caffeineReadinessLow: number[] = []
+  const caffeineReadiness = new Split()
   for (const d of days) {
     if (d.caffeineMg == null) continue
     const next = byDate[nextDateStr(d.date)]
     if (next?.readiness == null) continue
-    if (d.caffeineMg >= cuts.caffeine.at) caffeineReadinessHigh.push(next.readiness)
-    else caffeineReadinessLow.push(next.readiness)
+    if (d.caffeineMg >= cuts.caffeine.at) caffeineReadiness.add(true, next.readiness)
+    else caffeineReadiness.add(false, next.readiness)
   }
   const ins_caffeine_readiness = compareGroups({
     id: "caffeine_readiness", category: "recovery", emoji: "☕", title: "Caffeine & Next-Day Readiness",
     highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} days`,
-    highValues: caffeineReadinessHigh, lowValues: caffeineReadinessLow, higherIsBetter: true,
+    series: caffeineReadiness, higherIsBetter: true,
     findingTemplate: (h, l) =>
       h < l
         ? `After ${cafLabel} caffeine, next-day readiness averages ${h} vs ${l} on lower-caffeine days`
@@ -1254,27 +1325,25 @@ export async function computeCorrelations(
   }
   const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([tag]) => tag)
   for (const tag of topTags) {
-    const tagMoodHigh: number[] = []
-    const tagMoodLow: number[] = []
-    const tagEnergyHigh: number[] = []
-    const tagEnergyLow: number[] = []
+    const tagMood = new Split()
+    const tagEnergy = new Split()
     for (const d of days) {
       const hasTag = (d.tags ?? []).includes(tag)
-      if (d.mood != null) { if (hasTag) tagMoodHigh.push(d.mood); else tagMoodLow.push(d.mood) }
-      if (d.energy != null) { if (hasTag) tagEnergyHigh.push(d.energy); else tagEnergyLow.push(d.energy) }
+      if (d.mood != null) { if (hasTag) tagMood.add(true, d.mood); else tagMood.add(false, d.mood) }
+      if (d.energy != null) { if (hasTag) tagEnergy.add(true, d.energy); else tagEnergy.add(false, d.energy) }
     }
     const safeTag = tag.toLowerCase().replace(/[^a-z0-9]/g, "_")
     const ins_tag_mood = compareGroups({
       id: `tag_${safeTag}_mood`, category: "tags", emoji: "🏷️", title: `"${tag}" Days & Mood`,
       highGroupLabel: `${tag} days`, lowGroupLabel: `non-${tag} days`,
-      highValues: tagMoodHigh, lowValues: tagMoodLow,
+      series: tagMood,
       findingTemplate: (h, l) => `On "${tag}" days, mood averages ${h} vs ${l} on other days`,
     })
     if (ins_tag_mood) insights.push(ins_tag_mood)
     const ins_tag_energy = compareGroups({
       id: `tag_${safeTag}_energy`, category: "tags", emoji: "⚡", title: `"${tag}" Days & Energy`,
       highGroupLabel: `${tag} days`, lowGroupLabel: `non-${tag} days`,
-      highValues: tagEnergyHigh, lowValues: tagEnergyLow,
+      series: tagEnergy,
       findingTemplate: (h, l) => `On "${tag}" days, morning energy averages ${h} vs ${l} on other days`,
     })
     if (ins_tag_energy) insights.push(ins_tag_energy)
@@ -1283,21 +1352,19 @@ export async function computeCorrelations(
   // 8. Weather
   const daysWithWeather = days.filter(d => d.precipMm != null || d.tempMaxC != null)
   if (daysWithWeather.length >= 10) {
-    const rainSleep: number[] = []
-    const noRainSleep: number[] = []
-    const rainMood: number[] = []
-    const noRainMood: number[] = []
+    const rainSleepSplit = new Split()
+    const rainMoodSplit = new Split()
     for (const d of daysWithWeather) {
       if (d.precipMm == null) continue
       const isRainy = d.precipMm > 1
       const next = tonight(d)
-      if (next?.sleepScore != null) { if (isRainy) rainSleep.push(next.sleepScore); else noRainSleep.push(next.sleepScore) }
-      if (next?.mood != null) { if (isRainy) rainMood.push(next.mood); else noRainMood.push(next.mood) }
+      if (next?.sleepScore != null) { if (isRainy) rainSleepSplit.add(true, next.sleepScore); else rainSleepSplit.add(false, next.sleepScore) }
+      if (next?.mood != null) { if (isRainy) rainMoodSplit.add(true, next.mood); else rainMoodSplit.add(false, next.mood) }
     }
     const ins_rain_sleep = compareGroups({
       id: "rain_sleep", category: "tags", emoji: "🌧️", title: "Rainy Days & Sleep Quality",
       highGroupLabel: "rainy days", lowGroupLabel: "dry days",
-      highValues: rainSleep, lowValues: noRainSleep, higherIsBetter: true,
+      series: rainSleepSplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h > l
           ? `You sleep better on rainy nights — sleep score ${h} vs ${l} on dry nights`
@@ -1307,24 +1374,23 @@ export async function computeCorrelations(
     const ins_rain_mood = compareGroups({
       id: "rain_mood", category: "tags", emoji: "⛅", title: "Weather & Morning Mood",
       highGroupLabel: "rainy days", lowGroupLabel: "dry days",
-      highValues: rainMood, lowValues: noRainMood, higherIsBetter: false,
+      series: rainMoodSplit, higherIsBetter: false,
       findingTemplate: (h, l) =>
         h < l
           ? `After rainy days, morning mood averages ${h} vs ${l} after dry days`
           : `Rain doesn't dampen your mood — ${h} vs ${l} on dry days`,
     })
     if (ins_rain_mood) insights.push(ins_rain_mood)
-    const hotSteps: number[] = []
-    const coolSteps: number[] = []
+    const hotStepsSplit = new Split()
     for (const d of daysWithWeather) {
       if (d.tempMaxC == null || d.steps == null) continue
-      if (d.tempMaxC >= cuts.heat.at) hotSteps.push(d.steps)
-      else coolSteps.push(d.steps)
+      if (d.tempMaxC >= cuts.heat.at) hotStepsSplit.add(true, d.steps)
+      else hotStepsSplit.add(false, d.steps)
     }
     const ins_heat_steps = compareGroups({
       id: "heat_steps", category: "tags", emoji: "🌡️", title: "Hot Days & Step Count",
       highGroupLabel: `hot days (${heatLabel})`, lowGroupLabel: "cooler days",
-      highValues: hotSteps, lowValues: coolSteps, higherIsBetter: true,
+      series: hotStepsSplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h > l
           ? `You walk more on hot days — ${Math.round(h).toLocaleString()} steps vs ${Math.round(l).toLocaleString()} on cooler days`
@@ -1338,27 +1404,23 @@ export async function computeCorrelations(
   if (screenVals.length >= 10) {
     const screenMedian = median(screenVals)
     const fmtH = (min: number) => (min >= 60 ? `${(min / 60).toFixed(1)}h` : `${Math.round(min)}m`)
-    const screenSleepHigh: number[] = []
-    const screenSleepLow: number[] = []
-    const screenEnergyHigh: number[] = []
-    const screenEnergyLow: number[] = []
-    const screenMoodHigh: number[] = []
-    const screenMoodLow: number[] = []
-    const screenReadinessHigh: number[] = []
-    const screenReadinessLow: number[] = []
+    const screenSleep = new Split()
+    const screenEnergy = new Split()
+    const screenMood = new Split()
+    const screenReadiness = new Split()
     for (const d of days) {
       if (d.screenTimeMin == null) continue
       const isHigh = d.screenTimeMin >= screenMedian
       const next = tonight(d)
-      if (next?.sleepScore != null) { if (isHigh) screenSleepHigh.push(next.sleepScore); else screenSleepLow.push(next.sleepScore) }
-      if (next?.energy != null) { if (isHigh) screenEnergyHigh.push(next.energy); else screenEnergyLow.push(next.energy) }
-      if (next?.mood != null) { if (isHigh) screenMoodHigh.push(next.mood); else screenMoodLow.push(next.mood) }
-      if (next?.readiness != null) { if (isHigh) screenReadinessHigh.push(next.readiness); else screenReadinessLow.push(next.readiness) }
+      if (next?.sleepScore != null) { if (isHigh) screenSleep.add(true, next.sleepScore); else screenSleep.add(false, next.sleepScore) }
+      if (next?.energy != null) { if (isHigh) screenEnergy.add(true, next.energy); else screenEnergy.add(false, next.energy) }
+      if (next?.mood != null) { if (isHigh) screenMood.add(true, next.mood); else screenMood.add(false, next.mood) }
+      if (next?.readiness != null) { if (isHigh) screenReadiness.add(true, next.readiness); else screenReadiness.add(false, next.readiness) }
     }
     const ins_screen_sleep = compareGroups({
       id: "screen_sleep", category: "screen", emoji: "📱", title: "Screen Time & Sleep Quality",
       highGroupLabel: `high screen days (${fmtH(screenMedian)}+)`, lowGroupLabel: "lower screen days",
-      highValues: screenSleepHigh, lowValues: screenSleepLow, higherIsBetter: true,
+      series: screenSleep, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h < l
           ? `On high screen-time days (${fmtH(screenMedian)}+), your sleep score averages ${h} vs ${l} on lighter days`
@@ -1368,7 +1430,7 @@ export async function computeCorrelations(
     const ins_screen_energy = compareGroups({
       id: "screen_energy", category: "screen", emoji: "🔌", title: "Screen Time & Next-Day Energy",
       highGroupLabel: `high screen days (${fmtH(screenMedian)}+)`, lowGroupLabel: "lower screen days",
-      highValues: screenEnergyHigh, lowValues: screenEnergyLow, higherIsBetter: true,
+      series: screenEnergy, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h < l
           ? `After high screen-time days, next-day energy averages ${h} vs ${l} after lighter days`
@@ -1378,7 +1440,7 @@ export async function computeCorrelations(
     const ins_screen_mood = compareGroups({
       id: "screen_mood", category: "screen", emoji: "🙂", title: "Screen Time & Next-Day Mood",
       highGroupLabel: `high screen days (${fmtH(screenMedian)}+)`, lowGroupLabel: "lower screen days",
-      highValues: screenMoodHigh, lowValues: screenMoodLow, higherIsBetter: true,
+      series: screenMood, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h < l
           ? `After high screen-time days, next-day mood averages ${h} vs ${l} after lighter days`
@@ -1388,7 +1450,7 @@ export async function computeCorrelations(
     const ins_screen_readiness = compareGroups({
       id: "screen_readiness", category: "screen", emoji: "🔋", title: "Screen Time & Next-Day Readiness",
       highGroupLabel: `high screen days (${fmtH(screenMedian)}+)`, lowGroupLabel: "lower screen days",
-      highValues: screenReadinessHigh, lowValues: screenReadinessLow, higherIsBetter: true,
+      series: screenReadiness, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h < l
           ? `After high screen-time days, next-day readiness averages ${h} vs ${l}`
@@ -1402,20 +1464,18 @@ export async function computeCorrelations(
   if (wakeVals.length >= 10) {
     const wakeMedian = median(wakeVals)
     const fmtClock = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(Math.round(min % 60)).padStart(2, "0")}`
-    const earlyEnergy: number[] = []
-    const lateEnergy: number[] = []
-    const earlyMood: number[] = []
-    const lateMood: number[] = []
+    const earlyEnergySplit = new Split()
+    const earlyMoodSplit = new Split()
     for (const d of days) {
       if (d.firstUnlockMin == null) continue
       const isEarly = d.firstUnlockMin < wakeMedian
-      if (d.energy != null) { if (isEarly) earlyEnergy.push(d.energy); else lateEnergy.push(d.energy) }
-      if (d.mood != null) { if (isEarly) earlyMood.push(d.mood); else lateMood.push(d.mood) }
+      if (d.energy != null) { if (isEarly) earlyEnergySplit.add(true, d.energy); else earlyEnergySplit.add(false, d.energy) }
+      if (d.mood != null) { if (isEarly) earlyMoodSplit.add(true, d.mood); else earlyMoodSplit.add(false, d.mood) }
     }
     const ins_wake_energy = compareGroups({
       id: "wake_energy", category: "screen", emoji: "🌅", title: "Wake Time & Morning Energy",
       highGroupLabel: `early starts (before ${fmtClock(wakeMedian)})`, lowGroupLabel: "later starts",
-      highValues: earlyEnergy, lowValues: lateEnergy, higherIsBetter: true,
+      series: earlyEnergySplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h > l
           ? `On days you reach for your phone before ${fmtClock(wakeMedian)}, morning energy averages ${h} vs ${l} on later starts`
@@ -1425,7 +1485,7 @@ export async function computeCorrelations(
     const ins_wake_mood = compareGroups({
       id: "wake_mood", category: "screen", emoji: "☀️", title: "Wake Time & Morning Mood",
       highGroupLabel: `early starts (before ${fmtClock(wakeMedian)})`, lowGroupLabel: "later starts",
-      highValues: earlyMood, lowValues: lateMood, higherIsBetter: true,
+      series: earlyMoodSplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h > l
           ? `On earlier starts (before ${fmtClock(wakeMedian)}), morning mood averages ${h} vs ${l} on later starts`
@@ -1438,22 +1498,22 @@ export async function computeCorrelations(
   const loadVals = days.filter(d => d.eventCount != null).map(d => d.eventCount!)
   if (loadVals.length >= 10) {
     const loadMedian = Math.max(1, median(loadVals))
-    const busySleep: number[] = [], quietSleep: number[] = []
-    const busyEnergy: number[] = [], quietEnergy: number[] = []
-    const busyMood: number[] = [], quietMood: number[] = []
+    const busySleepSplit = new Split()
+    const busyEnergySplit = new Split()
+    const busyMoodSplit = new Split()
     for (const d of days) {
       if (d.eventCount == null && !calendarCovers(d.date)) continue // unknown, not quiet
       const load = d.eventCount ?? 0
       const isBusy = load >= loadMedian && load > 0
       const next = tonight(d)
-      if (next?.sleepScore != null) { if (isBusy) busySleep.push(next.sleepScore); else quietSleep.push(next.sleepScore) }
-      if (next?.energy != null) { if (isBusy) busyEnergy.push(next.energy); else quietEnergy.push(next.energy) }
-      if (next?.mood != null) { if (isBusy) busyMood.push(next.mood); else quietMood.push(next.mood) }
+      if (next?.sleepScore != null) { if (isBusy) busySleepSplit.add(true, next.sleepScore); else busySleepSplit.add(false, next.sleepScore) }
+      if (next?.energy != null) { if (isBusy) busyEnergySplit.add(true, next.energy); else busyEnergySplit.add(false, next.energy) }
+      if (next?.mood != null) { if (isBusy) busyMoodSplit.add(true, next.mood); else busyMoodSplit.add(false, next.mood) }
     }
     const ins_load_sleep = compareGroups({
       id: "calendar_load_sleep", category: "calendar", emoji: "🗓️", title: "Busy Days & Sleep",
       highGroupLabel: `busy days (${loadMedian}+ events)`, lowGroupLabel: "quieter days",
-      highValues: busySleep, lowValues: quietSleep, higherIsBetter: true,
+      series: busySleepSplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h < l
           ? `On busier days (${loadMedian}+ events), your sleep score averages ${h} vs ${l} on quieter days`
@@ -1463,7 +1523,7 @@ export async function computeCorrelations(
     const ins_load_energy = compareGroups({
       id: "calendar_load_energy", category: "calendar", emoji: "🗓️", title: "Busy Days & Next-Day Energy",
       highGroupLabel: `busy days (${loadMedian}+ events)`, lowGroupLabel: "quieter days",
-      highValues: busyEnergy, lowValues: quietEnergy, higherIsBetter: true,
+      series: busyEnergySplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h < l
           ? `After busy days, next-day energy averages ${h} vs ${l} after quieter ones`
@@ -1473,7 +1533,7 @@ export async function computeCorrelations(
     const ins_load_mood = compareGroups({
       id: "calendar_load_mood", category: "calendar", emoji: "🗓️", title: "Busy Days & Next-Day Mood",
       highGroupLabel: `busy days (${loadMedian}+ events)`, lowGroupLabel: "quieter days",
-      highValues: busyMood, lowValues: quietMood, higherIsBetter: true,
+      series: busyMoodSplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h < l
           ? `After busy days, next-day mood averages ${h} vs ${l} after quieter ones`
@@ -1498,18 +1558,18 @@ export async function computeCorrelations(
     .slice(0, 6)
     .map(([t]) => t)
   for (const title of frequentTitles) {
-    const withSteps: number[] = [], withoutSteps: number[] = []
-    const withEnergy: number[] = [], withoutEnergy: number[] = []
+    const withStepsSplit = new Split()
+    const withEnergySplit = new Split()
     for (const d of days) {
       const has = (d.eventTitles ?? []).some(t => t === title)
-      if (d.steps != null) { if (has) withSteps.push(d.steps); else withoutSteps.push(d.steps) }
+      if (d.steps != null) { if (has) withStepsSplit.add(true, d.steps); else withStepsSplit.add(false, d.steps) }
       const next = byDate[nextDateStr(d.date)]
-      if (next?.energy != null) { if (has) withEnergy.push(next.energy); else withoutEnergy.push(next.energy) }
+      if (next?.energy != null) { if (has) withEnergySplit.add(true, next.energy); else withEnergySplit.add(false, next.energy) }
     }
     const ins_act_steps = compareGroups({
       id: `calendar_${slug(title)}_steps`, category: "calendar", emoji: "📅", title: `"${title}" days & Steps`,
       highGroupLabel: `"${title}" days`, lowGroupLabel: "other days",
-      highValues: withSteps, lowValues: withoutSteps, higherIsBetter: true,
+      series: withStepsSplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h > l
           ? `On "${title}" days you average ${Math.round(h).toLocaleString()} steps vs ${Math.round(l).toLocaleString()} on other days`
@@ -1519,7 +1579,7 @@ export async function computeCorrelations(
     const ins_act_energy = compareGroups({
       id: `calendar_${slug(title)}_energy`, category: "calendar", emoji: "📅", title: `"${title}" days & Next-Day Energy`,
       highGroupLabel: `"${title}" days`, lowGroupLabel: "other days",
-      highValues: withEnergy, lowValues: withoutEnergy, higherIsBetter: true,
+      series: withEnergySplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h > l
           ? `The day after "${title}", energy averages ${h} vs ${l} otherwise`
@@ -1533,18 +1593,18 @@ export async function computeCorrelations(
   if (foodDays.length >= 10) {
     // 13a. Late eating → that night's sleep
     const LATE_MEAL_MIN = 20 * 60
-    const lateSleep: number[] = [], earlySleep: number[] = []
+    const lateSleepSplit = new Split()
     for (const d of foodDays) {
       if (d.lastMealMin == null) continue
       const night = byDate[nextDateStr(d.date)]
       if (night?.sleepScore == null) continue
-      if (d.lastMealMin >= LATE_MEAL_MIN) lateSleep.push(night.sleepScore)
-      else earlySleep.push(night.sleepScore)
+      if (d.lastMealMin >= LATE_MEAL_MIN) lateSleepSplit.add(true, night.sleepScore)
+      else lateSleepSplit.add(false, night.sleepScore)
     }
     const ins_late_meal = compareGroups({
       id: "food_late_meal_sleep", category: "food", emoji: "🌙", title: "Late Meals & Sleep Quality",
       highGroupLabel: "last meal after 20:00", lowGroupLabel: "earlier dinners",
-      highValues: lateSleep, lowValues: earlySleep, higherIsBetter: true,
+      series: lateSleepSplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h < l
           ? `When your last meal is after 20:00, that night's sleep score averages ${h} vs ${l} after earlier dinners`
@@ -1556,18 +1616,18 @@ export async function computeCorrelations(
     const proteinVals = foodDays.filter(d => d.proteinG != null).map(d => d.proteinG!)
     if (proteinVals.length >= 10) {
       const proteinMedian = median(proteinVals)
-      const highProtEnergy: number[] = [], lowProtEnergy: number[] = []
+      const highProtEnergySplit = new Split()
       for (const d of foodDays) {
         if (d.proteinG == null) continue
         const next = byDate[nextDateStr(d.date)]
         if (next?.energy == null) continue
-        if (d.proteinG >= proteinMedian) highProtEnergy.push(next.energy)
-        else lowProtEnergy.push(next.energy)
+        if (d.proteinG >= proteinMedian) highProtEnergySplit.add(true, next.energy)
+        else highProtEnergySplit.add(false, next.energy)
       }
       const ins_protein_energy = compareGroups({
         id: "food_protein_energy", category: "food", emoji: "🥩", title: "Protein & Next-Day Energy",
         highGroupLabel: `${Math.round(proteinMedian)}g+ protein days`, lowGroupLabel: "lower-protein days",
-        highValues: highProtEnergy, lowValues: lowProtEnergy,
+        series: highProtEnergySplit,
         findingTemplate: (h, l) =>
           h > l
             ? `After higher-protein days (${Math.round(proteinMedian)}g+), morning energy averages ${h} vs ${l}`
@@ -1578,17 +1638,17 @@ export async function computeCorrelations(
 
     // 13c. Calories → that night's sleep
     const calMedian = median(foodDays.map(d => d.calories!))
-    const highCalSleep: number[] = [], lowCalSleep: number[] = []
+    const highCalSleepSplit = new Split()
     for (const d of foodDays) {
       const night = byDate[nextDateStr(d.date)]
       if (night?.sleepScore == null) continue
-      if (d.calories! >= calMedian) highCalSleep.push(night.sleepScore)
-      else lowCalSleep.push(night.sleepScore)
+      if (d.calories! >= calMedian) highCalSleepSplit.add(true, night.sleepScore)
+      else highCalSleepSplit.add(false, night.sleepScore)
     }
     const ins_cal_sleep = compareGroups({
       id: "food_calories_sleep", category: "food", emoji: "🔥", title: "Calorie Load & Sleep Quality",
       highGroupLabel: `${Math.round(calMedian)}+ kcal days`, lowGroupLabel: "lighter days",
-      highValues: highCalSleep, lowValues: lowCalSleep, higherIsBetter: true,
+      series: highCalSleepSplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h < l
           ? `After heavier days (${Math.round(calMedian)}+ kcal), sleep score averages ${h} vs ${l} after lighter days`
@@ -1600,20 +1660,20 @@ export async function computeCorrelations(
     const sugarVals = foodDays.filter(d => d.sugarG != null).map(d => d.sugarG!)
     if (sugarVals.length >= 10) {
       const sugarMedian = median(sugarVals)
-      const highSugarEnergy: number[] = [], lowSugarEnergy: number[] = []
-      const highSugarMood: number[] = [], lowSugarMood: number[] = []
+      const highSugarEnergySplit = new Split()
+      const highSugarMoodSplit = new Split()
       for (const d of foodDays) {
         if (d.sugarG == null) continue
         const next = byDate[nextDateStr(d.date)]
         if (!next) continue
         const isHigh = d.sugarG >= sugarMedian
-        if (next.energy != null) { if (isHigh) highSugarEnergy.push(next.energy); else lowSugarEnergy.push(next.energy) }
-        if (next.mood != null) { if (isHigh) highSugarMood.push(next.mood); else lowSugarMood.push(next.mood) }
+        if (next.energy != null) { if (isHigh) highSugarEnergySplit.add(true, next.energy); else highSugarEnergySplit.add(false, next.energy) }
+        if (next.mood != null) { if (isHigh) highSugarMoodSplit.add(true, next.mood); else highSugarMoodSplit.add(false, next.mood) }
       }
       const ins_sugar_energy = compareGroups({
         id: "food_sugar_energy", category: "food", emoji: "🍬", title: "Sugar & Next-Day Energy",
         highGroupLabel: `${Math.round(sugarMedian)}g+ sugar days`, lowGroupLabel: "lower-sugar days",
-        highValues: highSugarEnergy, lowValues: lowSugarEnergy,
+        series: highSugarEnergySplit,
         findingTemplate: (h, l) =>
           h < l
             ? `After higher-sugar days (${Math.round(sugarMedian)}g+), morning energy averages ${h} vs ${l}`
@@ -1623,7 +1683,7 @@ export async function computeCorrelations(
       const ins_sugar_mood = compareGroups({
         id: "food_sugar_mood", category: "food", emoji: "🍭", title: "Sugar & Next-Day Mood",
         highGroupLabel: `${Math.round(sugarMedian)}g+ sugar days`, lowGroupLabel: "lower-sugar days",
-        highValues: highSugarMood, lowValues: lowSugarMood,
+        series: highSugarMoodSplit,
         findingTemplate: (h, l) =>
           h < l
             ? `After higher-sugar days (${Math.round(sugarMedian)}g+), morning mood averages ${h} vs ${l}`
@@ -1635,20 +1695,20 @@ export async function computeCorrelations(
 
   // 14. Hydration → next-day energy & readiness (the app has always tracked
   // water; this is the first time it checks whether it matters)
-  const hydratedEnergy: number[] = [], dryEnergy: number[] = []
-  const hydratedReadiness: number[] = [], dryReadiness: number[] = []
+  const hydratedEnergySplit = new Split()
+  const hydratedReadinessSplit = new Split()
   for (const d of days) {
     if (d.waterMl == null) continue
     const next = byDate[nextDateStr(d.date)]
     if (!next) continue
     const hydrated = d.waterMl >= cuts.water.at
-    if (next.energy != null) { if (hydrated) hydratedEnergy.push(next.energy); else dryEnergy.push(next.energy) }
-    if (next.readiness != null) { if (hydrated) hydratedReadiness.push(next.readiness); else dryReadiness.push(next.readiness) }
+    if (next.energy != null) { if (hydrated) hydratedEnergySplit.add(true, next.energy); else hydratedEnergySplit.add(false, next.energy) }
+    if (next.readiness != null) { if (hydrated) hydratedReadinessSplit.add(true, next.readiness); else hydratedReadinessSplit.add(false, next.readiness) }
   }
   const ins_water_energy = compareGroups({
     id: "water_energy", category: "food", emoji: "💧", title: "Hydration & Next-Day Energy",
     highGroupLabel: `${waterLabel}+ water days`, lowGroupLabel: `under ${waterLabel} days`,
-    highValues: hydratedEnergy, lowValues: dryEnergy,
+    series: hydratedEnergySplit,
     findingTemplate: (h, l) =>
       h > l
         ? `After ${waterLabel}+ water days, morning energy averages ${h} vs ${l} after drier days`
@@ -1658,7 +1718,7 @@ export async function computeCorrelations(
   const ins_water_readiness = compareGroups({
     id: "water_readiness", category: "food", emoji: "🚰", title: "Hydration & Next-Day Readiness",
     highGroupLabel: `${waterLabel}+ water days`, lowGroupLabel: `under ${waterLabel} days`,
-    highValues: hydratedReadiness, lowValues: dryReadiness,
+    series: hydratedReadinessSplit,
     findingTemplate: (h, l) =>
       h > l
         ? `After ${waterLabel}+ water days, next-day readiness averages ${h} vs ${l}`
@@ -1732,24 +1792,24 @@ export async function computeCorrelations(
       onBoard = i => (days[i].supplements ?? []).includes(supp)
     }
 
-    const withSleep: number[] = [], withoutSleep: number[] = []
-    const withHrv: number[] = [], withoutHrv: number[] = []
-    const withDeep: number[] = [], withoutDeep: number[] = []
-    const withRem: number[] = [], withoutRem: number[] = []
+    const withSleepSplit = new Split()
+    const withHrvSplit = new Split()
+    const withDeepSplit = new Split()
+    const withRemSplit = new Split()
     for (let i = 0; i < days.length; i++) {
       const d = days[i]
       const took = onBoard(i)
       const next = byDate[nextDateStr(d.date)]
       if (!next) continue
-      if (next.sleepScore != null) { if (took) withSleep.push(next.sleepScore); else withoutSleep.push(next.sleepScore) }
-      if (next.hrv != null) { if (took) withHrv.push(next.hrv); else withoutHrv.push(next.hrv) }
-      if (next.deepSleepMin != null) { if (took) withDeep.push(next.deepSleepMin); else withoutDeep.push(next.deepSleepMin) }
-      if (next.remSleepMin != null) { if (took) withRem.push(next.remSleepMin); else withoutRem.push(next.remSleepMin) }
+      if (next.sleepScore != null) { if (took) withSleepSplit.add(true, next.sleepScore); else withSleepSplit.add(false, next.sleepScore) }
+      if (next.hrv != null) { if (took) withHrvSplit.add(true, next.hrv); else withHrvSplit.add(false, next.hrv) }
+      if (next.deepSleepMin != null) { if (took) withDeepSplit.add(true, next.deepSleepMin); else withDeepSplit.add(false, next.deepSleepMin) }
+      if (next.remSleepMin != null) { if (took) withRemSplit.add(true, next.remSleepMin); else withRemSplit.add(false, next.remSleepMin) }
     }
     const ins_supp_sleep = compareGroups({
       id: `supplement_${suppSlug(supp)}_sleep`, category: "supplements", emoji: "💊", title: `${supp} & Sleep Quality`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
-      highValues: withSleep, lowValues: withoutSleep,
+      series: withSleepSplit,
       findingTemplate: (h, l) =>
         h > l
           ? `${levelBased ? `While ${supp} was still circulating` : `On nights after taking ${supp}`}, sleep score averages ${h} vs ${l} ${levelBased ? "once it cleared" : "without it"}`
@@ -1759,7 +1819,7 @@ export async function computeCorrelations(
     const ins_supp_hrv = compareGroups({
       id: `supplement_${suppSlug(supp)}_hrv`, category: "supplements", emoji: "💓", title: `${supp} & HRV`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
-      highValues: withHrv, lowValues: withoutHrv,
+      series: withHrvSplit,
       findingTemplate: (h, l) =>
         h > l
           ? `Mornings after ${supp}, HRV averages ${h}ms vs ${l}ms without it`
@@ -1774,7 +1834,7 @@ export async function computeCorrelations(
     const ins_supp_deep = compareGroups({
       id: `supplement_${suppSlug(supp)}_deep`, category: "supplements", emoji: "🌊", title: `${supp} & Deep Sleep`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
-      highValues: withDeep, lowValues: withoutDeep,
+      series: withDeepSplit,
       findingTemplate: (h, l) =>
         h > l
           ? `Nights after ${supp}, deep sleep averages ${Math.round(h)}min vs ${Math.round(l)}min without it`
@@ -1784,7 +1844,7 @@ export async function computeCorrelations(
     const ins_supp_rem = compareGroups({
       id: `supplement_${suppSlug(supp)}_rem`, category: "supplements", emoji: "🌀", title: `${supp} & REM Sleep`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
-      highValues: withRem, lowValues: withoutRem,
+      series: withRemSplit,
       findingTemplate: (h, l) =>
         h > l
           ? `Nights after ${supp}, REM averages ${Math.round(h)}min vs ${Math.round(l)}min without it`
@@ -1807,21 +1867,21 @@ export async function computeCorrelations(
   ]
   for (const supp of topSupps.slice(0, 3)) {
     for (const mod of MODIFIERS) {
-      const bothSleep: number[] = [], soloSleep: number[] = []
-      const bothDeep: number[] = [], soloDeep: number[] = []
+      const bothSleepSplit = new Split()
+      const bothDeepSplit = new Split()
       for (const d of days) {
         if (!(d.supplements ?? []).includes(supp)) continue // only that substance's days
         const next = byDate[nextDateStr(d.date)]
         if (!next) continue
         const alsoHad = mod.test(d)
-        if (next.sleepScore != null) { (alsoHad ? bothSleep : soloSleep).push(next.sleepScore) }
-        if (next.deepSleepMin != null) { (alsoHad ? bothDeep : soloDeep).push(next.deepSleepMin) }
+        if (next.sleepScore != null) { bothSleepSplit.add(alsoHad, next.sleepScore) }
+        if (next.deepSleepMin != null) { bothDeepSplit.add(alsoHad, next.deepSleepMin) }
       }
       const ins_int_sleep = compareGroups({
         id: `interaction_${suppSlug(supp)}_${mod.key}_sleep`, category: "interactions", emoji: "🔀",
         title: `${supp} + ${mod.label} & Sleep`,
         highGroupLabel: `${supp} + ${mod.label}`, lowGroupLabel: `${supp} alone`,
-        highValues: bothSleep, lowValues: soloSleep,
+        series: bothSleepSplit,
         findingTemplate: (h, l) =>
           h < l
             ? `On ${supp} nights that also involved ${mod.label}, sleep score averages ${h} vs ${l} on ${supp} nights without it`
@@ -1832,7 +1892,7 @@ export async function computeCorrelations(
         id: `interaction_${suppSlug(supp)}_${mod.key}_deep`, category: "interactions", emoji: "🌊",
         title: `${supp} + ${mod.label} & Deep Sleep`,
         highGroupLabel: `${supp} + ${mod.label}`, lowGroupLabel: `${supp} alone`,
-        highValues: bothDeep, lowValues: soloDeep,
+        series: bothDeepSplit,
         findingTemplate: (h, l) =>
           h < l
             ? `${supp} plus ${mod.label} leaves ${Math.round(h)}min of deep sleep vs ${Math.round(l)}min on ${supp} alone`
@@ -1883,19 +1943,19 @@ export async function computeCorrelations(
     for (const symptom of topSymptoms) {
       const symSlug = suppSlug(symptom)
       for (const suspect of SUSPECTS) {
-        const exposed: number[] = [], notExposed: number[] = []
+        const exposedSplit = new Split()
         for (const d of days) {
           const prev = byDate[prevDateStr(d.date)]
           const verdict = suspect.test(d, prev)
           if (verdict == null) continue // that factor wasn't recorded — not a zero
           const severity = d.symptoms?.[symptom] ?? 0
-          if (verdict) exposed.push(severity); else notExposed.push(severity)
+          if (verdict) exposedSplit.add(true, severity); else exposedSplit.add(false, severity)
         }
         const ins_symptom = compareGroups({
           id: `symptom_${symSlug}_${suspect.key}`, category: "symptoms", emoji: "🩹",
           title: `${symptom} & ${suspect.label.replace(/^(the day )?after /, "").replace(/ days$/, "")}`,
           highGroupLabel: suspect.label, lowGroupLabel: "other days",
-          highValues: exposed, lowValues: notExposed,
+          series: exposedSplit,
           higherIsBetter: false, // more symptom is worse, so a rise reads as negative
           findingTemplate: (h, l) =>
             h > l
@@ -1908,17 +1968,17 @@ export async function computeCorrelations(
       // Meds are suspects too — this is the side-effect question, and it's the
       // reason symptom tracking earns its place next to the pharmacology work.
       for (const supp of topSupps.slice(0, 3)) {
-        const onDays: number[] = [], offDays: number[] = []
+        const onDaysSplit = new Split()
         for (const d of days) {
           const took = (d.supplements ?? []).includes(supp)
           const severity = d.symptoms?.[symptom] ?? 0
-          if (took) onDays.push(severity); else offDays.push(severity)
+          if (took) onDaysSplit.add(true, severity); else onDaysSplit.add(false, severity)
         }
         const ins_symptom_med = compareGroups({
           id: `symptom_${symSlug}_med_${suppSlug(supp)}`, category: "symptoms", emoji: "💊",
           title: `${symptom} & ${supp}`,
           highGroupLabel: `${supp} days`, lowGroupLabel: `days without it`,
-          highValues: onDays, lowValues: offDays,
+          series: onDaysSplit,
           higherIsBetter: false,
           findingTemplate: (h, l) =>
             h > l
@@ -1932,21 +1992,21 @@ export async function computeCorrelations(
 
   // 16. Workouts (Strava) — the classic wearable questions: does training help
   // you sleep, and what does it cost (or pay) in next-day recovery?
-  const workoutSleep: number[] = [], restSleep: number[] = []
-  const workoutReadiness: number[] = [], restReadiness: number[] = []
-  const workoutHrv: number[] = [], restHrv: number[] = []
+  const workoutSleepSplit = new Split()
+  const workoutReadinessSplit = new Split()
+  const workoutHrvSplit = new Split()
   for (const d of days) {
     const trained = (d.workoutMin ?? 0) >= 20
     const next = tonight(d)
     if (!next) continue
-    if (next.sleepScore != null) { if (trained) workoutSleep.push(next.sleepScore); else restSleep.push(next.sleepScore) }
-    if (next.readiness != null) { if (trained) workoutReadiness.push(next.readiness); else restReadiness.push(next.readiness) }
-    if (next.hrv != null) { if (trained) workoutHrv.push(next.hrv); else restHrv.push(next.hrv) }
+    if (next.sleepScore != null) { if (trained) workoutSleepSplit.add(true, next.sleepScore); else workoutSleepSplit.add(false, next.sleepScore) }
+    if (next.readiness != null) { if (trained) workoutReadinessSplit.add(true, next.readiness); else workoutReadinessSplit.add(false, next.readiness) }
+    if (next.hrv != null) { if (trained) workoutHrvSplit.add(true, next.hrv); else workoutHrvSplit.add(false, next.hrv) }
   }
   const ins_workout_sleep = compareGroups({
     id: "workout_sleep", category: "fitness", emoji: "🏃", title: "Workouts & Sleep Quality",
     highGroupLabel: "workout days (20min+)", lowGroupLabel: "rest days",
-    highValues: workoutSleep, lowValues: restSleep, higherIsBetter: true,
+    series: workoutSleepSplit, higherIsBetter: true,
     findingTemplate: (h, l) =>
       h > l
         ? `On workout days, your sleep score averages ${h} vs ${l} on rest days`
@@ -1956,7 +2016,7 @@ export async function computeCorrelations(
   const ins_workout_readiness = compareGroups({
     id: "workout_readiness", category: "fitness", emoji: "🔋", title: "Workouts & Next-Day Readiness",
     highGroupLabel: "workout days (20min+)", lowGroupLabel: "rest days",
-    highValues: workoutReadiness, lowValues: restReadiness, higherIsBetter: true,
+    series: workoutReadinessSplit, higherIsBetter: true,
     findingTemplate: (h, l) =>
       h >= l
         ? `After workouts, next-day readiness averages ${h} vs ${l} after rest days`
@@ -1966,7 +2026,7 @@ export async function computeCorrelations(
   const ins_workout_hrv = compareGroups({
     id: "workout_hrv", category: "fitness", emoji: "💓", title: "Workouts & Next-Day HRV",
     highGroupLabel: "workout days (20min+)", lowGroupLabel: "rest days",
-    highValues: workoutHrv, lowValues: restHrv, higherIsBetter: true,
+    series: workoutHrvSplit, higherIsBetter: true,
     findingTemplate: (h, l) =>
       h >= l
         ? `Mornings after workouts, HRV averages ${h}ms vs ${l}ms after rest days`
@@ -1979,22 +2039,22 @@ export async function computeCorrelations(
   const listenVals = days.filter(d => d.listeningMin != null).map(d => d.listeningMin!)
   if (listenVals.length >= 10) {
     const listenMedian = median(listenVals)
-    const musicMoodHigh: number[] = [], musicMoodLow: number[] = []
-    const musicSleepHigh: number[] = [], musicSleepLow: number[] = []
-    const musicFocusHigh: number[] = [], musicFocusLow: number[] = []
+    const musicMood = new Split()
+    const musicSleep = new Split()
+    const musicFocus = new Split()
     for (const d of days) {
       if (d.listeningMin == null) continue
       const isHigh = d.listeningMin >= listenMedian
-      if (d.mood != null) { if (isHigh) musicMoodHigh.push(d.mood); else musicMoodLow.push(d.mood) }
+      if (d.mood != null) { if (isHigh) musicMood.add(true, d.mood); else musicMood.add(false, d.mood) }
       const night = tonight(d)
-      if (night?.sleepScore != null) { if (isHigh) musicSleepHigh.push(night.sleepScore); else musicSleepLow.push(night.sleepScore) }
-      if (d.focusMin != null) { if (isHigh) musicFocusHigh.push(d.focusMin); else musicFocusLow.push(d.focusMin) }
+      if (night?.sleepScore != null) { if (isHigh) musicSleep.add(true, night.sleepScore); else musicSleep.add(false, night.sleepScore) }
+      if (d.focusMin != null) { if (isHigh) musicFocus.add(true, d.focusMin); else musicFocus.add(false, d.focusMin) }
     }
     const fmtListen = listenMedian >= 60 ? `${(listenMedian / 60).toFixed(1)}h` : `${Math.round(listenMedian)}min`
     const ins_music_mood = compareGroups({
       id: "music_mood", category: "music", emoji: "🎵", title: "Music & Mood",
       highGroupLabel: `heavy-listening days (${fmtListen}+)`, lowGroupLabel: "quieter days",
-      highValues: musicMoodHigh, lowValues: musicMoodLow,
+      series: musicMood,
       findingTemplate: (h, l) =>
         h > l
           ? `On heavy-listening days (${fmtListen}+), mood averages ${h} vs ${l} on quieter days`
@@ -2004,7 +2064,7 @@ export async function computeCorrelations(
     const ins_music_sleep = compareGroups({
       id: "music_sleep", category: "music", emoji: "🎧", title: "Music & Sleep Quality",
       highGroupLabel: `heavy-listening days (${fmtListen}+)`, lowGroupLabel: "quieter days",
-      highValues: musicSleepHigh, lowValues: musicSleepLow,
+      series: musicSleep,
       findingTemplate: (h, l) =>
         h > l
           ? `On heavy-listening days, sleep score averages ${h} vs ${l} on quieter days`
@@ -2014,7 +2074,7 @@ export async function computeCorrelations(
     const ins_music_focus = compareGroups({
       id: "music_focus", category: "music", emoji: "🎯", title: "Music & Focus Time",
       highGroupLabel: `heavy-listening days (${fmtListen}+)`, lowGroupLabel: "quieter days",
-      highValues: musicFocusHigh, lowValues: musicFocusLow,
+      series: musicFocus,
       findingTemplate: (h, l) =>
         h > l
           ? `On heavy-listening days you log ${Math.round(h)}min of focus vs ${Math.round(l)}min on quieter days`
@@ -2035,22 +2095,22 @@ export async function computeCorrelations(
   // them either way is what turns a real effect into noise.
   const lateDays = days.filter(d => d.lateTracks != null)
   if (lateDays.length >= 10) {
-    const lateSleepHigh: number[] = [], lateSleepLow: number[] = []
-    const lateDurHigh: number[] = [], lateDurLow: number[] = []
-    const lateReadyHigh: number[] = [], lateReadyLow: number[] = []
+    const lateSleep = new Split()
+    const lateDur = new Split()
+    const lateReady = new Split()
     for (const d of lateDays) {
       const late = d.lateTracks as number
       if (late > 0 && late < 5) continue
       const isLate = late >= 5
       const next = byDate[nextDateStr(d.date)]
-      if (next?.sleepScore != null) { if (isLate) lateSleepHigh.push(next.sleepScore); else lateSleepLow.push(next.sleepScore) }
-      if (next?.sleepDuration != null) { if (isLate) lateDurHigh.push(next.sleepDuration); else lateDurLow.push(next.sleepDuration) }
-      if (next?.readiness != null) { if (isLate) lateReadyHigh.push(next.readiness); else lateReadyLow.push(next.readiness) }
+      if (next?.sleepScore != null) { if (isLate) lateSleep.add(true, next.sleepScore); else lateSleep.add(false, next.sleepScore) }
+      if (next?.sleepDuration != null) { if (isLate) lateDur.add(true, next.sleepDuration); else lateDur.add(false, next.sleepDuration) }
+      if (next?.readiness != null) { if (isLate) lateReady.add(true, next.readiness); else lateReady.add(false, next.readiness) }
     }
     const ins_late_music_sleep = compareGroups({
       id: "late_music_sleep", category: "music", emoji: "🌙", title: "Late-night music & sleep",
       highGroupLabel: "nights you listened past 22:00", lowGroupLabel: "quiet evenings",
-      highValues: lateSleepHigh, lowValues: lateSleepLow,
+      series: lateSleep,
       findingTemplate: (h, l) =>
         h < l
           ? `After evenings with music past 22:00, sleep scores ${h} vs ${l} after quiet ones`
@@ -2060,7 +2120,7 @@ export async function computeCorrelations(
     const ins_late_music_dur = compareGroups({
       id: "late_music_duration", category: "music", emoji: "🎧", title: "Late-night music & sleep length",
       highGroupLabel: "nights you listened past 22:00", lowGroupLabel: "quiet evenings",
-      highValues: lateDurHigh, lowValues: lateDurLow,
+      series: lateDur,
       findingTemplate: (h, l) =>
         h < l
           ? `You sleep ${h}h after listening past 22:00, against ${l}h after quiet evenings`
@@ -2070,7 +2130,7 @@ export async function computeCorrelations(
     const ins_late_music_ready = compareGroups({
       id: "late_music_readiness", category: "music", emoji: "🔋", title: "Late-night music & next-day readiness",
       highGroupLabel: "mornings after late listening", lowGroupLabel: "mornings after quiet evenings",
-      highValues: lateReadyHigh, lowValues: lateReadyLow,
+      series: lateReady,
       findingTemplate: (h, l) =>
         h < l
           ? `Readiness comes in at ${h} after a late-listening evening, ${l} otherwise`
@@ -2096,19 +2156,19 @@ export async function computeCorrelations(
     .map(([g]) => g)
   for (const genre of topGenres) {
     const gSlug = suppSlug(genre)
-    const gMood: number[] = [], otherMood: number[] = []
-    const gSleep: number[] = [], otherSleep: number[] = []
+    const gMoodSplit = new Split()
+    const gSleepSplit = new Split()
     for (const d of days) {
       if (d.listeningMin == null || d.musicGenre == null) continue
       const hit = d.musicGenre === genre
-      if (d.mood != null) { if (hit) gMood.push(d.mood); else otherMood.push(d.mood) }
+      if (d.mood != null) { if (hit) gMoodSplit.add(true, d.mood); else gMoodSplit.add(false, d.mood) }
       const night = tonight(d)
-      if (night?.sleepScore != null) { if (hit) gSleep.push(night.sleepScore); else otherSleep.push(night.sleepScore) }
+      if (night?.sleepScore != null) { if (hit) gSleepSplit.add(true, night.sleepScore); else gSleepSplit.add(false, night.sleepScore) }
     }
     const ins_genre_mood = compareGroups({
       id: `music_genre_${gSlug}_mood`, category: "music", emoji: "🎼", title: `${genre} days & Mood`,
       highGroupLabel: `days topped by ${genre}`, lowGroupLabel: "other listening days",
-      highValues: gMood, lowValues: otherMood,
+      series: gMoodSplit,
       findingTemplate: (h, l) =>
         h > l
           ? `On days your listening leans ${genre}, mood averages ${h} vs ${l} on other music days`
@@ -2118,7 +2178,7 @@ export async function computeCorrelations(
     const ins_genre_sleep = compareGroups({
       id: `music_genre_${gSlug}_sleep`, category: "music", emoji: "🎚️", title: `${genre} days & Sleep`,
       highGroupLabel: `days topped by ${genre}`, lowGroupLabel: "other listening days",
-      highValues: gSleep, lowValues: otherSleep,
+      series: gSleepSplit,
       findingTemplate: (h, l) =>
         h > l
           ? `On ${genre} days, sleep score averages ${h} vs ${l} on other music days`
@@ -2132,19 +2192,19 @@ export async function computeCorrelations(
   const spendVals = days.filter(d => d.spendEur != null).map(d => d.spendEur!)
   if (spendVals.length >= 10) {
     const spendMedian = median(spendVals)
-    const spendMoodHigh: number[] = [], spendMoodLow: number[] = []
-    const spendMoodNextHigh: number[] = [], spendMoodNextLow: number[] = []
+    const spendMood = new Split()
+    const spendMoodNext = new Split()
     for (const d of days) {
       if (d.spendEur == null) continue
       const isHigh = d.spendEur >= spendMedian
-      if (d.mood != null) { if (isHigh) spendMoodHigh.push(d.mood); else spendMoodLow.push(d.mood) }
+      if (d.mood != null) { if (isHigh) spendMood.add(true, d.mood); else spendMood.add(false, d.mood) }
       const next = byDate[nextDateStr(d.date)]
-      if (next?.mood != null) { if (isHigh) spendMoodNextHigh.push(next.mood); else spendMoodNextLow.push(next.mood) }
+      if (next?.mood != null) { if (isHigh) spendMoodNext.add(true, next.mood); else spendMoodNext.add(false, next.mood) }
     }
     const ins_spend_mood = compareGroups({
       id: "spend_mood", category: "money", emoji: "💸", title: "Spending & Mood",
       highGroupLabel: `bigger-spend days (€${Math.round(spendMedian)}+)`, lowGroupLabel: "lighter-spend days",
-      highValues: spendMoodHigh, lowValues: spendMoodLow,
+      series: spendMood,
       findingTemplate: (h, l) =>
         h > l
           ? `On bigger-spend days (€${Math.round(spendMedian)}+), mood averages ${h} vs ${l} on lighter days`
@@ -2154,7 +2214,7 @@ export async function computeCorrelations(
     const ins_spend_mood_next = compareGroups({
       id: "spend_mood_next", category: "money", emoji: "💳", title: "Spending & Next-Day Mood",
       highGroupLabel: `bigger-spend days (€${Math.round(spendMedian)}+)`, lowGroupLabel: "lighter-spend days",
-      highValues: spendMoodNextHigh, lowValues: spendMoodNextLow,
+      series: spendMoodNext,
       findingTemplate: (h, l) =>
         h < l
           ? `The morning after bigger-spend days, mood averages ${h} vs ${l} after lighter days`
@@ -2166,16 +2226,16 @@ export async function computeCorrelations(
   // 19. UV — the one weather column nothing consumed
   const uvDays = days.filter(d => d.uvIndex != null)
   if (uvDays.length >= 10) {
-    const uvHighReadiness: number[] = [], uvLowReadiness: number[] = []
+    const uvReadiness = new Split()
     for (const d of uvDays) {
       if (d.readiness == null) continue
-      if (d.uvIndex! >= 5) uvHighReadiness.push(d.readiness)
-      else uvLowReadiness.push(d.readiness)
+      if (d.uvIndex! >= 5) uvReadiness.add(true, d.readiness)
+      else uvReadiness.add(false, d.readiness)
     }
     const ins_uv_readiness = compareGroups({
       id: "uv_readiness", category: "tags", emoji: "☀️", title: "Sunny Days & Readiness",
       highGroupLabel: "high-UV days (index 5+)", lowGroupLabel: "low-UV days",
-      highValues: uvHighReadiness, lowValues: uvLowReadiness,
+      series: uvReadiness,
       findingTemplate: (h, l) =>
         h > l
           ? `On sunny high-UV days, readiness averages ${h} vs ${l} on grey days`
@@ -2187,22 +2247,22 @@ export async function computeCorrelations(
   // 20. Focus sessions — do focus days feel better, and does sleep buy focus?
   const focusDayCount = days.filter(d => (d.focusMin ?? 0) > 0).length
   if (focusDayCount >= 5) {
-    const focusMood: number[] = [], noFocusMood: number[] = []
-    const goodSleepFocus: number[] = [], shortSleepFocus: number[] = []
+    const focusMoodSplit = new Split()
+    const goodSleepFocusSplit = new Split()
     for (const d of days) {
       const focused = (d.focusMin ?? 0) > 0
-      if (d.mood != null) { if (focused) focusMood.push(d.mood); else noFocusMood.push(d.mood) }
+      if (d.mood != null) { if (focused) focusMoodSplit.add(true, d.mood); else focusMoodSplit.add(false, d.mood) }
       // sleepDuration on day d is last night's sleep; no-session days are real
       // 0-minute focus days for this question
       if (d.sleepDuration != null) {
-        if (d.sleepDuration >= 7) goodSleepFocus.push(d.focusMin ?? 0)
-        else shortSleepFocus.push(d.focusMin ?? 0)
+        if (d.sleepDuration >= 7) goodSleepFocusSplit.add(true, d.focusMin ?? 0)
+        else goodSleepFocusSplit.add(false, d.focusMin ?? 0)
       }
     }
     const ins_focus_mood = compareGroups({
       id: "focus_mood", category: "focus", emoji: "🎯", title: "Focus Sessions & Mood",
       highGroupLabel: "focus-session days", lowGroupLabel: "days without deep work",
-      highValues: focusMood, lowValues: noFocusMood,
+      series: focusMoodSplit,
       findingTemplate: (h, l) =>
         h > l
           ? `On days with a focus session, mood averages ${h} vs ${l} on days without`
@@ -2212,7 +2272,7 @@ export async function computeCorrelations(
     const ins_sleep_focus = compareGroups({
       id: "sleep_focus", category: "focus", emoji: "🧠", title: "Sleep & Deep Work",
       highGroupLabel: "after 7h+ sleep", lowGroupLabel: "after shorter nights",
-      highValues: goodSleepFocus, lowValues: shortSleepFocus,
+      series: goodSleepFocusSplit,
       findingTemplate: (h, l) =>
         h > l
           ? `After 7h+ nights you log ${Math.round(h)}min of focus vs ${Math.round(l)}min after short sleep`
@@ -2224,19 +2284,19 @@ export async function computeCorrelations(
   // 21. Fasting — completed fasts vs ordinary days, next morning's readings
   const fastDays = days.filter(d => d.fastH != null)
   if (fastDays.length >= 5) {
-    const fastedSleep: number[] = [], fedSleep: number[] = []
-    const fastedEnergy: number[] = [], fedEnergy: number[] = []
+    const fastedSleepSplit = new Split()
+    const fastedEnergySplit = new Split()
     for (const d of days) {
       const fasted = (d.fastH ?? 0) >= 14
       const next = byDate[nextDateStr(d.date)]
       if (!next) continue
-      if (next.sleepScore != null) { if (fasted) fastedSleep.push(next.sleepScore); else fedSleep.push(next.sleepScore) }
-      if (next.energy != null) { if (fasted) fastedEnergy.push(next.energy); else fedEnergy.push(next.energy) }
+      if (next.sleepScore != null) { if (fasted) fastedSleepSplit.add(true, next.sleepScore); else fastedSleepSplit.add(false, next.sleepScore) }
+      if (next.energy != null) { if (fasted) fastedEnergySplit.add(true, next.energy); else fastedEnergySplit.add(false, next.energy) }
     }
     const ins_fast_sleep = compareGroups({
       id: "fasting_sleep", category: "fasting", emoji: "⏳", title: "Fasting & Sleep Quality",
       highGroupLabel: "14h+ fast days", lowGroupLabel: "non-fasting days",
-      highValues: fastedSleep, lowValues: fedSleep,
+      series: fastedSleepSplit,
       findingTemplate: (h, l) =>
         h > l
           ? `Nights after a 14h+ fast, sleep score averages ${h} vs ${l} on ordinary days`
@@ -2246,7 +2306,7 @@ export async function computeCorrelations(
     const ins_fast_energy = compareGroups({
       id: "fasting_energy", category: "fasting", emoji: "⚡", title: "Fasting & Next-Day Energy",
       highGroupLabel: "14h+ fast days", lowGroupLabel: "non-fasting days",
-      highValues: fastedEnergy, lowValues: fedEnergy,
+      series: fastedEnergySplit,
       findingTemplate: (h, l) =>
         h > l
           ? `Mornings after a 14h+ fast, energy averages ${h} vs ${l} after ordinary days`
@@ -2257,23 +2317,23 @@ export async function computeCorrelations(
 
   // 22. Sleep architecture — deep/REM minutes were synced for months and never
   // fed into a single insight
-  const caffeineDeepHigh: number[] = [], caffeineDeepLow: number[] = []
-  const alcoholRemDrink: number[] = [], alcoholRemSober: number[] = []
+  const caffeineDeep = new Split()
+  const alcoholRemDrinkSplit = new Split()
   for (const d of days) {
     const next = tonight(d)
     if (d.caffeineMg != null && next?.deepSleepMin != null) {
-      if (d.caffeineMg >= cuts.caffeine.at) caffeineDeepHigh.push(next.deepSleepMin)
-      else caffeineDeepLow.push(next.deepSleepMin)
+      if (d.caffeineMg >= cuts.caffeine.at) caffeineDeep.add(true, next.deepSleepMin)
+      else caffeineDeep.add(false, next.deepSleepMin)
     }
     if (next?.remSleepMin != null && (d.alcoholMl != null || d.caffeineMg != null)) {
-      if ((d.alcoholMl ?? 0) > 50) alcoholRemDrink.push(next.remSleepMin)
-      else alcoholRemSober.push(next.remSleepMin)
+      if ((d.alcoholMl ?? 0) > 50) alcoholRemDrinkSplit.add(true, next.remSleepMin)
+      else alcoholRemDrinkSplit.add(false, next.remSleepMin)
     }
   }
   const ins_caffeine_deep = compareGroups({
     id: "caffeine_deep_sleep", category: "recovery", emoji: "🌊", title: "Caffeine & Deep Sleep",
     highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} days`,
-    highValues: caffeineDeepHigh, lowValues: caffeineDeepLow,
+    series: caffeineDeep,
     findingTemplate: (h, l) =>
       h < l
         ? `On ${cafLabel} caffeine days you get ${Math.round(h)}min of deep sleep vs ${Math.round(l)}min on lighter days`
@@ -2283,7 +2343,7 @@ export async function computeCorrelations(
   const ins_alcohol_rem = compareGroups({
     id: "alcohol_rem_sleep", category: "recovery", emoji: "🌀", title: "Alcohol & REM Sleep",
     highGroupLabel: "drinking days (50ml+)", lowGroupLabel: "non-drinking days",
-    highValues: alcoholRemDrink, lowValues: alcoholRemSober, higherIsBetter: false,
+    series: alcoholRemDrinkSplit, higherIsBetter: false,
     findingTemplate: (h, l) =>
       h < l
         ? `Nights after drinking you get ${Math.round(h)}min of REM vs ${Math.round(l)}min sober`
@@ -2299,26 +2359,26 @@ export async function computeCorrelations(
   // slept joins to the SAME day's sleep record — both describe the night that
   // ended that morning. presence describes the waking day, so its sleep
   // consequence is the night that follows (the next day's record).
-  const sleptAwaySleep: number[] = [], sleptHomeSleep: number[] = []
-  const sleptAwayDur: number[] = [], sleptHomeDur: number[] = []
-  const awayDayMood: number[] = [], townDayMood: number[] = []
-  const awayDaySleep: number[] = [], townDaySleep: number[] = []
+  const sleptAwaySleepSplit = new Split()
+  const sleptAwayDurSplit = new Split()
+  const awayDayMoodSplit = new Split()
+  const awayDaySleepSplit = new Split()
   for (const d of days) {
     if (d.sleptAway != null) {
-      if (d.sleepScore != null) { if (d.sleptAway) sleptAwaySleep.push(d.sleepScore); else sleptHomeSleep.push(d.sleepScore) }
-      if (d.sleepDuration != null) { if (d.sleptAway) sleptAwayDur.push(d.sleepDuration); else sleptHomeDur.push(d.sleepDuration) }
+      if (d.sleepScore != null) { if (d.sleptAway) sleptAwaySleepSplit.add(true, d.sleepScore); else sleptAwaySleepSplit.add(false, d.sleepScore) }
+      if (d.sleepDuration != null) { if (d.sleptAway) sleptAwayDurSplit.add(true, d.sleepDuration); else sleptAwayDurSplit.add(false, d.sleepDuration) }
     }
     if (d.presence != null) {
       const isAway = d.presence === "away"
-      if (d.mood != null) { if (isAway) awayDayMood.push(d.mood); else townDayMood.push(d.mood) }
+      if (d.mood != null) { if (isAway) awayDayMoodSplit.add(true, d.mood); else awayDayMoodSplit.add(false, d.mood) }
       const next = byDate[nextDateStr(d.date)]
-      if (next?.sleepScore != null) { if (isAway) awayDaySleep.push(next.sleepScore); else townDaySleep.push(next.sleepScore) }
+      if (next?.sleepScore != null) { if (isAway) awayDaySleepSplit.add(true, next.sleepScore); else awayDaySleepSplit.add(false, next.sleepScore) }
     }
   }
   const ins_slept_away = compareGroups({
     id: "slept_away_sleep", category: "places", emoji: "🛏️", title: "Sleeping Away & Sleep Quality",
     highGroupLabel: "nights away from your own bed", lowGroupLabel: "nights at home",
-    highValues: sleptAwaySleep, lowValues: sleptHomeSleep,
+    series: sleptAwaySleepSplit,
     findingTemplate: (h, l) =>
       h < l
         ? `Nights away from your own bed score ${h} vs ${l} at home`
@@ -2328,7 +2388,7 @@ export async function computeCorrelations(
   const ins_slept_away_dur = compareGroups({
     id: "slept_away_duration", category: "places", emoji: "⏰", title: "Sleeping Away & Sleep Length",
     highGroupLabel: "nights away from your own bed", lowGroupLabel: "nights at home",
-    highValues: sleptAwayDur, lowValues: sleptHomeDur,
+    series: sleptAwayDurSplit,
     findingTemplate: (h, l) =>
       h < l
         ? `Away from home you sleep ${h}h vs ${l}h in your own bed`
@@ -2338,7 +2398,7 @@ export async function computeCorrelations(
   const ins_away_mood = compareGroups({
     id: "away_day_mood", category: "places", emoji: "🧳", title: "Days Away & Mood",
     highGroupLabel: `days away from home (${AWAY_KM}km+)`, lowGroupLabel: "days in your own town",
-    highValues: awayDayMood, lowValues: townDayMood,
+    series: awayDayMoodSplit,
     findingTemplate: (h, l) =>
       h > l
         ? `On days away from home, mood averages ${h} vs ${l} in your own town`
@@ -2348,7 +2408,7 @@ export async function computeCorrelations(
   const ins_away_sleep = compareGroups({
     id: "away_day_sleep", category: "places", emoji: "🗺️", title: "Days Away & That Night's Sleep",
     highGroupLabel: `days away from home (${AWAY_KM}km+)`, lowGroupLabel: "days in your own town",
-    highValues: awayDaySleep, lowValues: townDaySleep,
+    series: awayDaySleepSplit,
     findingTemplate: (h, l) =>
       h < l
         ? `Nights that end a day away score ${h} vs ${l} after ordinary days`
@@ -2362,19 +2422,19 @@ export async function computeCorrelations(
   if (walkVals.length >= 10) {
     const walkMedian = median(walkVals)
     const fmtWalk = walkMedian >= 60 ? `${(walkMedian / 60).toFixed(1)}h` : `${Math.round(walkMedian)}min`
-    const walkMoodHigh: number[] = [], walkMoodLow: number[] = []
-    const walkSleepHigh: number[] = [], walkSleepLow: number[] = []
+    const walkMood = new Split()
+    const walkSleep = new Split()
     for (const d of days) {
       if (d.walkMin == null) continue
       const isHigh = d.walkMin >= walkMedian
-      if (d.mood != null) { if (isHigh) walkMoodHigh.push(d.mood); else walkMoodLow.push(d.mood) }
+      if (d.mood != null) { if (isHigh) walkMood.add(true, d.mood); else walkMood.add(false, d.mood) }
       const next = byDate[nextDateStr(d.date)]
-      if (next?.sleepScore != null) { if (isHigh) walkSleepHigh.push(next.sleepScore); else walkSleepLow.push(next.sleepScore) }
+      if (next?.sleepScore != null) { if (isHigh) walkSleep.add(true, next.sleepScore); else walkSleep.add(false, next.sleepScore) }
     }
     const ins_walk_mood = compareGroups({
       id: "walking_mood", category: "places", emoji: "🚶", title: "Walking & Mood",
       highGroupLabel: `bigger walking days (${fmtWalk}+)`, lowGroupLabel: "less-walked days",
-      highValues: walkMoodHigh, lowValues: walkMoodLow,
+      series: walkMood,
       findingTemplate: (h, l) =>
         h > l
           ? `On days you walk ${fmtWalk}+, mood averages ${h} vs ${l} on less-walked days`
@@ -2384,7 +2444,7 @@ export async function computeCorrelations(
     const ins_walk_sleep = compareGroups({
       id: "walking_sleep", category: "places", emoji: "🌆", title: "Walking & That Night's Sleep",
       highGroupLabel: `bigger walking days (${fmtWalk}+)`, lowGroupLabel: "less-walked days",
-      highValues: walkSleepHigh, lowValues: walkSleepLow,
+      series: walkSleep,
       findingTemplate: (h, l) =>
         h > l
           ? `Nights after ${fmtWalk}+ of walking score ${h} vs ${l} after stiller days`
@@ -2399,19 +2459,19 @@ export async function computeCorrelations(
   const prodVals = days.filter(d => d.productiveH != null).map(d => d.productiveH!)
   if (prodVals.length >= 10) {
     const prodMedian = median(prodVals)
-    const prodMoodHigh: number[] = [], prodMoodLow: number[] = []
-    const prodSleepHigh: number[] = [], prodSleepLow: number[] = []
+    const prodMood = new Split()
+    const prodSleep = new Split()
     for (const d of days) {
       if (d.productiveH == null) continue
       const isHigh = d.productiveH >= prodMedian
-      if (d.mood != null) { if (isHigh) prodMoodHigh.push(d.mood); else prodMoodLow.push(d.mood) }
+      if (d.mood != null) { if (isHigh) prodMood.add(true, d.mood); else prodMood.add(false, d.mood) }
       const next = byDate[nextDateStr(d.date)]
-      if (next?.sleepScore != null) { if (isHigh) prodSleepHigh.push(next.sleepScore); else prodSleepLow.push(next.sleepScore) }
+      if (next?.sleepScore != null) { if (isHigh) prodSleep.add(true, next.sleepScore); else prodSleep.add(false, next.sleepScore) }
     }
     const ins_prod_mood = compareGroups({
       id: "work_productive_mood", category: "work", emoji: "💼", title: "Productive Hours & Mood",
       highGroupLabel: `${r1(prodMedian)}h+ productive days`, lowGroupLabel: "lighter work days",
-      highValues: prodMoodHigh, lowValues: prodMoodLow,
+      series: prodMood,
       findingTemplate: (h, l) =>
         h > l
           ? `On ${r1(prodMedian)}h+ productive days, mood averages ${h} vs ${l} on lighter days`
@@ -2421,7 +2481,7 @@ export async function computeCorrelations(
     const ins_prod_sleep = compareGroups({
       id: "work_productive_sleep", category: "work", emoji: "🌜", title: "Productive Hours & That Night's Sleep",
       highGroupLabel: `${r1(prodMedian)}h+ productive days`, lowGroupLabel: "lighter work days",
-      highValues: prodSleepHigh, lowValues: prodSleepLow,
+      series: prodSleep,
       findingTemplate: (h, l) =>
         h < l
           ? `Nights after ${r1(prodMedian)}h+ of productive work score ${h} vs ${l} after lighter days`
@@ -2432,16 +2492,16 @@ export async function computeCorrelations(
   const distVals = days.filter(d => d.distractingH != null).map(d => d.distractingH!)
   if (distVals.length >= 10) {
     const distMedian = median(distVals)
-    const distMoodHigh: number[] = [], distMoodLow: number[] = []
+    const distMood = new Split()
     for (const d of days) {
       if (d.distractingH == null || d.mood == null) continue
-      if (d.distractingH >= distMedian) distMoodHigh.push(d.mood)
-      else distMoodLow.push(d.mood)
+      if (d.distractingH >= distMedian) distMood.add(true, d.mood)
+      else distMood.add(false, d.mood)
     }
     const ins_dist_mood = compareGroups({
       id: "work_distracting_mood", category: "work", emoji: "🕳️", title: "Distracting Hours & Mood",
       highGroupLabel: `${r1(distMedian)}h+ distracted days`, lowGroupLabel: "more focused days",
-      highValues: distMoodHigh, lowValues: distMoodLow,
+      series: distMood,
       findingTemplate: (h, l) =>
         h < l
           ? `On ${r1(distMedian)}h+ distracted days, mood averages ${h} vs ${l} on more focused days`
@@ -2455,9 +2515,9 @@ export async function computeCorrelations(
   // alcohol, today's caffeine. Only days with a cuff reading count.
   const bpDays = days.filter(d => d.systolic != null)
   if (bpDays.length >= 10) {
-    const bpShortSleep: number[] = [], bpGoodSleep: number[] = []
-    const bpAfterDrinks: number[] = [], bpSober: number[] = []
-    const bpHighCaf: number[] = [], bpLowCaf: number[] = []
+    const bpShortSleepSplit = new Split()
+    const bpAfterDrinksSplit = new Split()
+    const bpCaf = new Split()
     const prevDateStr2 = (dateStr: string): string => {
       const dt = new Date(dateStr + "T12:00:00Z")
       dt.setUTCDate(dt.getUTCDate() - 1)
@@ -2465,15 +2525,15 @@ export async function computeCorrelations(
     }
     for (const d of bpDays) {
       const sys = d.systolic!
-      if (d.sleepDuration != null) { if (d.sleepDuration < 7) bpShortSleep.push(sys); else bpGoodSleep.push(sys) }
+      if (d.sleepDuration != null) { if (d.sleepDuration < 7) bpShortSleepSplit.add(true, sys); else bpShortSleepSplit.add(false, sys) }
       const prev = byDate[prevDateStr2(d.date)]
-      if (prev) { if ((prev.alcoholMl ?? 0) > 50) bpAfterDrinks.push(sys); else bpSober.push(sys) }
-      if (d.caffeineMg != null) { if (d.caffeineMg >= cuts.caffeine.at) bpHighCaf.push(sys); else bpLowCaf.push(sys) }
+      if (prev) { if ((prev.alcoholMl ?? 0) > 50) bpAfterDrinksSplit.add(true, sys); else bpAfterDrinksSplit.add(false, sys) }
+      if (d.caffeineMg != null) { if (d.caffeineMg >= cuts.caffeine.at) bpCaf.add(true, sys); else bpCaf.add(false, sys) }
     }
     const ins_bp_sleep = compareGroups({
       id: "bp_short_sleep", category: "heart", emoji: "🩺", title: "Short Sleep & Blood Pressure",
       highGroupLabel: "after under 7h sleep", lowGroupLabel: "after 7h+ sleep",
-      highValues: bpShortSleep, lowValues: bpGoodSleep, higherIsBetter: false,
+      series: bpShortSleepSplit, higherIsBetter: false,
       findingTemplate: (h, l) =>
         h > l
           ? `After short nights, systolic averages ${Math.round(h)} vs ${Math.round(l)} after 7h+ sleep`
@@ -2483,7 +2543,7 @@ export async function computeCorrelations(
     const ins_bp_alcohol = compareGroups({
       id: "bp_alcohol", category: "heart", emoji: "🍷", title: "Alcohol & Next-Day Blood Pressure",
       highGroupLabel: "the day after drinking", lowGroupLabel: "after sober days",
-      highValues: bpAfterDrinks, lowValues: bpSober, higherIsBetter: false,
+      series: bpAfterDrinksSplit, higherIsBetter: false,
       findingTemplate: (h, l) =>
         h > l
           ? `The day after drinking, systolic averages ${Math.round(h)} vs ${Math.round(l)} after sober days`
@@ -2493,7 +2553,7 @@ export async function computeCorrelations(
     const ins_bp_caffeine = compareGroups({
       id: "bp_caffeine", category: "heart", emoji: "☕", title: "Caffeine & Blood Pressure",
       highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} days`,
-      highValues: bpHighCaf, lowValues: bpLowCaf, higherIsBetter: false,
+      series: bpCaf, higherIsBetter: false,
       findingTemplate: (h, l) =>
         h > l
           ? `On ${cafLabel} caffeine days, systolic averages ${Math.round(h)} vs ${Math.round(l)} on lighter days`
@@ -2509,21 +2569,21 @@ export async function computeCorrelations(
   // which is exactly what "weekend nights" means. This family has no
   // weekday-only twin by construction (that pass has one empty group), so it
   // can never carry its own weekend flag.
-  const weSleep: number[] = [], wdSleep: number[] = []
-  const weDur: number[] = [], wdDur: number[] = []
-  const weMood: number[] = [], wdMood: number[] = []
-  const weSteps: number[] = [], wdSteps: number[] = []
+  const weSleepSplit = new Split()
+  const weDurSplit = new Split()
+  const weMoodSplit = new Split()
+  const weStepsSplit = new Split()
   for (const d of days) {
     const we = isWeekendDate(d.date)
-    if (d.sleepScore != null) { if (we) weSleep.push(d.sleepScore); else wdSleep.push(d.sleepScore) }
-    if (d.sleepDuration != null) { if (we) weDur.push(d.sleepDuration); else wdDur.push(d.sleepDuration) }
-    if (d.mood != null) { if (we) weMood.push(d.mood); else wdMood.push(d.mood) }
-    if (d.steps != null) { if (we) weSteps.push(d.steps); else wdSteps.push(d.steps) }
+    if (d.sleepScore != null) { if (we) weSleepSplit.add(true, d.sleepScore); else weSleepSplit.add(false, d.sleepScore) }
+    if (d.sleepDuration != null) { if (we) weDurSplit.add(true, d.sleepDuration); else weDurSplit.add(false, d.sleepDuration) }
+    if (d.mood != null) { if (we) weMoodSplit.add(true, d.mood); else weMoodSplit.add(false, d.mood) }
+    if (d.steps != null) { if (we) weStepsSplit.add(true, d.steps); else weStepsSplit.add(false, d.steps) }
   }
   const ins_weekend_sleep = compareGroups({
     id: "weekend_sleep_score", category: "week", emoji: "🛋️", title: "Weekend Nights & Sleep Quality",
     highGroupLabel: "Friday & Saturday nights", lowGroupLabel: "school nights",
-    highValues: weSleep, lowValues: wdSleep,
+    series: weSleepSplit,
     findingTemplate: (h, l) =>
       h > l
         ? `Friday and Saturday nights score ${h} vs ${l} on school nights`
@@ -2533,7 +2593,7 @@ export async function computeCorrelations(
   const ins_weekend_dur = compareGroups({
     id: "weekend_sleep_duration", category: "week", emoji: "⏰", title: "Weekend Nights & Sleep Length",
     highGroupLabel: "Friday & Saturday nights", lowGroupLabel: "school nights",
-    highValues: weDur, lowValues: wdDur,
+    series: weDurSplit,
     findingTemplate: (h, l) =>
       h > l
         ? `You sleep ${h}h on weekend nights vs ${l}h on school nights`
@@ -2543,7 +2603,7 @@ export async function computeCorrelations(
   const ins_weekend_mood = compareGroups({
     id: "weekend_mood", category: "week", emoji: "📆", title: "Weekends & Mood",
     highGroupLabel: "weekend days", lowGroupLabel: "weekdays",
-    highValues: weMood, lowValues: wdMood,
+    series: weMoodSplit,
     findingTemplate: (h, l) =>
       h > l
         ? `Weekend mood averages ${h} vs ${l} on weekdays`
@@ -2553,7 +2613,7 @@ export async function computeCorrelations(
   const ins_weekend_steps = compareGroups({
     id: "weekend_steps", category: "week", emoji: "🚶", title: "Weekends & Movement",
     highGroupLabel: "weekend days", lowGroupLabel: "weekdays",
-    highValues: weSteps, lowValues: wdSteps,
+    series: weStepsSplit,
     findingTemplate: (h, l) =>
       h > l
         ? `You walk ${Math.round(h).toLocaleString()} steps on weekends vs ${Math.round(l).toLocaleString()} on weekdays`
@@ -2572,21 +2632,21 @@ export async function computeCorrelations(
     const logged = days.filter(d => d.custom?.[metric.id] != null)
     const { isHigh, highLabel, lowLabel } = metric
 
-    const cMoodHigh: number[] = [], cMoodLow: number[] = []
-    const cSleepHigh: number[] = [], cSleepLow: number[] = []
-    const cEnergyHigh: number[] = [], cEnergyLow: number[] = []
+    const cMood = new Split()
+    const cSleep = new Split()
+    const cEnergy = new Split()
     for (const d of logged) {
       const high = isHigh(d.custom![metric.id])
-      if (d.mood != null) { if (high) cMoodHigh.push(d.mood); else cMoodLow.push(d.mood) }
+      if (d.mood != null) { if (high) cMood.add(true, d.mood); else cMood.add(false, d.mood) }
       const next = byDate[nextDateStr(d.date)]
-      if (next?.sleepScore != null) { if (high) cSleepHigh.push(next.sleepScore); else cSleepLow.push(next.sleepScore) }
-      if (next?.energy != null) { if (high) cEnergyHigh.push(next.energy); else cEnergyLow.push(next.energy) }
+      if (next?.sleepScore != null) { if (high) cSleep.add(true, next.sleepScore); else cSleep.add(false, next.sleepScore) }
+      if (next?.energy != null) { if (high) cEnergy.add(true, next.energy); else cEnergy.add(false, next.energy) }
     }
 
     const ins_custom_mood = compareGroups({
       id: `custom_${metric.id}_mood`, category: "custom", emoji: metric.emoji, title: `${metric.name} & Mood`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
-      highValues: cMoodHigh, lowValues: cMoodLow,
+      series: cMood,
       findingTemplate: (h, l) =>
         h > l
           ? `On ${highLabel}, your mood averages ${h} vs ${l} on ${lowLabel}`
@@ -2597,7 +2657,7 @@ export async function computeCorrelations(
     const ins_custom_sleep = compareGroups({
       id: `custom_${metric.id}_sleep`, category: "custom", emoji: metric.emoji, title: `${metric.name} & Sleep`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
-      highValues: cSleepHigh, lowValues: cSleepLow,
+      series: cSleep,
       findingTemplate: (h, l) =>
         h > l
           ? `Nights after ${highLabel}, sleep score averages ${h} vs ${l}`
@@ -2608,7 +2668,7 @@ export async function computeCorrelations(
     const ins_custom_energy = compareGroups({
       id: `custom_${metric.id}_energy`, category: "custom", emoji: metric.emoji, title: `${metric.name} & Next-Day Energy`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
-      highValues: cEnergyHigh, lowValues: cEnergyLow,
+      series: cEnergy,
       findingTemplate: (h, l) =>
         h > l
           ? `The morning after ${highLabel}, energy averages ${h} vs ${l}`
@@ -2668,8 +2728,8 @@ export async function computeCorrelations(
       const vals = dense.map(accessor).filter((v): v is number => v != null && Number.isFinite(v))
       if (vals.length < 14) return
       const centre = median(vals)
-      const regEnergy: number[] = [], scatEnergy: number[] = []
-      const regMood: number[] = [], scatMood: number[] = []
+      const regEnergySplit = new Split()
+      const regMoodSplit = new Split()
       for (let i = 0; i < dense.length - 1; i++) {
         const v = accessor(dense[i])
         if (v == null || !Number.isFinite(v)) continue
@@ -2678,15 +2738,15 @@ export async function computeCorrelations(
         const isScat = off > scatteredBeyond
         if (!isReg && !isScat) continue
         const next = dense[i + 1]
-        if (next.energy != null) (isReg ? regEnergy : scatEnergy).push(next.energy)
-        if (next.mood != null) (isReg ? regMood : scatMood).push(next.mood)
+        if (next.energy != null) regEnergySplit.add(isReg, next.energy)
+        if (next.mood != null) regMoodSplit.add(isReg, next.mood)
       }
       const eIns = compareGroups({
         id: `consistency_${id}_energy`, category: "consistency", emoji,
         title: `${label} Consistency & Next-Day Energy`,
         highGroupLabel: `regular ${label.toLowerCase()}`,
         lowGroupLabel: `scattered ${label.toLowerCase()}`,
-        highValues: regEnergy, lowValues: scatEnergy,
+        series: regEnergySplit,
         findingTemplate: (h, l) =>
           h > l
             ? `Close to your usual ${label.toLowerCase()}, next-day energy averages ${h} vs ${l} on off-schedule days`
@@ -2698,7 +2758,7 @@ export async function computeCorrelations(
         title: `${label} Consistency & Next-Day Mood`,
         highGroupLabel: `regular ${label.toLowerCase()}`,
         lowGroupLabel: `scattered ${label.toLowerCase()}`,
-        highValues: regMood, lowValues: scatMood,
+        series: regMoodSplit,
         findingTemplate: (h, l) =>
           h > l
             ? `Close to your usual ${label.toLowerCase()}, next-day mood averages ${h} vs ${l} on scattered days`
@@ -2730,24 +2790,24 @@ export async function computeCorrelations(
     }
 
     const shortSleep = streakLen(d => d.sleepDuration != null && d.sleepDuration < 7)
-    const singleE: number[] = [], streakE: number[] = []
-    const singleM: number[] = [], streakM: number[] = []
+    const singleESplit = new Split()
+    const singleMSplit = new Split()
     for (let i = 0; i < dense.length - 1; i++) {
       const n = shortSleep[i]
       const next = dense[i + 1]
       if (n === 1) {
-        if (next.energy != null) singleE.push(next.energy)
-        if (next.mood != null) singleM.push(next.mood)
+        if (next.energy != null) singleESplit.add(true, next.energy)
+        if (next.mood != null) singleMSplit.add(true, next.mood)
       } else if (n >= 3) {
-        if (next.energy != null) streakE.push(next.energy)
-        if (next.mood != null) streakM.push(next.mood)
+        if (next.energy != null) singleESplit.add(false, next.energy)
+        if (next.mood != null) singleMSplit.add(false, next.mood)
       }
     }
     const shortE = compareGroups({
       id: "streak_short_sleep_energy", category: "streaks", emoji: "😩",
       title: "Short-Sleep Streaks & Morning Energy",
       highGroupLabel: "one short night", lowGroupLabel: "3+ short nights in a row",
-      highValues: singleE, lowValues: streakE,
+      series: singleESplit,
       findingTemplate: (h, l) =>
         `Morning after one short night: energy ${h}. Morning after three or more in a row: ${l}`,
     })
@@ -2756,7 +2816,7 @@ export async function computeCorrelations(
       id: "streak_short_sleep_mood", category: "streaks", emoji: "🥀",
       title: "Short-Sleep Streaks & Mood",
       highGroupLabel: "one short night", lowGroupLabel: "3+ short nights in a row",
-      highValues: singleM, lowValues: streakM,
+      series: singleMSplit,
       findingTemplate: (h, l) =>
         `Morning mood after one short night: ${h}. After three or more in a row: ${l}`,
     })
@@ -2766,19 +2826,19 @@ export async function computeCorrelations(
     // consequence of the night before it — so day D+1 records the effect of
     // day D's alcohol.
     const alc = streakLen(d => (d.alcoholMl ?? 0) > 0)
-    const alcSingle: number[] = [], alcStreak: number[] = []
+    const alcSingleSplit = new Split()
     for (let i = 0; i < dense.length - 1; i++) {
       const n = alc[i]
       const nextHrv = dense[i + 1].hrv
       if (nextHrv == null) continue
-      if (n === 1) alcSingle.push(nextHrv)
-      else if (n >= 2) alcStreak.push(nextHrv)
+      if (n === 1) alcSingleSplit.add(true, nextHrv)
+      else if (n >= 2) alcSingleSplit.add(false, nextHrv)
     }
     const alcIns = compareGroups({
       id: "streak_alcohol_hrv", category: "streaks", emoji: "🍷",
       title: "Back-to-Back Drinking Nights & HRV",
       highGroupLabel: "one drinking night", lowGroupLabel: "2+ nights in a row",
-      highValues: alcSingle, lowValues: alcStreak,
+      series: alcSingleSplit,
       findingTemplate: (h, l) =>
         `Morning HRV after a single drinking night: ${Math.round(h)}. After two or more nights in a row: ${Math.round(l)}`,
     })
@@ -2806,18 +2866,26 @@ export async function computeCorrelations(
         const gapPresent = gapDays.filter(predicate)
         // Absent = happened often before, barely at all in the recent window.
         if (gapPresent.length > 1) return
-        const priorValues = priorPresent
-          .map(accessor)
-          .filter((v): v is number => v != null && Number.isFinite(v))
-        const gapValues = gapDays
-          .map(accessor)
-          .filter((v): v is number => v != null && Number.isFinite(v))
+        // Prior days then gap days IS date order, so the labels form two
+        // contiguous runs — and block permutation's null is then "any
+        // similar chunk of the timeline vs the rest", which is exactly the
+        // honest null for a did-the-level-recently-change claim. The old
+        // day-shuffle was at its most optimistic on this family.
+        const seq = new Split()
+        for (const d of priorPresent) {
+          const v = accessor(d)
+          if (v != null && Number.isFinite(v)) seq.add(true, v)
+        }
+        for (const d of gapDays) {
+          const v = accessor(d)
+          if (v != null && Number.isFinite(v)) seq.add(false, v)
+        }
         const ins = compareGroups({
           id: `absence_${id}`, category: "absence", emoji,
           title: `Missing: ${label}`,
           highGroupLabel: `days you did (past 3 months)`,
           lowGroupLabel: `the last ${GAP_DAYS} days without`,
-          highValues: priorValues, lowValues: gapValues,
+          series: seq,
           findingTemplate: (h, l) =>
             `You've barely done "${label}" in ${GAP_DAYS} days. When you did, ${metricLabel} averaged ${h} — since then it's ${l}`,
         })
@@ -2871,16 +2939,25 @@ export async function computeCorrelations(
       const afterDays = dense.slice(firstIdx)
       const beforeStart = Math.max(0, firstIdx - afterDays.length)
       const beforeDays = dense.slice(beforeStart, firstIdx)
-      const afterMood = afterDays.map(d => d.mood).filter((v): v is number => v != null)
-      const beforeMood = beforeDays.map(d => d.mood).filter((v): v is number => v != null)
-      const afterEnergy = afterDays.map(d => d.energy).filter((v): v is number => v != null)
-      const beforeEnergy = beforeDays.map(d => d.energy).filter((v): v is number => v != null)
+      // Before-days precede after-days, so pushing them in that order keeps
+      // the sequence chronological; same segmented-runs argument as the
+      // absence family above.
+      const onsetMood = new Split()
+      const onsetEnergy = new Split()
+      for (const d of beforeDays) {
+        if (d.mood != null) onsetMood.add(false, d.mood)
+        if (d.energy != null) onsetEnergy.add(false, d.energy)
+      }
+      for (const d of afterDays) {
+        if (d.mood != null) onsetMood.add(true, d.mood)
+        if (d.energy != null) onsetEnergy.add(true, d.energy)
+      }
       const iMood = compareGroups({
         id: `onset_${tag}_mood`, category: "streaks", emoji: "🌱",
         title: `New in your life: ${tag} & Mood`,
         highGroupLabel: `since "${tag}" appeared`,
         lowGroupLabel: `the matched window before`,
-        highValues: afterMood, lowValues: beforeMood,
+        series: onsetMood,
         findingTemplate: (h, l) =>
           h > l
             ? `Since "${tag}" started showing up, mood averages ${h} vs ${l} in the matched window before`
@@ -2892,7 +2969,7 @@ export async function computeCorrelations(
         title: `New in your life: ${tag} & Energy`,
         highGroupLabel: `since "${tag}" appeared`,
         lowGroupLabel: `the matched window before`,
-        highValues: afterEnergy, lowValues: beforeEnergy,
+        series: onsetEnergy,
         findingTemplate: (h, l) =>
           h > l
             ? `Since "${tag}" started, morning energy is ${h} vs ${l} before`
@@ -3238,11 +3315,13 @@ export async function computeCorrelations(
       const spans = bodySpans(measure.accessor, measure.noiseFloor)
       if (spans.length < 10) continue
       for (const beh of BODY_BEHAVIOURS) {
-        const rose: number[] = [], fell: number[] = []
+        // Spans are walked anchor to anchor, so this sequence is
+        // chronological too; blocks here are runs of adjacent stretches.
+        const seq = new Split()
         for (const sp of spans) {
           const v = spanMean(sp, beh.per)
           if (v == null) continue
-          ;(sp.change > 0 ? rose : fell).push(v)
+          seq.add(sp.change > 0, v)
         }
         const fmt = beh.fmt ?? ((v: number) => String(Math.round(v)))
         // "Rose" is the high group so the percentage reads as "this much more
@@ -3257,8 +3336,7 @@ export async function computeCorrelations(
           title: `${beh.label} & ${measure.label} change`,
           highGroupLabel: `stretches your ${measure.label} rose`,
           lowGroupLabel: "stretches it fell",
-          highValues: rose,
-          lowValues: fell,
+          series: seq,
           findingTemplate: (hi, lo) =>
             `Between weigh-ins where your ${measure.label} climbed you averaged ${fmt(hi)} ${beh.unit}; between the ones where it dropped, ${fmt(lo)}`,
         })

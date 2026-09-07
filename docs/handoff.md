@@ -83,8 +83,14 @@ comparisons over them.
 
 Structure worth knowing:
 
-- **`compareGroups()`** is the workhorse: two groups of numbers in, one
-  `InsightResult` out, with a permutation p-value.
+- **`compareGroups()`** is the workhorse: one day-ordered `Split` of
+  observations in, one `InsightResult` out, with a **block permutation**
+  p-value — week-scale runs of days are shuffled, not days, because days
+  carry yesterday inside them. Measured on AR(1) nulls at the
+  autocorrelation daily weather and physiology show, the old day-shuffle
+  rejected 9–22% of true nulls at p<0.05; blocks bring it back to ~5–7%,
+  at ~no power cost on strong effects. The observations must be pushed in
+  day order — that ordering is the entire point of `Split`.
 - **`assignTiers()`** applies Benjamini-Hochberg FDR across the whole run.
   With ~70 candidates several will always look interesting by luck; this is
   what separates them. Runs **once**, after every family, so the p-value budget
