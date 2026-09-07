@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Sparkles, RefreshCw } from "lucide-react"
+import { generatedLabel } from "@/lib/generated-label"
 
 type BriefingState =
   | { status: "loading" }
@@ -57,7 +58,7 @@ export function DailyBriefing() {
 
   if (state.status === "empty") return null
 
-  const { briefing } = state
+  const { briefing, generatedAt } = state
 
   return (
     <div className="bg-primary/5 border border-primary/10 rounded-xl px-4 py-3">
@@ -65,7 +66,7 @@ export function DailyBriefing() {
         <Sparkles className="h-3.5 w-3.5 text-primary/60 mt-0.5 shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-sm text-muted-foreground italic leading-relaxed">{briefing}</p>
-          <p className="text-[10px] text-muted-foreground/50 mt-1.5">Updated today</p>
+          <p className="text-[10px] text-muted-foreground/50 mt-1.5">{generatedLabel(generatedAt)}</p>
         </div>
         <button
           onClick={handleRefresh}
