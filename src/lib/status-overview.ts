@@ -30,13 +30,11 @@ export async function loadStatusOverview(
   const today = localDateStr(timezone)
 
   const [
-    sync, lastfmKey, lastfmLog, rescueKey, rescueLog, screenLog, weatherLog, locationPoint, github,
+    sync, lastfmLog, rescueLog, screenLog, weatherLog, locationPoint, github,
     webPush, fcmCount, fcmNewest, prefs, lastReply, medSchedules,
   ] = await Promise.all([
     loadSyncOverview(userId),
-    prisma.lastfmKey.count({ where: { userId } }).catch(() => 0),
     prisma.lastfmLog.findFirst({ where: { userId }, orderBy: { date: "desc" }, select: { date: true } }).catch(() => null),
-    prisma.rescuetimeKey.count({ where: { userId } }).catch(() => 0),
     prisma.rescuetimeLog.findFirst({ where: { userId }, orderBy: { date: "desc" }, select: { date: true } }).catch(() => null),
     prisma.screenTimeLog.findFirst({ where: { userId }, orderBy: { date: "desc" }, select: { date: true } }).catch(() => null),
     prisma.weatherLog.findFirst({ where: { userId }, orderBy: { date: "desc" }, select: { date: true } }).catch(() => null),
@@ -55,6 +53,11 @@ export async function loadStatusOverview(
   const rows: StatusRow[] = []
 
   // ── Data sources ──────────────────────────────────────────────────────────
+  const newestBySource: Record<string, string | null | undefined> = {
+    oura: sync.newestHealthDate,
+    lastfm: lastfmLog?.date ?? null,
+    rescuetime: rescueLog?.date ?? null,
+  }
   for (const s of sync.sources) {
     if (!s.connected) {
       rows.push({ id: s.id, group: "Data", label: s.label, tone: "off", value: "not connected" })
@@ -74,8 +77,12 @@ export async function loadStatusOverview(
     const ageH = (Date.now() - Date.parse(s.run.at)) / 3600000
     const late = s.driver === "server" && ageH > 26
     const brought = broughtBackLabel(s.run.items)
-    const detail = s.id === "oura" && sync.newestHealthDate
-      ? `data to ${dayLabel(sync.newestHealthDate, today)}`
+    // A second opinion where we hold one: a sync can report success and
+    // still be bringing back nothing, and "synced 10 minutes ago" over
+    // three-week-old data is exactly the state worth seeing at a glance.
+    const newest = newestBySource[s.id]
+    const detail = newest
+      ? `data to ${dayLabel(newest, today)}`
       : brought ?? undefined
     rows.push({ id: s.id, group: "Data", label: s.label, tone: late ? "warn" : "ok", value: `synced ${when}`, detail })
   }
@@ -94,8 +101,10 @@ export async function loadStatusOverview(
     }
     rows.push({ id, group: "Data", label, tone: freshnessTone(day, today, warnAfter), value: `data ${dayLabel(day, today)}` })
   }
-  dayRow("lastfm", "Last.fm", lastfmKey > 0, lastfmLog?.date ?? null, 2)
-  dayRow("rescuetime", "RescueTime", rescueKey > 0, rescueLog?.date ?? null, 2)
+  // Last.fm and RescueTime used to be dayRows; since they joined
+  // SYNC_SOURCES the loop above owns them (their data freshness rides in
+  // its detail), and keeping both painted each of them twice under the
+  // same React key with two different answers.
   dayRow("screentime", "Screen time", !!screenLog, screenLog?.date ?? null, 2)
   dayRow("weather", "Weather", !!weatherLog, weatherLog?.date ?? null, 1)
   if (locationPoint) {
