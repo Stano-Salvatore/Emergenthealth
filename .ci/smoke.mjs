@@ -55,20 +55,74 @@ const SETTLE_STALL_MS = Number(process.env.SETTLE_STALL_MS ?? 5_000)
 /** Absolute bound, so a genuinely broken page cannot hang the run. */
 const SETTLE_MAX_MS = Number(process.env.SETTLE_MAX_MS ?? 60_000)
 
+// EVERY page, not a curated subset. This list started as eight "main"
+// screens, and the page this project spent a week changing — Insights —
+// was not one of them. A route that exists is a route someone opens; a
+// sweep that skips it protects nothing. Keep in sync with
+// `find src/app/dashboard -name page.tsx` (the run fails loudly if a
+// listed route 404s, so drift is caught in the failing direction).
 const ROUTES = (process.env.ROUTES ?? [
   "/dashboard",
-  "/dashboard/chat",
-  "/dashboard/health",
-  "/dashboard/habits",
-  "/dashboard/settings",
-  "/dashboard/week",
-  "/dashboard/experiments",
+  "/dashboard/bills",
+  "/dashboard/body",
+  "/dashboard/brief",
+  "/dashboard/caffeine",
   "/dashboard/calendar",
+  "/dashboard/chat",
+  "/dashboard/checkin",
+  "/dashboard/custom",
+  "/dashboard/experiments",
+  "/dashboard/fasting",
+  "/dashboard/finances",
+  "/dashboard/focus",
   "/dashboard/garden",
+  "/dashboard/gmail",
+  "/dashboard/habits",
+  "/dashboard/health",
+  "/dashboard/home",
+  "/dashboard/insights",
+  "/dashboard/intake",
+  "/dashboard/journal",
+  "/dashboard/labs",
+  "/dashboard/lastfm",
+  "/dashboard/location",
+  "/dashboard/medications",
+  "/dashboard/reading",
+  "/dashboard/reminders",
+  "/dashboard/report",
+  "/dashboard/rescuetime",
+  "/dashboard/settings",
+  "/dashboard/stats",
+  "/dashboard/strava",
+  "/dashboard/streaks",
+  "/dashboard/subscriptions",
+  "/dashboard/symptoms",
+  "/dashboard/timeline",
+  "/dashboard/toggl",
+  "/dashboard/week",
+  "/dashboard/weight",
 ].join(",")).split(",")
 
 // Errors every build produces on the web and which say nothing about the page.
-const IGNORED_ERRORS = [/"HealthConnect" plugin is not implemented on web/]
+const IGNORED_ERRORS = [
+  /"HealthConnect" plugin is not implemented on web/,
+  // Redundant by construction: a resource that fails by STATUS is caught by
+  // the response listener (with the URL and code), one that fails at the
+  // NETWORK level by the requestfailed listener (with the URL and reason).
+  // The console's version of either carries less information than the copy
+  // already reported, and doubling every finding teaches people to skim.
+  /^Failed to load resource/,
+  // Vercel Analytics' self-hosted route exists only when deployed on
+  // Vercel; `next start` answers its 404 with an HTML page and the
+  // browser refuses the MIME. Only ever fires OFF Vercel, so it can never
+  // mask a real analytics failure on the deployment.
+  /_vercel\/insights\//,
+]
+
+// External hosts whose failure is environment, not application: analytics
+// being unreachable (offline phone, an egress-filtered CI box, an ad
+// blocker) is a state the app must and does tolerate silently.
+const EXTERNAL_NOISE = [/^https:\/\/va\.vercel-scripts\.com\//]
 
 mkdirSync(OUT, { recursive: true })
 
@@ -93,12 +147,63 @@ await ctx.addInitScript(() => document.addEventListener("DOMContentLoaded", () =
 
 const failures = []
 const redirects = []
+const warnings = []
 const page = await ctx.newPage()
+
+// A page can render a perfectly calm empty state over an API that is on
+// fire. pageerror only hears exceptions that escape to the top; a fetch
+// whose 500 was caught and turned into "no data yet" says nothing there —
+// and that is exactly the bug a person clicking around would not catch.
+// So the sweep also listens to the network and the console:
+//   · a same-origin /api response of 500+ fails the route outright
+//   · a 4xx or a console.error is reported as a warning — some are
+//     legitimate (a source that isn't connected), and a warning that
+//     turns out to always be noise can be added to IGNORED_ERRORS,
+//     but silently is the one way this list must not grow.
+const API = new URL(BASE).origin + "/api/"
 
 for (const route of ROUTES) {
   const errors = []
   const onError = e => errors.push(String(e))
+  const onConsole = msg => {
+    if (msg.type() !== "error") return
+    const text = msg.text()
+    if (IGNORED_ERRORS.some(re => re.test(text))) return
+    warnings.push(`${route}: console.error — ${text.split("\n")[0].slice(0, 200)}`)
+  }
+  const onResponse = res => {
+    const url = res.url()
+    if (!url.startsWith(API)) return
+    const st = res.status()
+    const short = url.slice(new URL(BASE).origin.length)
+    // The one 5xx a local run legitimately produces: /api/briefing answers
+    // 503 when ANTHROPIC_API_KEY is unset, which local dev never sets. Scoped
+    // to exactly that route and status so any other 503 still fails.
+    if (st === 503 && short.startsWith("/api/briefing")) {
+      warnings.push(`${route}: API 503 on ${short} (briefing without ANTHROPIC_API_KEY — expected locally)`)
+    } else if (st >= 500) errors.push(`API ${st} on ${short}`)
+    // The seeded demo account has no external services attached, and the
+    // sync endpoints answer a not-connected POST "with a quick 4xx" by
+    // documented contract (AutoSync fires them all on app open). Labelled
+    // rather than hidden: a 4xx from any OTHER route is still bare signal.
+    else if (st === 400 && /^\/api\/(sync\/\w+|lastfm|rescuetime)$/.test(short.split("?")[0])) {
+      warnings.push(`${route}: API 400 on ${short} (source not connected — the documented answer)`)
+    }
+    else if (st >= 400) warnings.push(`${route}: API ${st} on ${short}`)
+  }
+  const onRequestFailed = req => {
+    const failure = req.failure()?.errorText ?? "unknown"
+    // Navigating away aborts in-flight requests; that is the sweep's own
+    // doing, not the page's.
+    if (failure === "net::ERR_ABORTED") return
+    if (EXTERNAL_NOISE.some(re => re.test(req.url()))) return
+    const short = req.url().startsWith(new URL(BASE).origin) ? req.url().slice(new URL(BASE).origin.length) : req.url()
+    warnings.push(`${route}: request failed — ${failure} ${short.slice(0, 160)}`)
+  }
   page.on("pageerror", onError)
+  page.on("console", onConsole)
+  page.on("response", onResponse)
+  page.on("requestfailed", onRequestFailed)
 
   let status = "ERR"
   try {
@@ -121,6 +226,9 @@ for (const route of ROUTES) {
     if (!recovered) {
       failures.push(`${route}: navigation failed twice — ${e.message.split("\n")[0]}`)
       page.off("pageerror", onError)
+      page.off("console", onConsole)
+      page.off("response", onResponse)
+      page.off("requestfailed", onRequestFailed)
       continue
     }
   }
@@ -229,6 +337,9 @@ for (const route of ROUTES) {
   const note = landed === route ? "" : `  → ${landed}`
   console.log(`${String(status).padEnd(5)} ${route}${note}`)
   page.off("pageerror", onError)
+  page.off("console", onConsole)
+  page.off("response", onResponse)
+  page.off("requestfailed", onRequestFailed)
 }
 
 await browser.close()
@@ -236,6 +347,11 @@ await browser.close()
 // Not a failure — a held-back feature is meant to redirect. But it has to be
 // said out loud, or the run reads as forty pages checked when it was
 // thirty-five and the home screen five times over.
+if (warnings.length) {
+  console.log(`\n${warnings.length} warning(s) — not failures, but each one is either a bug or a candidate for IGNORED_ERRORS, never for ignoring silently:`)
+  for (const w of [...new Set(warnings)]) console.log("  ~ " + w)
+}
+
 if (redirects.length) {
   console.log(`\n${redirects.length} route(s) redirected — the screenshot is of the destination, not the route:`)
   for (const r of redirects) console.log("  · " + r)

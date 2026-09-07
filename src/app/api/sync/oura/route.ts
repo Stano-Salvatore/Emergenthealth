@@ -12,7 +12,11 @@ export async function POST() {
   if (!result.ok) {
     return NextResponse.json(
       { error: result.error },
-      { status: result.notConnected ? 503 : 500 },
+      // Not-connected is a normal state, not a server fault. AutoSync fires
+      // this on every app open on the documented promise that unconnected
+      // services answer "with a quick 4xx" — a 503 here put a phantom server
+      // error in the console of every user who simply doesn't own the ring.
+      { status: result.notConnected ? 400 : 500 },
     )
   }
 

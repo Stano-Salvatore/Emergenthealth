@@ -44,8 +44,23 @@ export async function GET(req: NextRequest) {
         LIMIT 1
       `
       if (cached.length > 0) {
-        const parsed = JSON.parse(cached[0].value) as { briefing: string; generatedAt: string }
-        return NextResponse.json({ briefing: parsed.briefing, generatedAt: parsed.generatedAt, cached: true })
+        const parsed = JSON.parse(cached[0].value) as { briefing: string; generatedAt: string; hadSleep?: boolean }
+        // A brief generated just after midnight has no sleep data yet. Once
+        // the ring syncs, keeping that "no data" brief all day would be worse
+        // than the bug it replaced — so a sleepless brief is regenerated the
+        // first time it's requested after today's sleep row lands. Old cache
+        // entries without the flag are left alone; they expire at midnight.
+        let sleepArrived = false
+        if (parsed.hadSleep === false) {
+          const todaySleep = await prisma.healthLog.findFirst({
+            where: { userId, date: new Date(todayStr), sleepDuration: { not: null } },
+            select: { id: true },
+          }).catch(() => null)
+          sleepArrived = todaySleep != null
+        }
+        if (!sleepArrived) {
+          return NextResponse.json({ briefing: parsed.briefing, generatedAt: parsed.generatedAt, cached: true })
+        }
       }
     } catch {
       // fall through to generate
@@ -139,10 +154,19 @@ export async function GET(req: NextRequest) {
     lines.push(`Morning check-in — energy: ${checkin.energy}/5, mood: ${checkin.mood}/5${checkin.intention ? `, intention: "${checkin.intention}"` : ""}.`)
   }
 
-  if (latestHealth?.sleepDuration != null) {
+  // The newest HealthLog row is only *last* night when it's dated today —
+  // at 00:20 it's still yesterday's, and narrating it as "last night's sleep"
+  // reads a stale night as fresh. Same fix as /api/emergy/brief.
+  const sleepIsToday = latestHealth?.sleepDuration != null
+    && latestHealth.date.toISOString().slice(0, 10) === todayStr
+  if (sleepIsToday && latestHealth?.sleepDuration != null) {
     const sleepHrs = (latestHealth.sleepDuration / 60).toFixed(1)
     const readinessStr = latestHealth.readinessScore != null ? `, readiness ${latestHealth.readinessScore}/100` : ""
     lines.push(`Last night's sleep: ${sleepHrs} hours${readinessStr}.`)
+  } else {
+    lines.push(latestHealth?.date
+      ? `NO SLEEP DATA for last night yet — the newest recorded night is ${latestHealth.date.toISOString().slice(0, 10)}. Say there's no sleep data for today yet; never invent or imply sleep figures from an older night.`
+      : `NO SLEEP DATA recorded at all yet. Never invent or imply sleep figures.`)
   }
 
   if (habitRows.length > 0) {
@@ -259,7 +283,7 @@ ${context}`,
 
   // Store in cache
   try {
-    const cacheValue = JSON.stringify({ briefing, generatedAt })
+    const cacheValue = JSON.stringify({ briefing, generatedAt, hadSleep: sleepIsToday })
     await prisma.$executeRaw`
       INSERT INTO "UserPreference" ("userId","key","value") VALUES (${userId},${cacheKey},${cacheValue})
       ON CONFLICT ("userId","key") DO UPDATE SET "value"=${cacheValue}

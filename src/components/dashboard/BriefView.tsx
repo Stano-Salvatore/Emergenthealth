@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { weatherEmoji } from "@/lib/weather-codes"
+import { generatedLabel } from "@/lib/generated-label"
 import { scoreText, sleepVerdictText } from "@/lib/score-color"
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
@@ -51,7 +52,7 @@ export function BriefView({ name }: { name: string }) {
   const [renderedAt] = useState(() => Date.now())
   const [period, setPeriod] = useState<Period>("morning")
   const [today, setToday] = useState<TodayData | null>(null)
-  const [briefing, setBriefing] = useState<string | null>(null)
+  const [briefing, setBriefing] = useState<{ text: string; generatedAt: string | null } | null>(null)
   const [checkin, setCheckin] = useState<CheckIn | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -79,7 +80,9 @@ export function BriefView({ name }: { name: string }) {
       fetch(`/api/morning-checkin?date=${localDate}`).then(r => r.json()),
     ]).then(([t, b, c]) => {
       if (t.status === "fulfilled") setToday(t.value)
-      if (b.status === "fulfilled" && b.value?.briefing) setBriefing(b.value.briefing)
+      if (b.status === "fulfilled" && b.value?.briefing) {
+        setBriefing({ text: b.value.briefing, generatedAt: b.value.generatedAt ?? null })
+      }
       if (c.status === "fulfilled" && c.value?.checkin) setCheckin(c.value.checkin)
       setLoading(false)
     })
@@ -122,7 +125,12 @@ export function BriefView({ name }: { name: string }) {
             <Card className="border-primary/20 bg-primary/5">
               <CardContent className="pt-4 pb-4 flex items-start gap-2.5">
                 <Sparkles className="h-4 w-4 text-primary/70 mt-0.5 shrink-0" />
-                <p className="text-sm text-foreground/90 italic leading-relaxed">{briefing}</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-foreground/90 italic leading-relaxed">{briefing.text}</p>
+                  {briefing.generatedAt && (
+                    <p className="text-[10px] text-muted-foreground/50 mt-1.5">{generatedLabel(briefing.generatedAt)}</p>
+                  )}
+                </div>
               </CardContent>
             </Card>
           )}
