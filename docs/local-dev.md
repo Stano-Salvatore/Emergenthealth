@@ -71,12 +71,24 @@ npm run smoke                      # against the dev server above
 BASE_URL=https://… npm run smoke   # or a deployment
 ```
 
-It loads every main screen at 390px in a real browser and fails on:
+It loads **every dashboard page** (all of them — the list in `.ci/smoke.mjs`
+mirrors `find src/app/dashboard -name page.tsx`) at 390px in a real browser
+and fails on:
 
 - a screen that does not answer 200, or throws an uncaught error
+- **any same-origin `/api/*` response of 500+** while the page loads
 - **anything painted on top of the fixed bottom nav**
 - **a loading skeleton still animating after the page has settled**
 - a page that scrolls sideways
+
+It also reports, as warnings that must never be ignored silently: 4xx API
+answers, `console.error` output, and network-level request failures with
+their URL and reason. Known-expected states (the briefing without an
+`ANTHROPIC_API_KEY`, a source the account hasn't connected) are labelled on
+the line, so an unlabelled warning is always new signal. Its first
+full-coverage run caught a sync route answering 503 for a not-connected
+user and the settings screen painting two sources twice under duplicate
+React keys — neither reachable by any unit test.
 
 Those first two are not arbitrary. On 2026-08-27 the Privacy and Terms links
 were printed over the "Habits" and "Settings" labels on every phone-width

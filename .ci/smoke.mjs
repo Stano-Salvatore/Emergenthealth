@@ -112,6 +112,11 @@ const IGNORED_ERRORS = [
   // The console's version of either carries less information than the copy
   // already reported, and doubling every finding teaches people to skim.
   /^Failed to load resource/,
+  // Vercel Analytics' self-hosted route exists only when deployed on
+  // Vercel; `next start` answers its 404 with an HTML page and the
+  // browser refuses the MIME. Only ever fires OFF Vercel, so it can never
+  // mask a real analytics failure on the deployment.
+  /_vercel\/insights\//,
 ]
 
 // External hosts whose failure is environment, not application: analytics
