@@ -74,17 +74,28 @@ export async function POST(req: NextRequest) {
 
   let inserted = 0
   let skipped = 0
+  let enriched = 0
   const dates = Object.keys(byDate).sort()
   for (const date of dates) {
     const bucket: DayBucket = byDate[date]
-    const wrote = await prisma.$executeRaw`
-      INSERT INTO "LastfmLog" ("id", "userId", "date", "tracksPlayed", "listeningMin", "topArtist", "topTrack", "lateTracks")
+    // Still never argues with an existing day's counts — but a row written
+    // before per-artist counts existed gets its artistPlays filled in, because
+    // this file is the only place those old days' plays still exist. The WHERE
+    // keeps Last.fm's richer version wherever one has already been written.
+    // (xmax = 0) is Postgres's tell for "freshly inserted": zero rows back
+    // means the conflict row already had artistPlays and nothing changed.
+    const rows = await prisma.$queryRaw<{ inserted: boolean }[]>`
+      INSERT INTO "LastfmLog" ("id", "userId", "date", "tracksPlayed", "listeningMin", "topArtist", "topTrack", "lateTracks", "artistPlays")
       VALUES (${randomUUID()}, ${userId}, ${date}, ${bucket.tracks}, ${bucket.tracks * MINUTES_PER_TRACK},
-              ${topOf(bucket.artists)}, ${topOf(bucket.titles)}, ${bucket.late})
-      ON CONFLICT ("userId", "date") DO NOTHING
+              ${topOf(bucket.artists)}, ${topOf(bucket.titles)}, ${bucket.late}, ${JSON.stringify(bucket.artists)}::jsonb)
+      ON CONFLICT ("userId", "date") DO UPDATE
+        SET "artistPlays" = EXCLUDED."artistPlays"
+        WHERE "LastfmLog"."artistPlays" IS NULL
+      RETURNING (xmax = 0) AS inserted
     `
-    if (wrote > 0) inserted++
-    else skipped++
+    if (rows.length === 0) skipped++
+    else if (rows[0].inserted) inserted++
+    else { skipped++; enriched++ }
   }
 
   // The import can bring months of artists the genre table has never seen.
@@ -96,6 +107,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     days: inserted,
     skippedDays: skipped,
+    enrichedDays: enriched,
     tracks: plays.length,
     from: dates[0] ?? null,
     to: dates.at(-1) ?? null,

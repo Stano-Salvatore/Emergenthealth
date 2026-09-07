@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { readFileSync } from "node:fs"
+import { readFileSync, readdirSync } from "node:fs"
 import { SYNC_SOURCES } from "@/lib/sync-status"
 
 // The inverse of scheduled-routes-exist.test.ts, and the gap that actually bit.
@@ -16,8 +16,31 @@ import { SYNC_SOURCES } from "@/lib/sync-status"
 // overdue. That promise is only true if something on a schedule actually runs
 // it. Device-driven sources are exempt: the phone runs those, not us.
 
-const SCHEDULED: string[] = (JSON.parse(readFileSync("vercel.json", "utf8")).crons ?? [])
-  .map((c: { path?: string }) => c.path ?? "")
+// There are TWO schedulers, and reading only one enforces the wrong place.
+// vercel.json is the daily backstop (the Hobby plan allows one run a day);
+// .github/workflows/sync-cron.yml is what actually drives the data sources,
+// every 30 minutes, from a shell loop. A source scheduled only daily reads
+// "overdue" against SYNC_CADENCE_MINUTES * 3 for most of the day, so either
+// location counts as scheduled here and neither is assumed.
+function scheduled(): string[] {
+  const out = (JSON.parse(readFileSync("vercel.json", "utf8")).crons ?? [])
+    .map((c: { path?: string }) => c.path ?? "")
+
+  for (const file of readdirSync(".github/workflows")) {
+    const src = readFileSync(`.github/workflows/${file}`, "utf8")
+    if (!src.includes("/api/cron/")) continue
+    // `for path in a b c; do … /api/cron/${path}` — only loops whose variable
+    // is actually used in a cron URL, so an unrelated loop isn't mistaken for
+    // one. Same shape scheduled-routes-exist.test.ts reads.
+    for (const loop of src.matchAll(/for\s+(\w+)\s+in\s+([^;]+);\s*do/g)) {
+      if (!new RegExp(`/api/cron/\\$\\{${loop[1]}\\}`).test(src)) continue
+      for (const name of loop[2].trim().split(/\s+/)) out.push(`/api/cron/${name}`)
+    }
+  }
+  return out
+}
+
+const SCHEDULED = scheduled()
 
 describe("every server-driven sync source is on a schedule", () => {
   it("has a cron for each one", () => {
@@ -33,7 +56,8 @@ describe("every server-driven sync source is on a schedule", () => {
       "meaningful. Without a schedule that is a lie — it syncs only when the app",
       "is opened, and a broken connection is indistinguishable from a quiet week.",
       "",
-      "Either add /api/cron/<id> to vercel.json, or mark the source as device-driven.",
+      "Either schedule /api/cron/<id> — in sync-cron.yml for a data source, or",
+      "vercel.json for a daily one — or mark the source as device-driven.",
     ].join("\n")).toEqual([])
   })
 })

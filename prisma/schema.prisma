@@ -1119,6 +1119,14 @@ model LastfmLog {
   // with 0 would tell the correlation engine they were quiet evenings — the
   // same mistake as reading a day with no location fixes as a day at home.
   lateTracks   Int?
+  /// Plays per artist for the day — {"DG 307": 14, ...}. NULLABLE like
+  /// lateTracks and for the same reason: null means "written before per-artist
+  /// counts existed", which must stay distinguishable from a day genuinely
+  /// dominated by one act. The correlation engine labels a day's genre from
+  /// the SHARE of these plays; rows without it fall back to topArtist, the
+  /// old fragile label. Backfilled by re-uploading a Takeout (fills only where
+  /// null) or a Last.fm re-sync (overwrites — Last.fm is authoritative).
+  artistPlays  Json?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

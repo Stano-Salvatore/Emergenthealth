@@ -89,12 +89,19 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
     // days mood lands on 5, black metal the days it lands on 2 — so the genre
     // family has a planted contrast that the volume family can't see (volume
     // is identical everywhere).
-    lastfmRows: dates.map((ds, i) => ({
-      date: ds,
-      listeningMin: 90,
-      lateTracks: null,
-      topArtist: i > 0 && isEven(i - 1) ? "Ambient Guy" : "DG 307",
-    })),
+    // Alternate rows carry full per-artist counts (the share path) and rows
+    // without them (the pre-artistPlays fallback) — both must land the day in
+    // the same genre family, or a half-backfilled history would split it.
+    lastfmRows: dates.map((ds, i) => {
+      const artist = i > 0 && isEven(i - 1) ? "Ambient Guy" : "DG 307"
+      return {
+        date: ds,
+        listeningMin: 90,
+        lateTracks: null,
+        topArtist: artist,
+        artistPlays: isEven(i) ? { [artist]: 5, "Some Untagged Act": 2 } : null,
+      }
+    }),
     genreRows: [
       { artist: "ambient guy", genre: "ambient" },
       { artist: "dg 307", genre: "black metal" },

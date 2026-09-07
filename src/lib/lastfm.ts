@@ -192,10 +192,21 @@ export async function syncArtistGenres(
   // records nothing and loses the sync response with it.
   const deadline = Date.now() + (opts.budgetMs ?? 25_000)
 
+  // Every artist that appears on a day, not only the one that topped it. The
+  // engine labels a day's genre from the SHARE of its plays now, and a share
+  // computed over only the day-winners is the old top-artist label wearing a
+  // different name — the second- and third-most-played acts are exactly the
+  // ones that decide whether a genre holds a majority.
   const missing = await prisma.$queryRaw<{ artist: string }[]>`
-    SELECT DISTINCT LOWER("topArtist") AS artist FROM "LastfmLog"
-    WHERE "userId" = ${userId} AND "topArtist" IS NOT NULL
-      AND LOWER("topArtist") NOT IN (SELECT "artist" FROM "ArtistGenre")
+    SELECT DISTINCT artist FROM (
+      SELECT LOWER("topArtist") AS artist FROM "LastfmLog"
+      WHERE "userId" = ${userId} AND "topArtist" IS NOT NULL
+      UNION
+      SELECT DISTINCT LOWER(k) AS artist
+      FROM "LastfmLog", LATERAL jsonb_object_keys("artistPlays") AS k
+      WHERE "userId" = ${userId} AND "artistPlays" IS NOT NULL
+    ) a
+    WHERE artist NOT IN (SELECT "artist" FROM "ArtistGenre")
   `.catch(() => [] as { artist: string }[])
 
   let looked = 0
@@ -260,14 +271,15 @@ export async function syncLastfm(
     const id = randomUUID()
 
     await prisma.$executeRaw`
-      INSERT INTO "LastfmLog" ("id", "userId", "date", "tracksPlayed", "listeningMin", "topArtist", "topTrack", "lateTracks")
-      VALUES (${id}, ${userId}, ${date}, ${tracksPlayed}, ${listeningMin}, ${topArtist}, ${topTrack}, ${bucket.late})
+      INSERT INTO "LastfmLog" ("id", "userId", "date", "tracksPlayed", "listeningMin", "topArtist", "topTrack", "lateTracks", "artistPlays")
+      VALUES (${id}, ${userId}, ${date}, ${tracksPlayed}, ${listeningMin}, ${topArtist}, ${topTrack}, ${bucket.late}, ${JSON.stringify(bucket.artists)}::jsonb)
       ON CONFLICT ("userId", "date") DO UPDATE
         SET "tracksPlayed" = EXCLUDED."tracksPlayed",
             "listeningMin" = EXCLUDED."listeningMin",
             "topArtist"    = EXCLUDED."topArtist",
             "topTrack"     = EXCLUDED."topTrack",
-            "lateTracks"   = EXCLUDED."lateTracks"
+            "lateTracks"   = EXCLUDED."lateTracks",
+            "artistPlays"  = EXCLUDED."artistPlays"
     `
     synced++
   }

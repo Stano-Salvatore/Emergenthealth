@@ -119,6 +119,15 @@ guard would compare two structurally different splits.
 Bump `ENGINE_VERSION` when a group definition moves, not just when a family
 is added: cached cards carry the label they were computed with.
 
+**A day's music genre** comes from `dominantGenre()`: the genre holding a
+majority of the day's tagged plays (`artistPlays`, min 3 tagged). Rows
+written before `artistPlays` existed fall back to the old top-artist lookup;
+a row WITH counts but no majority stays unlabelled on purpose. Old rows gain
+counts from a Takeout re-upload (fills only where null) or a Last.fm re-sync
+(overwrites). The genre tagger reads every artist on a day, not just the
+day-winners — the acts that swing a majority are precisely the ones that
+never top a day.
+
 Two families do not work on single days, and the reasons generalise:
 
 - **Interactions** compare two differences, so they get

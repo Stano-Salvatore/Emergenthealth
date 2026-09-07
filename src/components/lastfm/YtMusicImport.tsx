@@ -13,6 +13,8 @@ import { parseWatchHistory } from "@/lib/ytmusic-import"
 interface ImportResult {
   days: number
   skippedDays: number
+  /** Existing days that gained per-artist play counts (for genre-by-share). */
+  enrichedDays?: number
   tracks: number
   from: string | null
   to: string | null
@@ -106,7 +108,10 @@ export function YtMusicImport({ onImported }: { onImported: () => void }) {
                 way to check an import actually landed — used to report that
                 Last.fm covered days it had never touched. */}
             {result.skippedDays > 0 && (
-              <span className="text-muted-foreground"> {result.skippedDays} day{result.skippedDays === 1 ? "" : "s"} already had listening data and were left untouched.</span>
+              <span className="text-muted-foreground"> {result.skippedDays} day{result.skippedDays === 1 ? "" : "s"} already had listening data and kept their counts.</span>
+            )}
+            {(result.enrichedDays ?? 0) > 0 && (
+              <span className="text-muted-foreground"> Filled in artist detail for {result.enrichedDays} of them — genre insights can now read those days properly.</span>
             )}
           </p>
         </div>

@@ -41,8 +41,15 @@ jobs:
           # Strava is here as well as in vercel.json. That schedule is daily, so
           # on its own a ride recorded this morning would not show up until
           # tomorrow — which is what made it look neglected on the sync screen.
+          #
+          # Same for lastfm and rescuetime. Landing them in vercel.json alone
+          # would have left them syncing once a day against a status screen
+          # whose staleness threshold is SYNC_CADENCE_MINUTES * 3 — 90 minutes.
+          # They would have read "overdue" for twenty-two hours out of every
+          # twenty-four, which is exactly the false alarm that teaches someone
+          # to stop reading the screen.
           auth_failed=0
-          for path in oura strava ynab truelayer; do
+          for path in oura strava ynab truelayer lastfm rescuetime; do
             code=$(curl -sS --max-time 300 -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${path}") || true
