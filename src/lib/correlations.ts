@@ -49,7 +49,7 @@ type DayData = {
   focusMin?: number        // completed focus-session minutes
   listeningMin?: number    // Last.fm music listening (estimated: tracks × 3min)
   lateTracks?: number      // scrobbles between 22:00 and 04:00 local
-  musicGenre?: string      // genre of the day's top artist (ArtistGenre lookup)
+  musicGenre?: string      // majority genre of the day's plays (top artist on old rows)
   spendEur?: number        // card spending (outgoing, transfers excluded)
   uvIndex?: number
   fastH?: number           // longest completed fast ending this day
@@ -112,7 +112,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 8
+export const ENGINE_VERSION = 9
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -189,6 +189,52 @@ export function balancedCut(raw: (number | undefined)[], fixed: number): Cut {
   // the borrowed number's meaning. Keep the textbook.
   if (cut == null || thinnerSide(cut) < 5) return fixedCut
   return { at: cut, personal: true }
+}
+
+/**
+ * A day needs this many genre-tagged plays before a majority means anything.
+ * Two plays cannot outvote each other into a label worth grouping days by.
+ */
+const MIN_TAGGED_PLAYS = 3
+
+/**
+ * The genre of a day, from the share of its plays.
+ *
+ * The old label was the genre of the day's single top artist — and on a real
+ * year of listening, 118 days were owned by 44 artists, 28 of them exactly
+ * once. A 3-track day was labelled by an act with 2 plays; a day of 20 folk
+ * songs topped by one untagged obscurity got no label at all. Groups of 6
+ * and 9 days came out of that, and no permutation test clears groups that
+ * size however real the effect.
+ *
+ * A genre earns the day only by holding a MAJORITY of its tagged plays.
+ * Deliberately not a plurality: "mostly folk" is a claim about the day;
+ * "folk, narrowly, out of five genres" is a claim about the tie-break. A day
+ * with full counts and no majority gets NO label — falling back to the top
+ * artist there would reintroduce the fragile label exactly where the data
+ * says it isn't representative. The fallback exists only for rows written
+ * before per-artist counts did.
+ */
+export function dominantGenre(
+  plays: Record<string, unknown> | null | undefined,
+  genreByArtist: Map<string, string>,
+): string | null {
+  if (!plays || typeof plays !== "object") return null
+  const byGenre = new Map<string, number>()
+  let tagged = 0
+  for (const [artist, raw] of Object.entries(plays)) {
+    const count = Number(raw)
+    if (!Number.isFinite(count) || count <= 0) continue
+    const genre = genreByArtist.get(artist.toLowerCase())
+    if (!genre) continue
+    tagged += count
+    byGenre.set(genre, (byGenre.get(genre) ?? 0) + count)
+  }
+  if (tagged < MIN_TAGGED_PLAYS) return null
+  for (const [genre, count] of byGenre) {
+    if (count * 2 > tagged) return genre
+  }
+  return null
 }
 
 // Deterministic RNG (mulberry32) so permutation p-values are reproducible in
@@ -506,10 +552,10 @@ export async function computeCorrelations(
     }).catch(() => [] as { endedAt: Date; durationMin: number }[]),
 
     // Last.fm lives in a raw-DDL table with no Prisma model
-    prisma.$queryRaw<{ date: string; listeningMin: number; lateTracks: number | null; topArtist: string | null }[]>`
-      SELECT "date", "listeningMin", "lateTracks", "topArtist" FROM "LastfmLog"
+    prisma.$queryRaw<{ date: string; listeningMin: number; lateTracks: number | null; topArtist: string | null; artistPlays: Record<string, number> | null }[]>`
+      SELECT "date", "listeningMin", "lateTracks", "topArtist", "artistPlays" FROM "LastfmLog"
       WHERE "userId" = ${userId} AND "date" >= ${since60str}
-    `.catch(() => [] as { date: string; listeningMin: number; lateTracks: number | null; topArtist: string | null }[]),
+    `.catch(() => [] as { date: string; listeningMin: number; lateTracks: number | null; topArtist: string | null; artistPlays: Record<string, number> | null }[]),
 
     prisma.transaction.findMany({
       where: { userId, date: { gte: since60 }, isTransfer: false, amount: { lt: 0 } },
@@ -569,12 +615,13 @@ export async function computeCorrelations(
   // Genres for the artists this user's days were topped by — the ArtistGenre
   // table is global (an artist is the same band for everyone), filled in by
   // the Last.fm sync and the YT Music import.
+  // The whole tagged table, not just this user's day-toppers: a day's genre
+  // is decided by the share of ALL its plays now, and the artists that swing
+  // a majority are precisely the ones that never topped a day. The table is
+  // one small global row per artist ever seen — cheaper to load whole than to
+  // join against JSON keys.
   const genreRows = await prisma.$queryRaw<{ artist: string; genre: string }[]>`
-    SELECT "artist", "genre" FROM "ArtistGenre"
-    WHERE "genre" IS NOT NULL AND "artist" IN (
-      SELECT DISTINCT LOWER("topArtist") FROM "LastfmLog"
-      WHERE "userId" = ${userId} AND "topArtist" IS NOT NULL AND "date" >= ${since60str}
-    )
+    SELECT "artist", "genre" FROM "ArtistGenre" WHERE "genre" IS NOT NULL
   `.catch(() => [] as { artist: string; genre: string }[])
 
   const dayMap = new Map<string, DayData>()
@@ -753,10 +800,13 @@ export async function computeCorrelations(
   for (const l of lastfmRows) {
     if (l.listeningMin != null) getOrCreate(l.date).listeningMin = Number(l.listeningMin)
     if (l.lateTracks != null) getOrCreate(l.date).lateTracks = Number(l.lateTracks)
-    if (l.topArtist) {
-      const genre = genreByArtist.get(l.topArtist.toLowerCase())
-      if (genre) getOrCreate(l.date).musicGenre = genre
-    }
+    // Full counts decide; the top artist speaks only for rows that predate
+    // artistPlays. A day WITH counts but no majority stays unlabelled on
+    // purpose — see dominantGenre.
+    const genre = l.artistPlays != null
+      ? dominantGenre(l.artistPlays, genreByArtist)
+      : l.topArtist ? genreByArtist.get(l.topArtist.toLowerCase()) ?? null : null
+    if (genre) getOrCreate(l.date).musicGenre = genre
   }
 
   for (const t of txRows) {
