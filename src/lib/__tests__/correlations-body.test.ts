@@ -4,10 +4,19 @@ import { describe, it, expect, vi } from "vitest"
 // body measurements (which compare the stretches BETWEEN weigh-ins) and the
 // two-way interactions (which compare two differences, not two groups).
 //
-// Weigh-ins land every 4th day and alternate: up a kilo, down a kilo, up a
-// kilo. The stretches where the number climbed were 2800 kcal a day, the ones
-// where it fell were 1800 — an association the engine should find without
-// ever comparing one day's weight against another's.
+// Weigh-ins land every 4th day; the weight climbs a kilo on seven stretches
+// and falls a kilo on the other seven, in an IRREGULAR order. The stretches
+// where the number climbed were 2800 kcal a day, the ones where it fell were
+// 1800 — an association the engine should find without ever comparing one
+// day's weight against another's.
+//
+// Irregular on purpose. This fixture used to alternate up/down/up/down, and
+// a perfect period-2 oscillation is itself maximally autocorrelated — the
+// block permutation test rightly refuses to call two lockstep oscillations
+// significant, because their alignment survives most rearrangements of
+// adjacent runs. The claim being planted is "climbing stretches ate more",
+// not "everything oscillates together", so the plant has to be aperiodic
+// for the assertion to mean what it says.
 //
 // Alcohol and workouts cross to plant a real interaction: after a drinking
 // day HRV is barely touched if there was a workout (60 vs 62), and falls off
@@ -22,6 +31,13 @@ const { DAYS, healthLogs, bodyRows, foodLogs, alcoholLogs, stravaRows } = vi.hoi
     dates.push(new Date(now.getTime() - i * 86400000).toISOString().slice(0, 10))
   }
   const at = (ds: string) => new Date(ds + "T12:00:00.000Z")
+
+  // Which way each of the 14 stretches goes: 7 up, 7 down, no period.
+  const UP = [1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 0, 1, 0]
+  const WEIGHTS = [80]
+  for (const u of UP) WEIGHTS.push(WEIGHTS[WEIGHTS.length - 1] + (u ? 1 : -1))
+  // Day i sits in the stretch that began at the weigh-in before it.
+  const spanOf = (i: number) => Math.min(Math.max(Math.floor((i - 1) / 4), 0), UP.length - 1)
 
   // Day i: drinking on even days, a workout when i % 4 is 0 or 1.
   const drank = (i: number) => i % 2 === 0
@@ -43,21 +59,20 @@ const { DAYS, healthLogs, bodyRows, foodLogs, alcoholLogs, stravaRows } = vi.hoi
       steps: 8000, activityScore: null, deepSleep: null, remSleep: null,
     })),
 
-    // A weigh-in every 4th day; 80 kg on even marks, 81 on odd ones, so each
-    // span is a clean kilo up or a clean kilo down.
+    // A weigh-in every 4th day, walking up or down a kilo per UP.
     bodyRows: dates
       .map((ds, i) => ({ ds, i }))
       .filter(({ i }) => i % 4 === 0)
       .map(({ ds, i }) => ({
         date: new Date(ds + "T00:00:00Z"),
-        weightKg: 80 + ((i / 4) % 2),
+        weightKg: WEIGHTS[i / 4],
         waistCm: null,
       })),
 
     // The days inside a climbing stretch ate 2800; inside a falling one, 1800.
     foodLogs: dates.map((ds, i) => ({
       loggedAt: at(ds),
-      calories: Math.floor((i - 1) / 4) % 2 === 0 ? 2800 : 1800,
+      calories: UP[spanOf(i)] ? 2800 : 1800,
       proteinG: 100,
       sugarG: null,
     })),
