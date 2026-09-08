@@ -37,6 +37,8 @@ interface Conversation {
   id: string
   title: string
   updatedAt: string
+  /** No user message yet — a thread Emergy started that nobody has answered. */
+  awaitingReply?: boolean
 }
 
 /**
@@ -285,19 +287,41 @@ export default function ChatPage() {
     }
   }
 
-  // ?conversation=<id> — arriving at a specific thread rather than a blank one.
+  // What the page opens on.
   //
-  // This is how a tapped chat head lands on what Emergy actually said. The
-  // native bridge turns the phone's pending message into a real conversation
-  // and sends us here; without this the app opened on an empty chat and the
-  // one sentence you tapped in order to read was the one thing missing.
+  // ?conversation=<id> wins — that is how a tapped chat head lands on what
+  // Emergy actually said. The native bridge turns the phone's pending message
+  // into a real conversation and sends us here; without this the app opened
+  // on an empty chat and the one sentence you tapped in order to read was the
+  // one thing missing.
+  //
+  // Otherwise the newest conversation is looked at before defaulting to a
+  // blank one: a thread Emergy started that nobody has answered yet is the
+  // reason to be here, so it goes on screen instead of behind the History
+  // button — and a thread you were in minutes ago resumes, the way any
+  // messaging app treats an active conversation. Everything else starts the
+  // usual fresh chat with the quick questions visible.
   useEffect(() => {
     if (typeof window === "undefined") return
     const id = new URLSearchParams(window.location.search).get("conversation")
-    if (!id) return
-    window.history.replaceState({}, "", window.location.pathname)
-    void openConversation(id)
-  // Once, for the id the page was opened with. openConversation is redefined
+    if (id) {
+      window.history.replaceState({}, "", window.location.pathname)
+      void openConversation(id)
+      refreshConversations()
+      return
+    }
+    fetch("/api/chat/conversations").then(async (r) => {
+      if (!r.ok) return
+      const list: Conversation[] = await r.json()
+      setConversations(list)
+      const newest = list[0]
+      if (!newest || newest.id === "legacy") return
+      const age = Date.now() - new Date(newest.updatedAt).getTime()
+      const unansweredSay = newest.awaitingReply === true && age < 24 * 3_600_000
+      const justLeft = age < 60 * 60_000
+      if (unansweredSay || justLeft) void openConversation(newest.id)
+    }).catch(() => {})
+  // Once, for the URL the page was opened with. openConversation is redefined
   // every render and depending on it would reopen the thread on each one,
   // throwing away anything typed since.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -330,12 +354,6 @@ export default function ChatPage() {
       if (r.ok) setConversations(await r.json())
     }).catch(() => {})
   }, [])
-
-  // A fresh visit starts a new empty chat (quick questions visible); past chats
-  // live in the History panel.
-  useEffect(() => {
-    refreshConversations()
-  }, [refreshConversations])
 
   useEffect(() => {
     if (scrollRef.current) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireCronSecret } from "@/lib/cron-auth"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
+import { sayAsEmergy } from "@/lib/emergy-say"
 import { prisma } from "@/lib/prisma"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
 import { localDateStr, localTimeStr, zonedDayRange } from "@/lib/local-date"
@@ -124,7 +125,13 @@ export async function GET(req: NextRequest) {
       tag,
       requireInteraction: habitPct < 50,
     })
-    if (delivered) sent++
+    if (delivered) {
+      sent++
+      // The same courtesy every other proactive cron pays: the scream becomes
+      // a real message in a real conversation, so Emergy knows he said it and
+      // the user can answer it instead of just dismissing it.
+      await sayAsEmergy(userId, message).catch(() => null)
+    }
   }))
 
   return NextResponse.json({ ok: true, sent, due: due.length, total: subsByUser.size })
