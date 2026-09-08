@@ -32,6 +32,15 @@ export async function GET(req: NextRequest) {
   const todayStr = localDateStr(timezone)
   const cacheKey = `daily_briefing_${todayStr}`
 
+  // The brief reads differently at 07:00 than at 19:00 — a morning text plans
+  // the day, an evening one reads back over it. Boundaries match periodFor()
+  // in BriefView, the page this sits on.
+  const localTime = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date())
+  const localHour = Number(localTime.slice(0, 2))
+  const period = localHour < 12 ? "morning" : localHour < 17 ? "afternoon" : "evening"
+
   const { searchParams } = new URL(req.url)
   const force = searchParams.get("force") === "1"
 
@@ -44,21 +53,25 @@ export async function GET(req: NextRequest) {
         LIMIT 1
       `
       if (cached.length > 0) {
-        const parsed = JSON.parse(cached[0].value) as { briefing: string; generatedAt: string; hadSleep?: boolean }
+        const parsed = JSON.parse(cached[0].value) as { briefing: string; generatedAt: string; hadSleep?: boolean; period?: string }
+        // The cache is per-day but the framing is per-period: a morning brief
+        // served at 19:00 would still be planning a day that already happened.
+        // Crossing into a new period regenerates — at most three briefs a day.
+        const periodChanged = parsed.period !== undefined && parsed.period !== period
         // A brief generated just after midnight has no sleep data yet. Once
         // the ring syncs, keeping that "no data" brief all day would be worse
         // than the bug it replaced — so a sleepless brief is regenerated the
         // first time it's requested after today's sleep row lands. Old cache
-        // entries without the flag are left alone; they expire at midnight.
+        // entries without the flags are left alone; they expire at midnight.
         let sleepArrived = false
-        if (parsed.hadSleep === false) {
+        if (!periodChanged && parsed.hadSleep === false) {
           const todaySleep = await prisma.healthLog.findFirst({
             where: { userId, date: new Date(todayStr), sleepDuration: { not: null } },
             select: { id: true },
           }).catch(() => null)
           sleepArrived = todaySleep != null
         }
-        if (!sleepArrived) {
+        if (!periodChanged && !sleepArrived) {
           return NextResponse.json({ briefing: parsed.briefing, generatedAt: parsed.generatedAt, cached: true })
         }
       }
@@ -100,10 +113,11 @@ export async function GET(req: NextRequest) {
       select: { amountMl: true, type: true },
     }).catch(() => [] as { amountMl: number; type: string }[]),
 
-    // Yesterday's eating — the brief happens in the morning, so today's food
-    // hasn't happened yet and yesterday's is what the night was built on.
+    // Yesterday's eating explains the night that just happened; today's is
+    // what an afternoon or evening brief reads back over. Both days come
+    // back and the period picks below.
     prisma.foodLog.findMany({
-      where: { userId, loggedAt: { gte: yesterdayStart, lt: todayStart } },
+      where: { userId, loggedAt: { gte: yesterdayStart, lte: todayEnd } },
       select: { calories: true, proteinG: true, loggedAt: true },
     }).catch(() => [] as { calories: number; proteinG: number | null; loggedAt: Date }[]),
 
@@ -148,7 +162,7 @@ export async function GET(req: NextRequest) {
   const checkin = checkinRows[0] ?? null
   const waterMl = sumHydration(intakeRows)
 
-  const lines: string[] = [`User: ${firstName}. Today: ${todayStr}.`]
+  const lines: string[] = [`User: ${firstName}. Today: ${todayStr}, local time ${localTime} (${period}).`]
 
   if (checkin) {
     lines.push(`Morning check-in — energy: ${checkin.energy}/5, mood: ${checkin.mood}/5${checkin.intention ? `, intention: "${checkin.intention}"` : ""}.`)
@@ -181,16 +195,22 @@ export async function GET(req: NextRequest) {
     lines.push(`Weather: ${weatherSnippet}.`)
   }
 
-  // Yesterday's eating, including how late it ended — meal timing is one of
-  // the few things that plausibly explains the night that just happened.
-  if (foodRows.length > 0) {
-    const kcal = foodRows.reduce((s, f) => s + f.calories, 0)
-    const protein = Math.round(foodRows.reduce((s, f) => s + (f.proteinG ?? 0), 0))
-    const lastMeal = foodRows.reduce((latest, f) => f.loggedAt > latest ? f.loggedAt : latest, foodRows[0].loggedAt)
+  // In the morning, yesterday's eating (and how late it ended) is one of the
+  // few things that plausibly explains the night just finished. Later in the
+  // day, today's eating so far is what the brief should be reading instead.
+  const foodDay = period === "morning"
+    ? foodRows.filter(f => f.loggedAt < todayStart)
+    : foodRows.filter(f => f.loggedAt >= todayStart)
+  if (foodDay.length > 0) {
+    const kcal = foodDay.reduce((s, f) => s + f.calories, 0)
+    const protein = Math.round(foodDay.reduce((s, f) => s + (f.proteinG ?? 0), 0))
+    const lastMeal = foodDay.reduce((latest, f) => f.loggedAt > latest ? f.loggedAt : latest, foodDay[0].loggedAt)
     const lastMealTime = new Intl.DateTimeFormat("en-GB", {
       timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false,
     }).format(lastMeal)
-    lines.push(`Yesterday's food: ≈${kcal} kcal, ${protein}g protein, last meal ${lastMealTime}.`)
+    lines.push(period === "morning"
+      ? `Yesterday's food: ≈${kcal} kcal, ${protein}g protein, last meal ${lastMealTime}.`
+      : `Food so far today: ≈${kcal} kcal, ${protein}g protein, last meal ${lastMealTime}.`)
   }
 
   if (workoutRows.length > 0) {
@@ -221,7 +241,7 @@ export async function GET(req: NextRequest) {
     lines.push(`Meds/supplements since yesterday: ${medNames.slice(0, 6).join(", ")}.`)
   }
   if (stillOnBoard.length > 0) {
-    lines.push(`Still circulating this morning: ${stillOnBoard.slice(0, 3).join(", ")} of the last dose.`)
+    lines.push(`Still circulating: ${stillOnBoard.slice(0, 3).join(", ")} of the last dose.`)
   }
 
   // The strongest thing the correlation engine currently believes, so the
@@ -267,11 +287,15 @@ export async function GET(req: NextRequest) {
     messages: [
       {
         role: "user",
-        content: `You are a warm, perceptive AI assistant writing a personal morning briefing. Based on the user's data, write 2-3 sentences.
+        content: `You are a warm, perceptive AI assistant writing ${
+          period === "morning" ? "a personal morning briefing — the night just ended and the day is ahead, so read the night and set the day up"
+          : period === "afternoon" ? "a personal midday check-in — the morning has already happened, the rest of the day is ahead, so read how the day is going"
+          : "a personal evening recap — the day is mostly behind, so read back over how it went rather than planning it"
+        }. Based on the user's data, write 2-3 sentences.
 
-Pick the two or three things that actually matter this morning rather than listing everything — a late dinner before a bad night, a med still circulating that explains feeling foggy, a workout that earned the tiredness, an established pattern this morning is repeating. Prefer a connection between two facts over two separate observations. If something contradicts an established pattern, that's worth saying too.
+Pick the two or three things that actually matter right now rather than listing everything — a late dinner before a bad night, a med still circulating that explains feeling foggy, a workout that earned the tiredness, an established pattern today is repeating. Prefer a connection between two facts over two separate observations. If something contradicts an established pattern, that's worth saying too. Match the time of day: don't plan a morning that already happened or recap an evening that hasn't.
 
-Be specific with their numbers. Sound like a smart friend who noticed, not a wellness bot. Never give medical advice or suggest changing a medication. If blood work appears above, you may repeat what it says, but never interpret what a result means, never say what caused it, and never suggest what to do about it — that belongs to the doctor who ordered the test. No greeting, no "I", start directly with the observation.
+Be specific with their numbers. Sound like a smart friend who noticed, not a wellness bot. Never give medical advice or suggest changing a medication. If blood work appears above, you may repeat what it says, but never interpret what a result means, never say what caused it, and never suggest what to do about it — that belongs to the doctor who ordered the test. No greeting. Never write in the first person — no "I", "me", or "my"; speak about the user and their data, never about yourself. Start directly with the observation.
 
 ${context}`,
       },
@@ -283,7 +307,7 @@ ${context}`,
 
   // Store in cache
   try {
-    const cacheValue = JSON.stringify({ briefing, generatedAt, hadSleep: sleepIsToday })
+    const cacheValue = JSON.stringify({ briefing, generatedAt, hadSleep: sleepIsToday, period })
     await prisma.$executeRaw`
       INSERT INTO "UserPreference" ("userId","key","value") VALUES (${userId},${cacheKey},${cacheValue})
       ON CONFLICT ("userId","key") DO UPDATE SET "value"=${cacheValue}
