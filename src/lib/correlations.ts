@@ -112,7 +112,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 10
+export const ENGINE_VERSION = 11
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -3218,6 +3218,171 @@ export async function computeCorrelations(
           : 1,
         tier: "noise",
       })
+    }
+
+    // ── Combinations: two and three things at once ────────────────
+    //
+    // The interactions above ask whether a moderator changes an effect. This
+    // asks the blunter question people actually have: "when I do A AND B
+    // (and C) on the same day, how do I wake up?" A conjunction is a single
+    // predictor, so it gets the ordinary two-group comparison, the block
+    // permutation test and the weekend guard like any other card.
+    //
+    // What keeps it from being a fishing trip: a combination has to EARN its
+    // card by beating the best thing inside it. A pair must move the outcome
+    // at least a third more than either ingredient alone; a triple a third
+    // more than any of its pairs — otherwise the card would only restate a
+    // main effect that already has one. Triples are grown only from pairs
+    // that passed, so the search is apriori-shaped and the number of tests
+    // stays small enough for the FDR step to mean something. Every outcome is
+    // read the NEXT morning: the day's behaviour, then the night's verdict.
+    interface ComboCondition {
+      key: string
+      /** Title form — "Alcohol", "Late meal". */
+      short: string
+      /** Sentence form — "alcohol", "a late meal". */
+      label: string
+      test: (d: DayData) => boolean
+    }
+    const COMBO_CONDITIONS: ComboCondition[] = [
+      { key: "alcohol", short: "Alcohol", label: "alcohol", test: d => (d.alcoholMl ?? 0) > 0 },
+      { key: "caffeine", short: "Heavy caffeine", label: `${cafLabel} of caffeine`, test: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
+      { key: "late_meal", short: "Late meal", label: "a late meal", test: d => d.lastMealMin != null && d.lastMealMin >= 21 * 60 },
+      { key: "short_night", short: "Short night", label: "a short night before", test: d => d.sleepDuration != null && d.sleepDuration < 7 },
+      { key: "workout", short: "Workout", label: "a workout", test: d => (d.workoutMin ?? 0) >= 20 },
+      { key: "hydrated", short: "Hydrated", label: `${waterLabel}+ of fluid`, test: d => (d.waterMl ?? 0) >= cuts.water.at },
+      { key: "busy", short: "Busy day", label: "a busy calendar", test: d => (d.eventCount ?? 0) >= 5 },
+      { key: "screen", short: "Heavy screen", label: "heavy screen time", test: d => (d.screenTimeMin ?? 0) >= screenP66 },
+      { key: "stress", short: "High stress", label: stressLabel, test: d => (d.stressHighMin ?? 0) >= cuts.stress.at },
+      { key: "away", short: "Away", label: "a day away from home", test: d => d.presence === "away" },
+    ]
+    const COMBO_OUTCOMES: { key: string; label: string; emoji: string; accessor: (d: DayData) => number | null | undefined }[] = [
+      { key: "sleep", label: "sleep score", emoji: "😴", accessor: d => d.sleepScore },
+      { key: "hrv", label: "morning HRV", emoji: "💓", accessor: d => d.hrv },
+      { key: "readiness", label: "readiness", emoji: "🔋", accessor: d => d.readiness },
+      { key: "energy", label: "next-day energy", emoji: "⚡", accessor: d => d.energy },
+      { key: "mood", label: "next-day mood", emoji: "🙂", accessor: d => d.mood },
+    ]
+
+    // Fewer days than this on either side and the comparison cannot carry a
+    // claim — the same footing the weekend guard demands.
+    const MIN_COMBO_DAYS = 8
+    // A third more than the best ingredient, in the same direction.
+    const COMBO_GAIN = 1.34
+    // Below this a "combination" is noise dressed up, whatever its parts did.
+    const COMBO_MIN_ABS = 5
+    // Per outcome; every extra card is FDR budget spent for everyone else.
+    const COMBO_MAX_PER_OUTCOME = 3
+
+    // A condition nobody's data ever meets (or always meets) can only make
+    // empty cells; drop it before it multiplies through the pairs.
+    const active = COMBO_CONDITIONS.filter(c => {
+      const n = dense.filter(c.test).length
+      return n >= MIN_COMBO_DAYS && dense.length - n >= MIN_COMBO_DAYS
+    })
+
+    // Day-ordered observations: the conjunction on day D against the next
+    // morning's reading, so the block permutation sees the real sequence.
+    const comboSeries = (conds: ComboCondition[], accessor: (d: DayData) => number | null | undefined): Split => {
+      const s = new Split()
+      for (let i = 0; i < dense.length - 1; i++) {
+        const v = accessor(dense[i + 1])
+        if (v == null || !Number.isFinite(v)) continue
+        s.add(conds.every(c => c.test(dense[i])), v)
+      }
+      return s
+    }
+    // Effect size alone — the cheap read used to rank ingredients. The
+    // permutation test runs once, on the card that survives.
+    const comboDelta = (s: Split): number | null => {
+      const hi = s.high, lo = s.low
+      if (hi.length < MIN_COMBO_DAYS || lo.length < MIN_COMBO_DAYS) return null
+      const h = avg(hi), l = avg(lo)
+      const base = Math.abs(l) || Math.abs(h)
+      return base ? ((h - l) / base) * 100 : null
+    }
+    // The strongest of the parts, signed — what the whole has to beat.
+    const strongest = (parts: (number | undefined)[]): number =>
+      parts.reduce<number>((best, p) => (p != null && Math.abs(p) > Math.abs(best) ? p : best), 0)
+    const earns = (delta: number, best: number): boolean =>
+      Math.abs(delta) >= COMBO_MIN_ABS &&
+      (best === 0 || (Math.sign(delta) === Math.sign(best) && Math.abs(delta) >= Math.abs(best) * COMBO_GAIN))
+    const fmtPct = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v)}%`
+    const andList = (labels: string[]) =>
+      labels.length <= 2 ? labels.join(" and ") : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`
+
+    for (const outcome of COMBO_OUTCOMES) {
+      const single = new Map<string, number>()
+      for (const c of active) {
+        const d = comboDelta(comboSeries([c], outcome.accessor))
+        if (d != null) single.set(c.key, d)
+      }
+
+      type Combo = { conds: ComboCondition[]; delta: number; series: Split; beats: { label: string; delta: number } }
+      const pairDelta = new Map<string, number>()
+      const pairs: Combo[] = []
+      for (let a = 0; a < active.length; a++) {
+        for (let b = a + 1; b < active.length; b++) {
+          const conds = [active[a], active[b]]
+          const series = comboSeries(conds, outcome.accessor)
+          const delta = comboDelta(series)
+          if (delta == null) continue
+          pairDelta.set(`${active[a].key}+${active[b].key}`, delta)
+          const sa = single.get(active[a].key), sb = single.get(active[b].key)
+          const best = strongest([sa, sb])
+          if (!earns(delta, best)) continue
+          const beatsLabel = best === sa ? active[a].short : active[b].short
+          pairs.push({ conds, delta, series, beats: { label: `${beatsLabel.toLowerCase()} alone`, delta: best } })
+        }
+      }
+
+      const triples: Combo[] = []
+      const seenTriple = new Set<string>()
+      for (const pair of pairs) {
+        for (const c of active) {
+          if (pair.conds.includes(c)) continue
+          const conds = [...pair.conds, c].sort((x, y) => active.indexOf(x) - active.indexOf(y))
+          const key = conds.map(k => k.key).join("+")
+          if (seenTriple.has(key)) continue
+          seenTriple.add(key)
+          const series = comboSeries(conds, outcome.accessor)
+          const delta = comboDelta(series)
+          if (delta == null) continue
+          const subs = [[0, 1], [0, 2], [1, 2]].map(([x, y]) => ({
+            label: `${conds[x].short} + ${conds[y].short}`.toLowerCase(),
+            delta: pairDelta.get(`${conds[x].key}+${conds[y].key}`),
+          }))
+          const best = strongest(subs.map(s => s.delta))
+          if (!earns(delta, best)) continue
+          const beatsSub = subs.find(s => s.delta === best)
+          triples.push({ conds, delta, series, beats: { label: beatsSub ? `${beatsSub.label} together` : "either pair", delta: best } })
+        }
+      }
+
+      // A triple already tells its pairs' story better than they do, so a
+      // pair inside an emitted triple steps aside for it.
+      const coveredByTriple = (p: Combo) =>
+        triples.some(t => p.conds.every(c => t.conds.includes(c)))
+      const candidates = [...triples, ...pairs.filter(p => !coveredByTriple(p))]
+        .sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta))
+        .slice(0, COMBO_MAX_PER_OUTCOME)
+
+      for (const combo of candidates) {
+        const labels = combo.conds.map(c => c.label)
+        const ins = compareGroups({
+          id: `combo_${outcome.key}_${combo.conds.map(c => c.key).join("_")}`,
+          category: "interactions",
+          emoji: outcome.emoji,
+          title: `${combo.conds.map(c => c.short).join(" + ")} → ${outcome.label}`,
+          highGroupLabel: `days with ${andList(labels)}`,
+          lowGroupLabel: "all other days",
+          series: combo.series,
+          minN: MIN_COMBO_DAYS,
+          findingTemplate: (hi, lo) =>
+            `The morning after ${andList(labels)} together, your ${outcome.label} averaged ${hi} vs ${lo} after any other day — a bigger swing than ${combo.beats.label} (${fmtPct(combo.beats.delta)})`,
+        })
+        if (ins) insights.push(ins)
+      }
     }
 
     // ── Body measurements ─────────────────────────────────────────

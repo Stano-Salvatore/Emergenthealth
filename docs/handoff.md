@@ -98,7 +98,8 @@ Structure worth knowing:
 - **`deriveInsights(days)`** holds families 1–26 and is called **twice** — once
   on all days, once on weekdays only. The second pass is the weekend guard: an
   effect that collapses or flips without weekends is probably the weekend.
-- Families 27+ (consistency, streaks, absence, onset, interactions) live
+- Families 27+ (consistency, streaks, absence, onset, interactions,
+  combinations) live
   **outside** `deriveInsights`, deliberately. Every one of them would be
   destroyed by the weekday-only filter — streaks aren't consecutive across
   weekend cuts, absence loses its "recent" window, onset can't spot a first
@@ -137,7 +138,18 @@ never top a day.
 Two families do not work on single days, and the reasons generalise:
 
 - **Interactions** compare two differences, so they get
-  `interactionPermutationP` rather than `permutationP`. It shuffles the
+  `interactionPermutationP` rather than `permutationP`.
+- **Combinations** (`combo_*`, shown under Combinations with the
+  interactions) are conjunctions — A + B, A + B + C on day D against the
+  next morning's sleep score, HRV, readiness, energy or mood. One predictor,
+  so the ordinary `compareGroups` path: block permutation, weekend guard,
+  FDR. The search is apriori-shaped: ten day-conditions, pairs must beat
+  their best ingredient by a third in the same direction, triples are grown
+  only from passing pairs and must beat their best pair by a third; at most
+  three cards per outcome, and a pair steps aside for a triple that contains
+  it. `correlations-combo.test.ts` plants a triple no pair explains and a
+  single-ingredient effect that must yield no combo card.
+ It shuffles the
   moderator label *within each predictor level*, which leaves main effects
   cancelling in the difference-of-differences. Shuffling across the whole
   table instead would hand a significant p-value to every moderator that

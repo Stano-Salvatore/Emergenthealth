@@ -36,9 +36,11 @@
   --color-status-on: var(--status-on);
   --color-status-watch: var(--status-watch);
   --color-status-off: var(--status-off);
-  /* Geist Sans for prose; mono is opt-in for figures (font-mono + tnum) */
+  /* Geist Sans for prose; mono is opt-in for figures (font-mono + tnum);
+     Bricolage Grotesque is the display voice — headings and hero figures. */
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-bricolage);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -255,6 +257,20 @@ body {
 }
 
 * { border-color: var(--border); }
+
+/* The display voice. Headings set in Bricolage Grotesque, slightly tightened —
+   this one rule is most of the difference between "Tailwind dashboard" and a
+   product with its own face. Data stays in Geist: figures, tables and charts
+   keep their tabular numerals, and h3+ (card titles, row labels) stay quiet
+   so the hierarchy reads type-first, not size-first. */
+h1, h2 {
+  font-family: var(--font-bricolage), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+.font-display {
+  font-family: var(--font-bricolage), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
 
 /* ── Gradient text ── */
 .text-gradient {

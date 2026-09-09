@@ -18,10 +18,6 @@ export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: "no_key" }, { status: 503 })
-  }
-
   const userId = session.user.id
   const firstName = session.user.name?.split(" ")[0] ?? "there"
 
@@ -43,6 +39,11 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const force = searchParams.get("force") === "1"
+
+  // A cached brief that merely wants a refresh (period crossed, sleep landed)
+  // is still worth serving when generation is impossible — see the no-key
+  // gate below the cache check.
+  let staleButServable: { briefing: string; generatedAt: string } | null = null
 
   // Check cache unless force-refresh
   if (!force) {
@@ -74,10 +75,22 @@ export async function GET(req: NextRequest) {
         if (!periodChanged && !sleepArrived) {
           return NextResponse.json({ briefing: parsed.briefing, generatedAt: parsed.generatedAt, cached: true })
         }
+        staleButServable = { briefing: parsed.briefing, generatedAt: parsed.generatedAt }
       }
     } catch {
       // fall through to generate
     }
+  }
+
+  // Generation needs the model; a cached brief does not. This gate used to sit
+  // before the cache check, so a perfectly good cached brief answered 503 the
+  // moment the key was absent — and a cache that merely wants a refresh is
+  // still better served stale than erased by an error.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    if (staleButServable) {
+      return NextResponse.json({ ...staleButServable, cached: true })
+    }
+    return NextResponse.json({ error: "no_key" }, { status: 503 })
   }
 
   // Gather user data
