@@ -72,6 +72,19 @@ export async function GET(req: Request) {
     // User-defined aliases take highest priority
     const aliasMap = new Map(aliasRows.map(r => [r.tagTypeUuid, r.name]))
 
+    // A past bug let the rename pencil file an alias under the literal type
+    // "manual" — the marker every manually logged dose shares — which then
+    // renamed all of them at once (a "+ Vitamin D" tap displaying as the name
+    // of a different medication). The resolver below no longer reads such an
+    // alias; deleting it on sight means the poison row cannot outlive the
+    // code that ignores it.
+    if (aliasMap.has("manual")) {
+      aliasMap.delete("manual")
+      await prisma.$executeRaw`
+        DELETE FROM "TagAlias" WHERE "userId" = ${userId} AND "tagTypeUuid" = 'manual'
+      `.catch(() => null)
+    }
+
     // Build UUID → display name inference from entries that have readable text.
     const uuidToName = new Map<string, string>()
     for (const r of rows) {
@@ -83,9 +96,12 @@ export async function GET(req: Request) {
     }
 
     let items = rows.map(r => {
-      // Resolve best display name: user alias → tagName → text → UUID inference
+      // Resolve best display name: user alias → tagName → text → UUID inference.
+      // Manual doses are exempt from the alias step: they all share the
+      // literal type "manual", so an alias keyed on it is never about one
+      // substance — the row's own name is authoritative.
       const resolved =
-        (r.tags[0] ? aliasMap.get(r.tags[0]) ?? null : null) ??
+        (r.tags[0] && r.tags[0] !== "manual" ? aliasMap.get(r.tags[0]) ?? null : null) ??
         (r.tagName && !isUuid(r.tagName) ? r.tagName : null) ??
         (r.text && r.text.trim() && !isUuid(r.text) ? r.text.trim() : null) ??
         (r.tags[0] ? uuidToName.get(r.tags[0]) ?? null : null)
@@ -201,7 +217,27 @@ export async function PATCH(req: Request) {
   const userId = session.user.id
 
   const body = await req.json().catch(() => null) as
-    { id?: unknown; takenAt?: unknown; doseAmount?: unknown; doseUnit?: unknown } | null
+    { id?: unknown; takenAt?: unknown; doseAmount?: unknown; doseUnit?: unknown; renameIds?: unknown; renameTo?: unknown } | null
+
+  // Renaming manual doses. Oura tag types get a TagAlias; manual doses have
+  // no tag type to alias (they all share the literal marker "manual"), so
+  // their rows' own names are edited — the client sends exactly the entries
+  // in the group being renamed.
+  if (body?.renameIds !== undefined || body?.renameTo !== undefined) {
+    const renameIds = Array.isArray(body?.renameIds)
+      ? body.renameIds.filter((x): x is string => typeof x === "string" && x.startsWith("manual_")).slice(0, 500)
+      : []
+    const renameTo = typeof body?.renameTo === "string" ? body.renameTo.trim().slice(0, 60) : ""
+    if (renameIds.length === 0 || !renameTo) {
+      return NextResponse.json({ error: "renameIds (manual entries) and renameTo required" }, { status: 400 })
+    }
+    await prisma.$executeRaw`
+      UPDATE "OuraTag" SET "tagName" = ${renameTo}
+      WHERE "userId" = ${userId} AND "id" = ANY(${renameIds})
+    `
+    return NextResponse.json({ ok: true, renamed: renameIds.length })
+  }
+
   const id = typeof body?.id === "string" ? body.id : ""
   if (!id.startsWith("manual_")) {
     return NextResponse.json({ error: "Only manually logged doses can be edited" }, { status: 400 })
