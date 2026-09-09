@@ -14,7 +14,21 @@ export interface DailyTargets {
   personalized: boolean
   /** "bmr" = Mifflin-St Jeor (weight+height+age+sex known), "rough" = 30 kcal/kg, "default" = no data */
   calorieBasis: "bmr" | "rough" | "default"
+  /**
+   * How far the calorie target was moved for a weight goal, signed. Zero when
+   * there is no goal or the goal is "maintain". The maintenance figure is
+   * `calories - goalAdjustmentKcal`.
+   */
+  goalAdjustmentKcal: number
 }
+
+/** The kilocalories in a kilogram of body fat — the number every pace turns on. */
+const KCAL_PER_KG = 7700
+/** The most a daily deficit may push the target under maintenance. */
+const MAX_DAILY_DEFICIT_KCAL = 1000
+/** Nobody should eat under this on the app's say-so. */
+const CALORIE_FLOOR = 1200
+const CALORIE_CEILING = 4500
 
 const roundTo = (n: number, step: number) => Math.round(n / step) * step
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
@@ -29,6 +43,8 @@ export interface TargetInputs {
   /** Four-digit birth year, e.g. 1995 */
   birthYear?: number | null
   sex?: "male" | "female" | null
+  /** An active weight goal shifts calories and raises protein. */
+  weightGoal?: { mode: "lose" | "gain" | "maintain"; paceKgWk?: number | null } | null
 }
 
 /**
@@ -39,6 +55,10 @@ export interface TargetInputs {
  * - calories: Mifflin-St Jeor × 1.4 when weight+height+age+sex are all known
  *   (10w + 6.25h − 5·age, +5 male / −161 female); else ~30 kcal/kg, rough
  * - sugar: WHO free-sugar guideline (~50 g at 2000 kcal), scaled to the target
+ * - weight goal: pace × 7700 kcal/kg ÷ 7 moves the target down (lose) or up
+ *   (gain), never under the BMR or 1200 kcal and never more than 1000 kcal
+ *   below maintenance; losing or gaining lifts protein to 1.6 g/kg so what
+ *   changes is fat, not muscle
  */
 export function computeTargets(opts: TargetInputs): DailyTargets {
   const w = opts.weightKg && opts.weightKg >= 30 && opts.weightKg <= 250 ? opts.weightKg : null
@@ -50,29 +70,43 @@ export function computeTargets(opts: TargetInputs): DailyTargets {
     : null
   const sex = opts.sex === "male" || opts.sex === "female" ? opts.sex : null
 
-  let calories: number
+  let maintenance: number
+  let bmr: number | null = null
   let calorieBasis: DailyTargets["calorieBasis"]
   if (w && h && age != null && sex) {
-    const bmr = 10 * w + 6.25 * h - 5 * age + (sex === "male" ? 5 : -161)
-    calories = clamp(roundTo(bmr * ACTIVITY_FACTOR, 50), 1200, 4000)
+    bmr = 10 * w + 6.25 * h - 5 * age + (sex === "male" ? 5 : -161)
+    maintenance = clamp(roundTo(bmr * ACTIVITY_FACTOR, 50), 1200, 4000)
     calorieBasis = "bmr"
   } else if (w) {
-    calories = clamp(roundTo(30 * w, 50), 1400, 3500)
+    maintenance = clamp(roundTo(30 * w, 50), 1400, 3500)
     calorieBasis = "rough"
   } else {
-    calories = 2200
+    maintenance = 2200
     calorieBasis = "default"
   }
+
+  const goal = opts.weightGoal?.mode === "lose" || opts.weightGoal?.mode === "gain" ? opts.weightGoal : null
+  const pace = goal && goal.paceKgWk != null && goal.paceKgWk > 0 && goal.paceKgWk <= 1.5 ? goal.paceKgWk : goal ? 0.5 : 0
+  let calories = maintenance
+  if (goal) {
+    const daily = Math.min(MAX_DAILY_DEFICIT_KCAL, (pace * KCAL_PER_KG) / 7)
+    const floor = Math.max(CALORIE_FLOOR, bmr != null ? roundTo(bmr, 50) : 0)
+    calories = goal.mode === "lose"
+      ? Math.max(floor, roundTo(maintenance - daily, 50))
+      : Math.min(CALORIE_CEILING, roundTo(maintenance + daily, 50))
+  }
+  const proteinPerKg = goal ? 1.6 : 1.2
 
   return {
     waterMl: w ? clamp(roundTo(35 * w, 50), 1500, 4000) : 2000,
     caffeineMaxMg: w ? Math.min(400, roundTo(5.7 * w, 10)) : 400,
     calories,
-    proteinG: w ? Math.round(1.2 * w) : 80,
+    proteinG: w ? Math.round(proteinPerKg * w) : goal ? 100 : 80,
     sugarMaxG: Math.round(50 * (calories / 2000)),
     bmi: w && h ? Math.round((w / Math.pow(h / 100, 2)) * 10) / 10 : null,
     personalized: w != null,
     calorieBasis,
+    goalAdjustmentKcal: calories - maintenance,
   }
 }
 

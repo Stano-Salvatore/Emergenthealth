@@ -26,7 +26,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/symptoms",    label: "Symptoms",        emoji: "🩹", section: "Body" },
   { href: "/dashboard/report",      label: "Health report",   emoji: "📄", section: "Body" },
   { href: "/dashboard/fasting",     label: "Fasting",         emoji: "⏳", section: "Body" },
-  { href: "/dashboard/strava",      label: "Strava",          emoji: "🏃", section: "Body" },
+  { href: "/dashboard/strava",      label: "Training",        emoji: "🏃", section: "Body" },
 
   { href: "/dashboard/calendar",    label: "Calendar",        emoji: "🗓️", section: "Life" },
   { href: "/dashboard/reminders",   label: "Reminders",       emoji: "🔔", section: "Life" },

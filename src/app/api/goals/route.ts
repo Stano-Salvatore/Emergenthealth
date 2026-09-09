@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
 import { getGoals, saveGoals } from "@/lib/goals"
+import { latestWeightKg } from "@/lib/weight-series"
 
 // Goals live in the UserGoals table; @/lib/goals owns reading, validating and
 // migrating them. This route is just the HTTP end of it.
@@ -22,5 +23,8 @@ export async function POST(req: Request) {
 
   // The saved goals come back, so a client that sent something out of range
   // sees what was actually stored rather than assuming it took.
-  return NextResponse.json(await saveGoals(session.user.id, patch))
+  // The latest logged weight becomes the starting line if this save starts
+  // a weight goal; for every other save it is simply unused.
+  const nowKg = await latestWeightKg(session.user.id)
+  return NextResponse.json(await saveGoals(session.user.id, patch, nowKg))
 }

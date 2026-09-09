@@ -43,6 +43,34 @@ describe("computeTargets", () => {
     expect(f.sugarMaxG).toBe(Math.round(50 * (2250 / 2000)))
   })
 
+  it("moves calories by the weight-goal pace and lifts protein", () => {
+    const year = new Date().getFullYear()
+    const base = { weightKg: 80, heightCm: 180, birthYear: year - 30, sex: "male" as const }
+    const none = computeTargets(base)
+    expect(none.goalAdjustmentKcal).toBe(0)
+    // 0.5 kg/wk = 550 kcal/day → 2500 − 550 = 1950
+    const lose = computeTargets({ ...base, weightGoal: { mode: "lose", paceKgWk: 0.5 } })
+    expect(lose.calories).toBe(1950)
+    expect(lose.goalAdjustmentKcal).toBe(-550)
+    expect(lose.proteinG).toBe(128)       // 1.6 g/kg
+    const gain = computeTargets({ ...base, weightGoal: { mode: "gain", paceKgWk: 0.25 } })
+    expect(gain.calories).toBe(2800)       // 2500 + 275, rounded to 50
+    expect(gain.goalAdjustmentKcal).toBe(300)
+    const keep = computeTargets({ ...base, weightGoal: { mode: "maintain" } })
+    expect(keep.calories).toBe(2500)
+    expect(keep.proteinG).toBe(96)
+  })
+
+  it("never cuts calories under the BMR or 1200 kcal", () => {
+    const year = new Date().getFullYear()
+    // 55 kg, 160 cm, 40 y, female: BMR = 550 + 1000 − 200 − 161 = 1189 → maintenance 1650
+    const t = computeTargets({ weightKg: 55, heightCm: 160, birthYear: year - 40, sex: "female", weightGoal: { mode: "lose", paceKgWk: 1.0 } })
+    expect(t.calories).toBe(1200)        // 1650 − 1000 would be 650
+    // rough basis, no BMR known: 30×50 = 1500 → 1 kg/wk cap 1000 → floor 1200
+    const r = computeTargets({ weightKg: 50, weightGoal: { mode: "lose", paceKgWk: 1.0 } })
+    expect(r.calories).toBe(1200)
+  })
+
   it("falls back to the rough estimate when age or sex is missing or absurd", () => {
     const t = computeTargets({ weightKg: 80, heightCm: 180, birthYear: 1600, sex: "male" })
     expect(t.calorieBasis).toBe("rough")

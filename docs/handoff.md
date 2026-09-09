@@ -188,6 +188,15 @@ with the reason written down — never silenced.
 
 ## Conventions
 
+- **The trackers are meant to replace other apps, not summarise them.** The
+  owner's stated goal for habits, reminders, the calendar, training and weight
+  is that they are complete enough to be someone's *only* app for that job.
+  So a feature in one of those areas is judged against the standalone app it
+  displaces (Loop, Google Tasks, Strong, MyFitnessPal…), not against "better
+  than nothing": recurrence rules, editing, deleting, history, an empty state
+  that teaches — the boring completeness is the feature. Half a habit tracker
+  sends the user back to the app they were trying to leave, and takes the
+  data with them.
 - **Comments explain why, not what.** The codebase is written so that the
   reasoning behind an odd decision survives. Match that; a comment that
   restates the line below it is noise, one that explains the bug it prevents
@@ -239,6 +248,27 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Training sessions and load.** Sessions logged by hand live in
+  `StravaActivity` with `source = "manual"`, a synthetic `stravaId`, an
+  `rpe` and a `note` — one table, so the engine, brief, chat and Training
+  page pick them up with no second code path. `src/lib/workouts.ts` is the
+  one writer (API `/api/workouts` and Emergy's `log_workout` both call it);
+  `src/lib/training-load.ts` does session-RPE load (minutes × effort, 5 when
+  unscored), the 7-day vs 28-day ratio (easing / steady / building /
+  spiking) and a readiness-guided suggestion judged against the user's *own*
+  30-day median. `/api/strava/activities` now lists rows with or without a
+  Strava token. The nav says Training; Strava is the optional feed.
+- **Weight goal.** `UserGoals` carries mode (lose / gain / maintain), target,
+  pace and a pinned starting line (`pinWeightGoalStart` in `src/lib/goals.ts`
+  captures weight and date when the goal appears or changes direction/target,
+  and clears them when it goes). `computeTargets` moves calories by
+  pace × 7700 ÷ 7 — never under the BMR or 1200 kcal, never more than
+  1000 kcal below maintenance — and lifts protein to 1.6 g/kg while losing or
+  gaining. `src/lib/weight-trend.ts` merges both weight tables
+  (`weight-series.ts`), smooths a 7-day trend, fits a 14-day slope and judges
+  the goal on that: on pace / ahead / behind / stalled / reversing, with an
+  ETA. Every reader — the Body-page card, the brief, Emergy — is told to
+  judge on the trend, never a single weigh-in.
 - Body measurements in the correlation engine, and everyday numbers as
   context on lab draws
 - Two-way interactions given a real permutation p-value

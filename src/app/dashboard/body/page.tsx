@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
 import { Trash2, ChevronDown, ChevronUp, TrendingUp, TrendingDown, Ruler } from "lucide-react"
+import { WeightGoalCard } from "@/components/body/WeightGoalCard"
 
 // ─── Blood Pressure ────────────────────────────────────────────────────────────
 
@@ -736,6 +737,8 @@ export default function BodyPage() {
         <h1 className="text-2xl font-bold flex items-center gap-2">📏 Body & Trackers</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Weight, measurements, blood pressure and custom metrics</p>
       </div>
+
+      <WeightGoalCard />
 
       {/* Height setup prompt */}
       {!heightCm && (

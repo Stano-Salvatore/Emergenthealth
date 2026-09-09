@@ -11,6 +11,11 @@ import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { loadLabTrends } from "@/lib/lab-trends-load"
 import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
 import { HAIKU } from "@/lib/models"
+import { getGoals } from "@/lib/goals"
+import { loadWeightSeries } from "@/lib/weight-series"
+import { weightGoalProgress } from "@/lib/weight-trend"
+import { loadSessionsForUser } from "@/lib/workouts"
+import { trainingLoad, suggestSession } from "@/lib/training-load"
 
 const anthropic = new Anthropic()
 
@@ -229,6 +234,30 @@ export async function GET(req: NextRequest) {
   if (workoutRows.length > 0) {
     const mins = Math.round(workoutRows.reduce((s, w) => s + w.movingTimeSec, 0) / 60)
     lines.push(`Recent training: ${workoutRows.map(w => w.type).join(", ")} (${mins} min total).`)
+  }
+
+  // Training load and what readiness says to do with it — only when there is
+  // a training habit to speak of, so a non-exerciser's brief isn't told to rest.
+  const [loadSessions, goals, readinessRows] = await Promise.all([
+    loadSessionsForUser(userId, todayStr),
+    getGoals(userId),
+    prisma.healthLog.findMany({
+      where: { userId, date: { gte: new Date(todayStart.getTime() - 30 * 86_400_000) }, readinessScore: { not: null } },
+      select: { date: true, readinessScore: true },
+    }).catch(() => [] as { date: Date; readinessScore: number | null }[]),
+  ])
+  if (loadSessions.length > 0) {
+    const load = trainingLoad(loadSessions, todayStr)
+    const todayReadiness = sleepIsToday ? latestHealth?.readinessScore ?? null : null
+    const past = readinessRows.filter(r => r.date.toISOString().slice(0, 10) !== todayStr).map(r => r.readinessScore!).filter(n => n != null)
+    const s = suggestSession(todayReadiness, past, load)
+    lines.push(`Training load: ${load.summary} Suggested session today: ${s.suggestion} (${s.reason})`)
+  }
+
+  if (goals.weightGoalMode) {
+    const series = await loadWeightSeries(userId, 120)
+    const p = weightGoalProgress(series, { mode: goals.weightGoalMode, targetKg: goals.weightTargetKg, paceKgWk: goals.weightPaceKgWk, startKg: goals.weightGoalStartKg })
+    lines.push(`Weight goal (${goals.weightGoalMode}${goals.weightTargetKg != null ? ` to ${goals.weightTargetKg} kg` : ""}): ${p.summary} Judge it on the trend only — never on one weigh-in.`)
   }
 
   // Meds and supplements taken since yesterday, and anything with a long
