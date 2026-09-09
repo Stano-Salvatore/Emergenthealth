@@ -23,24 +23,9 @@ export async function GET() {
     }).catch(() => null),
   ])
 
-  // A conversation with no user message in it is one Emergy started (a
-  // proactive say) that nobody has answered yet — the chat page opens on the
-  // newest of those rather than a blank screen, so his question is actually
-  // in front of the person it was for.
-  const ids = conversations.map(c => c.id)
-  const replied = ids.length > 0
-    ? await prisma.chatMessage.groupBy({
-        by: ["conversationId"],
-        where: { userId, conversationId: { in: ids }, role: "user" },
-      }).catch(() => [] as { conversationId: string | null }[])
-    : []
-  const hasReply = new Set(replied.map(r => r.conversationId))
-
-  const list = conversations.map(c => ({
-    id: c.id, title: c.title, updatedAt: c.updatedAt, awaitingReply: !hasReply.has(c.id),
-  }))
+  const list = conversations.map(c => ({ id: c.id, title: c.title, updatedAt: c.updatedAt }))
   if (legacyLatest) {
-    list.push({ id: "legacy", title: "Earlier chats", updatedAt: legacyLatest.createdAt, awaitingReply: false })
+    list.push({ id: "legacy", title: "Earlier chats", updatedAt: legacyLatest.createdAt })
   }
 
   return NextResponse.json(list)

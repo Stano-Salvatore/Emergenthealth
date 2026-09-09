@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma"
+import { localDateStr, zonedDayRange } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 
 // Emergy saying something first — as a real message in a real conversation,
 // so the user can reply to it and he knows what he said.
@@ -63,12 +65,29 @@ export async function sayAsEmergy(
   }).catch(() => null)
   if (recent?.conversationId) return { conversationId: recent.conversationId, reused: true }
 
-  const conversation = await prisma.chatConversation.create({
+  // One conversation per day: a nudge lands in the thread the user is already
+  // talking in today rather than each pop opening its own — three nudges in a
+  // day used to mean three one-line threads in History, none of which was the
+  // conversation. Only a day with no thread yet starts one.
+  const tz = await getUserTimezone(userId)
+  const dayStart = zonedDayRange(tz, localDateStr(tz)).start
+  const todays = await prisma.chatConversation.findFirst({
+    where: { userId, updatedAt: { gte: dayStart } },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  }).catch(() => null)
+
+  const conversation = todays ?? await prisma.chatConversation.create({
     data: { userId, title: titleFrom(message) },
   })
   await prisma.chatMessage.create({
     data: { userId, conversationId: conversation.id, role: "assistant", content: message },
   })
+  if (todays) {
+    await prisma.chatConversation.update({
+      where: { id: conversation.id }, data: { updatedAt: new Date() },
+    }).catch(() => null)
+  }
 
   // Remembered for the prompt, so "you said my HRV was low" makes sense to him.
   const existing = await prisma.userPreference.findUnique({

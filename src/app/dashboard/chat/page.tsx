@@ -37,8 +37,6 @@ interface Conversation {
   id: string
   title: string
   updatedAt: string
-  /** No user message yet — a thread Emergy started that nobody has answered. */
-  awaitingReply?: boolean
 }
 
 /**
@@ -295,12 +293,12 @@ export default function ChatPage() {
   // on an empty chat and the one sentence you tapped in order to read was the
   // one thing missing.
   //
-  // Otherwise the newest conversation is looked at before defaulting to a
-  // blank one: a thread Emergy started that nobody has answered yet is the
-  // reason to be here, so it goes on screen instead of behind the History
-  // button — and a thread you were in minutes ago resumes, the way any
-  // messaging app treats an active conversation. Everything else starts the
-  // usual fresh chat with the quick questions visible.
+  // Otherwise the day has one conversation: if today's thread exists — a
+  // nudge Emergy sent this morning, the chat left open an hour ago — it
+  // resumes, exactly like a messaging app. The proactive crons append into
+  // it too (see lib/emergy-say), so everything said today is in one place.
+  // Only a day with no thread yet starts the blank chat with the quick
+  // questions visible; the + button still forces a fresh one at any time.
   useEffect(() => {
     if (typeof window === "undefined") return
     const id = new URLSearchParams(window.location.search).get("conversation")
@@ -316,10 +314,9 @@ export default function ChatPage() {
       setConversations(list)
       const newest = list[0]
       if (!newest || newest.id === "legacy") return
-      const age = Date.now() - new Date(newest.updatedAt).getTime()
-      const unansweredSay = newest.awaitingReply === true && age < 24 * 3_600_000
-      const justLeft = age < 60 * 60_000
-      if (unansweredSay || justLeft) void openConversation(newest.id)
+      if (new Date(newest.updatedAt).toDateString() === new Date().toDateString()) {
+        void openConversation(newest.id)
+      }
     }).catch(() => {})
   // Once, for the URL the page was opened with. openConversation is redefined
   // every render and depending on it would reopen the thread on each one,
