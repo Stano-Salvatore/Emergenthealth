@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next"
-import { Geist, Geist_Mono } from "next/font/google"
+import { Geist, Geist_Mono, Bricolage_Grotesque } from "next/font/google"
 import "./globals.css"
 import { cookies } from "next/headers"
 import { SessionProvider } from "next-auth/react"
@@ -18,6 +18,14 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
+  subsets: ["latin"],
+})
+
+// Display face for headings and hero figures. Geist stays for prose and data
+// (its tabular numerals carry every chart and table); Bricolage carries the
+// app's voice — the difference between a dashboard template and a product.
+const bricolage = Bricolage_Grotesque({
+  variable: "--font-bricolage",
   subsets: ["latin"],
 })
 
@@ -78,7 +86,7 @@ export async function generateViewport(): Promise<Viewport> {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`} suppressHydrationWarning>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${bricolage.variable} h-full`} suppressHydrationWarning>
       <head>
         {/* Apply saved accent + base theme before paint to avoid flash */}
         <script

@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from "react"
 import { weatherEmoji } from "@/lib/weather-codes"
-import { generatedLabel } from "@/lib/generated-label"
-import { scoreText, sleepVerdictText } from "@/lib/score-color"
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
-import { Sparkles, Moon, Target, ChevronRight, Sun, Sunset, CloudSun } from "lucide-react"
+import { Moon, Target, ChevronRight, Sun, Sunset, CloudSun, Gauge, CalendarDays, Sunrise, LayoutDashboard, ListChecks, HeartPulse } from "lucide-react"
+import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
 
 type Period = "morning" | "afternoon" | "evening"
 
@@ -52,7 +51,6 @@ export function BriefView({ name }: { name: string }) {
   const [renderedAt] = useState(() => Date.now())
   const [period, setPeriod] = useState<Period>("morning")
   const [today, setToday] = useState<TodayData | null>(null)
-  const [briefing, setBriefing] = useState<{ text: string; generatedAt: string | null } | null>(null)
   const [checkin, setCheckin] = useState<CheckIn | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -74,15 +72,12 @@ export function BriefView({ name }: { name: string }) {
   useEffect(() => {
     const d = new Date()
     const localDate = [d.getFullYear(), String(d.getMonth() + 1).padStart(2, "0"), String(d.getDate()).padStart(2, "0")].join("-")
+    // The AI brief itself is DailyBriefing's job — one component, both pages.
     Promise.allSettled([
       fetch("/api/today").then(r => r.json()),
-      fetch("/api/briefing").then(r => r.json()),
       fetch(`/api/morning-checkin?date=${localDate}`).then(r => r.json()),
-    ]).then(([t, b, c]) => {
+    ]).then(([t, c]) => {
       if (t.status === "fulfilled") setToday(t.value)
-      if (b.status === "fulfilled" && b.value?.briefing) {
-        setBriefing({ text: b.value.briefing, generatedAt: b.value.generatedAt ?? null })
-      }
       if (c.status === "fulfilled" && c.value?.checkin) setCheckin(c.value.checkin)
       setLoading(false)
     })
@@ -93,8 +88,10 @@ export function BriefView({ name }: { name: string }) {
   const isEvening = period === "evening"
   const dateLabel = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
 
-  const readinessColor = (r: number | null) => scoreText(r, "text-muted-foreground")
-  const sleepColor = sleepVerdictText(today?.sleep.adequate, today?.sleep.hours)
+  // Identity, not status: the figures take the sleep domain hue (hours and
+  // score both belong to Sleep — see design/handoff/README.md). This card
+  // used to paint them green/amber by verdict, which is exactly the
+  // status-on-a-figure collision the palette rule exists to prevent.
 
   // The evening card used to show calendar[0] — the day's *first* event — and
   // label it "still on your calendar", so at 21:00 it announced the 09:00
@@ -120,20 +117,8 @@ export function BriefView({ name }: { name: string }) {
         </div>
       ) : (
         <>
-          {/* AI brief line */}
-          {briefing && (
-            <Card className="border-primary/20 bg-primary/5">
-              <CardContent className="pt-4 pb-4 flex items-start gap-2.5">
-                <Sparkles className="h-4 w-4 text-primary/70 mt-0.5 shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-foreground/90 italic leading-relaxed">{briefing.text}</p>
-                  {briefing.generatedAt && (
-                    <p className="text-[10px] text-muted-foreground/50 mt-1.5">{generatedLabel(briefing.generatedAt)}</p>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {/* Emergy's brief — the shared component, same as the dashboard */}
+          <DailyBriefing />
 
           {/* Sleep / readiness — the anchor of both briefs */}
           {(today?.sleep.hours != null || today?.sleep.readiness != null) && (
@@ -144,17 +129,17 @@ export function BriefView({ name }: { name: string }) {
                 </p>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-xs text-muted-foreground mb-0.5">😴 Sleep</p>
+                    <p className="text-xs text-muted-foreground mb-0.5 flex items-center gap-1"><Moon className="h-3 w-3" /> Sleep</p>
                     {today?.sleep.hours != null ? (
-                      <p className={`text-2xl font-bold tabular-nums ${sleepColor}`}>
+                      <p className="text-2xl font-bold tabular-nums font-display text-sleep">
                         {today.sleep.hours.toFixed(1)}<span className="text-sm font-normal text-muted-foreground ml-1">hrs</span>
                       </p>
                     ) : <p className="text-sm text-muted-foreground">No data</p>}
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground mb-0.5">🎯 Readiness</p>
+                    <p className="text-xs text-muted-foreground mb-0.5 flex items-center gap-1"><Gauge className="h-3 w-3" /> Readiness</p>
                     {today?.sleep.readiness != null ? (
-                      <p className={`text-2xl font-bold tabular-nums ${readinessColor(today.sleep.readiness)}`}>
+                      <p className="text-2xl font-bold tabular-nums font-display text-sleep">
                         {today.sleep.readiness}<span className="text-sm font-normal text-muted-foreground ml-1">/100</span>
                       </p>
                     ) : <p className="text-sm text-muted-foreground">No data</p>}
@@ -203,9 +188,10 @@ export function BriefView({ name }: { name: string }) {
               {!checkin && (
                 <Link href="/dashboard/checkin" className="block">
                   <Card className="border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors">
-                    <CardContent className="pt-4 pb-4 flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium">🌅 Start your day with a check-in</p>
+                    <CardContent className="pt-4 pb-4 flex items-center justify-between gap-3">
+                      <Sunrise className="h-5 w-5 text-primary shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">Start your day with a check-in</p>
                         <p className="text-xs text-muted-foreground mt-0.5">Log energy, mood & focus — 10 seconds</p>
                       </div>
                       <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -240,7 +226,9 @@ export function BriefView({ name }: { name: string }) {
               {nextEvent && (
                 <Card>
                   <CardContent className="pt-4 pb-4">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">📅 Still on your calendar</p>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                      <CalendarDays className="h-3.5 w-3.5" /> Still on your calendar
+                    </p>
                     <p className="text-sm">
                       <span className="text-muted-foreground tabular-nums mr-2">{eventTime(nextEvent.start)}</span>
                       {nextEvent.title}
@@ -251,9 +239,10 @@ export function BriefView({ name }: { name: string }) {
 
               <Link href="/dashboard/journal" className="block">
                 <Card className="border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors">
-                  <CardContent className="pt-4 pb-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium">🌙 Wind down with a reflection</p>
+                  <CardContent className="pt-4 pb-4 flex items-center justify-between gap-3">
+                    <Moon className="h-5 w-5 text-primary shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium">Wind down with a reflection</p>
                       <p className="text-xs text-muted-foreground mt-0.5">Jot a line in your journal before bed</p>
                     </div>
                     <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -265,9 +254,15 @@ export function BriefView({ name }: { name: string }) {
 
           {/* Quick links */}
           <div className="grid grid-cols-3 gap-2 pt-1">
-            <Link href="/dashboard" className="rounded-xl border border-border bg-card px-3 py-2.5 text-center text-xs font-medium hover:bg-secondary/60 transition-colors">🏠 Dashboard</Link>
-            <Link href="/dashboard/habits" className="rounded-xl border border-border bg-card px-3 py-2.5 text-center text-xs font-medium hover:bg-secondary/60 transition-colors">✅ Habits</Link>
-            <Link href="/dashboard/health" className="rounded-xl border border-border bg-card px-3 py-2.5 text-center text-xs font-medium hover:bg-secondary/60 transition-colors">❤️ Health</Link>
+            <Link href="/dashboard" className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2.5 text-xs font-medium hover:bg-secondary/60 transition-colors">
+              <LayoutDashboard className="h-3.5 w-3.5 text-muted-foreground" /> Dashboard
+            </Link>
+            <Link href="/dashboard/habits" className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2.5 text-xs font-medium hover:bg-secondary/60 transition-colors">
+              <ListChecks className="h-3.5 w-3.5 text-muted-foreground" /> Habits
+            </Link>
+            <Link href="/dashboard/health" className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2.5 text-xs font-medium hover:bg-secondary/60 transition-colors">
+              <HeartPulse className="h-3.5 w-3.5 text-heart" /> Health
+            </Link>
           </div>
         </>
       )}
