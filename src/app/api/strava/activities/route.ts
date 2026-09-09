@@ -16,6 +16,10 @@ export interface StravaActivityRow {
   maxHR: number | null
   startDate: Date
   day: string
+  /** "strava" or "manual". */
+  source: string
+  rpe: number | null
+  note: string | null
 }
 
 export interface WeeklyStats {
@@ -60,10 +64,11 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const token = await prisma.stravaToken.findUnique({ where: { userId }, select: { userId: true } }).catch(() => null)
-  if (!token) return NextResponse.json({ connected: false, activities: [], weeklyStats: [] })
-
-  const [activities, recentActivities] = await Promise.all([
+  // Sessions logged by hand live in the same table, so the list is built
+  // whether or not Strava is connected; `connected` only decides whether the
+  // page offers a Reconnect or a Connect.
+  const [token, activities, recentActivities] = await Promise.all([
+    prisma.stravaToken.findUnique({ where: { userId }, select: { userId: true } }).catch(() => null),
     prisma.stravaActivity.findMany({
       where: { userId },
       orderBy: { startDate: "desc" },
@@ -103,5 +108,5 @@ export async function GET() {
       count: stats.count,
     }))
 
-  return NextResponse.json({ connected: true, activities, weeklyStats })
+  return NextResponse.json({ connected: token != null, activities, weeklyStats })
 }

@@ -807,6 +807,13 @@ model StravaActivity {
   maxHR          Int?
   startDate      DateTime @db.Timestamptz
   day            String
+  /// "strava" for synced rows, "manual" for sessions logged in the app.
+  /// Manual rows carry a synthetic stravaId ("manual_<cuid>") so the
+  /// unique key keeps working without a second table.
+  source         String   @default("strava")
+  /// Rate of perceived exertion, 1–10. Manual sessions only.
+  rpe            Int?
+  note           String?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -913,6 +920,14 @@ model UserGoals {
   heightCm     Float?
   birthYear    Int?
   sex          String?
+  /// Weight goal: "lose" | "gain" | "maintain". Null means no goal set.
+  weightGoalMode    String?
+  weightTargetKg    Float?
+  /// Desired pace in kg per week (always positive; direction comes from mode).
+  weightPaceKgWk    Float?
+  /// Weight when the goal was set, so progress has a fixed starting line.
+  weightGoalStartKg Float?
+  weightGoalStartedAt DateTime? @db.Timestamptz
   updatedAt    DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -34,7 +34,11 @@ import { analyseExperiment } from "@/lib/experiments-analysis"
 import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
 import { loadLabTrends } from "@/lib/lab-trends-load"
 import { loadNutrientReport } from "@/lib/nutrient-gaps-load"
-import { saveGoals } from "@/lib/goals"
+import { getGoals, saveGoals } from "@/lib/goals"
+import { latestWeightKg, loadWeightSeries } from "@/lib/weight-series"
+import { weightGoalProgress } from "@/lib/weight-trend"
+import { logWorkout, loadSessionsForUser, WORKOUT_TYPES } from "@/lib/workouts"
+import { trainingLoad, suggestSession } from "@/lib/training-load"
 import { activeOn, matchKey } from "@/lib/med-schedule"
 import { hhmm, lastCoffeeBy, medianBedtimeMin } from "@/lib/caffeine-cutoff"
 
@@ -386,6 +390,22 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "log_workout",
+    description: "Record a training session the user did — 'did legs for an hour', '30 min run, felt hard', 'yoga this morning'. Type is free text (gym, run, ride, walk, swim, yoga, hike, other); minutes are required. Ask for effort (1 easy – 10 all-out) only if they seem happy to give it; otherwise omit it.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        type: { type: "string", description: "What kind: strength/gym, run, cycling, walk, swim, yoga, hike, or other" },
+        minutes: { type: "number", description: "How long the session was" },
+        rpe: { type: "number", description: "Perceived effort 1–10 when they say how hard it was ('easy' ≈ 3, 'solid' ≈ 6, 'brutal' ≈ 9)" },
+        note: { type: "string", description: "What they did, in their words (optional)" },
+        startedAt: { type: "string", description: "When it started, user-local YYYY-MM-DDTHH:MM, when it wasn't just now" },
+        distanceKm: { type: "number", description: "Distance for a run/ride/walk/swim when stated" },
+      },
+      required: ["type", "minutes"],
+    },
+  },
+  {
     name: "log_moment",
     description: "Save a small life moment to the user's timeline — 'first swim of the year', 'dinner with mom'. Use when the user shares something worth marking that isn't a metric. Set occurredAt when it happened earlier than now — late-night messages about the evening just gone belong to that evening, not to the small hours of the next day.",
     input_schema: {
@@ -513,7 +533,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "set_goal",
-    description: "Change one of the user's own daily targets when they ask to ('make my water goal 2.5 litres', 'I want 9k steps'). Pass only the fields they mentioned, in the app's units.",
+    description: "Change one of the user's own daily targets when they ask to ('make my water goal 2.5 litres', 'I want 9k steps'), or set / change / clear their weight goal ('I want to get down to 78', 'trying to put on muscle', 'stop the diet'). Pass only the fields they mentioned, in the app's units. A weight goal moves their calorie and protein targets automatically.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -524,7 +544,10 @@ const TOOLS: Anthropic.Tool[] = [
         coffeeMax: { type: "number", description: "Caffeine ceiling, milligrams per day" },
         readinessMin: { type: "number", description: "Readiness they consider a good day, 1-100" },
         habitsTarget: { type: "number", description: "Percent of habits they aim to complete, 1-100" },
-        weightKg: { type: "number", description: "Target weight, kg" },
+        weightKg: { type: "number", description: "Their CURRENT body weight in kg (used for scaling targets) — not the goal" },
+        weightGoalMode: { type: "string", enum: ["lose", "gain", "maintain", "none"], description: "Direction of the weight goal; 'none' clears it" },
+        weightTargetKg: { type: "number", description: "The weight they want to reach, kg" },
+        weightPaceKgWk: { type: "number", description: "How fast, kg per week (0.1–1.0; 0.25–0.75 is sustainable). Default 0.5" },
       },
       required: [],
     },
@@ -1604,14 +1627,39 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   }
 
   if (name === "set_goal") {
-    const patch: Record<string, number> = {}
-    for (const k of ["sleepH", "steps", "waterMl", "focusMin", "coffeeMax", "readinessMin", "habitsTarget", "weightKg"]) {
+    const patch: Record<string, number | string | null> = {}
+    for (const k of ["sleepH", "steps", "waterMl", "focusMin", "coffeeMax", "readinessMin", "habitsTarget", "weightKg", "weightTargetKg", "weightPaceKgWk"]) {
       const v = (input as Record<string, unknown>)[k]
       if (v !== undefined && v !== null && v !== "" && Number.isFinite(Number(v))) patch[k] = Number(v)
     }
+    const mode = (input as Record<string, unknown>).weightGoalMode
+    if (mode === "lose" || mode === "gain" || mode === "maintain") patch.weightGoalMode = mode
+    else if (mode === "none") patch.weightGoalMode = null
+    // A target without a direction is still a goal: infer it from the weight.
+    if (patch.weightGoalMode === undefined && typeof patch.weightTargetKg === "number") {
+      const nowKg = await latestWeightKg(userId)
+      if (nowKg != null) patch.weightGoalMode = patch.weightTargetKg < nowKg ? "lose" : patch.weightTargetKg > nowKg ? "gain" : "maintain"
+    }
     if (Object.keys(patch).length === 0) return "Tell me which target to change and to what."
-    const saved = await saveGoals(userId, patch) as unknown as Record<string, unknown>
-    return `Updated: ${Object.keys(patch).map(k => `${k} → ${saved[k]}`).join(", ")}. Out-of-range values are ignored, so check these match what they asked for.`
+    const nowKg = await latestWeightKg(userId)
+    const saved = await saveGoals(userId, patch, nowKg) as unknown as Record<string, unknown>
+    const bits = Object.keys(patch).map(k => `${k} → ${saved[k] ?? "cleared"}`)
+    if (patch.weightGoalMode !== undefined) {
+      bits.push(saved.weightGoalMode
+        ? `weight goal now ${saved.weightGoalMode}${saved.weightTargetKg != null ? ` to ${saved.weightTargetKg} kg` : ""}${saved.weightPaceKgWk != null ? ` at ${saved.weightPaceKgWk} kg/week` : ""}, starting from ${saved.weightGoalStartKg ?? "an unknown weight — ask them to log one"}; calorie and protein targets on the Intake page follow it`
+        : "weight goal cleared")
+    }
+    return `Updated: ${bits.join(", ")}. Out-of-range values are ignored, so check these match what they asked for.`
+  }
+
+  if (name === "log_workout") {
+    const result = await logWorkout(userId, {
+      type: input.type, minutes: input.minutes, rpe: input.rpe, note: input.note,
+      startedAt: input.startedAt, distanceKm: input.distanceKm,
+    })
+    if (!result.ok) return result.error
+    const label = WORKOUT_TYPES.find(t => t.value === result.type)?.label ?? result.type
+    return `Logged ${label}, ${result.minutes} min${result.rpe != null ? `, effort ${result.rpe}/10` : ""} on ${result.day}. It counts towards training load and the pattern search from now on.`
   }
 
   if (name === "save_place") {
@@ -1904,8 +1952,8 @@ export async function buildSystemPrompt(
     prisma.bodyMeasurement.findFirst({ where: { userId }, orderBy: { date: "desc" } }).catch(() => null),
     prisma.stravaActivity.findMany({
       where: { userId }, orderBy: { startDate: "desc" }, take: 7,
-      select: { day: true, type: true, name: true, distanceM: true, movingTimeSec: true, avgHR: true },
-    }).catch(() => [] as { day: string; type: string; name: string | null; distanceM: number | null; movingTimeSec: number; avgHR: number | null }[]),
+      select: { day: true, type: true, name: true, distanceM: true, movingTimeSec: true, avgHR: true, rpe: true, source: true },
+    }).catch(() => [] as { day: string; type: string; name: string | null; distanceM: number | null; movingTimeSec: number; avgHR: number | null; rpe: number | null; source: string }[]),
     prisma.symptomLog.findMany({
       where: { userId, loggedAt: { gte: since14 } },
       orderBy: { loggedAt: "desc" }, take: 40,
@@ -2120,14 +2168,34 @@ export async function buildSystemPrompt(
     ? `- ${latestBody.date.toISOString().slice(0, 10)}: ${bodyBits.join(", ")}`
     : null
 
-  // Recent Strava workouts
+  // Recent workouts — logged by hand or synced from Strava — plus the load
+  // they add up to and what today's readiness says to do with it.
   const workoutsStr = recentWorkouts.length === 0
     ? null
     : recentWorkouts.map(w => {
         const dist = w.distanceM != null && w.distanceM > 0 ? `, ${(w.distanceM / 1000).toFixed(1)}km` : ""
         const hr = w.avgHR != null ? `, avg HR ${w.avgHR}` : ""
-        return `- ${w.day}: ${w.name ?? w.type} (${Math.round(w.movingTimeSec / 60)}min${dist}${hr})`
+        const rpe = w.rpe != null ? `, effort ${w.rpe}/10` : ""
+        return `- ${w.day}: ${w.name ?? w.type} (${Math.round(w.movingTimeSec / 60)}min${dist}${hr}${rpe})`
       }).join("\n")
+  let trainingStr: string | null = null
+  if (recentWorkouts.length > 0) {
+    const sessions = await loadSessionsForUser(userId, todayStr)
+    const load = trainingLoad(sessions, todayStr)
+    const todayReadiness = recentHealth.find(h => h.date.toISOString().slice(0, 10) === todayStr)?.readinessScore ?? null
+    const pastReadiness = recentHealth.filter(h => h.date.toISOString().slice(0, 10) !== todayStr).map(h => h.readinessScore).filter((n): n is number => n != null)
+    const s = suggestSession(todayReadiness, pastReadiness, load)
+    trainingStr = `Load: ${load.summary} Today's read: ${s.suggestion} — ${s.reason}`
+  }
+
+  // Weight goal, judged on the trend
+  let weightGoalStr: string | null = null
+  const wg = await getGoals(userId)
+  if (wg.weightGoalMode) {
+    const series = await loadWeightSeries(userId, 120)
+    const p = weightGoalProgress(series, { mode: wg.weightGoalMode, targetKg: wg.weightTargetKg, paceKgWk: wg.weightPaceKgWk, startKg: wg.weightGoalStartKg })
+    weightGoalStr = `${wg.weightGoalMode}${wg.weightTargetKg != null ? ` to ${wg.weightTargetKg} kg` : ""}${wg.weightPaceKgWk != null ? ` at ${wg.weightPaceKgWk} kg/week` : ""}, started ${wg.weightGoalStartKg ?? "?"} kg${wg.weightGoalStartedAt ? ` on ${wg.weightGoalStartedAt.slice(0, 10)}` : ""}. 7-day trend ${p.trendKg ?? "—"} kg, ${p.slopeKgWk != null ? `${p.slopeKgWk > 0 ? "+" : ""}${p.slopeKgWk} kg/week` : "slope unknown"}. Status: ${p.status}. ${p.summary}`
+  }
 
   // Fasting — an active fast is live context ("don't suggest a snack");
   // otherwise mention the most recent one
@@ -2363,7 +2431,7 @@ You can see their medications, symptoms and lab results. You may describe what's
 
 FORMATTING: your replies render as markdown. Use **bold** sparingly for the words a sentence turns on, "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
-You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), blood pressure (log_blood_pressure), lab results from a printout or photo (log_lab_results — the date plus every marker/value/unit you can read, once they confirm the digits), a medication schedule they describe (create_med_schedule — name, dose, times; it records what they told you, it is not advice), fasts (start_fast / end_fast), targets they want changed (set_goal), a place they want remembered (save_place — "save this café as X" uses their phone's latest fix), and a self-experiment they want to run (create_experiment — one action, one measurable outcome, confirm the plan first), READ health trends (get_health_range) and the app's own analyses (get_analysis — running experiments and today's arm, what is off their baseline, lab trends, nutrient gaps, medication adherence, the found patterns), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and, once they confirm the digits, recording them with log_lab_results; a medication box means the name and strength (and create_med_schedule if it is something they take regularly); a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
+You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), blood pressure (log_blood_pressure), lab results from a printout or photo (log_lab_results — the date plus every marker/value/unit you can read, once they confirm the digits), a medication schedule they describe (create_med_schedule — name, dose, times; it records what they told you, it is not advice), fasts (start_fast / end_fast), training sessions (log_workout — "did legs for an hour", "30 min run"; ask for effort 1–10 only if it comes naturally), targets they want changed and their weight goal (set_goal — "I want to get to 78 kg" sets a lose goal, "stop the diet" clears it; the calorie and protein targets follow the goal, so mention that), a place they want remembered (save_place — "save this café as X" uses their phone's latest fix), and a self-experiment they want to run (create_experiment — one action, one measurable outcome, confirm the plan first), READ health trends (get_health_range) and the app's own analyses (get_analysis — running experiments and today's arm, what is off their baseline, lab trends, nutrient gaps, medication adherence, the found patterns), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and, once they confirm the digits, recording them with log_lab_results; a medication box means the name and strength (and create_med_schedule if it is something they take regularly); a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${renderFacts(memories)}\nIf they say one of these is no longer true, call forget — a fact that has gone stale still steers what you say until it is gone.\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
 ${saidStr ? `## What you told them recently (nudges you sent on your own — they may be replying to one)\n${saidStr}\n` : ""}
@@ -2396,7 +2464,8 @@ ${wearableStr ? `## Wearable coverage\n${wearableStr}\n` : ""}
 ${recentHealth.slice(0, 7).length === 0 ? "No health data yet." : recentHealth.slice(0, 7).map((h) => `- ${h.date.toISOString().split("T")[0]}: sleep ${h.sleepDuration != null ? (h.sleepDuration / 60).toFixed(1) + "h" : "?"}${(h as any).sleepScore != null ? ` (score ${(h as any).sleepScore})` : ""}${h.readinessScore != null ? ` | readiness ${h.readinessScore}` : ""}${h.hrv != null ? ` | HRV ${Math.round(h.hrv)}ms` : ""} | ${h.steps ?? "?"}steps | HR ${h.restingHR ?? "?"}bpm${h.activityScore != null ? ` | activity ${h.activityScore}` : ""}${h.weight != null ? ` | ${h.weight}kg` : ""}`).join("\n")}
 
 ${symptomsStr ? `## Symptoms logged (last 14 days — how they actually felt)\n${symptomsStr}\n` : ""}
-${workoutsStr ? `## Workouts (Strava, most recent)\n${workoutsStr}\n` : ""}
+${workoutsStr ? `## Workouts (most recent — logged here or synced from Strava)\n${workoutsStr}\n${trainingStr ?? ""}\n` : ""}
+${weightGoalStr ? `## Weight goal (progress is judged on the 7-day trend, never a single weigh-in — say so if they fret about one reading)\n${weightGoalStr}\n` : ""}
 ${bodyStr ? `## Body composition (latest measurement)\n${bodyStr}\n` : ""}
 ${labsStr ? `## Blood work (latest value per marker — mention ⚠️ flags when health topics come up)\n${labsStr}\n` : ""}
 ${medsStr ? `## Prescribed medications (active schedules — read these back, never advise on dose or whether to take them)\n${medsStr}\n` : ""}
