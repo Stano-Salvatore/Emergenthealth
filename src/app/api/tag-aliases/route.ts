@@ -19,6 +19,12 @@ export async function POST(req: Request) {
   const userId = session.user.id
   const { tagTypeUuid, name } = await req.json()
   if (!tagTypeUuid || !name?.trim()) return NextResponse.json({ error: "tagTypeUuid and name required" }, { status: 400 })
+  // "manual" is the shared marker on every manually logged dose, not a tag
+  // type — an alias keyed on it once renamed every manual dose at once.
+  // Manual entries are renamed by row instead (PATCH /api/medications).
+  if (tagTypeUuid === "manual") {
+    return NextResponse.json({ error: "Manual doses are renamed per entry, not per type" }, { status: 400 })
+  }
   await prisma.$executeRaw`
     INSERT INTO "TagAlias"("userId","tagTypeUuid","name")
     VALUES (${userId}, ${tagTypeUuid}, ${name.trim()})

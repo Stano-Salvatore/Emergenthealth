@@ -260,7 +260,7 @@ function TypeCard({
   onChanged,
 }: {
   group: TagGroup
-  onRename: (uuids: string[], current: string) => void
+  onRename: (uuids: string[], manualIds: string[], current: string) => void
   onChanged: () => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -303,7 +303,11 @@ function TypeCard({
               </p>
               {group.uuids.length > 0 && (
                 <button
-                  onClick={() => onRename(group.uuids, group.name ?? "")}
+                  onClick={() => onRename(
+                    group.uuids,
+                    group.entries.filter(e => e.id.startsWith("manual_")).map(e => e.id),
+                    group.name ?? "",
+                  )}
                   className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground/40 hover:text-primary hover:bg-primary/10 active:bg-primary/20 transition-colors shrink-0"
                   title="Rename this tag type"
                 >
@@ -374,7 +378,7 @@ export default function MedicationsPage() {
   const [syncing, setSyncing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<"date" | "type">("type")
-  const [renaming, setRenaming] = useState<{ uuids: string[]; current: string } | null>(null)
+  const [renaming, setRenaming] = useState<{ uuids: string[]; manualIds: string[]; current: string } | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const [renameSaving, setRenameSaving] = useState(false)
   // Manual dose logging — no ring required
@@ -464,8 +468,8 @@ export default function MedicationsPage() {
     load(filter, cat)
   }
 
-  function startRename(uuids: string[], current: string) {
-    setRenaming({ uuids, current })
+  function startRename(uuids: string[], manualIds: string[], current: string) {
+    setRenaming({ uuids, manualIds, current })
     setRenameValue(current)
   }
 
@@ -474,14 +478,27 @@ export default function MedicationsPage() {
     setRenameSaving(true)
     try {
       // A merged group covers several Oura tag types — the new name applies
-      // to all of them so they stay together.
-      await Promise.all(renaming.uuids.map(uuid =>
-        fetch("/api/tag-aliases", {
-          method: "POST",
+      // to all of them so they stay together. Manual doses have no tag type
+      // ("manual" is a shared marker, and an alias on it once renamed every
+      // manually logged dose at once), so their rows are renamed directly.
+      const name = renameValue.trim()
+      const ops = renaming.uuids
+        .filter(uuid => uuid !== "manual")
+        .map(uuid =>
+          fetch("/api/tag-aliases", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tagTypeUuid: uuid, name }),
+          })
+        )
+      if (renaming.manualIds.length > 0) {
+        ops.push(fetch("/api/medications", {
+          method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tagTypeUuid: uuid, name: renameValue.trim() }),
-        })
-      ))
+          body: JSON.stringify({ renameIds: renaming.manualIds, renameTo: name }),
+        }))
+      }
+      await Promise.all(ops)
       setRenaming(null)
       await load()
     } finally {
@@ -821,7 +838,11 @@ export default function MedicationsPage() {
                                   </p>
                                   {item.tags[0] && (
                                     <button
-                                      onClick={() => startRename([item.tags[0]], item.tagName ?? "")}
+                                      onClick={() => startRename(
+                                        [item.tags[0]],
+                                        items.filter(i => i.id.startsWith("manual_") && i.tagName === item.tagName).map(i => i.id),
+                                        item.tagName ?? "",
+                                      )}
                                       className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground/40 hover:text-primary hover:bg-primary/10 active:bg-primary/20 transition-colors shrink-0"
                                       title={`Rename every "${item.tagName ?? "unnamed"}" entry`}
                                     >
