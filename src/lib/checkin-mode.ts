@@ -48,3 +48,19 @@ export const SYMPTOM_SEVERITY = [
   { value: 4, label: "Bad", color: "bg-orange-500" },
   { value: 5, label: "Severe", color: "bg-red-500" },
 ] as const
+
+// ── The evening's question about the morning's intention ────────────────────
+// The morning check-in asks what you mean to do; nothing asked whether you
+// did it. This is the one line that closes the loop, shared by the evening
+// push, the phone's local nudge and Emergy, so the three never phrase it
+// three ways.
+
+export type IntentionOutcome = "done" | "partly" | "no"
+export const INTENTION_OUTCOMES: readonly IntentionOutcome[] = ["done", "partly", "no"]
+
+/** Notification-length, with the intention quoted so the question is specific. */
+export function intentionQuestion(intention: string, max = 90): string {
+  const flat = intention.replace(/\s+/g, " ").trim()
+  const shown = flat.length > max ? flat.slice(0, max - 1).replace(/\s+\S*$/, "") + "…" : flat
+  return `This morning you set out to "${shown}" — how did it go?`
+}

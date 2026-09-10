@@ -29,6 +29,10 @@ import { parseDose, formatDose } from "@/lib/dose"
 import { OPUS } from "@/lib/models"
 import { trimToUserTurn } from "@/lib/chat-turns"
 import { parseSaid, SAID_KEY } from "@/lib/emergy-say"
+import { weightSlopeKgWk, weightTrend } from "@/lib/weight-trend"
+import { anchoredWindows, loadDriftReport, rollingWindows } from "@/lib/drift-load"
+import { renderDrift } from "@/lib/drift"
+import { closeIntention, parseOutcome } from "@/lib/intention"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { analyseExperiment } from "@/lib/experiments-analysis"
 import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
@@ -344,7 +348,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "remember",
-    description: "Save a durable fact about the user (a goal, preference, or context) so you recall it in future conversations. Use when the user shares something worth remembering long-term, e.g. 'I'm training for a marathon' or 'I hate mornings'.",
+    description: "Save a durable fact about the user (a goal, preference, or context) so you recall it in future conversations. Use when the user shares something worth remembering long-term, e.g. 'I'm training for a marathon' or 'I hate mornings'. Always use it, in the same turn, when they give you a date that matters in their life — a breakup, a move, a new job, a diagnosis, a bereavement, a quit date — with the event and the date in the fact ('Julka, his partner, left on 18 Aug 2026'), so that 'since she left' works next month without them having to say the date again.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -623,12 +627,36 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
-    name: "get_analysis",
-    description: "Read what the app has already worked out, when the user asks about it or it would change your answer: 'experiments' (every experiment with today's arm and the current result), 'anomalies' (what is off their own 45-day baseline), 'labs' (how each blood marker moved between draws), 'nutrients' (vitamins and minerals their logged food has been short on), 'adherence' (scheduled doses vs doses actually logged, last 14 days — a lower bound), 'patterns' (the correlation findings, with how trustworthy each is).",
+    name: "close_intention",
+    description: "Record how today's morning intention went, when the user tells you — in reply to the evening question ('you set out to X, how did it go?') or on their own ('yes, did the run'). outcome: done | partly | no. Pass a short note if they said why. Only today's intention can be closed here; the morning check-in must have set one.",
     input_schema: {
       type: "object" as const,
       properties: {
-        kind: { type: "string", enum: ["experiments", "anomalies", "labs", "nutrients", "adherence", "patterns"] },
+        outcome: { type: "string", enum: ["done", "partly", "no"] },
+        note: { type: "string", description: "Their own words on how it went, briefly (optional)" },
+      },
+      required: ["outcome"],
+    },
+  },
+  {
+    name: "compare_periods",
+    description: "Test whether the user's everyday numbers changed since a date — 'since she left', 'since I started the new job', 'since 18 August'. Compares the stretch from `since` to `until` against the same number of days immediately before it: sleep score, sleep length, HRV, resting HR, readiness, steps, mood, morning energy. Each gap has to clear a relevance floor AND the app's block permutation test, so the answer is 'these moved, these did not' rather than two averages narrated as a change. Also returns what they logged differently across the split (tags, habits, workouts, drinks, water) as candidates — never causes. Use it BEFORE narrating a before/after from get_health_range; the raw rows are for detail, this is for the verdict. Needs at least 10 days of a metric on each side.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        since: { type: "string", description: "The anchor date, YYYY-MM-DD in the user's local time — the first day of the 'after' stretch." },
+        until: { type: "string", description: "Last day of the 'after' stretch, YYYY-MM-DD. Defaults to today." },
+      },
+      required: ["since"],
+    },
+  },
+  {
+    name: "get_analysis",
+    description: "Read what the app has already worked out, when the user asks about it or it would change your answer: 'experiments' (every experiment with today's arm and the current result), 'anomalies' (what is off their own 45-day baseline), 'labs' (how each blood marker moved between draws), 'nutrients' (vitamins and minerals their logged food has been short on), 'adherence' (scheduled doses vs doses actually logged, last 14 days — a lower bound), 'patterns' (the correlation findings, with how trustworthy each is), 'drift' (the last 30 days against the 30 before: which everyday numbers moved enough to survive a permutation test, and what they logged differently alongside — use it for 'has anything changed lately', 'am I doing better this month', and when they reply to a monthly nudge).",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        kind: { type: "string", enum: ["experiments", "anomalies", "labs", "nutrients", "adherence", "patterns", "drift"] },
       },
       required: ["kind"],
     },
@@ -1793,6 +1821,35 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     return `Created "${created.name}": ${blocks} blocks of ${blockDays} days from ${today} (${blockDays * blocks} days), ${washoutDays} washout day${washoutDays === 1 ? "" : "s"} after each switch, watching ${spec.label}. The first block is ${startsOn ? "ON" : "OFF"} — drawn at random on purpose. They confirm each day on Patterns → Experiments; tell them that, or the analysis has nothing to count.`
   }
 
+  if (name === "close_intention") {
+    const outcome = parseOutcome(input.outcome)
+    if (!outcome) return "outcome must be done, partly or no."
+    const { today } = await userDay(userId)
+    const ok = await closeIntention(userId, today, outcome, typeof input.note === "string" ? input.note : null)
+    return ok
+      ? `Filed: today's intention ${outcome === "done" ? "done" : outcome === "partly" ? "partly done" : "not done"}. Acknowledge in a line; no lecture either way.`
+      : "There is no intention from this morning's check-in to close — say so, and offer to note it in the journal instead."
+  }
+
+  if (name === "compare_periods") {
+    const isDay = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    const tz = await getUserTimezone(userId)
+    const today = localDateStr(tz)
+    if (!isDay(input.since)) return "Give me the anchor date as YYYY-MM-DD."
+    const since = String(input.since)
+    const until = isDay(input.until) && String(input.until) <= today ? String(input.until) : today
+    if (since > until) return `${since} is after ${until} — nothing to compare yet.`
+    const w = anchoredWindows(since, until)
+    if (w.days < 10) return `Only ${w.days} days since ${since} — a comparison needs at least 10 on each side. Say so, and offer to look again in ${10 - w.days} days.`
+    if (w.days > 365) return "That stretch is longer than a year; pick a later anchor or an earlier end."
+    const report = await loadDriftReport(userId, tz, { recent: w.recent, prior: w.prior })
+    const names = { recent: `since ${since} (${w.days} days)`, prior: `the ${w.days} days before` }
+    if (report.judged === 0) return `Not enough data on both sides of ${since}: no metric has 10 days in both ${w.recent.from}–${w.recent.to} and ${w.prior.from}–${w.prior.to}.`
+    const text = renderDrift(report, { names })
+    if (!text) return `Nothing moved: ${report.judged} metrics had enough data on both sides of ${since} and none shifted past both the relevance floor and the permutation test. Say that plainly — "no measurable change" is the honest answer, and often the reassuring one.`
+    return text.detail + "\nThe shifts are tested; the factors are only what changed alongside. Say which numbers moved and which did not, offer the factors as candidates, and never state a cause."
+  }
+
   if (name === "get_analysis") {
     const kind = String(input.kind ?? "")
     const { today } = await userDay(userId)
@@ -1882,6 +1939,15 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         + "\n'strong' survived false-discovery correction; 'suggestive' did not — soften it. All association, not cause."
     }
 
+    if (kind === "drift") {
+      const tz = await getUserTimezone(userId)
+      const report = await loadDriftReport(userId, tz, rollingWindows(localDateStr(tz)))
+      if (report.judged === 0) return "Not enough data yet — a month-on-month comparison needs at least 10 days of a metric in each of the two 30-day windows."
+      const text = renderDrift(report)
+      if (!text) return `Nothing moved between the last 30 days and the 30 before: ${report.judged} metrics had enough data and none shifted past both the relevance floor and the permutation test. Say so plainly — same as last month is a real answer.`
+      return text.detail + "\nThe shifts are tested; the factors are only what changed alongside. Offer them as candidates, ask what else changed, and never state a cause."
+    }
+
     return "Unknown analysis kind."
   }
 
@@ -1957,8 +2023,8 @@ export async function buildSystemPrompt(
         SELECT "day","tagName","text" FROM "OuraTag"
         WHERE "userId" = ${userId} AND "day" >= ${since7Str} ORDER BY "timestamp"
       `.catch(() => []),
-      prisma.$queryRaw<{ date: string; energy: number; mood: number; intention: string | null; waterGoalMl: number }[]>`
-        SELECT "date","energy","mood","intention","waterGoalMl" FROM "MorningCheckIn"
+      prisma.$queryRaw<{ date: string; energy: number; mood: number; intention: string | null; intentionOutcome: string | null; waterGoalMl: number }[]>`
+        SELECT "date","energy","mood","intention","intentionOutcome","waterGoalMl" FROM "MorningCheckIn"
         WHERE "userId" = ${userId} AND "date" >= ${since7Str} ORDER BY "date" DESC
       `.catch(() => []),
       prisma.screenTimeLog.findMany({
@@ -2148,7 +2214,7 @@ export async function buildSystemPrompt(
 
   const moodLabels: Record<number, string> = { 1: "awful", 2: "bad", 3: "ok", 4: "good", 5: "great" }
   const energyLabels: Record<number, string> = { 1: "exhausted", 2: "tired", 3: "ok", 4: "good", 5: "amazing" }
-  const checkinRows = recentCheckins as { date: string; energy: number; mood: number; intention: string | null; waterGoalMl: number }[]
+  const checkinRows = recentCheckins as { date: string; energy: number; mood: number; intention: string | null; intentionOutcome: string | null; waterGoalMl: number }[]
   const checkin = checkinRows.find(c => c.date === todayStr) ?? null
 
   // Last 7 days of Oura tags grouped by day (coffee, supplements, meds — the
@@ -2244,9 +2310,28 @@ export async function buildSystemPrompt(
         return `- ${l.marker}: ${l.value} ${l.unit}${range}${flag} — measured ${l.date.toISOString().slice(0, 10)}`
       }).join("\n")
 
+  // Weight as a trend, never as the last number. The rule "judge on the
+  // 7-day trend, not one weigh-in" was in the prompt while the prompt handed
+  // him only the latest reading — so he judged the reading, and said a goal
+  // "hasn't recovered" off a single weigh-in ten days old. Now the trend
+  // verdict is what he sees; the raw reading is labelled as one reading.
+  let weightStr: string | null = null
+  try {
+    const series = await loadWeightSeries(userId, 120)
+    if (goals?.weightGoalMode) {
+      const p = weightGoalProgress(series, { mode: goals.weightGoalMode as "lose" | "gain" | "maintain", targetKg: goals.weightTargetKg, paceKgWk: goals.weightPaceKgWk, startKg: goals.weightGoalStartKg })
+      weightStr = `- Goal: ${goals.weightGoalMode}${goals.weightTargetKg != null ? ` to ${goals.weightTargetKg}kg` : ""}. ${p.summary}`
+    } else if (series.length >= 2) {
+      const trend = weightTrend(series)
+      const last = trend[trend.length - 1]
+      const slope = weightSlopeKgWk(trend)
+      weightStr = `- Trend ${last.trendKg}kg as of ${last.date} (${series.length} weigh-ins in 120 days${slope != null ? `, ${slope > 0 ? "+" : ""}${slope} kg/week over the last 14 days` : ""}). No weight goal set.`
+    }
+  } catch { /* no weight data */ }
+
   // Latest body composition measurement
   const bodyBits = latestBody ? [
-    latestBody.weightKg != null ? `${latestBody.weightKg}kg` : null,
+    latestBody.weightKg != null ? `${latestBody.weightKg}kg (one reading)` : null,
     latestBody.bodyFatPct != null ? `${latestBody.bodyFatPct}% body fat` : null,
     latestBody.musclePct != null ? `${latestBody.musclePct}% muscle` : null,
     latestBody.bmi != null ? `BMI ${latestBody.bmi}` : null,
@@ -2507,7 +2592,8 @@ export async function buildSystemPrompt(
 
 Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${fmtDay.format(today)} (${todayStr}) in ${tz}; the time of day is in the LIVE block that follows this prompt.
 
-LANGUAGE: answer in the language the user writes in. They often write Slovak — reply in natural, warm Slovak then (your name and the 🌱 stay), and switch back when they do. The data below is labelled in English; translate what you quote, never paste labels raw.
+ANCHOR DATES: when they tell you when something happened in their life — a breakup, a move, a new job, a diagnosis, a death, the day they quit something — call remember with the event and the date in the same turn, before you answer. Next month's "since she left" depends on it.
+LANGUAGE: answer in English, whatever language they write in — they read both, and English is the cheaper reply. Switch to Slovak only when they ask you to, and switch back when they ask again. Their journal, tags and messages may be in Slovak: read them as they are, quote them verbatim in the original when you quote, and put anything you paraphrase into English. The data below is labelled in English; never paste labels raw.
 
 WHAT YOU'RE FOR
 You're a health companion, not a general assistant. Their health, their logged data, and the everyday things around it — food, drink, sleep, training, mood, habits, routine — are all yours to talk about, generously. Someone asking for a high-protein dinner idea or why they feel flat after a late night is asking a health question; answer it properly.
@@ -2532,7 +2618,7 @@ ${foodLine}
 ${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today (${halfLifeIsPersonal ? `${halfLifeH}h half-life, fitted from their own sleep data` : `${halfLifeH}h half-life — the population default, not yet fitted to them, so don't state it as their personal figure`} — how much is still circulating right now is in the LIVE block; factor it into sleep/energy advice, e.g. discourage more coffee if a lot is still active late in the day)` : ""}
 ${caffeineCutoffStr ?? ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
-${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}
+${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"${checkin.intentionOutcome ? ` — ${checkin.intentionOutcome === "done" ? "done" : checkin.intentionOutcome === "partly" ? "partly done" : "not done"} (they answered this evening)` : " — not yet asked how it went; in the evening, ask, and close it with close_intention"}` : ""}` : "- Morning check-in: not done yet today"}
 ${fastingStr ?? ""}
 
 ## Today's weather
@@ -2554,6 +2640,7 @@ ${recentHealth.slice(0, 7).length === 0 ? "No health data yet." : recentHealth.s
 ${symptomsStr ? `## Symptoms logged (last 14 days — how they actually felt)\n${symptomsStr}\n` : ""}
 ${workoutsStr ? `## Workouts (most recent — logged here or synced from Strava)\n${workoutsStr}\n${trainingStr ?? ""}\n` : ""}
 ${weightGoalStr ? `## Weight goal (progress is judged on the 7-day trend, never a single weigh-in — say so if they fret about one reading)\n${weightGoalStr}\n` : ""}
+${weightStr ? `## Weight (judge on the trend below — never on one weigh-in, and never read a single reading as a change)\n${weightStr}\n` : ""}
 ${bodyStr ? `## Body composition (latest measurement)\n${bodyStr}\n` : ""}
 ${labsStr ? `## Blood work (latest value per marker — mention ⚠️ flags when health topics come up)\n${labsStr}\n` : ""}
 ${medsStr ? `## Prescribed medications (active schedules — read these back, never advise on dose or whether to take them)\n${medsStr}\n` : ""}
@@ -2614,9 +2701,26 @@ The chat screen shows your answer with its working, so write it that way.
 - When their own words say it better than yours, quote the journal back as a blockquote opening with the date: "> 24 Aug — Woke up already behind." One quote at most, only when it earns its place, and never paraphrased inside the quote marks — if you cannot quote it as written, do not quote it.
 - If the answer leaned on their data, close with one final line naming what you used, exactly like this: [sources: sleep, journal]. Choose only from: ${SOURCE_KEYS.join(", ")}. Name only what actually shaped the answer, not everything you can see, and leave the line off entirely for small talk or anything you answered without reading. The user never sees the line itself — it draws the source chips under your reply, so a source you name but did not use puts a false receipt on their screen.`
 
+/**
+ * Chat effort from the environment, validated. Unset means the model's
+ * default. EMERGY_CHAT_EFFORT=medium is the experiment to run: chat is the
+ * workload that most often holds quality a step below the default, and the
+ * per-turn usage line says by how much the bill moves.
+ */
+// "xhigh" exists on the API but not in this SDK version's types; it is not
+// a level this knob is for anyway — the knob exists to step DOWN and measure.
+const EFFORT_LEVELS = ["low", "medium", "high", "max"] as const
+type Effort = (typeof EFFORT_LEVELS)[number]
+export function chatEffort(): Effort | null {
+  const raw = (process.env.EMERGY_CHAT_EFFORT ?? "").trim().toLowerCase()
+  return (EFFORT_LEVELS as readonly string[]).includes(raw) ? raw as Effort : null
+}
+
 /** One thing that happened while Emergy was answering. */
 export type ChatEvent =
   | { type: "text"; text: string }
+  /** A fragment of his summarised reasoning — what the wait is about. */
+  | { type: "thinking"; text: string }
   | { type: "tool"; name: string }
   | { type: "sources"; chips: SourceChip[] }
 
@@ -2695,7 +2799,15 @@ export async function* streamChatEvents(
   // Loop is bounded so a misbehaving tool chain can't run forever.
   let lastStop: string | null = null
   let spoke = false
+  const effort = chatEffort()
   for (let turn = 0; turn < 8; turn++) {
+    // "Let me pull both stretches properly." then, after the tools, "Okay. 24
+    // days since…" arrived on screen as one glued sentence: the model rarely
+    // ends a pre-tool aside with a newline, and the next turn's text was
+    // appended straight onto it. A turn that follows tool results starts a
+    // new paragraph when something has already been said; markdown folds any
+    // surplus blank line, so a turn that did end cleanly loses nothing.
+    let breakDue = spoke
     const stream = anthropic.messages.stream({
       model: OPUS,
       // Thinking is on by default on this model and its tokens count against
@@ -2704,6 +2816,15 @@ export async function* streamChatEvents(
       // max_tokens and no text, and the user saw the tool chips and nothing
       // else — twice in a row. The cap is a safety net now, not a length hint.
       max_tokens: 16_000,
+      // Thinking is on by default; "summarized" only makes it visible. The
+      // summary streams as the wait happens, so the screen can say what he
+      // is working through instead of cycling stock phrases for twenty
+      // seconds. Billed the same either way.
+      thinking: { type: "adaptive", display: "summarized" },
+      // Thinking depth, and with it most of the cost of a turn. Left at the
+      // model's default until measured: the usage line below is what makes
+      // a week at "medium" comparable to a week at "high" on real questions.
+      ...(effort ? { output_config: { effort } } : {}),
       tools: cachedTools,
       system,
       messages,
@@ -2717,8 +2838,12 @@ export async function* streamChatEvents(
         toolsUsed.push(event.content_block.name)
         yield { type: "tool", name: event.content_block.name }
       }
+      if (event.type === "content_block_delta" && event.delta.type === "thinking_delta" && event.delta.thinking) {
+        yield { type: "thinking", text: event.delta.thinking }
+      }
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-        const out = filter.push(event.delta.text)
+        const out = filter.push(breakDue ? "\n\n" + event.delta.text : event.delta.text)
+        breakDue = false
         if (out.text) { spoke = true; yield { type: "text", text: out.text } }
         if (out.keys) claimed = out.keys
       }
@@ -2726,6 +2851,13 @@ export async function* streamChatEvents(
 
     const response = await stream.finalMessage()
     lastStop = response.stop_reason
+    // One line per model turn in the runtime logs. Output tokens include the
+    // thinking, so this is the number that moves when the effort changes.
+    console.info("[emergy] turn", JSON.stringify({
+      turn, stop: response.stop_reason, effort: effort ?? "default",
+      in: response.usage.input_tokens, out: response.usage.output_tokens,
+      cacheRead: response.usage.cache_read_input_tokens ?? 0, cacheWrite: response.usage.cache_creation_input_tokens ?? 0,
+    }))
 
     if (response.stop_reason !== "tool_use") break
 

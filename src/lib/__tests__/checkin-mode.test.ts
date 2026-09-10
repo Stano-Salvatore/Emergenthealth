@@ -29,3 +29,17 @@ describe("localDayOf / tomorrowOf", () => {
     expect(tomorrowOf(new Date(2026, 11, 31, 23, 0))).toBe("2027-01-01")
   })
 })
+
+describe("intentionQuestion", () => {
+  it("quotes the intention and asks", async () => {
+    const { intentionQuestion } = await import("@/lib/checkin-mode")
+    expect(intentionQuestion("go for a run before work")).toBe('This morning you set out to "go for a run before work" — how did it go?')
+  })
+  it("trims a long intention on a word boundary so the push stays one line", async () => {
+    const { intentionQuestion } = await import("@/lib/checkin-mode")
+    const long = "finish the quarterly report, call the dentist, and finally sort out the boxes in the hallway before anyone visits"
+    const q = intentionQuestion(long, 40)
+    expect(q).toContain('call the…"')  // cut on a word, not mid-word
+    expect(q.length).toBeLessThan(90)
+  })
+})

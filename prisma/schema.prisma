@@ -649,6 +649,10 @@ model MorningCheckIn {
   energy      Int
   mood        Int
   intention   String?
+  /// The evening's answer to the morning's intention: "done" | "partly" | "no".
+  /// Null until asked; the morning sets a course, this is whether it was held.
+  intentionOutcome String?
+  intentionNote    String?
   waterGoalMl Int      @default(2000)
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -4,14 +4,20 @@ import { prisma } from "@/lib/prisma"
 import { configurePush, loadLocalCoverage, loadSubscriptionsByUser, phoneCovers, sendToUser } from "@/lib/push"
 import { localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
+import { sayAsEmergy } from "@/lib/emergy-say"
+import { intentionQuestion } from "@/lib/checkin-mode"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// Evening journal nudge for web-push devices, for users who checked in this
-// morning but haven't written anything yet. Ticked every ten minutes by the
-// Actions cron; one delivery per day via the shared sent log, 21:00 local
-// with an hour of grace.
+// Evening nudge for web-push devices, for users who checked in this morning.
+// Ticked every ten minutes by the Actions cron; one delivery per day via the
+// shared sent log, 21:00 local with an hour of grace.
+//
+// Two shapes. When the morning set an intention that has no evening answer
+// yet, the push asks about THAT — "you set out to X, how did it go?" — and
+// lands in the chat too, so a reply is enough to close it. Otherwise it is
+// the journal nudge it always was, and only for people who haven't written.
 
 const SENT_KEY = "daily_nudges_sent"
 
@@ -67,32 +73,45 @@ export async function GET(req: NextRequest) {
     const alreadySent = await readSentLog(userId, SENT_KEY, localDate)
     if (alreadySent.has("evening")) continue
 
-    // Already journalled today — nothing to nudge about.
-    const noteRows = await prisma.$queryRaw<{ id: string }[]>`
-      SELECT id FROM "DailyNote"
-      WHERE "userId" = ${userId} AND "date"::date = ${localDate}::date
-        AND "content" IS NOT NULL AND length(trim("content")) > 10
-      LIMIT 1
-    `.catch(() => [] as { id: string }[])
-    if (noteRows.length > 0) continue
-
     // Only remind people who showed up today — a morning check-in is the signal.
-    const checkinRows = await prisma.$queryRaw<{ id: string }[]>`
-      SELECT id FROM "MorningCheckIn"
+    const checkinRows = await prisma.$queryRaw<{ intention: string | null; intentionOutcome: string | null }[]>`
+      SELECT "intention", "intentionOutcome" FROM "MorningCheckIn"
       WHERE "userId" = ${userId} AND "date" = ${localDate}
       LIMIT 1
-    `.catch(() => [] as { id: string }[])
+    `.catch(() => [] as { intention: string | null; intentionOutcome: string | null }[])
     if (checkinRows.length === 0) continue
+    const intention = checkinRows[0].intention?.trim() || null
+    const askIntention = intention != null && checkinRows[0].intentionOutcome == null
 
-    const prompt = EVENING_PROMPTS[Math.floor(Math.random() * EVENING_PROMPTS.length)]
+    if (!askIntention) {
+      // Already journalled today — nothing to nudge about.
+      const noteRows = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "DailyNote"
+        WHERE "userId" = ${userId} AND "date"::date = ${localDate}::date
+          AND "content" IS NOT NULL AND length(trim("content")) > 10
+        LIMIT 1
+      `.catch(() => [] as { id: string }[])
+      if (noteRows.length > 0) continue
+    }
+
+    const prompt = askIntention
+      ? intentionQuestion(intention!)
+      : EVENING_PROMPTS[Math.floor(Math.random() * EVENING_PROMPTS.length)]
 
     const delivered = await sendToUser(subs, {
-      title: "📝 Evening reflection",
+      title: askIntention ? "🌙 How did today go?" : "📝 Evening reflection",
       body: prompt,
-      url: "/dashboard/journal",
+      // The question opens the evening check-in, where one tap answers it;
+      // the reflection opens the journal it asks for.
+      url: askIntention ? "/dashboard/checkin" : "/dashboard/journal",
       tag: "evening-reflection",
     })
-    if (delivered) sent++
+    if (delivered) {
+      sent++
+      // The question is a real question: it lands in the chat so a reply
+      // there closes it too (close_intention), not only the check-in screen.
+      if (askIntention) await sayAsEmergy(userId, prompt).catch(() => null)
+    }
 
     alreadySent.add("evening")
     await writeSentLog(userId, SENT_KEY, localDate, alreadySent)

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { userToday } from "@/lib/user-timezone"
+import { INTENTION_OUTCOMES } from "@/lib/checkin-mode"
+import { closeIntention, parseOutcome } from "@/lib/intention"
 
 async function getStreak(userId: string, todayStr: string): Promise<number> {
   // Fetch last 60 dates with check-ins, walk backwards from today
@@ -88,4 +90,27 @@ export async function POST(req: NextRequest) {
   const streak = await getStreak(session.user.id, today)
 
   return NextResponse.json({ ok: true, checkin: rows[0], streak })
+}
+
+// The evening's answer to the morning's intention. Its own verb rather than a
+// field on POST: POST replaces the whole check-in, and an evening tap must
+// never be able to overwrite the morning's energy and mood with defaults.
+export async function PATCH(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const body = await req.json().catch(() => ({})) as { outcome?: unknown; note?: unknown; date?: unknown }
+  const outcome = parseOutcome(body.outcome)
+  if (!outcome) {
+    return NextResponse.json({ error: `outcome must be one of ${INTENTION_OUTCOMES.join(", ")}` }, { status: 400 })
+  }
+  const note = typeof body.note === "string" ? body.note : null
+  const date = typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
+    ? body.date
+    : await userToday(session.user.id)
+
+  if (!(await closeIntention(session.user.id, date, outcome, note))) {
+    return NextResponse.json({ error: "No intention was set that morning" }, { status: 404 })
+  }
+  return NextResponse.json({ ok: true, date, outcome })
 }

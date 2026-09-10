@@ -248,6 +248,42 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **The evening closes the morning's intention.** `MorningCheckIn` gained
+  `intentionOutcome` (done | partly | no) and `intentionNote`;
+  `closeIntention` in `src/lib/intention.ts` is the one writer, used by
+  `PATCH /api/morning-checkin`, the evening check-in's new first step
+  (shown only while an intention is open) and Emergy's `close_intention`
+  tool. The 21:00 web push asks the question instead of the journal nudge
+  while an intention is open, and lands in chat so a reply closes it; the
+  phone lays down a one-shot at 20:00 (id 910004) for the same, rebuilt on
+  every foreground so an answered one drops out. Phrasing lives once in
+  `intentionQuestion` (`checkin-mode.ts`).
+- **Before-and-after for any date, and a live thinking line.**
+  `compare_periods` (chat tool) runs the drift comparison on "since
+  <date>" against a matched-length window before it — matched on purpose,
+  as in the onset family, so "since she left" is 24 days against 24 days
+  rather than against 34 weeks of another season. Ten days a side minimum.
+  Chat now asks the model for `display: "summarized"` thinking and streams
+  the summary as `thinking` events; the chat page shows the latest sentence
+  of it in place of the stock "having a think" phrases (`latestThought` in
+  `chat-sources.ts`), and after a tool returns, under the aside. Billed the
+  same; thinking was already on.
+- **Month against month, the weight trend in the prompt, anchor dates, and
+  an effort knob.** `src/lib/drift.ts` compares the last 30 days (or last
+  calendar month) with the one before: each everyday metric's gap must
+  clear a relevance floor AND the engine's block permutation, then the
+  report says what the user logged differently alongside (tags, habits,
+  workouts, drinks, water) and asks the open question when nothing logged
+  moved. Surfaced as `get_analysis kind: "drift"` in chat and as
+  `/api/cron/monthly-drift` on the 1st (daytime, once, silent when nothing
+  moved). The system prompt now carries the weight *trend* verdict from
+  `weight-trend.ts` instead of only the last reading — the "never one
+  weigh-in" rule was being handed one weigh-in. `remember` is told to file
+  any life-event date the user gives, so "since she left" works next month.
+  `EMERGY_CHAT_EFFORT` (low, medium, high or max; unset = model default) sets chat thinking
+  depth, and every model turn logs `[emergy] turn {in, out, cacheRead…}` so a
+  week at medium can be compared with a week at the default before either
+  is made permanent.
 - **The night question, and the token cap that silenced chat.** Every Opus
   call ran with a small `max_tokens` (chat 2048, weekly review 700, report
   summary 600) from before thinking was on by default; thinking counts

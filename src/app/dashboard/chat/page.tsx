@@ -31,6 +31,8 @@ interface Message {
   sources?: SourceChip[]
   /** The tool he is in the middle of, while he is in the middle of it. */
   activeTool?: string
+  /** His summarised reasoning so far this turn, while there is no text yet. */
+  thought?: string
 }
 
 interface Conversation {
@@ -110,9 +112,14 @@ function MessageBubble({ msg, emergyState, onRetry }: { msg: Message; emergyStat
             · A tool running — the row below names the wait, and two competing
               "still working" signals would just be noise. */}
         {msg.streaming && !msg.activeTool && !msg.content && (
-          <ThinkingLine seed={msg.id ?? "emergy"} />
+          <ThinkingLine seed={msg.id ?? "emergy"} thought={msg.thought} />
         )}
-        {msg.streaming && !msg.activeTool && !!msg.content && (
+        {/* Reasoning after a tool came back, with an aside already on screen:
+            the thought goes under the aside, where the tool row was. */}
+        {msg.streaming && !msg.activeTool && !!msg.content && msg.thought && (
+          <div className="mt-2"><ThinkingLine seed={msg.id ?? "emergy"} thought={msg.thought} /></div>
+        )}
+        {msg.streaming && !msg.activeTool && !!msg.content && !msg.thought && (
           <span className="animate-pulse ml-0.5">▍</span>
         )}
         {msg.streaming && msg.activeTool && (
@@ -500,7 +507,17 @@ export default function ChatPage() {
                   // Text resuming means the tool has come back: drop the
                   // activity row rather than leaving it up beside live output.
                   i === m.length - 1
-                    ? { ...msg, content: msg.content + parsed.text, activeTool: undefined }
+                    ? { ...msg, content: msg.content + parsed.text, activeTool: undefined, thought: undefined }
+                    : msg
+                )
+              )
+            } else if (parsed.type === "thinking" && parsed.text) {
+              // A tool that has returned is no longer the wait; the thought
+              // is. Kept to a tail so a long reasoning block costs nothing.
+              setMessages((m) =>
+                m.map((msg, i) =>
+                  i === m.length - 1
+                    ? { ...msg, activeTool: undefined, thought: ((msg.thought ?? "") + parsed.text).slice(-600) }
                     : msg
                 )
               )
