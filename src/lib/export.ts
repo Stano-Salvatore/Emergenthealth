@@ -48,8 +48,13 @@ export async function buildExportBundle(userId: string): Promise<ExportBundle> {
       where: { id: userId },
       select: { name: true, email: true, createdAt: true },
     }).catch(() => null),
+    // `::text`, because information_schema reports identifiers as Postgres'
+    // `name` type and Prisma 7's driver adapter refuses to deserialize it
+    // ("Failed to deserialize column of type 'name'"). Without the cast the
+    // whole backup — the download and the monthly email — failed on the
+    // first query, for eleven days, with nothing on screen but a dead link.
     prisma.$queryRaw<{ table_name: string }[]>`
-      SELECT DISTINCT c.table_name
+      SELECT DISTINCT c.table_name::text AS table_name
       FROM information_schema.columns c
       JOIN information_schema.tables t
         ON t.table_name = c.table_name AND t.table_schema = 'public'
