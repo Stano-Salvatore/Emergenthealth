@@ -21,7 +21,20 @@ import { resyncNotifications } from "@/lib/native/notifications"
 // engine, Emergy's context and the Insights page all read those tables, and a
 // fifth copy of "how was today" would be invisible to every one of them.
 
-type Step = 0 | 1 | 2 | 3 | "done"
+type StepKey = "intention" | "today" | "where" | "body" | "tomorrow"
+type Step = number | "done"
+
+// The morning's intention, if one was set and not yet answered. The first
+// screen of the evening asks about it — the one question the morning
+// check-in left open — and it is skipped entirely when there is nothing to
+// ask, so a day without an intention is not a day with an empty step.
+interface OpenIntention { text: string; outcome: string | null }
+
+const OUTCOMES = [
+  { value: "done",   emoji: "✅", label: "Did it" },
+  { value: "partly", emoji: "〰️", label: "Partly" },
+  { value: "no",     emoji: "↪️", label: "Not today" },
+] as const
 
 const MOODS = [
   { value: 1, emoji: "😞", label: "Rough" },
@@ -37,14 +50,14 @@ interface PlaceStop {
   checkedAt: string
 }
 
-const STEP_LABELS = ["Today", "Where", "Body", "Tomorrow"]
+const STEP_LABEL: Record<StepKey, string> = { intention: "Intention", today: "Today", where: "Where", body: "Body", tomorrow: "Tomorrow" }
 
-function Progress({ step }: { step: Step }) {
-  const current = step === "done" ? 4 : step
+function Progress({ step, keys }: { step: Step; keys: StepKey[] }) {
+  const current = step === "done" ? keys.length : step
   return (
     <div className="mb-5">
       <div className="flex justify-between mb-2">
-        {STEP_LABELS.map((label, i) => (
+        {keys.map(k => STEP_LABEL[k]).map((label, i) => (
           <span
             key={label}
             className={cn(
@@ -59,7 +72,7 @@ function Progress({ step }: { step: Step }) {
       <div className="h-1 rounded-full bg-secondary overflow-hidden">
         <div
           className="h-full bg-primary transition-all duration-300"
-          style={{ width: `${(current / 4) * 100}%` }}
+          style={{ width: `${(current / keys.length) * 100}%` }}
         />
       </div>
     </div>
@@ -70,6 +83,9 @@ export function EveningCheckIn() {
   const [step, setStep] = useState<Step>(0)
   const [mood, setMood] = useState<number | null>(null)
   const [picked, setPicked] = useState<number | null>(null)
+  // undefined = not fetched yet; null = nothing to ask.
+  const [intention, setIntention] = useState<OpenIntention | null | undefined>(undefined)
+  const [outcomePicked, setOutcomePicked] = useState<string | null>(null)
 
   const [stops, setStops] = useState<PlaceStop[] | null>(null)
   const [symptom, setSymptom] = useState<string | null>(null)
@@ -102,6 +118,32 @@ export function EveningCheckIn() {
       .then(r => (r.ok ? r.json() : null))
       .then(d => { if (d?.content) setNote(d.content) })
       .catch(() => {})
+
+    fetch(`/api/morning-checkin?date=${today}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        const c = d?.checkin
+        const text = typeof c?.intention === "string" ? c.intention.trim() : ""
+        setIntention(text && !c?.intentionOutcome ? { text, outcome: null } : null)
+      })
+      .catch(() => setIntention(null))
+  }, [today])
+
+  // The step list depends on whether there is an intention to ask about,
+  // which is only known after the fetch — until then, assume not, so the
+  // mood screen shows at once rather than a blank card.
+  const keys: StepKey[] = intention ? ["intention", "today", "where", "body", "tomorrow"] : ["today", "where", "body", "tomorrow"]
+  const key: StepKey | "done" = step === "done" ? "done" : keys[Math.min(step, keys.length - 1)]
+  const next = () => setStep(s => (s === "done" ? s : s + 1))
+
+  const pickOutcome = useCallback((value: string) => {
+    setOutcomePicked(value)
+    void fetch("/api/morning-checkin", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outcome: value, date: today }),
+    }).catch(() => {})
+    setTimeout(() => { setStep(1); setOutcomePicked(null) }, 150)
   }, [today])
 
   const pickMood = useCallback((value: number) => {
@@ -112,7 +154,7 @@ export function EveningCheckIn() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mood: value, date: today }),
     }).catch(() => {})
-    setTimeout(() => { setStep(1); setPicked(null) }, 150)
+    setTimeout(() => { setStep(s => (s === "done" ? s : s + 1)); setPicked(null) }, 150)
   }, [today])
 
   async function logSymptom(name: string, severity: number) {
@@ -164,11 +206,37 @@ export function EveningCheckIn() {
 
   return (
     <div className="max-w-md mx-auto">
-      <Progress step={step} />
+      <Progress step={step} keys={keys} />
 
       <Card>
         <CardContent className="pt-5 pb-5">
-          {step === 0 && (
+          {key === "intention" && intention && (
+            <>
+              <h2 className="text-xl font-bold text-center mb-1">This morning you set out to</h2>
+              <p className="text-base text-center mb-5 px-2">&ldquo;{intention.text}&rdquo;</p>
+              <p className="text-xs text-muted-foreground text-center mb-3">How did it go?</p>
+              <div className="grid grid-cols-3 gap-1.5">
+                {OUTCOMES.map(o => (
+                  <button
+                    key={o.value}
+                    onClick={() => pickOutcome(o.value)}
+                    className={cn(
+                      "flex flex-col items-center gap-1.5 rounded-xl border py-3 transition-all",
+                      outcomePicked === o.value ? "border-primary bg-primary/10 scale-95" : "border-border hover:border-primary/50",
+                    )}
+                  >
+                    <span className="text-2xl leading-none">{o.emoji}</span>
+                    <span className="text-[10px] text-muted-foreground">{o.label}</span>
+                  </button>
+                ))}
+              </div>
+              <button onClick={next} className="block mx-auto mt-4 text-xs text-muted-foreground hover:text-foreground">
+                Skip
+              </button>
+            </>
+          )}
+
+          {key === "today" && (
             <>
               <h2 className="text-xl font-bold text-center mb-1">How was today?</h2>
               <p className="text-xs text-muted-foreground text-center mb-5">Looking back, not forward</p>
@@ -190,7 +258,7 @@ export function EveningCheckIn() {
             </>
           )}
 
-          {step === 1 && (
+          {key === "where" && (
             <>
               <h2 className="text-xl font-bold text-center mb-1">Where you were</h2>
               <p className="text-xs text-muted-foreground text-center mb-4">
@@ -222,12 +290,12 @@ export function EveningCheckIn() {
                 <Link href="/dashboard/location" className="text-xs text-muted-foreground underline">
                   Open the map
                 </Link>
-                <Button size="sm" onClick={() => setStep(2)}>Next →</Button>
+                <Button size="sm" onClick={next}>Next →</Button>
               </div>
             </>
           )}
 
-          {step === 2 && (
+          {key === "body" && (
             <>
               <h2 className="text-xl font-bold text-center mb-1">Anything bothering you?</h2>
               <p className="text-xs text-muted-foreground text-center mb-4">
@@ -295,15 +363,15 @@ export function EveningCheckIn() {
               )}
 
               <div className="flex items-center justify-between gap-2 mt-5">
-                <button onClick={() => setStep(3)} className="text-sm text-muted-foreground hover:text-foreground">
+                <button onClick={next} className="text-sm text-muted-foreground hover:text-foreground">
                   {loggedSymptoms.length > 0 ? "Done" : "Nothing"}
                 </button>
-                <Button size="sm" onClick={() => setStep(3)}>Next →</Button>
+                <Button size="sm" onClick={next}>Next →</Button>
               </div>
             </>
           )}
 
-          {step === 3 && (
+          {key === "tomorrow" && (
             <>
               <h2 className="text-xl font-bold text-center mb-1">Before you put it down</h2>
               <p className="text-xs text-muted-foreground text-center mb-4">

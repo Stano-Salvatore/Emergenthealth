@@ -126,6 +126,7 @@ const TOOL_ACTIVITY: Record<string, string> = {
   log_custom_metric:  "logging that",
   log_moment:         "adding that to your timeline",
   log_morning_checkin: "saving your check-in",
+  close_intention:    "closing today's intention",
   write_daily_note:   "writing that in your journal",
   remember:           "remembering that",
   forget:             "forgetting that",

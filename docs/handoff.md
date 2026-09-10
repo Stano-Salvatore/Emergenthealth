@@ -248,6 +248,16 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **The evening closes the morning's intention.** `MorningCheckIn` gained
+  `intentionOutcome` (done | partly | no) and `intentionNote`;
+  `closeIntention` in `src/lib/intention.ts` is the one writer, used by
+  `PATCH /api/morning-checkin`, the evening check-in's new first step
+  (shown only while an intention is open) and Emergy's `close_intention`
+  tool. The 21:00 web push asks the question instead of the journal nudge
+  while an intention is open, and lands in chat so a reply closes it; the
+  phone lays down a one-shot at 20:00 (id 910004) for the same, rebuilt on
+  every foreground so an answered one drops out. Phrasing lives once in
+  `intentionQuestion` (`checkin-mode.ts`).
 - **Before-and-after for any date, and a live thinking line.**
   `compare_periods` (chat tool) runs the drift comparison on "since
   <date>" against a matched-length window before it — matched on purpose,

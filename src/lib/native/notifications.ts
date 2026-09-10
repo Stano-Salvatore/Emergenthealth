@@ -23,6 +23,7 @@
 // (verified under plain Node), which keeps server rendering working.
 import { Capacitor } from "@capacitor/core"
 import { LocalNotifications } from "@capacitor/local-notifications"
+import { intentionQuestion } from "@/lib/checkin-mode"
 
 import { activeOn } from "@/lib/med-schedule"
 import { scheduleHeadPops } from "@/lib/native/bubble"
@@ -422,12 +423,20 @@ export function buildPops(
   return pops.sort((a, b) => a.at - b.at).slice(0, MAX_POPS)
 }
 
+/** The one-shot "how did today go?" — outside the repeating nudges' ids. */
+const INTENTION_NUDGE_ID = 910004
+const INTENTION_NUDGE_HOUR = 20
+
 export async function syncNotifications(
   reminders: Reminder[],
   habits: HabitReminder[] = [],
   meds: MedReminder[] = [],
   nudgePrefs: NudgePrefs = DEFAULT_NUDGE_PREFS,
   events: EventAlert[] = [],
+  // This morning's intention, when it has no evening answer yet. Today's
+  // evening gets a one-shot asking about it; the repeating nudges carry a
+  // fixed body and cannot.
+  openIntention: string | null = null,
 ): Promise<number> {
   const ln = getPlugin()
   if (!ln) return 0
@@ -581,6 +590,22 @@ export async function syncNotifications(
           schedule: { on: { hour: n.hour, minute: n.minute }, repeats: true, allowWhileIdle: true },
           extra: { kind: "nudge", id: n.id, url: n.url },
         })
+      }
+      // Today only, and only while unanswered: the set is rebuilt on every
+      // foreground, so an answered intention drops out on the next sync and
+      // tomorrow's morning brings its own.
+      if (nudgePrefs.evening && openIntention) {
+        const at = new Date()
+        at.setHours(INTENTION_NUDGE_HOUR, 0, 0, 0)
+        if (at.getTime() > now) {
+          toSchedule.push({
+            id: INTENTION_NUDGE_ID,
+            title: "🌙 How did today go?",
+            body: intentionQuestion(openIntention),
+            schedule: { at, allowWhileIdle: true },
+            extra: { kind: "nudge", id: INTENTION_NUDGE_ID, url: "/dashboard/checkin" },
+          })
+        }
       }
     }
 
@@ -741,6 +766,7 @@ const KIND_DESTINATIONS: Record<string, string> = {
 // Their ids are fixed, which is enough to route them until they are replaced.
 const NUDGE_DESTINATIONS: Record<number, string> = {
   910001: "/dashboard/checkin",
+  910004: "/dashboard/checkin",
   910002: "/dashboard/intake",
   910003: "/dashboard/habits",
 }
@@ -1077,7 +1103,7 @@ async function json<T>(url: string, fallback: T): Promise<T> {
 export async function resyncNotifications(): Promise<number> {
   try {
     const eventsTo = new Date(Date.now() + HABIT_WINDOW_DAYS * 86_400_000).toISOString()
-    const [reminders, habits, medPayload, events, morning, noon, evening] = await Promise.all([
+    const [reminders, habits, medPayload, events, morning, noon, evening, checkin] = await Promise.all([
       json<Reminder[]>("/api/reminders", []),
       json<HabitReminder[]>("/api/habits", []),
       json<{ items?: MedReminder[] }>("/api/med-schedule", {}),
@@ -1085,7 +1111,11 @@ export async function resyncNotifications(): Promise<number> {
       json<{ hour?: number }>("/api/preferences/reminder-time", {}),
       json<{ enabled?: boolean }>("/api/preferences/noon-reminder", {}),
       json<{ enabled?: boolean }>("/api/preferences/evening-reminder", {}),
+      json<{ checkin?: { intention?: string | null; intentionOutcome?: string | null } | null }>("/api/morning-checkin", {}),
     ])
+    const openIntention = checkin?.checkin?.intention?.trim() && !checkin.checkin.intentionOutcome
+      ? checkin.checkin.intention.trim()
+      : null
 
     const count = await syncNotifications(
       Array.isArray(reminders) ? reminders : [],
@@ -1097,6 +1127,7 @@ export async function resyncNotifications(): Promise<number> {
         evening: evening?.enabled !== false,
       },
       Array.isArray(events) ? events : [],
+      openIntention,
     )
 
     // Tell the server the phone has these laid down locally, so its own

@@ -32,6 +32,7 @@ import { parseSaid, SAID_KEY } from "@/lib/emergy-say"
 import { weightSlopeKgWk, weightTrend } from "@/lib/weight-trend"
 import { anchoredWindows, loadDriftReport, rollingWindows } from "@/lib/drift-load"
 import { renderDrift } from "@/lib/drift"
+import { closeIntention, parseOutcome } from "@/lib/intention"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { analyseExperiment } from "@/lib/experiments-analysis"
 import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
@@ -623,6 +624,18 @@ const TOOLS: Anthropic.Tool[] = [
         note: { type: "string" },
       },
       required: ["name", "action", "outcome"],
+    },
+  },
+  {
+    name: "close_intention",
+    description: "Record how today's morning intention went, when the user tells you — in reply to the evening question ('you set out to X, how did it go?') or on their own ('yes, did the run'). outcome: done | partly | no. Pass a short note if they said why. Only today's intention can be closed here; the morning check-in must have set one.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        outcome: { type: "string", enum: ["done", "partly", "no"] },
+        note: { type: "string", description: "Their own words on how it went, briefly (optional)" },
+      },
+      required: ["outcome"],
     },
   },
   {
@@ -1808,6 +1821,16 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     return `Created "${created.name}": ${blocks} blocks of ${blockDays} days from ${today} (${blockDays * blocks} days), ${washoutDays} washout day${washoutDays === 1 ? "" : "s"} after each switch, watching ${spec.label}. The first block is ${startsOn ? "ON" : "OFF"} — drawn at random on purpose. They confirm each day on Patterns → Experiments; tell them that, or the analysis has nothing to count.`
   }
 
+  if (name === "close_intention") {
+    const outcome = parseOutcome(input.outcome)
+    if (!outcome) return "outcome must be done, partly or no."
+    const { today } = await userDay(userId)
+    const ok = await closeIntention(userId, today, outcome, typeof input.note === "string" ? input.note : null)
+    return ok
+      ? `Filed: today's intention ${outcome === "done" ? "done" : outcome === "partly" ? "partly done" : "not done"}. Acknowledge in a line; no lecture either way.`
+      : "There is no intention from this morning's check-in to close — say so, and offer to note it in the journal instead."
+  }
+
   if (name === "compare_periods") {
     const isDay = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)
     const tz = await getUserTimezone(userId)
@@ -2000,8 +2023,8 @@ export async function buildSystemPrompt(
         SELECT "day","tagName","text" FROM "OuraTag"
         WHERE "userId" = ${userId} AND "day" >= ${since7Str} ORDER BY "timestamp"
       `.catch(() => []),
-      prisma.$queryRaw<{ date: string; energy: number; mood: number; intention: string | null; waterGoalMl: number }[]>`
-        SELECT "date","energy","mood","intention","waterGoalMl" FROM "MorningCheckIn"
+      prisma.$queryRaw<{ date: string; energy: number; mood: number; intention: string | null; intentionOutcome: string | null; waterGoalMl: number }[]>`
+        SELECT "date","energy","mood","intention","intentionOutcome","waterGoalMl" FROM "MorningCheckIn"
         WHERE "userId" = ${userId} AND "date" >= ${since7Str} ORDER BY "date" DESC
       `.catch(() => []),
       prisma.screenTimeLog.findMany({
@@ -2191,7 +2214,7 @@ export async function buildSystemPrompt(
 
   const moodLabels: Record<number, string> = { 1: "awful", 2: "bad", 3: "ok", 4: "good", 5: "great" }
   const energyLabels: Record<number, string> = { 1: "exhausted", 2: "tired", 3: "ok", 4: "good", 5: "amazing" }
-  const checkinRows = recentCheckins as { date: string; energy: number; mood: number; intention: string | null; waterGoalMl: number }[]
+  const checkinRows = recentCheckins as { date: string; energy: number; mood: number; intention: string | null; intentionOutcome: string | null; waterGoalMl: number }[]
   const checkin = checkinRows.find(c => c.date === todayStr) ?? null
 
   // Last 7 days of Oura tags grouped by day (coffee, supplements, meds — the
@@ -2595,7 +2618,7 @@ ${foodLine}
 ${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today (${halfLifeIsPersonal ? `${halfLifeH}h half-life, fitted from their own sleep data` : `${halfLifeH}h half-life — the population default, not yet fitted to them, so don't state it as their personal figure`} — how much is still circulating right now is in the LIVE block; factor it into sleep/energy advice, e.g. discourage more coffee if a lot is still active late in the day)` : ""}
 ${caffeineCutoffStr ?? ""}
 ${ouraMeds.length > 0 ? `- Supplements/meds taken today (via Oura Ring): ${ouraMeds.join(", ")}` : "- No supplements/meds logged via Oura Ring today"}
-${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"` : ""}` : "- Morning check-in: not done yet today"}
+${checkin ? `- Morning check-in: energy ${checkin.energy}/5 (${energyLabels[checkin.energy]}), mood ${checkin.mood}/5 (${moodLabels[checkin.mood]})${checkin.intention ? `, intention: "${checkin.intention}"${checkin.intentionOutcome ? ` — ${checkin.intentionOutcome === "done" ? "done" : checkin.intentionOutcome === "partly" ? "partly done" : "not done"} (they answered this evening)` : " — not yet asked how it went; in the evening, ask, and close it with close_intention"}` : ""}` : "- Morning check-in: not done yet today"}
 ${fastingStr ?? ""}
 
 ## Today's weather
