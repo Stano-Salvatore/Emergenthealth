@@ -248,6 +248,17 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **The night question, and the token cap that silenced chat.** Every Opus
+  call ran with a small `max_tokens` (chat 2048, weekly review 700, report
+  summary 600) from before thinking was on by default; thinking counts
+  against the cap, so "give me a detailed analysis" thought its way to the
+  limit after the tool results and returned nothing but the source chips.
+  Caps are safety nets now (16k streaming, 8k otherwise) and the chat loop
+  says out loud when a turn ends on `max_tokens` or `refusal`. The anomaly
+  watch asks instead of stating when one night is unusual in either
+  direction on a night metric (`nightQuestion` in `src/lib/anomalies.ts`):
+  the push names the night, opens the chat, and the system prompt tells
+  Emergy to file the answer against that night, never today.
 - **Working for a stranger, part one.** The APK's `versionCode` is stamped
   into the WebView user agent at `cap sync` (`EmergenthealthBuild/1062`,
   from `ANDROID_VERSION_CODE`, which `customize-android.py` exports so the

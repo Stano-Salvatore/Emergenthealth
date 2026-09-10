@@ -170,10 +170,15 @@ Keep it under 250 words.`
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const response = await client.messages.create({
     model: OPUS,
-    max_tokens: 700,
+    // Thinking is on by default on this model and counts against the cap: at
+    // 700 the review could spend its whole budget thinking and come back with
+    // no prose, which read as "nothing to review". Length is set by the
+    // prompt ("under 250 words"), not by this number.
+    max_tokens: 8192,
     system: systemPrompt,
     messages: [{ role: "user", content: instruction }],
   })
+  if (response.stop_reason === "refusal") return null
 
   const narrative = response.content
     .map(c => (c.type === "text" ? c.text : ""))

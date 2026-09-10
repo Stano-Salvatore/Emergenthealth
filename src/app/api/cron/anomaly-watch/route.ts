@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import { sayAsEmergy } from "@/lib/emergy-say"
-import type { Anomaly } from "@/lib/anomalies"
+import { isNightAnomaly, nightQuestion, type Anomaly } from "@/lib/anomalies"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -16,7 +16,10 @@ export const maxDuration = 120 // one 45-day scan per subscribed user
 // and direction is kept in UserPreference so an ongoing run stays quiet unless
 // it meaningfully worsens or a real gap has passed since the last mention.
 // Only anomalies in the unhelpful direction interrupt anyone; a good HRV week
-// is worth seeing on the Insights page, not worth a notification.
+// is worth seeing on the Insights page, not worth a notification. The one
+// exception is a single unusual night, good or bad: that gets a question
+// rather than a statement (see nightQuestion), because the answer is data
+// the engine can use and the morning after is the only time anyone gives it.
 
 const RE_ALERT_AFTER_DAYS = 7
 /** How much further out it has to move to be worth mentioning again mid-run. */
@@ -73,7 +76,7 @@ export async function GET(req: NextRequest) {
     const next: WatchState = { ...prev }
 
     const worth: Anomaly[] = []
-    for (const a of anomalies.filter(x => x.concerning)) {
+    for (const a of anomalies.filter(x => x.concerning || isNightAnomaly(x))) {
       const key = stateKey(a)
       const seen = prev[key]
       const isNew = !seen
@@ -100,14 +103,19 @@ export async function GET(req: NextRequest) {
 
     if (worth.length === 0) continue
 
-    const top = worth.slice(0, MAX_PER_PUSH)
-    const body = top.map(a => a.summary).join(" · ")
+    // A night question goes out on its own, so the reply is unambiguous:
+    // "two beers with Peter" answers one night, not a list of three metrics.
+    const question = worth.map(nightQuestion).find((q): q is string => q != null)
+    const top = question ? worth.filter(a => nightQuestion(a) === question).slice(0, 1) : worth.slice(0, MAX_PER_PUSH)
+    const body = question ?? top.map(a => a.summary).join(" · ")
       + (worth.length > top.length ? ` · +${worth.length - top.length} more` : "")
 
     const delivered = await sendToUser(subs, {
-      title: `${top[0].emoji} Off your baseline`,
+      title: question ? `${top[0].emoji} About last night` : `${top[0].emoji} Off your baseline`,
       body,
-      url: "/dashboard/insights",
+      // A question opens the chat, where it can be answered; a statement
+      // opens the page that shows it.
+      url: question ? "/dashboard/chat" : "/dashboard/insights",
       tag: "anomaly-watch",
       requireInteraction: false,
     })
