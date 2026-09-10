@@ -5,10 +5,13 @@ import { Prisma } from "@prisma/client"
 import { isRefKind, issueConfirmToken, makeRef, parseRef, verifyConfirmToken, type RefKind } from "@/lib/log-refs"
 import { getEventsInRange } from "@/lib/google-calendar"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
-import { estimateCaffeine, activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
+import { activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
+import { recordDrink } from "@/lib/intake-write"
+import { recordDose } from "@/lib/dose-write"
+import type { DoseUnit } from "@/lib/dose"
 import {
   chipsFromClaim, chipsFromTools, createSourceFilter, mergeChips, SOURCE_KEYS,
   type SourceChip, type SourceManifest,
@@ -889,25 +892,17 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   if (name === "log_water") {
     const amountMl = parseInt(String(input.amountMl), 10)
     const { at, minutesAgo } = loggedAtFrom(input)
-    await prisma.intakeLog.create({ data: { userId, type: "water", amountMl, loggedAt: at } }).catch(() => null)
+    await recordDrink({ userId, type: "water", amountMl, at })
     return `Logged ${amountMl}ml of water${agoSuffix(minutesAgo)}.`
   }
 
   if (name === "log_coffee") {
     const amountMl = parseInt(String(input.amountMl), 10)
     const { at, minutesAgo } = loggedAtFrom(input)
-    const log = await prisma.intakeLog.create({ data: { userId, type: "coffee", amountMl, loggedAt: at } }).catch(() => null)
-    if (log) {
-      const est = estimateCaffeine("coffee", "", amountMl)
-      if (est) {
-        // The SAME instant as the intake. Caffeine is read as a decay curve
-        // against bedtime, so a cup logged an hour late reads as an hour more
-        // of it still circulating.
-        await prisma.caffeineLog.create({
-          data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg, loggedAt: at },
-        }).catch(() => null)
-      }
-    }
+    // The caffeine entry lands at the SAME instant as the intake — it is read
+    // as a decay curve against bedtime, so a cup logged an hour late reads as
+    // an hour more of it still circulating. recordDrink guarantees that.
+    await recordDrink({ userId, type: "coffee", amountMl, at })
     return `Logged ${amountMl}ml of coffee${agoSuffix(minutesAgo)}.`
   }
 
@@ -925,16 +920,11 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       : Math.max(0, Math.min(600, Math.round(rawMg)))
 
     const { at, minutesAgo } = loggedAtFrom(input)
-    const log = await prisma.intakeLog.create({
-      data: { userId, type, amountMl, note: label, loggedAt: at },
-    }).catch(() => null)
-    if (!log) return "Couldn't save that drink — the log didn't write."
-
-    if (caffeineMg && caffeineMg > 0) {
-      await prisma.caffeineLog.create({
-        data: { id: `intake_${log.id}`, userId, compound: type, caffeineMg, loggedAt: at },
-      }).catch(() => {})
-    }
+    // His figure, not the app's estimate: he knows what is in a Club-Mate and
+    // the lookup table does not. Passing it explicitly (null included) is how
+    // recordDrink is told to trust the caller rather than guess.
+    const drinkLog = await recordDrink({ userId, type, amountMl, note: label, at, caffeineMg })
+    if (!drinkLog) return "Couldn't save that drink — the log didn't write."
 
     const fluid = hydrationMl(type, amountMl)
     const parts = [`Logged ${amountMl}ml ${label}`]
@@ -995,23 +985,15 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       }
     }
     const usual = loggedAtFrom(input)
-    const log = await prisma.intakeLog.create({
-      data: {
-        userId,
-        type: place.usualType!,
-        amountMl: place.usualMl!,
-        note: `${place.usualNote || "the usual"} @ ${place.name}`,
-        loggedAt: usual.at,
-      },
+    const log = await recordDrink({
+      userId,
+      type: place.usualType!,
+      amountMl: place.usualMl!,
+      note: `${place.usualNote || "the usual"} @ ${place.name}`,
+      at: usual.at,
     })
-    // same mirroring the intake API does, same deterministic id convention
-    const est = estimateCaffeine(place.usualType!, place.usualNote ?? "", place.usualMl!)
-    if (est) {
-      await prisma.caffeineLog.create({
-        data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg, loggedAt: usual.at },
-      }).catch(() => null)
-    }
-    return `Logged the usual at ${place.name}: ${place.usualNote || place.usualType}, ${place.usualMl} ml${agoSuffix(usual.minutesAgo)}.${est ? ` Tracked ${est.mg} mg caffeine.` : ""}`
+    if (!log) return "Couldn't save that — the log didn't write."
+    return `Logged the usual at ${place.name}: ${place.usualNote || place.usualType}, ${place.usualMl} ml${agoSuffix(usual.minutesAgo)}.${log.caffeineMg ? ` Tracked ${log.caffeineMg} mg caffeine.` : ""}`
   }
 
   if (name === "log_mood") {
@@ -1504,7 +1486,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     // An amount the model states wins; otherwise read one off the label, so a
     // user saying "Atarax half" still records ½ tablet rather than nothing.
     const rawAmount = Number(input.doseAmount)
-    const unit = input.doseUnit === "mg" || input.doseUnit === "tablet" ? input.doseUnit : null
+    const unit: DoseUnit | null = input.doseUnit === "mg" ? "mg" : input.doseUnit === "tablet" ? "tablet" : null
     const dose = Number.isFinite(rawAmount) && rawAmount > 0 && unit
       ? { amount: Math.min(100_000, rawAmount), unit }
       : parseDose(label)
@@ -1513,10 +1495,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     const timestamp = new Date(Date.now() - minutesAgo * 60_000)
     const tz = await getUserTimezone(userId)
 
-    const wrote = await prisma.$executeRaw`
-      INSERT INTO "OuraTag" ("id","userId","day","timestamp","tagName","text","tags","doseAmount","doseUnit")
-      VALUES (${`manual_${randomUUID()}`}, ${userId}, ${localDateStr(tz, timestamp)}, ${timestamp}, ${label}, ${null}, ARRAY['manual']::text[], ${dose?.amount ?? null}, ${dose?.unit ?? null})
-    `.catch(() => 0)
+    const wrote = await recordDose({ userId, timezone: tz, name: label, dose, at: timestamp })
     if (!wrote) return `Couldn't log ${label} — the write didn't go through. Worth retrying.`
 
     const amountStr = dose ? formatDose(dose.amount, dose.unit) : null

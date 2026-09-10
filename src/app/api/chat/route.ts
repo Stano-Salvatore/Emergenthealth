@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { streamChatEvents } from "@/lib/claude"
+import { runQuickLog } from "@/lib/quick-log-run"
+import { runQuickAnswer } from "@/lib/quick-answer-run"
 import { checkRateLimit } from "@/lib/rate-limit"
 
 export const maxDuration = 120 // Opus with up to eight tool turns; the default limit cut long replies off mid-tool
@@ -74,6 +76,43 @@ export async function POST(req: NextRequest) {
   const convId = conversation.id
 
   await prisma.chatMessage.create({ data: { userId, conversationId: convId, role: "user", content: storedContent } })
+
+  // "log me 300ml water" was a fifth of everything ever said here, and every
+  // one of them went through the model to write one row. Those messages are
+  // recognised by their shape and answered from here — instantly, and for
+  // nothing. Anything the parser is not certain of returns null and goes to
+  // Emergy exactly as before, so this can only ever be the fast case, never a
+  // different answer. A photo is never a quick log.
+  if (message && attachments.length === 0) {
+    const quick = await runQuickLog(userId, message).catch(() => null)
+      // The other half of the same idea: a question whose answer is a lookup
+      // rather than a judgement. "How was my sleep this week?" was asked seven
+      // times word for word. Anything wanting an opinion returns null here and
+      // goes to Emergy, who is the one who can weigh a cause.
+      ?? await runQuickAnswer(userId, message).catch(() => null)
+    if (quick) {
+      const chips = "sources" in quick ? quick.sources : []
+      await prisma.chatMessage.create({
+        data: {
+          userId, conversationId: convId, role: "assistant", content: quick.reply,
+          sources: chips.length > 0 ? JSON.stringify(chips) : null,
+        },
+      }).catch(() => {})
+      await prisma.chatConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } }).catch(() => {})
+      // The same event shape the model's turns stream, so the client's
+      // after-a-write refreshes (Emergy's mood, the intake ring) still fire.
+      const events = [
+        { conversationId: convId },
+        ...("tools" in quick ? quick.tools.map(name => ({ type: "tool", name })) : []),
+        { type: "text", text: quick.reply },
+        ...(chips.length > 0 ? [{ type: "sources", chips }] : []),
+      ]
+      return new NextResponse(
+        new TextEncoder().encode(events.map(e => `data: ${JSON.stringify(e)}\n\n`).join("") + "data: [DONE]\n\n"),
+        { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } }
+      )
+    }
+  }
 
   // Real token streaming — forward Claude's deltas straight to the client as
   // they arrive, then persist the accumulated reply once the stream finishes.

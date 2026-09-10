@@ -1,4 +1,5 @@
 import React from "react"
+import { ChatChart } from "@/components/emergy/ChatChart"
 
 // Minimal markdown for Emergy's replies: **bold**, *italic*, `figures`,
 // "- " bullets, "## " headings and "> " quotes from the user's own journal.
@@ -62,6 +63,15 @@ export function ChatMarkdown({ text }: { text: string }) {
         i++
       }
       blocks.push(<Quote key={i} lines={quoted} />)
+      continue
+    }
+
+    // A chart, named but never drawn here: the tag says which one, the app
+    // resolves the numbers. See ChatChart and /api/chat/chart for why a reply
+    // is not allowed to carry data points of its own.
+    const chart = line.match(/^\s*\[chart:([a-z0-9-]{1,40})\]\s*$/)
+    if (chart) {
+      blocks.push(<ChatChart key={i} spec={chart[1]} />)
       continue
     }
 
