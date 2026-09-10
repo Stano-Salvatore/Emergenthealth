@@ -2,7 +2,8 @@
 
 import { useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
-import { ChevronDown, ChevronRight, Mail, MessageCircle } from "lucide-react"
+import { ChevronDown, ChevronRight, Mail, MessageSquarePlus } from "lucide-react"
+import { FeedbackForm } from "@/components/dashboard/FeedbackForm"
 import { cn } from "@/lib/utils"
 
 const FAQS = [
@@ -64,6 +65,7 @@ function FAQItem({ q, a }: { q: string; a: string }) {
 
 export function HelpCard() {
   const [showFaq, setShowFaq] = useState(false)
+  const [showFeedback, setShowFeedback] = useState(false)
 
   return (
     <Card>
@@ -81,19 +83,32 @@ export function HelpCard() {
               <p className="text-[11px] text-muted-foreground">hello@emergenthealth.app</p>
             </div>
           </a>
-          <a
-            href="https://github.com/stano-salvatore/emergenthealth/issues"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2.5 flex-1 rounded-xl border border-border hover:border-primary/40 bg-secondary/20 hover:bg-secondary/40 px-4 py-3 transition-all"
+          {/* In-app, not a GitHub issue: a tester on a phone has no GitHub
+              account to hand, and the inbox this feeds is where the owner
+              actually looks. The floating "Suggest" button is desktop-only,
+              so on a phone this is the feedback path. */}
+          <button
+            type="button"
+            onClick={() => setShowFeedback(v => !v)}
+            aria-expanded={showFeedback}
+            className={cn(
+              "flex items-center gap-2.5 flex-1 rounded-xl border bg-secondary/20 hover:bg-secondary/40 px-4 py-3 transition-all text-left",
+              showFeedback ? "border-primary/40" : "border-border hover:border-primary/40",
+            )}
           >
-            <MessageCircle className="h-4 w-4 text-muted-foreground shrink-0" />
+            <MessageSquarePlus className="h-4 w-4 text-muted-foreground shrink-0" />
             <div>
-              <p className="text-sm font-medium">Report a bug</p>
-              <p className="text-[11px] text-muted-foreground">Open a GitHub issue</p>
+              <p className="text-sm font-medium">Send feedback</p>
+              <p className="text-[11px] text-muted-foreground">A bug, an idea, or what works</p>
             </div>
-          </a>
+          </button>
         </div>
+
+        {showFeedback && (
+          <div className="rounded-xl border border-border/60 bg-secondary/10 p-3">
+            <FeedbackForm autoFocus onSent={() => setShowFeedback(false)} />
+          </div>
+        )}
 
         <div>
           <button

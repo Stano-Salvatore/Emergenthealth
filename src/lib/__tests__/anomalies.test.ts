@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { detectAnomaly, detectAll, illnessSignal, median, mad, TRACKED_METRICS, type Anomaly, type DayValue } from "@/lib/anomalies"
+import { detectAnomaly, detectAll, illnessSignal, median, mad, nightQuestion, TRACKED_METRICS, type Anomaly, type DayValue } from "@/lib/anomalies"
 
 const spec = (key: string) => TRACKED_METRICS.find(m => m.key === key)!
 
@@ -129,5 +129,30 @@ describe("illnessSignal", () => {
     const all = detectAll(series)
     expect(all[0].metric).toBe("illness")
     expect(all.some(a => a.metric === "restingHR")).toBe(false)
+  })
+})
+
+describe("nightQuestion", () => {
+  const base: Anomaly = {
+    metric: "sleepScore", label: "Sleep score", emoji: "🌙", unit: "", value: 66, baseline: 78,
+    z: -3.1, direction: "below", concerning: true, runLength: 1, date: "2026-09-10",
+    summary: "Sleep score is 12 below your usual 78 (66)",
+  }
+  it("asks about a bad night, names the night, and keeps the numbers", () => {
+    const q = nightQuestion(base)!
+    expect(q).toContain("12 below your usual 78")
+    expect(q).toContain("night to Thu 10 Sep")
+    expect(q).toMatch(/Did something happen/)
+  })
+  it("asks about a good night too — that is the half nobody logs", () => {
+    const q = nightQuestion({ ...base, value: 90, direction: "above", concerning: false, summary: "Sleep score is 12 above your usual 78 (90)" })!
+    expect(q).toMatch(/differently yesterday/)
+  })
+  it("a run of days is a drift, not a night — no question", () => {
+    expect(nightQuestion({ ...base, runLength: 3 })).toBeNull()
+  })
+  it("only night metrics are asked about", () => {
+    expect(nightQuestion({ ...base, metric: "steps", label: "Steps" })).toBeNull()
+    expect(nightQuestion({ ...base, metric: "restingHR" })).toBeNull()
   })
 })

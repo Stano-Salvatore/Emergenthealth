@@ -27,14 +27,6 @@ function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
   return Uint8Array.from([...rawData].map(c => c.charCodeAt(0))).buffer
 }
 
-function getBriefType(): "morning" | "midday" | "evening" | null {
-  const h = new Date().getHours()
-  if (h >= 6 && h <= 10) return "morning"
-  if (h >= 12 && h <= 14) return "midday"
-  if (h >= 20 && h <= 22) return "evening"
-  return null
-}
-
 export function EmergyPanel() {
   const pathname = usePathname()
   // On mobile Emergy lives in the bottom nav, which polls /api/emergy itself.
@@ -112,12 +104,16 @@ export function EmergyPanel() {
       })
       .catch(() => {})
 
-    const briefType = getBriefType()
-    if (briefType && !brief) {
+    // The same brief the dashboard card and the Brief page show. This panel
+    // used to call a second endpoint with its own prompt and no cache, so the
+    // desktop Emergy said something different from the phone's, and paid for
+    // a fresh generation on every open. /api/briefing is cached per day and
+    // period, so opening the panel is free once the brief exists.
+    if (!brief) {
       setBriefLoading(true)
-      fetch(`/api/emergy/brief?type=${briefType}`)
-        .then(r => r.json())
-        .then(d => setBrief(d.brief ?? null))
+      fetch("/api/briefing")
+        .then(r => r.ok ? r.json() : null)
+        .then(d => setBrief(d?.briefing ?? null))
         .catch(() => {})
         .finally(() => setBriefLoading(false))
     }

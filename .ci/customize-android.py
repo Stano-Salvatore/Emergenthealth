@@ -28,6 +28,15 @@ if n_code and n_name:
 else:
     print(f"WARNING: version patch incomplete (code={n_code}, name={n_name})")
 
+# The build number has to reach the web layer too: capacitor.config.ts stamps
+# it into the WebView's user agent at `cap sync`, which runs after this script.
+# Passing it through the job environment keeps the offset formula in one place
+# — a second copy in the config would drift the moment either was touched.
+github_env = os.environ.get("GITHUB_ENV")
+if github_env and run_number.isdigit():
+    with open(github_env, "a") as f:
+        f.write(f"ANDROID_VERSION_CODE={version_code}\n")
+
 # 1. minSdkVersion 26 (Health Connect requires >= 26)
 result = subprocess.run(
     ["sed", "-i", "s/minSdkVersion = 24/minSdkVersion = 26/", "android/variables.gradle"],

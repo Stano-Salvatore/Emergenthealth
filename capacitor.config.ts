@@ -53,7 +53,15 @@ const config: CapacitorConfig = {
     // WebView. Build with ANDROID_DEBUG_WEBVIEW=1 when a device genuinely
     // needs inspecting.
     webContentsDebuggingEnabled: process.env.ANDROID_DEBUG_WEBVIEW === '1',
-    appendUserAgent: 'Emergenthealth-Capacitor',
+    // The shell's only way of telling the web layer which APK it is. CI sets
+    // ANDROID_VERSION_CODE (see .ci/customize-android.py) before `cap sync`,
+    // and the web code reads it back out of the user agent — that is what
+    // lets the app say "build 1062 is out, this phone runs 1040" without a
+    // native plugin. Local builds carry no number, and an APK without one
+    // is by definition older than any that has it.
+    appendUserAgent: process.env.ANDROID_VERSION_CODE
+      ? `Emergenthealth-Capacitor EmergenthealthBuild/${process.env.ANDROID_VERSION_CODE}`
+      : 'Emergenthealth-Capacitor',
   },
 }
 

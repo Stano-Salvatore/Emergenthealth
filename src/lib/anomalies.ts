@@ -138,6 +138,40 @@ export function detectAnomaly(spec: MetricSpec, history: DayValue[]): Anomaly | 
   }
 }
 
+// ── The night question ────────────────────────────────────────────────────────
+//
+// An unusual night — in either direction — is the one moment someone will
+// tell you what they did. The ring apps ask "did something happen?" after a
+// bad night for exactly that reason, and the answer is a tag the engine can
+// use later; a statement ("sleep score 12 below usual") gets read and
+// forgotten. Good nights are asked about too: "what did I do right" is the
+// half of the data nobody logs unprompted.
+
+/** Metrics that describe the night just ended, so the question makes sense. */
+export const NIGHT_METRICS = new Set(["sleepScore", "sleepDuration", "hrv"])
+
+export function isNightAnomaly(a: Anomaly): boolean {
+  return NIGHT_METRICS.has(a.metric) && a.runLength <= 1
+}
+
+function nightLabel(dateISO: string): string {
+  const d = new Date(dateISO + "T00:00:00Z")
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })
+}
+
+/**
+ * The push for a one-night anomaly, phrased as a question and pinned to the
+ * night it is about — the date is what lets the answer be filed on the right
+ * day when it comes back hours later. Null for anything that isn't one night.
+ */
+export function nightQuestion(a: Anomaly): string | null {
+  if (!isNightAnomaly(a)) return null
+  const night = `night to ${nightLabel(a.date)}`
+  return a.concerning
+    ? `${a.summary} (${night}). Did something happen yesterday — late night, a drink, stress, feeling off?`
+    : `${a.summary} (${night}). Did you do anything differently yesterday? Worth knowing what worked.`
+}
+
 // ── Illness onset ─────────────────────────────────────────────────────────────
 //
 // Skin temperature, breathing rate and resting heart rate up, HRV down, on

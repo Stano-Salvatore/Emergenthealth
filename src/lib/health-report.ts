@@ -427,11 +427,13 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
       const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
       const res = await client.messages.create({
         model: OPUS,
-        max_tokens: 600,
+        // Thinking counts against this on the current model; 600 could be
+        // spent before a word of summary was written. Length is the prompt's job.
+        max_tokens: 8192,
         system: CLINICAL_SYSTEM,
         messages: [{ role: "user", content: `Write the summary section for this report.\n\n${context}` }],
       })
-      narrative = res.content.map(c => (c.type === "text" ? c.text : "")).join("").trim()
+      narrative = res.stop_reason === "refusal" ? "" : res.content.map(c => (c.type === "text" ? c.text : "")).join("").trim()
     } catch {
       narrative = ""
     }

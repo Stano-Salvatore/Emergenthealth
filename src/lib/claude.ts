@@ -2522,7 +2522,7 @@ CALENDAR TIMES: every calendar line below already shows the correct weekday and 
 You have tools to CREATE habits (with a schedule — weekdays or N times a week — and a reminder time), reminders (repeating when they say so) and calendar events (create_event — anything with a day and a time that isn't a to-do), COMPLETE habits and reminders, SKIP a habit for today with a reason (skip_habit_today — the streak holds), LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), blood pressure (log_blood_pressure), lab results from a printout or photo (log_lab_results — the date plus every marker/value/unit you can read, once they confirm the digits), a medication schedule they describe (create_med_schedule — name, dose, times; it records what they told you, it is not advice), fasts (start_fast / end_fast), training sessions (log_workout — "did legs for an hour", "30 min run"; ask for effort 1–10 only if it comes naturally), targets they want changed and their weight goal (set_goal — "I want to get to 78 kg" sets a lose goal, "stop the diet" clears it; the calorie and protein targets follow the goal, so mention that), a place they want remembered (save_place — "save this café as X" uses their phone's latest fix), and a self-experiment they want to run (create_experiment — one action, one measurable outcome, confirm the plan first), READ health trends (get_health_range) and the app's own analyses (get_analysis — running experiments and today's arm, what is off their baseline, lab trends, nutrient gaps, medication adherence, the found patterns), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and, once they confirm the digits, recording them with log_lab_results; a medication box means the name and strength (and create_med_schedule if it is something they take regularly); a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${renderFacts(memories)}\nIf they say one of these is no longer true, call forget — a fact that has gone stale still steers what you say until it is gone.\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
-${saidStr ? `## What you told them recently (nudges you sent on your own — they may be replying to one)\n${saidStr}\n` : ""}
+${saidStr ? `## What you told them recently (nudges you sent on your own — they may be replying to one)\n${saidStr}\nIf one of these asked whether something happened on a particular night and they are now answering, log what they say against THAT night, not today: a drink with log_drink, a dose with log_dose, anything else with log_moment — each with the date the question named (the evening before that date for a drink or a late meal). Then say in one line what you filed and where. Never log it as today.\n` : ""}
 ${experimentsStr ? `## Experiments running (N-of-1; when it is relevant, say which arm today is)\n${experimentsStr}\n` : ""}
 ${anomaliesStr ? `## Off their own baseline right now (45-day median/MAD scan of their ring data)\n${anomaliesStr}\nBring one up only when it fits what they ask; it is a flag, never a diagnosis.\n` : ""}
 ## Today's snapshot
@@ -2694,10 +2694,16 @@ export async function* streamChatEvents(
   // Stream each turn; if a turn ends in tool_use, run the tools and continue.
   // Loop is bounded so a misbehaving tool chain can't run forever.
   let lastStop: string | null = null
+  let spoke = false
   for (let turn = 0; turn < 8; turn++) {
     const stream = anthropic.messages.stream({
       model: OPUS,
-      max_tokens: 2048,
+      // Thinking is on by default on this model and its tokens count against
+      // max_tokens. At 2048 a "give me a detailed analysis" turn thought its
+      // way to the cap after the tool results came back, stopped with
+      // max_tokens and no text, and the user saw the tool chips and nothing
+      // else — twice in a row. The cap is a safety net now, not a length hint.
+      max_tokens: 16_000,
       tools: cachedTools,
       system,
       messages,
@@ -2713,7 +2719,7 @@ export async function* streamChatEvents(
       }
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
         const out = filter.push(event.delta.text)
-        if (out.text) yield { type: "text", text: out.text }
+        if (out.text) { spoke = true; yield { type: "text", text: out.text } }
         if (out.keys) claimed = out.keys
       }
     }
@@ -2746,12 +2752,21 @@ export async function* streamChatEvents(
   }
 
   const tail = filter.flush()
-  if (tail.text) yield { type: "text", text: tail.text }
+  if (tail.text) { spoke = true; yield { type: "text", text: tail.text } }
   if (tail.keys) claimed = tail.keys
   // The eighth turn ending in a tool call used to end in silence: the tools
   // ran, nothing was said, and the user saw a reply that just stopped.
   if (lastStop === "tool_use") {
     yield { type: "text", text: "\n\n…I ran out of steps before I finished that. Say \"carry on\" and I'll pick it up from here 🌱" }
+  }
+  // Every other way a turn can end without words gets a sentence too. The
+  // screen already substitutes "I went quiet there" for an empty reply, but
+  // that tells the user to ask again when asking again will do the same
+  // thing; these say what actually happened.
+  if (!spoke && lastStop === "max_tokens") {
+    yield { type: "text", text: "That one ran longer than I had room for, even before I started writing 🌱 Ask it in a narrower way — one metric, or one week — and I'll get it out." }
+  } else if (!spoke && lastStop === "refusal") {
+    yield { type: "text", text: "I can't help with that one 🌱" }
   }
 
   const chips = mergeChips(chipsFromTools(toolsUsed), chipsFromClaim(claimed, manifest))

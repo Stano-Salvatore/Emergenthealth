@@ -2,10 +2,10 @@
 
 /**
  * Invisibly triggers a Health Connect → server sync whenever the page
- * becomes visible (tab/app returns to foreground). Works in both the
- * Capacitor Android WebView and the browser — no extra packages needed.
- * Throttled to once per hour. On non-Android or when Health Connect is
- * unavailable, it exits silently after the first check.
+ * becomes visible (tab/app returns to foreground). Throttled to once per
+ * hour. Outside the Android shell, or when Health Connect is unavailable,
+ * it exits silently after the first check — the service itself refuses to
+ * touch the plugin in a browser.
  */
 
 import { useEffect } from "react"

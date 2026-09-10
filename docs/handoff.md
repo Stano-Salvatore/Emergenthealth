@@ -248,6 +248,38 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **The night question, and the token cap that silenced chat.** Every Opus
+  call ran with a small `max_tokens` (chat 2048, weekly review 700, report
+  summary 600) from before thinking was on by default; thinking counts
+  against the cap, so "give me a detailed analysis" thought its way to the
+  limit after the tool results and returned nothing but the source chips.
+  Caps are safety nets now (16k streaming, 8k otherwise) and the chat loop
+  says out loud when a turn ends on `max_tokens` or `refusal`. The anomaly
+  watch asks instead of stating when one night is unusual in either
+  direction on a night metric (`nightQuestion` in `src/lib/anomalies.ts`):
+  the push names the night, opens the chat, and the system prompt tells
+  Emergy to file the answer against that night, never today.
+- **Working for a stranger, part one.** The APK's `versionCode` is stamped
+  into the WebView user agent at `cap sync` (`EmergenthealthBuild/1062`,
+  from `ANDROID_VERSION_CODE`, which `customize-android.py` exports so the
+  offset formula lives once); `src/lib/native/build.ts` reads it back,
+  `/api/version` reads the newest build out of the public `latest-android`
+  release notes, and a Settings card plus a dismiss-per-build banner say
+  when a phone is behind. A phone whose UA carries no number is older than
+  every build that does, and is told so. `/api/cron/quiet-source` pushes
+  once per quiet spell when an Oura ring has produced no night for two days
+  (or its sync is failing — that outranks "charge your ring"); the judge is
+  pure in `src/lib/quiet-source.ts`, and it is Oura-only on purpose, since a
+  Health Connect gap means the app wasn't opened, not that anything broke.
+  The desktop Emergy panel reads `/api/briefing` like everything else;
+  `/api/emergy/brief` is gone. Health Connect's service refuses to touch the
+  plugin outside the shell, so the smoke suite no longer has to ignore its
+  web error. Uncaught page errors and error-boundary catches post to
+  `/api/client-error`, which files them as `UserFeedback` rows of type
+  `error` (one per distinct message per user per day, no email) so they
+  show in the owner's inbox beside the bug reports. The feedback composer
+  is one component, rendered by the desktop button and by Settings → Help &
+  Support, which is the phone's only path to it.
 - **Habits, reminders and the calendar as the only app.** Habits carry a
   schedule (`scheduleDays` weekday list or `timesPerWeek`; empty = daily);
   off-days neither ring nor break a streak, a weekly-target habit counts

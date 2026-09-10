@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Trash2, Lightbulb, Bug, Heart, MessageSquarePlus } from "lucide-react"
+import { Trash2, Lightbulb, Bug, Heart, MessageSquarePlus, AlertTriangle } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { Card, CardContent } from "@/components/ui/card"
 
@@ -19,6 +19,8 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   suggestion: <Lightbulb className="h-3.5 w-3.5 text-yellow-400" />,
   bug: <Bug className="h-3.5 w-3.5 text-red-400" />,
   praise: <Heart className="h-3.5 w-3.5 text-pink-400" />,
+  // Not typed by a person: what the page itself reported (lib/client-error.ts).
+  error: <AlertTriangle className="h-3.5 w-3.5 text-orange-400" />,
 }
 
 export function FeedbackInbox() {
@@ -68,7 +70,7 @@ export function FeedbackInbox() {
             <MessageSquarePlus className="h-6 w-6 text-muted-foreground/30" />
             <p className="text-sm text-muted-foreground">No feedback yet</p>
             <p className="text-xs text-muted-foreground/60">
-              Users can submit suggestions, bug reports, or praise via the button in the dashboard.
+              Suggestions, bug reports and praise arrive from Settings → Help &amp; Support and the desktop button; errors the page hits on a phone report themselves here too.
             </p>
           </div>
         ) : (
@@ -80,7 +82,7 @@ export function FeedbackInbox() {
               >
                 <span className="mt-0.5 shrink-0">{TYPE_ICON[f.type] ?? TYPE_ICON.suggestion}</span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm whitespace-pre-wrap break-words">{f.message}</p>
+                  <p className={`whitespace-pre-wrap break-words ${f.type === "error" ? "text-xs font-mono" : "text-sm"}`}>{f.message}</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     {f.name || f.email} · {formatDistanceToNow(new Date(f.createdAt), { addSuffix: true })}
                   </p>
