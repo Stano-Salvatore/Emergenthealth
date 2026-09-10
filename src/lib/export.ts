@@ -34,6 +34,30 @@ const TABLE_LIMITS: Record<string, { cap: number; orderBy: string }> = {
   ChatMessage: { cap: 20_000, orderBy: '"createdAt" DESC' },
 }
 
+/**
+ * Every table that belongs to a user. A constant, not an inline template,
+ * so export.test.ts can run the exact SQL against a real Postgres — this
+ * query has now failed in production twice with code that typechecked:
+ *
+ *  - information_schema reports identifiers as Postgres' `name` type, and
+ *    Prisma 7's driver adapter refuses to deserialize it. Hence `::text`.
+ *  - With DISTINCT, Postgres requires the ORDER BY expression to be in the
+ *    select list, and the cast made it a different expression. Hence
+ *    ORDER BY 1. The first fix traded the first error for this one.
+ *
+ * Takes no parameters, so $queryRawUnsafe is safe here.
+ */
+export const TABLE_DISCOVERY_SQL = `
+  SELECT DISTINCT c.table_name::text AS table_name
+  FROM information_schema.columns c
+  JOIN information_schema.tables t
+    ON t.table_name = c.table_name AND t.table_schema = 'public'
+  WHERE c.table_schema = 'public'
+    AND c.column_name = 'userId'
+    AND t.table_type = 'BASE TABLE'
+  ORDER BY 1
+`
+
 export type ExportBundle = {
   filename: string
   json: string
@@ -48,21 +72,7 @@ export async function buildExportBundle(userId: string): Promise<ExportBundle> {
       where: { id: userId },
       select: { name: true, email: true, createdAt: true },
     }).catch(() => null),
-    // `::text`, because information_schema reports identifiers as Postgres'
-    // `name` type and Prisma 7's driver adapter refuses to deserialize it
-    // ("Failed to deserialize column of type 'name'"). Without the cast the
-    // whole backup — the download and the monthly email — failed on the
-    // first query, for eleven days, with nothing on screen but a dead link.
-    prisma.$queryRaw<{ table_name: string }[]>`
-      SELECT DISTINCT c.table_name::text AS table_name
-      FROM information_schema.columns c
-      JOIN information_schema.tables t
-        ON t.table_name = c.table_name AND t.table_schema = 'public'
-      WHERE c.table_schema = 'public'
-        AND c.column_name = 'userId'
-        AND t.table_type = 'BASE TABLE'
-      ORDER BY c.table_name
-    `,
+    prisma.$queryRawUnsafe<{ table_name: string }[]>(TABLE_DISCOVERY_SQL),
   ])
 
   const tables: Record<string, unknown[]> = {}

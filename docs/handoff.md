@@ -248,13 +248,18 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
-- **The full backup was failing, quietly, for eleven days.** Prisma 7's
-  driver adapter refuses Postgres' `name` type, which is what
-  `information_schema` returns for identifiers; the backup's table-discovery
-  query selected `table_name` bare, so every export — the download and the
-  monthly email — died on its first query with nothing on screen. Fixed with
-  `::text`; `catalog-identifiers-cast.test.ts` is the standing guard for the
-  next catalog query.
+- **The full backup was failing, quietly, for eleven days — and the first
+  fix failed too.** Prisma 7's driver adapter refuses Postgres' `name` type,
+  which is what `information_schema` returns for identifiers; the backup's
+  table-discovery query selected `table_name` bare, so every export — the
+  download and the monthly email — died on its first query with nothing on
+  screen. `::text` fixed that and broke `SELECT DISTINCT`'s ORDER BY rule;
+  `ORDER BY 1` fixed that. The lesson is in `export-sql.test.ts`: the query
+  is a constant (`TABLE_DISCOVERY_SQL`) and the test runs it on PGlite, an
+  in-process Postgres, because nothing short of Postgres can judge SQL.
+  `catalog-identifiers-cast.test.ts` still guards the next catalog query.
+  Also: on the APK the download link can never work — the WebView has no
+  DownloadListener — which is what "Email me the backup" is for.
 - **The evening closes the morning's intention.** `MorningCheckIn` gained
   `intentionOutcome` (done | partly | no) and `intentionNote`;
   `closeIntention` in `src/lib/intention.ts` is the one writer, used by
