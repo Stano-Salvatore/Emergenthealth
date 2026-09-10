@@ -10,6 +10,9 @@ import { readFileSync } from "node:fs"
 // its own problem, but not one to fix at the same time as this.
 
 const src = readFileSync("src/lib/claude.ts", "utf8")
+// Every drink now goes through one writer, so the caffeine rule is guarded
+// where it is enforced rather than at each of the four call sites.
+const writer = readFileSync("src/lib/intake-write.ts", "utf8")
 
 /** Every tool that records something the user consumed. */
 const INTAKE_TOOLS = ["log_water", "log_coffee", "log_drink", "log_food", "log_usual"]
@@ -25,11 +28,19 @@ describe("backdating an intake", () => {
     // Caffeine is read as a decay curve against bedtime. A cup backdated an
     // hour whose caffeine row says "now" reports an hour more of it still
     // circulating — the backdating would make the sleep read worse, not truer.
-    const caffeineWrites = [...src.matchAll(/caffeineLog\.create\(\{[\s\S]{0,220}?\}\)/g)].map(m => m[0])
+    const caffeineWrites = [...(src + writer).matchAll(/caffeineLog\.create\(\{[\s\S]{0,220}?\}\)/g)].map(m => m[0])
     expect(caffeineWrites.length).toBeGreaterThan(0)
     for (const w of caffeineWrites) {
       expect(w, `a caffeineLog write without loggedAt:\n${w}`).toMatch(/loggedAt/)
     }
+  })
+
+  it("keeps the drink and its caffeine in one writer", () => {
+    // Four call sites each mirroring caffeine by hand is how the instants
+    // drifted apart in the first place. The tools call recordDrink now, and a
+    // new one that writes intakeLog directly would be the fifth.
+    expect(src).not.toMatch(/intakeLog\.create/)
+    expect(src.match(/recordDrink\(/g)?.length ?? 0).toBeGreaterThanOrEqual(4)
   })
 
   it("bounds how far back a log can be filed", () => {

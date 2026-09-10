@@ -186,6 +186,14 @@ in fourteen places in one sweep, twice in code that *writes* a journal entry.
 If you hit it, **fix the code**. A legitimate exception goes in the allow-list
 with the reason written down — never silenced.
 
+`src/lib/__tests__/quick-log.test.ts` guards the fast path in both directions.
+The messages it must parse are real ones; so are the messages it must refuse,
+and those matter more. If a change makes the parser accept something in the
+"his, not ours" list, it has started guessing, and a guessed row is worse than
+a slow one. It also asserts the parser still runs *before* the model in
+`/api/chat`, and `intake-backdating.test.ts` asserts the tools still write
+through `recordDrink` rather than reaching for `intakeLog.create` again.
+
 ## Conventions
 
 - **The trackers are meant to replace other apps, not summarise them.** The
@@ -248,6 +256,22 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **A fifth of the chat never needed the model.** Reading the whole
+  transcript, 33 of 155 messages ever sent to Emergy were log lines — "log me
+  300ml water", "add 1L water", "at kaviaren vtak log cold brew 250ml and
+  watter 200ml" — and each one spent an Opus turn and a tool call to write one
+  row. `src/lib/quick-log.ts` recognises those by shape and returns the rows;
+  `quick-log-run.ts` writes them and says them back; `/api/chat` runs it before
+  `streamChatEvents` and streams the same events, so the client refreshes as it
+  always did. **The rule is that the whole message parses or none of it does**,
+  and every doubt returns null and goes to Emergy: an unknown drink, a
+  medication this user has never logged, a number in words, a trailing clause,
+  a question mark. The grammar was written from the real messages and the
+  transcript is the test file — the ones it must catch, and beside them the
+  ones it must *not*, each with the reason. A wrong row written silently costs
+  far more than the tokens it saves. Drinks and doses now have one writer each
+  (`intake-write.ts`, `dose-write.ts`), which is what keeps a caffeine row at
+  the same instant as its drink for the fast path and Emergy's own tools alike.
 - **The full backup was failing, quietly, for eleven days — and the first
   fix failed too.** Prisma 7's driver adapter refuses Postgres' `name` type,
   which is what `information_schema` returns for identifiers; the backup's
@@ -394,3 +418,14 @@ Roughly in order, most recent first:
   next one arrives. Needs a timer, and an APK.
 - `EMAIL_FROM` is unset — the sender is Resend's sandbox, which only reaches
   the account owner. Needs a domain.
+- **The rest of the chat bill.** The parser takes the log lines; three levers
+  are left, in order of payoff. (1) `EMERGY_CHAT_EFFORT` is wired
+  (`chatEffort()` in `claude.ts`) but unset in production, so every turn runs
+  at the default — setting it to `medium` and reading the per-turn
+  `[emergy] turn` usage lines for a week is a one-line experiment. (2) Model
+  tiering: a cheap per-turn decision sending logging and simple lookups to a
+  smaller model and keeping Opus for analysis. (3) Scripted first lines for the
+  recurring questions — "how was my sleep this week?" was asked seven times
+  and is answerable from the same numbers the model would fetch. A local LLM
+  is not on this list: on-device it cannot do the analysis, and server-side it
+  is just tiering with a GPU bill attached.
