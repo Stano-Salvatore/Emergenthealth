@@ -248,6 +248,22 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Month against month, the weight trend in the prompt, anchor dates, and
+  an effort knob.** `src/lib/drift.ts` compares the last 30 days (or last
+  calendar month) with the one before: each everyday metric's gap must
+  clear a relevance floor AND the engine's block permutation, then the
+  report says what the user logged differently alongside (tags, habits,
+  workouts, drinks, water) and asks the open question when nothing logged
+  moved. Surfaced as `get_analysis kind: "drift"` in chat and as
+  `/api/cron/monthly-drift` on the 1st (daytime, once, silent when nothing
+  moved). The system prompt now carries the weight *trend* verdict from
+  `weight-trend.ts` instead of only the last reading — the "never one
+  weigh-in" rule was being handed one weigh-in. `remember` is told to file
+  any life-event date the user gives, so "since she left" works next month.
+  `EMERGY_CHAT_EFFORT` (low, medium, high or max; unset = model default) sets chat thinking
+  depth, and every model turn logs `[emergy] turn {in, out, cacheRead…}` so a
+  week at medium can be compared with a week at the default before either
+  is made permanent.
 - **The night question, and the token cap that silenced chat.** Every Opus
   call ran with a small `max_tokens` (chat 2048, weekly review 700, report
   summary 600) from before thinking was on by default; thinking counts

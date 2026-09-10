@@ -29,6 +29,9 @@ import { parseDose, formatDose } from "@/lib/dose"
 import { OPUS } from "@/lib/models"
 import { trimToUserTurn } from "@/lib/chat-turns"
 import { parseSaid, SAID_KEY } from "@/lib/emergy-say"
+import { weightSlopeKgWk, weightTrend } from "@/lib/weight-trend"
+import { loadDriftReport, rollingWindows } from "@/lib/drift-load"
+import { renderDrift } from "@/lib/drift"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { analyseExperiment } from "@/lib/experiments-analysis"
 import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
@@ -344,7 +347,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "remember",
-    description: "Save a durable fact about the user (a goal, preference, or context) so you recall it in future conversations. Use when the user shares something worth remembering long-term, e.g. 'I'm training for a marathon' or 'I hate mornings'.",
+    description: "Save a durable fact about the user (a goal, preference, or context) so you recall it in future conversations. Use when the user shares something worth remembering long-term, e.g. 'I'm training for a marathon' or 'I hate mornings'. Always use it, in the same turn, when they give you a date that matters in their life — a breakup, a move, a new job, a diagnosis, a bereavement, a quit date — with the event and the date in the fact ('Julka, his partner, left on 18 Aug 2026'), so that 'since she left' works next month without them having to say the date again.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -624,11 +627,11 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "get_analysis",
-    description: "Read what the app has already worked out, when the user asks about it or it would change your answer: 'experiments' (every experiment with today's arm and the current result), 'anomalies' (what is off their own 45-day baseline), 'labs' (how each blood marker moved between draws), 'nutrients' (vitamins and minerals their logged food has been short on), 'adherence' (scheduled doses vs doses actually logged, last 14 days — a lower bound), 'patterns' (the correlation findings, with how trustworthy each is).",
+    description: "Read what the app has already worked out, when the user asks about it or it would change your answer: 'experiments' (every experiment with today's arm and the current result), 'anomalies' (what is off their own 45-day baseline), 'labs' (how each blood marker moved between draws), 'nutrients' (vitamins and minerals their logged food has been short on), 'adherence' (scheduled doses vs doses actually logged, last 14 days — a lower bound), 'patterns' (the correlation findings, with how trustworthy each is), 'drift' (the last 30 days against the 30 before: which everyday numbers moved enough to survive a permutation test, and what they logged differently alongside — use it for 'has anything changed lately', 'am I doing better this month', and when they reply to a monthly nudge).",
     input_schema: {
       type: "object" as const,
       properties: {
-        kind: { type: "string", enum: ["experiments", "anomalies", "labs", "nutrients", "adherence", "patterns"] },
+        kind: { type: "string", enum: ["experiments", "anomalies", "labs", "nutrients", "adherence", "patterns", "drift"] },
       },
       required: ["kind"],
     },
@@ -1882,6 +1885,15 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         + "\n'strong' survived false-discovery correction; 'suggestive' did not — soften it. All association, not cause."
     }
 
+    if (kind === "drift") {
+      const tz = await getUserTimezone(userId)
+      const report = await loadDriftReport(userId, tz, rollingWindows(localDateStr(tz)))
+      if (report.judged === 0) return "Not enough data yet — a month-on-month comparison needs at least 10 days of a metric in each of the two 30-day windows."
+      const text = renderDrift(report)
+      if (!text) return `Nothing moved between the last 30 days and the 30 before: ${report.judged} metrics had enough data and none shifted past both the relevance floor and the permutation test. Say so plainly — same as last month is a real answer.`
+      return text.detail + "\nThe shifts are tested; the factors are only what changed alongside. Offer them as candidates, ask what else changed, and never state a cause."
+    }
+
     return "Unknown analysis kind."
   }
 
@@ -2244,9 +2256,28 @@ export async function buildSystemPrompt(
         return `- ${l.marker}: ${l.value} ${l.unit}${range}${flag} — measured ${l.date.toISOString().slice(0, 10)}`
       }).join("\n")
 
+  // Weight as a trend, never as the last number. The rule "judge on the
+  // 7-day trend, not one weigh-in" was in the prompt while the prompt handed
+  // him only the latest reading — so he judged the reading, and said a goal
+  // "hasn't recovered" off a single weigh-in ten days old. Now the trend
+  // verdict is what he sees; the raw reading is labelled as one reading.
+  let weightStr: string | null = null
+  try {
+    const series = await loadWeightSeries(userId, 120)
+    if (goals?.weightGoalMode) {
+      const p = weightGoalProgress(series, { mode: goals.weightGoalMode as "lose" | "gain" | "maintain", targetKg: goals.weightTargetKg, paceKgWk: goals.weightPaceKgWk, startKg: goals.weightGoalStartKg })
+      weightStr = `- Goal: ${goals.weightGoalMode}${goals.weightTargetKg != null ? ` to ${goals.weightTargetKg}kg` : ""}. ${p.summary}`
+    } else if (series.length >= 2) {
+      const trend = weightTrend(series)
+      const last = trend[trend.length - 1]
+      const slope = weightSlopeKgWk(trend)
+      weightStr = `- Trend ${last.trendKg}kg as of ${last.date} (${series.length} weigh-ins in 120 days${slope != null ? `, ${slope > 0 ? "+" : ""}${slope} kg/week over the last 14 days` : ""}). No weight goal set.`
+    }
+  } catch { /* no weight data */ }
+
   // Latest body composition measurement
   const bodyBits = latestBody ? [
-    latestBody.weightKg != null ? `${latestBody.weightKg}kg` : null,
+    latestBody.weightKg != null ? `${latestBody.weightKg}kg (one reading)` : null,
     latestBody.bodyFatPct != null ? `${latestBody.bodyFatPct}% body fat` : null,
     latestBody.musclePct != null ? `${latestBody.musclePct}% muscle` : null,
     latestBody.bmi != null ? `BMI ${latestBody.bmi}` : null,
@@ -2507,6 +2538,7 @@ export async function buildSystemPrompt(
 
 Keep responses concise. Reference actual numbers from the data. Use tools when the user asks you to log or create things. Never be preachy or lecture-y. Today is ${fmtDay.format(today)} (${todayStr}) in ${tz}; the time of day is in the LIVE block that follows this prompt.
 
+ANCHOR DATES: when they tell you when something happened in their life — a breakup, a move, a new job, a diagnosis, a death, the day they quit something — call remember with the event and the date in the same turn, before you answer. Next month's "since she left" depends on it.
 LANGUAGE: answer in English, whatever language they write in — they read both, and English is the cheaper reply. Switch to Slovak only when they ask you to, and switch back when they ask again. Their journal, tags and messages may be in Slovak: read them as they are, quote them verbatim in the original when you quote, and put anything you paraphrase into English. The data below is labelled in English; never paste labels raw.
 
 WHAT YOU'RE FOR
@@ -2554,6 +2586,7 @@ ${recentHealth.slice(0, 7).length === 0 ? "No health data yet." : recentHealth.s
 ${symptomsStr ? `## Symptoms logged (last 14 days — how they actually felt)\n${symptomsStr}\n` : ""}
 ${workoutsStr ? `## Workouts (most recent — logged here or synced from Strava)\n${workoutsStr}\n${trainingStr ?? ""}\n` : ""}
 ${weightGoalStr ? `## Weight goal (progress is judged on the 7-day trend, never a single weigh-in — say so if they fret about one reading)\n${weightGoalStr}\n` : ""}
+${weightStr ? `## Weight (judge on the trend below — never on one weigh-in, and never read a single reading as a change)\n${weightStr}\n` : ""}
 ${bodyStr ? `## Body composition (latest measurement)\n${bodyStr}\n` : ""}
 ${labsStr ? `## Blood work (latest value per marker — mention ⚠️ flags when health topics come up)\n${labsStr}\n` : ""}
 ${medsStr ? `## Prescribed medications (active schedules — read these back, never advise on dose or whether to take them)\n${medsStr}\n` : ""}
@@ -2613,6 +2646,21 @@ The chat screen shows your answer with its working, so write it that way.
 - Put any figure you read from their data in backticks — \`6h 10m\`, \`68\`, \`3.2k\`. They render as ordinary prose; the backticks only set the digits in tabular figures so they line up down a list.
 - When their own words say it better than yours, quote the journal back as a blockquote opening with the date: "> 24 Aug — Woke up already behind." One quote at most, only when it earns its place, and never paraphrased inside the quote marks — if you cannot quote it as written, do not quote it.
 - If the answer leaned on their data, close with one final line naming what you used, exactly like this: [sources: sleep, journal]. Choose only from: ${SOURCE_KEYS.join(", ")}. Name only what actually shaped the answer, not everything you can see, and leave the line off entirely for small talk or anything you answered without reading. The user never sees the line itself — it draws the source chips under your reply, so a source you name but did not use puts a false receipt on their screen.`
+
+/**
+ * Chat effort from the environment, validated. Unset means the model's
+ * default. EMERGY_CHAT_EFFORT=medium is the experiment to run: chat is the
+ * workload that most often holds quality a step below the default, and the
+ * per-turn usage line says by how much the bill moves.
+ */
+// "xhigh" exists on the API but not in this SDK version's types; it is not
+// a level this knob is for anyway — the knob exists to step DOWN and measure.
+const EFFORT_LEVELS = ["low", "medium", "high", "max"] as const
+type Effort = (typeof EFFORT_LEVELS)[number]
+export function chatEffort(): Effort | null {
+  const raw = (process.env.EMERGY_CHAT_EFFORT ?? "").trim().toLowerCase()
+  return (EFFORT_LEVELS as readonly string[]).includes(raw) ? raw as Effort : null
+}
 
 /** One thing that happened while Emergy was answering. */
 export type ChatEvent =
@@ -2695,6 +2743,7 @@ export async function* streamChatEvents(
   // Loop is bounded so a misbehaving tool chain can't run forever.
   let lastStop: string | null = null
   let spoke = false
+  const effort = chatEffort()
   for (let turn = 0; turn < 8; turn++) {
     // "Let me pull both stretches properly." then, after the tools, "Okay. 24
     // days since…" arrived on screen as one glued sentence: the model rarely
@@ -2711,6 +2760,10 @@ export async function* streamChatEvents(
       // max_tokens and no text, and the user saw the tool chips and nothing
       // else — twice in a row. The cap is a safety net now, not a length hint.
       max_tokens: 16_000,
+      // Thinking depth, and with it most of the cost of a turn. Left at the
+      // model's default until measured: the usage line below is what makes
+      // a week at "medium" comparable to a week at "high" on real questions.
+      ...(effort ? { output_config: { effort } } : {}),
       tools: cachedTools,
       system,
       messages,
@@ -2734,6 +2787,13 @@ export async function* streamChatEvents(
 
     const response = await stream.finalMessage()
     lastStop = response.stop_reason
+    // One line per model turn in the runtime logs. Output tokens include the
+    // thinking, so this is the number that moves when the effort changes.
+    console.info("[emergy] turn", JSON.stringify({
+      turn, stop: response.stop_reason, effort: effort ?? "default",
+      in: response.usage.input_tokens, out: response.usage.output_tokens,
+      cacheRead: response.usage.cache_read_input_tokens ?? 0, cacheWrite: response.usage.cache_creation_input_tokens ?? 0,
+    }))
 
     if (response.stop_reason !== "tool_use") break
 
