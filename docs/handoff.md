@@ -186,6 +186,12 @@ in fourteen places in one sweep, twice in code that *writes* a journal entry.
 If you hit it, **fix the code**. A legitimate exception goes in the allow-list
 with the reason written down — never silenced.
 
+`src/lib/__tests__/quick-answer.test.ts` does the same for the scripted
+answers, and adds one more guard worth knowing about: it greps
+`quick-answer-run.ts` for verdict language ("that's good", "you should", "too
+much") and fails on a match. A script that starts judging is claiming a
+judgement nobody made, in a voice that sounds certain.
+
 `src/lib/__tests__/quick-log.test.ts` guards the fast path in both directions.
 The messages it must parse are real ones; so are the messages it must refuse,
 and those matter more. If a change makes the parser accept something in the
@@ -256,6 +262,28 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **The questions that were lookups, not judgements.** Of 59 questions ever
+  asked in chat, about a third have one true answer the app already computes,
+  and "How was my sleep this week?" was asked seven times word for word.
+  `src/lib/quick-answer.ts` recognises those five shapes (today's log, one
+  drink's total, today's doses, what is still circulating, sleep for a night or
+  a week) and `quick-answer-run.ts` answers them from the same helpers every
+  other reader uses, so a scripted answer and Emergy's can never disagree about
+  a number. **The refusals carry the design**: one word — why, compare, affect,
+  should, think — hands the message straight back to him, as does a second
+  question word, an unstated window, or anything over 120 characters. These
+  answers report and never conclude; a test greps for verdict language and
+  fails if a script starts editorialising.
+- **Charts in chat, without the model drawing them.** A reply carries
+  `[chart:sleep-week]`, about ten tokens, and `/api/chat/chart` resolves that
+  name against the database. Whoever wrote the reply cannot get a bar wrong
+  because they never typed one, which is the source-chip rule applied to
+  pictures: a spec not on the whitelist 404s and `ChatChart` renders nothing.
+  A stored reply also redraws itself from the data as it is now instead of
+  freezing a week that has since been corrected. One series, so one hue — the
+  app's own `--primary`, no status colour, because a red bar under a sentence
+  that is only reporting a number would be the chart concluding what the words
+  did not.
 - **A fifth of the chat never needed the model.** Reading the whole
   transcript, 33 of 155 messages ever sent to Emergy were log lines — "log me
   300ml water", "add 1L water", "at kaviaren vtak log cold brew 250ml and
