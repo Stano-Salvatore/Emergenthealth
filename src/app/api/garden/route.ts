@@ -6,6 +6,7 @@ import { computeXp, getGithubStats, getLevel } from "@/lib/xp"
 import { localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { computeStreak, computeMissedDays, getVacationWindow, makeIsFrozen } from "@/lib/streak"
+import { makeOffDay } from "@/lib/habit-schedule"
 
 // ─── Decoration unlocks ───────────────────────────────────────────────────────
 // Decorations are earned, not toggled freely — each has a real-data condition.
@@ -58,6 +59,7 @@ export async function GET() {
           where: { date: { gte: sixtyDaysAgo } },
           orderBy: { date: "desc" },
         },
+        skips: { where: { date: { gte: sixtyDaysAgo } }, select: { date: true } },
       },
       orderBy: { createdAt: "asc" },
     }),
@@ -92,8 +94,15 @@ export async function GET() {
     const completedToday = completionDates.has(today)
     // Same walk the Habits page uses — including vacation days, which this
     // used to ignore, so a frozen streak still wilted its plant.
-    const streak = computeStreak(completionDates, today, isFrozen)
-    const missedDays = computeMissedDays(completionDates, today, isFrozen)
+    // Off-days of the habit's schedule and skipped days hold the plant the
+    // way a vacation day does — a Mon/Wed/Fri habit must not wilt on Tuesday.
+    const holds = makeOffDay(
+      { scheduleDays: habit.scheduleDays, timesPerWeek: habit.timesPerWeek },
+      new Set(habit.skips.map(s => new Date(s.date).toISOString().split("T")[0])),
+      isFrozen,
+    )
+    const streak = computeStreak(completionDates, today, holds)
+    const missedDays = computeMissedDays(completionDates, today, holds)
 
     return { id: habit.id, name: habit.name, icon: habit.icon, color: habit.color, streak, completedToday, missedDays }
   })

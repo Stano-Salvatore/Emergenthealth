@@ -76,6 +76,26 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(routine, { status: 201 })
 }
 
+export async function PATCH(req: NextRequest) {
+  const session = await auth()
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+
+  const { id, name, emoji, habitIds, sortOrder } = await req.json()
+  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
+
+  const res = await prisma.habitRoutine.updateMany({
+    where: { id, userId: session.user.id },
+    data: {
+      ...(typeof name === "string" && name.trim() && { name: name.trim() }),
+      ...(typeof emoji === "string" && emoji.trim() && { emoji: emoji.trim().slice(0, 4) }),
+      ...(Array.isArray(habitIds) && { habitIds: habitIds.filter((x: unknown) => typeof x === "string") }),
+      ...(Number.isInteger(sortOrder) && { sortOrder }),
+    },
+  })
+  if (res.count === 0) return NextResponse.json({ error: "Not found" }, { status: 404 })
+  return NextResponse.json({ success: true })
+}
+
 export async function DELETE(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

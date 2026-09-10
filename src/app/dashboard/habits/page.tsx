@@ -9,10 +9,11 @@ import { Progress } from "@/components/ui/progress"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
-import { Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X, Zap, Bell, AlertTriangle } from "lucide-react"
+import { Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X, Zap, Bell, AlertTriangle, Pencil, Archive, ArchiveRestore, SkipForward } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { isFeatureEnabled } from "@/lib/features"
 import { computeBestStreak, computeCompletionRate } from "@/lib/streak"
+import { WEEKDAY_SHORT, isScheduledOn, makeOffDay } from "@/lib/habit-schedule"
 import { format, subDays } from "date-fns"
 import { resyncNotifications } from "@/lib/native/notifications"
 
@@ -29,12 +30,71 @@ interface Habit {
   icon: string | null
   color: string
   streak: number
+  streakUnit?: "days" | "weeks"
   completedToday: boolean
   completions: { date: string }[]
+  skips?: { date: string; reason: string | null }[]
+  skippedToday?: boolean
+  skipReason?: string | null
+  /** Whether the schedule asks for it today (off-days are neither done nor missed). */
+  dueToday?: boolean
+  scheduledToday?: boolean
+  scheduleDays?: number[]
+  timesPerWeek?: number | null
+  scheduleLabel?: string | null
+  isArchived?: boolean
   reminderTime: string | null
   /** When the habit was made — a habit is not judged on days before it existed. */
   createdAt?: string | null
 }
+
+/** What the create/edit form hands back. */
+interface HabitDraft {
+  name: string
+  type: "habit" | "medication" | "vitamin"
+  dose: string
+  color: string
+  reminderTime: string
+  scheduleMode: "daily" | "weekdays" | "custom" | "weekly"
+  scheduleDays: number[]
+  timesPerWeek: number
+}
+
+const EMPTY_DRAFT: HabitDraft = {
+  name: "", type: "habit", dose: "", color: "#6366f1", reminderTime: "",
+  scheduleMode: "daily", scheduleDays: [1, 3, 5], timesPerWeek: 3,
+}
+
+function draftFromHabit(h: Habit): HabitDraft {
+  const days = h.scheduleDays ?? []
+  const isWeekdays = days.length === 5 && [1, 2, 3, 4, 5].every(d => days.includes(d))
+  return {
+    name: h.name,
+    type: h.icon === "💊" ? "medication" : h.icon === "🌿" ? "vitamin" : "habit",
+    dose: h.description ?? "",
+    color: h.color,
+    reminderTime: h.reminderTime ?? "",
+    scheduleMode: h.timesPerWeek != null ? "weekly" : days.length === 0 ? "daily" : isWeekdays ? "weekdays" : "custom",
+    scheduleDays: days.length ? days : [1, 3, 5],
+    timesPerWeek: h.timesPerWeek ?? 3,
+  }
+}
+
+/** The wire shape for POST /api/habits and PATCH /api/habits/:id. */
+function payloadFromDraft(d: HabitDraft) {
+  const icon = d.type === "medication" ? "💊" : d.type === "vitamin" ? "🌿" : null
+  return {
+    name: d.name.trim(),
+    color: d.type === "medication" ? "#ef4444" : d.type === "vitamin" ? "#22c55e" : d.color,
+    icon,
+    description: d.dose.trim() || null,
+    reminderTime: d.reminderTime || null,
+    scheduleDays: d.scheduleMode === "weekdays" ? [1, 2, 3, 4, 5] : d.scheduleMode === "custom" ? d.scheduleDays : [],
+    timesPerWeek: d.scheduleMode === "weekly" ? d.timesPerWeek : null,
+  }
+}
+
+const SKIP_REASONS = ["Rest day", "Sick", "Travelling", "No time", "Other"]
 
 interface RoutineHabit {
   id: string
@@ -179,25 +239,156 @@ function MilestoneBanner({ milestone, onDismiss }: { milestone: MilestoneState; 
   )
 }
 
-function HeatmapRow({ habit, days }: { habit: Habit; days: Date[] }) {
+function SchedulePicker({ draft, onChange }: { draft: HabitDraft; onChange: (patch: Partial<HabitDraft>) => void }) {
+  const modes: { value: HabitDraft["scheduleMode"]; label: string }[] = [
+    { value: "daily", label: "Every day" },
+    { value: "weekdays", label: "Weekdays" },
+    { value: "custom", label: "Pick days" },
+    { value: "weekly", label: "Times a week" },
+  ]
+  // Monday first, the way the week reads; values stay 0 = Sunday underneath.
+  const order = [1, 2, 3, 4, 5, 6, 0]
+  return (
+    <div>
+      <Label className="text-xs mb-2 block">How often</Label>
+      <div className="grid grid-cols-4 gap-1.5">
+        {modes.map(m => (
+          <button key={m.value} type="button" onClick={() => onChange({ scheduleMode: m.value })}
+            className={cn("py-1.5 rounded-lg border text-[11px] font-medium transition-colors",
+              draft.scheduleMode === m.value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-muted-foreground")}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+      {draft.scheduleMode === "custom" && (
+        <div className="flex gap-1 mt-2">
+          {order.map(d => {
+            const on = draft.scheduleDays.includes(d)
+            return (
+              <button key={d} type="button"
+                onClick={() => onChange({ scheduleDays: on ? draft.scheduleDays.filter(x => x !== d) : [...draft.scheduleDays, d].sort() })}
+                className={cn("flex-1 py-1.5 rounded-lg border text-[11px] font-medium transition-colors",
+                  on ? "border-primary bg-primary/15 text-primary" : "border-border text-muted-foreground hover:border-muted-foreground")}>
+                {WEEKDAY_SHORT[d]}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {draft.scheduleMode === "weekly" && (
+        <div className="flex items-center gap-1.5 mt-2">
+          {[1, 2, 3, 4, 5, 6].map(n => (
+            <button key={n} type="button" onClick={() => onChange({ timesPerWeek: n })}
+              className={cn("h-8 w-8 rounded-lg border text-xs font-medium tabular-nums transition-colors",
+                draft.timesPerWeek === n ? "border-primary bg-primary/15 text-primary" : "border-border text-muted-foreground hover:border-muted-foreground")}>
+              {n}
+            </button>
+          ))}
+          <span className="text-[11px] text-muted-foreground ml-1">times a week, any days</span>
+        </div>
+      )}
+      {draft.scheduleMode === "custom" && draft.scheduleDays.length === 0 && (
+        <p className="text-[11px] text-amber-400 mt-1">Pick at least one day, or it becomes daily.</p>
+      )}
+    </div>
+  )
+}
+
+/** One form for creating and editing — the fields are the same, only the verb changes. */
+function HabitForm({ initial, submitLabel, saving, onSubmit }: {
+  initial: HabitDraft
+  submitLabel: string
+  saving: boolean
+  onSubmit: (draft: HabitDraft) => void
+}) {
+  const [draft, setDraft] = useState<HabitDraft>(initial)
+  const patch = (p: Partial<HabitDraft>) => setDraft(d => ({ ...d, ...p }))
+  return (
+    <form onSubmit={e => { e.preventDefault(); if (draft.name.trim()) onSubmit(draft) }} className="space-y-4">
+      <div>
+        <Label className="text-xs mb-2 block">Type</Label>
+        <div className="flex gap-2">
+          {([["habit","✅","Habit"],["medication","💊","Medication"],["vitamin","🌿","Vitamin"]] as const).map(([val, emoji, label]) => (
+            <button key={val} type="button" onClick={() => patch({ type: val })}
+              className={cn("flex-1 py-1.5 rounded-lg border text-xs font-medium transition-colors",
+                draft.type === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-muted-foreground"
+              )}>
+              {emoji} {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div>
+        <Label>Name</Label>
+        <Input className="mt-1" placeholder={draft.type === "medication" ? "Vitamin D, Metformin…" : draft.type === "vitamin" ? "Omega-3, Magnesium…" : "Morning run"} value={draft.name}
+          onChange={e => patch({ name: e.target.value })} autoFocus />
+      </div>
+      {(draft.type === "medication" || draft.type === "vitamin") && (
+        <div>
+          <Label>Dose <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+          <Input className="mt-1" placeholder="e.g. 500mg, 2 capsules" value={draft.dose}
+            onChange={e => patch({ dose: e.target.value })} />
+        </div>
+      )}
+      {draft.type === "habit" && (
+        <div>
+          <Label>Color</Label>
+          <div className="flex gap-2 mt-2 flex-wrap">
+            {COLORS.map(c => (
+              <button key={c} type="button" onClick={() => patch({ color: c })}
+                className="h-7 w-7 rounded-full border-2 transition-transform"
+                style={{ backgroundColor: c, borderColor: draft.color===c?"white":"transparent", transform: draft.color===c?"scale(1.15)":"scale(1)" }} />
+            ))}
+          </div>
+        </div>
+      )}
+      <SchedulePicker draft={draft} onChange={patch} />
+      <div>
+        <Label>Reminder <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+        <input type="time" value={draft.reminderTime} onChange={e => patch({ reminderTime: e.target.value })}
+          className="mt-1 bg-secondary/50 border border-border rounded-lg px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 w-full" />
+        <p className="text-[11px] text-muted-foreground mt-1">A notification at this time on days it&apos;s due, if not done yet</p>
+      </div>
+      <Button type="submit" className="w-full" disabled={saving || !draft.name.trim()}>
+        {saving ? "Saving…" : submitLabel}
+      </Button>
+    </form>
+  )
+}
+
+function HeatmapRow({ habit, days, onToggleDay }: { habit: Habit; days: Date[]; onToggleDay?: (day: string, done: boolean) => void }) {
   const doneSet = new Set(habit.completions.map(c => c.date?.split("T")[0]))
+  const skipSet = new Set((habit.skips ?? []).map(s => s.date?.split("T")[0]))
+  const schedule = { scheduleDays: habit.scheduleDays ?? [], timesPerWeek: habit.timesPerWeek ?? null }
   const todayStr = localDateStr()
+  const created = habit.createdAt?.slice(0, 10) ?? null
   return (
     <div className="flex gap-0.5">
       {days.map((d, i) => {
         const str = localDateStr(d)
         const done = doneSet.has(str)
+        const skipped = skipSet.has(str)
+        const off = !isScheduledOn(schedule, str)
+        const beforeStart = created != null && str < created
         const isToday = str === todayStr
+        const label = done ? "done" : skipped ? "skipped" : off ? "not scheduled" : beforeStart ? "before this habit" : "not done"
+        // Each square is a button: a day forgotten yesterday can be fixed
+        // here rather than lost, which is the difference between a tracker
+        // and a scoreboard.
         return (
-          <div key={i}
-            className="h-3 flex-1 rounded-[2px] transition-all"
+          <button key={i} type="button"
+            disabled={!onToggleDay || beforeStart}
+            onClick={() => onToggleDay?.(str, !done)}
+            aria-label={`${format(d, "MMM d")}: ${label}`}
+            className="h-3 flex-1 rounded-[2px] transition-all disabled:cursor-default"
             style={{
-              backgroundColor: done ? habit.color : "var(--secondary)",
-              opacity: done ? 1 : isToday ? 0.55 : 0.35,
+              backgroundColor: done ? habit.color : skipped ? "transparent" : "var(--secondary)",
+              backgroundImage: skipped ? `repeating-linear-gradient(45deg, ${habit.color}66 0 2px, transparent 2px 4px)` : undefined,
+              opacity: done ? 1 : isToday ? 0.55 : off || beforeStart ? 0.15 : 0.35,
               outline: isToday ? `1.5px solid ${done ? habit.color : "var(--border)"}` : undefined,
               outlineOffset: "1px",
             }}
-            title={`${format(d,"MMM d")}: ${done?"done":"not done"}`}
+            title={`${format(d,"MMM d")}: ${label}`}
           />
         )
       })}
@@ -214,6 +405,7 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
   const [formEmoji, setFormEmoji] = useState("⭐")
   const [formHabitIds, setFormHabitIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -241,15 +433,23 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
     if (!formName.trim()) return
     setSaving(true)
     const res = await fetch("/api/routines", {
-      method: "POST",
+      method: editingId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: formName, emoji: formEmoji, habitIds: formHabitIds }),
+      body: JSON.stringify({ id: editingId ?? undefined, name: formName, emoji: formEmoji, habitIds: formHabitIds }),
     })
     if (res.ok) {
-      setFormName(""); setFormEmoji("⭐"); setFormHabitIds([]); setShowForm(false)
+      setFormName(""); setFormEmoji("⭐"); setFormHabitIds([]); setShowForm(false); setEditingId(null)
       await loadRoutines()
     }
     setSaving(false)
+  }
+
+  function editRoutine(r: Routine) {
+    setEditingId(r.id)
+    setFormName(r.name)
+    setFormEmoji(r.emoji)
+    setFormHabitIds(r.habits.map(h => h.id))
+    setShowForm(true)
   }
 
   async function completeRoutine(id: string) {
@@ -284,7 +484,7 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Routines</h2>
-        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs shrink-0" onClick={() => setShowForm(v => !v)}>
+        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs shrink-0" onClick={() => { setEditingId(null); setFormName(""); setFormEmoji("⭐"); setFormHabitIds([]); setShowForm(v => !v) }}>
           <Plus className="h-3.5 w-3.5" /> New routine
         </Button>
       </div>
@@ -338,9 +538,9 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
               )}
               <div className="flex gap-2">
                 <Button type="submit" size="sm" className="flex-1" disabled={saving || !formName.trim()}>
-                  {saving ? "Creating…" : "Create routine"}
+                  {saving ? "Saving…" : editingId ? "Save routine" : "Create routine"}
                 </Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => { setShowForm(false); setEditingId(null) }}>Cancel</Button>
               </div>
             </form>
           </CardContent>
@@ -391,6 +591,10 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => editRoutine(routine)} aria-label={`Edit ${routine.name}`}
+                      className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
                     <button onClick={() => deleteRoutine(routine.id)}
                       aria-label={confirmDelete === routine.id ? `Confirm deleting ${routine.name}` : `Delete ${routine.name}`}
                       className={cn(
@@ -423,18 +627,27 @@ function RoutinesSection({ habits, onRefreshHabits }: { habits: Habit[]; onRefre
   )
 }
 
-function HabitCard({ habit, days28, onToggle, onDelete, onUpdateReminder }: {
+function HabitCard({ habit, days28, onToggle, onToggleDay, onSkip, onUnskip, onDelete, onEdit, onUpdateReminder }: {
   habit: Habit
   days28: Date[]
   onToggle: (h: Habit) => void
+  onToggleDay: (h: Habit, day: string, done: boolean) => void
+  onSkip: (h: Habit, reason: string | null) => void
+  onUnskip: (h: Habit) => void
   onDelete: (h: Habit) => void
+  onEdit: (h: Habit) => void
   onUpdateReminder: (id: string, reminderTime: string | null) => void
 }) {
   const [showTimePicker, setShowTimePicker] = useState(false)
   const [pendingTime, setPendingTime] = useState(habit.reminderTime ?? "")
   const [savingReminder, setSavingReminder] = useState(false)
+  const [skipOpen, setSkipOpen] = useState(false)
+  const [skipOther, setSkipOther] = useState("")
 
   const isMed = habit.icon === "💊" || habit.icon === "🌿"
+  const offToday = habit.dueToday === false && !habit.completedToday
+  const skipped = habit.skippedToday === true
+  const unit = habit.streakUnit === "weeks" ? "wk" : "d"
 
   async function applyReminder(value: string | null) {
     setSavingReminder(true)
@@ -469,7 +682,10 @@ function HabitCard({ habit, days28, onToggle, onDelete, onUpdateReminder }: {
   }
 
   return (
-    <Card className={`transition-all ${habit.completedToday ? "border-green-500/30 bg-green-500/[0.03]" : ""}`}>
+    <Card className={cn("transition-all",
+      habit.completedToday ? "border-green-500/30 bg-green-500/[0.03]" : "",
+      skipped ? "border-border/60 bg-secondary/20" : "",
+      offToday && !skipped ? "opacity-70" : "")}>
       <CardContent className="py-4 px-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -487,33 +703,77 @@ function HabitCard({ habit, days28, onToggle, onDelete, onUpdateReminder }: {
                     habit that had a dose written in and a streak of 0. */}
                 <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                   <Flame className="h-3 w-3 text-orange-400" />
-                  {habit.description ? `${habit.streak}d` : `${habit.streak} day streak`}
+                  {habit.description || habit.scheduleLabel ? `${habit.streak}${unit}` : `${habit.streak} ${habit.streakUnit === "weeks" ? "week" : "day"} streak`}
                 </span>
-                {habit.streak >= 7 && <Trophy className="h-3 w-3 text-amber-400" />}
+                {habit.streak >= 7 && habit.streakUnit !== "weeks" && <Trophy className="h-3 w-3 text-amber-400" />}
+                {habit.scheduleLabel && (
+                  <span className="text-[10px] text-muted-foreground/80 rounded-full border border-border/60 px-1.5 py-px">{habit.scheduleLabel}</span>
+                )}
+                {offToday && !skipped && (
+                  <span className="text-[10px] text-muted-foreground/70">{habit.timesPerWeek != null ? "week's quota met" : "not today"}</span>
+                )}
+                {skipped && (
+                  <span className="text-[10px] text-amber-400/90">skipped{habit.skipReason ? ` · ${habit.skipReason}` : ""}</span>
+                )}
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button onClick={() => onEdit(habit)}
+              aria-label={`Edit ${habit.name}`}
+              className="text-muted-foreground hover:text-foreground transition-colors p-1">
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
             <button onClick={() => onDelete(habit)}
               aria-label={`Delete ${habit.name}`}
               className="text-muted-foreground hover:text-destructive transition-colors p-1">
               <Trash2 className="h-3.5 w-3.5" />
             </button>
-            <button onClick={() => onToggle(habit)}
-              aria-label={habit.completedToday ? `Mark ${habit.name} as not done` : `Mark ${habit.name} as done`}
+            {!habit.completedToday && !skipped && (
+              <button onClick={() => setSkipOpen(v => !v)}
+                aria-label={`Skip ${habit.name} today`}
+                title="Skip today"
+                className={cn("text-muted-foreground hover:text-amber-400 transition-colors p-1", skipOpen && "text-amber-400")}>
+                <SkipForward className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button onClick={() => skipped ? onUnskip(habit) : onToggle(habit)}
+              aria-label={habit.completedToday ? `Mark ${habit.name} as not done` : skipped ? `Unskip ${habit.name}` : `Mark ${habit.name} as done`}
               aria-pressed={habit.completedToday}
               className={`h-9 w-9 rounded-full border-2 flex items-center justify-center transition-all ${
-                habit.completedToday ? "bg-green-500 border-green-500 text-white scale-110" : "border-border hover:border-green-500 hover:scale-105"
+                habit.completedToday ? "bg-green-500 border-green-500 text-white scale-110"
+                : skipped ? "border-amber-400/60 text-amber-400"
+                : "border-border hover:border-green-500 hover:scale-105"
               }`}>
               {habit.completedToday && <Check className="h-4 w-4" />}
+              {skipped && <SkipForward className="h-3.5 w-3.5" />}
             </button>
           </div>
         </div>
+        {skipOpen && (
+          <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+            <p className="text-[11px] text-muted-foreground mb-1.5">Skip today — the streak holds, the day doesn&apos;t count. Why?</p>
+            <div className="flex flex-wrap gap-1.5">
+              {SKIP_REASONS.filter(r => r !== "Other").map(r => (
+                <button key={r} type="button" onClick={() => { onSkip(habit, r); setSkipOpen(false) }}
+                  className="text-xs px-2.5 py-1 rounded-full border border-border text-muted-foreground hover:border-amber-400 hover:text-amber-400 transition-colors">
+                  {r}
+                </button>
+              ))}
+              <form className="flex items-center gap-1" onSubmit={e => { e.preventDefault(); onSkip(habit, skipOther.trim() || null); setSkipOpen(false); setSkipOther("") }}>
+                <input value={skipOther} onChange={e => setSkipOther(e.target.value)} placeholder="Other…" maxLength={120}
+                  className="h-7 w-28 rounded-full border border-border bg-secondary/50 px-2.5 text-xs" />
+                <button type="submit" className="text-xs text-amber-400 px-1.5">Skip</button>
+              </form>
+              <button type="button" onClick={() => setSkipOpen(false)} className="ml-auto text-muted-foreground hover:text-foreground p-1" aria-label="Cancel"><X className="h-3 w-3" /></button>
+            </div>
+          </div>
+        )}
         <div>
           <div className="flex justify-between text-[9px] text-muted-foreground mb-1">
-            <span>4 weeks ago</span><span>Today</span>
+            <span>4 weeks ago · tap a day to fix it</span><span>Today</span>
           </div>
-          <HeatmapRow habit={habit} days={days28} />
+          <HeatmapRow habit={habit} days={days28} onToggleDay={(day, done) => onToggleDay(habit, day, done)} />
         </div>
         {/* Reminder section */}
         <div className="mt-3 pt-2 border-t border-border/40">
@@ -577,11 +837,9 @@ export default function HabitsPage() {
   const [habits, setHabits] = useState<Habit[]>([])
   const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
-  const [newName, setNewName] = useState("")
-  const [newColor, setNewColor] = useState(COLORS[0])
-  const [newReminderTime, setNewReminderTime] = useState("")
-  const [newType, setNewType] = useState<"habit" | "medication" | "vitamin">("habit")
-  const [newDose, setNewDose] = useState("")
+  const [editing, setEditing] = useState<Habit | null>(null)
+  const [archived, setArchived] = useState<Habit[]>([])
+  const [showArchived, setShowArchived] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showUpgradeModal, setShowUpgradeModal] = useState(false)
   const [vacation, setVacation] = useState<{ active: boolean; from: string; until: string } | null>(null)
@@ -613,9 +871,11 @@ export default function HabitsPage() {
   // forever with no way to retry.
   async function loadHabits() {
     try {
-      const res = await fetch("/api/habits")
+      const res = await fetch("/api/habits?archived=1")
       if (!res.ok) throw new Error(String(res.status))
-      setHabits(await res.json())
+      const all: Habit[] = await res.json()
+      setHabits(all.filter(h => !h.isArchived))
+      setArchived(all.filter(h => h.isArchived))
       setLoadError(false)
     } catch {
       setLoadError(true)
@@ -629,21 +889,12 @@ export default function HabitsPage() {
     fetch("/api/habits/vacation").then(r => r.json()).then(v => { if (v.from) setVacation(v) }).catch(() => {})
   }, [])
 
-  async function createHabit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!newName.trim()) return
+  async function createHabit(draft: HabitDraft) {
     setSaving(true)
-    const icon = newType === "medication" ? "💊" : newType === "vitamin" ? "🌿" : undefined
     const res = await fetch("/api/habits", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: newName,
-        color: newType === "medication" ? "#ef4444" : newType === "vitamin" ? "#22c55e" : newColor,
-        icon,
-        description: newDose.trim() || undefined,
-        reminderTime: newReminderTime || undefined,
-      }),
+      body: JSON.stringify(payloadFromDraft(draft)),
     })
     if (res.status === 403) {
       const body = await res.json().catch(() => ({}))
@@ -654,9 +905,63 @@ export default function HabitsPage() {
         return
       }
     }
-    setNewName(""); setNewReminderTime(""); setNewDose(""); setNewType("habit"); setFormOpen(false); setSaving(false)
+    setFormOpen(false); setSaving(false)
     loadHabits()
-    if (newReminderTime) resyncNotifications().catch(() => {})
+    if (draft.reminderTime) resyncNotifications().catch(() => {})
+  }
+
+  async function saveEdit(draft: HabitDraft) {
+    if (!editing) return
+    setSaving(true)
+    await fetch(`/api/habits/${editing.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payloadFromDraft(draft)),
+    })
+    setSaving(false)
+    setEditing(null)
+    loadHabits()
+    // Schedule or reminder changes move alarms; rebuild them now.
+    resyncNotifications().catch(() => {})
+  }
+
+  // A past day fixed from the heatmap. Today goes through toggleComplete so
+  // the milestone check runs; earlier days just write and refresh.
+  async function toggleDay(habit: Habit, day: string, done: boolean) {
+    if (day === localDateStr()) return toggleComplete(habit)
+    await fetch(`/api/habits/${habit.id}/complete`, {
+      method: done ? "POST" : "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: day }),
+    })
+    loadHabits()
+  }
+
+  async function skipToday(habit: Habit, reason: string | null) {
+    await fetch(`/api/habits/${habit.id}/skip`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: localDateStr(), reason }),
+    })
+    loadHabits()
+    resyncNotifications().catch(() => {})
+  }
+
+  async function unskipToday(habit: Habit) {
+    await fetch(`/api/habits/${habit.id}/skip`, {
+      method: "DELETE", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: localDateStr() }),
+    })
+    loadHabits()
+  }
+
+  async function setArchivedState(habit: Habit, isArchived: boolean) {
+    await fetch(`/api/habits/${habit.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isArchived }),
+    })
+    setPendingDelete(null)
+    loadHabits()
+    resyncNotifications().catch(() => {})
   }
 
   async function toggleComplete(habit: Habit) {
@@ -729,8 +1034,11 @@ export default function HabitsPage() {
 
   const regularHabits = habits.filter(h => !h.icon || (h.icon !== "💊" && h.icon !== "🌿"))
   const medHabits = habits.filter(h => h.icon === "💊" || h.icon === "🌿")
-  const completed = habits.filter(h => h.completedToday).length
-  const total = habits.length
+  // "Done today" is judged against what is due today: an off-day habit is
+  // neither done nor missing, and a skipped one is settled.
+  const dueHabits = habits.filter(h => h.dueToday !== false || h.completedToday)
+  const completed = dueHabits.filter(h => h.completedToday || h.skippedToday).length
+  const total = dueHabits.length
   const doneTodayShare = total > 0 ? completed / total : 0
 
   // The completions the heatmaps below already draw, read as numbers.
@@ -743,9 +1051,14 @@ export default function HabitsPage() {
   const perHabitDays = habits.map(h => ({
     completionDays: new Set(h.completions.map(c => c.date?.split("T")[0]).filter(Boolean) as string[]),
     createdAt: h.createdAt ?? null,
+    // Off-days and skips hold the record together and are not "due".
+    isOff: makeOffDay(
+      { scheduleDays: h.scheduleDays ?? [], timesPerWeek: h.timesPerWeek ?? null },
+      new Set((h.skips ?? []).map(s => s.date?.split("T")[0]).filter(Boolean) as string[]),
+    ),
   }))
   const todayStr = localDateStr()
-  const topStreak = perHabitDays.reduce((max, h) => Math.max(max, computeBestStreak(h.completionDays)), 0)
+  const topStreak = perHabitDays.reduce((max, h) => Math.max(max, computeBestStreak(h.completionDays, h.isOff)), 0)
   const completionRate = computeCompletionRate(perHabitDays, todayStr)
 
   return (
@@ -764,18 +1077,23 @@ export default function HabitsPage() {
               <AlertTriangle className="h-5 w-5 text-destructive" />
             </div>
             <h3 className="text-lg font-bold mb-1">Delete &ldquo;{pendingDelete.name}&rdquo;?</h3>
-            <p className="text-sm text-muted-foreground mb-5">
+            <p className="text-sm text-muted-foreground mb-4">
               {pendingDelete.streak > 0
-                ? `This permanently deletes the habit and its ${pendingDelete.streak}-day streak. It can't be undone.`
-                : "This permanently deletes the habit and its whole history. It can't be undone."}
+                ? `Deleting permanently removes the habit and its ${pendingDelete.streak}-${pendingDelete.streakUnit === "weeks" ? "week" : "day"} streak. Archiving keeps the history and takes it off the list.`
+                : "Deleting permanently removes the habit and its whole history. Archiving keeps the history and takes it off the list."}
             </p>
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" disabled={deleting} onClick={() => setPendingDelete(null)}>
-                Cancel
+            <div className="flex flex-col gap-2">
+              <Button variant="outline" className="w-full gap-1.5" disabled={deleting} onClick={() => setArchivedState(pendingDelete, true)}>
+                <Archive className="h-3.5 w-3.5" /> Archive (keep history)
               </Button>
-              <Button variant="destructive" className="flex-1" disabled={deleting} onClick={confirmDeleteHabit}>
-                {deleting ? "Deleting…" : "Delete"}
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" disabled={deleting} onClick={() => setPendingDelete(null)}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" className="flex-1" disabled={deleting} onClick={confirmDeleteHabit}>
+                  {deleting ? "Deleting…" : "Delete"}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
@@ -851,56 +1169,15 @@ export default function HabitsPage() {
             <DialogTrigger asChild>
               <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> New Habit</Button>
             </DialogTrigger>
-            <DialogContent className="bg-card border-border max-w-sm">
+            <DialogContent className="bg-card border-border max-w-sm max-h-[90dvh] overflow-y-auto">
               <DialogHeader><DialogTitle>New Habit</DialogTitle></DialogHeader>
-              <form onSubmit={createHabit} className="space-y-4">
-                <div>
-                  <Label className="text-xs mb-2 block">Type</Label>
-                  <div className="flex gap-2">
-                    {([["habit","✅","Habit"],["medication","💊","Medication"],["vitamin","🌿","Vitamin"]] as const).map(([val, emoji, label]) => (
-                      <button key={val} type="button" onClick={() => setNewType(val)}
-                        className={cn("flex-1 py-1.5 rounded-lg border text-xs font-medium transition-colors",
-                          newType === val ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-muted-foreground"
-                        )}>
-                        {emoji} {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <Label>Name</Label>
-                  <Input className="mt-1" placeholder={newType === "medication" ? "Vitamin D, Metformin…" : newType === "vitamin" ? "Omega-3, Magnesium…" : "Morning run"} value={newName}
-                    onChange={e => setNewName(e.target.value)} autoFocus />
-                </div>
-                {(newType === "medication" || newType === "vitamin") && (
-                  <div>
-                    <Label>Dose <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
-                    <Input className="mt-1" placeholder="e.g. 500mg, 2 capsules" value={newDose}
-                      onChange={e => setNewDose(e.target.value)} />
-                  </div>
-                )}
-                {newType === "habit" && (
-                  <div>
-                    <Label>Color</Label>
-                    <div className="flex gap-2 mt-2 flex-wrap">
-                      {COLORS.map(c => (
-                        <button key={c} type="button" onClick={() => setNewColor(c)}
-                          className="h-7 w-7 rounded-full border-2 transition-transform"
-                          style={{ backgroundColor: c, borderColor: newColor===c?"white":"transparent", transform: newColor===c?"scale(1.15)":"scale(1)" }} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div>
-                  <Label>Daily reminder <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
-                  <input type="time" value={newReminderTime} onChange={e => setNewReminderTime(e.target.value)}
-                    className="mt-1 bg-secondary/50 border border-border rounded-lg px-2 py-1 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 w-full" />
-                  <p className="text-[11px] text-muted-foreground mt-1">Get a push notification at this time if not done yet</p>
-                </div>
-                <Button type="submit" className="w-full" disabled={saving || !newName.trim()}>
-                  {saving ? "Creating…" : `Create ${newType}`}
-                </Button>
-              </form>
+              {formOpen && <HabitForm initial={EMPTY_DRAFT} submitLabel="Create" saving={saving} onSubmit={createHabit} />}
+            </DialogContent>
+          </Dialog>
+          <Dialog open={editing != null} onOpenChange={open => { if (!open) setEditing(null) }}>
+            <DialogContent className="bg-card border-border max-w-sm max-h-[90dvh] overflow-y-auto">
+              <DialogHeader><DialogTitle>Edit habit</DialogTitle></DialogHeader>
+              {editing && <HabitForm key={editing.id} initial={draftFromHabit(editing)} submitLabel="Save changes" saving={saving} onSubmit={saveEdit} />}
             </DialogContent>
           </Dialog>
         </div>
@@ -1015,7 +1292,7 @@ export default function HabitsPage() {
           {regularHabits.length > 0 && (
             <div className="space-y-3">
               {regularHabits.map(habit => (
-                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={setPendingDelete} onUpdateReminder={updateHabitReminder} />
+                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onToggleDay={toggleDay} onSkip={skipToday} onUnskip={unskipToday} onDelete={setPendingDelete} onEdit={setEditing} onUpdateReminder={updateHabitReminder} />
               ))}
             </div>
           )}
@@ -1023,7 +1300,36 @@ export default function HabitsPage() {
             <div className="space-y-3">
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">💊 Medications & Vitamins</h2>
               {medHabits.map(habit => (
-                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onDelete={setPendingDelete} onUpdateReminder={updateHabitReminder} />
+                <HabitCard key={habit.id} habit={habit} days28={days28} onToggle={toggleComplete} onToggleDay={toggleDay} onSkip={skipToday} onUnskip={unskipToday} onDelete={setPendingDelete} onEdit={setEditing} onUpdateReminder={updateHabitReminder} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Archived habits keep their history and can come back. */}
+      {archived.length > 0 && (
+        <div className="space-y-2">
+          <button onClick={() => setShowArchived(v => !v)}
+            className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors">
+            <Archive className="h-3.5 w-3.5" /> Archived ({archived.length}) {showArchived ? "▾" : "▸"}
+          </button>
+          {showArchived && (
+            <div className="space-y-1.5">
+              {archived.map(h => (
+                <div key={h.id} className="flex items-center gap-3 rounded-xl border border-border/60 bg-secondary/20 px-4 py-2.5">
+                  {h.icon ? <span className="text-sm leading-none">{h.icon}</span> : <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: h.color }} />}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-muted-foreground truncate">{h.name}</p>
+                    <p className="text-[10px] text-muted-foreground/60">{h.completions.length} completions kept</p>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-7 gap-1 text-xs" onClick={() => setArchivedState(h, false)}>
+                    <ArchiveRestore className="h-3.5 w-3.5" /> Restore
+                  </Button>
+                  <button onClick={() => setPendingDelete(h)} aria-label={`Delete ${h.name}`} className="text-muted-foreground/60 hover:text-destructive p-1">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               ))}
             </div>
           )}

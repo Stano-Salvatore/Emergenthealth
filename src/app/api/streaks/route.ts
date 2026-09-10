@@ -1,5 +1,7 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { habitStreak, makeOffDay } from "@/lib/habit-schedule"
+import { computeBestStreak } from "@/lib/streak"
 import { NextResponse } from "next/server"
 import { getLevel, computeXp, getGithubStats, currentDayStreak } from "@/lib/xp"
 import { getUserTimezone } from "@/lib/user-timezone"
@@ -28,7 +30,7 @@ export async function GET() {
   const [habits, completions, healthLogs, moodLogs, dailyNotes, intakeDays, focusSessions, finishedBooks, ouraTagDays, xpBreakdown, github, checkinRows] = await Promise.all([
     prisma.habit.findMany({
       where: { userId, isArchived: false },
-      select: { id: true, name: true, color: true, icon: true },
+      select: { id: true, name: true, color: true, icon: true, scheduleDays: true, timesPerWeek: true, skips: { where: { date: { gte: since } }, select: { date: true } } },
     }),
     prisma.habitCompletion.findMany({
       where: { userId, date: { gte: since } },
@@ -86,13 +88,19 @@ export async function GET() {
 
   const habitStreaks = habits.map(h => {
     const dates = byHabit.get(h.id) ?? []
+    // Schedule-aware: off-days and skipped days hold a streak together, and a
+    // "3× a week" habit counts weeks. Same maths as the Habits page.
+    const schedule = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
+    const skipDays = new Set(h.skips.map(s => (s.date as Date).toISOString().slice(0, 10)))
+    const current = habitStreak(schedule, new Set(dates), skipDays, today)
     return {
       id: h.id,
       name: h.name,
       color: h.color,
       icon: h.icon ?? null,
-      currentStreak: currentDayStreak(dates, today),
-      longestStreak: longestStreak(dates),
+      currentStreak: current.streak,
+      streakUnit: current.unit,
+      longestStreak: schedule.timesPerWeek != null ? Math.max(current.streak, longestStreak(dates)) : computeBestStreak(new Set(dates), makeOffDay(schedule, skipDays)),
       totalCompletions: dates.length,
     }
   })

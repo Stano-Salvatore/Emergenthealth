@@ -8,8 +8,9 @@ import { Label } from "@/components/ui/label"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog"
-import { Bell, Plus, Check, Trash2, AlertCircle, Clock, Tag, X } from "lucide-react"
+import { Bell, Plus, Check, Trash2, AlertCircle, Clock, Tag, X, Pencil, Repeat as RepeatIcon, AlarmClockOff } from "lucide-react"
 import { resyncNotifications } from "@/lib/native/notifications"
+import { REPEAT_OPTIONS, repeatLabel, type Repeat } from "@/lib/recurrence"
 
 interface Reminder {
   id: string
@@ -20,6 +21,37 @@ interface Reminder {
   priority: string
   tags: string[]
   reminderTime?: string | null
+  repeat?: Repeat | null
+  repeatUntil?: string | null
+  seriesId?: string | null
+}
+
+interface ReminderForm {
+  title: string
+  description: string
+  dueDate: string
+  priority: string
+  tags: string[]
+  reminderTime: string
+  repeat: Repeat | null
+  repeatUntil: string
+}
+
+const EMPTY_FORM: ReminderForm = {
+  title: "", description: "", dueDate: "", priority: "normal", tags: [], reminderTime: "", repeat: null, repeatUntil: "",
+}
+
+function formFromReminder(r: Reminder): ReminderForm {
+  return {
+    title: r.title,
+    description: r.description ?? "",
+    dueDate: r.dueDate ? r.dueDate.slice(0, 10) : "",
+    priority: r.priority,
+    tags: r.tags,
+    reminderTime: r.reminderTime ?? "",
+    repeat: r.repeat ?? null,
+    repeatUntil: r.repeatUntil ? r.repeatUntil.slice(0, 10) : "",
+  }
 }
 
 interface TagItem {
@@ -88,12 +120,13 @@ export default function RemindersPage() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [formOpen, setFormOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [filterTag, setFilterTag] = useState<string | null>(null)
-  const [form, setForm] = useState({
-    title: "", description: "", dueDate: "", priority: "normal", tags: [] as string[], reminderTime: "",
-  })
+  const [form, setForm] = useState<ReminderForm>(EMPTY_FORM)
   const [newTagName, setNewTagName] = useState("")
   const [saving, setSaving] = useState(false)
+  const [showAllCompleted, setShowAllCompleted] = useState(false)
+  const [snoozeFor, setSnoozeFor] = useState<string | null>(null)
 
   async function load() {
     try {
@@ -116,24 +149,55 @@ export default function RemindersPage() {
     e.preventDefault()
     if (!form.title.trim()) return
     setSaving(true)
-    await fetch("/api/reminders", {
-      method: "POST",
+    const payload = {
+      title: form.title,
+      description: form.description || null,
+      dueDate: form.dueDate || null,
+      priority: form.priority,
+      tags: form.tags,
+      reminderTime: form.reminderTime || null,
+      repeat: form.dueDate ? form.repeat : null,
+      repeatUntil: form.dueDate && form.repeat && form.repeatUntil ? form.repeatUntil : null,
+    }
+    await fetch(editingId ? `/api/reminders/${editingId}` : "/api/reminders", {
+      method: editingId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: form.title,
-        description: form.description || undefined,
-        dueDate: form.dueDate || undefined,
-        priority: form.priority,
-        tags: form.tags,
-        reminderTime: form.reminderTime || undefined,
-      }),
+      body: JSON.stringify(payload),
     })
-    setForm({ title: "", description: "", dueDate: "", priority: "normal", tags: [], reminderTime: "" })
+    setForm(EMPTY_FORM)
+    setEditingId(null)
     setFormOpen(false)
     setSaving(false)
     load()
     // Hand the new reminder to the phone's alarm scheduler straight away.
     resyncNotifications().catch(() => {})
+  }
+
+  function openEdit(r: Reminder) {
+    setForm(formFromReminder(r))
+    setEditingId(r.id)
+    setFormOpen(true)
+  }
+
+  function openNew() {
+    setForm(EMPTY_FORM)
+    setEditingId(null)
+    setFormOpen(true)
+  }
+
+  async function snooze(r: Reminder, input: { minutes: number } | { date: string; time?: string | null }) {
+    setSnoozeFor(null)
+    await fetch(`/api/reminders/${r.id}/snooze`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+    })
+    load()
+    resyncNotifications().catch(() => {})
+  }
+
+  async function clearCompleted() {
+    const done = reminders.filter(r => r.isCompleted)
+    await Promise.all(done.map(r => fetch(`/api/reminders/${r.id}`, { method: "DELETE" })))
+    load()
   }
 
   async function addNewTag() {
@@ -186,7 +250,11 @@ export default function RemindersPage() {
   const filtered = (arr: Reminder[]) => filterTag ? arr.filter(r => r.tags.includes(filterTag)) : arr
   const overdue = filtered(active.filter(r => isOverdue(r.dueDate)))
   const today = filtered(active.filter(r => !isOverdue(r.dueDate) && isToday(r.dueDate)))
-  const upcoming = filtered(active.filter(r => !isOverdue(r.dueDate) && !isToday(r.dueDate)))
+  const upcoming = filtered(active.filter(r => r.dueDate && !isOverdue(r.dueDate) && !isToday(r.dueDate)))
+  // A reminder with no date is a to-do, not an alarm; it used to sit under
+  // "Upcoming" as if a date were coming.
+  const someday = filtered(active.filter(r => !r.dueDate))
+  const tomorrowStr = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toLocaleDateString("en-CA") })()
 
   const usedTagNames = [...new Set(reminders.flatMap(r => r.tags))]
 
@@ -204,12 +272,34 @@ export default function RemindersPage() {
         <p className={`text-sm font-medium ${r.isCompleted ? "line-through text-muted-foreground" : ""}`}>{r.title}</p>
         {r.description && <p className="text-xs text-muted-foreground mt-0.5 truncate">{r.description}</p>}
         {r.dueDate && (
-          <p className={`flex items-center gap-1 text-xs mt-0.5 ${isOverdue(r.dueDate) && !r.isCompleted ? "text-red-400" : "text-muted-foreground"}`}>
+          <p className={`flex items-center gap-1 text-xs mt-0.5 flex-wrap ${isOverdue(r.dueDate) && !r.isCompleted ? "text-red-400" : "text-muted-foreground"}`}>
             <Clock className="h-3 w-3" />
             {formatDueDate(r.dueDate)}
             {isOverdue(r.dueDate) && !r.isCompleted && " · Overdue"}
             {r.reminderTime && <span className="ml-1">🔔 {r.reminderTime}</span>}
+            {r.repeat && (
+              <span className="ml-1 inline-flex items-center gap-1 text-muted-foreground/80" title={r.repeatUntil ? `until ${r.repeatUntil.slice(0, 10)}` : undefined}>
+                <RepeatIcon className="h-3 w-3" /> {repeatLabel(r.repeat, r.dueDate.slice(0, 10))}
+              </span>
+            )}
           </p>
+        )}
+        {!r.isCompleted && snoozeFor === r.id && (
+          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+            {[
+              { label: "1 hour", input: { minutes: 60 } },
+              { label: "3 hours", input: { minutes: 180 } },
+              { label: "Tonight 20:00", input: { date: todayStr(), time: "20:00" } },
+              { label: "Tomorrow", input: { date: tomorrowStr, time: r.reminderTime ?? "09:00" } },
+              { label: "Next week", input: { date: (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toLocaleDateString("en-CA") })(), time: r.reminderTime ?? null } },
+            ].map(o => (
+              <button key={o.label} type="button" onClick={() => snooze(r, o.input)}
+                className="text-[11px] px-2 py-0.5 rounded-full border border-border text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+                {o.label}
+              </button>
+            ))}
+            <button type="button" onClick={() => setSnoozeFor(null)} className="text-muted-foreground hover:text-foreground p-0.5" aria-label="Cancel snooze"><X className="h-3 w-3" /></button>
+          </div>
         )}
         {r.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1.5">
@@ -231,6 +321,19 @@ export default function RemindersPage() {
         {r.priority === "low" && (
           <span className="text-[10px] text-muted-foreground/70" title="Low priority">Low</span>
         )}
+        {!r.isCompleted && (
+          <button onClick={() => setSnoozeFor(snoozeFor === r.id ? null : r.id)}
+            aria-label={`Snooze ${r.title}`} title="Snooze"
+            className={`transition-colors p-1 rounded-md ${snoozeFor === r.id ? "text-primary" : "text-muted-foreground/60 hover:text-foreground"}`}>
+            <AlarmClockOff className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {!r.isCompleted && (
+          <button onClick={() => openEdit(r)} aria-label={`Edit ${r.title}`}
+            className="transition-colors p-1 rounded-md text-muted-foreground/60 hover:text-foreground">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        )}
         <button onClick={() => deleteReminder(r.id)}
           aria-label={confirmDelete === r.id ? `Confirm deleting ${r.title}` : `Delete ${r.title}`}
           className={`transition-colors p-1 rounded-md ${
@@ -251,12 +354,12 @@ export default function RemindersPage() {
             {overdue.length > 0 ? `${overdue.length} overdue` : `${active.length} pending`}
           </p>
         </div>
-        <Dialog open={formOpen} onOpenChange={setFormOpen}>
+        <Dialog open={formOpen} onOpenChange={open => { setFormOpen(open); if (!open) setEditingId(null) }}>
           <DialogTrigger asChild>
-            <Button size="sm" className="gap-1"><Plus className="h-4 w-4" /> New Reminder</Button>
+            <Button size="sm" className="gap-1" onClick={openNew}><Plus className="h-4 w-4" /> New Reminder</Button>
           </DialogTrigger>
-          <DialogContent className="bg-card border-border max-w-sm">
-            <DialogHeader><DialogTitle>New Reminder</DialogTitle></DialogHeader>
+          <DialogContent className="bg-card border-border max-w-sm max-h-[90dvh] overflow-y-auto">
+            <DialogHeader><DialogTitle>{editingId ? "Edit reminder" : "New Reminder"}</DialogTitle></DialogHeader>
             <form onSubmit={createReminder} className="space-y-3">
               <div>
                 <Label>Title</Label>
@@ -316,6 +419,29 @@ export default function RemindersPage() {
                 </div>
               </div>
               <div>
+                <Label>Repeat</Label>
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {REPEAT_OPTIONS.map(o => (
+                    <button key={o.label} type="button" disabled={!form.dueDate && o.value != null}
+                      onClick={() => setForm(f => ({ ...f, repeat: o.value }))}
+                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors disabled:opacity-40 ${
+                        form.repeat === o.value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-muted-foreground"
+                      }`}>
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+                {!form.dueDate && <p className="text-[11px] text-muted-foreground mt-1">Pick a date first — a rule needs a day to count from.</p>}
+                {form.dueDate && form.repeat && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <Label className="text-xs text-muted-foreground shrink-0">Until</Label>
+                    <Input type="date" className="h-8 text-xs" value={form.repeatUntil} min={form.dueDate}
+                      onChange={e => setForm(f => ({ ...f, repeatUntil: e.target.value }))} />
+                    {form.repeatUntil && <button type="button" onClick={() => setForm(f => ({ ...f, repeatUntil: "" }))} className="text-muted-foreground" aria-label="No end"><X className="h-3 w-3" /></button>}
+                  </div>
+                )}
+              </div>
+              <div>
                 <Label>Priority</Label>
                 <div className="flex gap-2 mt-1">
                   {["low","normal","high"].map(p => (
@@ -346,7 +472,7 @@ export default function RemindersPage() {
                 </div>
               )}
               <Button type="submit" className="w-full" disabled={saving || !form.title.trim()}>
-                {saving ? "Creating..." : "Create"}
+                {saving ? "Saving…" : editingId ? "Save changes" : "Create"}
               </Button>
             </form>
           </DialogContent>
@@ -423,7 +549,7 @@ export default function RemindersPage() {
             <p className="font-medium text-muted-foreground mb-1">No reminders yet</p>
             <p className="text-xs text-muted-foreground/60 mb-4">Add things you need to remember — with due dates and priority</p>
             <button
-              onClick={() => setFormOpen(true)}
+              onClick={openNew}
               className="text-xs text-primary hover:underline"
             >
               + Add your first reminder
@@ -456,11 +582,29 @@ export default function RemindersPage() {
               </CardContent>
             </Card>
           )}
-          {completed.length > 0 && (
-            <Card className="opacity-60">
+          {someday.length > 0 && (
+            <Card>
               <CardContent className="px-5 py-0">
-                <p className="text-xs font-medium text-muted-foreground pt-3 pb-1">Completed</p>
-                {completed.slice(0,5).map(r => <ReminderCard key={r.id} r={r} />)}
+                <p className="text-xs font-medium text-muted-foreground pt-3 pb-1">No date</p>
+                {someday.map(r => <ReminderCard key={r.id} r={r} />)}
+              </CardContent>
+            </Card>
+          )}
+          {completed.length > 0 && (
+            <Card className="opacity-70">
+              <CardContent className="px-5 py-0">
+                <div className="flex items-center justify-between pt-3 pb-1">
+                  <p className="text-xs font-medium text-muted-foreground">Completed ({completed.length})</p>
+                  <div className="flex items-center gap-3">
+                    {completed.length > 5 && (
+                      <button onClick={() => setShowAllCompleted(v => !v)} className="text-[11px] text-muted-foreground hover:text-foreground">
+                        {showAllCompleted ? "Show fewer" : "Show all"}
+                      </button>
+                    )}
+                    <button onClick={clearCompleted} className="text-[11px] text-muted-foreground hover:text-destructive">Clear</button>
+                  </div>
+                </div>
+                {(showAllCompleted ? completed : completed.slice(0, 5)).map(r => <ReminderCard key={r.id} r={r} />)}
               </CardContent>
             </Card>
           )}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { userDay } from "@/lib/user-timezone"
 
 export async function POST(
   _req: NextRequest,
@@ -16,8 +17,10 @@ export async function POST(
   })
   if (!routine) return NextResponse.json({ error: "Not found" }, { status: 404 })
 
-  const today = new Date()
-  today.setUTCHours(0, 0, 0, 0)
+  // The user's calendar day, as every other completion path files it. This
+  // used the server's UTC day, so a routine completed late in the evening
+  // east of Greenwich landed on tomorrow.
+  const { dateColumn: today } = await userDay(session.user.id)
 
   const existing = await prisma.habitCompletion.findMany({
     where: {
@@ -32,6 +35,7 @@ export async function POST(
   const toComplete = routine.habitIds.filter(hid => !alreadyDone.has(hid))
 
   if (toComplete.length > 0) {
+    await prisma.habitSkip.deleteMany({ where: { habitId: { in: toComplete }, userId: session.user.id, date: today } })
     await prisma.habitCompletion.createMany({
       data: toComplete.map(habitId => ({
         habitId,

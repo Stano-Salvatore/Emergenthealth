@@ -19,13 +19,19 @@ export async function POST(
   const body = await req.json().catch(() => ({}))
   const dateStr = body.date ?? await userToday(session.user.id)
   const dateObj = new Date(dateStr)
+  if (Number.isNaN(dateObj.getTime())) return NextResponse.json({ error: "bad date" }, { status: 400 })
   dateObj.setUTCHours(0, 0, 0, 0)
 
-  const completion = await prisma.habitCompletion.upsert({
-    where: { habitId_date: { habitId: id, date: dateObj } },
-    create: { habitId: id, userId: session.user.id, date: dateObj },
-    update: {},
-  })
+  // Done and skipped are exclusive: ticking a day the user had skipped
+  // withdraws the skip.
+  const [, completion] = await prisma.$transaction([
+    prisma.habitSkip.deleteMany({ where: { habitId: id, userId: session.user.id, date: dateObj } }),
+    prisma.habitCompletion.upsert({
+      where: { habitId_date: { habitId: id, date: dateObj } },
+      create: { habitId: id, userId: session.user.id, date: dateObj },
+      update: {},
+    }),
+  ])
 
   return NextResponse.json(completion)
 }
@@ -41,6 +47,7 @@ export async function DELETE(
   const body = await req.json().catch(() => ({}))
   const dateStr = body.date ?? await userToday(session.user.id)
   const dateObj = new Date(dateStr)
+  if (Number.isNaN(dateObj.getTime())) return NextResponse.json({ error: "bad date" }, { status: 400 })
   dateObj.setUTCHours(0, 0, 0, 0)
 
   await prisma.habitCompletion.deleteMany({

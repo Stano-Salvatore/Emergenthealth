@@ -35,6 +35,10 @@ import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow 
 import { loadLabTrends } from "@/lib/lab-trends-load"
 import { loadNutrientReport } from "@/lib/nutrient-gaps-load"
 import { getGoals, saveGoals } from "@/lib/goals"
+import { completeReminder } from "@/lib/reminders"
+import { normalizeSchedule, scheduleLabel } from "@/lib/habit-schedule"
+import { normalizeRepeat, repeatLabel } from "@/lib/recurrence"
+import { parseEventInput } from "@/lib/app-events"
 import { latestWeightKg, loadWeightSeries } from "@/lib/weight-series"
 import { weightGoalProgress } from "@/lib/weight-trend"
 import { logWorkout, loadSessionsForUser, WORKOUT_TYPES } from "@/lib/workouts"
@@ -95,14 +99,29 @@ const CACHE: Anthropic.CacheControlEphemeral = { type: "ephemeral" }
 const TOOLS: Anthropic.Tool[] = [
   {
     name: "create_habit",
-    description: "Create a new daily habit for the user to track",
+    description: "Create a habit for the user to track. Daily unless they say otherwise: 'gym Mon Wed Fri' is scheduleDays [1,3,5]; 'run three times a week' is timesPerWeek 3. Off-days neither ring nor break the streak.",
     input_schema: {
       type: "object" as const,
       properties: {
         name: { type: "string", description: "Name of the habit" },
         color: { type: "string", description: "Hex color e.g. #6366f1 (optional)" },
+        scheduleDays: { type: "array", items: { type: "number" }, description: "Weekdays it is due, 0 = Sunday … 6 = Saturday. Omit for every day." },
+        timesPerWeek: { type: "number", description: "For 'N times a week' habits with no fixed days, 1–6" },
+        reminderTime: { type: "string", description: "Daily reminder, 24-hour HH:MM, when they ask for one" },
       },
       required: ["name"],
+    },
+  },
+  {
+    name: "skip_habit_today",
+    description: "Skip a habit for today with a reason ('skip the run today, my knee hurts'). The streak holds; the day does not count as done.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        habitName: { type: "string", description: "Name of the habit to skip" },
+        reason: { type: "string", description: "Why, in their words — short" },
+      },
+      required: ["habitName"],
     },
   },
   {
@@ -133,8 +152,27 @@ const TOOLS: Anthropic.Tool[] = [
         dueDate: { type: "string", description: "Date in YYYY-MM-DD format (optional; only when they name a specific day)" },
         time: { type: "string", description: "Alarm time, 24-hour HH:MM, e.g. '06:00' or '18:30'. Include this whenever the user says a time." },
         priority: { type: "string", enum: ["low", "normal", "high"] },
+        repeat: { type: "string", enum: ["daily", "weekdays", "weekly", "monthly", "yearly"], description: "When it should come back — 'every morning' is daily, 'every Tuesday' is weekly anchored on that date, 'bins every two weeks' is not supported (say so)." },
       },
       required: ["title"],
+    },
+  },
+  {
+    name: "create_event",
+    description: "Put an event on the user's calendar — 'dentist Thursday at 3', 'standup every weekday at 9', 'mum's birthday on 12 May every year'. Times are the user's local clock. Ask for the day if they didn't give one; don't guess.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string" },
+        date: { type: "string", description: "YYYY-MM-DD" },
+        startTime: { type: "string", description: "24-hour HH:MM; omit for an all-day event" },
+        endTime: { type: "string", description: "24-hour HH:MM; default one hour after start" },
+        location: { type: "string" },
+        notes: { type: "string" },
+        repeat: { type: "string", enum: ["daily", "weekdays", "weekly", "monthly", "yearly"] },
+        alertMinutes: { type: "number", description: "Minutes before to notify, e.g. 30. Omit for none." },
+      },
+      required: ["title", "date"],
     },
   },
   {
@@ -716,10 +754,34 @@ async function correctRef(
 
 async function executeTool(name: string, input: Record<string, string>, userId: string): Promise<string> {
   if (name === "create_habit") {
+    const schedule = normalizeSchedule({ scheduleDays: input.scheduleDays, timesPerWeek: input.timesPerWeek })
+    const reminderTime = typeof input.reminderTime === "string" && parseHhMm(input.reminderTime) != null ? input.reminderTime : null
     await prisma.habit.create({
-      data: { userId, name: input.name, color: input.color ?? "#6366f1" },
+      data: {
+        userId, name: input.name, color: input.color ?? "#6366f1",
+        scheduleDays: schedule.scheduleDays, timesPerWeek: schedule.timesPerWeek, reminderTime,
+      },
     })
-    return `Created habit "${input.name}".`
+    const when = scheduleLabel(schedule) ?? "every day"
+    return `Created habit "${input.name}" — ${when}${reminderTime ? `, reminder at ${reminderTime}` : ""}.`
+  }
+
+  if (name === "skip_habit_today") {
+    const habit = await prisma.habit.findFirst({
+      where: { userId, name: { contains: String(input.habitName ?? ""), mode: "insensitive" }, isArchived: false },
+    })
+    if (!habit) return `No habit found matching "${input.habitName}".`
+    const { dateColumn: today } = await userDay(userId)
+    const reason = typeof input.reason === "string" && input.reason.trim() ? input.reason.trim().slice(0, 120) : null
+    await prisma.$transaction([
+      prisma.habitCompletion.deleteMany({ where: { habitId: habit.id, userId, date: today } }),
+      prisma.habitSkip.upsert({
+        where: { habitId_date: { habitId: habit.id, date: today } },
+        create: { habitId: habit.id, userId, date: today, reason },
+        update: { reason },
+      }),
+    ])
+    return `Skipped "${habit.name}" for today${reason ? ` (${reason})` : ""} — the streak holds.`
   }
 
   if (name === "complete_habit_today") {
@@ -755,6 +817,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       return `I couldn't read "${input.time}" as a time — give it to me as HH:MM, like 18:30.`
     }
 
+    const repeat = when.dueDate ? normalizeRepeat(input.repeat) : null
     await prisma.reminder.create({
       data: {
         userId,
@@ -763,11 +826,36 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         dueDate: when.dueDate ? new Date(when.dueDate + "T00:00:00Z") : null,
         reminderTime: when.reminderTime,
         priority: input.priority ?? "normal",
+        repeat,
       },
     })
     // Say when it will go off. A confirmation that doesn't name the moment is
     // how the silent version of this went unnoticed.
-    return `Reminder set: "${input.title}" — ${when.label}.`
+    return `Reminder set: "${input.title}" — ${when.label}${repeat ? `, then ${repeatLabel(repeat, when.dueDate).toLowerCase()}` : ""}.`
+  }
+
+  if (name === "create_event") {
+    const tz = await getUserTimezone(userId)
+    const date = typeof input.date === "string" ? input.date.trim() : ""
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "I need the day as YYYY-MM-DD."
+    const startTime = typeof input.startTime === "string" && parseHhMm(input.startTime) != null ? input.startTime : null
+    let endTime = typeof input.endTime === "string" && parseHhMm(input.endTime) != null ? input.endTime : null
+    if (startTime && !endTime) {
+      const m = (parseHhMm(startTime) ?? 0) + 60
+      endTime = `${String(Math.floor((m % 1440) / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`
+    }
+    const parsed = parseEventInput({
+      title: input.title, description: input.notes, location: input.location,
+      isAllDay: !startTime,
+      start: startTime ? `${date}T${startTime}` : date,
+      end: startTime && endTime && endTime > startTime ? `${date}T${endTime}` : null,
+      repeat: input.repeat, alertMinutes: input.alertMinutes,
+    }, tz)
+    if (!parsed.ok) return parsed.error
+    await prisma.appEvent.create({ data: { userId, ...parsed.data } })
+    const rep = parsed.data.repeat ? `, ${repeatLabel(parsed.data.repeat, date).toLowerCase()}` : ""
+    const alert = parsed.data.alertMinutes != null ? `, alert ${parsed.data.alertMinutes === 0 ? "at start" : `${parsed.data.alertMinutes} min before`}` : ""
+    return `Added "${parsed.data.title}" on ${date}${startTime ? ` at ${startTime}${endTime ? `–${endTime}` : ""}` : " (all day)"}${rep}${alert}. It's on the Calendar page.`
   }
 
   if (name === "log_water") {
@@ -1310,12 +1398,12 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         ? `No open reminder matches "${q}". Open ones: ${open.map(r => `"${r.title}"`).join(", ")}.`
         : `No open reminder matches "${q}" — the list is empty.`
     }
-    const done = await prisma.reminder.update({
-      where: { id: reminder.id },
-      data: { isCompleted: true, completedAt: new Date() },
-    }).catch(() => null)
-    if (!done) return `Couldn't mark "${reminder.title}" as done — the update didn't write. Worth retrying.`
-    return `Marked "${reminder.title}" as done.`
+    // Through lib/reminders so a repeating one rolls to its next occurrence.
+    const done = await completeReminder(userId, reminder.id).catch(() => null)
+    if (!done || !done.ok) return `Couldn't mark "${reminder.title}" as done — the update didn't write. Worth retrying.`
+    return done.rolledTo
+      ? `Marked "${reminder.title}" as done — it repeats, so the next one is ${done.rolledTo}.`
+      : `Marked "${reminder.title}" as done.`
   }
 
   if (name === "log_focus") {
@@ -2431,7 +2519,7 @@ You can see their medications, symptoms and lab results. You may describe what's
 
 FORMATTING: your replies render as markdown. Use **bold** sparingly for the words a sentence turns on, "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
-You have tools to CREATE habits/reminders, COMPLETE habits and reminders, LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), blood pressure (log_blood_pressure), lab results from a printout or photo (log_lab_results — the date plus every marker/value/unit you can read, once they confirm the digits), a medication schedule they describe (create_med_schedule — name, dose, times; it records what they told you, it is not advice), fasts (start_fast / end_fast), training sessions (log_workout — "did legs for an hour", "30 min run"; ask for effort 1–10 only if it comes naturally), targets they want changed and their weight goal (set_goal — "I want to get to 78 kg" sets a lose goal, "stop the diet" clears it; the calorie and protein targets follow the goal, so mention that), a place they want remembered (save_place — "save this café as X" uses their phone's latest fix), and a self-experiment they want to run (create_experiment — one action, one measurable outcome, confirm the plan first), READ health trends (get_health_range) and the app's own analyses (get_analysis — running experiments and today's arm, what is off their baseline, lab trends, nutrient gaps, medication adherence, the found patterns), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and, once they confirm the digits, recording them with log_lab_results; a medication box means the name and strength (and create_med_schedule if it is something they take regularly); a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
+You have tools to CREATE habits (with a schedule — weekdays or N times a week — and a reminder time), reminders (repeating when they say so) and calendar events (create_event — anything with a day and a time that isn't a to-do), COMPLETE habits and reminders, SKIP a habit for today with a reason (skip_habit_today — the streak holds), LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), blood pressure (log_blood_pressure), lab results from a printout or photo (log_lab_results — the date plus every marker/value/unit you can read, once they confirm the digits), a medication schedule they describe (create_med_schedule — name, dose, times; it records what they told you, it is not advice), fasts (start_fast / end_fast), training sessions (log_workout — "did legs for an hour", "30 min run"; ask for effort 1–10 only if it comes naturally), targets they want changed and their weight goal (set_goal — "I want to get to 78 kg" sets a lose goal, "stop the diet" clears it; the calorie and protein targets follow the goal, so mention that), a place they want remembered (save_place — "save this café as X" uses their phone's latest fix), and a self-experiment they want to run (create_experiment — one action, one measurable outcome, confirm the plan first), READ health trends (get_health_range) and the app's own analyses (get_analysis — running experiments and today's arm, what is off their baseline, lab trends, nutrient gaps, medication adherence, the found patterns), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and, once they confirm the digits, recording them with log_lab_results; a medication box means the name and strength (and create_med_schedule if it is something they take regularly); a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${renderFacts(memories)}\nIf they say one of these is no longer true, call forget — a fact that has gone stale still steers what you say until it is gone.\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
 ${saidStr ? `## What you told them recently (nudges you sent on your own — they may be replying to one)\n${saidStr}\n` : ""}

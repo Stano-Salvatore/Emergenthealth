@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { activeOn } from "@/lib/med-schedule"
+import { isScheduledOn } from "@/lib/habit-schedule"
+import { loadEventOccurrences } from "@/lib/app-events"
+import { getUserTimezone } from "@/lib/user-timezone"
+import { normalizeRepeat, occurrencesBetween } from "@/lib/recurrence"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -19,14 +23,22 @@ type OverlayItem = {
   id: string
   title: string
   description: string | null
-  location: null
+  location: string | null
   start: string
   end: string | null
   isAllDay: boolean
   url: string | null
   color: string
   source: "app"
-  kind: "med" | "habit" | "reminder" | "workout" | "checkin" | "moment" | "focus"
+  kind: "med" | "habit" | "reminder" | "workout" | "checkin" | "moment" | "focus" | "event"
+  /** App-owned events only: what the detail panel needs to edit or delete. */
+  eventId?: string
+  occurrence?: string
+  repeat?: string | null
+  repeatUntil?: string | null
+  alertMinutes?: number | null
+  /** Reminders: the row id, so the panel can tick it. */
+  reminderId?: string
 }
 
 const COLORS = {
@@ -37,6 +49,7 @@ const COLORS = {
   checkin: "#a78bfa",
   moment: "#38bdf8",
   focus: "#22d3ee",
+  event: "#818cf8",
 }
 
 /** Local-time ISO for a YYYY-MM-DD day at HH:MM, so it lands where the user sees it. */
@@ -72,16 +85,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "bad range" }, { status: 400 })
   }
 
-  const [meds, habits, reminders, workouts, checkins, moments, focus] = await Promise.all([
+  const timezone = await getUserTimezone(userId)
+  const [meds, habits, reminders, workouts, checkins, moments, focus, appEvents] = await Promise.all([
     prisma.medSchedule.findMany({ where: { userId, active: true, remind: true } }).catch(() => []),
     prisma.habit.findMany({
       where: { userId, isArchived: false, reminderTime: { not: null } },
-      select: { id: true, name: true, reminderTime: true },
-    }).catch(() => [] as { id: string; name: string; reminderTime: string | null }[]),
+      select: { id: true, name: true, reminderTime: true, scheduleDays: true, timesPerWeek: true },
+    }).catch(() => [] as { id: string; name: string; reminderTime: string | null; scheduleDays: number[]; timesPerWeek: number | null }[]),
+    // A repeating reminder sits on its next due date; its later occurrences
+    // inside the window are drawn too, so a "weekly bins" reminder shows on
+    // every Tuesday of the month rather than only the next one.
     prisma.reminder.findMany({
-      where: { userId, isCompleted: false, dueDate: { gte: from, lte: to } },
-      select: { id: true, title: true, description: true, dueDate: true, reminderTime: true },
-    }).catch(() => [] as { id: string; title: string; description: string | null; dueDate: Date | null; reminderTime: string | null }[]),
+      where: { userId, isCompleted: false, OR: [{ dueDate: { gte: from, lte: to } }, { repeat: { not: null }, dueDate: { lte: to } }] },
+      select: { id: true, title: true, description: true, dueDate: true, reminderTime: true, repeat: true, repeatUntil: true },
+    }).catch(() => [] as { id: string; title: string; description: string | null; dueDate: Date | null; reminderTime: string | null; repeat: string | null; repeatUntil: Date | null }[]),
     prisma.stravaActivity.findMany({
       where: { userId, startDate: { gte: from, lte: to } },
       select: { id: true, name: true, type: true, distanceM: true, movingTimeSec: true, startDate: true },
@@ -98,6 +115,7 @@ export async function GET(req: NextRequest) {
       where: { userId, startedAt: { gte: from, lte: to }, type: "focus" },
       select: { id: true, label: true, durationMin: true, startedAt: true },
     }).catch(() => [] as { id: string; label: string | null; durationMin: number; startedAt: Date }[]),
+    loadEventOccurrences(userId, from, to, timezone).catch(() => []),
   ])
 
   const items: OverlayItem[] = []
@@ -124,6 +142,7 @@ export async function GET(req: NextRequest) {
       })
     }
     for (const habit of habits) {
+      if (!isScheduledOn({ scheduleDays: habit.scheduleDays, timesPerWeek: habit.timesPerWeek }, day)) continue
       const start = habit.reminderTime ? at(day, habit.reminderTime) : null
       if (!start) continue
       items.push({
@@ -137,14 +156,31 @@ export async function GET(req: NextRequest) {
 
   for (const r of reminders) {
     if (!r.dueDate) continue
-    const day = r.dueDate.toISOString().slice(0, 10)
-    // Reminders store the date at UTC midnight and the time the user picked
-    // separately — the same pairing the notification scheduler uses.
-    const start = at(day, r.reminderTime || "09:00") ?? r.dueDate.toISOString()
+    const dueDay = r.dueDate.toISOString().slice(0, 10)
+    const repeat = normalizeRepeat(r.repeat)
+    const reminderDays = repeat
+      ? occurrencesBetween(dueDay, repeat, days[0] ?? dueDay, days[days.length - 1] ?? dueDay, { until: r.repeatUntil ? r.repeatUntil.toISOString().slice(0, 10) : null })
+      : [dueDay]
+    for (const day of reminderDays) {
+      // Reminders store the date at UTC midnight and the time the user picked
+      // separately — the same pairing the notification scheduler uses.
+      const start = at(day, r.reminderTime || "09:00") ?? new Date(day + "T00:00:00Z").toISOString()
+      items.push({
+        id: `rem-${r.id}-${day}`, title: `🔔 ${r.title}`, description: r.description ?? null,
+        location: null, start, end: null, isAllDay: !r.reminderTime,
+        url: "/dashboard/reminders", color: COLORS.reminder, source: "app", kind: "reminder",
+        reminderId: r.id, repeat: r.repeat ?? null,
+      })
+    }
+  }
+
+  // The app's own events, already expanded into occurrences.
+  for (const e of appEvents) {
     items.push({
-      id: `rem-${r.id}`, title: `🔔 ${r.title}`, description: r.description ?? null,
-      location: null, start, end: null, isAllDay: !r.reminderTime,
-      url: "/dashboard/reminders", color: COLORS.reminder, source: "app", kind: "reminder",
+      id: `event-${e.id}`, title: e.title, description: e.description, location: e.location,
+      start: e.start, end: e.end, isAllDay: e.isAllDay, url: null,
+      color: e.color ?? COLORS.event, source: "app", kind: "event",
+      eventId: e.eventId, occurrence: e.occurrence, repeat: e.repeat, repeatUntil: e.repeatUntil, alertMinutes: e.alertMinutes,
     })
   }
 

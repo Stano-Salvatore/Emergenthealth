@@ -26,6 +26,8 @@ import { LocalNotifications } from "@capacitor/local-notifications"
 
 import { activeOn } from "@/lib/med-schedule"
 import { scheduleHeadPops } from "@/lib/native/bubble"
+import { isScheduledOn } from "@/lib/habit-schedule"
+import { normalizeRepeat, occurrencesBetween } from "@/lib/recurrence"
 
 type Reminder = {
   id: string
@@ -34,6 +36,9 @@ type Reminder = {
   dueDate?: string | null
   reminderTime?: string | null   // "HH:MM", the time the user actually picked
   isCompleted?: boolean
+  /** "daily" | "weekdays" | "weekly" | "monthly" | "yearly" — see lib/recurrence. */
+  repeat?: string | null
+  repeatUntil?: string | null
 }
 
 type HabitReminder = {
@@ -41,6 +46,11 @@ type HabitReminder = {
   name: string
   reminderTime?: string | null   // "HH:MM"
   completedToday?: boolean
+  skippedToday?: boolean
+  /** Whether the schedule asks for it today at all (off-days stay quiet). */
+  dueToday?: boolean
+  scheduleDays?: number[]
+  timesPerWeek?: number | null
 }
 
 type MedReminder = {
@@ -54,6 +64,17 @@ type MedReminder = {
   startDate?: string | null      // YYYY-MM-DD
   endDate?: string | null
   takenToday?: number
+}
+
+type EventAlert = {
+  id: string
+  eventId: string
+  occurrence: string
+  title: string
+  start: string          // ISO, or YYYY-MM-DD for all-day
+  isAllDay: boolean
+  alertMinutes?: number | null
+  location?: string | null
 }
 
 /** Daily nudge times, from Settings. Noon and evening are on/off only. */
@@ -271,6 +292,11 @@ export function medNotifId(scheduleId: string, dayOffset: number, timeIndex: num
   return 1_000_000 + (hashId(scheduleId) % 20_000) * 50 + dayOffset * MAX_MED_TIMES + timeIndex
 }
 
+/** App-event alerts sit between the habit block and the nudges. */
+export function eventNotifId(eventId: string, occurrence: string): number {
+  return 890_000 + (hashId(`${eventId}:${occurrence}`) % 20_000)
+}
+
 // A local Date for a given day offset at "HH:MM" in the phone's own timezone.
 function localTimeOn(dayOffset: number, hhmm: string): Date | null {
   const [h, m] = hhmm.split(":").map(Number)
@@ -401,6 +427,7 @@ export async function syncNotifications(
   habits: HabitReminder[] = [],
   meds: MedReminder[] = [],
   nudgePrefs: NudgePrefs = DEFAULT_NUDGE_PREFS,
+  events: EventAlert[] = [],
 ): Promise<number> {
   const ln = getPlugin()
   if (!ln) return 0
@@ -433,21 +460,32 @@ export async function syncNotifications(
     // time the user actually picked was never used at all.
     for (const r of reminders) {
       if (r.isCompleted || !r.dueDate) continue
-      const [y, mo, d] = r.dueDate.slice(0, 10).split("-").map(Number)
-      if (!y || !mo || !d) continue
-      const at = new Date(y, mo - 1, d)
-      const [h, m] = (r.reminderTime || "09:00").split(":").map(Number)
-      // No time set means the whole day is meant, so a morning nudge beats
-      // one at midnight.
-      at.setHours(Number.isFinite(h) ? h : 9, Number.isFinite(m) ? m : 0, 0, 0)
-      if (at.getTime() <= now) continue
-      toSchedule.push({
-        id: reminderNotifId(r.id),
-        title: r.title,
-        body: r.description?.trim() || "Reminder",
-        schedule: { at, allowWhileIdle: true },
-        actionTypeId: "TODO_REMINDER",
-        extra: { kind: "reminder", id: r.id, url: "/dashboard/reminders" },
+      const dueDay = r.dueDate.slice(0, 10)
+      // A repeating reminder rings on every occurrence inside the window, not
+      // only the one it currently sits on — if the current one is ticked, the
+      // resync after that lays the next down; if it isn't, the next still
+      // rings rather than waiting on the missed one.
+      const repeat = normalizeRepeat(r.repeat)
+      const days = repeat
+        ? occurrencesBetween(dueDay, repeat, dueDay, localDateOn(HABIT_WINDOW_DAYS), { until: r.repeatUntil?.slice(0, 10) ?? null, limit: HABIT_WINDOW_DAYS + 1 })
+        : [dueDay]
+      days.forEach((day, i) => {
+        const [y, mo, d] = day.split("-").map(Number)
+        if (!y || !mo || !d) return
+        const at = new Date(y, mo - 1, d)
+        const [h, m] = (r.reminderTime || "09:00").split(":").map(Number)
+        // No time set means the whole day is meant, so a morning nudge beats
+        // one at midnight.
+        at.setHours(Number.isFinite(h) ? h : 9, Number.isFinite(m) ? m : 0, 0, 0)
+        if (at.getTime() <= now) return
+        toSchedule.push({
+          id: i === 0 ? reminderNotifId(r.id) : habitNotifId(`rem:${r.id}`, i),
+          title: r.title,
+          body: r.description?.trim() || "Reminder",
+          schedule: { at, allowWhileIdle: true },
+          actionTypeId: "TODO_REMINDER",
+          extra: { kind: "reminder", id: r.id, url: "/dashboard/reminders" },
+        })
       })
     }
 
@@ -457,10 +495,13 @@ export async function syncNotifications(
     // clock match from a once-daily run, so it effectively never fired.
     for (const habit of habits) {
       if (!habit.reminderTime) continue
+      const schedule = { scheduleDays: habit.scheduleDays ?? [], timesPerWeek: habit.timesPerWeek ?? null }
       for (let day = 0; day < HABIT_WINDOW_DAYS; day++) {
-        // Today is skipped once it's already done — the point of the rolling
-        // window rather than one repeating alarm.
-        if (day === 0 && habit.completedToday) continue
+        // Today is skipped once it's already done (or deliberately skipped) —
+        // the point of the rolling window rather than one repeating alarm.
+        if (day === 0 && (habit.completedToday || habit.skippedToday || habit.dueToday === false)) continue
+        // Off-days of the schedule never ring.
+        if (!isScheduledOn(schedule, localDateOn(day))) continue
         const at = localTimeOn(day, habit.reminderTime)
         if (!at || at.getTime() <= now) continue
         toSchedule.push({
@@ -510,6 +551,25 @@ export async function syncNotifications(
           })
         })
       }
+    }
+
+    // ── Calendar event alerts ────────────────────────────────────────────
+    // Only events the app owns can alert from here; Google's and the phone's
+    // have their own apps ringing for them.
+    for (const e of events) {
+      if (e.alertMinutes == null || e.isAllDay) continue
+      const startMs = Date.parse(e.start)
+      if (!Number.isFinite(startMs)) continue
+      const at = new Date(startMs - e.alertMinutes * 60_000)
+      if (at.getTime() <= now) continue
+      const when = new Date(startMs).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      toSchedule.push({
+        id: eventNotifId(e.eventId, e.occurrence),
+        title: `📅 ${e.title}`,
+        body: e.alertMinutes === 0 ? `Starting now${e.location ? ` · ${e.location}` : ""}` : `At ${when}${e.location ? ` · ${e.location}` : ""}`,
+        schedule: { at, allowWhileIdle: true },
+        extra: { kind: "event", id: e.eventId, url: "/dashboard/calendar" },
+      })
     }
 
     if (nudgesEnabled()) {
@@ -673,6 +733,7 @@ const KIND_DESTINATIONS: Record<string, string> = {
   habit: "/dashboard/habits",
   reminder: "/dashboard/reminders",
   med: "/dashboard/medications",
+  event: "/dashboard/calendar",
 }
 
 // The daily nudges repeat forever from a single scheduling, so copies laid
@@ -1015,10 +1076,12 @@ async function json<T>(url: string, fallback: T): Promise<T> {
 /** Fetch everything schedulable and (re)schedule from scratch. */
 export async function resyncNotifications(): Promise<number> {
   try {
-    const [reminders, habits, medPayload, morning, noon, evening] = await Promise.all([
+    const eventsTo = new Date(Date.now() + HABIT_WINDOW_DAYS * 86_400_000).toISOString()
+    const [reminders, habits, medPayload, events, morning, noon, evening] = await Promise.all([
       json<Reminder[]>("/api/reminders", []),
       json<HabitReminder[]>("/api/habits", []),
       json<{ items?: MedReminder[] }>("/api/med-schedule", {}),
+      json<EventAlert[]>(`/api/events?to=${encodeURIComponent(eventsTo)}`, []),
       json<{ hour?: number }>("/api/preferences/reminder-time", {}),
       json<{ enabled?: boolean }>("/api/preferences/noon-reminder", {}),
       json<{ enabled?: boolean }>("/api/preferences/evening-reminder", {}),
@@ -1033,6 +1096,7 @@ export async function resyncNotifications(): Promise<number> {
         noon: noon?.enabled !== false,
         evening: evening?.enabled !== false,
       },
+      Array.isArray(events) ? events : [],
     )
 
     // Tell the server the phone has these laid down locally, so its own

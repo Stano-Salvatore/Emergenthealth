@@ -128,7 +128,7 @@ function MessageBubble({ msg, emergyState, onRetry }: { msg: Message; emergyStat
 }
 
 /** Tools that change something, and so can change how Emergy is feeling. */
-const WRITES = /^(log_|create_|complete_|write_|correct_|delete_|remember$)/
+const WRITES = /^(log_|create_|complete_|skip_|write_|correct_|delete_|remember$)/
 /** Tools that change what the phone should be ringing about. */
 const REMINDER_TOOLS = /^(create_reminder|complete_reminder|create_med_schedule|create_habit)$/
 

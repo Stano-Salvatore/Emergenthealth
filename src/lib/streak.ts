@@ -125,7 +125,7 @@ export function computeBestStreak(
  * existed are excluded rather than counted as missed.
  */
 export function computeCompletionRate(
-  habits: { completionDays: Set<string>; createdAt?: string | null }[],
+  habits: { completionDays: Set<string>; createdAt?: string | null; isOff?: (day: string) => boolean }[],
   todayStr: string,
   days = 30,
 ): number | null {
@@ -138,6 +138,8 @@ export function computeCompletionRate(
       // down all morning for no reason.
       if (i === 0) continue
       if (habit.createdAt && day < habit.createdAt.slice(0, 10)) continue
+      // A day the schedule didn't ask for, or the user skipped, was never due.
+      if (habit.isOff?.(day)) continue
       due++
       if (habit.completionDays.has(day)) kept++
     }
