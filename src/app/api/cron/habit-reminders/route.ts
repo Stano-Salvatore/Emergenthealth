@@ -5,6 +5,7 @@ import { localCoversNow, parseCoverage } from "@/lib/local-notifications"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import { localDateStr, localTimeStr } from "@/lib/local-date"
+import { isScheduledOn } from "@/lib/habit-schedule"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -67,8 +68,8 @@ export async function GET(req: NextRequest) {
     const alreadySent = await readSentLog(userId, SENT_KEY, localDate)
 
     // Incomplete habits whose reminder fell due in the catch-up window
-    const habitReminders = phoneCovers ? [] : (await prisma.$queryRaw<{ id: string; name: string; reminderTime: string }[]>`
-      SELECT h.id, h.name, h."reminderTime"
+    const habitReminders = phoneCovers ? [] : (await prisma.$queryRaw<{ id: string; name: string; reminderTime: string; scheduleDays: number[]; timesPerWeek: number | null }[]>`
+      SELECT h.id, h.name, h."reminderTime", h."scheduleDays", h."timesPerWeek"
       FROM "Habit" h
       WHERE h."userId" = ${userId}
         AND h."isArchived" = false
@@ -79,7 +80,13 @@ export async function GET(req: NextRequest) {
           SELECT 1 FROM "HabitCompletion" hc
           WHERE hc."habitId" = h.id AND hc."date"::date = ${localDate}::date
         )
-    `.catch(() => [] as { id: string; name: string; reminderTime: string }[]))
+        AND NOT EXISTS (
+          SELECT 1 FROM "HabitSkip" hs
+          WHERE hs."habitId" = h.id AND hs."date"::date = ${localDate}::date
+        )
+    `.catch(() => [] as { id: string; name: string; reminderTime: string; scheduleDays: number[]; timesPerWeek: number | null }[]))
+      // An off-day is not a missed day: a Mon/Wed/Fri habit stays quiet on Tuesday.
+      .filter(h => isScheduledOn({ scheduleDays: h.scheduleDays ?? [], timesPerWeek: h.timesPerWeek ?? null }, localDate))
       .filter(h => !alreadySent.has(`habit:${h.id}`))
 
     // Reminders due today or overdue, same window, not yet ticked off
@@ -112,6 +119,11 @@ export async function GET(req: NextRequest) {
             SELECT 1 FROM "HabitCompletion" hc
             WHERE hc."habitId" = h.id AND hc."date"::date = ${localDate}::date
           )
+          AND NOT EXISTS (
+            SELECT 1 FROM "HabitSkip" hs
+            WHERE hs."habitId" = h.id AND hs."date"::date = ${localDate}::date
+          )
+          AND (h."scheduleDays" = '{}' OR ${new Date(localDate + "T12:00:00Z").getUTCDay()} = ANY(h."scheduleDays"))
           AND (SELECT COUNT(*) FROM "HabitCompletion" hc2
                WHERE hc2."habitId" = h.id
                  AND hc2."date"::date >= (CURRENT_DATE - INTERVAL '30 days')

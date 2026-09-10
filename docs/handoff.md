@@ -248,6 +248,25 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Habits, reminders and the calendar as the only app.** Habits carry a
+  schedule (`scheduleDays` weekday list or `timesPerWeek`; empty = daily);
+  off-days neither ring nor break a streak, a weekly-target habit counts
+  weeks. `HabitSkip` is its own table ("not today, because…") so nothing that
+  counts completions can mistake a skip for one; skips and off-days feed
+  `makeOffDay` in `src/lib/habit-schedule.ts`, which every streak reader
+  (page, dashboard, garden, streaks, widget, cron) now goes through. Habits
+  can be edited, archived (history kept) and fixed on past days from the
+  heatmap; routines can be edited. Reminders repeat (`repeat` +
+  `repeatUntil`, rules in `src/lib/recurrence.ts`); completing one files a
+  done copy (`seriesId`) and rolls the row to the next occurrence after
+  today — `src/lib/reminders.ts` is the one path, used by the page, the
+  widget, Emergy and the notification button. Snooze (`/snooze`), edit, a
+  "No date" group. The calendar owns events now (`AppEvent`: repeat,
+  per-occurrence delete via `exceptions`, `alertMinutes`), expanded per
+  window by `src/lib/app-events.ts`; the composer writes them on web and
+  phone alike, with the phone's calendar as an option inside the app.
+  The phone scheduler lays down recurring-reminder occurrences, honours
+  habit off-days and skips, and rings event alerts.
 - **Training sessions and load.** Sessions logged by hand live in
   `StravaActivity` with `source = "manual"`, a synthetic `stravaId`, an
   `rpe` and a `note` — one table, so the engine, brief, chat and Training

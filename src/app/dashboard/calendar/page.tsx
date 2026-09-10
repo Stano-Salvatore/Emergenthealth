@@ -7,10 +7,12 @@ import {
   format, isToday, isSameDay, isSameMonth, parseISO,
   eachDayOfInterval,
 } from "date-fns"
-import { ChevronLeft, ChevronRight, RefreshCw, MapPin, X, Clock, Link as LinkIcon, Smartphone, Plus } from "lucide-react"
+import { ChevronLeft, ChevronRight, RefreshCw, MapPin, X, Clock, Link as LinkIcon, Smartphone, Plus, Pencil, Trash2, Repeat as RepeatIcon, Bell, Check } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { createDeviceEvent, isNativeApp as isNativeCalendarApp } from "@/lib/native/device-calendar"
 import { swipeAction } from "@/lib/calendar-nav"
+import { REPEAT_OPTIONS, repeatLabel, type Repeat } from "@/lib/recurrence"
+import { resyncNotifications } from "@/lib/native/notifications"
 
 interface CalendarEvent {
   id: string
@@ -25,6 +27,14 @@ interface CalendarEvent {
   source?: "google" | "device" | "app"
   /** Set on overlay items — what part of the app produced this. */
   kind?: string
+  /** App-owned events: enough to edit or delete from the detail panel. */
+  eventId?: string
+  occurrence?: string
+  repeat?: Repeat | null
+  repeatUntil?: string | null
+  alertMinutes?: number | null
+  /** Overlay reminders: the row, so the panel can tick it. */
+  reminderId?: string
 }
 
 type ViewMode = "day" | "agenda" | "3day" | "week" | "month"
@@ -185,10 +195,30 @@ function layoutDayEvents(events: CalendarEvent[], day: Date): PositionedEvent[] 
 
 // ── Event Detail Panel ────────────────────────────────────────────────────────
 
-function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => void }) {
+function EventDetail({ event, onClose, onEdit, onDelete, onChanged }: {
+  event: CalendarEvent
+  onClose: () => void
+  onEdit: (e: CalendarEvent) => void
+  onDelete: (e: CalendarEvent, scope: "occurrence" | "series") => Promise<void>
+  onChanged: () => void
+}) {
   const v = eventVisual(event, "accent")
   const start = event.start ? (event.isAllDay ? parseEventDate(event.start, true) : parseISO(event.start)) : null
   const end = event.end ? (event.isAllDay ? parseEventDate(event.end, true) : parseISO(event.end)) : null
+  const isAppEvent = event.source === "app" && event.kind === "event" && !!event.eventId
+  const [confirm, setConfirm] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  async function tickReminder() {
+    if (!event.reminderId) return
+    setBusy(true)
+    await fetch(`/api/reminders/${event.reminderId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ isCompleted: true }),
+    }).catch(() => null)
+    setBusy(false)
+    onChanged()
+    onClose()
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4" onClick={onClose}>
@@ -243,6 +273,58 @@ function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => 
             <Smartphone className="h-3 w-3 shrink-0" /> From your phone calendar
           </div>
         )}
+
+        {isAppEvent && (event.repeat || event.alertMinutes != null) && (
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            {event.repeat && (
+              <span className="inline-flex items-center gap-1"><RepeatIcon className="h-3 w-3" /> {repeatLabel(event.repeat, event.occurrence ?? null)}{event.repeatUntil ? ` until ${event.repeatUntil}` : ""}</span>
+            )}
+            {event.alertMinutes != null && (
+              <span className="inline-flex items-center gap-1"><Bell className="h-3 w-3" /> {event.alertMinutes === 0 ? "at start" : `${event.alertMinutes} min before`}</span>
+            )}
+          </div>
+        )}
+
+        {/* Only the app's own rows can be changed here; Google's and the
+            phone's belong to their apps, and the overlay's other kinds
+            (doses, habits) are edited where they live. */}
+        {isAppEvent && (
+          <div className="flex items-center gap-2 pt-1 border-t border-border/60">
+            <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={() => onEdit(event)}>
+              <Pencil className="h-3 w-3" /> Edit{event.repeat ? " series" : ""}
+            </Button>
+            {!confirm ? (
+              <Button size="sm" variant="ghost" className="gap-1.5 h-8 text-xs text-muted-foreground hover:text-destructive" onClick={() => setConfirm(true)}>
+                <Trash2 className="h-3 w-3" /> Delete
+              </Button>
+            ) : event.repeat ? (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Button size="sm" variant="destructive" className="h-8 text-xs" disabled={busy} onClick={async () => { setBusy(true); await onDelete(event, "occurrence"); setBusy(false) }}>This day</Button>
+                <Button size="sm" variant="destructive" className="h-8 text-xs" disabled={busy} onClick={async () => { setBusy(true); await onDelete(event, "series"); setBusy(false) }}>Whole series</Button>
+                <button onClick={() => setConfirm(false)} className="text-xs text-muted-foreground">Cancel</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <Button size="sm" variant="destructive" className="h-8 text-xs" disabled={busy} onClick={async () => { setBusy(true); await onDelete(event, "series"); setBusy(false) }}>Confirm delete</Button>
+                <button onClick={() => setConfirm(false)} className="text-xs text-muted-foreground">Cancel</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {event.kind === "reminder" && event.reminderId && (
+          <div className="flex items-center gap-2 pt-1 border-t border-border/60">
+            <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" disabled={busy} onClick={tickReminder}>
+              <Check className="h-3 w-3" /> Mark done
+            </Button>
+            <a href="/dashboard/reminders" className="text-xs text-primary hover:underline">Open reminders</a>
+          </div>
+        )}
+        {event.source === "app" && event.kind !== "event" && event.kind !== "reminder" && event.url && (
+          <a href={event.url} className="flex items-center gap-1.5 text-xs text-primary hover:underline">
+            <LinkIcon className="h-3 w-3" /> Open in the app
+          </a>
+        )}
       </div>
     </div>
   )
@@ -257,59 +339,114 @@ function EventDetail({ event, onClose }: { event: CalendarEvent; onClose: () => 
 // a phone gets asked far more often — and the one the overlay makes worth
 // asking, now that doses and habits sit beside the meetings.
 
-// Creating events writes to the phone's calendar (see createDeviceEvent), so
-// the composer only exists in the app. On the web the calendar stays a
-// read-only view of what other systems hold, which is worth showing plainly
-// rather than offering a button that cannot work.
-function NewEventSheet({ day, startHour, onClose, onCreated }: {
+const ALERT_OPTIONS: { value: number | null; label: string }[] = [
+  { value: null, label: "No alert" },
+  { value: 0, label: "At start" },
+  { value: 10, label: "10 min" },
+  { value: 30, label: "30 min" },
+  { value: 60, label: "1 hour" },
+  { value: 24 * 60, label: "1 day" },
+]
+
+// The composer writes the app's own events, so it works on the web and with
+// nothing connected. Inside the Android app it can instead hand the event to
+// the phone's calendar (which syncs on to Google itself) — an option, not
+// the default, because an event the app owns is one it can edit, repeat and
+// alert about; a phone-calendar event it can only read back.
+function NewEventSheet({ day, startHour, initial, canUseDevice, onClose, onSaved }: {
   day: Date
   /** Hour tapped in a grid view, so the composer opens on that slot. */
   startHour?: number
+  /** An app event being edited — the whole series when it repeats. */
+  initial?: CalendarEvent | null
+  canUseDevice: boolean
   onClose: () => void
-  onCreated: () => void
+  onSaved: () => void
 }) {
   const hh = (h: number) => `${String(Math.max(0, Math.min(23, h))).padStart(2, "0")}:00`
-  const [title, setTitle] = useState("")
-  const [date, setDate] = useState(format(day, "yyyy-MM-dd"))
-  const [startTime, setStartTime] = useState(startHour != null ? hh(startHour) : "09:00")
-  const [endTime, setEndTime] = useState(startHour != null ? hh(startHour + 1) : "10:00")
-  const [allDay, setAllDay] = useState(false)
-  const [location, setLocation] = useState("")
+  const initStart = initial?.start && !initial.isAllDay ? parseISO(initial.start) : null
+  const initEnd = initial?.end && !initial.isAllDay ? parseISO(initial.end) : null
+  const [title, setTitle] = useState(initial?.title ?? "")
+  const [date, setDate] = useState(initial?.occurrence ?? (initial?.start ? initial.start.slice(0, 10) : format(day, "yyyy-MM-dd")))
+  const [startTime, setStartTime] = useState(initStart ? format(initStart, "HH:mm") : startHour != null ? hh(startHour) : "09:00")
+  const [endTime, setEndTime] = useState(initEnd ? format(initEnd, "HH:mm") : startHour != null ? hh(startHour + 1) : "10:00")
+  const [allDay, setAllDay] = useState(initial?.isAllDay ?? false)
+  const [location, setLocation] = useState(initial?.location ?? "")
+  const [description, setDescription] = useState(initial?.description ?? "")
+  const [repeat, setRepeat] = useState<Repeat | null>(initial?.repeat ?? null)
+  const [repeatUntil, setRepeatUntil] = useState(initial?.repeatUntil ?? "")
+  const [alert, setAlert] = useState<number | null>(initial?.alertMinutes ?? null)
+  const [where, setWhere] = useState<"app" | "device">("app")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const editing = !!initial?.eventId
 
   async function save() {
     if (!title.trim()) { setError("Give it a title"); return }
+    if (!allDay && endTime <= startTime) { setError("The end is before the start"); return }
     setSaving(true)
     setError(null)
-    const [y, mo, d] = date.split("-").map(Number)
-    const mk = (hhmm: string) => {
-      const [h, m] = hhmm.split(":").map(Number)
-      return new Date(y, mo - 1, d, h || 0, m || 0)
+
+    if (where === "device" && !editing) {
+      const [y, mo, d] = date.split("-").map(Number)
+      const mk = (hhmm: string) => {
+        const [h, m] = hhmm.split(":").map(Number)
+        return new Date(y, mo - 1, d, h || 0, m || 0)
+      }
+      const res = await createDeviceEvent({
+        title: title.trim(),
+        start: allDay ? new Date(y, mo - 1, d) : mk(startTime),
+        end: allDay ? new Date(y, mo - 1, d, 23, 59) : mk(endTime),
+        isAllDay: allDay,
+        location: location.trim() || null,
+        description: description.trim() || null,
+      })
+      setSaving(false)
+      if (!res.ok) { setError(res.reason); return }
+      onSaved()
+      onClose()
+      return
     }
-    const res = await createDeviceEvent({
+
+    const body = {
       title: title.trim(),
-      start: allDay ? new Date(y, mo - 1, d) : mk(startTime),
-      end: allDay ? new Date(y, mo - 1, d, 23, 59) : mk(endTime),
-      isAllDay: allDay,
+      description: description.trim() || null,
       location: location.trim() || null,
-    })
+      isAllDay: allDay,
+      // Local wall-clock strings; the server reads them in the user's zone.
+      start: allDay ? date : `${date}T${startTime}`,
+      end: allDay ? null : `${date}T${endTime}`,
+      repeat,
+      repeatUntil: repeat && repeatUntil ? repeatUntil : null,
+      alertMinutes: alert,
+    }
+    const res = await fetch(editing ? `/api/events/${initial!.eventId}` : "/api/events", {
+      method: editing ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => null)
     setSaving(false)
-    if (!res.ok) { setError(res.reason); return }
-    onCreated()
+    if (!res || !res.ok) {
+      const err = await res?.json().catch(() => null) as { error?: string } | null
+      setError(err?.error ?? "Couldn't save the event.")
+      return
+    }
+    resyncNotifications().catch(() => {})
+    onSaved()
     onClose()
   }
 
   const field = "w-full rounded-lg bg-secondary/60 border border-border px-3 py-2 text-sm"
+  const chip = (on: boolean) => `text-xs px-2.5 py-1 rounded-full border transition-colors ${on ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-muted-foreground"}`
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4" onClick={onClose}>
       <div
-        className="w-full sm:max-w-sm bg-background border border-border rounded-t-2xl sm:rounded-2xl p-4 space-y-3"
+        className="w-full sm:max-w-sm max-h-[92dvh] overflow-y-auto bg-background border border-border rounded-t-2xl sm:rounded-2xl p-4 space-y-3"
         style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}
         onClick={e => e.stopPropagation()}
       >
-        <p className="text-sm font-medium">New event</p>
+        <p className="text-sm font-medium">{editing ? (initial?.repeat ? "Edit series" : "Edit event") : "New event"}</p>
         <input className={field} placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
         <input className={field} type="date" value={date} onChange={e => setDate(e.target.value)} />
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -323,13 +460,57 @@ function NewEventSheet({ day, startHour, onClose, onCreated }: {
           </div>
         )}
         <input className={field} placeholder="Place (optional)" value={location} onChange={e => setLocation(e.target.value)} />
+        <input className={field} placeholder="Notes (optional)" value={description} onChange={e => setDescription(e.target.value)} />
+
+        {where === "app" && (
+          <>
+            <div>
+              <p className="text-[11px] text-muted-foreground mb-1.5">Repeat</p>
+              <div className="flex flex-wrap gap-1.5">
+                {REPEAT_OPTIONS.map(o => (
+                  <button key={o.label} type="button" onClick={() => setRepeat(o.value)} className={chip(repeat === o.value)}>{o.label}</button>
+                ))}
+              </div>
+              {repeat && (
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="text-[11px] text-muted-foreground shrink-0">Until</span>
+                  <input className={field} type="date" value={repeatUntil} min={date} onChange={e => setRepeatUntil(e.target.value)} />
+                  {repeatUntil && <button type="button" onClick={() => setRepeatUntil("")} className="text-muted-foreground" aria-label="No end"><X className="h-3 w-3" /></button>}
+                </div>
+              )}
+            </div>
+            {!allDay && (
+              <div>
+                <p className="text-[11px] text-muted-foreground mb-1.5">Alert</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {ALERT_OPTIONS.map(o => (
+                    <button key={o.label} type="button" onClick={() => setAlert(o.value)} className={chip(alert === o.value)}>{o.label}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {canUseDevice && !editing && (
+          <div>
+            <p className="text-[11px] text-muted-foreground mb-1.5">Save to</p>
+            <div className="flex gap-1.5">
+              <button type="button" onClick={() => setWhere("app")} className={chip(where === "app")}>This app</button>
+              <button type="button" onClick={() => setWhere("device")} className={chip(where === "device")}>Phone calendar</button>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {where === "app"
+                ? "Editable here, can repeat and alert, works offline."
+                : "Goes to the phone's calendar, which syncs it on to Google. Read-only here afterwards."}
+            </p>
+          </div>
+        )}
+
         {error && <p className="text-xs text-red-400">{error}</p>}
-        <p className="text-[10px] text-muted-foreground">
-          Saves to your phone&apos;s calendar, which syncs it on to Google itself.
-        </p>
         <div className="flex gap-2 pt-1">
           <Button size="sm" variant="ghost" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button size="sm" className="flex-1" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+          <Button size="sm" className="flex-1" onClick={save} disabled={saving}>{saving ? "Saving…" : editing ? "Save changes" : "Save"}</Button>
         </div>
       </div>
     </div>
@@ -724,11 +905,12 @@ export default function CalendarPage() {
   // Week stays the default everywhere; 3 days is an option for when seven
   // columns are too narrow to read. The choice is remembered.
   const [view, setView] = useState<ViewMode>("week")
-  // Creating events needs the phone's calendar, so the button only exists in
-  // the app — read the shell synchronously rather than awaiting the bridge.
-  const [canCreate, setCanCreate] = useState(false)
-  // When set, the new-event sheet is open on this day (and optionally hour).
-  const [composeAt, setComposeAt] = useState<{ day: Date; hour?: number } | null>(null)
+  // Inside the Android app the composer can also hand an event to the phone's
+  // calendar; read the shell synchronously rather than awaiting the bridge.
+  const [canUseDevice, setCanUseDevice] = useState(false)
+  // When set, the event sheet is open on this day (and optionally hour), or
+  // on an existing app event to edit.
+  const [composeAt, setComposeAt] = useState<{ day: Date; hour?: number; initial?: CalendarEvent } | null>(null)
   // The mini month-picker that drops from the title.
   const [pickerOpen, setPickerOpen] = useState(false)
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -755,7 +937,16 @@ export default function CalendarPage() {
     if (typeof window !== "undefined" && window.innerWidth < 640) setView("3day")
   }, [])
 
-  useEffect(() => { setCanCreate(isNativeCalendarApp()) }, [])
+  useEffect(() => { setCanUseDevice(isNativeCalendarApp()) }, [])
+
+  async function deleteAppEvent(e: CalendarEvent, scope: "occurrence" | "series") {
+    if (!e.eventId) return
+    const q = scope === "occurrence" && e.occurrence ? `?occurrence=${e.occurrence}` : ""
+    await fetch(`/api/events/${e.eventId}${q}`, { method: "DELETE" }).catch(() => null)
+    setSelectedEvent(null)
+    resyncNotifications().catch(() => {})
+    load(visibleFrom, visibleTo, true)
+  }
 
   function chooseView(v: ViewMode) {
     setView(v)
@@ -941,12 +1132,10 @@ export default function CalendarPage() {
               </button>
             ))}
           </div>
-          {canCreate && (
-            <Button size="sm" variant="ghost" onClick={() => setComposeAt({ day: view === "month" ? currentMonth : weekStart })} className="gap-1.5 h-8 text-xs text-muted-foreground hover:text-foreground">
-              <Plus className="h-3.5 w-3.5" />
-              New
-            </Button>
-          )}
+          <Button size="sm" variant="ghost" onClick={() => setComposeAt({ day: view === "month" ? currentMonth : weekStart })} className="gap-1.5 h-8 text-xs text-muted-foreground hover:text-foreground">
+            <Plus className="h-3.5 w-3.5" />
+            New
+          </Button>
           <Button size="sm" variant="ghost" onClick={() => load(visibleFrom, visibleTo, true)} disabled={loading} className="gap-1.5 h-8 text-xs text-muted-foreground hover:text-foreground">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Sync
@@ -970,7 +1159,7 @@ export default function CalendarPage() {
             weekStart={weekStart} dayCount={dayCount} events={events} now={now}
             onEventClick={setSelectedEvent}
             onDayClick={openDay}
-            onSlotClick={canCreate ? (day, hour) => setComposeAt({ day, hour }) : undefined}
+            onSlotClick={(day, hour) => setComposeAt({ day, hour })}
           />
         ) : (
           <MonthView currentMonth={currentMonth} events={events} onEventClick={setSelectedEvent} onDayClick={openDay} />
@@ -981,12 +1170,22 @@ export default function CalendarPage() {
         <NewEventSheet
           day={composeAt.day}
           startHour={composeAt.hour}
+          initial={composeAt.initial ?? null}
+          canUseDevice={canUseDevice}
           onClose={() => setComposeAt(null)}
-          onCreated={() => load(visibleFrom, visibleTo, true)}
+          onSaved={() => load(visibleFrom, visibleTo, true)}
         />
       )}
 
-      {selectedEvent && <EventDetail event={selectedEvent} onClose={() => setSelectedEvent(null)} />}
+      {selectedEvent && (
+        <EventDetail
+          event={selectedEvent}
+          onClose={() => setSelectedEvent(null)}
+          onEdit={e => { setSelectedEvent(null); setComposeAt({ day: e.start ? parseEventDate(e.start, e.isAllDay) : new Date(), initial: e }) }}
+          onDelete={deleteAppEvent}
+          onChanged={() => load(visibleFrom, visibleTo, true)}
+        />
+      )}
     </div>
   )
 }

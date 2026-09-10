@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { userDay } from "@/lib/user-timezone"
+import { completeReminder } from "@/lib/reminders"
 
 // Home-screen Reminders widget API. Same x-widget-key auth as the other widget routes.
 
@@ -45,6 +46,7 @@ export async function GET(req: NextRequest) {
       state,
       priority: r.priority,
       due: r.dueDate ? r.dueDate.toISOString().slice(0, 10) : null,
+      repeat: r.repeat ?? null,
     }
   })
 
@@ -71,12 +73,10 @@ export async function POST(req: NextRequest) {
   const reminderId = typeof body.reminderId === "string" ? body.reminderId : ""
   if (!reminderId) return NextResponse.json({ error: "reminderId required" }, { status: 400 })
 
-  // Scoped update — only completes a reminder that belongs to this user.
-  const res = await prisma.reminder.updateMany({
-    where: { id: reminderId, userId },
-    data: { isCompleted: true, completedAt: new Date() },
-  })
-  if (res.count === 0) return NextResponse.json({ error: "Reminder not found" }, { status: 404 })
+  // Scoped to this user, and through lib/reminders so a repeating reminder
+  // rolls to its next occurrence rather than being marked done for good.
+  const res = await completeReminder(userId, reminderId)
+  if (!res.ok) return NextResponse.json({ error: "Reminder not found" }, { status: 404 })
 
-  return NextResponse.json({ ok: true, reminderId })
+  return NextResponse.json({ ok: true, reminderId, rolledTo: res.rolledTo })
 }

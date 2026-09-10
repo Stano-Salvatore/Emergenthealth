@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { userDay } from "@/lib/user-timezone"
+import { habitStreak, isDueOn } from "@/lib/habit-schedule"
 
 // Home-screen Habits widget API. Auth mirrors /api/widget/status: an x-widget-key
 // header (or ?key=) resolved to a user via the widget_api_key UserPreference row.
@@ -40,15 +41,20 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: "asc" },
     include: {
       completions: { where: { date: { gte: since } }, orderBy: { date: "desc" } },
+      skips: { where: { date: { gte: since } }, select: { date: true } },
     },
   })
 
-  const result = habits.map(h => {
+  // Only what the schedule asks for today — an off-day habit on the widget
+  // would read as something left undone. Skipped-today habits are shown as
+  // done so the widget doesn't nag about a day the user already decided.
+  const result = habits.flatMap(h => {
     const days = new Set(h.completions.map(c => isoDay(c.date)))
-    let streak = 0
-    const cursor = new Date(today)
-    while (days.has(isoDay(cursor))) { streak++; cursor.setUTCDate(cursor.getUTCDate() - 1) }
-    return { id: h.id, name: h.name, color: h.color, done: days.has(todayStr), streak }
+    const skipDays = new Set(h.skips.map(s => isoDay(s.date)))
+    const schedule = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
+    if (!isDueOn(schedule, todayStr, days)) return []
+    const { streak } = habitStreak(schedule, days, skipDays, todayStr)
+    return [{ id: h.id, name: h.name, color: h.color, done: days.has(todayStr) || skipDays.has(todayStr), streak }]
   })
 
   return NextResponse.json({

@@ -4,6 +4,7 @@ import { loadDailyScore } from "@/lib/daily-score-load"
 import { scoreGrade as gradeDaily } from "@/lib/daily-score"
 import type { FocusSession, IntakeLog } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
+import { habitStreak, isDueOn } from "@/lib/habit-schedule"
 import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { getUpcomingEvents } from "@/lib/google-calendar"
@@ -223,6 +224,7 @@ export default async function DashboardPage() {
       where: { userId, isArchived: false },
       include: {
         completions: { where: { date: { gte: weekAgo } }, orderBy: { date: "desc" } },
+        skips: { where: { date: { gte: weekAgo } }, select: { date: true } },
       },
     }),
     prisma.reminder.findMany({
@@ -321,15 +323,18 @@ export default async function DashboardPage() {
   const maxCat = topCategories[0]?.[1]??1
 
   // ── habits
-  const habitsWithStreaks = habits.map(h => {
+  // Only what today asks for: an off-day habit is neither done nor missing
+  // and a skipped one is settled, so neither drags the ratio down.
+  const habitsWithStreaks = habits.flatMap(h => {
     // c.date is a date-only column, so Prisma hands it back at UTC midnight and
     // slicing the ISO string is exact. The walk stays in string space for the
     // same reason as the check-in streak above.
     const dates = new Set(h.completions.map(c => c.date.toISOString().split("T")[0]))
-    let streak = 0
-    let cursor = todayStr
-    while (dates.has(cursor)) { streak++; cursor = addDaysISO(cursor, -1) }
-    return { ...h, streak, completedToday: dates.has(todayStr) }
+    const skipDates = new Set(h.skips.map(s => s.date.toISOString().split("T")[0]))
+    const schedule = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
+    if (!isDueOn(schedule, todayStr, dates) && !dates.has(todayStr)) return []
+    const { streak } = habitStreak(schedule, dates, skipDates, todayStr)
+    return [{ ...h, streak, completedToday: dates.has(todayStr) || skipDates.has(todayStr) }]
   })
   const doneToday = habitsWithStreaks.filter(h => h.completedToday).length
 
