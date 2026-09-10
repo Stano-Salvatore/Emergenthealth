@@ -298,6 +298,41 @@ function buildMcpServer(userId: string): McpServer {
     },
   )
 
+  // The conversation with Emergy, read back. Everything said in the app's
+  // chat, both sides, so the user (or the assistant they point at this
+  // server) can look at how the chat is actually used — which questions
+  // recur, how many messages are one-line logs, what he gets asked at night.
+  // Read-only; the transcript is the user's own.
+  server.tool(
+    "get_chat_history",
+    "Read the user's chat with Emergy (both sides) in a date range, oldest first. Each row: at (ISO), role (user|assistant), conversationId, content. Long stretches are paged by `limit` and `before` (an ISO time — pass the earliest `at` from the previous page).",
+    {
+      ...dateRange,
+      limit: z.number().int().min(1).max(1000).optional().describe("Max rows, default 400"),
+      before: z.string().optional().describe("Only rows before this ISO time — for paging back through a long range"),
+    },
+    async ({ startDate, endDate, limit, before }) => {
+      const beforeAt = before ? new Date(before) : null
+      const rows = await prisma.chatMessage.findMany({
+        where: {
+          userId,
+          createdAt: {
+            gte: startOfDay(startDate),
+            lte: beforeAt && !Number.isNaN(beforeAt.getTime()) && beforeAt < endOfDay(endDate) ? beforeAt : endOfDay(endDate),
+          },
+        },
+        orderBy: { createdAt: "desc" },
+        take: limit ?? 400,
+        select: { createdAt: true, role: true, conversationId: true, content: true },
+      })
+      if (!rows.length) return msg(`No chat messages between ${startDate} and ${endDate}.`)
+      // Newest-first for the page, oldest-first for reading.
+      return ok(rows.reverse().map(r => ({
+        at: r.createdAt.toISOString(), role: r.role, conversationId: r.conversationId, content: r.content,
+      })))
+    },
+  )
+
   server.tool(
     "write_journal",
     "Write or update the journal/daily note for today. Replaces the existing entry.",
