@@ -216,7 +216,9 @@ function takeTime(text: string, localMinutes: number): { rest: string; timing?: 
   return { rest }
 }
 
-function parseItem(raw: string, ctx: QuickLogContext, previous: QuickItem | null): QuickItem | null {
+interface ParsedItem { item: QuickItem; time: Timing | null }
+
+function parseItem(raw: string, ctx: QuickLogContext, previous: QuickItem | null): ParsedItem | null {
   let text = raw.replace(/^(?:log|add|record|track|note)\s+(?:me\s+)?/, " ")
 
   const timed = takeTime(text, ctx.localMinutes)
@@ -267,7 +269,7 @@ function parseItem(raw: string, ctx: QuickLogContext, previous: QuickItem | null
 
   // "log 250ml water 9:00 and 11:00" — a bare time is the last thing again, then.
   if (!name && amountMl == null && abv == null && mg == null && tablets == null && timed.timing?.clock && previous) {
-    return { ...previous, minutesAgo }
+    return { item: { ...previous, minutesAgo }, time: timed.timing }
   }
   if (!name) return null
 
@@ -286,7 +288,7 @@ function parseItem(raw: string, ctx: QuickLogContext, previous: QuickItem | null
     if (label && iced) label += " with ice"
     if (label && plato != null) label += ` ${plato}°`
     if (label && abv != null) label += plato != null ? ` (${abv}%)` : ` ${abv}%`
-    return { kind: "drink", type: drink.type, amountMl: ml, note: label, abv, minutesAgo }
+    return { item: { kind: "drink", type: drink.type, amountMl: ml, note: label, abv, minutesAgo }, time: timed.timing ?? null }
   }
 
   if (amountMl != null || abv != null || plato != null || iced) return null
@@ -297,7 +299,44 @@ function parseItem(raw: string, ctx: QuickLogContext, previous: QuickItem | null
   const dose = mg != null ? { amount: Math.round(mg * 1000) / 1000, unit: "mg" as const }
     : tablets != null ? { amount: tablets, unit: "tablet" as const }
     : null
-  return { kind: "dose", name: substance, dose, minutesAgo }
+  return { item: { kind: "dose", name: substance, dose, minutesAgo }, time: timed.timing ?? null }
+}
+
+/**
+ * Spread the times a message states over the items that state none.
+ *
+ * "log Batch brew 300ml and water 250ml at 15:00" is one trip to the café, not
+ * a coffee now and a water at three — but reading each clause on its own gave
+ * exactly that, and stamped the coffee with the wrong hour without saying so.
+ * A caffeine row five hours out of place is read against bedtime, so a silent
+ * error there is worse than refusing the message.
+ *
+ * Only CLOCK times spread. "at 15:00" names a moment in the day that the
+ * clauses around it share; "(15min before)" and "1h ago" are corrections
+ * attached to the one thing they follow, which is how they were used —
+ * "log me Elicea (15min before) and 500ml of watter" is a pill a quarter of an
+ * hour ago and a glass of water now.
+ *
+ *   one clock, on the last item  → every item takes it
+ *   several clocks               → an untimed item takes the last one before it
+ *   relative times only          → nothing spreads
+ */
+function spreadTimes(parsed: ParsedItem[]): QuickItem[] {
+  const clocks = parsed.map(p => (p.time?.clock ? p.time.minutesAgo : null))
+  const stated = clocks.filter(c => c != null).length
+  if (stated === 0) return parsed.map(p => p.item)
+
+  if (stated === 1 && clocks[clocks.length - 1] != null && parsed.length > 1) {
+    const shared = clocks[clocks.length - 1]!
+    return parsed.map(p => (p.time ? p.item : { ...p.item, minutesAgo: shared }))
+  }
+
+  let carried: number | null = null
+  return parsed.map((p, i) => {
+    if (clocks[i] != null) { carried = clocks[i]; return p.item }
+    if (p.time || carried == null) return p.item
+    return { ...p.item, minutesAgo: carried }
+  })
 }
 
 /**
@@ -306,17 +345,39 @@ function parseItem(raw: string, ctx: QuickLogContext, previous: QuickItem | null
  * phrase, or `null` for a place we do not know (which is the model's to ask
  * about, not ours to drop).
  */
-function takePlace(text: string, places: string[]): { rest: string; place: string | null } | null {
-  const m = /\b(?:still |currently |now )?at\s+(?!\d)([a-z][a-z' ]*?)(?=\s*(?:[,;.:()\-–—]|\band\b|\balso\b|\blog\b|\badd\b|\bhad\b|\bhaving\b|$))/.exec(text)
-  if (!m) return { rest: text, place: null }
-  const said = m[1].trim()
+function matchPlace(said: string, places: string[]): string | null {
   if (!said) return null
   const hit = places.filter(p => {
     const f = fold(p)
     return f === said || f.includes(said) || said.includes(f)
   })
-  if (hit.length !== 1) return null
-  return { rest: (text.slice(0, m.index) + " " + text.slice(m.index + m[0].length)).trim(), place: hit[0] }
+  return hit.length === 1 ? hit[0] : null
+}
+
+function takePlace(text: string, places: string[]): { rest: string; place: string | null } | null {
+  const m = /\b(?:still |currently |now )?at\s+(?!\d)([a-z][a-z' ]*?)(?=\s*(?:[,;.:()\-–—]|\band\b|\balso\b|\blog\b|\badd\b|\bhad\b|\bhaving\b|$))/.exec(text)
+  if (m) {
+    const said = m[1].trim()
+    if (!said) return null
+    const place = matchPlace(said, places)
+    if (!place) return null
+    return { rest: (text.slice(0, m.index) + " " + text.slice(m.index + m[0].length)).trim(), place }
+  }
+
+  // "log batch brew 300ml and water 250ml at 15:00 Vták" — the place trails the
+  // time with no preposition left to hang it on, because "at" was already spent
+  // on the clock. Only the tail is read this way, only against places this user
+  // saved, and a word that names a drink is never one.
+  const words = text.split(" ")
+  for (const take of [3, 2, 1]) {
+    if (words.length <= take) continue
+    const candidate = words.slice(-take).join(" ").replace(/^[,;.:\-–—\s]+/, "").trim()
+    if (candidate.length < 4 || /\d/.test(candidate)) continue
+    if (DRINKS.some(d => d.re.test(candidate))) continue
+    const place = matchPlace(candidate, places)
+    if (place) return { rest: words.slice(0, -take).join(" ").replace(/[,;.:\-–—\s]+$/, "").trim(), place }
+  }
+  return { rest: text, place: null }
 }
 
 /**
@@ -355,16 +416,17 @@ export function parseQuickLog(message: string, ctx: QuickLogContext): QuickLog |
   const parts = text.split(SEPARATOR).map(p => p.trim()).filter(Boolean)
   if (parts.length === 0 || parts.length > MAX_ITEMS) return null
 
-  const items: QuickItem[] = []
+  const parsed: ParsedItem[] = []
   for (const part of parts) {
     // "log me 500ml of beer, time - now": "now" is what a log is anyway.
     if (/^(?:time\s*[-:]?\s*)?(?:just\s+)?now$/.test(part)) continue
     // A verb repeated mid-message ("… also log 500ml water at 13:00") is fine.
-    const item = parseItem(part, ctx, items[items.length - 1] ?? null)
+    const item = parseItem(part, ctx, parsed[parsed.length - 1]?.item ?? null)
     if (!item) return null
-    items.push(item)
+    parsed.push(item)
   }
-  return { items, place: placed.place }
+  if (parsed.length === 0) return null
+  return { items: spreadTimes(parsed), place: placed.place }
 }
 
 // ── Saying it back ──────────────────────────────────────────────────────────
@@ -373,25 +435,35 @@ function ml(n: number): string {
   return n >= 1000 ? `${Math.round(n / 10) / 100}L` : `${n}ml`
 }
 
-function when(minutesAgo: number, localMinutes: number): string {
+/**
+ * When something was had, said the way it was heard: a clock if it lands on
+ * today, "40 min ago" if it does not. `bare` drops the leading preposition,
+ * for a sentence that has already spent its "at" on the place.
+ */
+export function timePhrase(minutesAgo: number, localMinutes: number, bare = false): string {
   if (minutesAgo <= 0) return ""
-  if (minutesAgo < 60) return ` ${minutesAgo} min ago`
+  const lead = bare ? "" : " "
+  if (minutesAgo < 60) return `${lead}${minutesAgo} min ago`
   const at = localMinutes - minutesAgo
-  if (at >= 0) return ` at ${String(Math.floor(at / 60)).padStart(2, "0")}:${String(at % 60).padStart(2, "0")}`
+  if (at >= 0) {
+    const clock = `${String(Math.floor(at / 60)).padStart(2, "0")}:${String(at % 60).padStart(2, "0")}`
+    return bare ? clock : ` at ${clock}`
+  }
   const h = Math.floor(minutesAgo / 60), m = minutesAgo % 60
-  return ` ${h}h${m ? ` ${m}m` : ""} ago`
+  return `${lead}${h}h${m ? ` ${m}m` : ""} ago`
 }
 
-export function describeItem(item: QuickItem, localMinutes: number, caffeineMg?: number | null): string {
+export function describeItem(item: QuickItem, localMinutes: number, caffeineMg?: number | null, omitTime = false): string {
+  const stamp = omitTime ? "" : timePhrase(item.minutesAgo, localMinutes)
   if (item.kind === "drink") {
     const what = item.note ? `${ml(item.amountMl)} ${item.note.charAt(0).toLowerCase()}${item.note.slice(1)}` : `${ml(item.amountMl)} water`
     const caf = caffeineMg ? ` (≈${caffeineMg}mg caffeine)` : ""
-    return `${what}${caf}${when(item.minutesAgo, localMinutes)}`
+    return `${what}${caf}${stamp}`
   }
   const amount = item.dose
     ? item.dose.unit === "mg" ? ` ${Math.round(item.dose.amount * 100) / 100}mg` : ` ${item.dose.amount === 0.5 ? "½" : item.dose.amount === 0.25 ? "¼" : item.dose.amount} tablet${item.dose.amount > 1 ? "s" : ""}`
     : ""
-  return `${item.name}${amount}${when(item.minutesAgo, localMinutes)}`
+  return `${item.name}${amount}${stamp}`
 }
 
 /** "a, b and c" */

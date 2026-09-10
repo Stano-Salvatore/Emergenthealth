@@ -266,7 +266,13 @@ Roughly in order, most recent first:
   always did. **The rule is that the whole message parses or none of it does**,
   and every doubt returns null and goes to Emergy: an unknown drink, a
   medication this user has never logged, a number in words, a trailing clause,
-  a question mark. The grammar was written from the real messages and the
+  a question mark. **A clock time spreads across the message** — "log batch
+  brew 300ml and water 250ml at 15:00" is one visit to the café, and reading
+  each clause alone stamped the coffee with the hour it was typed; a caffeine
+  row five hours out of place is read against bedtime, so getting that wrong
+  quietly is worse than not parsing at all. A relative time ("15min before")
+  does not spread: it corrects the one item it follows. The grammar was written
+  from the real messages and the
   transcript is the test file — the ones it must catch, and beside them the
   ones it must *not*, each with the reason. A wrong row written silently costs
   far more than the tokens it saves. Drinks and doses now have one writer each

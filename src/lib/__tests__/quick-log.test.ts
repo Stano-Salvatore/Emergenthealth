@@ -119,11 +119,14 @@ describe("parseQuickLog — doses", () => {
   })
 
   it("reads clock times per item, and a repeated verb", () => {
+    // The 150ml of water has no time of its own and follows "at 16:30", so it
+    // was drunk with that coffee, not five hours later when the message was
+    // typed.
     const r = parse("Log Elicea at 16:10 and batch brew 100ml at 16:30 with watter 150ml. Also log 500ml water at 13:00")
     expect(r?.items).toEqual([
       { kind: "dose", name: "Elicea", dose: null, minutesAgo: 95 },
       { kind: "drink", type: "coffee", amountMl: 100, note: "Batch brew", abv: null, minutesAgo: 75 },
-      { kind: "drink", type: "water", amountMl: 150, note: null, abv: null, minutesAgo: 0 },
+      { kind: "drink", type: "water", amountMl: 150, note: null, abv: null, minutesAgo: 75 },
       { kind: "drink", type: "water", amountMl: 500, note: null, abv: null, minutesAgo: 285 },
     ])
   })
@@ -134,8 +137,9 @@ describe("parseQuickLog — doses", () => {
   })
 
   it("reads half a tablet, and forgives one typo in a familiar name", () => {
+    // One clock, at the end: both pills were taken at half past one.
     expect(parse("Log Elica and half of Atarax tablet at 13:30")?.items).toEqual([
-      { kind: "dose", name: "Elicea", dose: null, minutesAgo: 0 },
+      { kind: "dose", name: "Elicea", dose: null, minutesAgo: 255 },
       { kind: "dose", name: "Atarax", dose: { amount: 0.5, unit: "tablet" }, minutesAgo: 255 },
     ])
   })
@@ -148,6 +152,52 @@ describe("parseQuickLog — doses", () => {
 
   it("matches vitamins by canonical name", () => {
     expect(parse("log vitamin d and vitamin c")?.items.map(i => i.kind === "dose" && i.name)).toEqual(["Vitamin D", "Vitamin C"])
+  })
+})
+
+describe("parseQuickLog — one time for the whole trip", () => {
+  // Reading each clause alone stamped the coffee "now" and only the water
+  // 15:00, silently. A caffeine row five hours out of place is read against
+  // bedtime, so getting this wrong quietly is worse than not parsing at all.
+  const both = [
+    { kind: "drink", type: "coffee", amountMl: 300, note: "Batch brew", abv: null, minutesAgo: 165 },
+    { kind: "drink", type: "water", amountMl: 250, note: null, abv: null, minutesAgo: 165 },
+  ]
+
+  it("reads the same trip however the place and time are ordered", () => {
+    for (const message of [
+      "log Batch brew 300ml and water 250ml at 15:00 Vták",
+      "at Vták log Batch brew 300ml and water 250ml at 15:00",
+      "log Batch brew 300ml and water 250ml at 15:00 - Kaviareň Vták",
+      "log Batch brew 300ml at 15:00 and water 250ml at 15:00 at Vták",
+    ]) {
+      const r = parse(message)
+      expect(r?.items, message).toEqual(both)
+      expect(r?.place, message).toBe("Kaviareň Vták")
+    }
+  })
+
+  it("spreads a trailing clock with no place named", () => {
+    expect(parse("log Batch brew 300ml and water 250ml at 15:00")?.items).toEqual(both)
+  })
+
+  it("does not spread a relative time, which corrects one item only", () => {
+    // "Elicea a quarter of an hour ago, and a glass of water now."
+    expect(parse("log me Elicea (15min before) and 500ml of watter")?.items).toEqual([
+      { kind: "dose", name: "Elicea", dose: null, minutesAgo: 15 },
+      { kind: "drink", type: "water", amountMl: 500, note: null, abv: null, minutesAgo: 0 },
+    ])
+  })
+
+  it("carries a clock forward to what follows it", () => {
+    // "water at three, and a batch brew" is the same visit, told in order.
+    const r = parse("log water 250ml at 15:00 and 300ml batch brew")
+    expect(r?.items.map(i => i.minutesAgo)).toEqual([165, 165])
+  })
+
+  it("takes a bare trailing place only when it is one this user saved", () => {
+    expect(parse("log 250ml water Vták")?.place).toBe("Kaviareň Vták")
+    expect(parse("log 250ml water Starbucks")).toBeNull()
   })
 })
 

@@ -17,7 +17,7 @@ import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
 import { recordDrink } from "@/lib/intake-write"
 import { recordDose } from "@/lib/dose-write"
 import {
-  looksLikeQuickLog, parseQuickLog, describeItem, joinList,
+  looksLikeQuickLog, parseQuickLog, describeItem, joinList, timePhrase,
   type QuickItem,
 } from "@/lib/quick-log"
 
@@ -79,6 +79,10 @@ export async function runQuickLog(userId: string, message: string): Promise<Quic
   if (!parsed) return null
 
   const now = Date.now()
+  // One trip to the café is one time, said once — "300ml batch brew and 250ml
+  // water at Kaviareň Vták, 15:00", not the same clock stamped on every item.
+  const times = parsed.items.map(i => i.minutesAgo)
+  const sharedTime = times.length > 1 && times[0] > 0 && times.every(t => t === times[0]) ? times[0] : null
   const said: string[] = []
   const tools: string[] = []
   let wroteHydrating = false
@@ -94,12 +98,12 @@ export async function runQuickLog(userId: string, message: string): Promise<Quic
       // is a reason not to claim this one did.
       if (!written) continue
       if (HYDRATING_TYPES.includes(item.type)) wroteHydrating = true
-      said.push(describeItem(item, localMinutes, written.caffeineMg))
+      said.push(describeItem(item, localMinutes, written.caffeineMg, sharedTime != null))
       tools.push(item.type === "water" ? "log_water" : item.type === "coffee" ? "log_coffee" : "log_drink")
     } else {
       const ok = await recordDose({ userId, timezone, name: item.name, dose: item.dose, at })
       if (!ok) continue
-      said.push(describeItem(item, localMinutes))
+      said.push(describeItem(item, localMinutes, null, sharedTime != null))
       tools.push("log_dose")
     }
   }
@@ -107,7 +111,12 @@ export async function runQuickLog(userId: string, message: string): Promise<Quic
   if (said.length === 0) return { reply: "That didn't save — worth trying again.", tools: [] }
 
   const where = parsed.place ? ` at ${parsed.place}` : ""
-  let reply = `Logged ${joinList(said)}${where}.`
+  // The place has already spent the sentence's "at", so the time follows it as
+  // a clause rather than a second preposition.
+  const stamp = sharedTime == null ? ""
+    : where ? `, ${timePhrase(sharedTime, localMinutes, true)}`
+    : timePhrase(sharedTime, localMinutes)
+  let reply = `Logged ${joinList(said)}${where}${stamp}.`
 
   // The number they'd otherwise ask for next.
   if (wroteHydrating) {
