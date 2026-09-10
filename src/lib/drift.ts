@@ -213,10 +213,13 @@ function monthLabel(w: Window): string {
  * The words. Numbers first, candidates second, the question last — and the
  * question changes with whether anything logged can account for the shift.
  */
-export function renderDrift(r: DriftReport, opts: { calendarMonths?: boolean } = {}): DriftText | null {
+export function renderDrift(
+  r: DriftReport,
+  opts: { calendarMonths?: boolean; names?: { recent: string; prior: string } } = {},
+): DriftText | null {
   if (r.shifts.length === 0) return null
-  const recentName = opts.calendarMonths ? monthLabel(r.recent) : "the last 30 days"
-  const priorName = opts.calendarMonths ? monthLabel(r.prior) : "the 30 before"
+  const recentName = opts.names?.recent ?? (opts.calendarMonths ? monthLabel(r.recent) : "the last 30 days")
+  const priorName = opts.names?.prior ?? (opts.calendarMonths ? monthLabel(r.prior) : "the 30 before")
 
   const better = r.shifts.filter(s => s.verdict === "better")
   const worse = r.shifts.filter(s => s.verdict === "worse")

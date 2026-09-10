@@ -76,6 +76,7 @@ const TOOL_SOURCES: Record<string, { label: string; domain: SourceDomain }> = {
   find_my_logs:        { label: "Logs",           domain: "life"  },
   search_chat_history: { label: "Past chats",     domain: "life"  },
   get_day_journey:     { label: "Where you were", domain: "life"  },
+  compare_periods:     { label: "Before & after", domain: "sleep" },
 }
 
 export function chipsFromTools(toolNames: string[]): SourceChip[] {
@@ -104,6 +105,8 @@ const TOOL_ACTIVITY: Record<string, string> = {
   find_my_logs:       "looking through your logs",
   search_chat_history: "looking back through our chats",
   get_day_journey:    "retracing that day",
+  compare_periods:    "comparing before and after",
+  get_analysis:       "reading what the app worked out",
   correct_log:        "fixing that entry",
   delete_log:         "checking what that would remove",
   create_habit:       "setting up that habit",
@@ -170,6 +173,24 @@ export function thinkingPhrases(seed: string): string[] {
   }
   const start = Math.abs(h) % THINKING.length
   return [...THINKING.slice(start), ...THINKING.slice(0, start)]
+}
+
+
+/**
+ * The most recent sentence of his reasoning, short enough for one line.
+ * The summary arrives as prose; the tail of it is what he is doing now.
+ */
+export function latestThought(thought: string, max = 110): string {
+  const flat = thought.replace(/\s+/g, " ").trim()
+  if (!flat) return ""
+  // Split on sentence ends, keep the last complete-looking one; a fragment
+  // at the very end is still in progress and reads better than a cut sentence.
+  const parts = flat.split(/(?<=[.!?])\s+/)
+  let pick = parts[parts.length - 1]
+  if (pick.length < 12 && parts.length > 1) pick = parts[parts.length - 2] + " " + pick
+  pick = pick.replace(/[.!?]+$/, "")
+  if (pick.length > max) pick = "…" + pick.slice(pick.length - max).replace(/^\S*\s/, "")
+  return pick.charAt(0).toLowerCase() + pick.slice(1)
 }
 
 

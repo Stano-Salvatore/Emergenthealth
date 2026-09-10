@@ -248,6 +248,16 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Before-and-after for any date, and a live thinking line.**
+  `compare_periods` (chat tool) runs the drift comparison on "since
+  <date>" against a matched-length window before it — matched on purpose,
+  as in the onset family, so "since she left" is 24 days against 24 days
+  rather than against 34 weeks of another season. Ten days a side minimum.
+  Chat now asks the model for `display: "summarized"` thinking and streams
+  the summary as `thinking` events; the chat page shows the latest sentence
+  of it in place of the stock "having a think" phrases (`latestThought` in
+  `chat-sources.ts`), and after a tool returns, under the aside. Billed the
+  same; thinking was already on.
 - **Month against month, the weight trend in the prompt, anchor dates, and
   an effort knob.** `src/lib/drift.ts` compares the last 30 days (or last
   calendar month) with the one before: each everyday metric's gap must

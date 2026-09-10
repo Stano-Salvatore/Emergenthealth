@@ -30,7 +30,7 @@ import { OPUS } from "@/lib/models"
 import { trimToUserTurn } from "@/lib/chat-turns"
 import { parseSaid, SAID_KEY } from "@/lib/emergy-say"
 import { weightSlopeKgWk, weightTrend } from "@/lib/weight-trend"
-import { loadDriftReport, rollingWindows } from "@/lib/drift-load"
+import { anchoredWindows, loadDriftReport, rollingWindows } from "@/lib/drift-load"
 import { renderDrift } from "@/lib/drift"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { analyseExperiment } from "@/lib/experiments-analysis"
@@ -623,6 +623,18 @@ const TOOLS: Anthropic.Tool[] = [
         note: { type: "string" },
       },
       required: ["name", "action", "outcome"],
+    },
+  },
+  {
+    name: "compare_periods",
+    description: "Test whether the user's everyday numbers changed since a date — 'since she left', 'since I started the new job', 'since 18 August'. Compares the stretch from `since` to `until` against the same number of days immediately before it: sleep score, sleep length, HRV, resting HR, readiness, steps, mood, morning energy. Each gap has to clear a relevance floor AND the app's block permutation test, so the answer is 'these moved, these did not' rather than two averages narrated as a change. Also returns what they logged differently across the split (tags, habits, workouts, drinks, water) as candidates — never causes. Use it BEFORE narrating a before/after from get_health_range; the raw rows are for detail, this is for the verdict. Needs at least 10 days of a metric on each side.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        since: { type: "string", description: "The anchor date, YYYY-MM-DD in the user's local time — the first day of the 'after' stretch." },
+        until: { type: "string", description: "Last day of the 'after' stretch, YYYY-MM-DD. Defaults to today." },
+      },
+      required: ["since"],
     },
   },
   {
@@ -1796,6 +1808,25 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     return `Created "${created.name}": ${blocks} blocks of ${blockDays} days from ${today} (${blockDays * blocks} days), ${washoutDays} washout day${washoutDays === 1 ? "" : "s"} after each switch, watching ${spec.label}. The first block is ${startsOn ? "ON" : "OFF"} — drawn at random on purpose. They confirm each day on Patterns → Experiments; tell them that, or the analysis has nothing to count.`
   }
 
+  if (name === "compare_periods") {
+    const isDay = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)
+    const tz = await getUserTimezone(userId)
+    const today = localDateStr(tz)
+    if (!isDay(input.since)) return "Give me the anchor date as YYYY-MM-DD."
+    const since = String(input.since)
+    const until = isDay(input.until) && String(input.until) <= today ? String(input.until) : today
+    if (since > until) return `${since} is after ${until} — nothing to compare yet.`
+    const w = anchoredWindows(since, until)
+    if (w.days < 10) return `Only ${w.days} days since ${since} — a comparison needs at least 10 on each side. Say so, and offer to look again in ${10 - w.days} days.`
+    if (w.days > 365) return "That stretch is longer than a year; pick a later anchor or an earlier end."
+    const report = await loadDriftReport(userId, tz, { recent: w.recent, prior: w.prior })
+    const names = { recent: `since ${since} (${w.days} days)`, prior: `the ${w.days} days before` }
+    if (report.judged === 0) return `Not enough data on both sides of ${since}: no metric has 10 days in both ${w.recent.from}–${w.recent.to} and ${w.prior.from}–${w.prior.to}.`
+    const text = renderDrift(report, { names })
+    if (!text) return `Nothing moved: ${report.judged} metrics had enough data on both sides of ${since} and none shifted past both the relevance floor and the permutation test. Say that plainly — "no measurable change" is the honest answer, and often the reassuring one.`
+    return text.detail + "\nThe shifts are tested; the factors are only what changed alongside. Say which numbers moved and which did not, offer the factors as candidates, and never state a cause."
+  }
+
   if (name === "get_analysis") {
     const kind = String(input.kind ?? "")
     const { today } = await userDay(userId)
@@ -2665,6 +2696,8 @@ export function chatEffort(): Effort | null {
 /** One thing that happened while Emergy was answering. */
 export type ChatEvent =
   | { type: "text"; text: string }
+  /** A fragment of his summarised reasoning — what the wait is about. */
+  | { type: "thinking"; text: string }
   | { type: "tool"; name: string }
   | { type: "sources"; chips: SourceChip[] }
 
@@ -2760,6 +2793,11 @@ export async function* streamChatEvents(
       // max_tokens and no text, and the user saw the tool chips and nothing
       // else — twice in a row. The cap is a safety net now, not a length hint.
       max_tokens: 16_000,
+      // Thinking is on by default; "summarized" only makes it visible. The
+      // summary streams as the wait happens, so the screen can say what he
+      // is working through instead of cycling stock phrases for twenty
+      // seconds. Billed the same either way.
+      thinking: { type: "adaptive", display: "summarized" },
       // Thinking depth, and with it most of the cost of a turn. Left at the
       // model's default until measured: the usage line below is what makes
       // a week at "medium" comparable to a week at "high" on real questions.
@@ -2776,6 +2814,9 @@ export async function* streamChatEvents(
       if (event.type === "content_block_start" && event.content_block.type === "tool_use") {
         toolsUsed.push(event.content_block.name)
         yield { type: "tool", name: event.content_block.name }
+      }
+      if (event.type === "content_block_delta" && event.delta.type === "thinking_delta" && event.delta.thinking) {
+        yield { type: "thinking", text: event.delta.thinking }
       }
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
         const out = filter.push(breakDue ? "\n\n" + event.delta.text : event.delta.text)

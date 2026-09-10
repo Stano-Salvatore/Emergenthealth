@@ -18,6 +18,22 @@ export function rollingWindows(today: string): { recent: Window; prior: Window }
   }
 }
 
+/**
+ * "Since <date>" against the same number of days before it — the chat's
+ * anchor-date comparison. Matched length on purpose, as in the engine's
+ * onset family: it keeps the sample sizes comparable and the seasons close,
+ * where "since 18 August against the rest of the year" pits 24 days against
+ * 34 weeks of a different season and calls the difference a change.
+ */
+export function anchoredWindows(since: string, until: string): { recent: Window; prior: Window; days: number } {
+  const days = Math.round((Date.parse(until + "T00:00:00Z") - Date.parse(since + "T00:00:00Z")) / 86_400_000) + 1
+  return {
+    recent: { from: since, to: until },
+    prior: { from: addDaysISO(since, -days), to: addDaysISO(since, -1) },
+    days,
+  }
+}
+
 /** Last calendar month against the one before — the monthly nudge's window. */
 export function calendarWindows(today: string): { recent: Window; prior: Window } {
   const [y, m] = today.split("-").map(Number)

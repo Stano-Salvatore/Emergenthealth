@@ -6,7 +6,7 @@ import {
 } from "lucide-react"
 import type { SourceChip, SourceDomain } from "@/lib/chat-sources"
 import { useEffect, useState } from "react"
-import { thinkingPhrases, toolActivity } from "@/lib/chat-sources"
+import { latestThought, thinkingPhrases, toolActivity } from "@/lib/chat-sources"
 
 // Identity hues only — a source chip says WHAT was read, never whether the
 // news is good, so status colours have no business here.
@@ -84,11 +84,14 @@ const PHRASE_MS = 2600
  * working, before there is anything to read — and two different waiting
  * animations in one thread would look like two different apps.
  */
-export function ThinkingLine({ seed }: { seed: string }) {
+export function ThinkingLine({ seed, thought }: { seed: string; thought?: string }) {
   // Lazy state, not a ref: computed once per message, and reading it during
   // render is exactly what state is for.
   const [phrases] = useState(() => thinkingPhrases(seed))
   const [i, setI] = useState(0)
+  // What he is actually working through, when the model says so; the stock
+  // phrases are only for the seconds before the first word of it arrives.
+  const live = thought ? latestThought(thought) : ""
 
   useEffect(() => {
     // Cycles rather than stopping at the last phrase: running out and freezing
@@ -103,8 +106,8 @@ export function ThinkingLine({ seed }: { seed: string }) {
           on the FIRST phrase only — announcing a new word every 2.6 seconds
           would talk over the answer it is waiting for. */}
       <span aria-live="polite" aria-atomic="true">
-        <span key={i} className="motion-safe:animate-in motion-safe:fade-in motion-safe:duration-500">
-          {phrases[i]}
+        <span key={live || i} className="motion-safe:animate-in motion-safe:fade-in motion-safe:duration-500">
+          {live || phrases[i]}
         </span>
       </span>
       <span className="flex gap-1" aria-hidden>

@@ -123,3 +123,26 @@ describe("windows", () => {
     expect(calendarWindows("2026-03-01").recent).toEqual({ from: "2026-02-01", to: "2026-02-28" })
   })
 })
+
+describe("anchoredWindows", () => {
+  it("matches the prior window's length to the stretch since the anchor", async () => {
+    const { anchoredWindows } = await import("../drift-load")
+    expect(anchoredWindows("2026-08-18", "2026-09-10")).toEqual({
+      recent: { from: "2026-08-18", to: "2026-09-10" },
+      prior: { from: "2026-07-25", to: "2026-08-17" },
+      days: 24,
+    })
+  })
+})
+
+describe("renderDrift with anchor names", () => {
+  it("uses the caller's names for the two stretches", () => {
+    const shift = { key: "restingHR", label: "Resting heart rate", unit: "bpm", recentMean: 52, priorMean: 58, recentN: 24, priorN: 22, delta: -6, p: 0.004, verdict: "better" as const }
+    const t = renderDrift(
+      { recent: { from: "2026-08-18", to: "2026-09-10" }, prior: { from: "2026-07-25", to: "2026-08-17" }, judged: 7, shifts: [shift], factors: [] },
+      { names: { recent: "since 2026-08-18 (24 days)", prior: "the 24 days before" } },
+    )!
+    expect(t.headline).toContain("since 2026-08-18 (24 days) vs the 24 days before")
+    expect(t.headline).toContain("Resting heart rate 52 bpm vs 58 bpm")
+  })
+})
