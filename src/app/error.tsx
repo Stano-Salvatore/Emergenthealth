@@ -1,11 +1,16 @@
 "use client"
 
 import { useEffect } from "react"
+import { reportClientError } from "@/lib/client-error"
 import Link from "next/link"
 
 export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
     console.error(error)
+    // A render error caught here never reaches window.onerror in production,
+    // so the boundary reports it itself — the only trace of a blank screen
+    // on a phone nobody can inspect.
+    reportClientError(error, "error-boundary")
   }, [error])
 
   return (

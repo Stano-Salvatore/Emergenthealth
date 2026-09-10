@@ -48,6 +48,7 @@ import { WeatherLocation } from "@/components/settings/WeatherLocation"
 import { PasskeyManager } from "@/components/settings/PasskeyManager"
 import { ManageBillingButton } from "@/components/settings/ManageBillingButton"
 import { HelpCard } from "@/components/settings/HelpCard"
+import { AppUpdateCard } from "@/components/settings/AppUpdateCard"
 import { InviteCard } from "@/components/settings/InviteCard"
 import { SettingsSection } from "@/components/settings/SettingsSection"
 import { SignOutCard } from "@/components/settings/SignOutCard"
@@ -331,6 +332,9 @@ export default async function SettingsPage({
           together because "does he work when the app is shut" is one question
           and it used to be answered in three different places. */}
       <SettingsSection title="Emergy on this phone" emoji="🌱">
+      {/* First, because it explains the rest: half of "the toggle below does
+          nothing" is an APK from before the toggle existed. Native only. */}
+      <AppUpdateCard />
       <BubbleCard />
       <WakeWordCard />
       <VoiceSettings />

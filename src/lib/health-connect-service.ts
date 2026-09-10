@@ -11,11 +11,18 @@
 
 export type HCAvailability = "Available" | "NotInstalled" | "NotSupported"
 
+import { isNativeShell } from "@/lib/native/shell"
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Plugin = any
 
 async function getPlugin(): Promise<Plugin | null> {
   if (typeof window === "undefined") return null
+  // The plugin has no web implementation: in a browser every call rejects
+  // with '"HealthConnect" plugin is not implemented on web', and the auto-sync
+  // on the dashboard layout made that an unhandled rejection in every web
+  // session. Not even worth importing outside the shell.
+  if (!isNativeShell()) return null
   try {
     const mod = await import("@kiwi-health/capacitor-health-connect")
     return (mod as any).HealthConnect ?? null // eslint-disable-line @typescript-eslint/no-explicit-any

@@ -11,6 +11,8 @@ import { FeedbackButton } from "@/components/dashboard/FeedbackButton"
 import { TimezoneSync } from "@/components/TimezoneSync"
 import { WidgetAutoActivate } from "@/components/WidgetAutoActivate"
 import { MorningBriefPopup } from "@/components/dashboard/MorningBriefPopup"
+import { UpdateAvailableBanner } from "@/components/UpdateAvailableBanner"
+import { ClientErrorReporter } from "@/components/layout/ClientErrorReporter"
 import { prisma } from "@/lib/prisma"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -51,6 +53,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <NativeBridge />
       <WidgetAutoActivate />
       <NotificationsHealthBanner />
+      <UpdateAvailableBanner />
+      {/* What the page itself throws on a phone, reported to the feedback
+          inbox — the only trace a blank WebView leaves. */}
+      <ClientErrorReporter />
       {/* The whole compose → /api/feedback → owner-notification pipeline
           existed but nothing rendered this button, so the only way to send
           feedback was the mailto link in Settings. */}

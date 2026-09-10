@@ -105,7 +105,6 @@ const ROUTES = (process.env.ROUTES ?? [
 
 // Errors every build produces on the web and which say nothing about the page.
 const IGNORED_ERRORS = [
-  /"HealthConnect" plugin is not implemented on web/,
   // Redundant by construction: a resource that fails by STATUS is caught by
   // the response listener (with the URL and code), one that fails at the
   // NETWORK level by the requestfailed listener (with the URL and reason).

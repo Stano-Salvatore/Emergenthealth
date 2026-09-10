@@ -248,6 +248,27 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Working for a stranger, part one.** The APK's `versionCode` is stamped
+  into the WebView user agent at `cap sync` (`EmergenthealthBuild/1062`,
+  from `ANDROID_VERSION_CODE`, which `customize-android.py` exports so the
+  offset formula lives once); `src/lib/native/build.ts` reads it back,
+  `/api/version` reads the newest build out of the public `latest-android`
+  release notes, and a Settings card plus a dismiss-per-build banner say
+  when a phone is behind. A phone whose UA carries no number is older than
+  every build that does, and is told so. `/api/cron/quiet-source` pushes
+  once per quiet spell when an Oura ring has produced no night for two days
+  (or its sync is failing — that outranks "charge your ring"); the judge is
+  pure in `src/lib/quiet-source.ts`, and it is Oura-only on purpose, since a
+  Health Connect gap means the app wasn't opened, not that anything broke.
+  The desktop Emergy panel reads `/api/briefing` like everything else;
+  `/api/emergy/brief` is gone. Health Connect's service refuses to touch the
+  plugin outside the shell, so the smoke suite no longer has to ignore its
+  web error. Uncaught page errors and error-boundary catches post to
+  `/api/client-error`, which files them as `UserFeedback` rows of type
+  `error` (one per distinct message per user per day, no email) so they
+  show in the owner's inbox beside the bug reports. The feedback composer
+  is one component, rendered by the desktop button and by Settings → Help &
+  Support, which is the phone's only path to it.
 - **Habits, reminders and the calendar as the only app.** Habits carry a
   schedule (`scheduleDays` weekday list or `timesPerWeek`; empty = daily);
   off-days neither ring nor break a streak, a weekly-target habit counts
