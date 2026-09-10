@@ -2696,6 +2696,13 @@ export async function* streamChatEvents(
   let lastStop: string | null = null
   let spoke = false
   for (let turn = 0; turn < 8; turn++) {
+    // "Let me pull both stretches properly." then, after the tools, "Okay. 24
+    // days since…" arrived on screen as one glued sentence: the model rarely
+    // ends a pre-tool aside with a newline, and the next turn's text was
+    // appended straight onto it. A turn that follows tool results starts a
+    // new paragraph when something has already been said; markdown folds any
+    // surplus blank line, so a turn that did end cleanly loses nothing.
+    let breakDue = spoke
     const stream = anthropic.messages.stream({
       model: OPUS,
       // Thinking is on by default on this model and its tokens count against
@@ -2718,7 +2725,8 @@ export async function* streamChatEvents(
         yield { type: "tool", name: event.content_block.name }
       }
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-        const out = filter.push(event.delta.text)
+        const out = filter.push(breakDue ? "\n\n" + event.delta.text : event.delta.text)
+        breakDue = false
         if (out.text) { spoke = true; yield { type: "text", text: out.text } }
         if (out.keys) claimed = out.keys
       }
