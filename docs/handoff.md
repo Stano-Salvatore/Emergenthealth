@@ -77,7 +77,7 @@ be worse than the bug it fixes.
 
 ## The correlation engine
 
-`src/lib/correlations.ts` (~2600 lines) is the heart of the app. It builds a
+`src/lib/correlations.ts` (~4100 lines) is the heart of the app. It builds a
 `DayData` record per local day from ~28 sources, then runs ~31 families of
 comparisons over them.
 
@@ -200,6 +200,26 @@ a slow one. It also asserts the parser still runs *before* the model in
 `/api/chat`, and `intake-backdating.test.ts` asserts the tools still write
 through `recordDrink` rather than reaching for `intakeLog.create` again.
 
+`src/lib/__tests__/insight-language.test.ts` holds the engine's *sentences* to
+the standard `quick-answer.test.ts` holds the scripted answers to. The rule
+lives in `insight-lint.ts`: no preposition stacked inside one clause, no phrase
+used as a plural subject, no verdict, no statistics vocabulary on the card, and
+nothing over 25 words. It exists because the insight cards are the only strings
+in the app nobody wrote — they are assembled from a template plus a group
+label, and "After some caffeine after 16:00 the night scores 62.9" is what that
+produces when no one reads the two together.
+
+The half of that file that matters is the list of sentences it must *not* flag.
+A lint that fires on "After 7h+ sleep, mood averages 3.8 vs 3.1 after shorter
+nights" gets switched off within a week and deserves to. Repetition across a
+comparison is fine; a preposition stacked inside one clause is the bug.
+
+When you need a group label to read differently in the chip and in the
+sentence, `compareGroups` takes `{ chip, phrase }` instead of a string — see
+the sleep panel's causes. Plain strings still mean both. **`experiment-suggest.ts`
+greps the chip** (`/still on board/i`, `/ days$/i`), so a label rename can
+silently re-enable an experiment suggestion on a prescription.
+
 ## Conventions
 
 - **The trackers are meant to replace other apps, not summarise them.** The
@@ -241,7 +261,7 @@ the only thing that compiles the Java.
 ## Commands
 
 ```bash
-npm test              # vitest, ~740 tests across 87 files
+npm test              # vitest, ~1130 tests across 119 files
 npm run lint          # eslint
 npx tsc --noEmit      # typecheck
 npm run dev           # needs the local-dev.md setup first
