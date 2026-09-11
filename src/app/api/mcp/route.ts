@@ -127,16 +127,22 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_health_metrics",
-    "Get extended health metrics for a date range: HRV, readiness score, SpO2, skin temperature, stress, breathing rate",
+    "Get extended health metrics for a date range: HRV, readiness score, SpO2, skin temperature, stress, breathing rate, sleep latency, and Oura's long-range figures (VO2 max, vascular age, pulse wave velocity, resilience)",
     dateRange,
     async ({ startDate, endDate }) => {
       const logs = await prisma.healthLog.findMany({
         where: { userId, date: { gte: startOfDay(startDate), lte: endOfDay(endDate) } },
         orderBy: { date: "asc" },
+        // A hand-written list that stopped being updated: sleep latency sat in
+        // the database for months unread, and the long-range Oura figures were
+        // added to the Health page and to Emergy without ever reaching here.
+        // This is the surface other tools read the account through.
         select: {
           date: true, readinessScore: true, hrv: true, spo2: true,
           skinTemp: true, stressHigh: true, recoveryHigh: true, breathingRate: true,
-          activityScore: true, sleepEfficiency: true,
+          activityScore: true, sleepEfficiency: true, sleepLatency: true,
+          restlessPeriods: true, cardiovascularAge: true, pulseWaveVelocity: true,
+          vo2Max: true, resilienceLevel: true, stressSummary: true,
         },
       })
       return ok(logs.map(l => ({ ...l, date: l.date.toISOString().slice(0, 10) })))

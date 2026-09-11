@@ -2,7 +2,7 @@ import { auth } from "@/auth"
 import { userToday } from "@/lib/user-timezone"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { recordDrink } from "@/lib/intake-write"
+import { recordDrink, forgetDrinkCaffeine } from "@/lib/intake-write"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement } from "@/lib/supplement-normalize"
 import { extractMirrorableDrinks } from "@/lib/drink-mirror"
@@ -175,7 +175,8 @@ export async function DELETE(req: Request) {
   }
   await prisma.foodLog.delete({ where: { id } })
   // remove the drink entries (and their caffeine) this meal mirrored into the tracker
-  await prisma.intakeLog.deleteMany({ where: { userId, id: { startsWith: `food_${id}_` } } }).catch(() => null)
-  await prisma.caffeineLog.deleteMany({ where: { userId, id: { startsWith: `intake_food_${id}_` } } }).catch(() => null)
+  await prisma.intakeLog.deleteMany({ where: { userId, id: { startsWith: `food_${id}_` } } })
+    .catch((e: unknown) => console.error("[food] drink cleanup failed for meal", id, e))
+  await forgetDrinkCaffeine(userId, { idPrefix: `food_${id}_` })
   return NextResponse.json({ ok: true })
 }

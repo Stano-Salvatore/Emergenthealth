@@ -84,11 +84,37 @@ function caffeineFor(w: CaffeineInput): { caffeineMg: number | null; compound: s
     : { caffeineMg: null, compound: null }
 }
 
+/**
+ * The id of the caffeine row belonging to a drink.
+ *
+ * One function rather than a `intake_${id}` template written at each site: the
+ * meal path composes it twice over (a drink is `food_<meal>_<n>`, so its
+ * caffeine is `intake_food_<meal>_<n>`), and the delete that cleans up after a
+ * meal has to reproduce that by hand. Two places agreeing on a string is how
+ * an orphan gets left behind.
+ */
+export const caffeineIdFor = (intakeId: string) => `intake_${intakeId}`
+
+/** Drop the caffeine that came with a drink. False = it may still be there. */
+export async function forgetDrinkCaffeine(userId: string, where: { intakeId?: string; idPrefix?: string }): Promise<boolean> {
+  const id = where.intakeId
+    ? { id: caffeineIdFor(where.intakeId) }
+    : { id: { startsWith: caffeineIdFor(where.idPrefix ?? "") } }
+  const gone = await prisma.caffeineLog.deleteMany({ where: { userId, ...id } })
+    .catch((e: unknown) => {
+      // An orphan is worse than a missing dose: the app goes on reporting
+      // caffeine that was deleted, in body load and at the bedtime cutoff.
+      console.error("[intake] caffeine cleanup failed for", where, e)
+      return null
+    })
+  return gone != null
+}
+
 /** Write (or replace) the caffeine row tied to a drink. False = it was due and isn't there. */
 async function mirrorCaffeine(
   intakeId: string, userId: string, compound: string, caffeineMg: number, at: Date,
 ): Promise<boolean> {
-  const id = `intake_${intakeId}`
+  const id = caffeineIdFor(intakeId)
   const row = await prisma.caffeineLog.upsert({
     where: { id },
     create: { id, userId, compound, caffeineMg, loggedAt: at },
@@ -146,13 +172,7 @@ export async function resyncDrinkCaffeine(log: IntakeLog): Promise<boolean> {
     type: log.type, note: log.note, amountMl: log.amountMl,
   })
   if (caffeineMg == null || compound == null) {
-    const gone = await prisma.caffeineLog
-      .deleteMany({ where: { id: `intake_${log.id}`, userId: log.userId } })
-      .catch((e: unknown) => {
-        console.error("[intake] caffeine cleanup failed for", log.id, e)
-        return null
-      })
-    return gone != null
+    return forgetDrinkCaffeine(log.userId, { intakeId: log.id })
   }
   return mirrorCaffeine(log.id, log.userId, compound, caffeineMg, log.loggedAt)
 }

@@ -2,7 +2,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
-import { recordDrink, resyncDrinkCaffeine } from "@/lib/intake-write"
+import { recordDrink, resyncDrinkCaffeine, forgetDrinkCaffeine } from "@/lib/intake-write"
 import { NextResponse } from "next/server"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
 
@@ -116,6 +116,6 @@ export async function DELETE(req: Request) {
 
   await prisma.intakeLog.delete({ where: { id } })
   // remove the auto-logged caffeine that came with this drink, if any
-  await prisma.caffeineLog.deleteMany({ where: { id: `intake_${id}`, userId } }).catch(() => null)
+  await forgetDrinkCaffeine(userId, { intakeId: id })
   return NextResponse.json({ ok: true })
 }

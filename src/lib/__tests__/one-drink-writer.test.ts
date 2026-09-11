@@ -67,6 +67,27 @@ describe("one writer for a drink", () => {
       .toEqual([])
   })
 
+  it("nothing else deletes a CaffeineLog", () => {
+    // The inverse of the mirror, and the worse direction: a caffeine row left
+    // behind after its drink is deleted goes on being counted in body load and
+    // at the bedtime cutoff, as caffeine that was never had.
+    const offenders = FILES.filter(f =>
+      !ALLOWED.has(f) && /prisma\.caffeineLog\.delete(Many)?\(/.test(readFileSync(f, "utf8")))
+    expect(offenders, `these clean up caffeine by hand — call forgetDrinkCaffeine:\n${offenders.join("\n")}`)
+      .toEqual([])
+  })
+
+  it("spells the linking id in exactly one place", () => {
+    // `intake_${id}` written at each site is two places agreeing on a string,
+    // and the meal path composes it twice over.
+    const writer = readFileSync("src/lib/intake-write.ts", "utf8")
+    expect(writer).toContain("caffeineIdFor")
+    const elsewhere = FILES.filter(f =>
+      f !== "src/lib/intake-write.ts" && /`intake_\$\{/.test(readFileSync(f, "utf8")))
+    expect(elsewhere, `these build the caffeine id by hand — use caffeineIdFor:\n${elsewhere.join("\n")}`)
+      .toEqual([])
+  })
+
   it("never swallows a failed mirror", () => {
     // `.catch(() => null)` on the caffeine write is the specific line that
     // turned three lost doses into three unexplained gaps.
