@@ -1577,7 +1577,7 @@ export async function computeCorrelations(
     findingTemplate: (h, l) =>
       h < l
         ? `On high-stress days, your HRV averages ${h}ms vs ${l}ms on calmer days`
-        : `High-stress days don't suppress your HRV — ${h}ms vs ${l}ms`,
+        : `High-stress days don't lower your HRV — ${h}ms vs ${l}ms`,
   })
   if (ins_stress_hrv) insights.push(ins_stress_hrv)
 
@@ -1597,7 +1597,7 @@ export async function computeCorrelations(
     findingTemplate: (h, l) =>
       h < l
         ? `After ${cafLabel} caffeine, next-day readiness averages ${h} vs ${l} on lower-caffeine days`
-        : `Higher caffeine days don't dent your readiness — ${h} vs ${l}`,
+        : `Higher caffeine days don't change your readiness — ${h} vs ${l}`,
   })
   if (ins_caffeine_readiness) insights.push(ins_caffeine_readiness)
 
@@ -1661,7 +1661,7 @@ export async function computeCorrelations(
       findingTemplate: (h, l) =>
         h < l
           ? `After rainy days, morning mood averages ${h} vs ${l} after dry days`
-          : `Rain doesn't dampen your mood — ${h} vs ${l} on dry days`,
+          : `Rainy days don't change your mood — ${h} vs ${l} on dry days`,
     })
     if (ins_rain_mood) insights.push(ins_rain_mood)
     const hotStepsSplit = new Split()
@@ -1717,7 +1717,7 @@ export async function computeCorrelations(
       findingTemplate: (h, l) =>
         h < l
           ? `After high screen-time days, next-day energy averages ${h} vs ${l} after lighter days`
-          : `Screen time doesn't dent your next-day energy — ${h} vs ${l}`,
+          : `Screen time doesn't change your next-day energy — ${h} vs ${l}`,
     })
     if (ins_screen_energy) insights.push(ins_screen_energy)
     const ins_screen_mood = compareGroups({
@@ -1727,7 +1727,7 @@ export async function computeCorrelations(
       findingTemplate: (h, l) =>
         h < l
           ? `After high screen-time days, next-day mood averages ${h} vs ${l} after lighter days`
-          : `Screen time doesn't dent your next-day mood — ${h} vs ${l}`,
+          : `Screen time doesn't change your next-day mood — ${h} vs ${l}`,
     })
     if (ins_screen_mood) insights.push(ins_screen_mood)
     const ins_screen_readiness = compareGroups({
@@ -1737,7 +1737,7 @@ export async function computeCorrelations(
       findingTemplate: (h, l) =>
         h < l
           ? `After high screen-time days, next-day readiness averages ${h} vs ${l}`
-          : `Screen time doesn't dent your next-day readiness — ${h} vs ${l}`,
+          : `Screen time doesn't change your next-day readiness — ${h} vs ${l}`,
     })
     if (ins_screen_readiness) insights.push(ins_screen_readiness)
   }
@@ -1810,7 +1810,7 @@ export async function computeCorrelations(
       findingTemplate: (h, l) =>
         h < l
           ? `After busy days, next-day energy averages ${h} vs ${l} after quieter ones`
-          : `Busy days don't drain your next-day energy — ${h} vs ${l}`,
+          : `Busy days don't change your next-day energy — ${h} vs ${l}`,
     })
     if (ins_load_energy) insights.push(ins_load_energy)
     const ins_load_mood = compareGroups({
@@ -1820,7 +1820,7 @@ export async function computeCorrelations(
       findingTemplate: (h, l) =>
         h < l
           ? `After busy days, next-day mood averages ${h} vs ${l} after quieter ones`
-          : `Busy days don't dent your next-day mood — ${h} vs ${l}`,
+          : `Busy days don't change your next-day mood — ${h} vs ${l}`,
     })
     if (ins_load_mood) insights.push(ins_load_mood)
   }
@@ -1958,7 +1958,7 @@ export async function computeCorrelations(
         findingTemplate: (h, l) =>
           h < l
             ? `After higher-sugar days (${Math.round(sugarMedian)}g+), morning energy averages ${h} vs ${l}`
-            : `Sugar days don't dent your next-day energy — ${h} vs ${l}`,
+            : `Sugar days don't change your next-day energy — ${h} vs ${l}`,
       })
       if (ins_sugar_energy) insights.push(ins_sugar_energy)
       const ins_sugar_mood = compareGroups({
@@ -1968,7 +1968,7 @@ export async function computeCorrelations(
         findingTemplate: (h, l) =>
           h < l
             ? `After higher-sugar days (${Math.round(sugarMedian)}g+), morning mood averages ${h} vs ${l}`
-            : `Sugar days don't dent your next-day mood — ${h} vs ${l}`,
+            : `Sugar days don't change your next-day mood — ${h} vs ${l}`,
       })
       if (ins_sugar_mood) insights.push(ins_sugar_mood)
     }
@@ -2496,7 +2496,7 @@ export async function computeCorrelations(
       findingTemplate: (h, l) =>
         h > l
           ? `On bigger-spend days (€${Math.round(spendMedian)}+), mood averages ${h} vs ${l} on lighter days`
-          : `Spending more doesn't come with better mood — ${h} vs ${l} on lighter days`,
+          : `Spending more doesn't go with a better mood — ${h} vs ${l} on lighter days`,
     })
     if (ins_spend_mood) insights.push(ins_spend_mood)
     const ins_spend_mood_next = compareGroups({
@@ -2506,7 +2506,7 @@ export async function computeCorrelations(
       findingTemplate: (h, l) =>
         h < l
           ? `The morning after bigger-spend days, mood averages ${h} vs ${l} after lighter days`
-          : `Bigger-spend days don't dent the next morning's mood — ${h} vs ${l}`,
+          : `Bigger-spend days don't change the next morning's mood — ${h} vs ${l}`,
     })
     if (ins_spend_mood_next) insights.push(ins_spend_mood_next)
   }
@@ -2625,7 +2625,7 @@ export async function computeCorrelations(
     findingTemplate: (h, l) =>
       h < l
         ? `On ${cafLabel} caffeine days you get ${Math.round(h)}min of deep sleep vs ${Math.round(l)}min on lighter days`
-        : `Caffeine isn't eating your deep sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
+        : `Caffeine doesn't cut your deep sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
   })
   if (ins_caffeine_deep) insights.push(ins_caffeine_deep)
   const ins_alcohol_rem = compareGroups({
@@ -2759,7 +2759,7 @@ export async function computeCorrelations(
       findingTemplate: (h, l) =>
         h > l
           ? `On ${r1(prodMedian)}h+ productive days, mood averages ${h} vs ${l} on lighter days`
-          : `Big work days don't come with better mood — ${h} vs ${l}`,
+          : `Big work days don't go with a better mood — ${h} vs ${l}`,
     })
     if (ins_prod_mood) insights.push(ins_prod_mood)
     const ins_prod_sleep = compareGroups({
