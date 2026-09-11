@@ -1316,9 +1316,16 @@ export async function computeCorrelations(
       .slice(0, cap)
       .map(([key]) => key)
 
-  // A place you go to every day is not a place, it is the baseline — an
-  // automatic check-in at city granularity ("Bratislava, Bratislava", 53 days
-  // here) has no other side to compare against, and the filter drops it.
+  // A place needs five days present AND five days absent, so somewhere you go
+  // essentially every day has no other side and drops out.
+  //
+  // This comment used to claim that caught city-granularity check-ins, naming
+  // "Bratislava, Bratislava" at 53 days as an example. It does not: 53 of 90
+  // leaves 37 days absent, comfortably over the bar, so that place is tested
+  // and rendered like any other. It would need ~86 of 90 to be dropped. The
+  // real fragmentation risk is upstream — `foldPlace` normalises accents and
+  // punctuation but not repeated tokens, so "Bratislava, Bratislava" and
+  // "Bratislava" are two separate series that never see each other.
   const placesToTest = pickPlaces(placeVisitDays, allDays.length, 3)
   const caffeinePlaces = pickPlaces(placeCaffeineDays, caffeineDayCount, 2)
   const placeName = (key: string) => placeLabels.get(key) ?? key
@@ -1511,12 +1518,10 @@ export async function computeCorrelations(
   }
   const ins_sleep_rhr = compareGroups({
     id: "sleep_resting_hr", category: "recovery", emoji: "❤️", title: "Sleep Duration & Resting Heart Rate",
-    highGroupLabel: "after 7h+ sleep", lowGroupLabel: "after under 7h",
+    highGroupLabel: "nights of 7h+", lowGroupLabel: "nights under 7h",
     series: sleepRhr, higherIsBetter: false,
     findingTemplate: (h, l) =>
-      h < l
-        ? `After 7h+ sleep, your resting HR averages ${h} bpm vs ${l} bpm on shorter nights`
-        : `Sleep length doesn't move your resting HR much — ${h} bpm vs ${l} bpm`,
+      `After 7h+ sleep, your resting heart rate averages ${h} bpm; after a shorter night, ${l} bpm`,
   })
   if (ins_sleep_rhr) insights.push(ins_sleep_rhr)
   const ins_alcohol_rhr = compareGroups({
@@ -2818,12 +2823,10 @@ export async function computeCorrelations(
     }
     const ins_bp_sleep = compareGroups({
       id: "bp_short_sleep", category: "heart", emoji: "🩺", title: "Short Sleep & Blood Pressure",
-      highGroupLabel: "after under 7h sleep", lowGroupLabel: "after 7h+ sleep",
+      highGroupLabel: "nights under 7h", lowGroupLabel: "nights of 7h+",
       series: bpShortSleepSplit, higherIsBetter: false,
       findingTemplate: (h, l) =>
-        h > l
-          ? `After short nights, systolic averages ${Math.round(h)} vs ${Math.round(l)} after 7h+ sleep`
-          : `Short nights don't raise your systolic — ${Math.round(h)} vs ${Math.round(l)}`,
+        `After a short night, the top blood-pressure number averages ${Math.round(h)} mmHg; after 7h+, ${Math.round(l)}`,
     })
     if (ins_bp_sleep) insights.push(ins_bp_sleep)
     const ins_bp_alcohol = compareGroups({
@@ -2831,9 +2834,7 @@ export async function computeCorrelations(
       highGroupLabel: "the day after drinking", lowGroupLabel: "after sober days",
       series: bpAfterDrinksSplit, higherIsBetter: false,
       findingTemplate: (h, l) =>
-        h > l
-          ? `The day after drinking, systolic averages ${Math.round(h)} vs ${Math.round(l)} after sober days`
-          : `Drinking doesn't show in your next-day systolic — ${Math.round(h)} vs ${Math.round(l)}`,
+        `The day after drinking, the top blood-pressure number averages ${Math.round(h)} mmHg; after a sober day, ${Math.round(l)}`,
     })
     if (ins_bp_alcohol) insights.push(ins_bp_alcohol)
     const ins_bp_caffeine = compareGroups({
@@ -2841,9 +2842,7 @@ export async function computeCorrelations(
       highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} days`,
       series: bpCaf, higherIsBetter: false,
       findingTemplate: (h, l) =>
-        h > l
-          ? `On ${cafLabel} caffeine days, systolic averages ${Math.round(h)} vs ${Math.round(l)} on lighter days`
-          : `Caffeine doesn't show in your systolic — ${Math.round(h)} vs ${Math.round(l)}`,
+        `On ${cafLabel} caffeine days, the top blood-pressure number averages ${Math.round(h)} mmHg; on lighter days, ${Math.round(l)}`,
     })
     if (ins_bp_caffeine) insights.push(ins_bp_caffeine)
   }
@@ -3452,8 +3451,11 @@ export async function computeCorrelations(
         const ins = compareGroups({
           id: `absence_${id}`, category: "absence", emoji,
           title: `Missing: ${label}`,
-          highGroupLabel: `days you did (past 3 months)`,
-          lowGroupLabel: `the last ${GAP_DAYS} days without`,
+          // Was "days you did (past 3 months)" — hard-coded, while the window
+          // is whatever the user picked (7, 30, 90 or 365 days). On the 30-day
+          // view it claimed three months of evidence it did not have.
+          highGroupLabel: `days you did it`,
+          lowGroupLabel: `the last ${GAP_DAYS} days`,
           series: seq,
           findingTemplate: (h, l) =>
             `"${label}" has not come up in ${GAP_DAYS} days. When it did, ${metricLabel} averaged ${h}; since then, ${l}`,
