@@ -34,6 +34,7 @@ interface InsightResult {
   tier?: "strong" | "suggestive" | "noise"
   weekendDriven?: boolean
   weekdayDelta?: number
+  coverage?: string
 }
 
 interface CorrelationsData {
@@ -171,6 +172,15 @@ function InsightCard({ insight }: { insight: InsightResult }) {
         {weakness && (
           <p className="text-xs text-muted-foreground/80 leading-relaxed border-l-2 border-border pl-2">
             {weakness}
+          </p>
+        )}
+        {insight.coverage && (
+          // Not a weakness in the effect — a limit on what the diary can
+          // answer. Shown on every tier, because a solid card built on
+          // thirty-two logged days out of ninety is still a card about
+          // thirty-two days.
+          <p className="text-xs text-muted-foreground/80 leading-relaxed border-l-2 border-amber-500/40 pl-2">
+            {insight.coverage}
           </p>
         )}
         {suggestion && (

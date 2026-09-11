@@ -29,6 +29,7 @@ import { formatDose } from "@/lib/dose"
 import { parseQuickAsk, type QuickAsk } from "@/lib/quick-answer"
 import { chipsFromClaim, type SourceChip, type SourceManifest } from "@/lib/chat-sources"
 import { bedtimeMinutesLate } from "@/lib/caffeine-cutoff"
+import { whyNightMissing } from "@/lib/sleep-quality"
 
 export interface QuickAnswer {
   /** The reply, in Emergy's voice, with a chart tag on its own line where one earns its place. */
@@ -53,6 +54,11 @@ function hm(minutes: number): string {
   const h = Math.floor(minutes / 60)
   const m = Math.round(minutes % 60)
   return h > 0 ? `${h}h${m ? ` ${m}m` : ""}` : `${m}m`
+}
+
+/** Small counts read as words inside a sentence; past ten, the digit is clearer. */
+function count(n: number): string {
+  return ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"][n] ?? String(n)
 }
 
 function pretty(iso: string): string {
@@ -210,7 +216,7 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
     orderBy: { date: "asc" },
     select: {
       date: true, sleepDuration: true, sleepScore: true, deepSleep: true, remSleep: true,
-      sleepLatency: true, sleepEfficiency: true, sleepStart: true,
+      sleepLatency: true, sleepEfficiency: true, sleepStart: true, steps: true,
     },
   }).catch(() => [])
 
@@ -251,8 +257,30 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
   // trains you to ignore the real ones.
   const pending = rows.every(r => r.date.toISOString().slice(0, 10) !== today) ? 1 : 0
   const missing = Math.max(0, days - nights.length - pending)
+
+  // "No data" is two different weeks wearing the same word. A night the ring
+  // sat in a drawer is a hole in the record; a night the ring was on your hand
+  // all day and still filed nothing is a fact about the night. The day's step
+  // count tells them apart — see whyNightMissing — and the second one is
+  // usually the answer to "why does this week look so short".
+  const blank = rows.filter(r =>
+    !(r.sleepDuration != null && r.sleepDuration > 0) &&
+    r.date.toISOString().slice(0, 10) !== today)
+  const ringOff = blank.filter(r => whyNightMissing(r.steps) === "ring-off").length
+  const awake = blank.filter(r => whyNightMissing(r.steps) === "awake").length
+
+  const named = [
+    ringOff > 0 ? { n: ringOff, text: "the ring looks like it was off" } : null,
+    awake > 0 ? { n: awake, text: "the ring was on all day and still recorded no sleep" } : null,
+  ].filter((r): r is { n: number; text: string } => r != null)
+  const why = named.length === 0
+    ? ""
+    : named.length === 1 && named[0].n === missing
+      ? ` — ${named[0].text}`
+      : ` — ${named.map(r => `${count(r.n)} where ${r.text}`).join(", ")}`
+
   const gap = missing > 0
-    ? ` ${missing === 1 ? "One night" : `${missing} nights`} of the seven ${missing === 1 ? "has" : "have"} no data.`
+    ? ` ${missing === 1 ? "One night" : `${missing} nights`} of the seven ${missing === 1 ? "has" : "have"} no data${why}.`
     : ""
   const notYet = pending ? " Last night isn't in yet." : ""
   const over = missing + pending > 0 ? ` across the ${nights.length} with data` : ""

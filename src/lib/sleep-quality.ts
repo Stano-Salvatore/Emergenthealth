@@ -43,3 +43,41 @@ export function isMeasuredNight(n: NightCandidate): boolean {
   // Short. Trust it only if the ring was actually gathering physiology.
   return n.hrv != null || n.breathRate != null
 }
+
+// ─── A night with no row at all ───────────────────────────────────────────────
+//
+// The test above answers "is this session real". This one answers the question
+// that comes after it: the row exists, the sleep fields are empty, and the
+// weekly answer has to say something about the hole.
+//
+// "No data" covers two situations that are nothing alike. One is a ring in a
+// drawer, where the whole day is missing and there is simply nothing to say.
+// The other is a ring that was worn all day and still filed no night — which
+// is a fact about the night, not about the data, and is usually the answer to
+// "why does this week look short".
+//
+// The day's step count separates them, and separates them cleanly: on this
+// account the nine nights without a row split 13759 / 12742 / 10166 / 7506 /
+// 7330 steps against 487 / 421 / 148 / 55, with nothing in between. A day that
+// never broke a thousand steps is a device that was not being carried.
+//
+// It is still an inference, so the wording it feeds stays hedged, and a day
+// with no step count at all gets no verdict rather than a guessed one.
+
+/** Under this, a whole day of steps is a device in a drawer rather than a person. */
+export const RING_OFF_MAX_STEPS = 1000
+
+export type MissingNightReason = "ring-off" | "awake" | "unknown"
+
+/**
+ * Why a day has no night on it, as far as the step count can tell.
+ *
+ * - `ring-off`  — the day barely moved, so nothing was measured either.
+ * - `awake`     — a normal day of movement, so the ring was on and the night
+ *                 still did not register.
+ * - `unknown`   — no step count, so no claim.
+ */
+export function whyNightMissing(steps: number | null | undefined): MissingNightReason {
+  if (steps == null) return "unknown"
+  return steps < RING_OFF_MAX_STEPS ? "ring-off" : "awake"
+}

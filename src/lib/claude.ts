@@ -1938,7 +1938,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       } catch { list = [] }
       if (list.length === 0) return "The cached pattern run is empty — not enough overlapping days yet."
       const shown = list.filter(i => i.tier !== "noise").slice(0, 20)
-      return shown.map(i => `- [${i.tier}${i.weekendDriven ? ", weekend-driven" : ""}] ${i.title}: ${i.finding} (${i.highGroupN}+${i.lowGroupN} days, ${Number(i.delta) > 0 ? "+" : ""}${i.delta}%)`).join("\n")
+      return shown.map(i => `- [${i.tier}${i.weekendDriven ? ", weekend-driven" : ""}] ${i.title}: ${i.finding} (${i.highGroupN}+${i.lowGroupN} days, ${Number(i.delta) > 0 ? "+" : ""}${i.delta}%)${i.coverage ? ` [coverage: ${i.coverage}]` : ""}`).join("\n")
         + "\n'strong' survived false-discovery correction; 'suggestive' did not — soften it. All association, not cause."
     }
 
