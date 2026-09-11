@@ -77,11 +77,21 @@ const { healthLogs, caffeineLogs, waterLogs, placeCheckIns } = vi.hoisted(() => 
   // five-a-side floor, so neither spelling can produce an insight alone: the
   // café only exists if the names are folded together.
   const cafeDays = dates.slice(0, DAYS).map((ds, i) => ({ ds, i })).filter(({ i }) => kind(i) === 0).slice(0, 8)
-  const placeCheckIns = cafeDays.map(({ ds }, n) => ({
-    checkedAt: new Date(ds + "T17:00:00Z"),
-    place: n % 2 === 0 ? "Kaviareň Vták" : "Kaviaren Vtak",
-    isAuto: true,
-  }))
+  const placeCheckIns = [
+    ...cafeDays.map(({ ds }, n) => ({
+      checkedAt: new Date(ds + "T17:00:00Z"),
+      place: n % 2 === 0 ? "Kaviareň Vták" : "Kaviaren Vtak",
+      isAuto: true,
+    })),
+    // Somewhere else, on days that also checked in. Without these the café has
+    // no counterpart: a day with no check-in at all is not a day you were
+    // elsewhere, so it is not allowed to be the control.
+    ...dates.slice(0, DAYS).filter((_, i) => kind(i) === 2).map(ds => ({
+      checkedAt: new Date(ds + "T13:00:00Z"),
+      place: "Home",
+      isAuto: true,
+    })),
+  ]
 
   return { healthLogs, caffeineLogs, waterLogs, placeCheckIns }
 })
@@ -219,6 +229,11 @@ describe("places", () => {
     expect(place!.category).toBe("places")
     expect(place!.pValue).toBeLessThanOrEqual(1)
     expect(typeof place!.confident).toBe("boolean")
+    // Eight café days against the fifteen that checked in somewhere else —
+    // never against the thirty-eight that checked in nowhere, which say
+    // nothing about where you were.
+    expect(place!.highGroupN).toBe(8)
+    expect(place!.lowGroupN).toBe(15)
   })
 })
 

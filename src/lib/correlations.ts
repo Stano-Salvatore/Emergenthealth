@@ -3072,7 +3072,12 @@ export async function computeCorrelations(
     const nightSeries = new Split()
     const moodSeries = new Split()
     for (const d of days) {
-      const there = (d.places ?? []).includes(key)
+      // A day with no check-in at all is not a day you were elsewhere — the
+      // phone was off, or the place was never saved. Counting it as "elsewhere"
+      // is the same mistake as reading a silent day as decaf, and the control
+      // group is the one that would quietly absorb it.
+      if (d.places == null) continue
+      const there = d.places.includes(key)
       const night = byDate[nextDateStr(d.date)]
       if (night?.sleepScore != null) nightSeries.add(there, night.sleepScore)
       if (d.mood != null) moodSeries.add(there, d.mood)
