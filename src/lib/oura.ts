@@ -72,6 +72,26 @@ function inclusiveWindow(startDate: string, endDate: string) {
   return { start_date: startDate, end_date: addDaysISO(endDate, 1) }
 }
 
+/**
+ * Say so when a document mapped to nothing.
+ *
+ * `awake_time` was read as `awake_duration` for the life of this integration.
+ * It was null on every night ever synced and nobody could tell, because the
+ * document is Record<string, unknown>: the compiler has no name to check, and a
+ * key that does not exist looks exactly like a night Oura had no figure for.
+ *
+ * So any mapper for an endpoint added from documentation rather than from a
+ * real payload goes through here. A whole document coming back empty is the
+ * signature of a wrong key, and it now leaves a line in the logs naming the
+ * keys the document actually had, instead of a column that is quietly null
+ * forever.
+ */
+function warnIfEmpty(endpoint: string, item: Record<string, unknown>, mapped: Record<string, unknown>): void {
+  const values = Object.entries(mapped).filter(([k]) => k !== "date").map(([, v]) => v)
+  if (values.length === 0 || values.some(v => v != null)) return
+  console.warn(`[oura] ${endpoint} mapped no values; document keys were: ${Object.keys(item).join(", ")}`)
+}
+
 /** Drop rows outside the range the caller actually asked for. */
 function trimToRange<T extends { day?: unknown }>(rows: T[], startDate: string, endDate: string): T[] {
   return rows.filter(r => {
@@ -265,7 +285,65 @@ export async function getDailyStress(userId: string, startDate: string, endDate:
     date: item.day as string,
     stressHighMin: item.stress_high != null ? Math.round((item.stress_high as number) / 60) : null,
     recoveryHighMin: item.recovery_high != null ? Math.round((item.recovery_high as number) / 60) : null,
+    // "restored" | "normal" | "stressed" — the wording on the Daytime Stress
+    // card, fetched all along and thrown away.
+    summary: (item.day_summary as string) ?? null,
   }))
+}
+
+// ── The long-range scores: cardiovascular age, cardio capacity, resilience ───
+// Each is its own endpoint, each moves over weeks rather than nights, and none
+// of them were ever fetched. Field names come from the API documentation, not
+// from a payload in hand, which is why every mapper here reports an empty
+// document rather than trusting itself.
+
+export async function getDailyCardiovascularAge(userId: string, startDate: string, endDate: string) {
+  const client = await buildOuraClient(userId)
+  const data = await makeOuraRequest("/daily_cardiovascular_age", client.accessToken, userId, {
+    ...inclusiveWindow(startDate, endDate),
+  })
+  return trimToRange((data.data || []) as Record<string, unknown>[], startDate, endDate).map(item => {
+    const mapped = {
+      date: item.day as string,
+      vascularAge: (item.vascular_age as number) ?? null,
+      pulseWaveVelocity: (item.pulse_wave_velocity as number) ?? null,
+    }
+    warnIfEmpty("daily_cardiovascular_age", item, mapped)
+    return mapped
+  })
+}
+
+export async function getVo2Max(userId: string, startDate: string, endDate: string) {
+  const client = await buildOuraClient(userId)
+  const data = await makeOuraRequest("/vO2_max", client.accessToken, userId, {
+    ...inclusiveWindow(startDate, endDate),
+  })
+  return trimToRange((data.data || []) as Record<string, unknown>[], startDate, endDate).map(item => {
+    const mapped = {
+      date: item.day as string,
+      vo2Max: (item.vo2_max as number) ?? null,
+    }
+    warnIfEmpty("vO2_max", item, mapped)
+    return mapped
+  })
+}
+
+export async function getDailyResilience(userId: string, startDate: string, endDate: string) {
+  const client = await buildOuraClient(userId)
+  const data = await makeOuraRequest("/daily_resilience", client.accessToken, userId, {
+    ...inclusiveWindow(startDate, endDate),
+  })
+  return trimToRange((data.data || []) as Record<string, unknown>[], startDate, endDate).map(item => {
+    const mapped = {
+      date: item.day as string,
+      // Oura's own word — "solid", "strong" — kept verbatim rather than mapped
+      // onto a number, because the scale behind it is theirs and inventing one
+      // would let us draw conclusions the label does not support.
+      level: (item.level as string) ?? null,
+    }
+    warnIfEmpty("daily_resilience", item, mapped)
+    return mapped
+  })
 }
 
 // ── Workouts ─────────────────────────────────────────────────────────────────

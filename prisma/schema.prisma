@@ -163,6 +163,23 @@ model HealthLog {
   breathingDisturbance Float?
   sleepScore           Int?
 
+  // ─── Oura's derived long-range scores ──────────────────────────────────────
+  // These move over weeks, not nights, and each comes from its own endpoint.
+  /// Vascular age in years, from /daily_cardiovascular_age. Compared against
+  /// actual age by Oura's "aligned / above / below" wording, never by us.
+  cardiovascularAge    Float?
+  /// Arterial stiffness, m/s. Arrives in the same document as vascular age.
+  pulseWaveVelocity    Float?
+  /// Cardio capacity, from /vO2_max. Updates rarely — monthly at best.
+  vo2Max               Float?
+  /// "limited" | "adequate" | "solid" | "strong" | "exceptional", from
+  /// /daily_resilience. Stored as Oura's own word rather than a number we
+  /// would have to invent a scale for.
+  resilienceLevel      String?
+  /// "restored" | "normal" | "stressed" — the day summary that rides along with
+  /// the stress minutes we already keep.
+  stressSummary        String?
+
   syncedAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

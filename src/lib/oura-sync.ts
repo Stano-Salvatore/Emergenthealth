@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma"
 import { plausibleBreathRate, plausibleHeartRate, plausibleHrv, plausibleSpo2 } from "@/lib/vitals"
-import { getDailySleep, getDailySleepScores, getDailyActivity, getDailyReadiness, getDailySpo2, getDailyStress, getOuraTags } from "@/lib/oura"
+import {
+  getDailySleep, getDailySleepScores, getDailyActivity, getDailyReadiness, getDailySpo2,
+  getDailyStress, getOuraTags, getDailyCardiovascularAge, getVo2Max, getDailyResilience,
+} from "@/lib/oura"
 import { classifyOuraTag, INTAKE_KINDS } from "@/lib/oura-tag-classify"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { format, subDays } from "date-fns"
@@ -23,13 +26,22 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
     const endDate = format(new Date(), "yyyy-MM-dd")
     const startDate = format(subDays(new Date(), 29), "yyyy-MM-dd")
 
-    const [sleepData, sleepScoreData, activityData, readinessData, spo2Data, stressData] = await Promise.allSettled([
+    // allSettled, not all: these three are newer endpoints, and a plan or scope
+    // that does not include one of them must not take the whole sync down with
+    // it. A rejected promise simply contributes no days.
+    const [
+      sleepData, sleepScoreData, activityData, readinessData, spo2Data, stressData,
+      cardioAgeData, vo2Data, resilienceData,
+    ] = await Promise.allSettled([
       getDailySleep(userId, startDate, endDate),
       getDailySleepScores(userId, startDate, endDate),
       getDailyActivity(userId, startDate, endDate),
       getDailyReadiness(userId, startDate, endDate),
       getDailySpo2(userId, startDate, endDate),
       getDailyStress(userId, startDate, endDate),
+      getDailyCardiovascularAge(userId, startDate, endDate),
+      getVo2Max(userId, startDate, endDate),
+      getDailyResilience(userId, startDate, endDate),
     ])
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,6 +56,9 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
     const readiness  = byDate(readinessData)
     const spo2       = byDate(spo2Data)
     const stress     = byDate(stressData)
+    const cardioAge  = byDate(cardioAgeData)
+    const vo2        = byDate(vo2Data)
+    const resilience = byDate(resilienceData)
 
     const allDates = new Set([
       ...Object.keys(sleep),
@@ -52,6 +67,9 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
       ...Object.keys(readiness),
       ...Object.keys(spo2),
       ...Object.keys(stress),
+      ...Object.keys(cardioAge),
+      ...Object.keys(vo2),
+      ...Object.keys(resilience),
     ])
 
     const upserts = Array.from(allDates).map(dateStr => {
@@ -67,6 +85,9 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
       const r = readiness[dateStr]
       const o = spo2[dateStr]
       const t = stress[dateStr]
+      const ca = cardioAge[dateStr]
+      const v = vo2[dateStr]
+      const res = resilience[dateStr]
 
       // When Oura published a session for this day but it fails the test, the
       // values already stored came from that same fragment — so clearing them
@@ -120,6 +141,15 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         // Stress
         ...(t?.stressHighMin      != null && { stressHigh:           t.stressHighMin }),
         ...(t?.recoveryHighMin    != null && { recoveryHigh:         t.recoveryHighMin }),
+        ...(t?.summary            != null && { stressSummary:        t.summary }),
+
+        // The long-range scores. Each updates on its own cadence — VO2 max
+        // monthly at best — so a day without one is normal, not a gap, and the
+        // spread keeps the previous value rather than nulling it.
+        ...(ca?.vascularAge       != null && { cardiovascularAge:    ca.vascularAge }),
+        ...(ca?.pulseWaveVelocity != null && { pulseWaveVelocity:    ca.pulseWaveVelocity }),
+        ...(v?.vo2Max             != null && { vo2Max:               v.vo2Max }),
+        ...(res?.level            != null && { resilienceLevel:      res.level }),
         syncedAt: new Date(),
       }
 

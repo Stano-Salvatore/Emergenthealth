@@ -281,6 +281,21 @@ Roughly in order, most recent first:
   Bedtime goes through `bedtimeMinutesLate`, shared with the caffeine cutoff:
   01:20 must read as later than 23:08 or a week straddling midnight averages to
   the middle of the afternoon.
+- **Three Oura endpoints we had never called.** `daily_cardiovascular_age`
+  (vascular age and pulse wave velocity), `vO2_max` (cardio capacity) and
+  `daily_resilience` (Oura's own word — solid, strong — kept verbatim rather
+  than mapped onto a scale we would have to invent). The stress endpoint's
+  `day_summary`, the "Balanced day" wording, was being fetched and thrown away;
+  it is stored now. All are weekly-cadence numbers, so a day without one is
+  normal rather than a gap, and they render only on the days Oura published
+  them rather than showing a stale figure as today's.
+  **Every mapper here was written from documentation, not from a payload**,
+  which is how `awake_duration` happened — so each one calls `warnIfEmpty`, and
+  a document that maps to nothing logs the keys it actually had instead of
+  leaving a column quietly null forever. `sleep_time` (the Body Clock card) is
+  deliberately **not** included: its response nests an object whose shape could
+  not be verified, and guessing a nested shape is precisely the mistake this
+  guard exists to catch.
 - **Oura closed the personal access token door in December 2025.** New tokens
   cannot be created, and only OAuth works for a new connection. The Settings
   card still said "get yours at cloud.ouraring.com/personal-access-tokens",
@@ -485,18 +500,20 @@ Roughly in order, most recent first:
   next one arrives. Needs a timer, and an APK.
 - `EMAIL_FROM` is unset — the sender is Resend's sandbox, which only reaches
   the account owner. Needs a domain.
-- **Four Oura endpoints we have never called**, all confirmed to exist in the
-  v2 API and all visible in the user's own Oura app: `daily_cardiovascular_age`,
-  `vO2_max`, `daily_resilience` and `sleep_time` (the Body Clock card). The
-  `daily_stress` response also carries a day summary — the "Balanced day"
-  wording — which the sync currently drops, keeping only the high-stress and
-  high-recovery minutes. Cardio capacity and resilience are the two worth
-  having: VO2 max is the one number on those screens a training plan moves, and
-  cumulative stress went Low to High in mid-August and stayed there. Needs new
-  columns, a migration and sync work. Typical Sleep Score, Sleep Debt, Sleep
-  Regularity, Daily Sleep Need and Symptom Radar did **not** appear in the API
-  docs — sleep debt and regularity we could compute from the bedtimes and
-  durations already stored, which beats copying a number we cannot explain.
+- **`sleep_time` (Oura's Body Clock) is still unsynced.** Its response nests an
+  optimal-bedtime object whose exact shape could not be verified from outside
+  the API, and the awake-time bug is what guessing a shape looks like. Worth
+  adding once a real payload is in hand — `warnIfEmpty` will say immediately
+  whether the keys are right.
+- **Verify the three new Oura mappers against a real sync.** Vascular age and
+  resilience field names came from the API documentation and are believed
+  correct; VO2 max's is the least certain. The first sync after deploy will log
+  `[oura] <endpoint> mapped no values` with the real keys if any of them is
+  wrong. Check the Vercel logs once, then this can be struck off.
+- **Typical Sleep Score, Sleep Debt, Sleep Regularity, Daily Sleep Need and
+  Symptom Radar** appear in the Oura app but not in the API docs. Sleep debt
+  and regularity are computable from the bedtimes and durations already stored,
+  which beats copying a number we cannot explain.
 - **The rest of the chat bill.** The parser takes the log lines; three levers
   are left, in order of payoff. (1) `EMERGY_CHAT_EFFORT` is wired
   (`chatEffort()` in `claude.ts`) but unset in production, so every turn runs

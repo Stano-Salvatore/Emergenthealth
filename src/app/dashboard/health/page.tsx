@@ -129,6 +129,9 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
       skinTemp: true,
       sleepEfficiency: true,
       sleepLatency: true,
+      cardiovascularAge: true,
+      vo2Max: true,
+      resilienceLevel: true,
       stressHigh: true,
       totalCalories: true,
       distanceKm: true,
@@ -448,6 +451,21 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                     {latestLog.restlessPeriods != null && (
                       <StatBox icon={<span className="text-sm">🔄</span>} label="Restless"
                         value={`${latestLog.restlessPeriods}×`} />
+                    )}
+                    {/* Oura's long-range scores. Each updates on its own
+                        cadence, so these render only on the days it published
+                        one rather than showing a stale figure as today's. */}
+                    {latestLog.vo2Max != null && (
+                      <StatBox icon={<span className="text-sm">🫀</span>} label="Cardio capacity"
+                        value={`VO₂ ${Math.round(latestLog.vo2Max)}`} />
+                    )}
+                    {latestLog.cardiovascularAge != null && (
+                      <StatBox icon={<span className="text-sm">🎂</span>} label="Vascular age"
+                        value={`${Math.round(latestLog.cardiovascularAge)} yr`} />
+                    )}
+                    {latestLog.resilienceLevel != null && (
+                      <StatBox icon={<span className="text-sm">🛡️</span>} label="Resilience"
+                        value={latestLog.resilienceLevel} />
                     )}
                     {latestLog.breathingRate != null && (
                       <StatBox icon={<Wind className="h-4 w-4 text-teal-400" />} label="Breathing rate"

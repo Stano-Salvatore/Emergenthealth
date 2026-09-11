@@ -1087,6 +1087,9 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
           // score instead — which mixes latency in with six other things.
           sleepLatency: true, sleepEfficiency: true, restlessPeriods: true,
           timeInBed: true, sleepStart: true,
+          // Weekly-cadence scores: absent on most days by design, so they cost
+          // nothing in the rows and appear on the days Oura republished them.
+          cardiovascularAge: true, vo2Max: true, resilienceLevel: true, stressSummary: true,
         },
       }).catch(() => [] as any[]),
       prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
@@ -1185,6 +1188,12 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         if (l.sleepStart != null) sleepDetail.push(`to bed ${localTimeStr(rangeTz, l.sleepStart)}`)
         if (l.restlessPeriods != null) sleepDetail.push(`${l.restlessPeriods} restless periods`)
         if (sleepDetail.length) parts.push(sleepDetail.join(", "))
+        const slow: string[] = []
+        if (l.vo2Max != null) slow.push(`VO2 max ${Math.round(l.vo2Max)}`)
+        if (l.cardiovascularAge != null) slow.push(`vascular age ${Math.round(l.cardiovascularAge)}`)
+        if (l.resilienceLevel != null) slow.push(`resilience ${l.resilienceLevel}`)
+        if (l.stressSummary != null) slow.push(`day was ${l.stressSummary}`)
+        if (slow.length) parts.push(slow.join(", "))
       }
       const dayTags = tagsByDay.get(d)
       if (dayTags?.length) parts.push(`Oura tags: ${dayTags.join(", ")}`)
