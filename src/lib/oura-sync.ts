@@ -44,21 +44,50 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
       getDailyResilience(userId, startDate, endDate),
     ])
 
+    // A rejected endpoint contributes no days — and used to do so in complete
+    // silence, which left "Oura has no VO2 max for you" and "this token was
+    // never granted that scope" looking identical from the outside: an empty
+    // column either way, with nothing in the logs to tell them apart.
+    //
+    // warnIfEmpty covers the document that arrives and maps to nothing. This
+    // covers the document that never arrives, which is the other half of the
+    // same question and the one that actually bit: three new endpoints shipped,
+    // three columns stayed empty, and the logs had no opinion about why.
+    //
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const byDate = (result: PromiseSettledResult<any[]>): Record<string, any> =>
-      result.status === "fulfilled"
-        ? Object.fromEntries(result.value.map((r: any) => [r.date, r])) // eslint-disable-line @typescript-eslint/no-explicit-any
-        : {}
+    const byDate = (endpoint: string, result: PromiseSettledResult<any[]>): Record<string, any> => {
+      if (result.status === "rejected") {
+        console.warn(`[oura] ${endpoint} request failed: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
+        return {}
+      }
+      if (result.value.length === 0) {
+        // Not an error. Oura publishes some of these on its own cadence, and a
+        // plan or scope that excludes one returns an empty list rather than a
+        // failure — so "no rows" is worth saying out loud before anyone spends
+        // an afternoon deciding a key name was wrong.
+        console.warn(`[oura] ${endpoint} returned no days for this window`)
+      }
+      return Object.fromEntries(result.value.map((r: any) => [r.date, r])) // eslint-disable-line @typescript-eslint/no-explicit-any
+    }
 
-    const sleep      = byDate(sleepData)
-    const sleepScore = byDate(sleepScoreData)
-    const activity   = byDate(activityData)
-    const readiness  = byDate(readinessData)
-    const spo2       = byDate(spo2Data)
-    const stress     = byDate(stressData)
-    const cardioAge  = byDate(cardioAgeData)
-    const vo2        = byDate(vo2Data)
-    const resilience = byDate(resilienceData)
+    /**
+     * What to write for SpO2: the value when it is plausible, an explicit null
+     * when Oura sent an impossible one, and nothing at all when it sent none.
+     */
+    const spo2Correction = (value: number | null | undefined): { spo2?: number | null } => {
+      if (value == null) return {}
+      return plausibleSpo2(value) != null ? { spo2: value } : { spo2: null }
+    }
+
+    const sleep      = byDate("daily_sleep", sleepData)
+    const sleepScore = byDate("daily_sleep_scores", sleepScoreData)
+    const activity   = byDate("daily_activity", activityData)
+    const readiness  = byDate("daily_readiness", readinessData)
+    const spo2       = byDate("daily_spo2", spo2Data)
+    const stress     = byDate("daily_stress", stressData)
+    const cardioAge  = byDate("daily_cardiovascular_age", cardioAgeData)
+    const vo2        = byDate("vO2_max", vo2Data)
+    const resilience = byDate("daily_resilience", resilienceData)
 
     const allDates = new Set([
       ...Object.keys(sleep),
@@ -134,7 +163,21 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         // SpO2
         // Not `!= null`: two days in this database hold an SpO2 of 0, which
         // that check waves through as a reading. See lib/vitals.
-        ...(plausibleSpo2(o?.spo2) != null && { spo2:                 o!.spo2 }),
+        // A number that arrived and failed the plausibility check is not the
+        // same as no number at all, and the difference decides whether a bad
+        // value already in the row survives.
+        //
+        // 21 nights in this database hold an SpO2 of exactly 0 — impossible,
+        // written before the guard above existed, each one still drawn on the
+        // Health chart as a plunge to zero. The guard stopped new ones and
+        // could never repair those, because omitting the field leaves whatever
+        // is already stored untouched. Writing null does repair them, on the
+        // next sync that covers the day.
+        //
+        // Only when Oura actually sent something implausible, though. A day it
+        // simply has no reading for must leave the stored value alone, or a
+        // 30-day window would wipe every figure older than its own reach.
+        ...(spo2Correction(o?.spo2)),
         ...(o?.breathingDisturbance != null && { breathingDisturbance: o.breathingDisturbance }),
         // Sleep score (from /daily_sleep, separate from /sleep metrics)
         ...(sc?.score             != null && { sleepScore:           sc.score }),
