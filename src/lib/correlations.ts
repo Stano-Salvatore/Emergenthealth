@@ -9,6 +9,7 @@ import { computeTargets } from "@/lib/targets"
 import { estimateHome, summariseDays, AWAY_KM } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
 import { bedtimeMinutesLate } from "@/lib/caffeine-cutoff"
+import { ALCOHOL_TYPES, ethanolGrams } from "@/lib/body-load"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
 // (interactive dashboard) and the correlation-watch cron (pin & watch alerts).
@@ -37,7 +38,21 @@ type DayData = {
   caffeineMg?: number
   /** The part of the day's caffeine taken after 16:00 — the dose the night still has to clear. */
   lateCaffeineMg?: number
-  alcoholMl?: number
+  /**
+   * Grams of ethanol, which is the only number that means anything.
+   *
+   * The volume is deliberately not kept. Beer and wine already reach this
+   * engine as fluid through HYDRATING_TYPES, discounted 0.8 and 0.4; a second
+   * millilitre figure here had no reader once every threshold moved to grams,
+   * and a field that is written and never read is how sleep latency sat in the
+   * database for months.
+   *
+   * 300ml of beer and 300ml of wine are the same millilitres and not the same
+   * evening. Every threshold in this file is in grams for that reason, and the
+   * per-drink ABV comes from the note where the log carries one ("Beer 4.8%")
+   * and from the type where it does not.
+   */
+  alcoholG?: number
   /**
    * Names of places checked into on this day, accent-folded (see foldPlace).
    * A visit is a fact about the day the same way a coffee is.
@@ -158,7 +173,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 12
+export const ENGINE_VERSION = 13
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -236,6 +251,18 @@ export function balancedCut(raw: (number | undefined)[], fixed: number): Cut {
   if (cut == null || thinnerSide(cut) < 5) return fixedCut
   return { at: cut, personal: true }
 }
+
+/**
+ * One standard drink, in grams of ethanol — the line between "had a drink"
+ * and "had a sip of someone else's".
+ *
+ * It replaces a 50 ml volume threshold that meant nothing: fifty millilitres
+ * is two grams of ethanol in beer and five in wine, so the same number was
+ * two different questions depending on what was in the glass. Ten grams is
+ * the WHO/NIAAA standard-drink figure, give or take the country, and it is
+ * roughly a 250 ml glass of 5% beer.
+ */
+const STANDARD_DRINK_G = 10
 
 /**
  * After this o'clock, local, a dose still has most of its work to do by
@@ -653,9 +680,12 @@ export async function computeCorrelations(
     }).catch(() => [] as { loggedAt: Date; caffeineMg: number }[]),
 
     prisma.intakeLog.findMany({
-      where: { userId, type: "alcohol", loggedAt: { gte: since60 } },
-      select: { loggedAt: true, amountMl: true },
-    }).catch(() => [] as { loggedAt: Date; amountMl: number }[]),
+      // Not `type: "alcohol"`. That is one of four alcohol types and the least
+      // used of them — the Intake screen has its own buttons for beer, wine and
+      // spirits, so nobody taps the generic one. See ALCOHOL_TYPES.
+      where: { userId, type: { in: [...ALCOHOL_TYPES] }, loggedAt: { gte: since60 } },
+      select: { loggedAt: true, amountMl: true, type: true, note: true },
+    }).catch(() => [] as { loggedAt: Date; amountMl: number; type: string; note: string | null }[]),
 
     prisma.$queryRaw<{ key: string; value: string }[]>`
       SELECT "key", "value"
@@ -968,7 +998,7 @@ export async function computeCorrelations(
 
   for (const a of alcoholRows) {
     const d = getOrCreate(localDay(a.loggedAt))
-    d.alcoholMl = (d.alcoholMl ?? 0) + Number(a.amountMl)
+    d.alcoholG = (d.alcoholG ?? 0) + ethanolGrams(a.type, Number(a.amountMl), a.note ?? undefined)
     d.logged = true
   }
 
@@ -1365,7 +1395,7 @@ export async function computeCorrelations(
   const alcoholHrv = new Split()
   const alcoholSleepEff = new Split()
   for (const d of days) {
-    const drank = (d.alcoholMl ?? 0) > 50
+    const drank = (d.alcoholG ?? 0) >= STANDARD_DRINK_G
     const next = byDate[nextDateStr(d.date)]
     if (!next) continue
     if (next.hrv != null) { if (drank) alcoholHrv.add(true, next.hrv); else alcoholHrv.add(false, next.hrv) }
@@ -1404,8 +1434,8 @@ export async function computeCorrelations(
     }
     const next = tonight(d)
     if (!next || next.restingHR == null) continue
-    if (d.alcoholMl != null || d.sleepDuration != null) {
-      const drank = (d.alcoholMl ?? 0) > 50
+    if (d.alcoholG != null || d.sleepDuration != null) {
+      const drank = (d.alcoholG ?? 0) >= STANDARD_DRINK_G
       if (drank) alcoholRhrDrinkSplit.add(true, next.restingHR)
       else alcoholRhrDrinkSplit.add(false, next.restingHR)
     }
@@ -2045,7 +2075,7 @@ export async function computeCorrelations(
   // still has to clear the 5-day minimum, so it stays quiet until there's
   // genuinely enough overlap.
   const MODIFIERS: { key: string; label: string; test: (d: DayData) => boolean }[] = [
-    { key: "alcohol",  label: "alcohol",          test: d => (d.alcoholMl ?? 0) > 50 },
+    { key: "alcohol",  label: "alcohol",          test: d => (d.alcoholG ?? 0) >= STANDARD_DRINK_G },
     { key: "caffeine", label: `${cafLabel} caffeine`, test: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
   ]
   for (const supp of topSupps.slice(0, 3)) {
@@ -2107,7 +2137,7 @@ export async function computeCorrelations(
     // Suspects worth testing. Sleep and alcohol look at the *previous* day —
     // a hangover headache belongs to last night's drinking, not this morning's.
     const SUSPECTS: { key: string; label: string; test: (d: DayData, prev?: DayData) => boolean | null }[] = [
-      { key: "alcohol", label: "the day after drinking", test: (_d, prev) => prev ? (prev.alcoholMl ?? 0) > 50 : null },
+      { key: "alcohol", label: "the day after drinking", test: (_d, prev) => prev ? (prev.alcoholG ?? 0) >= STANDARD_DRINK_G : null },
       { key: "caffeine", label: `${cafLabel} caffeine days`, test: d => d.caffeineMg != null ? d.caffeineMg >= cuts.caffeine.at : null },
       { key: "short_sleep", label: "after under 7h sleep", test: d => d.sleepDuration != null ? d.sleepDuration < 7 : null },
       { key: "poor_sleep", label: "after a sub-70 sleep score", test: d => d.sleepScore != null ? d.sleepScore < 70 : null },
@@ -2508,8 +2538,8 @@ export async function computeCorrelations(
       if (d.caffeineMg >= cuts.caffeine.at) caffeineDeep.add(true, next.deepSleepMin)
       else caffeineDeep.add(false, next.deepSleepMin)
     }
-    if (next?.remSleepMin != null && (d.alcoholMl != null || d.caffeineMg != null)) {
-      if ((d.alcoholMl ?? 0) > 50) alcoholRemDrinkSplit.add(true, next.remSleepMin)
+    if (next?.remSleepMin != null && (d.alcoholG != null || d.caffeineMg != null)) {
+      if ((d.alcoholG ?? 0) >= STANDARD_DRINK_G) alcoholRemDrinkSplit.add(true, next.remSleepMin)
       else alcoholRemDrinkSplit.add(false, next.remSleepMin)
     }
   }
@@ -2710,7 +2740,7 @@ export async function computeCorrelations(
       const sys = d.systolic!
       if (d.sleepDuration != null) { if (d.sleepDuration < 7) bpShortSleepSplit.add(true, sys); else bpShortSleepSplit.add(false, sys) }
       const prev = byDate[prevDateStr2(d.date)]
-      if (prev) { if ((prev.alcoholMl ?? 0) > 50) bpAfterDrinksSplit.add(true, sys); else bpAfterDrinksSplit.add(false, sys) }
+      if (prev) { if ((prev.alcoholG ?? 0) >= STANDARD_DRINK_G) bpAfterDrinksSplit.add(true, sys); else bpAfterDrinksSplit.add(false, sys) }
       if (d.caffeineMg != null) { if (d.caffeineMg >= cuts.caffeine.at) bpCaf.add(true, sys); else bpCaf.add(false, sys) }
     }
     const ins_bp_sleep = compareGroups({
@@ -2978,7 +3008,7 @@ export async function computeCorrelations(
       coverage: coverageNote,
       test: d => {
         if (!d.logged) return null
-        return (d.alcoholMl ?? 0) > 0
+        return (d.alcoholG ?? 0) > 0
       },
     },
     // Place as a moderator, not as a cause. "Every time I was at Kaviareň Vták
@@ -3257,7 +3287,7 @@ export async function computeCorrelations(
     // Back-to-back drinking. The HRV recorded for the morning is the
     // consequence of the night before it — so day D+1 records the effect of
     // day D's alcohol.
-    const alc = streakLen(d => (d.alcoholMl ?? 0) > 0)
+    const alc = streakLen(d => (d.alcoholG ?? 0) > 0)
     const alcSingleSplit = new Split()
     for (let i = 0; i < dense.length - 1; i++) {
       const n = alc[i]
@@ -3471,7 +3501,7 @@ export async function computeCorrelations(
         id: "alcohol_hrv_by_workout",
         title: "Alcohol → HRV × Workout that day",
         emoji: "🍷",
-        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
         outcome: { label: "morning HRV", nextDay: true, accessor: d => d.hrv, higherIsBetter: true },
         moderator: { key: "workout", onLabel: "with a workout that day", offLabel: "without a workout",
                      predicate: d => (d.workoutMin ?? 0) >= 20 },
@@ -3480,7 +3510,7 @@ export async function computeCorrelations(
         id: "alcohol_sleep_by_early_dinner",
         title: "Alcohol → Sleep × Early dinner",
         emoji: "🌙",
-        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
         outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
         moderator: { key: "early_dinner", onLabel: "when dinner was before 8pm", offLabel: "when it was later",
                      predicate: d => d.lastMealMin != null && d.lastMealMin < 20 * 60 },
@@ -3537,7 +3567,7 @@ export async function computeCorrelations(
         id: "alcohol_efficiency_by_early_dinner",
         title: "Alcohol → Sleep efficiency × Early dinner",
         emoji: "🍷",
-        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
         outcome: { label: "sleep efficiency", nextDay: false, accessor: d => d.sleepEfficiency, higherIsBetter: true },
         moderator: { key: "early_dinner", onLabel: "when dinner was before 8pm", offLabel: "when it was later",
                      predicate: d => d.lastMealMin != null && d.lastMealMin < 20 * 60 },
@@ -3573,7 +3603,7 @@ export async function computeCorrelations(
         id: "alcohol_energy_by_water",
         title: "Alcohol → Next-day Energy × Water intake",
         emoji: "💧",
-        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
         outcome: { label: "next-day energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
         moderator: { key: "hydrated", onLabel: `when you drank ${waterLabel}+ of fluid`,
                      offLabel: "when you didn't",
@@ -3588,7 +3618,7 @@ export async function computeCorrelations(
         outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
         moderator: { key: "alcohol", onLabel: "when alcohol was also involved",
                      offLabel: "on dry late-meal days",
-                     predicate: d => (d.alcoholMl ?? 0) > 0 },
+                     predicate: d => (d.alcoholG ?? 0) > 0 },
       },
     ]
 
@@ -3716,7 +3746,7 @@ export async function computeCorrelations(
       test: (d: DayData) => boolean
     }
     const COMBO_CONDITIONS: ComboCondition[] = [
-      { key: "alcohol", short: "Alcohol", label: "alcohol", test: d => (d.alcoholMl ?? 0) > 0 },
+      { key: "alcohol", short: "Alcohol", label: "alcohol", test: d => (d.alcoholG ?? 0) > 0 },
       { key: "caffeine", short: "Heavy caffeine", label: `${cafLabel} of caffeine`, test: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
       { key: "late_meal", short: "Late meal", label: "a late meal", test: d => d.lastMealMin != null && d.lastMealMin >= 21 * 60 },
       { key: "short_night", short: "Short night", label: "a short night before", test: d => d.sleepDuration != null && d.sleepDuration < 7 },
@@ -3940,7 +3970,7 @@ export async function computeCorrelations(
     }[] = [
       { key: "calories", label: "Calories", unit: "kcal a day", per: d => d.calories ?? null },
       { key: "protein", label: "Protein", unit: "g of protein a day", per: d => d.proteinG ?? null },
-      { key: "alcohol", label: "Alcohol", unit: "ml of alcohol a day", per: d => d.alcoholMl ?? 0 },
+      { key: "alcohol", label: "Alcohol", unit: "g of alcohol a day", per: d => d.alcoholG ?? 0 },
       { key: "workout", label: "Workouts", unit: "minutes of exercise a day", per: d => d.workoutMin ?? 0 },
       { key: "steps", label: "Steps", unit: "steps a day", per: d => d.steps ?? null },
       { key: "sleep", label: "Sleep", unit: "hours of sleep a night", per: d => d.sleepDuration ?? null,

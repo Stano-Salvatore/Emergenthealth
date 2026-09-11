@@ -55,6 +55,26 @@ const ABV: Record<string, number> = {
   alcohol: 0.08, // cocktails and anything unlabelled
 }
 
+/**
+ * Every intake type that is a drink with alcohol in it.
+ *
+ * "alcohol" is one of four, not the name of the category. The Intake screen
+ * offers beer, wine and spirits as their own buttons — because the ABV table
+ * above needs to know which — and nobody taps the generic one when a specific
+ * one is right there. On this account that made 22 beers and glasses of wine,
+ * across 10 evenings, invisible to every query written as `type: "alcohol"`,
+ * and the correlation engine reported zero drinking days for a 90-day window
+ * that contained ten.
+ *
+ * The list lives here, with the ABV table, so a new type cannot be added to
+ * one without the other noticing.
+ */
+export const ALCOHOL_TYPES = ["beer", "wine", "spirits", "alcohol"] as const
+
+export function isAlcohol(type: string | null | undefined): boolean {
+  return (ALCOHOL_TYPES as readonly string[]).includes((type ?? "").toLowerCase())
+}
+
 /** Grams of ethanol in a logged drink. Returns 0 for non-alcoholic types. */
 export function ethanolGrams(type: string, amountMl: number, note?: string): number {
   const abvFromNote = note?.match(/(\d{1,2}(?:[.,]\d)?)\s*%/)

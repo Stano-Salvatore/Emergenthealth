@@ -1,6 +1,7 @@
 import { auth } from "@/auth"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { prisma } from "@/lib/prisma"
+import { hydrationMl } from "@/lib/hydration"
 import { NextResponse } from "next/server"
 import { subDays, format } from "date-fns"
 
@@ -119,9 +120,12 @@ export async function GET() {
   // ── Water streak ─────────────────────────────────────────────────────────────
   const waterByDay: Record<string, number> = {}
   for (const w of intakeLogs) {
-    if (w.type === "alcohol" || w.type === "coffee") continue
+    // Was: skip "alcohol" and "coffee", count everything else at full volume.
+    // That wrote off coffee entirely while crediting a litre of beer as a
+    // litre of water — the two errors the hydration module exists to settle.
+    // It knows coffee is fluid and beer is 0.8 of its volume.
     const d = format(new Date(w.loggedAt), "yyyy-MM-dd")
-    waterByDay[d] = (waterByDay[d] ?? 0) + w.amountMl
+    waterByDay[d] = (waterByDay[d] ?? 0) + hydrationMl(w.type, w.amountMl)
   }
   let waterStreak = 0
   const wCursor = new Date()

@@ -23,7 +23,19 @@ import { describe, it, expect, vi } from "vitest"
 // a cliff if there wasn't (40 vs 60). The moderator changes the effect from
 // -2 to -20, which is what an interaction card is for.
 
-const { DAYS, healthLogs, bodyRows, foodLogs, alcoholLogs, stravaRows } = vi.hoisted(() => {
+const { DAYS, healthLogs, bodyRows, foodLogs, alcoholLogs, stravaRows, isAlcoholQuery } = vi.hoisted(() => {
+  // The engine asks for every alcohol type now (`type: { in: [...] }`), not for
+  // the one literally spelled "alcohol". A mock that still matches the old
+  // shape silently hands back nothing — which is exactly how the real query
+  // hid 22 beers for months.
+  const isAlcoholQuery = (t: unknown) => {
+    // The hydration query is ALSO a `{ in: [...] }` — it asks for every drink
+    // that counts as fluid, beer and wine included. The alcohol set is the one
+    // without water in it.
+    const list = (t as { in?: unknown } | undefined)?.in
+    return Array.isArray(list) && list.includes("beer") && !list.includes("water")
+  }
+
   const DAYS = 60
   const dates: string[] = []
   const now = new Date()
@@ -51,6 +63,7 @@ const { DAYS, healthLogs, bodyRows, foodLogs, alcoholLogs, stravaRows } = vi.hoi
 
   return {
     DAYS,
+    isAlcoholQuery,
     healthLogs: dates.map((ds, i) => ({
       date: new Date(ds + "T00:00:00Z"),
       sleepScore: null, sleepDuration: 420, readinessScore: null,
@@ -80,7 +93,7 @@ const { DAYS, healthLogs, bodyRows, foodLogs, alcoholLogs, stravaRows } = vi.hoi
     alcoholLogs: dates
       .map((ds, i) => ({ ds, i }))
       .filter(({ i }) => drank(i))
-      .map(({ ds }) => ({ loggedAt: at(ds), amountMl: 50 })),
+      .map(({ ds }) => ({ loggedAt: at(ds), amountMl: 500, type: "beer", note: null })),
 
     stravaRows: dates
       .map((ds, i) => ({ ds, i }))
@@ -97,7 +110,7 @@ vi.mock("@/lib/prisma", () => ({
     stravaActivity: { findMany: vi.fn().mockResolvedValue(stravaRows) },
     intakeLog: {
       findMany: vi.fn((args: { where?: { type?: unknown } }) =>
-        Promise.resolve(args?.where?.type === "alcohol" ? alcoholLogs : [])),
+        Promise.resolve(isAlcoholQuery(args?.where?.type) ? alcoholLogs : [])),
     },
     habitCompletion: { findMany: vi.fn().mockResolvedValue([]) },
     weatherLog: { findMany: vi.fn().mockResolvedValue([]) },
