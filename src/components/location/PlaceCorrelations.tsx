@@ -55,20 +55,20 @@ function ConfidenceBadge({ confidence, n }: { confidence: Confidence; n: number 
   if (confidence === "low") {
     return (
       <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/20">
-        Low confidence (n={n})
+        {n} nights so far
       </span>
     )
   }
   if (confidence === "moderate") {
     return (
       <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/20">
-        Moderate (n={n})
+        {n} nights
       </span>
     )
   }
   return (
     <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-green-500/15 text-green-400 border border-green-500/20">
-      Good data (n={n})
+      {n} nights
     </span>
   )
 }
@@ -322,8 +322,8 @@ export default function PlaceCorrelations() {
       {/* ── Footnote ── */}
       {!loading && !error && !allEmpty && (
         <p className="text-xs text-muted-foreground text-center">
-          Delta = visit-night average vs your all-days baseline. Simpler statistics than the
-          patterns above — a confidence label from visit count, not a permutation test.
+          These compare nights after a visit against your average night. They are a rougher
+          measure than the patterns above, and the badge counts visits rather than testing them.
         </p>
       )}
     </div>

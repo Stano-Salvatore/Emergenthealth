@@ -186,6 +186,15 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  */
 export const ENGINE_VERSION = 14
 
+/**
+ * Both sides need this many days before a card is called confident.
+ *
+ * `insight-weakness.ts` used to declare its own copy of this number and write
+ * sentences about it. Two constants meaning one thing is how a card comes to
+ * say "under 10 days a side" while the engine has moved to a different bar.
+ */
+export const CONFIDENT_N = 10
+
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
 }
@@ -670,7 +679,7 @@ function compareGroups(opts: {
     lowGroupAvg: lowAvg,
     highGroupN: highValues.length,
     lowGroupN: lowValues.length,
-    confident: highValues.length >= 10 && lowValues.length >= 10,
+    confident: highValues.length >= CONFIDENT_N && lowValues.length >= CONFIDENT_N,
     pValue: permutationsOn ? blockPermutationP(series.obs, id) : 1,
     tier: "noise", // provisional — assignTiers() sets the real tier per run
   }

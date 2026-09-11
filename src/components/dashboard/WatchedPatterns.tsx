@@ -7,10 +7,13 @@ import { useInsightsPrefs } from "./insightsControls"
 
 type CorrelationItem = { id: string; emoji: string; finding: string; delta: number; confident?: boolean }
 
+// The same words the page's own period selector uses — these read "Overall /
+// 30d / 7d" while the selector eight inches up said "90 days / 30 days /
+// 7 days", for the identical three windows.
 const PERIODS: { key: "week" | "month" | "overall"; label: string }[] = [
-  { key: "overall", label: "Overall" },
-  { key: "month",   label: "30d" },
-  { key: "week",    label: "7d" },
+  { key: "overall", label: "90 days" },
+  { key: "month",   label: "30 days" },
+  { key: "week",    label: "7 days" },
 ]
 
 // All the correlations the user has pinned (⭐), gathered across every period
@@ -51,8 +54,8 @@ export function WatchedPatterns() {
             <Star className="h-4 w-4 text-amber-400" /> Watched patterns
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            Tap the ⭐ on any pattern to watch it. You&apos;ll get a notification when a watched pattern
-            flips direction, becomes statistically solid, or shifts significantly.
+            Tap the ⭐ on any pattern to watch it. You&apos;ll get a notification if a watched pattern
+            changes direction, becomes solid, or moves a long way.
           </p>
         </CardContent>
       </Card>

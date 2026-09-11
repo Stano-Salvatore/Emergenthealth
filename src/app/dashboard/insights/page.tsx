@@ -151,10 +151,15 @@ function InsightCard({ insight }: { insight: InsightResult }) {
                   : insight.confident ? "text-primary" : "text-muted-foreground",
               )}
             >
+              {/* The fallback used to read "Strong" for a card with no tier —
+                  which means only that both sides had ten days, and in plain
+                  English outranks "Solid", which means it survived correction
+                  across the whole run. The weaker badge read stronger. A card
+                  with no tier has not been placed, so it says so. */}
               {insight.tier === "strong" ? "Solid"
                 : insight.tier === "suggestive" ? "Suggestive"
                 : insight.tier === "noise" ? "Could be chance"
-                : insight.confident ? "Strong" : "Early"}
+                : "Not placed yet"}
             </Badge>
             {insight.weekendDriven && (
               // Not just suspicion — say how much survives without weekends,
@@ -197,7 +202,7 @@ function InsightCard({ insight }: { insight: InsightResult }) {
             href={`/dashboard/experiments?${new URLSearchParams({ name: suggestion.name, action: suggestion.action, outcome: suggestion.outcome })}`}
             className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline underline-offset-2"
           >
-            🧪 Test this properly
+            🧪 Run this as an experiment
           </Link>
         )}
 
@@ -307,7 +312,7 @@ export default function InsightsPage() {
       <div>
         <h1 className="text-2xl font-bold">Insights</h1>
         <p className="text-muted-foreground text-sm mt-0.5">
-          {data ? `Patterns found in your last ${data.dataRange.days} days of data` : "Patterns found in your last 60 days"}
+          {data ? `Patterns found in your last ${data.dataRange.days} days of data` : "Patterns found in your last 90 days"}
         </p>
 
         <div className="flex items-center justify-between gap-2 mt-3 flex-wrap">

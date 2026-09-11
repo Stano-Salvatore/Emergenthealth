@@ -22,8 +22,7 @@
 // power calculation, and an honest one needs an effect size we'd have to
 // assume. Naming the count and the bar is what the data supports.
 
-/** The engine's own confidence bound (compareGroups: both sides >= 10). */
-const CONFIDENT_N = 10
+import { CONFIDENT_N } from "./correlations"
 
 export interface WeaknessInput {
   tier?: "strong" | "suggestive" | "noise"
@@ -44,15 +43,15 @@ export function weaknessReason(ins: WeaknessInput): string | null {
   const lThin = ins.lowGroupN < CONFIDENT_N
 
   if (hThin && lThin) {
-    return `Both sides are thin — ${ins.highGroupN} and ${ins.lowGroupN} days. ` +
-      `Under ${CONFIDENT_N} days a side, nothing clears the chance test. More days decide this, not a bigger effect.`
+    return `Both sides are thin — ${ins.highGroupN} days and ${ins.lowGroupN}. ` +
+      `Under ${CONFIDENT_N} a side, no gap is big enough to stand out. More days will settle this, not a bigger difference.`
   }
   if (hThin || lThin) {
     const label = hThin ? ins.highGroupLabel : ins.lowGroupLabel
     const n = hThin ? ins.highGroupN : ins.lowGroupN
-    return `The “${label}” side has only ${n} day${n === 1 ? "" : "s"} in this window — ` +
-      `under ${CONFIDENT_N}, no difference can clear the chance test, however real the effect. This needs more days, not a bigger one.`
+    return `Only ${n} day${n === 1 ? "" : "s"} of "${label}" in this window. ` +
+      `Under ${CONFIDENT_N}, nothing can stand out, however real it is. This needs more days, not a bigger difference.`
   }
-  return `Sample size isn't the problem here — ${ins.highGroupN} vs ${ins.lowGroupN} days. ` +
-    `The gap itself is about what chance produces; if there's a real effect, it's small.`
+  return `There are enough days here — ${ins.highGroupN} and ${ins.lowGroupN}. ` +
+    `The gap is the size chance alone produces, so if something real is going on, it is small.`
 }

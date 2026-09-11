@@ -165,7 +165,11 @@ export async function GET(req: NextRequest) {
       const bigChange = Math.abs(cur.delta - prev.delta) >= BIG_CHANGE
       let reason: string | null = null
       if (flipped) reason = "flipped direction"
-      else if (nowConfident) reason = "is now statistically solid"
+      // NOT "is now statistically solid" — this fires on the day count alone
+      // (ten a side), and a card can cross it while still being badged "Could
+      // be chance" on the page the notification links to. Saying what actually
+      // changed keeps the push and the card telling the same story.
+      else if (nowConfident) reason = "has enough days to judge now"
       else if (bigChange) reason = cur.delta > prev.delta ? "strengthened" : "weakened"
       if (reason) changes.push({ finding: ins.finding, reason })
     }
