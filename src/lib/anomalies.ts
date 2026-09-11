@@ -30,6 +30,14 @@ export const TRACKED_METRICS: MetricSpec[] = [
   { key: "sleepDuration",  label: "Sleep duration",     unit: "h",   direction: "lower-is-worse",  emoji: "😴", minAbsShift: 0.8 },
   { key: "steps",          label: "Steps",              unit: "",    direction: "lower-is-worse",  emoji: "🚶", minAbsShift: 2000 },
   { key: "breathingRate",  label: "Breathing rate",     unit: "/min", direction: "higher-is-worse", emoji: "🫁", minAbsShift: 1 },
+  // Stored on 91% of nights since the ring was connected and never watched.
+  // Both move for reasons a person can act on — caffeine, a late drink, a
+  // racing head — which is exactly what makes a shift worth surfacing. The
+  // floors are set from real spread: latency swings 6 to 56 minutes in a
+  // normal week, so a 10-minute shift is the least that means anything, and
+  // efficiency lives in a tight 85-95 band where 4 points is a real move.
+  { key: "sleepLatency",   label: "Time to fall asleep", unit: "min", direction: "higher-is-worse", emoji: "⏳", minAbsShift: 10 },
+  { key: "sleepEfficiency", label: "Sleep efficiency",   unit: "%",   direction: "lower-is-worse",  emoji: "⚡", minAbsShift: 4 },
   { key: "skinTemp",       label: "Skin temperature",   unit: "°C",  direction: "higher-is-worse", emoji: "🌡️", minAbsShift: 0.4 },
 ]
 

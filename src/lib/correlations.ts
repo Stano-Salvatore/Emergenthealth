@@ -8,6 +8,7 @@ import { getGoals } from "@/lib/goals"
 import { computeTargets } from "@/lib/targets"
 import { estimateHome, summariseDays, AWAY_KM } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
+import { bedtimeMinutesLate } from "@/lib/caffeine-cutoff"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
 // (interactive dashboard) and the correlation-watch cron (pin & watch alerts).
@@ -16,6 +17,12 @@ type DayData = {
   date: string
   sleepScore?: number
   sleepDuration?: number // hours
+  /** Minutes from lights-out to asleep. Stored for months and never read until now. */
+  sleepLatencyMin?: number
+  /** Share of time in bed actually asleep, 0-100. */
+  sleepEfficiency?: number
+  /** Local minutes past midnight the night began — 23:08 is 1388, 01:20 is 80 + 1440. */
+  bedtimeMin?: number
   readiness?: number
   restingHR?: number
   stressHighMin?: number
@@ -28,7 +35,23 @@ type DayData = {
   mood?: number
   habitCount?: number
   caffeineMg?: number
+  /** The part of the day's caffeine taken after 16:00 — the dose the night still has to clear. */
+  lateCaffeineMg?: number
   alcoholMl?: number
+  /**
+   * Names of places checked into on this day, accent-folded (see foldPlace).
+   * A visit is a fact about the day the same way a coffee is.
+   */
+  places?: string[]
+  /**
+   * The user wrote something down today — a drink, a meal, a mood, a check-in.
+   *
+   * Absence of a caffeine log is not evidence of no caffeine unless the diary
+   * was open. On this account 26 days have caffeine, 6 have something else
+   * logged and no caffeine, and 58 have nothing at all: read as zeroes, those
+   * 58 turn "coffee vs no coffee" into "days I used the app vs days I didn't".
+   */
+  logged?: boolean
   tags?: string[]
   precipMm?: number
   tempMaxC?: number
@@ -45,6 +68,8 @@ type DayData = {
   custom?: Record<string, number>   // custom tracker values by metric id (logged days only)
   deepSleepMin?: number    // sleep architecture (Oura)
   remSleepMin?: number
+  /** Times the night was disturbed enough for the ring to call it restless. */
+  restlessPeriods?: number
   workoutMin?: number      // Strava moving time that day
   focusMin?: number        // completed focus-session minutes
   listeningMin?: number    // Last.fm music listening (estimated: tracks × 3min)
@@ -86,6 +111,27 @@ export type InsightResult = {
    * several will always look interesting by luck — this is what separates them.
    */
   tier: "strong" | "suggestive" | "noise"
+  /**
+   * Which false-discovery family this insight is judged inside.
+   *
+   * Unset means the main battery, where every test competes with every other
+   * — the right default, and the reason a single interesting finding among
+   * ninety-seven does not get to call itself strong.
+   *
+   * A pool is only granted where the test was pre-registered BEHIND a
+   * gatekeeper: the sleep panel asks one question per cause first, in the main
+   * battery, and only opens the six-aspect breakdown if that question is
+   * answered. Six tests you were licensed to run are a smaller family than
+   * ninety-seven you might have, and the bar moves with it — 0.10/97 versus
+   * 0.10/6 at rank one. Without this, a cause with a real effect on latency
+   * is rejected for the sole reason that the engine also asked about music.
+   */
+  pool?: string
+  /**
+   * Set where the comparison rests on days the user may simply not have logged.
+   * Rendered as a caveat, never silently absorbed into the delta.
+   */
+  coverage?: string
   /** True when the effect collapses or flips once weekends are excluded — the classic confounder. */
   weekendDriven?: boolean
   /** The same comparison on weekdays only — set alongside weekendDriven so the
@@ -112,7 +158,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 11
+export const ENGINE_VERSION = 12
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -189,6 +235,25 @@ export function balancedCut(raw: (number | undefined)[], fixed: number): Cut {
   // the borrowed number's meaning. Keep the textbook.
   if (cut == null || thinnerSide(cut) < 5) return fixedCut
   return { at: cut, personal: true }
+}
+
+/**
+ * After this o'clock, local, a dose still has most of its work to do by
+ * bedtime. Sixteen hundred is the number the Caffeine page already quotes.
+ */
+const LATE_CAFFEINE_MIN = 16 * 60
+
+/**
+ * One café, one key. Accents, case and stray punctuation are the difference
+ * between "Kaviareň Vták" and "Kaviaren Vtak", and nothing else is.
+ */
+export function foldPlace(name: string): string {
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
 }
 
 /**
@@ -434,19 +499,34 @@ export function interactionPermutationP(
 }
 
 /**
- * Benjamini-Hochberg false-discovery control at q=0.10 over a whole run's
- * insights, assigning each its trust tier in place.
+ * Benjamini-Hochberg false-discovery control at q=0.10, assigning each insight
+ * its trust tier in place.
+ *
+ * Applied within each `pool` rather than across the run. Everything without a
+ * pool is one family — the main battery — and the pools that exist are the
+ * gatekept ones: tests the engine was only allowed to run because a question
+ * asked in the main battery came back answered. Correcting those against the
+ * whole run would charge them for the ninety-odd tests they were never in.
  */
 export function assignTiers(insights: InsightResult[]): void {
-  const sorted = [...insights].sort((a, b) => a.pValue - b.pValue)
-  const m = sorted.length
-  let cutoffIdx = -1
-  for (let i = 0; i < m; i++) {
-    if (sorted[i].pValue <= ((i + 1) / m) * 0.10) cutoffIdx = i
+  const pools = new Map<string, InsightResult[]>()
+  for (const ins of insights) {
+    const key = ins.pool ?? ""
+    const list = pools.get(key)
+    if (list) list.push(ins)
+    else pools.set(key, [ins])
   }
-  sorted.forEach((ins, idx) => {
-    ins.tier = idx <= cutoffIdx ? "strong" : ins.pValue <= 0.10 ? "suggestive" : "noise"
-  })
+  for (const pool of pools.values()) {
+    const sorted = [...pool].sort((a, b) => a.pValue - b.pValue)
+    const m = sorted.length
+    let cutoffIdx = -1
+    for (let i = 0; i < m; i++) {
+      if (sorted[i].pValue <= ((i + 1) / m) * 0.10) cutoffIdx = i
+    }
+    sorted.forEach((ins, idx) => {
+      ins.tier = idx <= cutoffIdx ? "strong" : ins.pValue <= 0.10 ? "suggestive" : "noise"
+    })
+  }
 }
 
 function isWeekendDate(dateStr: string): boolean {
@@ -544,6 +624,10 @@ export async function computeCorrelations(
         activityScore: true,
         deepSleep: true,
         remSleep: true,
+        sleepLatency: true,
+        sleepEfficiency: true,
+        sleepStart: true,
+        restlessPeriods: true,
       },
     }),
 
@@ -598,7 +682,7 @@ export async function computeCorrelations(
     }).catch(() => [] as { title: string; start: Date }[]),
   ])
 
-  const [waterRows, foodRows, ouraTagRows, tzRow] = await Promise.all([
+  const [waterRows, foodRows, ouraTagRows, tzRow, placeCheckIns] = await Promise.all([
     prisma.intakeLog.findMany({
       where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: since60 } },
       select: { loggedAt: true, amountMl: true, type: true },
@@ -619,6 +703,16 @@ export async function computeCorrelations(
     prisma.userPreference.findUnique({
       where: { userId_key: { userId, key: "timezone" } },
     }).catch(() => null),
+
+    // Where you were. The places page had its own copy of this question and
+    // answered it out of a Google Timeline import run once in August; the
+    // engine never asked it at all. These are the live check-ins — the same
+    // rows the location page reads — so a place can finally face the same
+    // gates as a coffee.
+    prisma.$queryRaw<{ checkedAt: Date; place: string; isAuto: boolean }[]>`
+      SELECT "checkedAt", "place", "isAuto" FROM "CheckIn"
+      WHERE "userId" = ${userId} AND "checkedAt" >= ${since60}
+    `.catch(() => [] as { checkedAt: Date; place: string; isAuto: boolean }[]),
   ])
 
   // Sources that used to live only in the /api/stats mini-engine (music, money,
@@ -719,6 +813,11 @@ export async function computeCorrelations(
     return dayMap.get(dateStr)!
   }
 
+  // Days the diary was actually open. Set by every source the user types in —
+  // never by a sync, never by an automatic check-in, both of which happen
+  // whether or not anyone was paying attention. See DayData.logged.
+  const markLogged = (dateStr: string) => { getOrCreate(dateStr).logged = true }
+
   for (const l of healthLogs) {
     const dateStr = l.date.toISOString().slice(0, 10)
     const d = getOrCreate(dateStr)
@@ -732,12 +831,20 @@ export async function computeCorrelations(
     if (l.activityScore != null) d.activityScore = l.activityScore
     if (l.deepSleep != null) d.deepSleepMin = l.deepSleep
     if (l.remSleep != null) d.remSleepMin = l.remSleep
+    if (l.sleepLatency != null) d.sleepLatencyMin = l.sleepLatency
+    if (l.sleepEfficiency != null) d.sleepEfficiency = l.sleepEfficiency
+    if (l.restlessPeriods != null) d.restlessPeriods = l.restlessPeriods
+    // Bedtime as a number the engine can correlate on, wrapped past midnight so
+    // 01:20 reads as later than 23:08 rather than twenty-two hours earlier.
+    // Without the wrap, a run of late nights straddling midnight averages out
+    // to the middle of the afternoon.
   }
 
   for (const c of checkIns) {
     const d = getOrCreate(c.date)
     d.energy = c.energy
     d.mood = c.mood
+    d.logged = true
   }
 
   // Standalone mood logs (the mood button, Emergy's log_mood tool). The engine
@@ -747,12 +854,14 @@ export async function computeCorrelations(
     const dateStr = m.date.toISOString().slice(0, 10)
     const d = getOrCreate(dateStr)
     if (d.mood == null) d.mood = m.mood
+    d.logged = true
   }
 
   for (const cl of customLogRows) {
     const d = getOrCreate(cl.date.slice(0, 10))
     if (!d.custom) d.custom = {}
     d.custom[cl.metricId] = Number(cl.value)
+    d.logged = true
   }
 
   const habitCountByDay: Record<string, number> = {}
@@ -762,6 +871,7 @@ export async function computeCorrelations(
   }
   for (const [dateStr, count] of Object.entries(habitCountByDay)) {
     getOrCreate(dateStr).habitCount = count
+    markLogged(dateStr)
   }
 
 
@@ -805,8 +915,23 @@ export async function computeCorrelations(
   // attached to the wrong night, which is how an association nobody lived gets
   // published as a pattern.
   const tz = tzRow?.value || "UTC"
+
+  // Bedtime needs the user's clock, which only resolves here — so it is filled
+  // in a second pass rather than in the loop above. Late is always a bigger
+  // number (see bedtimeMinutesLate), or a week straddling midnight correlates
+  // against nonsense.
+  for (const l of healthLogs) {
+    if (l.sleepStart == null) continue
+    getOrCreate(l.date.toISOString().slice(0, 10)).bedtimeMin = bedtimeMinutesLate(l.sleepStart, tz)
+  }
   const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz })
   const localDay = (d: Date): string => dayFmt.format(d)
+
+  const timeFmt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false })
+  const localMinutes = (date: Date): number => {
+    const [h, m] = timeFmt.format(date).split(":").map(Number)
+    return (h % 24) * 60 + m
+  }
 
   // The earliest synced event marks where calendar knowledge begins. A day
   // with no events after that point is a genuinely quiet day; a day before it
@@ -826,25 +951,47 @@ export async function computeCorrelations(
     const dateStr = localDay(w.loggedAt)
     const d = getOrCreate(dateStr)
     d.waterMl = (d.waterMl ?? 0) + hydrationMl(w.type, w.amountMl)
+    d.logged = true
   }
 
   for (const c of caffeineRows) {
     const d = getOrCreate(localDay(c.loggedAt))
     d.caffeineMg = (d.caffeineMg ?? 0) + Number(c.caffeineMg)
+    // Timing is its own lever and the timestamps have carried it all along.
+    // A 200mg day that finished at 09:00 and a 200mg day whose second cup was
+    // at 18:30 are the same number and not the same night.
+    if (localMinutes(c.loggedAt) >= LATE_CAFFEINE_MIN) {
+      d.lateCaffeineMg = (d.lateCaffeineMg ?? 0) + Number(c.caffeineMg)
+    }
+    d.logged = true
   }
 
   for (const a of alcoholRows) {
     const d = getOrCreate(localDay(a.loggedAt))
     d.alcoholMl = (d.alcoholMl ?? 0) + Number(a.amountMl)
+    d.logged = true
+  }
+
+  // Places, folded so one café is one place. This account checks in at
+  // "Kaviareň Vták", "Kaviaren Vtak" and "Kaviareň vták" — eleven days that
+  // read as three places of nine, one and one, two of which are too small to
+  // test and the third of which is missing a fifth of its evidence.
+  const placeLabels = new Map<string, string>()
+  for (const c of placeCheckIns) {
+    const raw = (c.place ?? "").trim()
+    if (!raw) continue
+    const key = foldPlace(raw)
+    if (!key) continue
+    if (!placeLabels.has(key)) placeLabels.set(key, raw)
+    const d = getOrCreate(localDay(c.checkedAt))
+    if (!d.places) d.places = []
+    if (!d.places.includes(key)) d.places.push(key)
+    // A check-in you tapped is a diary entry; one the phone filed for you is not.
+    if (!c.isAuto) d.logged = true
   }
 
   // Food-tab meals: day totals, plus the local clock time of the day's last
   // meal (meal *timing* is a sleep lever the timestamps give us for free)
-  const timeFmt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false })
-  const localMinutes = (date: Date): number => {
-    const [h, m] = timeFmt.format(date).split(":").map(Number)
-    return (h % 24) * 60 + m
-  }
   for (const f of foodRows) {
     const dateStr = localDay(f.loggedAt)
     const d = getOrCreate(dateStr)
@@ -853,6 +1000,7 @@ export async function computeCorrelations(
     if (f.sugarG != null) d.sugarG = (d.sugarG ?? 0) + f.sugarG
     const min = localMinutes(f.loggedAt)
     if (d.lastMealMin == null || min > d.lastMealMin) d.lastMealMin = min
+    d.logged = true
   }
 
   for (const t of ouraTagRows) {
@@ -871,6 +1019,7 @@ export async function computeCorrelations(
     const d = getOrCreate(sy.day)
     d.symptoms ??= {}
     if ((d.symptoms[sy.name] ?? 0) < sy.severity) d.symptoms[sy.name] = sy.severity
+    d.logged = true
   }
 
   for (const a of stravaRows) {
@@ -1041,6 +1190,40 @@ export async function computeCorrelations(
   const cafUnderLabel = `under ${Math.round(cuts.caffeine.at)}mg`
   const stressLabel = `${Math.round(cuts.stress.at)}+ min high stress`
   const stressMinLabel = `${Math.round(cuts.stress.at)}+ min`
+
+  // ── What the sleep panel is allowed to ask about ─────────────────────────
+  //
+  // Decided on the full window and not per-pass, for the same reason the cuts
+  // above are: the weekend guard re-runs the battery on weekdays only, and a
+  // place that qualifies on one pass and not the other would have the guard
+  // comparing two different questions.
+  const placeVisitDays = new Map<string, number>()
+  const placeCaffeineDays = new Map<string, number>()
+  let caffeineDayCount = 0
+  for (const d of allDays) {
+    const hadCaffeine = (d.caffeineMg ?? 0) > 0
+    if (hadCaffeine) caffeineDayCount++
+    for (const key of d.places ?? []) {
+      placeVisitDays.set(key, (placeVisitDays.get(key) ?? 0) + 1)
+      if (hadCaffeine) placeCaffeineDays.set(key, (placeCaffeineDays.get(key) ?? 0) + 1)
+    }
+  }
+  const loggedDayCount = allDays.filter(d => d.logged).length
+
+  /** Places with days on both sides of the question, strongest first, capped. */
+  const pickPlaces = (counts: Map<string, number>, universe: number, cap: number): string[] =>
+    Array.from(counts.entries())
+      .filter(([, n]) => n >= 5 && universe - n >= 5)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, cap)
+      .map(([key]) => key)
+
+  // A place you go to every day is not a place, it is the baseline — an
+  // automatic check-in at city granularity ("Bratislava, Bratislava", 53 days
+  // here) has no other side to compare against, and the filter drops it.
+  const placesToTest = pickPlaces(placeVisitDays, allDays.length, 3)
+  const caffeinePlaces = pickPlaces(placeCaffeineDays, caffeineDayCount, 2)
+  const placeName = (key: string) => placeLabels.get(key) ?? key
 
   const deriveInsights = (days: DayData[]): InsightResult[] => {
   const insights: InsightResult[] = []
@@ -2677,6 +2860,255 @@ export async function computeCorrelations(
     if (ins_custom_energy) insights.push(ins_custom_energy)
   }
 
+  // ── The sleep panel ───────────────────────────────────────────────────────
+  //
+  // Seven things happen to a night — it gets longer or shorter, it scores
+  // better or worse, it takes longer to start, it wastes more time awake, it
+  // loses deep sleep, it loses REM, it gets more restless — and the engine
+  // was asking about them one at a time, each competing with every other test
+  // in the run.
+  //
+  // That is the wrong shape, and a dry run of this account's own ninety days
+  // showed exactly how wrong. Caffeine after 16:00 comes back at p=0.008 on
+  // the sleep score and p=0.012 on how long it takes to fall asleep. Both are
+  // real by any ordinary reading. Both were rejected: with thirty-five tests
+  // in one Benjamini-Hochberg family the rank-one bar sits at 0.0029, so the
+  // engine's own answer was "could be chance" — not because the evidence was
+  // weak but because the engine had also asked about music, spending and the
+  // weather. Zero strong, five suggestive, thirty noise.
+  //
+  // So the panel asks in two stages, which is a pre-registration and not a
+  // second attempt at the same data:
+  //
+  //   The GATE is one test per cause, on the night's own summary score, and
+  //   it lives in the main battery with everything else. It has to earn its
+  //   place against all ninety-odd tests, at p ≤ 0.05.
+  //
+  //   Only a cause that clears the gate gets its six ASPECTS run, and those
+  //   six are corrected among themselves (see InsightResult.pool). Six tests
+  //   you were licensed to run are a smaller family than ninety you might
+  //   have. The rank-one bar inside a pool of six is 0.0167, which is a bar
+  //   late caffeine clears on merit rather than one it is let through.
+  //
+  // The gate is the sleep score and the aspects are its components, so no
+  // question is asked twice.
+  //
+  // A cause returns `null` for a day that cannot answer. That is the whole of
+  // the coverage problem: this account logs caffeine on 26 days, logs
+  // something-but-no-caffeine on 6, and logs nothing at all on 58. Reading
+  // those 58 as caffeine-free days makes the comparison "days I used the app
+  // against days I didn't", which is a fact about the diary and not about
+  // coffee. They are excluded, and the gate card says how many.
+
+  type SleepCause = {
+    key: string
+    emoji: string
+    title: string
+    highLabel: string
+    lowLabel: string
+    /** true = the cause was present, false = a genuine control, null = this day cannot say. */
+    test: (d: DayData) => boolean | null
+    /** Shown on the gate card when days had to be set aside as unknown. */
+    coverage?: string
+  }
+
+  const SLEEP_ASPECTS: {
+    key: string
+    label: string
+    emoji: string
+    higherIsBetter: boolean
+    value: (n: DayData) => number | undefined
+    fmt: (v: number) => string
+  }[] = [
+    { key: "duration", label: "sleep length", emoji: "⏰", higherIsBetter: true,
+      value: n => n.sleepDuration, fmt: v => `${Math.floor(v)}h ${Math.round((v % 1) * 60)}m` },
+    { key: "latency", label: "time to fall asleep", emoji: "⏳", higherIsBetter: false,
+      value: n => n.sleepLatencyMin, fmt: v => `${Math.round(v)} min` },
+    { key: "efficiency", label: "sleep efficiency", emoji: "⚡", higherIsBetter: true,
+      value: n => n.sleepEfficiency, fmt: v => `${Math.round(v)}%` },
+    { key: "deep", label: "deep sleep", emoji: "🌊", higherIsBetter: true,
+      value: n => n.deepSleepMin, fmt: v => `${Math.round(v)} min` },
+    { key: "rem", label: "REM sleep", emoji: "🌀", higherIsBetter: true,
+      value: n => n.remSleepMin, fmt: v => `${Math.round(v)} min` },
+    { key: "restless", label: "restless periods", emoji: "🌪️", higherIsBetter: false,
+      value: n => n.restlessPeriods, fmt: v => `${Math.round(v)}` },
+  ]
+
+  /** A gate has to clear this in the main battery before its aspects are run. */
+  const SLEEP_GATE_P = 0.05
+
+  const unknownCaffeineDays = allDays.length - loggedDayCount
+  const coverageNote = unknownCaffeineDays >= 5
+    ? `${unknownCaffeineDays} of the ${allDays.length} days are left out: nothing at all was logged on them, so they are not evidence of a day without it.`
+    : undefined
+
+  const sleepCauses: SleepCause[] = [
+    {
+      key: "caffeine",
+      emoji: "☕",
+      title: "Caffeine",
+      highLabel: `${cafLabel} of caffeine`,
+      lowLabel: cafUnderLabel,
+      coverage: coverageNote,
+      test: d => {
+        if (!d.logged) return null
+        return (d.caffeineMg ?? 0) >= cuts.caffeine.at
+      },
+    },
+    {
+      // Timing, with the amount held still: both sides had caffeine, only one
+      // side had it late. Comparing late-caffeine days against no-caffeine
+      // days would answer the first question again in different words.
+      key: "late_caffeine",
+      emoji: "🌙",
+      title: "Caffeine After 16:00",
+      highLabel: "some caffeine after 16:00",
+      lowLabel: "all of it before 16:00",
+      test: d => {
+        if ((d.caffeineMg ?? 0) <= 0) return null
+        return (d.lateCaffeineMg ?? 0) > 0
+      },
+    },
+    {
+      key: "alcohol",
+      emoji: "🍷",
+      title: "Alcohol",
+      highLabel: "days with a drink",
+      lowLabel: "days without",
+      coverage: coverageNote,
+      test: d => {
+        if (!d.logged) return null
+        return (d.alcoholMl ?? 0) > 0
+      },
+    },
+    // Place as a moderator, not as a cause. "Every time I was at Kaviareň Vták
+    // I had coffee" is the reason: a plain place-vs-elsewhere test on that café
+    // is a caffeine test wearing a different hat, and would credit the room
+    // with what the cup did. Both sides of this one had caffeine.
+    ...caffeinePlaces.map((key): SleepCause => ({
+      key: `caffeine_at_${key.replace(/\s+/g, "_")}`,
+      emoji: "📍",
+      title: `Caffeine At ${placeName(key)}`,
+      highLabel: `caffeine at ${placeName(key)}`,
+      lowLabel: "caffeine anywhere else",
+      test: d => {
+        if ((d.caffeineMg ?? 0) <= 0) return null
+        return (d.places ?? []).includes(key)
+      },
+    })),
+  ]
+
+  for (const cause of sleepCauses) {
+    const gate = new Split()
+    for (const d of days) {
+      const side = cause.test(d)
+      if (side == null) continue
+      const night = byDate[nextDateStr(d.date)]
+      if (night?.sleepScore == null) continue
+      gate.add(side, night.sleepScore)
+    }
+
+    const gateIns = compareGroups({
+      id: `sleep_panel_${cause.key}`,
+      category: "sleep",
+      emoji: cause.emoji,
+      title: `${cause.title} & Sleep`,
+      highGroupLabel: cause.highLabel,
+      lowGroupLabel: cause.lowLabel,
+      series: gate,
+      findingTemplate: (hi, lo) =>
+        `After ${cause.highLabel} the night scores ${hi}; after ${cause.lowLabel}, ${lo}`,
+    })
+    if (!gateIns) continue
+    if (cause.coverage) gateIns.coverage = cause.coverage
+    insights.push(gateIns)
+
+    // The gate is the licence to look closer. On the weekday-only guard pass
+    // permutations are off and every p-value is 1, so the gate is held open —
+    // that pass exists for its deltas, and a panel the guard could never see
+    // would be a panel the weekend could quietly explain.
+    if (permutationsOn && gateIns.pValue > SLEEP_GATE_P) continue
+
+    for (const aspect of SLEEP_ASPECTS) {
+      const series = new Split()
+      for (const d of days) {
+        const side = cause.test(d)
+        if (side == null) continue
+        const night = byDate[nextDateStr(d.date)]
+        const v = night ? aspect.value(night) : undefined
+        if (v == null) continue
+        series.add(side, v)
+      }
+      const ins = compareGroups({
+        id: `sleep_panel_${cause.key}_${aspect.key}`,
+        category: "sleep",
+        emoji: aspect.emoji,
+        title: `${cause.title} & ${aspect.label[0].toUpperCase()}${aspect.label.slice(1)}`,
+        highGroupLabel: cause.highLabel,
+        lowGroupLabel: cause.lowLabel,
+        series,
+        higherIsBetter: aspect.higherIsBetter,
+        findingTemplate: (hi, lo) =>
+          `After ${cause.highLabel}, ${aspect.label} averages ${aspect.fmt(hi)}; after ${cause.lowLabel}, ${aspect.fmt(lo)}`,
+      })
+      if (!ins) continue
+      ins.pool = `sleep_panel_${cause.key}`
+      if (cause.coverage) ins.coverage = cause.coverage
+      insights.push(ins)
+    }
+  }
+
+  // ── Places, on their own terms ────────────────────────────────────────────
+  //
+  // The places page has had its own answer to this since long before the
+  // engine did, computed from a Google Timeline import that stopped being
+  // written to in August, and reported as a bare difference of averages with
+  // no test behind it at all. These are the live check-ins, and they face the
+  // same four gates as everything else here: five days a side, ten for
+  // "confident", a block permutation for the p-value, and the same
+  // false-discovery correction.
+  for (const key of placesToTest) {
+    const label = placeName(key)
+    const nightSeries = new Split()
+    const moodSeries = new Split()
+    for (const d of days) {
+      // A day with no check-in at all is not a day you were elsewhere — the
+      // phone was off, or the place was never saved. Counting it as "elsewhere"
+      // is the same mistake as reading a silent day as decaf, and the control
+      // group is the one that would quietly absorb it.
+      if (d.places == null) continue
+      const there = d.places.includes(key)
+      const night = byDate[nextDateStr(d.date)]
+      if (night?.sleepScore != null) nightSeries.add(there, night.sleepScore)
+      if (d.mood != null) moodSeries.add(there, d.mood)
+    }
+
+    const insSleep = compareGroups({
+      id: `place_sleep_${key.replace(/\s+/g, "_")}`,
+      category: "places",
+      emoji: "📍",
+      title: `${label} & That Night's Sleep`,
+      highGroupLabel: `days at ${label}`,
+      lowGroupLabel: "other days",
+      series: nightSeries,
+      findingTemplate: (hi, lo) =>
+        `The night after a day at ${label} scores ${hi}; other nights, ${lo}`,
+    })
+    if (insSleep) insights.push(insSleep)
+
+    const insMood = compareGroups({
+      id: `place_mood_${key.replace(/\s+/g, "_")}`,
+      category: "places",
+      emoji: "🙂",
+      title: `${label} & Mood`,
+      highGroupLabel: `days at ${label}`,
+      lowGroupLabel: "other days",
+      series: moodSeries,
+      findingTemplate: (hi, lo) => `Mood averages ${hi} on days at ${label}, ${lo} on other days`,
+    })
+    if (insMood) insights.push(insMood)
+  }
+
   return insights
   } // end deriveInsights
 
@@ -3005,6 +3437,16 @@ export async function computeCorrelations(
       emoji: string
       /** The behaviour being studied — measured on day D. */
       predictor: { label: string; predicate: (d: DayData) => boolean }
+      /**
+       * Days this question can be asked of at all. Everything else is dropped
+       * before the 2×2 is built rather than filed under "didn't do it".
+       *
+       * The caffeine interactions need it: a predicate is a boolean, and a day
+       * with nothing logged answers `false` to "any caffeine day" in exactly
+       * the same voice as a day you drank water and no coffee. One of those is
+       * a control and the other is a day nobody wrote anything down.
+       */
+      eligible?: (d: DayData) => boolean
       /** The number being watched — measured on day D or D+1. */
       outcome: {
         label: string
@@ -3065,12 +3507,40 @@ export async function computeCorrelations(
       },
       {
         id: "caffeine_sleep_by_amount",
+        // A silent day is not a decaf day — see InteractionDef.eligible.
+        eligible: d => d.logged === true || d.caffeineMg != null,
         title: "Caffeine → Sleep × Heavy vs light",
         emoji: "☕",
         predictor: { label: "any caffeine day", predicate: d => (d.caffeineMg ?? 0) > 0 },
         outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
         moderator: { key: "heavy_caffeine", onLabel: `on ${cafLabel} days`, offLabel: "on lighter days",
                      predicate: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
+      },
+      // Latency and efficiency have been stored on 91% of nights for months and
+      // never read. These two are deliberately pre-registered rather than a
+      // sweep: every family costs false-discovery budget for all the others, so
+      // they are the two questions worth spending it on. "Does coffee keep me
+      // lying there" is not answerable from sleep score, which mixes latency in
+      // with six other things.
+      {
+        id: "caffeine_latency_by_amount",
+        // A silent day is not a decaf day — see InteractionDef.eligible.
+        eligible: d => d.logged === true || d.caffeineMg != null,
+        title: "Caffeine → Time to fall asleep × Heavy vs light",
+        emoji: "☕",
+        predictor: { label: "any caffeine day", predicate: d => (d.caffeineMg ?? 0) > 0 },
+        outcome: { label: "minutes to fall asleep", nextDay: false, accessor: d => d.sleepLatencyMin, higherIsBetter: false },
+        moderator: { key: "heavy_caffeine", onLabel: `on ${cafLabel} days`, offLabel: "on lighter days",
+                     predicate: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
+      },
+      {
+        id: "alcohol_efficiency_by_early_dinner",
+        title: "Alcohol → Sleep efficiency × Early dinner",
+        emoji: "🍷",
+        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        outcome: { label: "sleep efficiency", nextDay: false, accessor: d => d.sleepEfficiency, higherIsBetter: true },
+        moderator: { key: "early_dinner", onLabel: "when dinner was before 8pm", offLabel: "when it was later",
+                     predicate: d => d.lastMealMin != null && d.lastMealMin < 20 * 60 },
       },
       {
         id: "long_calendar_sleep_by_workout",
@@ -3147,6 +3617,7 @@ export async function computeCorrelations(
       }
       for (let i = 0; i < dense.length - (def.outcome.nextDay ? 1 : 0); i++) {
         const day = dense[i]
+        if (def.eligible && !def.eligible(day)) continue
         if (!def.predictor.predicate(day)) {
           // Also need the "did NOT do predictor" side for comparison.
           const outcomeDay = def.outcome.nextDay ? dense[i + 1] : day

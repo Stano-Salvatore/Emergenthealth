@@ -106,7 +106,22 @@ describe("the answers stay in front of the model, and stay honest", () => {
 
   it("says what is missing rather than averaging over the gap", () => {
     expect(run).toContain("no data")
-    expect(run).toMatch(/const missing = days - nights\.length/)
+    expect(run).toMatch(/const missing =/)
+  })
+
+  it("does not count a night that has not happened as a night with no data", () => {
+    // Asked at 03:00, tonight's row does not exist yet — the ring files a night
+    // under the day you wake. Counting it as a gap invents one, and a false gap
+    // trains the reader to ignore the real ones.
+    expect(run).toMatch(/const pending =/)
+    expect(run).toMatch(/days - nights\.length - pending/)
+    expect(run).toContain("isn't in yet")
+  })
+
+  it("reads the sleep fields that were stored for months and never surfaced", () => {
+    for (const field of ["sleepLatency", "sleepEfficiency", "sleepStart"]) {
+      expect(run, `${field} is stored on 91% of nights`).toContain(field)
+    }
   })
 
   it("resolves chart data server-side from a whitelist", () => {

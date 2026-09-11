@@ -203,8 +203,8 @@ function EmptyState() {
         <div className="mb-3 text-5xl leading-none select-none">📍</div>
         <h3 className="text-base font-semibold text-foreground">No visit data yet</h3>
         <p className="mt-2 text-sm text-muted-foreground max-w-xs">
-          Drop your <code className="text-xs bg-secondary px-1 py-0.5 rounded">timeline-visits.json</code> into{" "}
-          <code className="text-xs bg-secondary px-1 py-0.5 rounded">data/</code> to see correlations.
+          Check in at a place — or save it, so arriving checks you in on its own —
+          and a few visits later this fills in.
         </p>
       </CardContent>
     </Card>

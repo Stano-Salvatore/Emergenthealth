@@ -43,6 +43,8 @@ export async function scanUserAnomalies(
       steps: true,
       breathingRate: true,
       skinTemp: true,
+      sleepLatency: true,
+      sleepEfficiency: true,
     },
   })
 
@@ -55,6 +57,7 @@ export async function scanUserAnomalies(
   const series: Record<string, DayValue[]> = {
     restingHR: [], hrv: [], sleepScore: [], readinessScore: [],
     sleepDuration: [], steps: [], breathingRate: [], skinTemp: [],
+    sleepLatency: [], sleepEfficiency: [],
   }
   const push = (key: string, date: string, value: number | null | undefined) => {
     if (value == null) return
@@ -71,6 +74,8 @@ export async function scanUserAnomalies(
     push("steps", date, l.steps)
     push("breathingRate", date, l.breathingRate)
     push("skinTemp", date, l.skinTemp)
+    push("sleepLatency", date, l.sleepLatency)
+    push("sleepEfficiency", date, l.sleepEfficiency)
   }
 
   const latestDate = iso(logs[logs.length - 1].date)

@@ -24,10 +24,14 @@ const SOURCE = readFileSync(join(process.cwd(), "src/lib/correlations.ts"), "utf
 // Any comparison of one of these fields against a bare number, e.g.
 // `d.caffeineMg >= 200` or `tempMaxC > 25`. The cut has to come from `cuts.*`.
 //
-// `> 0` is exempt: that is a presence test ("any caffeine day"), not a split
-// into high and low, and it needs no threshold to be defensible.
+// A comparison against zero is exempt in either direction: `> 0` asks whether
+// the day had any at all, and `<= 0` asks the same question to decide that a
+// day cannot answer the question being put to it (see the sleep panel, where a
+// day without caffeine is excluded from a test about caffeine TIMING rather
+// than counted as an early cup). Neither is a split into high and low, and
+// zero is not a borrowed number — it is where the source begins.
 const HARDCODED = /\b(caffeineMg|tempMaxC|stressHighMin|waterMl)\b\s*(?:\?\?\s*0\s*\)?\s*)?[<>]=?\s*\d+/g
-const PRESENCE = /[<>]\s*0$/
+const PRESENCE = /[<>]=?\s*0$/
 // `waterMl < 1500` in the symptom battery is a DEHYDRATION MARKER, not a goal.
 // The two water sites that mean "hit your daily target" use cuts.water; this
 // one asks whether a day was notably dry, and there is no per-person rule for

@@ -41,6 +41,11 @@ export const DRIFT_METRICS: DriftMetric[] = [
   { key: "restingHR",      label: "Resting heart rate", unit: "bpm", higherIsBetter: false, minShift: 3,    decimals: 0 },
   { key: "readinessScore", label: "Readiness",          unit: "",    higherIsBetter: true,  minShift: 6,    decimals: 0 },
   { key: "steps",          label: "Steps",              unit: "",    higherIsBetter: true,  minShift: 1500, decimals: 0 },
+  // Thresholds deliberately equal to the anomaly scan's — the guard below
+  // throws if they ever drift apart, so a month-on-month shift and a
+  // single-night spike mean the same thing to the user.
+  { key: "sleepLatency",    label: "Time to fall asleep", unit: "min", higherIsBetter: false, minShift: 10,  decimals: 0 },
+  { key: "sleepEfficiency", label: "Sleep efficiency",    unit: "%",   higherIsBetter: true,  minShift: 4,   decimals: 0 },
   { key: "mood",           label: "Mood",               unit: "/5",  higherIsBetter: true,  minShift: 0.4,  decimals: 1 },
   { key: "energy",         label: "Morning energy",     unit: "/5",  higherIsBetter: true,  minShift: 0.4,  decimals: 1 },
 ]
