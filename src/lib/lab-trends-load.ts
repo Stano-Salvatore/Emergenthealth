@@ -4,6 +4,7 @@
 import { prisma } from "@/lib/prisma"
 import { computeLabTrends, notableTrends, type DayFacts, type DayTags, type LabReading, type MarkerTrend } from "@/lib/lab-trends"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { ALCOHOL_TYPES, ethanolGrams } from "@/lib/body-load"
 
 export interface LabTrendsResult {
   trends: MarkerTrend[]
@@ -116,9 +117,11 @@ async function loadDayFacts(userId: string, since: string): Promise<DayFacts[]> 
     }).catch(() => [] as { date: Date; weightKg: number | null }[]),
 
     prisma.intakeLog.findMany({
-      where: { userId, type: "alcohol", loggedAt: { gte: sinceDate } },
-      select: { loggedAt: true, amountMl: true },
-    }).catch(() => [] as { loggedAt: Date; amountMl: number }[]),
+      // Beer, wine and spirits are alcohol. `type: "alcohol"` is the generic
+      // button nobody taps when a specific one exists — see ALCOHOL_TYPES.
+      where: { userId, type: { in: [...ALCOHOL_TYPES] }, loggedAt: { gte: sinceDate } },
+      select: { loggedAt: true, amountMl: true, type: true, note: true },
+    }).catch(() => [] as { loggedAt: Date; amountMl: number; type: string; note: string | null }[]),
 
     getUserTimezone(userId),
   ])
@@ -143,7 +146,7 @@ async function loadDayFacts(userId: string, since: string): Promise<DayFacts[]> 
   const alcoholByDay = new Map<string, number>()
   for (const a of alcoholRows) {
     const day = dayFmt.format(a.loggedAt)
-    alcoholByDay.set(day, (alcoholByDay.get(day) ?? 0) + a.amountMl)
+    alcoholByDay.set(day, (alcoholByDay.get(day) ?? 0) + ethanolGrams(a.type, a.amountMl, a.note ?? undefined))
   }
 
   return healthLogs.map(l => {
@@ -153,7 +156,7 @@ async function loadDayFacts(userId: string, since: string): Promise<DayFacts[]> 
       sleepH: l.sleepDuration != null ? l.sleepDuration / 60 : null,
       steps: l.steps,
       workoutMin: workoutByDay.get(day) ?? 0,
-      alcoholMl: alcoholByDay.get(day) ?? 0,
+      alcoholG: alcoholByDay.get(day) ?? 0,
       weightKg: weightByDay.get(day) ?? null,
     }
   }).sort((a, b) => a.day.localeCompare(b.day))

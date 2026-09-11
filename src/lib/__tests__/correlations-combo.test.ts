@@ -17,6 +17,18 @@ import { describe, it, expect, vi } from "vitest"
 // is the fishing trip this family is built not to be.
 
 const state = vi.hoisted(() => {
+  // The engine asks for every alcohol type now (`type: { in: [...] }`), not for
+  // the one literally spelled "alcohol". A mock that still matches the old
+  // shape silently hands back nothing — which is exactly how the real query
+  // hid 22 beers for months.
+  const isAlcoholQuery = (t: unknown) => {
+    // The hydration query is ALSO a `{ in: [...] }` — it asks for every drink
+    // that counts as fluid, beer and wine included. The alcohol set is the one
+    // without water in it.
+    const list = (t as { in?: unknown } | undefined)?.in
+    return Array.isArray(list) && list.includes("beer") && !list.includes("water")
+  }
+
   const DAYS = 90
   const dates: string[] = []
   const now = new Date()
@@ -55,14 +67,14 @@ const state = vi.hoisted(() => {
       alcoholLogs: dates
         .map((ds, i) => ({ ds, i }))
         .filter(({ i }) => A[i])
-        .map(({ ds }) => ({ loggedAt: new Date(ds + "T18:00:00.000Z"), amountMl: 50 })),
+        .map(({ ds }) => ({ loggedAt: new Date(ds + "T18:00:00.000Z"), amountMl: 500, type: "beer", note: null })),
     }
   }
 
   // The last day has no morning after it yet, so its combination is not an
   // observation — the same rule the engine applies.
   const tripleDays = dates.filter((_, i) => i < dates.length - 1 && A[i] && B[i] && C[i]).length
-  return { DAYS, tripleDays, current: build("triple"), build }
+  return { DAYS, tripleDays, isAlcoholQuery, current: build("triple"), build }
 })
 
 vi.mock("@/lib/prisma", () => ({
@@ -71,7 +83,7 @@ vi.mock("@/lib/prisma", () => ({
     foodLog: { findMany: vi.fn(() => Promise.resolve(state.current.foodLogs)) },
     intakeLog: {
       findMany: vi.fn((args: { where?: { type?: unknown } }) =>
-        Promise.resolve(args?.where?.type === "alcohol" ? state.current.alcoholLogs : [])),
+        Promise.resolve(state.isAlcoholQuery(args?.where?.type) ? state.current.alcoholLogs : [])),
     },
     bodyMeasurement: { findMany: vi.fn().mockResolvedValue([]) },
     stravaActivity: { findMany: vi.fn().mockResolvedValue([]) },

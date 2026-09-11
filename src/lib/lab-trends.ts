@@ -48,7 +48,8 @@ export interface DayTags {
 export interface DayFacts {
   /** YYYY-MM-DD. */
   day: string
-  alcoholMl?: number | null
+  /** Grams of ethanol a day — not millilitres, which mean nothing across beer and wine. */
+  alcoholG?: number | null
   workoutMin?: number | null
   sleepH?: number | null
   steps?: number | null
@@ -222,7 +223,7 @@ const BEHAVIOUR_METRICS: {
   pick: (f: DayFacts) => number | null | undefined
   say: (v: number) => string
 }[] = [
-  { key: "alcohol", label: "alcohol", pick: f => f.alcoholMl, say: v => `${Math.round(v)} ml a day` },
+  { key: "alcohol", label: "alcohol", pick: f => f.alcoholG, say: v => `${Math.round(v)} g a day` },
   { key: "workout", label: "exercise", pick: f => f.workoutMin, say: v => `${Math.round(v)} min a day` },
   { key: "sleep", label: "sleep", pick: f => f.sleepH, say: v => `${r1(v)} h a night` },
   { key: "steps", label: "steps", pick: f => f.steps, say: v => `${Math.round(v).toLocaleString("en-US")} a day` },

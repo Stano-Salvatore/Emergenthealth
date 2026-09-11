@@ -258,13 +258,13 @@ const twoDraws = (): LabReading[] => [
 describe("interval behaviours", () => {
   it("reports a number against the same stretch before the earlier draw", () => {
     // 30 dry days up to the first draw, then 30 days at 200ml.
-    const before = facts("2025-12-02", 30, () => ({ alcoholMl: 0 }))
-    const during = facts("2026-01-01", 30, () => ({ alcoholMl: 200 }))
+    const before = facts("2025-12-02", 30, () => ({ alcoholG: 0 }))
+    const during = facts("2026-01-01", 30, () => ({ alcoholG: 20 }))
 
     const [t] = computeLabTrends(twoDraws(), [], [...before, ...during])
     const alcohol = t.behaviours.find(b => b.key === "alcohol")
     expect(alcohol).toBeDefined()
-    expect(alcohol!.during).toBe(200)
+    expect(alcohol!.during).toBe(20)
     expect(alcohol!.before).toBe(0)
     expect(alcohol!.direction).toBe("up")
     expect(t.summary).toContain("Over the same window")
@@ -292,14 +292,14 @@ describe("interval behaviours", () => {
     const [t] = computeLabTrends(twoDraws(), [], [])
     expect(t.behaviours).toEqual([])
 
-    const [first] = computeLabTrends([twoDraws()[0]], [], facts("2025-12-02", 60, () => ({ alcoholMl: 500 })))
+    const [first] = computeLabTrends([twoDraws()[0]], [], facts("2025-12-02", 60, () => ({ alcoholG: 40 })))
     expect(first.previous).toBeNull()
     expect(first.behaviours).toEqual([])
   })
 
   it("keeps the loudest changes and caps the list", () => {
-    const before = facts("2025-12-02", 30, () => ({ alcoholMl: 10, workoutMin: 60, steps: 10000, sleepH: 8, weightKg: 80 }))
-    const during = facts("2026-01-01", 30, () => ({ alcoholMl: 200, workoutMin: 5, steps: 3000, sleepH: 5, weightKg: 88 }))
+    const before = facts("2025-12-02", 30, () => ({ alcoholG: 1, workoutMin: 60, steps: 10000, sleepH: 8, weightKg: 80 }))
+    const during = facts("2026-01-01", 30, () => ({ alcoholG: 20, workoutMin: 5, steps: 3000, sleepH: 5, weightKg: 88 }))
     const [t] = computeLabTrends(twoDraws(), [], [...before, ...during])
     expect(t.behaviours.length).toBe(3)
     // Alcohol moved most (+1900%), so it leads.

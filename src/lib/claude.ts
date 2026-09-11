@@ -9,6 +9,7 @@ import { activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
+import { isAlcohol, ethanolGrams } from "@/lib/body-load"
 import { recordDrink } from "@/lib/intake-write"
 import { recordDose } from "@/lib/dose-write"
 import type { DoseUnit } from "@/lib/dose"
@@ -2213,7 +2214,13 @@ export async function buildSystemPrompt(
   // Intake totals (IntakeLog — includes drinks mirrored from Oura tags)
   const waterToday = (todayIntake as any[]).filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
   const coffeeToday = (todayIntake as any[]).filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0)
-  const alcoholToday = (todayIntake as any[]).filter((l: any) => l.type === "alcohol").reduce((a: number, l: any) => a + l.amountMl, 0)
+  // Beer and wine are alcohol. Filtering on the one type spelled "alcohol"
+  // told Emergy you had drunk nothing on every evening you had — see
+  // ALCOHOL_TYPES. Reported in grams of ethanol as well as volume, because
+  // 300ml of wine and 300ml of beer are not the same evening.
+  const alcoholRowsToday = (todayIntake as any[]).filter((l: any) => isAlcohol(l.type))
+  const alcoholToday = alcoholRowsToday.reduce((a: number, l: any) => a + l.amountMl, 0)
+  const alcoholGToday = Math.round(alcoholRowsToday.reduce((a: number, l: any) => a + ethanolGrams(l.type, l.amountMl, l.note ?? undefined), 0))
 
   const moodLabels: Record<number, string> = { 1: "awful", 2: "bad", 3: "ok", 4: "good", 5: "great" }
   const energyLabels: Record<number, string> = { 1: "exhausted", 2: "tired", 3: "ok", 4: "good", 5: "amazing" }
@@ -2616,7 +2623,7 @@ ${experimentsStr ? `## Experiments running (N-of-1; when it is relevant, say whi
 ${anomaliesStr ? `## Off their own baseline right now (45-day median/MAD scan of their ring data)\n${anomaliesStr}\nBring one up only when it fits what they ask; it is a flag, never a diagnosis.\n` : ""}
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
-- Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml` : ""}
+- Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml (≈${alcoholGToday}g ethanol)` : ""}
 ${foodLine}
 ${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today (${halfLifeIsPersonal ? `${halfLifeH}h half-life, fitted from their own sleep data` : `${halfLifeH}h half-life — the population default, not yet fitted to them, so don't state it as their personal figure`} — how much is still circulating right now is in the LIVE block; factor it into sleep/energy advice, e.g. discourage more coffee if a lot is still active late in the day)` : ""}
 ${caffeineCutoffStr ?? ""}

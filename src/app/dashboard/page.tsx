@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma"
 import { habitStreak, isDueOn } from "@/lib/habit-schedule"
 import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { isAlcohol } from "@/lib/body-load"
 import { getUpcomingEvents } from "@/lib/google-calendar"
 import { getGmailSummary } from "@/lib/gmail"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -284,7 +285,9 @@ export default async function DashboardPage() {
     todayIntake.filter(l => l.type === type).reduce((a, l) => a + l.amountMl, 0)
   const waterMl = sumIntake("water")
   const coffeeMl = sumIntake("coffee")
-  const alcoholMl = sumIntake("alcohol")
+  // Beer, wine and spirits are alcohol; "alcohol" is the generic button
+  // nobody taps when a specific one is on the same screen.
+  const alcoholMl = todayIntake.filter(l => isAlcohol(l.type)).reduce((a, l) => a + l.amountMl, 0)
   const focusMinToday = todayFocus.reduce((a, s) => a + s.durationMin, 0)
 
   // Non-drink Oura tags = supplements/meds taken today (de-duped)

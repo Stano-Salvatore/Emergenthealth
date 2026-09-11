@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from "vitest"
 // Mood comes only from standalone MoodLog rows (check-ins carry none) to
 // prove the engine reads the mood table it used to ignore.
 
-const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows, alcoholLogs, caffeineLogs, caffeineLogsLate, symptomRows, rescueRows, lastfmRows, genreRows } = vi.hoisted(() => {
+const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, stravaRows, alcoholLogs, isAlcoholQuery, caffeineLogs, caffeineLogsLate, symptomRows, rescueRows, lastfmRows, genreRows } = vi.hoisted(() => {
   const DAYS = 40
   const dates: string[] = []
   const now = new Date()
@@ -27,6 +27,18 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
 
   return {
     DAYS,
+    // The engine asks for every alcohol type now (`type: { in: [...] }`), not
+    // for the one literally spelled "alcohol". A mock that still matches the
+    // old shape silently hands back the water rows — which is exactly how the
+    // real query hid 22 beers for months.
+    isAlcoholQuery: (t: unknown) => {
+      // The hydration query is ALSO a `{ in: [...] }` now — it asks for every
+      // drink that counts as fluid, beer and wine included. So "has an `in`"
+      // is not enough to tell the two apart; the alcohol set is the one
+      // without water in it.
+      const list = (t as { in?: unknown } | undefined)?.in
+      return Array.isArray(list) && list.includes("beer") && !list.includes("water")
+    },
     healthLogs: dates.map((ds, i) => ({
       date: new Date(ds + "T00:00:00Z"),
       // day i records the night after day i-1's dinner
@@ -54,7 +66,9 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
       day: ds, movingTimeSec: 3600,
     })),
     // Raw intake rows — the engine sums them per local day itself now
-    alcoholLogs: dates.filter((_, i) => drankOn(i)).map(ds => ({ loggedAt: new Date(ds + "T20:00:00Z"), amountMl: 200 })),
+    // A real half-litre of beer — 19.7 g of ethanol. The engine reasons in
+    // grams now, so a fixture without a type is a fixture without a drink.
+    alcoholLogs: dates.filter((_, i) => drankOn(i)).map(ds => ({ loggedAt: new Date(ds + "T20:00:00Z"), amountMl: 500, type: "beer", note: null })),
     // Strong coffee on the late-dinner days (their nights score 65), a small
     // one otherwise (90) — a planted "caffeine hurts tonight's sleep" that
     // only comes out if the coffee is joined to the night AFTER it, not the
@@ -126,7 +140,7 @@ vi.mock("@/lib/prisma", () => ({
     weatherLog: { findMany: vi.fn().mockResolvedValue([]) },
     screenTimeLog: { findMany: vi.fn().mockResolvedValue([]) },
     deviceCalendarEvent: { findMany: vi.fn().mockResolvedValue([]) },
-    intakeLog: { findMany: vi.fn((args: { where?: { type?: unknown } }) => Promise.resolve(args?.where?.type === "alcohol" ? alcoholLogs : waterLogs)) },
+    intakeLog: { findMany: vi.fn((args: { where?: { type?: unknown } }) => Promise.resolve(isAlcoholQuery(args?.where?.type) ? alcoholLogs : waterLogs)) },
     caffeineLog: { findMany: vi.fn().mockResolvedValue(caffeineLogs) },
     foodLog: { findMany: vi.fn().mockResolvedValue(foodLogs) },
     ouraTag: { findMany: vi.fn().mockResolvedValue(ouraTags) },
