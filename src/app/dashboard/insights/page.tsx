@@ -246,6 +246,9 @@ function EmptyState() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+/** Mirrors PERIOD_DAYS in correlations.ts — what each button asks the engine for. */
+const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall: 90, year: 365 }
+
 const PERIODS = [
   { key: "week", label: "7 days" },
   { key: "month", label: "30 days" },
@@ -312,7 +315,15 @@ export default function InsightsPage() {
       <div>
         <h1 className="text-2xl font-bold">Insights</h1>
         <p className="text-muted-foreground text-sm mt-0.5">
-          {data ? `Patterns found in your last ${data.dataRange.days} days of data` : "Patterns found in your last 90 days"}
+          {/* `dataRange.days` is how much data EXISTS, not the window that was
+              asked for. Printing it alone put "your last 30 days of data"
+              directly under a highlighted "90 days" button, which reads as a
+              contradiction. When the two differ, say both. */}
+          {data
+            ? data.dataRange.days < PERIOD_DAYS[period]
+              ? `${data.dataRange.days} days of data so far, in a ${PERIOD_DAYS[period]}-day window`
+              : `Patterns found in your last ${data.dataRange.days} days of data`
+            : "Patterns found in your last 90 days"}
         </p>
 
         <div className="flex items-center justify-between gap-2 mt-3 flex-wrap">
@@ -343,7 +354,7 @@ export default function InsightsPage() {
                 onClick={() => setShowWeak(v => !v)}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                {showWeak ? `Hide ${weakCount} weak` : `Show ${weakCount} weak`}
+                {showWeak ? `Hide ${weakCount} weaker patterns` : `Show ${weakCount} weaker patterns`}
               </button>
             )}
             <button
