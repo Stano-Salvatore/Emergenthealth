@@ -157,3 +157,57 @@ describe("every template in the engine, not just the ones a fixture reaches", ()
     expect(problems, describeProblems(`correlations.ts:${line}`, raw, problems)).toEqual([])
   })
 })
+
+describe("the other surfaces that talk about patterns", () => {
+  // The engine writes the findings; these four render them, explain them, or
+  // send them somewhere. Every one of them had its own vocabulary — "n=6",
+  // "permutation test", "Sample size", "statistically solid", "your
+  // correlations" — so the user met five different ways of describing one
+  // thing depending on which screen they were looking at.
+  //
+  // Only the word-lists are checked here, not the sentence structure. These
+  // files are full of legitimate UI microcopy — button labels, aria-labels,
+  // single words — and a structural rule would spend its life crying wolf at
+  // them. The words are the part that was actually wrong.
+
+  const SURFACES = [
+    "src/lib/insight-weakness.ts",
+    "src/components/location/PlaceCorrelations.tsx",
+    "src/components/dashboard/WatchedPatterns.tsx",
+    "src/app/api/cron/correlation-watch/route.ts",
+    "src/app/dashboard/insights/page.tsx",
+  ]
+
+  // Comments may name the jargon they removed — that is how the reason
+  // survives. Only what these files render is under test.
+  const rendered = (f: string) => strip(readFileSync(f, "utf8"))
+
+  it.each(SURFACES)("%s keeps the statistics off the screen", file => {
+    const text = rendered(file)
+    for (const term of [
+      "permutation", "Sample size", "sample size", "statistically",
+      // "(n=" and not "n=": the latter matches the JSX prop `n={result.n}`,
+      // which is a variable being passed, not a notation being shown. The
+      // badge rendered "(n=6)", and that is the shape to keep out.
+      "(n=", "Delta =", "false discovery", "Benjamini", "p-value",
+    ]) {
+      expect(text, `"${term}" belongs in a comment, not on a screen`).not.toContain(term)
+    }
+  })
+
+  it.each(SURFACES)("%s never delivers a verdict", file => {
+    expect(rendered(file)).not.toMatch(
+      /\b(?:interestingly|surprisingly|cost you|isn't buying|you should)\b/i,
+    )
+  })
+
+  it("nobody calls them correlations except the code", () => {
+    // The interface says "patterns" everywhere. The watch email said
+    // "your correlations", which is the word the engine's file is named
+    // after and the one place the user was ever shown it.
+    for (const file of SURFACES) {
+      expect(rendered(file), `${file} shows the user the word "correlations"`)
+        .not.toMatch(/your correlations/i)
+    }
+  })
+})
