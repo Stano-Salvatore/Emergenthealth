@@ -1482,9 +1482,7 @@ export async function computeCorrelations(
     highGroupLabel: DRINKING_DAYS_LABEL, lowGroupLabel: "non-drinking days",
     series: alcoholHrv, higherIsBetter: false,
     findingTemplate: (h, l) =>
-      h < l
-        ? `After drinking, your HRV drops to ${h}ms vs ${l}ms on sober nights`
-        : `Drinking days don't show an HRV penalty — ${h}ms vs ${l}ms baseline`,
+      `Mornings after a drink, HRV averages ${h}ms; after a sober night, ${l}ms`,
   })
   if (ins_alcohol_hrv) insights.push(ins_alcohol_hrv)
   const ins_alcohol_sleep = compareGroups({
@@ -1492,9 +1490,7 @@ export async function computeCorrelations(
     highGroupLabel: DRINKING_DAYS_LABEL, lowGroupLabel: "non-drinking days",
     series: alcoholSleepEff, higherIsBetter: false,
     findingTemplate: (h, l) =>
-      h < l
-        ? `After drinking, sleep score averages ${h} vs ${l} on sober nights`
-        : `Drinking days don't show a sleep penalty — score ${h} vs ${l}`,
+      `Nights after a drink score ${h}; sober nights, ${l}`,
   })
   if (ins_alcohol_sleep) insights.push(ins_alcohol_sleep)
 

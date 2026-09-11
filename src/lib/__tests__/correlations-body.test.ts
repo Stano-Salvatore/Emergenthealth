@@ -131,6 +131,7 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import { computeCorrelations } from "@/lib/correlations"
+import { lintSentence, describeProblems } from "./insight-lint"
 
 describe("body measurements", () => {
   it("compares the stretches between weigh-ins, not the weights themselves", async () => {
@@ -165,5 +166,26 @@ describe("two-way interactions", () => {
     // could never be anything but "could be chance".
     expect(card!.pValue).toBeLessThan(0.05)
     expect(card!.tier).not.toBe("noise")
+  })
+
+  // Every sentence this fixture produces, held to the lint. The guard in
+  // insight-language.test.ts proves the rule; this is where the rule meets the
+  // engine's real output across the body and interaction families at once. A template edited
+  // without reading it aloud fails here, and the failure names the card.
+  it("every card it produces reads", async () => {
+    const { insights } = await computeCorrelations("user_body", 60)
+    expect(insights.length).toBeGreaterThan(0)
+    for (const ins of insights) {
+      for (const [field, text] of [
+        ["finding", ins.finding],
+        ["title", ins.title],
+        ["coverage", ins.coverage],
+        ["confounded", ins.confounded],
+      ] as const) {
+        if (!text) continue
+        const problems = lintSentence(text)
+        expect(problems, describeProblems(`${ins.id} ${field}`, text, problems)).toEqual([])
+      }
+    }
   })
 })
