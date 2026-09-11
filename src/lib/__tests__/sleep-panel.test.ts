@@ -195,7 +195,11 @@ describe("a day with nothing logged is unknown, not a zero", () => {
   it("says how many days it had to set aside", async () => {
     const { insights } = await computeCorrelations("user_panel", 90)
     const caffeine = insights.find(i => i.id === "sleep_panel_caffeine")!
-    expect(caffeine.coverage).toMatch(/nothing at all was logged/)
+    // The count and the reason, not the sentence that carries them — this
+    // assertion pinned an exact phrase once and broke on a rewording that
+    // changed nothing about the behaviour.
+    expect(caffeine.coverage).toMatch(/\d+ of \d+ days/)
+    expect(caffeine.coverage).toMatch(/not a day without caffeine/)
   })
 
   it("produces no alcohol card at all rather than one built on silence", async () => {
@@ -256,7 +260,7 @@ describe("a panel card says when bedtime is doing the work", () => {
     const gate = insights.find(i => i.id === "sleep_panel_late_caffeine")!
     expect(gate).toBeDefined()
     expect(gate.confounded, "a three-hour bedtime gap has to be said out loud").toBeDefined()
-    expect(gate.confounded).toMatch(/bed \d+ minutes later/i)
+    expect(gate.confounded).toMatch(/\d+ minutes later/i)
   })
 
   it("hands the caveat to every card in the family, not just the gate", async () => {

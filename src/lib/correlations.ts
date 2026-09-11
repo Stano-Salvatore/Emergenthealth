@@ -585,6 +585,27 @@ function isWeekendDate(dateStr: string): boolean {
 }
 
 /**
+ * A group's name, in the two forms it has to serve.
+ *
+ * `chip` heads a stat column on the card — ALL-CAPS, truncated, so it wants a
+ * bare noun phrase. `phrase` goes inside a sentence, where it needs whatever
+ * article or preposition makes that sentence read.
+ *
+ * One string could not do both, and the damage was the doubled preposition:
+ * the template hard-coded "After …" while the chip already began "after
+ * 16:00", so the card said "After some caffeine after 16:00 the night scores
+ * 62.9". `COMBO_CONDITIONS` has carried the same short/label split for this
+ * reason since it was written; this generalises it.
+ *
+ * A plain string still means both — which is most call sites, and they are
+ * right to stay that way.
+ */
+type GroupLabel = string | { chip: string; phrase: string }
+
+const chipOf = (l: GroupLabel) => (typeof l === "string" ? l : l.chip)
+const phraseOf = (l: GroupLabel) => (typeof l === "string" ? l : l.phrase)
+
+/**
  * Compare two groups on a metric. Returns an insight if both groups have >= minN days.
  */
 function compareGroups(opts: {
@@ -592,12 +613,17 @@ function compareGroups(opts: {
   category: InsightResult["category"]
   emoji: string
   title: string
-  highGroupLabel: string
-  lowGroupLabel: string
+  highGroupLabel: GroupLabel
+  lowGroupLabel: GroupLabel
   /** The family's observations in day order — see Split. */
   series: Split
   higherIsBetter?: boolean
-  findingTemplate: (highAvg: number, lowAvg: number) => string
+  /** `label` carries the PHRASE forms — the ones that belong in a sentence. */
+  findingTemplate: (
+    highAvg: number,
+    lowAvg: number,
+    label: { high: string; low: string },
+  ) => string
   minN?: number
 }): InsightResult | null {
   const {
@@ -633,10 +659,13 @@ function compareGroups(opts: {
     category,
     emoji,
     title,
-    finding: findingTemplate(highAvg, lowAvg),
+    finding: findingTemplate(highAvg, lowAvg, { high: phraseOf(highGroupLabel), low: phraseOf(lowGroupLabel) }),
     delta: Math.round(delta * 10) / 10,
-    highGroupLabel,
-    lowGroupLabel,
+    // The chip form is what leaves this function, so `InsightResult` keeps the
+    // plain strings every consumer already reads — the page, the weakness
+    // note, and the experiment suggester that parses them.
+    highGroupLabel: chipOf(highGroupLabel),
+    lowGroupLabel: chipOf(lowGroupLabel),
     highGroupAvg: highAvg,
     lowGroupAvg: lowAvg,
     highGroupN: highValues.length,
@@ -2942,8 +2971,8 @@ export async function computeCorrelations(
     key: string
     emoji: string
     title: string
-    highLabel: string
-    lowLabel: string
+    highLabel: GroupLabel
+    lowLabel: GroupLabel
     /** true = the cause was present, false = a genuine control, null = this day cannot say. */
     test: (d: DayData) => boolean | null
     /** Shown on the gate card when days had to be set aside as unknown. */
@@ -2985,8 +3014,12 @@ export async function computeCorrelations(
   const BEDTIME_CONFOUND_MIN = 45
 
   const unknownCaffeineDays = allDays.length - loggedDayCount
-  const coverageNote = unknownCaffeineDays >= 5
-    ? `${unknownCaffeineDays} of the ${allDays.length} days are left out: nothing at all was logged on them, so they are not evidence of a day without it.`
+  // Takes the noun, because the same count is attached to the caffeine card
+  // and the alcohol one. It used to end "a day without it", where "it" was
+  // whatever the reader guessed — and on the alcohol card the guess was wrong.
+  const coverageNote = (what: string) => unknownCaffeineDays >= 5
+    ? `${unknownCaffeineDays} of ${allDays.length} days had nothing logged at all. ` +
+      `They are left out: a silent day is not a day without ${what}.`
     : undefined
 
   const sleepCauses: SleepCause[] = [
@@ -2994,9 +3027,11 @@ export async function computeCorrelations(
       key: "caffeine",
       emoji: "☕",
       title: "Caffeine",
-      highLabel: `${cafLabel} of caffeine`,
-      lowLabel: cafUnderLabel,
-      coverage: coverageNote,
+      highLabel: { chip: `${cafLabel} of caffeine`, phrase: `${cafLabel} of caffeine` },
+      // "less", not "under 150mg" — the sentence frame already supplies a
+      // preposition, and "with under 150mg" stacks two of them.
+      lowLabel: { chip: cafUnderLabel, phrase: "less" },
+      coverage: coverageNote("caffeine"),
       test: d => {
         if (!d.logged) return null
         return (d.caffeineMg ?? 0) >= cuts.caffeine.at
@@ -3009,8 +3044,8 @@ export async function computeCorrelations(
       key: "late_caffeine",
       emoji: "🌙",
       title: "Caffeine After 16:00",
-      highLabel: "some caffeine after 16:00",
-      lowLabel: "all of it before 16:00",
+      highLabel: { chip: "caffeine after 16:00", phrase: "caffeine after 16:00" },
+      lowLabel: { chip: "all caffeine before 16:00", phrase: "none after 16:00" },
       test: d => {
         if ((d.caffeineMg ?? 0) <= 0) return null
         return (d.lateCaffeineMg ?? 0) > 0
@@ -3020,9 +3055,9 @@ export async function computeCorrelations(
       key: "alcohol",
       emoji: "🍷",
       title: "Alcohol",
-      highLabel: "days with a drink",
-      lowLabel: "days without",
-      coverage: coverageNote,
+      highLabel: { chip: "days with a drink", phrase: "a drink" },
+      lowLabel: { chip: "days without", phrase: "none" },
+      coverage: coverageNote("a drink"),
       test: d => {
         if (!d.logged) return null
         return (d.alcoholG ?? 0) > 0
@@ -3036,8 +3071,8 @@ export async function computeCorrelations(
       key: `caffeine_at_${key.replace(/\s+/g, "_")}`,
       emoji: "📍",
       title: `Caffeine At ${placeName(key)}`,
-      highLabel: `caffeine at ${placeName(key)}`,
-      lowLabel: "caffeine anywhere else",
+      highLabel: { chip: `caffeine at ${placeName(key)}`, phrase: `caffeine at ${placeName(key)}` },
+      lowLabel: { chip: "caffeine anywhere else", phrase: "caffeine somewhere else" },
       test: d => {
         if ((d.caffeineMg ?? 0) <= 0) return null
         return (d.places ?? []).includes(key)
@@ -3063,8 +3098,11 @@ export async function computeCorrelations(
       highGroupLabel: cause.highLabel,
       lowGroupLabel: cause.lowLabel,
       series: gate,
-      findingTemplate: (hi, lo) =>
-        `After ${cause.highLabel} the night scores ${hi}; after ${cause.lowLabel}, ${lo}`,
+      // "Nights with X" rather than "After X": every cause is a thing a night
+      // had or did not have, and the old frame stacked its own "After" on top
+      // of a label that already carried one.
+      findingTemplate: (hi, lo, l) =>
+        `Nights with ${l.high} score ${hi}; nights with ${l.low}, ${lo}`,
     })
     if (!gateIns) continue
     if (cause.coverage) gateIns.coverage = cause.coverage
@@ -3085,9 +3123,9 @@ export async function computeCorrelations(
     if (bedHi.length >= 5 && bedLo.length >= 5) {
       const gap = avg(bedHi) - avg(bedLo)
       if (Math.abs(gap) >= BEDTIME_CONFOUND_MIN) {
-        const later = gap > 0 ? cause.highLabel : cause.lowLabel
-        confounded = `Bedtime does not hold still across this comparison: after ${later} you went to bed ` +
-          `${Math.round(Math.abs(gap))} minutes later on average. Some of this gap is that.`
+        const later = phraseOf(gap > 0 ? cause.highLabel : cause.lowLabel)
+        confounded = `Bedtime does not hold still here. Nights with ${later} typically began ` +
+          `${Math.round(Math.abs(gap))} minutes later, so some of this gap is bedtime.`
       }
     }
     if (confounded) gateIns.confounded = confounded
@@ -3118,8 +3156,8 @@ export async function computeCorrelations(
         lowGroupLabel: cause.lowLabel,
         series,
         higherIsBetter: aspect.higherIsBetter,
-        findingTemplate: (hi, lo) =>
-          `After ${cause.highLabel}, ${aspect.label} averages ${aspect.fmt(hi)}; after ${cause.lowLabel}, ${aspect.fmt(lo)}`,
+        findingTemplate: (hi, lo, l) =>
+          `With ${l.high}, ${aspect.label} averages ${aspect.fmt(hi)}; with ${l.low}, ${aspect.fmt(lo)}`,
       })
       if (!ins) continue
       ins.pool = `sleep_panel_${cause.key}`
