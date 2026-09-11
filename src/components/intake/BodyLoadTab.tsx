@@ -10,20 +10,12 @@ import { Loader2, RefreshCw } from "lucide-react"
 import { hoursToBedtime } from "@/lib/caffeine"
 import { PHARMA_DISCLAIMER } from "@/lib/supplement-info"
 import { useCaffeine, CaffeineStatusCards, CaffeineLogTools } from "@/app/dashboard/caffeine/page"
+import { AlcoholCurveCard } from "./AlcoholCurveCard"
 
-interface ActiveSubstance {
-  kind: "caffeine" | "alcohol" | "med"
-  name: string
-  emoji: string
-  amount: number
-  unit: "mg" | "g" | "%"
-  fraction?: number
-  takenAt: string
-  clearsAt: string | null
-  detail?: string
-  sourceId?: string
-  doseLabel?: string | null
-}
+// Was a hand-copied duplicate of the interface in `body-load.ts`, which is
+// where the API builds these. Two declarations of one shape drift, and this
+// pair had: the server grew fields the client's copy did not know about.
+import type { ActiveSubstance } from "@/lib/body-load"
 
 const KIND_COLOR: Record<ActiveSubstance["kind"], string> = {
   caffeine: "bg-amber-500",
@@ -94,6 +86,7 @@ export function BodyLoadTab() {
   const caf = useCaffeine(() => load(true))
 
   const bedH = hoursToBedtime()
+  const alcohol = substances.find(s => s.kind === "alcohol")
   // What's still on board at 23:00 — the question that actually changes a decision
   const atBedtime = substances.filter(s => {
     if (!s.clearsAt) return false
@@ -113,6 +106,18 @@ export function BodyLoadTab() {
       {/* Caffeine status first — the two cards worth glancing at: what's in
           your system now (with its decay curve) and today's total. */}
       {!caf.loading && <CaffeineStatusCards data={caf.data} />}
+
+      {/* Alcohol gets the same treatment directly underneath, on the same 12h
+          axis, so the two are comparable at a glance — and so the difference
+          in shape is visible rather than explained. */}
+      {alcohol?.gramsLeft != null && alcohol.clearanceGPerH != null && (
+        <AlcoholCurveCard
+          gramsLeft={alcohol.gramsLeft}
+          clearanceGPerH={alcohol.clearanceGPerH}
+          bedH={bedH}
+          bedLabel="23:00"
+        />
+      )}
 
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">

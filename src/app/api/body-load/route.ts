@@ -108,6 +108,11 @@ export async function GET() {
       takenAt: (alcoholDoses[alcoholDoses.length - 1]?.at ?? now).toISOString(),
       clearsAt: alcohol.clearsAt?.toISOString() ?? null,
       detail: `≈${Math.round(alcohol.remainingG)} g ethanol left · clearing ≈${clearance.toFixed(1)} g/h`,
+      // The same two numbers the detail string already spells out, sent as
+      // numbers so the curve card does not have to read them back out of
+      // prose. A chart parsing its own label is one rewording from breaking.
+      gramsLeft: Math.round(alcohol.remainingG * 10) / 10,
+      clearanceGPerH: Math.round(clearance * 10) / 10,
     })
   }
 
