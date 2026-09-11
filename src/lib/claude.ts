@@ -991,6 +991,10 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       type: place.usualType!,
       amountMl: place.usualMl!,
       note: `${place.usualNote || "the usual"} @ ${place.name}`,
+      // The note names the place; the estimate must not read it. A café called
+      // Espresso House would otherwise turn every drink bought there into a
+      // shot, and one called Cold Brew Club would double the milligrams.
+      caffeineLabel: place.usualNote ?? "",
       at: usual.at,
     })
     if (!log) return "Couldn't save that — the log didn't write."
@@ -1090,7 +1094,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
           timeInBed: true, sleepStart: true,
           // Weekly-cadence scores: absent on most days by design, so they cost
           // nothing in the rows and appear on the days Oura republished them.
-          cardiovascularAge: true, vo2Max: true, resilienceLevel: true, stressSummary: true,
+          cardiovascularAge: true, pulseWaveVelocity: true, vo2Max: true, resilienceLevel: true, stressSummary: true,
         },
       }).catch(() => [] as any[]),
       prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
@@ -1192,6 +1196,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         const slow: string[] = []
         if (l.vo2Max != null) slow.push(`VO2 max ${Math.round(l.vo2Max)}`)
         if (l.cardiovascularAge != null) slow.push(`vascular age ${Math.round(l.cardiovascularAge)}`)
+        if (l.pulseWaveVelocity != null) slow.push(`pulse wave velocity ${l.pulseWaveVelocity.toFixed(1)} m/s`)
         if (l.resilienceLevel != null) slow.push(`resilience ${l.resilienceLevel}`)
         if (l.stressSummary != null) slow.push(`day was ${l.stressSummary}`)
         if (slow.length) parts.push(slow.join(", "))

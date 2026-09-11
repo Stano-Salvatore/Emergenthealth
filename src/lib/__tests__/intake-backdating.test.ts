@@ -28,10 +28,19 @@ describe("backdating an intake", () => {
     // Caffeine is read as a decay curve against bedtime. A cup backdated an
     // hour whose caffeine row says "now" reports an hour more of it still
     // circulating — the backdating would make the sleep read worse, not truer.
-    const caffeineWrites = [...(src + writer).matchAll(/caffeineLog\.create\(\{[\s\S]{0,220}?\}\)/g)].map(m => m[0])
-    expect(caffeineWrites.length).toBeGreaterThan(0)
-    for (const w of caffeineWrites) {
-      expect(w, `a caffeineLog write without loggedAt:\n${w}`).toMatch(/loggedAt/)
+    const all = src + writer
+    const writes = [...all.matchAll(/caffeineLog\.(create|upsert)\(/g)]
+    expect(writes.length).toBeGreaterThan(0)
+    for (const m of writes) {
+      const body = all.slice(m.index!, m.index! + 400)
+      expect(body, `a caffeineLog write without loggedAt:\n${body}`).toMatch(/loggedAt/)
+      // An upsert has two branches and an edit goes through the second one.
+      // loggedAt in `create` alone would leave a row that was stamped wrong
+      // stamped wrong forever.
+      if (m[1] === "upsert") {
+        expect((body.match(/loggedAt/g) ?? []).length,
+          `an upsert must carry loggedAt in both create and update:\n${body}`).toBeGreaterThanOrEqual(2)
+      }
     }
   })
 
