@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
-import { lintSentence } from "./insight-lint"
+import { lintSentence, describeProblems } from "./insight-lint"
 
 // The cards are the reason this app exists, and they are the only sentences in
 // it that nobody wrote. `lintSentence` is the rule; this file proves the rule
@@ -120,5 +120,40 @@ describe("the engine's own words", () => {
     for (const term of ["the matched window", "top third"]) {
       expect(visible, `"${term}" is method, not a finding`).not.toContain(term)
     }
+  })
+})
+
+describe("every template in the engine, not just the ones a fixture reaches", () => {
+  // The fixtures render real cards and catch what a label does to a sentence.
+  // They cannot reach all 101 families — a card needs the right data to fire,
+  // and a template nothing exercises is a template nobody has read.
+  //
+  // So this sweeps the source instead: every template literal that looks like
+  // a sentence, with its interpolations replaced by a placeholder. That loses
+  // what the label contributes (the fixtures cover that) and keeps everything
+  // the words themselves do — the verdicts, the jargon, the length.
+
+  const templates = engine
+    .split("\n")
+    .map((line, i) => [i + 1, line] as const)
+    .filter(([, line]) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .flatMap(([n, line]) => {
+      const found = line.match(/`[^`]{25,}`/g) ?? []
+      return found.map(raw => [n, raw.slice(1, -1)] as const)
+    })
+    // A sentence has words in it; an id, a class list or a SQL fragment does not.
+    .filter(([, raw]) => /[a-z]{3}\s+[a-z]{3}/.test(raw) && !/^\s*(SELECT|INSERT|http)/i.test(raw))
+    // `${…}` stands in for a number or a label; "N" keeps the shape readable.
+    .map(([n, raw]) => [n, raw, raw.replace(/\$\{[^}]*\}/g, "N")] as const)
+
+  it("found the templates to check", () => {
+    // A pattern that quietly matched nothing would turn this green while
+    // checking nothing at all.
+    expect(templates.length).toBeGreaterThan(100)
+  })
+
+  it.each(templates)("line %i reads", (line, raw, rendered) => {
+    const problems = lintSentence(rendered)
+    expect(problems, describeProblems(`correlations.ts:${line}`, raw, problems)).toEqual([])
   })
 })
