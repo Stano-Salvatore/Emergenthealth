@@ -1390,7 +1390,7 @@ export async function computeCorrelations(
     id: "sleep_score_mood", category: "sleep", emoji: "🌟", title: "Sleep Score & Morning Mood",
     highGroupLabel: "80+ sleep score nights", lowGroupLabel: "below 80 sleep score nights",
     series: sleepScoreMood,
-    findingTemplate: (h, l) => `On high sleep score nights (80+), morning mood averages ${h} vs ${l}`,
+    findingTemplate: (h, l) => `After a night scoring 80+, morning mood averages ${h}; after a lower-scoring night, ${l}`,
   })
   if (ins_sleepScore_mood) insights.push(ins_sleepScore_mood)
 
@@ -1436,14 +1436,14 @@ export async function computeCorrelations(
     id: "habits_mood", category: "habits", emoji: "✅", title: "Habit Completion & Mood",
     highGroupLabel: habitLabel, lowGroupLabel: `fewer than ${habitThreshold} habits`,
     series: habitMood,
-    findingTemplate: (h, l) => `On days you complete ${habitThreshold}+ habits, mood averages ${h} vs ${l} on lower-completion days`,
+    findingTemplate: (h, l) => `On days you finish ${habitThreshold}+ habits, mood averages ${h}; on days you finish fewer, ${l}`,
   })
   if (ins_habit_mood) insights.push(ins_habit_mood)
   const ins_habit_energy = compareGroups({
     id: "habits_energy", category: "habits", emoji: "🎯", title: "Habit Completion & Energy",
     highGroupLabel: habitLabel, lowGroupLabel: `fewer than ${habitThreshold} habits`,
     series: habitEnergy,
-    findingTemplate: (h, l) => `On days you complete ${habitThreshold}+ habits, morning energy averages ${h} vs ${l}`,
+    findingTemplate: (h, l) => `On days you finish ${habitThreshold}+ habits, morning energy averages ${h}; on days you finish fewer, ${l}`,
   })
   if (ins_habit_energy) insights.push(ins_habit_energy)
 
@@ -2862,7 +2862,7 @@ export async function computeCorrelations(
   }
   const ins_weekend_sleep = compareGroups({
     id: "weekend_sleep_score", category: "week", emoji: "🛋️", title: "Weekend Nights & Sleep Quality",
-    highGroupLabel: "Friday & Saturday nights", lowGroupLabel: "school nights",
+    highGroupLabel: "Friday & Saturday nights", lowGroupLabel: "weeknights",
     series: weSleepSplit,
     findingTemplate: (h, l) =>
       `Friday and Saturday nights score ${h}; weeknights, ${l}`,
@@ -2870,12 +2870,10 @@ export async function computeCorrelations(
   if (ins_weekend_sleep) insights.push(ins_weekend_sleep)
   const ins_weekend_dur = compareGroups({
     id: "weekend_sleep_duration", category: "week", emoji: "⏰", title: "Weekend Nights & Sleep Length",
-    highGroupLabel: "Friday & Saturday nights", lowGroupLabel: "school nights",
+    highGroupLabel: "Friday & Saturday nights", lowGroupLabel: "weeknights",
     series: weDurSplit,
     findingTemplate: (h, l) =>
-      h > l
-        ? `You sleep ${h}h on weekend nights vs ${l}h on school nights`
-        : `Weekend nights run ${h}h vs ${l}h on school nights`,
+      `You sleep ${h}h on Friday and Saturday nights, and ${l}h on weeknights`,
   })
   if (ins_weekend_dur) insights.push(ins_weekend_dur)
   const ins_weekend_mood = compareGroups({
@@ -2883,9 +2881,7 @@ export async function computeCorrelations(
     highGroupLabel: "weekend days", lowGroupLabel: "weekdays",
     series: weMoodSplit,
     findingTemplate: (h, l) =>
-      h > l
-        ? `Weekend mood averages ${h} vs ${l} on weekdays`
-        : `Weekends don't lift your mood — ${h} vs ${l} on weekdays`,
+      `Your mood averages ${h} at weekends, and ${l} on weekdays`,
   })
   if (ins_weekend_mood) insights.push(ins_weekend_mood)
   const ins_weekend_steps = compareGroups({
@@ -2893,9 +2889,7 @@ export async function computeCorrelations(
     highGroupLabel: "weekend days", lowGroupLabel: "weekdays",
     series: weStepsSplit,
     findingTemplate: (h, l) =>
-      h > l
-        ? `You walk ${Math.round(h).toLocaleString()} steps on weekends vs ${Math.round(l).toLocaleString()} on weekdays`
-        : `Weekdays move you more — ${Math.round(l).toLocaleString()} steps vs ${Math.round(h).toLocaleString()} on weekends`,
+      `You walk ${Math.round(h).toLocaleString()} steps on a weekend day, and ${Math.round(l).toLocaleString()} on a weekday`,
   })
   if (ins_weekend_steps) insights.push(ins_weekend_steps)
 
