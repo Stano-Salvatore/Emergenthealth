@@ -2185,15 +2185,31 @@ export async function computeCorrelations(
   if (topSymptoms.length > 0) {
     // Suspects worth testing. Sleep and alcohol look at the *previous* day —
     // a hangover headache belongs to last night's drinking, not this morning's.
-    const SUSPECTS: { key: string; label: string; test: (d: DayData, prev?: DayData) => boolean | null }[] = [
-      { key: "alcohol", label: "the day after drinking", test: (_d, prev) => prev ? (prev.alcoholG ?? 0) >= STANDARD_DRINK_G : null },
-      { key: "caffeine", label: `${cafLabel} caffeine days`, test: d => d.caffeineMg != null ? d.caffeineMg >= cuts.caffeine.at : null },
-      { key: "short_sleep", label: "after under 7h sleep", test: d => d.sleepDuration != null ? d.sleepDuration < 7 : null },
-      { key: "poor_sleep", label: "after a sub-70 sleep score", test: d => d.sleepScore != null ? d.sleepScore < 70 : null },
-      { key: "late_meal", label: "the day after a late dinner", test: (_d, prev) => prev?.lastMealMin != null ? prev.lastMealMin >= 20 * 60 : null },
-      { key: "high_screen", label: "the day after heavy screen time", test: (_d, prev) => prev?.screenTimeMin != null ? prev.screenTimeMin >= 300 : null },
-      { key: "workout", label: "the day after training", test: (_d, prev) => prev ? (prev.workoutMin ?? 0) >= 20 : null },
-      { key: "low_water", label: "the day after under 1.5L water", test: (_d, prev) => prev?.waterMl != null ? prev.waterMl < 1500 : null },
+    // Three names each, because one could not do the job. `chip` heads the
+    // stat column, `phrase` sits inside the finding, `short` goes in the title.
+    //
+    // The single `label` these replace was written as a sentence fragment and
+    // then used everywhere, which produced "Headache runs at 2.4/5 150mg+
+    // caffeine days" (no preposition, two numbers colliding) and — from the
+    // branch that capitalised it into a subject — "The day after drinking
+    // don't bring more headache", which was ungrammatical for five of the
+    // eight suspects below.
+    const SUSPECTS: {
+      key: string
+      chip: string
+      phrase: string
+      short: string
+      test: (d: DayData, prev?: DayData) => boolean | null
+    }[] = [
+      { key: "alcohol", chip: "days after drinking", phrase: "the day after drinking", short: "drinking", test: (_d, prev) => prev ? (prev.alcoholG ?? 0) >= STANDARD_DRINK_G : null },
+      { key: "caffeine", chip: `${cafLabel} caffeine days`, phrase: `on ${cafLabel} caffeine days`, short: "caffeine", test: d => d.caffeineMg != null ? d.caffeineMg >= cuts.caffeine.at : null },
+      { key: "short_sleep", chip: "days after a short night", phrase: "after a night under 7h", short: "short sleep", test: d => d.sleepDuration != null ? d.sleepDuration < 7 : null },
+      { key: "poor_sleep", chip: "days after a poor night", phrase: "after a night scoring under 70", short: "a poor night", test: d => d.sleepScore != null ? d.sleepScore < 70 : null },
+      { key: "late_meal", chip: "days after a late dinner", phrase: "the day after a late dinner", short: "late dinners", test: (_d, prev) => prev?.lastMealMin != null ? prev.lastMealMin >= 20 * 60 : null },
+      { key: "high_screen", chip: "days after heavy screen time", phrase: "the day after heavy screen time", short: "heavy screen time", test: (_d, prev) => prev?.screenTimeMin != null ? prev.screenTimeMin >= 300 : null },
+      { key: "workout", chip: "days after training", phrase: "the day after training", short: "training", test: (_d, prev) => prev ? (prev.workoutMin ?? 0) >= 20 : null },
+      // "less than 1.5L", not "under 1.5L" — "after under" stacks two prepositions.
+      { key: "low_water", chip: "days after low water", phrase: "the day after less than 1.5L of water", short: "low water", test: (_d, prev) => prev?.waterMl != null ? prev.waterMl < 1500 : null },
     ]
 
     const prevDateStr = (dateStr: string): string => {
@@ -2215,14 +2231,16 @@ export async function computeCorrelations(
         }
         const ins_symptom = compareGroups({
           id: `symptom_${symSlug}_${suspect.key}`, category: "symptoms", emoji: "🩹",
-          title: `${symptom} & ${suspect.label.replace(/^(the day )?after /, "").replace(/ days$/, "")}`,
-          highGroupLabel: suspect.label, lowGroupLabel: "other days",
+          title: `${symptom} & ${suspect.short}`,
+          highGroupLabel: { chip: suspect.chip, phrase: suspect.phrase },
+          lowGroupLabel: "other days",
           series: exposedSplit,
           higherIsBetter: false, // more symptom is worse, so a rise reads as negative
-          findingTemplate: (h, l) =>
-            h > l
-              ? `${symptom} runs at ${h}/5 ${suspect.label}, vs ${l}/5 otherwise`
-              : `${suspect.label.charAt(0).toUpperCase() + suspect.label.slice(1)} don't bring more ${symptom.toLowerCase()} — ${h}/5 vs ${l}/5`,
+          // One sentence. The old second branch existed to turn the label into
+          // a subject, which is where the grammar broke; the two numbers say
+          // which way it went without a clause claiming it.
+          findingTemplate: (h, l, lab) =>
+            `${symptom} runs at ${h}/5 ${lab.high}, and ${l}/5 otherwise`,
         })
         if (ins_symptom) insights.push(ins_symptom)
       }
