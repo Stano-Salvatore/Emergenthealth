@@ -35,6 +35,7 @@ interface InsightResult {
   weekendDriven?: boolean
   weekdayDelta?: number
   coverage?: string
+  confounded?: string
 }
 
 interface CorrelationsData {
@@ -172,6 +173,14 @@ function InsightCard({ insight }: { insight: InsightResult }) {
         {weakness && (
           <p className="text-xs text-muted-foreground/80 leading-relaxed border-l-2 border-border pl-2">
             {weakness}
+          </p>
+        )}
+        {insight.confounded && (
+          // Not a weakness in the data and not a verdict on the effect — a
+          // statement that the two sides differ in something else too. The
+          // card still shows its number; the reader gets to discount it.
+          <p className="text-xs text-muted-foreground/80 leading-relaxed border-l-2 border-sky-500/40 pl-2">
+            {insight.confounded}
           </p>
         )}
         {insight.coverage && (

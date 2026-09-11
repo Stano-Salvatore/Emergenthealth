@@ -56,7 +56,14 @@ const { healthLogs, caffeineLogs, waterLogs, placeCheckIns } = vi.hoisted(() => 
       remSleep: null,
       sleepLatency: k == null ? null : missing ? 90 : bad ? 45 : 10,
       sleepEfficiency: k == null ? null : missing ? 70 : bad ? 82 : 94,
-      sleepStart: null,
+      // Bedtimes chosen so one cause is confounded and the other is not:
+      // late-caffeine nights begin at 02:00 and early-caffeine at 23:00 (three
+      // hours apart, the shape of the real account), while the caffeine-AMOUNT
+      // split balances — its high side averages the two, and its control sits
+      // at 00:30 to match. So the guard must fire on timing and stay silent on
+      // amount, which is the distinction it exists to draw.
+      sleepStart: k == null || missing ? null
+        : new Date(ds + (k === 0 ? "T02:00:00Z" : k === 1 ? "T23:00:00Z" : "T00:30:00Z")),
       restlessPeriods: null,
     }
   })
@@ -234,6 +241,40 @@ describe("places", () => {
     // nothing about where you were.
     expect(place!.highGroupN).toBe(8)
     expect(place!.lowGroupN).toBe(15)
+  })
+})
+
+describe("a panel card says when bedtime is doing the work", () => {
+  it("flags a cause whose two sides go to bed at different times", async () => {
+    // The reason this exists. On the owner's own ninety days the nights after
+    // caffeine-past-four begin at 02:43 and the nights after an early cup at
+    // 00:17 — two and a half hours apart. Bedtime is the biggest single lever
+    // on a sleep score he has (73.9 vs 62.9 across the median split, 78
+    // nights), so a card reporting the coffee and not the bedtime is telling
+    // the truth and misleading anyway.
+    const { insights } = await computeCorrelations("user_panel", 90)
+    const gate = insights.find(i => i.id === "sleep_panel_late_caffeine")!
+    expect(gate).toBeDefined()
+    expect(gate.confounded, "a three-hour bedtime gap has to be said out loud").toBeDefined()
+    expect(gate.confounded).toMatch(/bed \d+ minutes later/i)
+  })
+
+  it("hands the caveat to every card in the family, not just the gate", async () => {
+    // The aspects are what get read; a caveat only on the gate is a caveat
+    // nobody sees.
+    const { insights } = await computeCorrelations("user_panel", 90)
+    const pooled = insights.filter(i => i.pool === "sleep_panel_late_caffeine")
+    expect(pooled.length).toBeGreaterThan(0)
+    for (const ins of pooled) expect(ins.confounded, `${ins.id} lost the caveat`).toBeDefined()
+  })
+
+  it("stays quiet when the two sides keep the same hours", async () => {
+    // Caffeine AMOUNT is balanced by construction in this fixture, so a flag
+    // here would mean the guard fires on anything and says nothing.
+    const { insights } = await computeCorrelations("user_panel", 90)
+    const caffeine = insights.find(i => i.id === "sleep_panel_caffeine")!
+    expect(caffeine).toBeDefined()
+    expect(caffeine.confounded).toBeUndefined()
   })
 })
 
