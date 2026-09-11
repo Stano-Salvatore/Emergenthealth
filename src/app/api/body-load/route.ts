@@ -9,6 +9,7 @@ import { formatDose } from "@/lib/dose"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { COMPOUND_LABELS } from "@/lib/caffeine"
 import {
+  ALCOHOL_TYPES,
   ethanolGrams, alcoholClearanceGPerHour, alcoholRemainingG, standardDrinks,
   hoursUntilBelow, decayFraction, MED_FLOOR_FRACTION, CAFFEINE_FLOOR_MG,
   type ActiveSubstance,
@@ -17,8 +18,6 @@ import {
 // Everything currently circulating, in one list. Each source is queried over
 // the window it can plausibly still matter in: caffeine and alcohol 24 h, meds
 // 72 h (Elicea's ~30 h half-life is still a third present after two days).
-
-const ALCOHOL_TYPES = new Set(["beer", "wine", "spirits", "alcohol"])
 
 export async function GET() {
   const session = await auth()

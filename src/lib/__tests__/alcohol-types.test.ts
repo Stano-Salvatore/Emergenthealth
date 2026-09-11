@@ -24,6 +24,14 @@ const FILES = [
   "src/lib/claude.ts",
   "src/app/dashboard/page.tsx",
   "src/app/api/stats/route.ts",
+  "src/app/api/body-load/route.ts",
+  "src/lib/quick-answer-run.ts",
+]
+
+/** Files that may legitimately name a drink type, but not re-list the set. */
+const NO_SECOND_COPY = [
+  ...FILES,
+  "src/app/dashboard/intake/page.tsx",
 ]
 
 describe("alcohol is four types, not one", () => {
@@ -33,6 +41,18 @@ describe("alcohol is four types, not one", () => {
     expect(isAlcohol("Wine")).toBe(true)
     expect(isAlcohol("coffee")).toBe(false)
     expect(isAlcohol(null)).toBe(false)
+  })
+
+  it.each(NO_SECOND_COPY)("%s keeps no second copy of the list", file => {
+    // Four copies of ["beer","wine","spirits","alcohol"] existed at once, in
+    // four files, agreeing by luck. A fifth added tomorrow would not.
+    //
+    // Matched as a complete bracketed list, so the Intake screen's full drink
+    // picker — which really does offer those four among ten — is not a copy of
+    // this set and does not trip.
+    const source = readFileSync(file, "utf8")
+    expect(source, "import ALCOHOL_TYPES rather than re-listing it")
+      .not.toMatch(/\[\s*"beer",\s*"wine",\s*"spirits",\s*"alcohol",?\s*\]/)
   })
 
   it.each(FILES)("%s never filters on the one literal type", file => {
