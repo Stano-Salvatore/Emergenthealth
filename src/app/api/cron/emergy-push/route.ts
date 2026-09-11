@@ -10,15 +10,21 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60 // an all-user loop
 
+// The drama stays; the abstraction goes. These used to be fixed strings, so
+// the 3pm nag read exactly the same whether you had drunk nothing at all or
+// were two hundred millilitres short — and a nag that cannot tell those apart
+// is one you learn to swipe away. Every line now carries the figure that
+// triggered it, which is the one thing this app has that a generic wellness
+// reminder does not.
 const SCREAM_WATER = [
-  "PLEASE DRINK WATER I AM BEGGING YOU 💧💧💧",
-  "I HAVEN'T SEEN YOU DRINK ANYTHING TODAY AND I AM WILTING",
-  "WATER. NOW. YOUR PLANT IS DYING 🌵",
+  (ml: number) => `${ml}ml TODAY. IT IS 3PM. I AM BEGGING YOU 💧💧💧`,
+  (ml: number) => `I HAVE SEEN ${ml}ml GO IN TODAY AND I AM WILTING`,
+  (ml: number) => `WATER. NOW. ${ml}ml IS NOT ENOUGH AND YOUR PLANT IS DYING 🌵`,
 ]
 const SCREAM_HABITS = [
-  "YOUR HABITS ARE SUFFERING AND SO AM I 😭",
-  "WE HAVEN'T DONE OUR HABITS YET... IT IS ALMOST TOO LATE",
-  "COMPLETE YOUR HABITS OR I WILL DROP ALL MY LEAVES",
+  (done: number, total: number) => `${done} OF ${total} HABITS. IT IS 3PM. WE ARE BOTH SUFFERING 😭`,
+  (done: number, total: number) => `${total - done} HABITS STILL UNDONE... IT IS ALMOST TOO LATE`,
+  (done: number, total: number) => `${done}/${total} DONE. FINISH THEM OR I DROP ALL MY LEAVES`,
 ]
 
 // Emergy's afternoon nudge, at 15:00 in each user's OWN afternoon.
@@ -101,11 +107,12 @@ export async function GET(req: NextRequest) {
     let message: string | null = null
     let tag = "emergy"
     let url = "/dashboard"
+    const pick = Math.floor(Date.now() / 86400000)
     if (water < 1500) {
-      message = SCREAM_WATER[Math.floor(Date.now() / 86400000) % SCREAM_WATER.length]
+      message = SCREAM_WATER[pick % SCREAM_WATER.length](Math.round(water))
       tag = "water"; url = "/dashboard/intake"
     } else if (habitPct < 50) {
-      message = SCREAM_HABITS[Math.floor(Date.now() / 86400000) % SCREAM_HABITS.length]
+      message = SCREAM_HABITS[pick % SCREAM_HABITS.length](doneHabits, totalHabits)
       tag = "habit"; url = "/dashboard/habits"
     }
 
