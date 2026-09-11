@@ -54,11 +54,17 @@ function usePrimary() {
   return color
 }
 
-/** Weekday initial — the only label that fits seven times across a phone. */
+/**
+ * Two letters, not one. The narrow weekday gives "S" for both Saturday and
+ * Sunday and "T" for both Tuesday and Thursday, so four of seven bars on a
+ * sleep week were unlabelled in practice. Two characters still fit seven times
+ * across a 390px phone.
+ */
 function initial(day: string): string {
   const [y, m, d] = day.split("-").map(Number)
-  return new Intl.DateTimeFormat("en-GB", { weekday: "narrow", timeZone: "UTC" })
+  return new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: "UTC" })
     .format(new Date(Date.UTC(y, m - 1, d)))
+    .slice(0, 2)
 }
 
 function longDay(day: string): string {

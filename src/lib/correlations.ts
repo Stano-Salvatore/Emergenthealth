@@ -8,6 +8,7 @@ import { getGoals } from "@/lib/goals"
 import { computeTargets } from "@/lib/targets"
 import { estimateHome, summariseDays, AWAY_KM } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
+import { bedtimeMinutesLate } from "@/lib/caffeine-cutoff"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
 // (interactive dashboard) and the correlation-watch cron (pin & watch alerts).
@@ -16,6 +17,12 @@ type DayData = {
   date: string
   sleepScore?: number
   sleepDuration?: number // hours
+  /** Minutes from lights-out to asleep. Stored for months and never read until now. */
+  sleepLatencyMin?: number
+  /** Share of time in bed actually asleep, 0-100. */
+  sleepEfficiency?: number
+  /** Local minutes past midnight the night began — 23:08 is 1388, 01:20 is 80 + 1440. */
+  bedtimeMin?: number
   readiness?: number
   restingHR?: number
   stressHighMin?: number
@@ -544,6 +551,9 @@ export async function computeCorrelations(
         activityScore: true,
         deepSleep: true,
         remSleep: true,
+        sleepLatency: true,
+        sleepEfficiency: true,
+        sleepStart: true,
       },
     }),
 
@@ -732,6 +742,12 @@ export async function computeCorrelations(
     if (l.activityScore != null) d.activityScore = l.activityScore
     if (l.deepSleep != null) d.deepSleepMin = l.deepSleep
     if (l.remSleep != null) d.remSleepMin = l.remSleep
+    if (l.sleepLatency != null) d.sleepLatencyMin = l.sleepLatency
+    if (l.sleepEfficiency != null) d.sleepEfficiency = l.sleepEfficiency
+    // Bedtime as a number the engine can correlate on, wrapped past midnight so
+    // 01:20 reads as later than 23:08 rather than twenty-two hours earlier.
+    // Without the wrap, a run of late nights straddling midnight averages out
+    // to the middle of the afternoon.
   }
 
   for (const c of checkIns) {
@@ -805,6 +821,15 @@ export async function computeCorrelations(
   // attached to the wrong night, which is how an association nobody lived gets
   // published as a pattern.
   const tz = tzRow?.value || "UTC"
+
+  // Bedtime needs the user's clock, which only resolves here — so it is filled
+  // in a second pass rather than in the loop above. Late is always a bigger
+  // number (see bedtimeMinutesLate), or a week straddling midnight correlates
+  // against nonsense.
+  for (const l of healthLogs) {
+    if (l.sleepStart == null) continue
+    getOrCreate(l.date.toISOString().slice(0, 10)).bedtimeMin = bedtimeMinutesLate(l.sleepStart, tz)
+  }
   const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz })
   const localDay = (d: Date): string => dayFmt.format(d)
 
@@ -3071,6 +3096,30 @@ export async function computeCorrelations(
         outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
         moderator: { key: "heavy_caffeine", onLabel: `on ${cafLabel} days`, offLabel: "on lighter days",
                      predicate: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
+      },
+      // Latency and efficiency have been stored on 91% of nights for months and
+      // never read. These two are deliberately pre-registered rather than a
+      // sweep: every family costs false-discovery budget for all the others, so
+      // they are the two questions worth spending it on. "Does coffee keep me
+      // lying there" is not answerable from sleep score, which mixes latency in
+      // with six other things.
+      {
+        id: "caffeine_latency_by_amount",
+        title: "Caffeine → Time to fall asleep × Heavy vs light",
+        emoji: "☕",
+        predictor: { label: "any caffeine day", predicate: d => (d.caffeineMg ?? 0) > 0 },
+        outcome: { label: "minutes to fall asleep", nextDay: false, accessor: d => d.sleepLatencyMin, higherIsBetter: false },
+        moderator: { key: "heavy_caffeine", onLabel: `on ${cafLabel} days`, offLabel: "on lighter days",
+                     predicate: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
+      },
+      {
+        id: "alcohol_efficiency_by_early_dinner",
+        title: "Alcohol → Sleep efficiency × Early dinner",
+        emoji: "🍷",
+        predictor: { label: "drinking day", predicate: d => (d.alcoholMl ?? 0) > 0 },
+        outcome: { label: "sleep efficiency", nextDay: false, accessor: d => d.sleepEfficiency, higherIsBetter: true },
+        moderator: { key: "early_dinner", onLabel: "when dinner was before 8pm", offLabel: "when it was later",
+                     predicate: d => d.lastMealMin != null && d.lastMealMin < 20 * 60 },
       },
       {
         id: "long_calendar_sleep_by_workout",

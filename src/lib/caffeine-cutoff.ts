@@ -14,24 +14,34 @@ export const STANDARD_COFFEE_MG = 100
 export const MIN_BEDTIME_NIGHTS = 5
 
 /**
- * Median bedtime as minutes after local midnight, or null with too few nights.
- * A bedtime after midnight counts as late (25:30), not early (01:30), so the
- * median of {23:00, 23:30, 00:30} is 23:30 rather than something absurd.
+ * One night's bedtime on a scale where later is always a bigger number: minutes
+ * after local midnight, with anything before noon pushed past 24h so 01:20
+ * reads as 1520 (later than 23:08) rather than 80 (twenty-two hours earlier).
+ *
+ * Averaging or correlating raw clock minutes across midnight is the bug this
+ * exists to prevent: a run of 23:40 and 00:20 nights averages to the middle of
+ * the afternoon. Every reader of bedtime goes through here.
  */
-export function medianBedtimeMin(sleepStarts: Date[], timezone: string): number | null {
-  if (sleepStarts.length < MIN_BEDTIME_NIGHTS) return null
+export function bedtimeMinutesLate(at: Date, timezone: string): number {
   let fmt: Intl.DateTimeFormat
   try {
     fmt = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, hour: "2-digit", minute: "2-digit", hour12: false })
   } catch {
     fmt = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", hour: "2-digit", minute: "2-digit", hour12: false })
   }
-  const mins = sleepStarts.map(d => {
-    const [h, m] = fmt.format(d).split(":").map(Number)
-    let v = (h % 24) * 60 + m
-    if (v < 12 * 60) v += 24 * 60
-    return v
-  }).sort((a, b) => a - b)
+  const [h, m] = fmt.format(at).split(":").map(Number)
+  const v = (h % 24) * 60 + m
+  return v < 12 * 60 ? v + 24 * 60 : v
+}
+
+/**
+ * Median bedtime as minutes after local midnight, or null with too few nights.
+ * A bedtime after midnight counts as late (25:30), not early (01:30), so the
+ * median of {23:00, 23:30, 00:30} is 23:30 rather than something absurd.
+ */
+export function medianBedtimeMin(sleepStarts: Date[], timezone: string): number | null {
+  if (sleepStarts.length < MIN_BEDTIME_NIGHTS) return null
+  const mins = sleepStarts.map(d => bedtimeMinutesLate(d, timezone)).sort((a, b) => a - b)
   const mid = Math.floor(mins.length / 2)
   const med = mins.length % 2 ? mins[mid] : (mins[mid - 1] + mins[mid]) / 2
   return Math.round(med) % (24 * 60)

@@ -262,6 +262,30 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Months of sleep data that nothing ever read.** The ring records time to
+  fall asleep, sleep efficiency, restless periods, time in bed and bedtime on
+  **91% of nights**, and every one of them was written faithfully by the sync
+  and then read by exactly one stat box on the Health page, for the most recent
+  night only. Emergy's `get_health_range` did not return them, so he could not
+  answer "how long does it take me to fall asleep" and would reach for sleep
+  score instead — which mixes latency in with six other things. The correlation
+  engine could not see them either. They are now in the chat tool, the weekly
+  answer, `TRACKED_METRICS` (so the anomaly watch and monthly drift cover them,
+  thresholds kept equal on both sides by the guard in `drift.ts`), and
+  `DayData`. **`tracked-metrics-wired.test.ts` is the guard that matters**: a
+  tracked metric is named in four places by hand and missing one silently
+  disables it, with no error and no empty chart, just a signal that never fires.
+  Two correlation families were added — caffeine against time to fall asleep,
+  alcohol against efficiency — deliberately pre-registered rather than a sweep,
+  because every family spends false-discovery budget for all the others.
+  Bedtime goes through `bedtimeMinutesLate`, shared with the caffeine cutoff:
+  01:20 must read as later than 23:08 or a week straddling midnight averages to
+  the middle of the afternoon.
+- **A night that has not happened is not a night with no data.** Asked at 03:00,
+  the weekly sleep answer counted tonight among the gaps, because a night is
+  filed under the day you wake and today's row does not exist yet. A false gap
+  is worse than no gap: it trains the reader to ignore the real ones.
+
 - **The questions that were lookups, not judgements.** Of 59 questions ever
   asked in chat, about a third have one true answer the app already computes,
   and "How was my sleep this week?" was asked seven times word for word.

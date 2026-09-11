@@ -55,7 +55,7 @@ export async function loadDriftReport(userId: string, timezone: string, windows:
   const [logs, moods, checkins, tags, habitDone, habits, workouts, intake] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: from, lte: to } },
-      select: { date: true, sleepScore: true, sleepDuration: true, hrv: true, restingHR: true, readinessScore: true, steps: true },
+      select: { date: true, sleepScore: true, sleepDuration: true, hrv: true, restingHR: true, readinessScore: true, steps: true, sleepLatency: true, sleepEfficiency: true },
     }).catch(() => []),
     prisma.moodLog.findMany({ where: { userId, date: { gte: from, lte: to } }, select: { date: true, mood: true } }).catch(() => []),
     prisma.$queryRaw<{ date: string; energy: number }[]>`
@@ -81,6 +81,8 @@ export async function loadDriftReport(userId: string, timezone: string, windows:
     if (l.restingHR != null) series.restingHR.push({ day: d, value: l.restingHR })
     if (l.readinessScore != null) series.readinessScore.push({ day: d, value: l.readinessScore })
     if (l.steps != null) series.steps.push({ day: d, value: l.steps })
+    if (l.sleepLatency != null) series.sleepLatency.push({ day: d, value: l.sleepLatency })
+    if (l.sleepEfficiency != null) series.sleepEfficiency.push({ day: d, value: l.sleepEfficiency })
   }
   for (const m of moods) series.mood.push({ day: day(m.date), value: m.mood })
   for (const c of checkins) series.energy.push({ day: c.date, value: c.energy })

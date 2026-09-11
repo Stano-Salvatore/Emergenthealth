@@ -28,6 +28,7 @@ import { getGoals } from "@/lib/goals"
 import { formatDose } from "@/lib/dose"
 import { parseQuickAsk, type QuickAsk } from "@/lib/quick-answer"
 import { chipsFromClaim, type SourceChip, type SourceManifest } from "@/lib/chat-sources"
+import { bedtimeMinutesLate } from "@/lib/caffeine-cutoff"
 
 export interface QuickAnswer {
   /** The reply, in Emergy's voice, with a chart tag on its own line where one earns its place. */
@@ -58,6 +59,12 @@ function pretty(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number)
   return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })
     .format(new Date(Date.UTC(y, m - 1, d)))
+}
+
+/** Minutes-past-midnight (late-shifted) back to a clock a person reads. */
+function clock(mins: number): string {
+  const v = ((Math.round(mins) % 1440) + 1440) % 1440
+  return `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(v % 60).padStart(2, "0")}`
 }
 
 function list(parts: string[]): string {
@@ -201,7 +208,10 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
   const rows = await prisma.healthLog.findMany({
     where: { userId, date: { gte: new Date(from + "T00:00:00Z"), lte: new Date(today + "T00:00:00Z") } },
     orderBy: { date: "asc" },
-    select: { date: true, sleepDuration: true, sleepScore: true, deepSleep: true, remSleep: true },
+    select: {
+      date: true, sleepDuration: true, sleepScore: true, deepSleep: true, remSleep: true,
+      sleepLatency: true, sleepEfficiency: true, sleepStart: true,
+    },
   }).catch(() => [])
 
   const nights = rows.filter(r => r.sleepDuration != null && r.sleepDuration > 0)
@@ -218,8 +228,11 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
     const stages = n.deepSleep != null && n.remSleep != null
       ? ` (${hm(n.deepSleep)} deep, ${hm(n.remSleep)} REM)`
       : ""
+    const extra: string[] = []
+    if (n.sleepLatency != null) extra.push(`Took **${n.sleepLatency} min** to fall asleep`)
+    if (n.sleepEfficiency != null) extra.push(`efficiency **${n.sleepEfficiency}%**`)
     return {
-      reply: `Last night: **${hm(n.sleepDuration!)}** asleep${score}${stages}.`,
+      reply: `Last night: **${hm(n.sleepDuration!)}** asleep${score}${stages}.${extra.length ? ` ${extra.join(", ")}.` : ""}`,
       sources: chips({ sleep: "1 night" }),
     }
   }
@@ -231,11 +244,18 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
 
   // What is missing is part of the answer, not a footnote to leave off — and
   // "last 5 nights" would quietly redefine the week the user asked about.
-  const missing = days - nights.length
+  //
+  // Tonight is not missing, though, it just has not happened. A night is filed
+  // under the day you wake, so at 03:00 today's row does not exist yet and
+  // counting it as a gap invents one. A false gap is worse than no gap: it
+  // trains you to ignore the real ones.
+  const pending = rows.every(r => r.date.toISOString().slice(0, 10) !== today) ? 1 : 0
+  const missing = Math.max(0, days - nights.length - pending)
   const gap = missing > 0
     ? ` ${missing === 1 ? "One night" : `${missing} nights`} of the seven ${missing === 1 ? "has" : "have"} no data.`
     : ""
-  const over = missing > 0 ? ` across the ${nights.length} with data` : ""
+  const notYet = pending ? " Last night isn't in yet." : ""
+  const over = missing + pending > 0 ? ` across the ${nights.length} with data` : ""
 
   if (debt) {
     const shortfall = goalMin * nights.length - totalMin
@@ -244,9 +264,30 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
       ? `Across ${nights.length} ${nightWord} you slept **${hm(shortfall)}** less than your ${goals.sleepH}h goal.`
       : `You are **${hm(-shortfall)}** ahead of your ${goals.sleepH}h goal across ${nights.length} ${nightWord}.`
     return {
-      reply: `${line}${gap}\n\n[chart:sleep-week]`,
+      reply: `${line}${gap}${notYet}\n\n[chart:sleep-week]`,
       sources: chips({ sleep: `${nights.length} nights` }),
     }
+  }
+
+  // The three that vary most week to week and say something the average
+  // cannot: latency swings 6 to 56 minutes in a normal week here, and a
+  // bedtime spread of five hours is the story of that week.
+  const lats = nights.map(n => n.sleepLatency).filter((v): v is number => v != null).sort((a, b) => a - b)
+  const effs = nights.map(n => n.sleepEfficiency).filter((v): v is number => v != null)
+  const beds = nights.map(n => n.sleepStart).filter((v): v is Date => v != null)
+    .map(d => bedtimeMinutesLate(d, tz)).sort((a, b) => a - b)
+
+  const detail: string[] = []
+  if (lats.length >= 3) {
+    const med = lats[Math.floor(lats.length / 2)]
+    const spread = lats[lats.length - 1] - lats[0]
+    detail.push(spread >= 15
+      ? `Took **${med} min** to fall asleep on a typical night, anywhere from ${lats[0]} to ${lats[lats.length - 1]}`
+      : `Took **${med} min** to fall asleep on a typical night`)
+  }
+  if (effs.length >= 3) detail.push(`efficiency **${Math.round(effs.reduce((a, b) => a + b, 0) / effs.length)}%**`)
+  if (beds.length >= 3) {
+    detail.push(`bed between **${clock(beds[0])}** and **${clock(beds[beds.length - 1])}**`)
   }
 
   const best = nights.reduce((a, b) => ((b.sleepDuration ?? 0) > (a.sleepDuration ?? 0) ? b : a))
@@ -259,7 +300,7 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
     : ""
 
   return {
-    reply: `Last seven nights: **${hm(avgMin)}** a night on average${over}${scoreLine}.${gap}${spread}\n\n[chart:sleep-week]`,
+    reply: `Last seven nights: **${hm(avgMin)}** a night on average${over}${scoreLine}.${gap}${notYet}${spread}${detail.length ? `\n\n${detail[0].charAt(0).toUpperCase()}${detail[0].slice(1)}${detail.length > 1 ? `, ${detail.slice(1).join(", ")}` : ""}.` : ""}\n\n[chart:sleep-week]`,
     sources: chips({ sleep: `${nights.length} nights` }),
   }
 }

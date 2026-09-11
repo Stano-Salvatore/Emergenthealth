@@ -314,7 +314,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "get_health_range",
-    description: "Read the user's daily history: health metrics (sleep, resting HR, HRV, readiness, steps), Oura Ring tags (coffee, supplements, meds, alcohol — the user logs these in the Oura app), morning check-ins (energy/mood/intention), mood logs, journal notes, and logged water/coffee. Use this to answer questions about trends and causes — e.g. 'does coffee affect my sleep', 'how did I feel that week'. Reason over the returned data instead of guessing. Either pass `days` to look back from today, or `from`/`to` for a specific stretch — imported history goes back years, so a question about last autumn is answerable. Ranges longer than about four months come back as weekly averages instead of daily rows; narrow the window when you need a particular day.",
+    description: "Read the user's daily history: health metrics (sleep duration and score, how many minutes they took to fall asleep, sleep efficiency, bedtime, restless periods, resting HR, HRV, readiness, steps), Oura Ring tags (coffee, supplements, meds, alcohol — the user logs these in the Oura app), morning check-ins (energy/mood/intention), mood logs, journal notes, and logged water/coffee. Use this to answer questions about trends and causes — e.g. 'does coffee affect my sleep', 'how did I feel that week'. Reason over the returned data instead of guessing. Either pass `days` to look back from today, or `from`/`to` for a specific stretch — imported history goes back years, so a question about last autumn is answerable. Ranges longer than about four months come back as weekly averages instead of daily rows; narrow the window when you need a particular day.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -1081,6 +1081,12 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         select: {
           date: true, sleepDuration: true, sleepScore: true, restingHR: true,
           hrv: true, readinessScore: true, steps: true, activityScore: true,
+          // Recorded on 91% of nights since the ring was connected, and until
+          // now returned to nobody. Without these he cannot answer "how long
+          // does it take me to fall asleep" at all, and reaches for sleep
+          // score instead — which mixes latency in with six other things.
+          sleepLatency: true, sleepEfficiency: true, restlessPeriods: true,
+          timeInBed: true, sleepStart: true,
         },
       }).catch(() => [] as any[]),
       prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
@@ -1170,6 +1176,15 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       if (l) {
         const sleep = l.sleepDuration != null ? `${(l.sleepDuration / 60).toFixed(1)}h` : "?"
         parts.push(`sleep ${sleep}${l.sleepScore != null ? ` (score ${l.sleepScore})` : ""}, restingHR ${l.restingHR ?? "?"}bpm, HRV ${l.hrv != null ? Math.round(l.hrv) + "ms" : "?"}, readiness ${l.readinessScore ?? "?"}, steps ${l.steps ?? "?"}`)
+        // Only the ones actually recorded: a night the ring half-missed should
+        // read as a shorter line, not a row of question marks he then reasons
+        // over as if they were zeros.
+        const sleepDetail: string[] = []
+        if (l.sleepLatency != null) sleepDetail.push(`fell asleep in ${l.sleepLatency}min`)
+        if (l.sleepEfficiency != null) sleepDetail.push(`efficiency ${l.sleepEfficiency}%`)
+        if (l.sleepStart != null) sleepDetail.push(`to bed ${localTimeStr(rangeTz, l.sleepStart)}`)
+        if (l.restlessPeriods != null) sleepDetail.push(`${l.restlessPeriods} restless periods`)
+        if (sleepDetail.length) parts.push(sleepDetail.join(", "))
       }
       const dayTags = tagsByDay.get(d)
       if (dayTags?.length) parts.push(`Oura tags: ${dayTags.join(", ")}`)
