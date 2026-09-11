@@ -2,7 +2,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
-import { estimateCaffeine } from "@/lib/caffeine"
+import { recordDrink, resyncDrinkCaffeine, forgetDrinkCaffeine } from "@/lib/intake-write"
 import { NextResponse } from "next/server"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
 
@@ -57,20 +57,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "type and amountMl required" }, { status: 400 })
   }
 
-  const log = await prisma.intakeLog.create({
-    data: { userId, type, amountMl, note: note ?? null },
-  })
+  // recordDrink writes both rows — the drink and, for anything caffeinated,
+  // its caffeine entry at the same instant under the shared `intake_<id>`, so
+  // deleting the drink removes its caffeine. This route used to keep its own
+  // copy of that and swallow the mirror's failure.
+  const written = await recordDrink({ userId, type, amountMl, note })
+  if (!written) return NextResponse.json({ error: "Could not save that drink" }, { status: 500 })
 
-  // Caffeinated drinks feed the caffeine tracker automatically. The shared id
-  // ties the two entries together so deleting the drink removes its caffeine.
-  const est = estimateCaffeine(type, note ?? "", amountMl)
-  if (est) {
-    await prisma.caffeineLog.create({
-      data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg },
-    }).catch(() => null)
-  }
-
-  return NextResponse.json(log, { status: 201 })
+  return NextResponse.json(written.log, { status: 201 })
 }
 
 const EDIT_TYPES = new Set(["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "juice", "soda", "milk", "other"])
@@ -101,16 +95,10 @@ export async function PATCH(req: Request) {
 
   const updated = await prisma.intakeLog.update({ where: { id }, data })
 
-  // Re-sync the linked caffeine entry: the type or amount may have changed
-  // what (if any) caffeine this drink carries. Keep the original time so the
-  // decay curve stays honest.
-  await prisma.caffeineLog.deleteMany({ where: { id: `intake_${id}`, userId } }).catch(() => null)
-  const est = estimateCaffeine(updated.type, updated.note ?? "", updated.amountMl)
-  if (est) {
-    await prisma.caffeineLog.create({
-      data: { id: `intake_${id}`, userId, compound: est.compound, caffeineMg: est.mg, loggedAt: updated.loggedAt },
-    }).catch(() => null)
-  }
+  // The type or amount may have changed what (if any) caffeine this drink
+  // carries — added, altered or removed. resyncDrinkCaffeine handles all three
+  // and keeps the original time, so the decay curve stays honest.
+  await resyncDrinkCaffeine(updated)
 
   return NextResponse.json(updated)
 }
@@ -128,6 +116,6 @@ export async function DELETE(req: Request) {
 
   await prisma.intakeLog.delete({ where: { id } })
   // remove the auto-logged caffeine that came with this drink, if any
-  await prisma.caffeineLog.deleteMany({ where: { id: `intake_${id}`, userId } }).catch(() => null)
+  await forgetDrinkCaffeine(userId, { intakeId: id })
   return NextResponse.json({ ok: true })
 }

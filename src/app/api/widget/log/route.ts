@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { estimateCaffeine } from "@/lib/caffeine"
+import { recordDrink } from "@/lib/intake-write"
 
 const ALLOWED_TYPES = ["water", "coffee", "beer", "wine"] as const
 type AllowedType = (typeof ALLOWED_TYPES)[number]
@@ -55,19 +55,17 @@ export async function POST(req: NextRequest) {
     }).catch(() => null)
     const place = withUsual.find(p => p.id === lastCheckin?.savedPlaceId) ?? withUsual[0]
 
-    const log = await prisma.intakeLog.create({
-      data: {
-        userId,
-        type: place.usualType!,
-        amountMl: place.usualMl!,
-        note: `${place.usualNote || "the usual"} @ ${place.name}`,
-      },
+    // caffeineLabel, not the note: the note names the place, and a café called
+    // Espresso House would otherwise turn every drink bought there into a shot.
+    const written = await recordDrink({
+      userId,
+      type: place.usualType!,
+      amountMl: place.usualMl!,
+      note: `${place.usualNote || "the usual"} @ ${place.name}`,
+      caffeineLabel: place.usualNote ?? "",
     })
-    const usualEst = estimateCaffeine(place.usualType!, place.usualNote ?? "", place.usualMl!)
-    if (usualEst) {
-      await prisma.caffeineLog.create({
-        data: { id: `intake_${log.id}`, userId, compound: usualEst.compound, caffeineMg: usualEst.mg },
-      }).catch(() => null)
+    if (!written) {
+      return NextResponse.json({ error: "Could not save that drink" }, { status: 500 })
     }
     return NextResponse.json({
       ok: true,
@@ -91,20 +89,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "amountMl must be a positive number" }, { status: 400 })
   }
 
-  const log = await prisma.intakeLog.create({
-    data: {
-      userId,
-      type: type as string,
-      amountMl: Math.round(amountMl),
-    },
-  })
-
-  // caffeinated drinks auto-feed the caffeine tracker (same as /api/intake)
-  const est = estimateCaffeine(type as string, "", Math.round(amountMl))
-  if (est) {
-    await prisma.caffeineLog.create({
-      data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg },
-    }).catch(() => null)
+  const written = await recordDrink({ userId, type: type as string, amountMl: Math.round(amountMl) })
+  if (!written) {
+    return NextResponse.json({ error: "Could not save that drink" }, { status: 500 })
   }
 
   return NextResponse.json({ ok: true, type, amountMl })

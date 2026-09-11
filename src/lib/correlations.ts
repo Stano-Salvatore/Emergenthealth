@@ -147,6 +147,17 @@ export type InsightResult = {
    * Rendered as a caveat, never silently absorbed into the delta.
    */
   coverage?: string
+  /**
+   * The two groups differ in something else large enough to explain the gap.
+   *
+   * Same purpose as weekendDriven, said as a sentence rather than a flag,
+   * because the confounder here is continuous: on this account the nights
+   * after caffeine-past-four begin at 02:43 and the nights after an early cup
+   * at 00:17. Two and a half hours of bedtime is a bigger lever on a sleep
+   * score than the coffee is, and a card that reports the coffee without
+   * saying so is telling the truth and misleading anyway.
+   */
+  confounded?: string
   /** True when the effect collapses or flips once weekends are excluded — the classic confounder. */
   weekendDriven?: boolean
   /** The same comparison on weekdays only — set alongside weekendDriven so the
@@ -173,7 +184,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 13
+export const ENGINE_VERSION = 14
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -263,6 +274,18 @@ export function balancedCut(raw: (number | undefined)[], fixed: number): Cut {
  * roughly a 250 ml glass of 5% beer.
  */
 const STANDARD_DRINK_G = 10
+
+/**
+ * How that threshold is written on a card, kept beside the number so the two
+ * cannot drift — which they did: the split moved to grams and four cards went
+ * on printing "(50ml+)", a figure the engine had stopped applying. The rule is
+ * already written down next to balancedCut, and it was broken here: a card
+ * never claims a threshold it did not use.
+ *
+ * "1+ drink" rather than "10g+", because grams of ethanol is the right unit to
+ * reason in and the wrong one to read.
+ */
+const DRINKING_DAYS_LABEL = "drinking days (1+ drink)"
 
 /**
  * After this o'clock, local, a dose still has most of its work to do by
@@ -1403,7 +1426,7 @@ export async function computeCorrelations(
   }
   const ins_alcohol_hrv = compareGroups({
     id: "alcohol_hrv", category: "caffeine", emoji: "🍷", title: "Alcohol & Next-Day HRV",
-    highGroupLabel: "drinking days (50ml+)", lowGroupLabel: "non-drinking days",
+    highGroupLabel: DRINKING_DAYS_LABEL, lowGroupLabel: "non-drinking days",
     series: alcoholHrv, higherIsBetter: false,
     findingTemplate: (h, l) =>
       h < l
@@ -1413,7 +1436,7 @@ export async function computeCorrelations(
   if (ins_alcohol_hrv) insights.push(ins_alcohol_hrv)
   const ins_alcohol_sleep = compareGroups({
     id: "alcohol_sleep", category: "caffeine", emoji: "🍺", title: "Alcohol & Sleep Quality",
-    highGroupLabel: "drinking days (50ml+)", lowGroupLabel: "non-drinking days",
+    highGroupLabel: DRINKING_DAYS_LABEL, lowGroupLabel: "non-drinking days",
     series: alcoholSleepEff, higherIsBetter: false,
     findingTemplate: (h, l) =>
       h < l
@@ -1452,7 +1475,7 @@ export async function computeCorrelations(
   if (ins_sleep_rhr) insights.push(ins_sleep_rhr)
   const ins_alcohol_rhr = compareGroups({
     id: "alcohol_resting_hr", category: "recovery", emoji: "🍷", title: "Alcohol & Resting Heart Rate",
-    highGroupLabel: "drinking days (50ml+)", lowGroupLabel: "non-drinking days",
+    highGroupLabel: DRINKING_DAYS_LABEL, lowGroupLabel: "non-drinking days",
     series: alcoholRhrDrinkSplit, higherIsBetter: false,
     findingTemplate: (h, l) =>
       h > l
@@ -2555,7 +2578,7 @@ export async function computeCorrelations(
   if (ins_caffeine_deep) insights.push(ins_caffeine_deep)
   const ins_alcohol_rem = compareGroups({
     id: "alcohol_rem_sleep", category: "recovery", emoji: "🌀", title: "Alcohol & REM Sleep",
-    highGroupLabel: "drinking days (50ml+)", lowGroupLabel: "non-drinking days",
+    highGroupLabel: DRINKING_DAYS_LABEL, lowGroupLabel: "non-drinking days",
     series: alcoholRemDrinkSplit, higherIsBetter: false,
     findingTemplate: (h, l) =>
       h < l
@@ -2967,6 +2990,15 @@ export async function computeCorrelations(
   /** A gate has to clear this in the main battery before its aspects are run. */
   const SLEEP_GATE_P = 0.05
 
+  /**
+   * Bedtimes this far apart make the two sides two different nights, whatever
+   * else is being compared. Forty-five minutes is where it stops being noise:
+   * across this account's 78 timed nights the earlier half scores 73.9 and the
+   * later half 62.9, so roughly five points an hour — enough that an hour of
+   * drift accounts for a third of a typical panel gap.
+   */
+  const BEDTIME_CONFOUND_MIN = 45
+
   const unknownCaffeineDays = allDays.length - loggedDayCount
   const coverageNote = unknownCaffeineDays >= 5
     ? `${unknownCaffeineDays} of the ${allDays.length} days are left out: nothing at all was logged on them, so they are not evidence of a day without it.`
@@ -3051,6 +3083,29 @@ export async function computeCorrelations(
     })
     if (!gateIns) continue
     if (cause.coverage) gateIns.coverage = cause.coverage
+
+    // What else separates these two sides? Bedtime, usually — and it is the
+    // biggest single lever on a sleep score this account has, so a panel card
+    // that ignores it can hand the credit to the wrong thing entirely.
+    const bedHi: number[] = []
+    const bedLo: number[] = []
+    for (const d of days) {
+      const side = cause.test(d)
+      if (side == null) continue
+      const night = byDate[nextDateStr(d.date)]
+      if (night?.bedtimeMin == null) continue
+      ;(side ? bedHi : bedLo).push(night.bedtimeMin)
+    }
+    let confounded: string | undefined
+    if (bedHi.length >= 5 && bedLo.length >= 5) {
+      const gap = avg(bedHi) - avg(bedLo)
+      if (Math.abs(gap) >= BEDTIME_CONFOUND_MIN) {
+        const later = gap > 0 ? cause.highLabel : cause.lowLabel
+        confounded = `Bedtime does not hold still across this comparison: after ${later} you went to bed ` +
+          `${Math.round(Math.abs(gap))} minutes later on average. Some of this gap is that.`
+      }
+    }
+    if (confounded) gateIns.confounded = confounded
     insights.push(gateIns)
 
     // The gate is the licence to look closer. On the weekday-only guard pass
@@ -3084,6 +3139,7 @@ export async function computeCorrelations(
       if (!ins) continue
       ins.pool = `sleep_panel_${cause.key}`
       if (cause.coverage) ins.coverage = cause.coverage
+      if (confounded) ins.confounded = confounded
       insights.push(ins)
     }
   }

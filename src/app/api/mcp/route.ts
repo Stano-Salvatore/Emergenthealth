@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
-import { estimateCaffeine } from "@/lib/caffeine"
+import { recordDrink } from "@/lib/intake-write"
 import {
   getSteps, getCalories, getHeartRate, getSleep,
   getWeight, getDistance, getActivitySessions, getDailySummary,
@@ -127,16 +127,22 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_health_metrics",
-    "Get extended health metrics for a date range: HRV, readiness score, SpO2, skin temperature, stress, breathing rate",
+    "Get extended health metrics for a date range: HRV, readiness score, SpO2, skin temperature, stress, breathing rate, sleep latency, and Oura's long-range figures (VO2 max, vascular age, pulse wave velocity, resilience)",
     dateRange,
     async ({ startDate, endDate }) => {
       const logs = await prisma.healthLog.findMany({
         where: { userId, date: { gte: startOfDay(startDate), lte: endOfDay(endDate) } },
         orderBy: { date: "asc" },
+        // A hand-written list that stopped being updated: sleep latency sat in
+        // the database for months unread, and the long-range Oura figures were
+        // added to the Health page and to Emergy without ever reaching here.
+        // This is the surface other tools read the account through.
         select: {
           date: true, readinessScore: true, hrv: true, spo2: true,
           skinTemp: true, stressHigh: true, recoveryHigh: true, breathingRate: true,
-          activityScore: true, sleepEfficiency: true,
+          activityScore: true, sleepEfficiency: true, sleepLatency: true,
+          restlessPeriods: true, cardiovascularAge: true, pulseWaveVelocity: true,
+          vo2Max: true, resilienceLevel: true, stressSummary: true,
         },
       })
       return ok(logs.map(l => ({ ...l, date: l.date.toISOString().slice(0, 10) })))
@@ -462,17 +468,14 @@ function buildMcpServer(userId: string): McpServer {
       note: z.string().optional().describe("Optional note, e.g. the drink style (cold brew, 12°)"),
     },
     async ({ type, amount_ml, note }) => {
-      const log = await prisma.intakeLog.create({
-        data: { userId, type, amountMl: amount_ml, note: note ?? null, loggedAt: new Date() },
-      })
-      // caffeinated drinks auto-feed the caffeine tracker (same as /api/intake)
-      const est = estimateCaffeine(type, note ?? "", amount_ml)
-      if (est) {
-        await prisma.caffeineLog.create({
-          data: { id: `intake_${log.id}`, userId, compound: est.compound, caffeineMg: est.mg },
-        }).catch(() => null)
-      }
-      return msg(`Logged ${amount_ml}ml of ${type}.`)
+      const written = await recordDrink({ userId, type, amountMl: amount_ml, note: note ?? null })
+      if (!written) return msg("Couldn't save that drink — nothing was written.")
+      // Said out loud rather than logged and forgotten: the drink is on record
+      // and its dose is not, so body load and the caffeine cutoff are short.
+      const short = written.caffeineMirrorFailed
+        ? " The caffeine didn't record, so it won't show in body load."
+        : ""
+      return msg(`Logged ${amount_ml}ml of ${type}.${short}`)
     },
   )
 

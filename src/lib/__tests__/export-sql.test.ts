@@ -9,8 +9,15 @@ import { TABLE_DISCOVERY_SQL } from "@/lib/export"
 // `name` type Prisma's driver will not read, then because the fix's cast
 // broke SELECT DISTINCT's ORDER BY rule. Neither is visible to anything but
 // Postgres itself, so Postgres itself runs here — in-process, no server.
+// Booting an in-process Postgres takes about four and a half seconds on a
+// quiet machine, against vitest's five-second default. That is not a margin,
+// it is a coin toss: it went red here the moment a build was running beside
+// it, and passed alone immediately after. The timeout is generous on purpose —
+// a test that fails for being slow teaches people to re-run rather than read.
+const PGLITE_BOOT_MS = 30_000
+
 describe("export table discovery SQL", () => {
-  it("returns every user-owned base table as text, and nothing else", async () => {
+  it("returns every user-owned base table as text, and nothing else", { timeout: PGLITE_BOOT_MS }, async () => {
     const db = new PGlite()
     await db.exec(`
       CREATE TABLE "HealthLog" ("id" text, "userId" text);

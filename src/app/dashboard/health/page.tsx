@@ -130,6 +130,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
       sleepEfficiency: true,
       sleepLatency: true,
       cardiovascularAge: true,
+      pulseWaveVelocity: true,
       vo2Max: true,
       resilienceLevel: true,
       stressHigh: true,
@@ -462,6 +463,14 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                     {latestLog.cardiovascularAge != null && (
                       <StatBox icon={<span className="text-sm">🎂</span>} label="Vascular age"
                         value={`${Math.round(latestLog.cardiovascularAge)} yr`} />
+                    )}
+                    {/* The figure vascular age is derived from, fetched and
+                        stored beside it since the endpoint was added and read
+                        by nothing until now. Stiffer arteries carry the pulse
+                        faster, so lower is younger. */}
+                    {latestLog.pulseWaveVelocity != null && (
+                      <StatBox icon={<span className="text-sm">🩸</span>} label="Pulse wave velocity"
+                        value={`${latestLog.pulseWaveVelocity.toFixed(1)} m/s`} />
                     )}
                     {latestLog.resilienceLevel != null && (
                       <StatBox icon={<span className="text-sm">🛡️</span>} label="Resilience"

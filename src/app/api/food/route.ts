@@ -2,7 +2,7 @@ import { auth } from "@/auth"
 import { userToday } from "@/lib/user-timezone"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { estimateCaffeine } from "@/lib/caffeine"
+import { recordDrink, forgetDrinkCaffeine } from "@/lib/intake-write"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement } from "@/lib/supplement-normalize"
 import { extractMirrorableDrinks } from "@/lib/drink-mirror"
@@ -116,18 +116,13 @@ export async function POST(req: Request) {
   let mirroredDrinks = 0
   const drinks = extractMirrorableDrinks(body?.items)
   for (const [i, d] of drinks.entries()) {
-    const intakeId = `food_${log.id}_${i}`
-    const created = await prisma.intakeLog.create({
-      data: { id: intakeId, userId, type: d.type, amountMl: d.volumeMl, note: d.name || null },
-    }).catch(e => { console.error("food→intake mirror failed", intakeId, e); return null })
-    if (!created) continue
-    mirroredDrinks++
-    const est = estimateCaffeine(d.type, d.name, d.volumeMl)
-    if (est) {
-      await prisma.caffeineLog.create({
-        data: { id: `intake_${intakeId}`, userId, compound: est.compound, caffeineMg: est.mg },
-      }).catch(e => console.error("food→caffeine mirror failed", intakeId, e))
-    }
+    // The id is keyed to the meal so deleting the meal takes its drinks with
+    // it; recordDrink writes the caffeine entry under `intake_<that id>`.
+    const written = await recordDrink({
+      id: `food_${log.id}_${i}`,
+      userId, type: d.type, amountMl: d.volumeMl, note: d.name || null,
+    })
+    if (written) mirroredDrinks++
   }
 
   return NextResponse.json({ ...log, mirroredDrinks }, { status: 201 })
@@ -180,7 +175,8 @@ export async function DELETE(req: Request) {
   }
   await prisma.foodLog.delete({ where: { id } })
   // remove the drink entries (and their caffeine) this meal mirrored into the tracker
-  await prisma.intakeLog.deleteMany({ where: { userId, id: { startsWith: `food_${id}_` } } }).catch(() => null)
-  await prisma.caffeineLog.deleteMany({ where: { userId, id: { startsWith: `intake_food_${id}_` } } }).catch(() => null)
+  await prisma.intakeLog.deleteMany({ where: { userId, id: { startsWith: `food_${id}_` } } })
+    .catch((e: unknown) => console.error("[food] drink cleanup failed for meal", id, e))
+  await forgetDrinkCaffeine(userId, { idPrefix: `food_${id}_` })
   return NextResponse.json({ ok: true })
 }

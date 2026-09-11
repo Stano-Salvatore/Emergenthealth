@@ -85,6 +85,18 @@ describe("a dose is grams of ethanol, not millilitres", () => {
     expect(ethanolGrams("water", 500)).toBe(0)
   })
 
+  it("never prints a threshold it stopped applying", () => {
+    // The split moved to grams of ethanol and four cards went on saying
+    // "(50ml+)" — a number the engine no longer used to decide anything. The
+    // rule is already written down beside balancedCut: a card never claims a
+    // threshold it did not apply.
+    const engine = readFileSync("src/lib/correlations.ts", "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "")
+    expect(engine, "an alcohol card is quoting millilitres").not.toMatch(/drinking days \(\d+\s*ml/i)
+    expect(engine).toContain("DRINKING_DAYS_LABEL")
+  })
+
   it("the engine reasons in grams", () => {
     const engine = readFileSync("src/lib/correlations.ts", "utf8")
     expect(engine).toContain("STANDARD_DRINK_G")
