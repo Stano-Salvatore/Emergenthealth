@@ -1227,8 +1227,15 @@ export async function computeCorrelations(
       name: metric.name,
       emoji: metric.emoji,
       isHigh: (v: number) => (isBinary ? v >= 1 : v >= valMedian),
-      highLabel: isBinary ? `${metric.name} days` : `higher ${metric.name} days (${r1(valMedian)}+)`,
-      lowLabel: isBinary ? `days without ${metric.name}` : `lower ${metric.name} days`,
+      // The chip carries the threshold because it is the only place a reader
+      // can check what the split was; the phrase drops it, because
+      // "(3+)" mid-sentence is a parenthesis nobody reads aloud.
+      highLabel: isBinary
+        ? { chip: `${metric.name} days`, phrase: `${metric.name} days` }
+        : { chip: `higher ${metric.name} days (${r1(valMedian)}+)`, phrase: `higher ${metric.name} days` },
+      lowLabel: isBinary
+        ? { chip: `days without ${metric.name}`, phrase: "days without it" }
+        : { chip: `lower ${metric.name} days`, phrase: "lower ones" },
     }]
   })
 
@@ -2915,10 +2922,10 @@ export async function computeCorrelations(
       id: `custom_${metric.id}_mood`, category: "custom", emoji: metric.emoji, title: `${metric.name} & Mood`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
       series: cMood,
-      findingTemplate: (h, l) =>
-        h > l
-          ? `On ${highLabel}, your mood averages ${h} vs ${l} on ${lowLabel}`
-          : `On ${highLabel}, mood runs ${h} vs ${l} on ${lowLabel}`,
+      // The two branches used to differ only in "averages" against "runs",
+      // which told a reader nothing about which case they were looking at.
+      findingTemplate: (h, l, lab) =>
+        `Your mood averages ${h} on ${lab.high}, and ${l} on ${lab.low}`,
     })
     if (ins_custom_mood) insights.push(ins_custom_mood)
 
@@ -2926,10 +2933,8 @@ export async function computeCorrelations(
       id: `custom_${metric.id}_sleep`, category: "custom", emoji: metric.emoji, title: `${metric.name} & Sleep`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
       series: cSleep,
-      findingTemplate: (h, l) =>
-        h > l
-          ? `Nights after ${highLabel}, sleep score averages ${h} vs ${l}`
-          : `Nights after ${highLabel}, sleep score runs ${h} vs ${l}`,
+      findingTemplate: (h, l, lab) =>
+        `Nights after ${lab.high} score ${h}; after ${lab.low}, ${l}`,
     })
     if (ins_custom_sleep) insights.push(ins_custom_sleep)
 
@@ -2937,10 +2942,8 @@ export async function computeCorrelations(
       id: `custom_${metric.id}_energy`, category: "custom", emoji: metric.emoji, title: `${metric.name} & Next-Day Energy`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
       series: cEnergy,
-      findingTemplate: (h, l) =>
-        h > l
-          ? `The morning after ${highLabel}, energy averages ${h} vs ${l}`
-          : `The morning after ${highLabel}, energy runs ${h} vs ${l}`,
+      findingTemplate: (h, l, lab) =>
+        `The morning after ${lab.high}, energy averages ${h}; after ${lab.low}, ${l}`,
     })
     if (ins_custom_energy) insights.push(ins_custom_energy)
   }
@@ -3899,7 +3902,6 @@ export async function computeCorrelations(
     const earns = (delta: number, best: number): boolean =>
       Math.abs(delta) >= COMBO_MIN_ABS &&
       (best === 0 || (Math.sign(delta) === Math.sign(best) && Math.abs(delta) >= Math.abs(best) * COMBO_GAIN))
-    const fmtPct = (v: number) => `${v > 0 ? "+" : ""}${Math.round(v)}%`
     const andList = (labels: string[]) =>
       labels.length <= 2 ? labels.join(" and ") : `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`
 
@@ -3970,8 +3972,13 @@ export async function computeCorrelations(
           lowGroupLabel: "all other days",
           series: combo.series,
           minN: MIN_COMBO_DAYS,
+          // Two sentences. One ran to thirty-one words and ended on a bare
+          // percentage whose base was never stated — the card's own delta
+          // already shows the size, so the sentence only has to say which
+          // combination it is and what it beat.
           findingTemplate: (hi, lo) =>
-            `The morning after ${andList(labels)} together, your ${outcome.label} averaged ${hi} vs ${lo} after any other day — a bigger swing than ${combo.beats.label} (${fmtPct(combo.beats.delta)})`,
+            `${andList(labels)} together: ${outcome.label} averaged ${hi}, against ${lo} after any other day. ` +
+            `That is a wider gap than ${combo.beats.label} opens on its own.`,
         })
         if (ins) insights.push(ins)
       }
