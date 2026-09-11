@@ -149,12 +149,33 @@ export function OuraManager({ isConnected, hasOauthConfig = false }: { isConnect
               </>
             )}
 
-            {/* Personal Access Token option */}
+            {/* No OAuth configured on this deployment means there is no way in
+                for a new user, now that Oura has stopped issuing tokens. Saying
+                so is the honest thing; presenting the box below as the way in
+                would be pointing at a remedy that no longer exists. */}
+            {!hasOauthConfig && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                <p className="text-xs text-amber-400">Oura isn&apos;t set up on this deployment.</p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Connecting a new ring needs OAuth, which an administrator has to configure.
+                  The box below only works if you already hold a token.
+                </p>
+              </div>
+            )}
+
+            {/* Personal Access Token — kept for tokens that already exist.
+                Oura stopped issuing new ones in December 2025, so the old
+                "get yours at…" hint sent new users to a page where they
+                cannot create one: a dead end that looked like a setup step. */}
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground flex items-center gap-1">
                 <Key className="h-3 w-3" />
                 Personal Access Token
-                <span className="text-muted-foreground/60">— get yours at cloud.ouraring.com/personal-access-tokens</span>
+                <span className="text-muted-foreground/60">— existing tokens only</span>
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Oura stopped issuing these in December 2025. If you already have one it still
+                works{hasOauthConfig ? "; otherwise connect with OAuth above" : ""}.
               </p>
               <div className="flex gap-2">
                 <Input

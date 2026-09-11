@@ -281,6 +281,15 @@ Roughly in order, most recent first:
   Bedtime goes through `bedtimeMinutesLate`, shared with the caffeine cutoff:
   01:20 must read as later than 23:08 or a week straddling midnight averages to
   the middle of the afternoon.
+- **Oura closed the personal access token door in December 2025.** New tokens
+  cannot be created, and only OAuth works for a new connection. The Settings
+  card still said "get yours at cloud.ouraring.com/personal-access-tokens",
+  which sent a new user to a page where nothing can be created — a dead end
+  dressed as a setup step, and the exact bug class the conventions call *never
+  point at a remedy that isn't rendered*. The field stays for tokens that
+  already exist, now labelled as such; and when a deployment has no OAuth
+  configured the card says plainly that there is no way in rather than leaving
+  the token box looking like one. `oura-connect-honest.test.ts` guards it.
 - **A night that has not happened is not a night with no data.** Asked at 03:00,
   the weekly sleep answer counted tonight among the gaps, because a night is
   filed under the day you wake and today's row does not exist yet. A false gap
@@ -476,6 +485,18 @@ Roughly in order, most recent first:
   next one arrives. Needs a timer, and an APK.
 - `EMAIL_FROM` is unset — the sender is Resend's sandbox, which only reaches
   the account owner. Needs a domain.
+- **Four Oura endpoints we have never called**, all confirmed to exist in the
+  v2 API and all visible in the user's own Oura app: `daily_cardiovascular_age`,
+  `vO2_max`, `daily_resilience` and `sleep_time` (the Body Clock card). The
+  `daily_stress` response also carries a day summary — the "Balanced day"
+  wording — which the sync currently drops, keeping only the high-stress and
+  high-recovery minutes. Cardio capacity and resilience are the two worth
+  having: VO2 max is the one number on those screens a training plan moves, and
+  cumulative stress went Low to High in mid-August and stayed there. Needs new
+  columns, a migration and sync work. Typical Sleep Score, Sleep Debt, Sleep
+  Regularity, Daily Sleep Need and Symptom Radar did **not** appear in the API
+  docs — sleep debt and regularity we could compute from the bedtimes and
+  durations already stored, which beats copying a number we cannot explain.
 - **The rest of the chat bill.** The parser takes the log lines; three levers
   are left, in order of payoff. (1) `EMERGY_CHAT_EFFORT` is wired
   (`chatEffort()` in `claude.ts`) but unset in production, so every turn runs
