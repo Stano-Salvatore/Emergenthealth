@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { format, subDays } from "date-fns"
 import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight, Pencil, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ALCOHOL_TYPES } from "@/lib/body-load"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 import MedicationsPage from "@/app/dashboard/medications/page"
 import { FoodTab } from "@/components/intake/FoodTab"
@@ -86,7 +87,8 @@ const TYPE_META: Record<string, { label: string; color: string; goal?: number; i
 
 // Types the custom-entry form offers, and which of them ask for a strength.
 const CUSTOM_TYPES = ["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "other"] as const
-const STRENGTH_TYPES = new Set(["beer", "wine", "spirits", "alcohol"])
+/** Only an alcoholic drink has a strength worth asking for — see isAlcohol. */
+const STRENGTH_TYPES = new Set<string>(ALCOHOL_TYPES)
 const CUSTOM_EMOJI: Record<string, string> = {
   water: "💧", sparkling: "🫧", coffee: "☕", tea: "🍵", matcha: "🍃",
   beer: "🍺", wine: "🍷", spirits: "🥃", alcohol: "🍾", other: "🥤",

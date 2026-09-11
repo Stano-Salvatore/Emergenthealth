@@ -23,7 +23,7 @@ import { getUserTimezone } from "@/lib/user-timezone"
 import { localDateStr, zonedDayRange, addDaysISO } from "@/lib/local-date"
 import { hydrationMl } from "@/lib/hydration"
 import { activeFromDoses } from "@/lib/caffeine"
-import { alcoholRemainingG, alcoholClearanceGPerHour, ethanolGrams } from "@/lib/body-load"
+import { ALCOHOL_TYPES, alcoholRemainingG, alcoholClearanceGPerHour, ethanolGrams } from "@/lib/body-load"
 import { getGoals } from "@/lib/goals"
 import { formatDose } from "@/lib/dose"
 import { parseQuickAsk, type QuickAsk } from "@/lib/quick-answer"
@@ -128,7 +128,7 @@ async function intakeTotal(userId: string, tz: string, type: string, label: stri
   const { start, end } = zonedDayRange(tz, localDateStr(tz))
   // "Alcohol" is a question about beer, wine and spirits together, not about
   // the one intake type that happens to be spelled that way.
-  const types = type === "alcohol" ? ["beer", "wine", "spirits", "alcohol"] : [type]
+  const types: string[] = type === "alcohol" ? [...ALCOHOL_TYPES] : [type]
   const rows = await prisma.intakeLog.findMany({
     where: { userId, type: { in: types }, loggedAt: { gte: start, lte: end } },
     orderBy: { loggedAt: "asc" },
@@ -179,7 +179,7 @@ async function bodyNow(userId: string, tz: string): Promise<QuickAnswer> {
       select: { caffeineMg: true, loggedAt: true },
     }).catch(() => []),
     prisma.intakeLog.findMany({
-      where: { userId, type: { in: ["beer", "wine", "spirits", "alcohol"] }, loggedAt: { gte: since } },
+      where: { userId, type: { in: [...ALCOHOL_TYPES] }, loggedAt: { gte: since } },
       select: { type: true, amountMl: true, note: true, loggedAt: true },
     }).catch(() => []),
     getGoals(userId),
