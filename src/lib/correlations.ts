@@ -2053,8 +2053,11 @@ export async function computeCorrelations(
   for (const supp of topSupps) {
     const halfLifeH = supplementInfoFor(supp)?.halfLifeH
     let onBoard: (dayIndex: number) => boolean = () => false
-    let highLabel = `${supp} days`
-    let lowLabel = `days without ${supp}`
+    // The chip keeps "still on board" verbatim: experiment-suggest.ts reads it
+    // to recognise a half-life model and decline to propose an experiment on a
+    // prescription. Changing that string silently re-enables those.
+    let highLabel: GroupLabel = { chip: `${supp} days`, phrase: supp }
+    let lowLabel: GroupLabel = { chip: `days without ${supp}`, phrase: `no ${supp}` }
     let levelBased = false
 
     if (halfLifeH) {
@@ -2068,8 +2071,8 @@ export async function computeCorrelations(
       if (highQ > Math.max(lowQ * 1.5, NEGLIGIBLE_LEVEL)) {
         const cut = Math.max(median(levels), NEGLIGIBLE_LEVEL)
         onBoard = i => levels[i] >= cut
-        highLabel = `${supp} still on board`
-        lowLabel = `after it cleared`
+        highLabel = { chip: `${supp} still on board`, phrase: `${supp} still in your system` }
+        lowLabel = { chip: `after it cleared`, phrase: "none left" }
         levelBased = true
       }
     }
@@ -2095,20 +2098,16 @@ export async function computeCorrelations(
       id: `supplement_${suppSlug(supp)}_sleep`, category: "supplements", emoji: "💊", title: `${supp} & Sleep Quality`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
       series: withSleepSplit,
-      findingTemplate: (h, l) =>
-        h > l
-          ? `${levelBased ? `While ${supp} was still circulating` : `On nights after taking ${supp}`}, sleep score averages ${h} vs ${l} ${levelBased ? "once it cleared" : "without it"}`
-          : `${supp} doesn't show a sleep benefit yet — ${h} vs ${l} ${levelBased ? "once it cleared" : "without it"}`,
+      findingTemplate: (h, l, lab) =>
+        `Nights with ${lab.high} score ${h}; nights with ${lab.low}, ${l}`,
     })
     if (ins_supp_sleep) insights.push(ins_supp_sleep)
     const ins_supp_hrv = compareGroups({
       id: `supplement_${suppSlug(supp)}_hrv`, category: "supplements", emoji: "💓", title: `${supp} & HRV`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
       series: withHrvSplit,
-      findingTemplate: (h, l) =>
-        h > l
-          ? `Mornings after ${supp}, HRV averages ${h}ms vs ${l}ms without it`
-          : `${supp} doesn't move your HRV — ${h}ms vs ${l}ms without it`,
+      findingTemplate: (h, l, lab) =>
+        `Mornings after a night with ${lab.high}, HRV averages ${h}ms; with ${lab.low}, ${l}ms`,
     })
     if (ins_supp_hrv) insights.push(ins_supp_hrv)
 
@@ -2120,20 +2119,16 @@ export async function computeCorrelations(
       id: `supplement_${suppSlug(supp)}_deep`, category: "supplements", emoji: "🌊", title: `${supp} & Deep Sleep`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
       series: withDeepSplit,
-      findingTemplate: (h, l) =>
-        h > l
-          ? `Nights after ${supp}, deep sleep averages ${Math.round(h)}min vs ${Math.round(l)}min without it`
-          : `Nights after ${supp}, deep sleep drops to ${Math.round(h)}min vs ${Math.round(l)}min without it`,
+      findingTemplate: (h, l, lab) =>
+        `Nights with ${lab.high} give ${Math.round(h)}min of deep sleep; nights with ${lab.low}, ${Math.round(l)}min`,
     })
     if (ins_supp_deep) insights.push(ins_supp_deep)
     const ins_supp_rem = compareGroups({
       id: `supplement_${suppSlug(supp)}_rem`, category: "supplements", emoji: "🌀", title: `${supp} & REM Sleep`,
       highGroupLabel: highLabel, lowGroupLabel: lowLabel,
       series: withRemSplit,
-      findingTemplate: (h, l) =>
-        h > l
-          ? `Nights after ${supp}, REM averages ${Math.round(h)}min vs ${Math.round(l)}min without it`
-          : `Nights after ${supp}, REM drops to ${Math.round(h)}min vs ${Math.round(l)}min without it`,
+      findingTemplate: (h, l, lab) =>
+        `Nights with ${lab.high} give ${Math.round(h)}min of REM; nights with ${lab.low}, ${Math.round(l)}min`,
     })
     if (ins_supp_rem) insights.push(ins_supp_rem)
   }
@@ -3604,7 +3599,7 @@ export async function computeCorrelations(
     const INTERACTIONS: InteractionDef[] = [
       {
         id: "alcohol_hrv_by_workout",
-        title: "Alcohol → HRV × Workout that day",
+        title: "Does a workout soften what drinking does to HRV?",
         emoji: "🍷",
         predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
         outcome: { label: "morning HRV", nextDay: true, accessor: d => d.hrv, higherIsBetter: true },
@@ -3613,7 +3608,7 @@ export async function computeCorrelations(
       },
       {
         id: "alcohol_sleep_by_early_dinner",
-        title: "Alcohol → Sleep × Early dinner",
+        title: "Does an early dinner soften what drinking does to sleep?",
         emoji: "🌙",
         predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
         outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
@@ -3622,7 +3617,7 @@ export async function computeCorrelations(
       },
       {
         id: "short_sleep_mood_by_next_workout",
-        title: "Short sleep → Mood × Workout next day",
+        title: "Does a workout rescue your mood after a short night?",
         emoji: "💪",
         predictor: { label: "night under 7h", predicate: d => d.sleepDuration != null && d.sleepDuration < 7 },
         outcome: { label: "next-day mood", nextDay: true, accessor: d => d.mood, higherIsBetter: true },
@@ -3632,7 +3627,7 @@ export async function computeCorrelations(
       },
       {
         id: "short_sleep_energy_by_next_workout",
-        title: "Short sleep → Energy × Workout next day",
+        title: "Does a workout rescue your energy after a short night?",
         emoji: "🏃",
         predictor: { label: "night under 7h", predicate: d => d.sleepDuration != null && d.sleepDuration < 7 },
         outcome: { label: "next-day energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
@@ -3644,7 +3639,7 @@ export async function computeCorrelations(
         id: "caffeine_sleep_by_amount",
         // A silent day is not a decaf day — see InteractionDef.eligible.
         eligible: d => d.logged === true || d.caffeineMg != null,
-        title: "Caffeine → Sleep × Heavy vs light",
+        title: "Does a heavy caffeine day sleep worse than a light one?",
         emoji: "☕",
         predictor: { label: "any caffeine day", predicate: d => (d.caffeineMg ?? 0) > 0 },
         outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
@@ -3661,7 +3656,7 @@ export async function computeCorrelations(
         id: "caffeine_latency_by_amount",
         // A silent day is not a decaf day — see InteractionDef.eligible.
         eligible: d => d.logged === true || d.caffeineMg != null,
-        title: "Caffeine → Time to fall asleep × Heavy vs light",
+        title: "Does a heavy caffeine day take longer to fall asleep after?",
         emoji: "☕",
         predictor: { label: "any caffeine day", predicate: d => (d.caffeineMg ?? 0) > 0 },
         outcome: { label: "minutes to fall asleep", nextDay: false, accessor: d => d.sleepLatencyMin, higherIsBetter: false },
@@ -3670,7 +3665,7 @@ export async function computeCorrelations(
       },
       {
         id: "alcohol_efficiency_by_early_dinner",
-        title: "Alcohol → Sleep efficiency × Early dinner",
+        title: "Does an early dinner protect your sleep efficiency when you drink?",
         emoji: "🍷",
         predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
         outcome: { label: "sleep efficiency", nextDay: false, accessor: d => d.sleepEfficiency, higherIsBetter: true },
@@ -3679,7 +3674,7 @@ export async function computeCorrelations(
       },
       {
         id: "long_calendar_sleep_by_workout",
-        title: "Busy day → Sleep × Workout",
+        title: "Does a workout protect your sleep on a busy day?",
         emoji: "📅",
         predictor: { label: "busy day (5+ events)", predicate: d => (d.eventCount ?? 0) >= 5 },
         outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
@@ -3688,7 +3683,7 @@ export async function computeCorrelations(
       },
       {
         id: "workout_energy_by_sleep_prior",
-        title: "Workout → Energy × Slept well the night before",
+        title: "Does a workout give you more energy when you slept well first?",
         emoji: "😴",
         predictor: { label: "workout day", predicate: d => (d.workoutMin ?? 0) >= 20 },
         outcome: { label: "same-day energy", nextDay: false, accessor: d => d.energy, higherIsBetter: true },
@@ -3697,7 +3692,7 @@ export async function computeCorrelations(
       },
       {
         id: "screen_sleep_by_late_use",
-        title: "Screen time → Sleep × Regular wake time",
+        title: "Does a regular wake time blunt what screen time does to sleep?",
         emoji: "📱",
         predictor: { label: "a heavy screen day", predicate: () => false /* set below */ },
         outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
@@ -3706,7 +3701,7 @@ export async function computeCorrelations(
       },
       {
         id: "alcohol_energy_by_water",
-        title: "Alcohol → Next-day Energy × Water intake",
+        title: "Does water change how you feel the day after drinking?",
         emoji: "💧",
         predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
         outcome: { label: "next-day energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
@@ -3716,7 +3711,7 @@ export async function computeCorrelations(
       },
       {
         id: "late_meal_sleep_by_alcohol",
-        title: "Late meals → Sleep × Alcohol that day",
+        title: "Do late meals cost more sleep when there was also a drink?",
         emoji: "🍽️",
         predictor: { label: "late-meal day (after 9pm)",
                      predicate: d => d.lastMealMin != null && d.lastMealMin >= 21 * 60 },
