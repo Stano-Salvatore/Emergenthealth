@@ -45,10 +45,10 @@ function buildEmail(name: string | null, changes: Change[], appUrl: string): str
     .join("")
   return `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;color:#0f0f1a">
     <h2 style="font-size:18px;margin:0 0 4px">📊 Your patterns moved</h2>
-    <p style="color:#555;font-size:14px;margin:0 0 16px">Hi ${escapeHtml(name ?? "there")}, here's what changed in your correlations — including any that just became statistically solid:</p>
+    <p style="color:#555;font-size:14px;margin:0 0 16px">Hi ${escapeHtml(name ?? "there")}, here's what moved since the last check:</p>
     <ul style="padding-left:18px;font-size:14px;color:#333;line-height:1.5">${rows}</ul>
     <p style="margin-top:20px"><a href="${appUrl}/dashboard/insights" style="display:inline-block;background:#6366f1;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 16px;border-radius:8px">View on your dashboard →</a></p>
-    <p style="color:#999;font-size:11px;margin-top:24px">You're receiving this because you pinned patterns to watch, or because one of your patterns reached the solid threshold. Un-star them on the Insights page to stop.</p>
+    <p style="color:#999;font-size:11px;margin-top:24px">You starred these patterns to watch, or one of them became solid. Un-star them on the Insights page to stop.</p>
   </div>`
 }
 
