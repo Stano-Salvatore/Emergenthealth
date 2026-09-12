@@ -41,6 +41,14 @@ export interface ActiveSubstance {
   sourceId?: string
   /** How much was recorded, when it was recorded at all. */
   doseLabel?: string | null
+  /**
+   * Alcohol only, and only because it clears at a flat rate: the two numbers
+   * a decay chart needs. Caffeine's curve is drawn from `amount` plus the
+   * user's half-life, which the caffeine endpoint already sends; alcohol has
+   * no half-life to send, so it sends its rate instead.
+   */
+  gramsLeft?: number
+  clearanceGPerH?: number
 }
 
 // ── Alcohol ──────────────────────────────────────────────────────────────────
@@ -130,6 +138,26 @@ export function alcoholRemainingG(
 
 /** Standard drinks (10 g ethanol each, EU convention). */
 export const standardDrinks = (grams: number) => Math.round((grams / 10) * 10) / 10
+
+/**
+ * Ethanol still unprocessed `hours` from now, at a flat rate.
+ *
+ * A STRAIGHT LINE to zero, not a curve — and that is the whole difference
+ * between this and caffeine. Alcohol is eliminated at a near-constant grams
+ * per hour whatever the dose (the enzymes saturate almost immediately), so a
+ * chart of it is a ramp. Caffeine halves, so its chart bends. Drawing this one
+ * with `Math.pow(0.5, …)` because the caffeine card does would be a different
+ * substance's pharmacology on an alcohol card.
+ */
+export function alcoholAtHour(gramsNow: number, clearanceGPerHour: number, hours: number): number {
+  return Math.max(0, gramsNow - clearanceGPerHour * Math.max(0, hours))
+}
+
+/** Hours until the last gram is gone, at a flat rate. */
+export function alcoholHoursToClear(gramsNow: number, clearanceGPerHour: number): number {
+  if (clearanceGPerHour <= 0) return 0
+  return Math.max(0, gramsNow / clearanceGPerHour)
+}
 
 // ── First-order substances (caffeine, most meds) ─────────────────────────────
 

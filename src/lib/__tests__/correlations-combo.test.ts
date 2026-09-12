@@ -106,6 +106,7 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 import { computeCorrelations } from "@/lib/correlations"
+import { lintSentence, describeProblems } from "./insight-lint"
 
 const TRIPLE = "combo_readiness_alcohol_late_meal_short_night"
 
@@ -143,5 +144,26 @@ describe("combinations", () => {
     // Every pair with alcohol in it moves readiness about as much as alcohol
     // alone does — none of them earns a card, and neither does any triple.
     expect(insights.filter(i => i.id.startsWith("combo_")).map(i => i.id)).toEqual([])
+  })
+
+  // Every sentence this fixture produces, held to the lint. The guard in
+  // insight-language.test.ts proves the rule; this is where the rule meets the
+  // engine's real output across the combination families at once. A template edited
+  // without reading it aloud fails here, and the failure names the card.
+  it("every card it produces reads", async () => {
+    const { insights } = await computeCorrelations("user_combo", 90)
+    expect(insights.length).toBeGreaterThan(0)
+    for (const ins of insights) {
+      for (const [field, text] of [
+        ["finding", ins.finding],
+        ["title", ins.title],
+        ["coverage", ins.coverage],
+        ["confounded", ins.confounded],
+      ] as const) {
+        if (!text) continue
+        const problems = lintSentence(text)
+        expect(problems, describeProblems(`${ins.id} ${field}`, text, problems)).toEqual([])
+      }
+    }
   })
 })

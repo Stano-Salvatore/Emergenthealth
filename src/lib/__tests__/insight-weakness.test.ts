@@ -15,34 +15,45 @@ describe("weaknessReason", () => {
     expect(weaknessReason({ ...base, tier: undefined, highGroupN: 4, lowGroupN: 60 })).toBeNull()
   })
 
+  // These assert the branch, the label and the counts — not the sentence that
+  // carries them. Pinning exact phrasing made a copy pass that changed no
+  // behaviour look like five broken tests, which teaches the next person to
+  // reach for the wording rather than the meaning.
+
   it("names the thin side and its count — the 7-hot-days card", () => {
-    const msg = weaknessReason({ ...base, tier: "noise", highGroupN: 7, lowGroupN: 57 })
-    expect(msg).toContain("“hot days (25°C+)”")
-    expect(msg).toContain("only 7 days")
-    expect(msg).toContain("more days, not a bigger one")
+    const msg = weaknessReason({ ...base, tier: "noise", highGroupN: 7, lowGroupN: 57 })!
+    expect(msg).toContain("hot days (25°C+)")
+    expect(msg).toContain("7 days")
+    expect(msg).not.toContain("cooler days")
+    expect(msg, "a thin side is fixed by logging, not by a bigger effect").toMatch(/more days/i)
   })
 
   it("names the thin LOW side when that's the starved one", () => {
-    const msg = weaknessReason({ ...base, tier: "noise", highGroupN: 57, lowGroupN: 7 })
-    expect(msg).toContain("“cooler days”")
-    expect(msg).toContain("only 7 days")
+    const msg = weaknessReason({ ...base, tier: "noise", highGroupN: 57, lowGroupN: 7 })!
+    expect(msg).toContain("cooler days")
+    expect(msg).toContain("7 days")
   })
 
   it("covers both sides thin — the mood-starved 17/8 shape at week scale", () => {
-    const msg = weaknessReason({ ...base, tier: "noise", highGroupN: 6, lowGroupN: 8 })
-    expect(msg).toContain("6 and 8 days")
-    expect(msg).toContain("More days decide this")
+    const msg = weaknessReason({ ...base, tier: "noise", highGroupN: 6, lowGroupN: 8 })!
+    expect(msg).toContain("6")
+    expect(msg).toContain("8")
+    expect(msg).toMatch(/both sides/i)
+    expect(msg).toMatch(/more days/i)
   })
 
   it("blames the effect, not the sample, when both sides clear the bar", () => {
-    const msg = weaknessReason({ ...base, tier: "noise", highGroupN: 40, lowGroupN: 41 })
-    expect(msg).toContain("Sample size isn't the problem")
-    expect(msg).toContain("40 vs 41 days")
-    expect(msg).toContain("it's small")
+    const msg = weaknessReason({ ...base, tier: "noise", highGroupN: 40, lowGroupN: 41 })!
+    expect(msg).toContain("40")
+    expect(msg).toContain("41")
+    // The distinguishing claim: the days are fine, so more of them won't help.
+    expect(msg).not.toMatch(/more days/i)
+    expect(msg).toMatch(/small/i)
   })
 
   it("handles a single day without a plural", () => {
-    const msg = weaknessReason({ ...base, tier: "noise", highGroupN: 1, lowGroupN: 30 })
-    expect(msg).toContain("only 1 day in")
+    const msg = weaknessReason({ ...base, tier: "noise", highGroupN: 1, lowGroupN: 30 })!
+    expect(msg).toContain("1 day")
+    expect(msg).not.toContain("1 days")
   })
 })

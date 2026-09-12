@@ -27,17 +27,46 @@ const OUTCOME_BY_SUFFIX: [RegExp, string, string][] = [
   [/_mood$/, "mood", "morning mood"],
 ]
 
-const ACTION_BY_PREFIX: [RegExp, string][] = [
-  [/^caffeine_/, "No caffeine after 14:00"],
-  [/^alcohol_/, "No alcohol"],
-  [/^food_late_meal_/, "Last meal before 19:00"],
-  [/^screen_/, "No screens after 21:30"],
-  [/^late_music_/, "No music after 22:00"],
-  [/^workout_/, "A 20-minute-plus workout"],
-  [/^activity_/, "8,000-plus steps"],
-  [/^walking_/, "A 30-minute walk"],
-  [/^water_/, "Two litres of water"],
-  [/^fasting_/, "A 16-hour fast"],
+/**
+ * The threshold the card in front of the user actually used.
+ *
+ * Reads it off the group label, which is where the engine already prints it —
+ * "150mg+ caffeine days", "2L+ water days", "last meal after 20:00", "high
+ * screen days (4.2h+)". Returns null when the label carries no figure, and
+ * the action then avoids naming one.
+ */
+function thresholdIn(label: string): string | null {
+  const m = label.match(/\b\d[\d.,]*\s*(?:mg|ml|L\b|h\b|hrs?\b|min\b|k\b|steps\b)|\b\d{1,2}:\d{2}\b/i)
+  return m ? m[0].trim() : null
+}
+
+/**
+ * Each action is built from the card it sits under, not from a number typed
+ * here.
+ *
+ * These used to be fixed strings, and they disagreed with the cards they were
+ * attached to: "No caffeine after 14:00" under a card about 16:00, "Two litres
+ * of water" under a personal cut that might be 1.5L, "Last meal before 19:00"
+ * under one that split at 20:00. correlations.ts states the rule this broke —
+ * a card never claims a threshold it did not use — and this file is one import
+ * away from it.
+ *
+ * "No screens after 21:30" was worse than wrong: the screen-time cards split
+ * on how LONG the screen was on, never on when, so the suggested experiment
+ * tested something the card had not measured.
+ */
+const ACTION_BY_PREFIX: [RegExp, (t: string | null) => string][] = [
+  [/^caffeine_/, t => (t ? `No caffeine over ${t}` : "No caffeine")],
+  [/^sleep_panel_late_caffeine/, t => (t ? `No caffeine after ${t}` : "No caffeine late in the day")],
+  [/^alcohol_/, () => "No alcohol"],
+  [/^food_late_meal_/, t => (t ? `Last meal before ${t}` : "An earlier last meal")],
+  [/^screen_/, t => (t ? `Under ${t} of screen time` : "Less screen time")],
+  [/^late_music_/, t => (t ? `No music after ${t}` : "No music late in the evening")],
+  [/^workout_/, t => (t ? `A workout of ${t} or more` : "A workout")],
+  [/^activity_/, t => (t ? `${t} or more` : "A more active day")],
+  [/^walking_/, t => (t ? `${t} of walking` : "A long walk")],
+  [/^water_/, t => (t ? `${t} of water` : "More water")],
+  [/^fasting_/, t => (t ? `A ${t} fast` : "A fast")],
 ]
 
 export function experimentSuggestion(insight: Pick<InsightResult, "id" | "highGroupLabel">): ExperimentSuggestion | null {
@@ -45,7 +74,7 @@ export function experimentSuggestion(insight: Pick<InsightResult, "id" | "highGr
   if (!outcome) return null
   let action: string | null = null
   const byPrefix = ACTION_BY_PREFIX.find(([re]) => re.test(insight.id))
-  if (byPrefix) action = byPrefix[1]
+  if (byPrefix) action = byPrefix[1](thresholdIn(insight.highGroupLabel))
   else if (/^supplement_/.test(insight.id)) {
     // A prescription modelled by half-life ("still on board") is a doctor's
     // call, not something to switch on and off for a fortnight.
