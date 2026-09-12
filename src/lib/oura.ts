@@ -9,6 +9,89 @@ async function buildOuraClient(userId: string) {
   return { accessToken: stored.accessToken, refreshToken: stored.refreshToken, userId }
 }
 
+/** Short enough for a stat-box footnote, cut on a word boundary. */
+const clip = (s: string) => (s.length > 100 ? s.slice(0, 99).replace(/\s+\S*$/, "") + "…" : s)
+
+/**
+ * What Oura said, past the status line.
+ *
+ * A 401 with nothing else attached cannot tell "this token expired", "this
+ * token was never granted that scope" and "your plan does not include this
+ * endpoint" apart — three different problems with three different fixes, and
+ * the screen showing the blank column has to pick words for one of them. Oura
+ * explains itself in the response body and this integration threw it away.
+ *
+ * Kept short and quoted rather than interpreted: it reaches a user's screen,
+ * and paraphrasing a provider's error is how you end up confidently naming the
+ * wrong cause.
+ */
+export function ouraErrorDetail(body: string): string | null {
+  const trimmed = body.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = JSON.parse(trimmed)
+    // Oura has used `detail` throughout v2; the others are what its OAuth
+    // endpoints answer with, and cost nothing to accept.
+    for (const key of ["detail", "message", "error_description", "error"]) {
+      const value = (parsed as Record<string, unknown>)?.[key]
+      if (typeof value === "string" && value.trim()) return clip(value.trim())
+    }
+    return null
+  } catch {
+    // Not JSON — a gateway's HTML error page, most likely. A tag soup on a
+    // health screen is worse than saying nothing.
+    if (/^\s*</.test(trimmed)) return null
+    return clip(trimmed)
+  }
+}
+
+/**
+ * One refresh per user at a time.
+ *
+ * A sync fires nine endpoint requests through one `Promise.allSettled`. When
+ * the access token has expired all nine get a 401 within milliseconds, all
+ * nine read the same refresh token, and all nine POST it. Oura rotates refresh
+ * tokens — `refreshAccessToken` below stores the rotated one — and a rotating
+ * token is single-use: the first POST spends it and the other eight present a
+ * token that is already gone. Reusing a rotated refresh token is also the
+ * signature of a stolen one, so revoking the whole family is the correct
+ * server response to it, which would invalidate the access token the first
+ * request had just won and 401 its retry too.
+ *
+ * So the first 401 starts the refresh and everyone else waits on that same
+ * promise. Anyone arriving after it finished re-reads the row and finds a
+ * token that is no longer the one they failed with, which is its own answer —
+ * use it, rather than spending the new refresh token to learn the same thing.
+ *
+ * In-process only. Two overlapping cron runs on two instances would still
+ * race, and closing that needs a lock in the database rather than a Map. Nine
+ * calls inside one request is the case that bit, and this closes it.
+ */
+const refreshInFlight = new Map<string, Promise<string>>()
+
+function freshAccessToken(userId: string, failedWith: string): Promise<string> {
+  const inFlight = refreshInFlight.get(userId)
+  if (inFlight) return inFlight
+
+  // Registered synchronously, before the first await: two callers that both
+  // reached the database first would both start a refresh, which is the race
+  // this exists to prevent.
+  const pending = (async () => {
+    const stored = await prisma.ouraToken.findUnique({ where: { userId } })
+    if (stored?.accessToken && stored.accessToken !== failedWith) return stored.accessToken
+    if (!stored?.refreshToken) throw new Error("Oura token expired and no refresh token available")
+    return refreshAccessToken(userId, stored.refreshToken)
+  })()
+
+  refreshInFlight.set(userId, pending)
+  pending
+    .finally(() => { if (refreshInFlight.get(userId) === pending) refreshInFlight.delete(userId) })
+    // The caller owns `pending`'s rejection; this bookkeeping chain must not
+    // raise a second, unhandled one.
+    .catch(() => {})
+  return pending
+}
+
 async function refreshAccessToken(userId: string, refreshToken: string): Promise<string> {
   const response = await fetch("https://api.ouraring.com/oauth/token", {
     method: "POST",
@@ -45,13 +128,18 @@ async function makeOuraRequest(
   let response = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } })
 
   if (response.status === 401) {
-    const stored = await prisma.ouraToken.findUnique({ where: { userId } })
-    if (!stored?.refreshToken) throw new Error("Oura token expired and no refresh token available")
-    const newToken = await refreshAccessToken(userId, stored.refreshToken)
+    const newToken = await freshAccessToken(userId, accessToken)
     response = await fetch(url.toString(), { headers: { Authorization: `Bearer ${newToken}` } })
   }
 
-  if (!response.ok) throw new Error(`Oura API error: ${response.status} ${response.statusText}`)
+  if (!response.ok) {
+    // No "Oura API error:" prefix any more. `whyBlank` renders this as "Oura
+    // refused the request: …", which read "Oura refused the request: Oura API
+    // error: 401 Unauthorized" on a real screen — the provider named twice and
+    // an internal throw's prefix leaking into a sentence a user has to read.
+    const detail = ouraErrorDetail(await response.text().catch(() => ""))
+    throw new Error(`${response.status} ${response.statusText}${detail ? ` — ${detail}` : ""}`)
+  }
   return response.json()
 }
 
