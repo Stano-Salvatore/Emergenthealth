@@ -40,11 +40,91 @@ export const SYNC_SOURCES = [
 
 export type SyncSourceId = (typeof SYNC_SOURCES)[number]["id"]
 
+/**
+ * How one endpoint of a multi-endpoint source went.
+ *
+ * A blank column has four possible causes and only one of them is a bug: we
+ * never asked, they refused, they had nothing, or we read the wrong key. The
+ * sync already distinguishes them — it just said so to `console.warn`, which on
+ * this deployment is readable for about an hour. Keeping the answer means the
+ * screen showing the blank can say why it is blank.
+ */
+export type EndpointOutcome =
+  | { state: "ok"; days: number }
+  /** The request was rejected: scope, plan, or a genuine failure. */
+  | { state: "failed"; reason: string }
+  /** It answered, with no rows for the window. Not an error. */
+  | { state: "empty" }
+
 export type SyncRun = {
   at: string          // ISO instant the run finished
   ok: boolean
   items?: number      // rows written, when the source counts them
   error?: string      // short reason, shown to the user when ok is false
+  /** Per-endpoint detail, for a source that pulls from several. */
+  endpoints?: Record<string, EndpointOutcome>
+}
+
+/**
+ * What to tell someone looking at the empty space where a figure would be.
+ *
+ * Never invents a fault: "had nothing to send" is the commonest answer here and
+ * is not a problem to be fixed, so it does not read like one. The last case is
+ * the one that matters to us rather than to the reader — rows arrived and this
+ * figure still came out empty, which is what a misread key name looks like.
+ *
+ * Returns null when nothing was recorded, so a screen with no answer says
+ * nothing rather than guessing at one.
+ */
+export function whyBlank(source: string, outcome: EndpointOutcome | undefined): string | null {
+  if (!outcome) return null
+  switch (outcome.state) {
+    // A colon, not a dash: the screen puts a dash in front of this whole
+    // phrase, and "No resilience — Oura refused the request — 403 Forbidden"
+    // is two dashes doing two different jobs in one short line.
+    case "failed": return `${source} refused the request: ${outcome.reason}`
+    case "empty": return `${source} had nothing to send for this window`
+    case "ok": return `${source} sent ${outcome.days} ${outcome.days === 1 ? "day" : "days"} of this, none of them this one`
+  }
+}
+
+/** A figure the screen has room for, and the endpoint that would fill it. */
+export type BlankFigure = {
+  /** Sentence form, lower case — it is read mid-sentence, not as a heading. */
+  label: string
+  endpoint: string
+}
+
+/**
+ * Group blank figures by the reason they are blank, so four empty boxes with
+ * one cause between them say it once instead of four times.
+ */
+export function explainBlanks(
+  source: string,
+  blanks: BlankFigure[],
+  run: SyncRun | undefined,
+): { reason: string; labels: string[] }[] {
+  const byReason = new Map<string, string[]>()
+  for (const b of blanks) {
+    const reason = whyBlank(source, run?.endpoints?.[b.endpoint])
+    if (!reason) continue
+    const labels = byReason.get(reason)
+    if (labels) labels.push(b.label)
+    else byReason.set(reason, [b.label])
+  }
+  return [...byReason].map(([reason, labels]) => ({ reason, labels }))
+}
+
+/**
+ * "a", "a and b", "a, b and c" — for a list read aloud inside a sentence.
+ *
+ * The conjunction is a parameter because a negative list wants the other one:
+ * "No vascular age and pulse wave velocity" says something subtly different
+ * from "No vascular age or pulse wave velocity", and only the second is true.
+ */
+export function listPhrase(items: string[], conjunction = "and"): string {
+  if (items.length <= 1) return items[0] ?? ""
+  return `${items.slice(0, -1).join(", ")} ${conjunction} ${items[items.length - 1]}`
 }
 
 export type SyncStatus = Partial<Record<string, SyncRun>>

@@ -36,6 +36,11 @@ export async function recordSync(
         ...(run.items != null ? { items: run.items } : {}),
         // Truncated: this is a hint for the user, not a stack trace.
         ...(run.error ? { error: String(run.error).slice(0, 200) } : {}),
+        // Why each endpoint of a multi-endpoint source gave what it gave.
+        // Overwritten whole on every run rather than merged: a stale outcome
+        // from last week would answer "why is this blank" with last week's
+        // reason, which is worse than not answering.
+        ...(run.endpoints ? { endpoints: run.endpoints } : {}),
       },
     }
     const json = JSON.stringify(next)

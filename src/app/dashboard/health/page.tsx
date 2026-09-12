@@ -25,6 +25,8 @@ import { isFeatureEnabled } from "@/lib/features"
 import { getGoals } from "@/lib/goals"
 import { localDateStr, addDaysISO } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { readSyncStatus } from "@/lib/sync-status-store"
+import { explainBlanks, listPhrase, type SyncStatus } from "@/lib/sync-status"
 
 interface StravaActivityRow {
   id: string
@@ -235,6 +237,22 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   }))
 
   const latestLog = logs[0] ?? null
+
+  // Why the slow Oura figures below are blank, when they are.
+  //
+  // These four arrive from three endpoints Oura publishes on its own cadence,
+  // and each box is guarded by `!= null` — so a missing figure renders as
+  // nothing at all, which reads as "we never asked" whatever the truth was.
+  // The last sync recorded which of the three refused, which came back empty,
+  // and which returned rows; this turns that into the one line the empty space
+  // was missing. Says nothing when nothing was recorded.
+  const ouraRun = (await readSyncStatus(userId).catch(() => ({} as SyncStatus))).oura
+  const blankReasons = explainBlanks("Oura", [
+    { label: "cardio capacity", endpoint: "vO2_max", present: latestLog?.vo2Max != null },
+    { label: "vascular age", endpoint: "daily_cardiovascular_age", present: latestLog?.cardiovascularAge != null },
+    { label: "pulse wave velocity", endpoint: "daily_cardiovascular_age", present: latestLog?.pulseWaveVelocity != null },
+    { label: "resilience", endpoint: "daily_resilience", present: latestLog?.resilienceLevel != null },
+  ].filter(f => !f.present), ouraRun)
 
   return (
     <div className="space-y-6">
@@ -485,6 +503,14 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                         value={`${hhmm(latestLog.sleepStart, timezone)}–${hhmm(latestLog.sleepEnd, timezone)}`} />
                     )}
                   </div>
+                  {/* One line per reason, not one per missing box: three of
+                      these usually go quiet together and saying it three times
+                      would be the same answer taking up three times the room. */}
+                  {blankReasons.map(r => (
+                    <p key={r.reason} className="text-[11px] text-muted-foreground/70 mt-2 leading-snug">
+                      No {listPhrase(r.labels, "or")} — {r.reason}.
+                    </p>
+                  ))}
                 </div>
 
                 {/* Activity section */}

@@ -8,9 +8,10 @@ import { classifyOuraTag, INTAKE_KINDS } from "@/lib/oura-tag-classify"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { format, subDays } from "date-fns"
 import { isMeasuredNight } from "@/lib/sleep-quality"
+import type { EndpointOutcome } from "@/lib/sync-status"
 
 export type OuraSyncResult =
-  | { ok: true; synced: number; tagsSynced: number; tagsError?: string }
+  | { ok: true; synced: number; tagsSynced: number; tagsError?: string; endpoints: Record<string, EndpointOutcome> }
   | { ok: false; error: string; notConnected?: boolean }
 
 /**
@@ -54,12 +55,23 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
     // same question and the one that actually bit: three new endpoints shipped,
     // three columns stayed empty, and the logs had no opinion about why.
     //
+    // The outcomes are kept, not just logged. `console.warn` is the right place
+    // for a developer reading a live tail; it is the wrong place for the answer
+    // to "why is this column empty", because on Hobby the line is gone within
+    // the hour and the column is still empty a week later.
+    const endpoints: Record<string, EndpointOutcome> = {}
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const byDate = (endpoint: string, result: PromiseSettledResult<any[]>): Record<string, any> => {
       if (result.status === "rejected") {
-        console.warn(`[oura] ${endpoint} request failed: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`)
+        const reason = result.reason instanceof Error ? result.reason.message : String(result.reason)
+        console.warn(`[oura] ${endpoint} request failed: ${reason}`)
+        endpoints[endpoint] = { state: "failed", reason: reason.slice(0, 120) }
         return {}
       }
+      endpoints[endpoint] = result.value.length === 0
+        ? { state: "empty" }
+        : { state: "ok", days: result.value.length }
       if (result.value.length === 0) {
         // Not an error. Oura publishes some of these on its own cadence, and a
         // plan or scope that excludes one returns an empty list rather than a
@@ -315,7 +327,7 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         : raw
     }
 
-    return { ok: true, synced: results.length, tagsSynced, tagsError }
+    return { ok: true, synced: results.length, tagsSynced, tagsError, endpoints }
   } catch (e) {
     console.error("[oura-sync] error:", e)
     return { ok: false, error: "Internal server error" }

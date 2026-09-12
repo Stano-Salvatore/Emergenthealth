@@ -81,9 +81,16 @@ export async function loadStatusOverview(
     // still be bringing back nothing, and "synced 10 minutes ago" over
     // three-week-old data is exactly the state worth seeing at a glance.
     const newest = newestBySource[s.id]
-    const detail = newest
-      ? `data to ${dayLabel(newest, today)}`
-      : brought ?? undefined
+    // A source can report a clean run while part of it was refused — a scope
+    // the token was never granted looks exactly like a quiet endpoint from
+    // here. Named, not coloured: on a plan that simply doesn't include one of
+    // them this is permanent, and a permanent amber is a dot nobody reads.
+    // The reason itself is on the screen showing the blank it caused.
+    const refused = Object.values(s.run.endpoints ?? {}).filter(e => e.state === "failed").length
+    const base = newest ? `data to ${dayLabel(newest, today)}` : brought ?? undefined
+    const detail = refused
+      ? `${base ? `${base} · ` : ""}${refused} request${refused === 1 ? "" : "s"} refused`
+      : base
     rows.push({ id: s.id, group: "Data", label: s.label, tone: late ? "warn" : "ok", value: `synced ${when}`, detail })
   }
   /**
