@@ -19,8 +19,8 @@ import { SYNC_SOURCES } from "@/lib/sync-status"
 // There are TWO schedulers, and reading only one enforces the wrong place.
 // vercel.json is the daily backstop (the Hobby plan allows one run a day);
 // .github/workflows/sync-cron.yml is what actually drives the data sources,
-// every 30 minutes, from a shell loop. A source scheduled only daily reads
-// "overdue" against SYNC_CADENCE_MINUTES * 3 for most of the day, so either
+// from a shell loop on a half-hourly request GitHub honours every few hours.
+// A source scheduled only daily sits right on SYNC_OVERDUE_HOURS, so either
 // location counts as scheduled here and neither is assumed.
 function scheduled(): string[] {
   const out = (JSON.parse(readFileSync("vercel.json", "utf8")).crons ?? [])

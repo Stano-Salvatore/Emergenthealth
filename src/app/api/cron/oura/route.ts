@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     // failing since Tuesday", and only the run itself knows which.
     // A user who never connected this source is neither, so is skipped.
     if (result.ok) {
-      await recordSync(userId, "oura", { ok: true, items: result.synced })
+      await recordSync(userId, "oura", { ok: true, items: result.synced, endpoints: result.endpoints })
     } else if (!result.notConnected) {
       await recordSync(userId, "oura", { ok: false, error: result.error })
     }

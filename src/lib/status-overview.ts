@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { localDateStr } from "@/lib/local-date"
 import { loadSyncOverview } from "@/lib/sync-status-load"
-import { agoLabel } from "@/lib/sync-status"
+import { agoLabel, isOverdue, SYNC_OVERDUE_HOURS } from "@/lib/sync-status"
 import { CHAT_ID_KEY } from "@/lib/telegram"
 import { SAID_KEY, parseSaid } from "@/lib/emergy-say"
 import { agoShort, broughtBackLabel, dayLabel, freshnessTone, latestDayIn, type StatusRow } from "@/lib/status-rows"
@@ -22,6 +22,8 @@ export async function loadStatusOverview(
   rows: StatusRow[]
   today: string
   cadenceMinutes: number
+  /** The rule the rows above were painted with, so the screen can state it. */
+  overdueHours: number
   newestHealthDate: string | null
   /** Connected sources a "sync now" can actually drive from the server. */
   serverSources: string[]
@@ -74,16 +76,23 @@ export async function loadStatusOverview(
     }
     // A server source that should have run and hasn't is worth an amber; a
     // phone source only runs when the phone does, so it is never "late".
-    const ageH = (Date.now() - Date.parse(s.run.at)) / 3600000
-    const late = s.driver === "server" && ageH > 26
+    // The rule itself lives in sync-status.ts, where it can be tested.
+    const late = isOverdue(s.run, s.driver)
     const brought = broughtBackLabel(s.run.items)
     // A second opinion where we hold one: a sync can report success and
     // still be bringing back nothing, and "synced 10 minutes ago" over
     // three-week-old data is exactly the state worth seeing at a glance.
     const newest = newestBySource[s.id]
-    const detail = newest
-      ? `data to ${dayLabel(newest, today)}`
-      : brought ?? undefined
+    // A source can report a clean run while part of it was refused — a scope
+    // the token was never granted looks exactly like a quiet endpoint from
+    // here. Named, not coloured: on a plan that simply doesn't include one of
+    // them this is permanent, and a permanent amber is a dot nobody reads.
+    // The reason itself is on the screen showing the blank it caused.
+    const refused = Object.values(s.run.endpoints ?? {}).filter(e => e.state === "failed").length
+    const base = newest ? `data to ${dayLabel(newest, today)}` : brought ?? undefined
+    const detail = refused
+      ? `${base ? `${base} · ` : ""}${refused} request${refused === 1 ? "" : "s"} refused`
+      : base
     rows.push({ id: s.id, group: "Data", label: s.label, tone: late ? "warn" : "ok", value: `synced ${when}`, detail })
   }
   /**
@@ -158,6 +167,7 @@ export async function loadStatusOverview(
   return {
     rows, today,
     cadenceMinutes: sync.cadenceMinutes,
+    overdueHours: SYNC_OVERDUE_HOURS,
     newestHealthDate: sync.newestHealthDate,
     serverSources: sync.sources.filter(s => s.connected && s.driver === "server").map(s => s.id),
   }

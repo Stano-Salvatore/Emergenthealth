@@ -46,7 +46,7 @@ export function StatusLine({ row }: { row: StatusRow }) {
  * freshest day held — is here instead.
  */
 export async function StatusOverview({ userId }: { userId: string }) {
-  const { rows, today, cadenceMinutes, newestHealthDate, serverSources } = await loadStatusOverview(userId)
+  const { rows, today, cadenceMinutes, overdueHours, newestHealthDate, serverSources } = await loadStatusOverview(userId)
   const groups: StatusRow["group"][] = ["Data", "Notifications", "Emergy"]
   const attention = rows.filter(r => r.tone === "bad" || r.tone === "warn").length
 
@@ -73,9 +73,19 @@ export async function StatusOverview({ userId }: { userId: string }) {
         </div>
         {/* The times above are when a run last FINISHED, not when it was due —
             GitHub schedules the server ones and can delay them. Phone sources
-            sync when you open the app and only record their successes. */}
+            sync when you open the app and only record their successes.
+
+            This line used to read "Server syncs run every 30 minutes", which is
+            what the workflow asks for and not what happens: the live run
+            history has these landing two to five hours apart. Someone reading
+            "30 minutes" beside "synced 4h ago" has been handed a fault that
+            isn't there, and the screen's job is the opposite of that. It now
+            says what is asked for, what arrives, and the gap at which the amber
+            dots above actually appear. */}
         <p className="text-[11px] text-muted-foreground/70 pt-1 leading-snug">
-          Server syncs run every {cadenceMinutes} minutes; phone syncs run when you open the app.
+          Server syncs are queued every {cadenceMinutes} minutes and GitHub runs them when it can,
+          often hours later. One goes amber here after {overdueHours} quiet hours.
+          Phone syncs run when you open the app.
           {newestHealthDate && (
             <> Freshest health day held: <span className="text-foreground/80">{dayLabel(newestHealthDate, today)}</span>
             {" — a second opinion, in case a sync reports success and brings back nothing."}</>
