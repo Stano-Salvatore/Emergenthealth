@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { localDateStr } from "@/lib/local-date"
 import { loadSyncOverview } from "@/lib/sync-status-load"
-import { agoLabel } from "@/lib/sync-status"
+import { agoLabel, isOverdue, SYNC_OVERDUE_HOURS } from "@/lib/sync-status"
 import { CHAT_ID_KEY } from "@/lib/telegram"
 import { SAID_KEY, parseSaid } from "@/lib/emergy-say"
 import { agoShort, broughtBackLabel, dayLabel, freshnessTone, latestDayIn, type StatusRow } from "@/lib/status-rows"
@@ -22,6 +22,8 @@ export async function loadStatusOverview(
   rows: StatusRow[]
   today: string
   cadenceMinutes: number
+  /** The rule the rows above were painted with, so the screen can state it. */
+  overdueHours: number
   newestHealthDate: string | null
   /** Connected sources a "sync now" can actually drive from the server. */
   serverSources: string[]
@@ -74,8 +76,8 @@ export async function loadStatusOverview(
     }
     // A server source that should have run and hasn't is worth an amber; a
     // phone source only runs when the phone does, so it is never "late".
-    const ageH = (Date.now() - Date.parse(s.run.at)) / 3600000
-    const late = s.driver === "server" && ageH > 26
+    // The rule itself lives in sync-status.ts, where it can be tested.
+    const late = isOverdue(s.run, s.driver)
     const brought = broughtBackLabel(s.run.items)
     // A second opinion where we hold one: a sync can report success and
     // still be bringing back nothing, and "synced 10 minutes ago" over
@@ -165,6 +167,7 @@ export async function loadStatusOverview(
   return {
     rows, today,
     cadenceMinutes: sync.cadenceMinutes,
+    overdueHours: SYNC_OVERDUE_HOURS,
     newestHealthDate: sync.newestHealthDate,
     serverSources: sync.sources.filter(s => s.connected && s.driver === "server").map(s => s.id),
   }

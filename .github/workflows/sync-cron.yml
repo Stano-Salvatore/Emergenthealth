@@ -9,7 +9,13 @@ name: Scheduled data sync
 
 on:
   schedule:
-    - cron: "*/30 * * * *" # every 30 minutes (GitHub may delay a few min)
+    # A request, not a promise: GitHub runs scheduled workflows when it has
+    # capacity, and in this repo's live history that lands them 2.0 to 5.4
+    # hours apart (median 3.7) rather than every thirty minutes. Nothing may
+    # state this number to a user as the cadence they get — SYNC_CADENCE_MINUTES
+    # carries the same warning, and SYNC_OVERDUE_HOURS is built from the gaps
+    # that happen instead.
+    - cron: "*/30 * * * *"
   workflow_dispatch: {}      # allow manual runs from the Actions tab
 
 jobs:
@@ -44,9 +50,9 @@ jobs:
           #
           # Same for lastfm and rescuetime. Landing them in vercel.json alone
           # would have left them syncing once a day against a status screen
-          # whose staleness threshold is SYNC_CADENCE_MINUTES * 3 — 90 minutes.
-          # They would have read "overdue" for twenty-two hours out of every
-          # twenty-four, which is exactly the false alarm that teaches someone
+          # whose staleness threshold is SYNC_OVERDUE_HOURS — 26 hours. A daily
+          # sync sits right on that line, so any slip in either schedule reads
+          # as "overdue", which is exactly the false alarm that teaches someone
           # to stop reading the screen.
           auth_failed=0
           for path in oura strava ynab truelayer lastfm rescuetime; do

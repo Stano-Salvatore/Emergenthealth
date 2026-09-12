@@ -1,7 +1,7 @@
 
 // What synced, when, and whether it worked.
 //
-// DELIBERATELY FREE OF PRISMA. `agoLabel`/`isStale` are reached from client
+// DELIBERATELY FREE OF PRISMA. `agoLabel` and friends are reached from client
 // components, so anything this file pulls in gets traced into the browser
 // bundle — importing the database client for two pure helpers shipped the
 // whole Prisma runtime to every visitor. The reads and writes live in
@@ -142,12 +142,27 @@ export function parseSyncStatus(raw: string | null | undefined): SyncStatus {
   }
 }
 
-// The Actions schedules that drive these. GitHub delays scheduled workflows
-// under load — sometimes by many minutes — so this describes the cadence and
-// the screen shows the last real run beside it, rather than printing a
-// confident next-run time the platform never promised.
+// What the workflow ASKS for, which is not what it gets. GitHub runs scheduled
+// workflows when it has capacity, and on a free runner that is nowhere near
+// the cadence requested: across the last 29 scheduled gaps the shortest was
+// 2.0 hours, the median 3.7, the longest 5.4. Not one was under 90 minutes.
+//
+// So this is a request, not a promise, and no screen may print it as the
+// cadence a user gets — the Settings card did, and read "every 30 minutes"
+// beside "synced 4h ago" for as long as it has existed.
 export const SYNC_CADENCE_MINUTES = 30
-export const REMINDER_CADENCE_MINUTES = 10
+
+/**
+ * How long a server source may go quiet before the screen calls it late.
+ *
+ * Built from the gaps that actually happen rather than the ones asked for.
+ * Three cadences — 90 minutes, the threshold the old dead `isStale` carried —
+ * would have been exceeded by every single gap in that sample: an amber dot on
+ * every source every hour of every day, which is a screen that has stopped
+ * telling you anything. Twenty-six hours is a full day's worth of missed runs,
+ * and no real gap has come close to it, so an amber here means something.
+ */
+export const SYNC_OVERDUE_HOURS = 26
 
 /** Human phrasing for how long ago something happened, or null if never. */
 export function agoLabel(iso: string | undefined, now = Date.now()): string | null {
@@ -165,14 +180,27 @@ export function agoLabel(iso: string | undefined, now = Date.now()): string | nu
 }
 
 /**
- * Is a source overdue? Only meaningful for the ones on the 30-minute loop, and
- * only once we have seen it run at least once — "never run" is its own state
- * and says so, rather than being reported as late.
+ * Is a source overdue?
+ *
+ * Only meaningful for a server-driven one: a phone source runs when the phone
+ * runs it, so a long gap there means the app has not been opened, and calling
+ * that late would be inventing a fault. And only once we have seen it run at
+ * all — "never synced" is its own state, and a more useful one.
+ *
+ * This lives here, and the status screen calls it, because the version that
+ * lived here before did not: `isStale` was exported, tested, imported by
+ * nothing, and the rule the screen actually applied was written inline beside
+ * it. The test went on passing against a threshold no screen had used for
+ * months. One rule, one home, one test that reaches the code that runs.
  */
-export function isStale(run: SyncRun | undefined, now = Date.now()): boolean {
+export function isOverdue(
+  run: SyncRun | undefined,
+  driver: "server" | "device",
+  now = Date.now(),
+): boolean {
+  if (driver !== "server") return false
   if (!run?.at) return false
   const then = Date.parse(run.at)
   if (Number.isNaN(then)) return false
-  // Three cadences of grace: one missed tick is normal on GitHub's scheduler.
-  return now - then > SYNC_CADENCE_MINUTES * 3 * 60_000
+  return now - then > SYNC_OVERDUE_HOURS * 3_600_000
 }
