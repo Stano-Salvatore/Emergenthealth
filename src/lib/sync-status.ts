@@ -116,6 +116,27 @@ export function explainBlanks(
 }
 
 /**
+ * What to do about a refusal, when there is something to do.
+ *
+ * A scope is the one blank-column cause the user can actually fix, and the one
+ * that fixes itself least: granting it means a new authorisation, because a
+ * token already issued never gains permissions it was not granted. So adding a
+ * scope to the request does nothing at all for anyone already connected —
+ * their columns stay empty and the screen goes on quoting the same refusal,
+ * which is a dead end dressed as an explanation.
+ *
+ * Said once, under the reasons, rather than appended to each. Null when
+ * nothing failed on a scope, so this never invents an errand: an endpoint a
+ * plan excludes cannot be reconnected into existence.
+ */
+export function scopeRemedy(source: string, run: SyncRun | undefined): string | null {
+  const refused = Object.values(run?.endpoints ?? {})
+    .filter((e): e is Extract<EndpointOutcome, { state: "failed" }> => e.state === "failed")
+  if (!refused.some(e => /scope/i.test(e.reason))) return null
+  return `Disconnect and reconnect ${source} in Settings to grant the newer permissions — a token keeps whatever it was first given.`
+}
+
+/**
  * "a", "a and b", "a, b and c" — for a list read aloud inside a sentence.
  *
  * The conjunction is a parameter because a negative list wants the other one:

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { WatchedPatterns } from "@/components/dashboard/WatchedPatterns"
+import { DriftCard } from "@/components/dashboard/DriftCard"
 import PlaceCorrelations from "@/components/location/PlaceCorrelations"
 import { BaselineAlerts } from "@/components/dashboard/BaselineAlerts"
 import { DailyScoreCard } from "@/components/dashboard/DailyScoreCard"
@@ -371,6 +372,9 @@ export default function InsightsPage() {
       {/* ── Today vs your own baseline ── */}
       <DailyScoreCard />
       <BaselineAlerts />
+
+      {/* ── What moved over the last month, and the question it raises ── */}
+      <DriftCard />
 
       {/* ── Watched (pinned) patterns ── */}
       <WatchedPatterns />
