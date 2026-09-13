@@ -19,6 +19,7 @@ import {
 } from "@/lib/chat-sources"
 import { addDaysISO, localDateStr, localTimeStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone, userDay } from "@/lib/user-timezone"
+import { dailyTagsKey, mergeTags, resolveTagDate, MAX_TAGS_PER_DAY } from "@/lib/daily-tags"
 import { resolveReminderWhen, parseHhMm } from "@/lib/reminder-when"
 import { distanceM } from "@/lib/places"
 import { randomUUID } from "crypto"
@@ -286,6 +287,30 @@ const TOOLS: Anthropic.Tool[] = [
         weightKg: { type: "number", description: "Weight in kilograms" },
       },
       required: ["weightKg"],
+    },
+  },
+  {
+    name: "log_tag",
+    description:
+      "Tag a day with something that was going on in the user's own words — 'flu', 'travel', " +
+      "'new job', 'started magnesium', 'deadline week'. For context that has no tool of its own " +
+      "(mood, water, workouts, doses and the rest have theirs). Takes a date, so the answer to " +
+      "\"what changed in late August?\" can be recorded on the days it describes rather than today. " +
+      "Tag every day the thing was true, not just the first. Adds to the day's tags; nothing is replaced.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        tags: {
+          type: "array",
+          items: { type: "string" },
+          description: "One or more short labels, lower case, e.g. ['flu'] or ['travel', 'late night']",
+        },
+        date: {
+          type: "string",
+          description: "YYYY-MM-DD. Omit for today. Up to a year back; never the future.",
+        },
+      },
+      required: ["tags"],
     },
   },
   {
@@ -1021,6 +1046,45 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       update: { weight },
     }).catch(() => null)
     return `Logged weight: ${weight}kg for today.`
+  }
+
+  if (name === "log_tag") {
+    const today = localDateStr(await getUserTimezone(userId))
+    const when = resolveTagDate(input.date, today)
+    if ("error" in when) return when.error
+
+    const key = dailyTagsKey(when.day)
+    const rows = await prisma.$queryRaw<{ value: string }[]>`
+      SELECT "value" FROM "UserPreference"
+      WHERE "userId" = ${userId} AND "key" = ${key} LIMIT 1
+    `.catch(() => [] as { value: string }[])
+    let stored: unknown = []
+    try { stored = rows[0]?.value ? JSON.parse(rows[0].value) : [] } catch { stored = [] }
+
+    // Read, merge, write. A blind overwrite here would delete whatever was
+    // typed on the Check-in page for that day, which is the same data.
+    const { tags, added, alreadyThere, noRoom } = mergeTags(stored, input.tags)
+    if (added.length === 0 && alreadyThere.length === 0 && noRoom.length === 0) {
+      return "No tag in that — give me a word or two for what was going on."
+    }
+
+    if (added.length > 0) {
+      const value = JSON.stringify(tags)
+      await prisma.$executeRaw`
+        INSERT INTO "UserPreference" ("userId", "key", "value")
+        VALUES (${userId}, ${key}, ${value})
+        ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${value}
+      `.catch(() => null)
+    }
+
+    const dayLabel = when.day === today ? "today" : when.day
+    const parts: string[] = []
+    if (added.length) parts.push(`Tagged ${dayLabel}: ${added.join(", ")}.`)
+    if (alreadyThere.length) parts.push(`Already there: ${alreadyThere.join(", ")}.`)
+    // Said out loud rather than dropped — a tag the user thinks they logged
+    // and the engine never sees is the failure this whole path exists to fix.
+    if (noRoom.length) parts.push(`No room for ${noRoom.join(", ")} — ${dayLabel} already has ${MAX_TAGS_PER_DAY} tags.`)
+    return parts.join(" ")
   }
 
   if (name === "write_daily_note") {
@@ -2620,7 +2684,7 @@ You can see their medications, symptoms and lab results. You may describe what's
 
 FORMATTING: your replies render as markdown. Use **bold** sparingly for the words a sentence turns on, "-" bullet lists for schedules and summaries, and emoji naturally (match the event: 🦷 dentist, 📚 tutoring, 💚 wins). Keep lines short. No tables, no big headings.
 CALENDAR TIMES: every calendar line below already shows the correct weekday and time in the user's local timezone — repeat them exactly as written, never convert or guess weekdays.
-You have tools to CREATE habits (with a schedule — weekdays or N times a week — and a reminder time), reminders (repeating when they say so) and calendar events (create_event — anything with a day and a time that isn't a to-do), COMPLETE habits and reminders, SKIP a habit for today with a reason (skip_habit_today — the streak holds), LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), blood pressure (log_blood_pressure), lab results from a printout or photo (log_lab_results — the date plus every marker/value/unit you can read, once they confirm the digits), a medication schedule they describe (create_med_schedule — name, dose, times; it records what they told you, it is not advice), fasts (start_fast / end_fast), training sessions (log_workout — "did legs for an hour", "30 min run"; ask for effort 1–10 only if it comes naturally), targets they want changed and their weight goal (set_goal — "I want to get to 78 kg" sets a lose goal, "stop the diet" clears it; the calorie and protein targets follow the goal, so mention that), a place they want remembered (save_place — "save this café as X" uses their phone's latest fix), and a self-experiment they want to run (create_experiment — one action, one measurable outcome, confirm the plan first), READ health trends (get_health_range) and the app's own analyses (get_analysis — running experiments and today's arm, what is off their baseline, lab trends, nutrient gaps, medication adherence, the found patterns), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and, once they confirm the digits, recording them with log_lab_results; a medication box means the name and strength (and create_med_schedule if it is something they take regularly); a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
+You have tools to CREATE habits (with a schedule — weekdays or N times a week — and a reminder time), reminders (repeating when they say so) and calendar events (create_event — anything with a day and a time that isn't a to-do), COMPLETE habits and reminders, SKIP a habit for today with a reason (skip_habit_today — the streak holds), LOG water/coffee/mood/weight/journal/focus sessions/symptoms/doses of medication or supplements (log_dose — record the amount when they say one, "half" included)/custom trackers/timeline moments and the user's usual order at a saved place (log_usual — "log my usual" just works), what was going on in their own words (log_tag — "flu", "travel", "new job", "deadline week"; for context no other tool covers), blood pressure (log_blood_pressure), lab results from a printout or photo (log_lab_results — the date plus every marker/value/unit you can read, once they confirm the digits), a medication schedule they describe (create_med_schedule — name, dose, times; it records what they told you, it is not advice), fasts (start_fast / end_fast), training sessions (log_workout — "did legs for an hour", "30 min run"; ask for effort 1–10 only if it comes naturally), targets they want changed and their weight goal (set_goal — "I want to get to 78 kg" sets a lose goal, "stop the diet" clears it; the calorie and protein targets follow the goal, so mention that), a place they want remembered (save_place — "save this café as X" uses their phone's latest fix), and a self-experiment they want to run (create_experiment — one action, one measurable outcome, confirm the plan first), READ health trends (get_health_range) and the app's own analyses (get_analysis — running experiments and today's arm, what is off their baseline, lab trends, nutrient gaps, medication adherence, the found patterns), SEARCH your own past conversations with the user (search_chat_history), and REMEMBER durable facts about the user (remember) — use them when relevant. You DO have a record of everything the two of you have said to each other: when the user refers back to an earlier conversation — a night they described, advice you gave, a name they mentioned — search it before answering, and never tell them you keep no transcript. Only say you cannot find it after looking. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When they tell you what was going on in a stretch of their life rather than a single act — "I had flu that week", "I was in Berlin most of August", "that was when I started the new job" — that is log_tag, and it takes a date: put it on the days it was true, not on today. This matters most when you have just asked. compare_periods and the monthly drift message both end by asking what changed, and the answer is only worth having if it lands on the right days: the engine looks for a tag that was absent for a fortnight and then started appearing, so a month of "new job" recorded as one tag on today is a month it cannot see. Ask which days if they are vague ("all of August, or just the start?"), and tag each one. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks, and the app compares the two arms — that turns an association into evidence about cause, which no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means reading the values back and, once they confirm the digits, recording them with log_lab_results; a medication box means the name and strength (and create_med_schedule if it is something they take regularly); a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. The user can also ask you to fix or remove things they logged. Use find_my_logs to locate the exact entry — never guess a ref — then correct_log for a wrong time, amount or label, saying what changed from and to so they can see it. Deleting is deliberately two steps: the first delete_log call removes nothing and hands you a description plus a confirmation token, and you must show them exactly what is about to go and wait for a clear yes before calling again with that token. Never say something is deleted until the second call has come back and said so. If they decline, drop it — do not re-offer. Only their own manually logged entries can be touched; a tag from the ring comes back on the next sync, so removing one would be a promise you cannot keep. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${renderFacts(memories)}\nIf they say one of these is no longer true, call forget — a fact that has gone stale still steers what you say until it is gone.\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
 ${saidStr ? `## What you told them recently (nudges you sent on your own — they may be replying to one)\n${saidStr}\nIf one of these asked whether something happened on a particular night and they are now answering, log what they say against THAT night, not today: a drink with log_drink, a dose with log_dose, anything else with log_moment — each with the date the question named (the evening before that date for a drink or a late meal). Then say in one line what you filed and where. Never log it as today.\n` : ""}
