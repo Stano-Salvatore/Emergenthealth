@@ -44,6 +44,16 @@ describe("the sentence that shipped wrong", () => {
     // silently turn that branch off.
     expect(code).toContain("${response.status} ${response.statusText}")
   })
+
+  it("never carries the connector the screen already spends", () => {
+    // The second render caught the same fault one layer down: the thrown
+    // message joined status and detail with an em dash, and the page puts one
+    // in front of the whole phrase. "No resilience — Oura refused the request:
+    // 401 Unauthorized — Token is not authorized access stress scope."
+    expect(code, "an em dash here lands beside the one the screen writes")
+      .not.toContain("` — ${detail}`")
+    expect(code).toContain("`${detail} (${status})`")
+  })
 })
 
 describe("what Oura said, past the status line", () => {

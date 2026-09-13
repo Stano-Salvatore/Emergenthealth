@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
-import { explainBlanks, listPhrase, whyBlank, type SyncRun } from "@/lib/sync-status"
+import { explainBlanks, listPhrase, scopeRemedy, whyBlank, type SyncRun } from "@/lib/sync-status"
+import { ouraErrorDetail } from "@/lib/oura"
 
 // Why a column is empty, kept where someone can read it.
 //
@@ -147,5 +148,67 @@ describe("listPhrase", () => {
     // A negative list takes "or": "No vascular age and pulse wave velocity"
     // claims both are missing together, which is not what the screen means.
     expect(listPhrase(["a", "b"], "or")).toBe("a or b")
+  })
+})
+
+describe("the scope that was never asked for", () => {
+  // Putting the refusal on a screen with Oura's own words attached answered
+  // the question the status line could not:
+  //
+  //   Token is not authorized access heart_health scope.
+  //   Token is not authorized access stress scope.
+  //
+  // Not an expired token, not a plan — two scopes the OAuth request had never
+  // listed. Four figures shipped, were mapped correctly, and could never have
+  // arrived.
+  const oura = src("src/app/api/oura/auth/route.ts")
+
+  it("asks for the scopes the newer endpoints need", () => {
+    // daily_cardiovascular_age and vO2_max need heart_health;
+    // daily_resilience needs stress.
+    expect(oura, "the endpoint ships and the column stays empty forever")
+      .toContain('"heart_health"')
+    expect(oura).toContain('"stress"')
+  })
+
+  it("still asks for the ones that were already working", () => {
+    // Adding two must not drop seven. A scope removed here is a column that
+    // goes quiet with no error anywhere.
+    for (const scope of ["personal", "email", "daily", "heartrate", "workout", "session", "spo2", "tag"]) {
+      expect(oura, `${scope} was granted and is still needed`).toContain(`"${scope}"`)
+    }
+  })
+
+  it("says how to actually get them, since adding the scope is not enough", () => {
+    // The part that would otherwise leave the columns blank forever: a token
+    // already issued never gains a permission it was not granted, so the
+    // request changing helps nobody who is already connected.
+    const said = scopeRemedy("Oura", {
+      at: "2026-09-13T13:00:00Z", ok: true,
+      endpoints: { daily_resilience: { state: "failed", reason: "401 Unauthorized — Token is not authorized access stress scope" } },
+    })!
+    expect(said).toContain("reconnect Oura")
+    expect(said).toContain("Settings")
+  })
+
+  it("invents no errand when the refusal is not about scope", () => {
+    // A plan that excludes an endpoint cannot be reconnected into existence,
+    // and "never point at a remedy that isn't one" is the rule here.
+    expect(scopeRemedy("Oura", {
+      at: "2026-09-13T13:00:00Z", ok: true,
+      endpoints: { vO2_max: { state: "failed", reason: "402 Payment Required" } },
+    })).toBeNull()
+    expect(scopeRemedy("Oura", {
+      at: "2026-09-13T13:00:00Z", ok: true,
+      endpoints: { vO2_max: { state: "empty" } },
+    })).toBeNull()
+    expect(scopeRemedy("Oura", undefined)).toBeNull()
+  })
+
+  it("leaves the screen to supply the full stop", () => {
+    // It rendered "…heart_health scope.." on a phone: Oura ends its own
+    // sentence, and the page adds one after the quote.
+    expect(ouraErrorDetail('{"detail":"Token is not authorized access stress scope."}'))
+      .toBe("Token is not authorized access stress scope")
   })
 })

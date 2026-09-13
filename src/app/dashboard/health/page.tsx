@@ -26,7 +26,7 @@ import { getGoals } from "@/lib/goals"
 import { localDateStr, addDaysISO } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { readSyncStatus } from "@/lib/sync-status-store"
-import { explainBlanks, listPhrase, type SyncStatus } from "@/lib/sync-status"
+import { explainBlanks, listPhrase, scopeRemedy, type SyncStatus } from "@/lib/sync-status"
 
 interface StravaActivityRow {
   id: string
@@ -253,6 +253,9 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
     { label: "pulse wave velocity", endpoint: "daily_cardiovascular_age", present: latestLog?.pulseWaveVelocity != null },
     { label: "resilience", endpoint: "daily_resilience", present: latestLog?.resilienceLevel != null },
   ].filter(f => !f.present), ouraRun)
+  // Said once under the group rather than after each reason: four figures
+  // refused over two missing scopes is one thing to do, not four.
+  const blankRemedy = blankReasons.length > 0 ? scopeRemedy("Oura", ouraRun) : null
 
   return (
     <div className="space-y-6">
@@ -511,6 +514,9 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                       No {listPhrase(r.labels, "or")} — {r.reason}.
                     </p>
                   ))}
+                  {blankRemedy && (
+                    <p className="text-[11px] text-amber-400/80 mt-2 leading-snug">{blankRemedy}</p>
+                  )}
                 </div>
 
                 {/* Activity section */}
