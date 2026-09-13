@@ -187,19 +187,49 @@ export function judgeFactors(input: FactorInput, prior: Window, recent: Window):
   return out.sort((a, b) => Math.abs(b.recent - b.prior) / Math.max(1, b.prior + b.recent) - Math.abs(a.recent - a.prior) / Math.max(1, a.prior + a.recent))
 }
 
-function fmt(n: number, unit: string): string {
+/**
+ * A drift number as every surface shows it.
+ *
+ * Exported because there are two renderers now — the push/chat prose below and
+ * the card on the Patterns page — and a resting heart rate that reads "48 bpm"
+ * in one and "48bpm" in the other is the sort of drift nobody reports and
+ * everybody notices.
+ */
+export function fmtDrift(n: number, unit: string): string {
   const s = unit === "" && n >= 1000 ? n.toLocaleString("en-GB") : String(n)
-  return unit === "/5" ? `${s}/5` : unit ? `${s}${unit === "h" || unit === "" ? unit : " " + unit}` : s
+  // The units that close up against the number. "89 %" is what this printed
+  // until sleep efficiency was rendered on a screen rather than inside a
+  // notification nobody re-reads; "ms" and "bpm" take the space, "%" does not.
+  const tight = unit === "h" || unit === "%" || unit === "/5" || unit === ""
+  return tight ? `${s}${unit}` : `${s} ${unit}`
 }
 
 function shiftLine(s: MetricShift): string {
   const arrow = s.delta > 0 ? "up" : "down"
-  return `${s.label} ${fmt(s.recentMean, s.unit)} vs ${fmt(s.priorMean, s.unit)} (${arrow}, ${s.recentN} vs ${s.priorN} days)`
+  return `${s.label} ${fmtDrift(s.recentMean, s.unit)} vs ${fmtDrift(s.priorMean, s.unit)} (${arrow}, ${s.recentN} vs ${s.priorN} days)`
 }
 
 function factorLine(f: FactorShift): string {
   if (f.unit === "ml/day") return `water ${f.recent} vs ${f.prior} ml/day`
   return `${f.label.toLowerCase()} ${f.recent} vs ${f.prior} ${f.unit}`
+}
+
+/**
+ * The question the comparison ends on, and the reason it exists.
+ *
+ * It changes with whether anything the user logged can account for the shift:
+ * with candidates it asks them to pick, without them it asks what the app
+ * never saw. Emergy can now write the answer back as a tag on the days it
+ * describes (log_tag), which is what turns this from a rhetorical flourish
+ * into the start of the onset family's next card.
+ *
+ * One copy, because the push, the chat tool and the card all ask it, and three
+ * near-identical questions would read as three different features.
+ */
+export function driftQuestion(r: DriftReport): string {
+  return r.factors.length === 0
+    ? "Nothing logged accounts for it — did something change that isn't in the app?"
+    : "Does one of these ring true, or was it something else?"
 }
 
 export interface DriftText {
@@ -230,9 +260,7 @@ export function renderDrift(
   const worse = r.shifts.filter(s => s.verdict === "worse")
   const lead = [...better, ...worse].sort((a, b) => a.p - b.p)[0]
 
-  const question = r.factors.length === 0
-    ? "Nothing logged accounts for it — did something change that isn't in the app?"
-    : "Does one of these ring true, or was it something else?"
+  const question = driftQuestion(r)
 
   const candidates = r.factors.slice(0, 2).map(factorLine).join(", ")
   let headline = `${recentName} vs ${priorName}: ${shiftLine(lead)}.`

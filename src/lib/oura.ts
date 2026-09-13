@@ -9,8 +9,13 @@ async function buildOuraClient(userId: string) {
   return { accessToken: stored.accessToken, refreshToken: stored.refreshToken, userId }
 }
 
-/** Short enough for a stat-box footnote, cut on a word boundary. */
-const clip = (s: string) => (s.length > 100 ? s.slice(0, 99).replace(/\s+\S*$/, "") + "…" : s)
+/**
+ * Short enough for a stat-box footnote, cut on a word boundary, and without
+ * the full stop Oura ends its own sentences with — the screen quoting this
+ * supplies one, and the pair rendered as "…heart_health scope.." on a phone.
+ */
+const clip = (s: string) =>
+  (s.length > 100 ? s.slice(0, 99).replace(/\s+\S*$/, "") + "…" : s.replace(/\.+$/, ""))
 
 /**
  * What Oura said, past the status line.
@@ -137,8 +142,19 @@ async function makeOuraRequest(
     // refused the request: …", which read "Oura refused the request: Oura API
     // error: 401 Unauthorized" on a real screen — the provider named twice and
     // an internal throw's prefix leaking into a sentence a user has to read.
+    // Oura's explanation leads, the status code follows in brackets.
+    //
+    // It was joined with an em dash, which read on a phone as "No resilience —
+    // Oura refused the request: 401 Unauthorized — Token is not authorized
+    // access stress scope." Two dashes doing two jobs in one line, which is
+    // the same stumble the prefix fix removed one layer up: an error string
+    // must not carry the connector the screen quoting it already spends.
+    //
+    // The code stays in the text because oura-sync reads /\b(401|403)\b/ off
+    // it to phrase the tag-scope message.
     const detail = ouraErrorDetail(await response.text().catch(() => ""))
-    throw new Error(`${response.status} ${response.statusText}${detail ? ` — ${detail}` : ""}`)
+    const status = `${response.status} ${response.statusText}`
+    throw new Error(detail ? `${detail} (${status})` : status)
   }
   return response.json()
 }
