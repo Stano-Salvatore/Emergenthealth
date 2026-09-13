@@ -212,3 +212,45 @@ describe("the scope that was never asked for", () => {
       .toBe("Token is not authorized access stress scope")
   })
 })
+
+describe("the reasons refresh without moving the clock", () => {
+  // Found on a phone, minutes after the scope fix went live. Three figures
+  // arrived on the app-open sync and the line underneath still read
+  //
+  //   No cardio capacity — Oura refused the request: … heart_health scope
+  //
+  // with vascular age, which needs that very scope, showing 22 yr two rows
+  // above it. The page arguing with itself.
+  //
+  // The cause was a deliberate choice made one pull request too broadly: only
+  // the cron writes sync status, so a dead scheduled job stays visible as a
+  // silence. That is right for `at` and wrong for `endpoints` — one answers
+  // "is the job alive", the other "why is this column empty", and only the
+  // first wants the cron's pace.
+  const store = src("src/lib/sync-status-store.ts")
+  const route = src("src/app/api/sync/oura/route.ts")
+
+  it("the app-open sync refreshes the reasons", () => {
+    expect(route).toContain('recordEndpoints(session.user.id, "oura", result.endpoints)')
+  })
+
+  it("and still never stamps the time", () => {
+    // The whole reason the cron was made sole writer. AutoSync fires on every
+    // app open; a timestamp from here would read "synced 2 min ago" over a
+    // scheduled job that died on Tuesday.
+    expect(route, "an app-open sync must not look like a scheduled one")
+      .not.toContain("recordSync(")
+    const fn = store.slice(store.indexOf("export async function recordEndpoints"))
+    expect(fn, "recordEndpoints must not write a timestamp")
+      .not.toMatch(/at:\s/)
+    expect(fn).toContain("{ ...run, endpoints }")
+  })
+
+  it("says nothing rather than inventing a run that never happened", () => {
+    // `at` is not optional, so a first-ever record written from here would
+    // need a made-up one — and "connected, never synced" would start looking
+    // like a real sync.
+    const fn = store.slice(store.indexOf("export async function recordEndpoints"))
+    expect(fn).toContain("if (!run) return")
+  })
+})
