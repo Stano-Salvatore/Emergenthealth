@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { userToday } from "@/lib/user-timezone"
+import { dailyTagsKey, normaliseTags } from "@/lib/daily-tags"
 
 // Kept as a function so both handlers share it; it needs the user now.
 async function todayStr(userId: string): Promise<string> {
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
   const date = searchParams.get("date") ?? await todayStr(userId)
 
 
-  const key = `daily_tags:${date}`
+  const key = dailyTagsKey(date)
   const rows = await prisma.$queryRaw<{ value: string }[]>`
     SELECT "value" FROM "UserPreference"
     WHERE "userId" = ${userId} AND "key" = ${key}
@@ -38,14 +39,13 @@ export async function POST(req: NextRequest) {
   if (!Array.isArray(body.tags)) {
     return NextResponse.json({ error: "tags must be an array" }, { status: 400 })
   }
-  const tags = (body.tags as unknown[])
-    .filter((t): t is string => typeof t === "string")
-    .map(t => t.trim().toLowerCase().slice(0, 30))
-    .filter(t => t.length > 0)
-    .slice(0, 10)
+  // The shaping rule lives in daily-tags.ts, not here. Emergy writes these
+  // too now, and the onset family compares tags by string — two writers with
+  // two rules make "Travel" and "travel" two tags with half the days each,
+  // neither of which clears the threshold that would have made it testable.
+  const tags = normaliseTags(body.tags)
 
-
-  const key = `daily_tags:${date}`
+  const key = dailyTagsKey(date)
   const value = JSON.stringify(tags)
 
   await prisma.$executeRaw`
