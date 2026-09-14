@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, LogOut, LogIn, RefreshCw } from "lucide-react"
+import { describeFetchFailure } from "@/lib/fetch-error"
 
 export function StravaManager({ isConnected }: { isConnected: boolean }) {
   const [connecting, setConnecting] = useState(false)
@@ -40,8 +41,8 @@ export function StravaManager({ isConnected }: { isConnected: boolean }) {
       } else {
         setSyncResult(`Synced ${data.synced} activit${data.synced === 1 ? "y" : "ies"}`)
       }
-    } catch {
-      setSyncError("Network error")
+    } catch (e) {
+      setSyncError(describeFetchFailure(e))
     } finally {
       setSyncing(false)
     }

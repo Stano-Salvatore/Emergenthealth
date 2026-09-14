@@ -6,12 +6,22 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, LogOut, LogIn, Key, RefreshCw } from "lucide-react"
+import { describeFetchFailure } from "@/lib/fetch-error"
 
 export function OuraManager({ isConnected, hasOauthConfig = false }: { isConnected: boolean; hasOauthConfig?: boolean }) {
   const [connecting, setConnecting] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [syncing, setSyncing] = useState(false)
-  const [syncResult, setSyncResult] = useState<{ synced: number; tagsSynced: number; tagsError?: string } | null>(null)
+  // Two different outcomes, kept apart. `tagsError` used to carry both "the
+  // health data came through and only the tags failed" and "the whole request
+  // failed", so a 500 rendered as "Health data synced (0 days) but tags
+  // failed" — a success that never happened, under advice about the `tag`
+  // permission that could not fix a server error.
+  const [syncResult, setSyncResult] = useState<
+    | { ok: true; synced: number; tagsSynced: number; tagsError?: string }
+    | { ok: false; error: string }
+    | null
+  >(null)
   const [pat, setPat] = useState("")
   const [patStatus, setPatStatus] = useState<"idle" | "loading" | "error">("idle")
   const [patError, setPatError] = useState("")
@@ -27,10 +37,10 @@ export function OuraManager({ isConnected, hasOauthConfig = false }: { isConnect
     try {
       const res = await fetch("/api/sync/oura", { method: "POST" })
       const data = await res.json()
-      if (res.ok) setSyncResult({ synced: data.synced ?? 0, tagsSynced: data.tagsSynced ?? 0, tagsError: data.tagsError })
-      else setSyncResult({ synced: 0, tagsSynced: 0, tagsError: data.error ?? "Sync failed" })
-    } catch {
-      setSyncResult({ synced: 0, tagsSynced: 0, tagsError: "Network error" })
+      if (res.ok) setSyncResult({ ok: true, synced: data.synced ?? 0, tagsSynced: data.tagsSynced ?? 0, tagsError: data.tagsError })
+      else setSyncResult({ ok: false, error: data.error ?? "Oura didn't say why." })
+    } catch (e) {
+      setSyncResult({ ok: false, error: describeFetchFailure(e) })
     } finally {
       setSyncing(false)
     }
@@ -63,9 +73,9 @@ export function OuraManager({ isConnected, hasOauthConfig = false }: { isConnect
       } else {
         window.location.reload()
       }
-    } catch {
+    } catch (e) {
       setPatStatus("error")
-      setPatError("Network error")
+      setPatError(describeFetchFailure(e))
     }
   }
 
@@ -99,7 +109,15 @@ export function OuraManager({ isConnected, hasOauthConfig = false }: { isConnect
               )}
             </Button>
             {syncResult && (
-              syncResult.tagsError ? (
+              !syncResult.ok ? (
+                // Nothing arrived. No count, and none of the tag-permission
+                // advice below — reconnecting cannot fix a server error, and
+                // "never point at a remedy that isn't one" applies hardest
+                // when someone is already stuck.
+                <p className="text-xs text-red-400">
+                  Sync didn&apos;t run: {syncResult.error}
+                </p>
+              ) : syncResult.tagsError ? (
                 <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 space-y-1.5">
                   <p className="text-xs text-amber-400">
                     Health data synced ({syncResult.synced} days) but <span className="font-semibold">tags failed</span>: {syncResult.tagsError}

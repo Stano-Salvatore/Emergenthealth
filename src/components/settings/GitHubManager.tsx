@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, LogOut, Check } from "lucide-react"
+import { describeFetchFailure } from "@/lib/fetch-error"
 
 export function GitHubManager({ username: initialUsername }: { username: string | null }) {
   const [username, setUsername] = useState(initialUsername ?? "")
@@ -29,7 +30,7 @@ export function GitHubManager({ username: initialUsername }: { username: string 
       })
       if (res.ok) { setSaved(true); setTimeout(() => window.location.reload(), 800) }
       else setError("Failed to save")
-    } catch { setError("Network error") }
+    } catch (e) { setError(describeFetchFailure(e)) }
     finally { setSaving(false) }
   }
 

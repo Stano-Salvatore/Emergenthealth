@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, LogOut, RefreshCw } from "lucide-react"
+import { describeFetchFailure } from "@/lib/fetch-error"
 
 interface LastfmLog {
   id: string
@@ -60,8 +61,8 @@ export function LastfmManager() {
         const data = await res.json().catch(() => ({}))
         setError(data.error ?? "Failed to save")
       }
-    } catch {
-      setError("Network error")
+    } catch (e) {
+      setError(describeFetchFailure(e))
     } finally {
       setSaving(false)
     }
@@ -83,8 +84,8 @@ export function LastfmManager() {
       } else {
         setError(data.error ?? "Sync failed")
       }
-    } catch {
-      setError("Network error")
+    } catch (e) {
+      setError(describeFetchFailure(e))
     } finally {
       setSyncing(false)
     }
@@ -106,8 +107,8 @@ export function LastfmManager() {
         setError("Failed to disconnect")
         setDisconnecting(false)
       }
-    } catch {
-      setError("Network error")
+    } catch (e) {
+      setError(describeFetchFailure(e))
       setDisconnecting(false)
     }
   }
