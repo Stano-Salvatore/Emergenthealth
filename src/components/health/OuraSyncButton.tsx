@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { RefreshCw } from "lucide-react"
+import { describeFetchFailure } from "@/lib/fetch-error"
 
 export function OuraSyncButton() {
   const [status, setStatus] = useState<"idle" | "loading" | "ok" | "error">("idle")
@@ -22,9 +23,9 @@ export function OuraSyncButton() {
         setMsg(`Synced ${data.synced} days`)
         setTimeout(() => window.location.reload(), 1000)
       }
-    } catch {
+    } catch (e) {
       setStatus("error")
-      setMsg("Network error")
+      setMsg(describeFetchFailure(e))
     }
   }
 

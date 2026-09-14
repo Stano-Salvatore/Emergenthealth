@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Anthropic from "@anthropic-ai/sdk"
 import { prisma } from "@/lib/prisma"
+import { loadMoodByDay, loadMoodSeries } from "@/lib/mood-series"
 import { Prisma } from "@prisma/client"
 import { isRefKind, issueConfirmToken, makeRef, parseRef, verifyConfirmToken, type RefKind } from "@/lib/log-refs"
 import { getEventsInRange } from "@/lib/google-calendar"
@@ -1227,7 +1228,10 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
           hrv: l?.hrv ?? null,
           readiness: l?.readinessScore ?? null,
           steps: l?.steps ?? null,
-          mood: moodByDay.get(d) ?? checkinByDay.get(d)?.mood ?? null,
+          // The check-in wins, as it does in mood-series and everywhere else
+          // reading these two tables. This line had the precedence the other
+          // way round on its own.
+          mood: checkinByDay.get(d)?.mood ?? moodByDay.get(d) ?? null,
         }
       })
       const weeks = rollupWeeks(daily)
@@ -2085,7 +2089,12 @@ export async function buildSystemPrompt(
         new Date(today.getTime() - CALENDAR_DAYS_BACK * 24 * 60 * 60 * 1000).toISOString(),
         new Date(today.getTime() + CALENDAR_DAYS_AHEAD * 24 * 60 * 60 * 1000).toISOString(),
       ),
-      prisma.moodLog.findFirst({ where: { userId, date: { gte: new Date(todayStr) } } }).catch(() => null),
+      // Both tables, check-in first — see lib/mood-series. Reading MoodLog
+      // alone told Emergy "not logged yet" on a day that opened with a
+      // check-in, which is the one thing he should never get wrong about you.
+      loadMoodByDay(userId, todayStr, todayStr)
+        .then(m => { const mood = m.get(todayStr); return mood == null ? null : { mood } })
+        .catch(() => null),
       prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: dayStart } } }).catch(() => []),
       prisma.foodLog.findMany({
         where: { userId, loggedAt: { gte: dayStart } },
@@ -2160,7 +2169,12 @@ export async function buildSystemPrompt(
   ])
 
   const [recentMoods, todayWeather, recentNotes, recentLabs, latestBody, recentWorkouts, recentSymptoms, fastActivePref, fastHistoryPref] = await Promise.all([
-    prisma.moodLog.findMany({ where: { userId, date: { gte: since14 } }, orderBy: { date: "desc" } }).catch(() => [] as { date: Date; mood: number }[]),
+    // Both tables, check-in first — see lib/mood-series.
+    loadMoodSeries(userId, since14.toISOString().slice(0, 10), todayStr)
+      .then(rows => rows
+        .map(r => ({ date: new Date(r.day + "T00:00:00.000Z"), mood: r.mood }))
+        .sort((a, b) => b.date.getTime() - a.date.getTime()))
+      .catch(() => [] as { date: Date; mood: number }[]),
     prisma.weatherLog.findFirst({
       where: { userId, date: todayStr },
       select: { tempMaxC: true, tempMinC: true, precipMm: true, uvIndex: true, weatherCode: true },

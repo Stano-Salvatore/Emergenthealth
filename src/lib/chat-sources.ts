@@ -130,6 +130,20 @@ const TOOL_ACTIVITY: Record<string, string> = {
   write_daily_note:   "writing that in your journal",
   remember:           "remembering that",
   forget:             "forgetting that",
+  skip_habit_today:   "skipping that habit today",
+  create_event:       "putting that in your calendar",
+  log_tag:            "tagging that day",
+  log_workout:        "logging that workout",
+  log_blood_pressure: "logging your blood pressure",
+  // The slowest of all of these and the one carrying the most: it is reading
+  // digits off a printout, and it reads them back before recording anything.
+  log_lab_results:    "reading your lab results",
+  create_med_schedule: "setting up that schedule",
+  start_fast:         "starting your fast",
+  end_fast:           "ending your fast",
+  set_goal:           "setting that goal",
+  save_place:         "saving that place",
+  create_experiment:  "setting up that experiment",
 }
 
 export function toolActivity(name: string): string {

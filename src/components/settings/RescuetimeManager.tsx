@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, LogOut, RefreshCw } from "lucide-react"
+import { describeFetchFailure } from "@/lib/fetch-error"
 
 export function RescuetimeManager({ hasKey: initialHasKey }: { hasKey: boolean }) {
   const [apiKey, setApiKey] = useState("")
@@ -33,8 +34,8 @@ export function RescuetimeManager({ hasKey: initialHasKey }: { hasKey: boolean }
         const data = await res.json().catch(() => ({}))
         setError(data.error ?? "Failed to save")
       }
-    } catch {
-      setError("Network error")
+    } catch (e) {
+      setError(describeFetchFailure(e))
     } finally {
       setSaving(false)
     }
@@ -56,8 +57,8 @@ export function RescuetimeManager({ hasKey: initialHasKey }: { hasKey: boolean }
       } else {
         setError(data.error ?? "Sync failed")
       }
-    } catch {
-      setError("Network error")
+    } catch (e) {
+      setError(describeFetchFailure(e))
     } finally {
       setSyncing(false)
     }
@@ -79,8 +80,8 @@ export function RescuetimeManager({ hasKey: initialHasKey }: { hasKey: boolean }
         setError("Failed to disconnect")
         setDisconnecting(false)
       }
-    } catch {
-      setError("Network error")
+    } catch (e) {
+      setError(describeFetchFailure(e))
       setDisconnecting(false)
     }
   }

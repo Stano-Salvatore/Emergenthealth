@@ -51,9 +51,12 @@ const NON_HIDEABLE = new Set(["/dashboard", "/dashboard/settings", "/dashboard/c
 // drawer is pure duplication, so they only show where there's no bottom nav
 // (lg+, incl. web layout mode, whose viewport is widened past lg).
 // Still listed while customizing so they can be reordered.
+// Must stay in step with BottomNav's own tabs. A page removed from there and
+// left here vanishes on a phone entirely — it is hidden from the drawer as a
+// duplicate of a tab that no longer exists. Check-in was exactly that case.
 const IN_BOTTOM_NAV = new Set([
   "/dashboard/chat",
-  "/dashboard/checkin",
+  "/dashboard/intake",
   "/dashboard/habits",
   "/dashboard/settings",
 ])

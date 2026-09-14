@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { loadMoodSeries } from "@/lib/mood-series"
 import Anthropic from "@anthropic-ai/sdk"
 import { format } from "date-fns"
 import { buildSystemPrompt } from "@/lib/claude"
@@ -82,10 +83,8 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
       where: { userId, type: "focus", endedAt: { gte: weekStart, lte: today } },
       select: { durationMin: true },
     }).catch(() => [] as { durationMin: number }[]),
-    prisma.moodLog.findMany({
-      where: { userId, date: { gte: weekStart, lte: today } },
-      select: { mood: true },
-    }).catch(() => [] as { mood: number }[]),
+    // Both tables, check-in first — see lib/mood-series.
+    loadMoodSeries(userId, weekStartStr, todayStr).catch(() => [] as { day: string; mood: number }[]),
     prisma.intakeLog.findMany({
       where: { userId, type: "water", loggedAt: { gte: weekStart, lte: today } },
       select: { amountMl: true },

@@ -28,13 +28,20 @@ one per update — see the roadmap below.
   (Play billing policy) — the web app is unaffected
 
 ### Held back for future updates (already built, flag-gated)
-- v3.1 Finances (bank sync, bills, subscriptions)
-- v3.2 Lab results
-- v3.3 Gmail inbox card
-- v3.4 Strava
-- v3.5 Screen time
-- v3.6 Last.fm
-- v3.7 RescueTime
-- v3.8 Smart home (AC control)
 
-Enable any of these early with `NEXT_PUBLIC_ENABLED_FEATURES="finances,labs"`.
+The list below is `HELD_BACK` in `src/lib/features.ts` — that array is the
+truth, and this section drifted from it once already.
+
+- Finances (bank sync, bills, subscriptions) — four aggregators, only two on a
+  cron; wants a pruning pass first
+- Gmail inbox card — a separate OAuth surface, and Bills depends on it
+- Smart home (AC control) — depends on a self-hosted UDP bridge, not
+  multi-tenant
+
+Enable either early with `NEXT_PUBLIC_ENABLED_FEATURES="finances,gmail"`.
+
+### Launched since V3 shipped, and no longer gated
+Lab results, Strava, Screen time, Last.fm, RescueTime, Fasting. Each is
+self-contained — it needs nothing but its own connection — and each now feeds
+the correlation engine and Emergy's context, so hiding the pages only hid the
+data's home.
