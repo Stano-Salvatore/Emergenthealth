@@ -1,21 +1,21 @@
 "use client"
 
 import { useState } from "react"
-import { Droplets, Smile, Scale } from "lucide-react"
+import { Droplets, Scale } from "lucide-react"
 
-const MOOD_EMOJIS = ["😴", "😕", "😐", "🙂", "😄"]
 const WATER_PRESETS = [250, 500, 1000]
 
-export function QuickLog({ todayWaterMl, todayMood, latestWeight, waterGoalMl = 2000 }: {
+// Water and weight. Mood used to live here too — it was the third place on
+// one screen asking the same question, so it went back to the check-in, which
+// is the one surface that asks it deliberately. See lib/mood-series for how
+// both tables still reach the engine.
+export function QuickLog({ todayWaterMl, latestWeight, waterGoalMl = 2000 }: {
   todayWaterMl: number
-  todayMood: number | null
   latestWeight?: number | null
   waterGoalMl?: number
 }) {
   const [waterMl, setWaterMl] = useState(todayWaterMl)
-  const [mood, setMood] = useState<number | null>(todayMood)
   const [addingWater, setAddingWater] = useState<number | null>(null)
-  const [addingMood, setAddingMood] = useState(false)
   const [weightInput, setWeightInput] = useState(latestWeight ? String(latestWeight) : "")
   const [weightSaved, setWeightSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -38,24 +38,6 @@ export function QuickLog({ todayWaterMl, todayMood, latestWeight, waterGoalMl = 
       setError("Couldn't log water — try again.")
     } finally {
       setAddingWater(null)
-    }
-  }
-
-  async function logMood(value: number) {
-    setAddingMood(true)
-    setError(null)
-    try {
-      const res = await fetch("/api/mood", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mood: value }),
-      })
-      if (!res.ok) throw new Error()
-      setMood(value)
-    } catch {
-      setError("Couldn't log mood — try again.")
-    } finally {
-      setAddingMood(false)
     }
   }
 
@@ -111,29 +93,6 @@ export function QuickLog({ todayWaterMl, todayMood, latestWeight, waterGoalMl = 
                 {addingWater === ml ? "✓" : `+${ml}ml`}
               </button>
             ))}
-          </div>
-        </div>
-
-        {/* mood */}
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <Smile className="h-3.5 w-3.5 text-amber-400" />
-            <span className="text-xs text-muted-foreground">
-              Mood {mood ? `· ${["Awful","Bad","OK","Good","Great"][mood-1]}` : "today"}
-            </span>
-          </div>
-          <div className="flex gap-1 mt-1">
-            {MOOD_EMOJIS.map((emoji, i) => {
-              const val = i + 1
-              return (
-                <button key={val} onClick={() => logMood(val)} disabled={addingMood}
-                  className={`flex-1 text-base py-0.5 rounded transition-all ${
-                    mood === val ? "bg-primary/20 ring-1 ring-primary scale-110" : "hover:bg-secondary"
-                  }`}>
-                  {emoji}
-                </button>
-              )
-            })}
           </div>
         </div>
 

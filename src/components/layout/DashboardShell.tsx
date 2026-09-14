@@ -4,7 +4,6 @@ import { useEffect, useRef } from "react"
 import { Menu } from "lucide-react"
 import { Sidebar } from "./Sidebar"
 import { CommandPalette } from "./CommandPalette"
-import { WhatsNewBanner } from "./WhatsNewBanner"
 import { InstallPrompt } from "./InstallPrompt"
 import { AppSharePrompt } from "./AppSharePrompt"
 import { TrialBanner } from "./TrialBanner"
@@ -219,7 +218,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <InstallPrompt />
       <AppSharePrompt />
       <CommandPalette />
-      <WhatsNewBanner />
       <TrialBanner />
       <OfflineToast />
       <RateAppPrompt />

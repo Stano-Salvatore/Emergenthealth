@@ -24,7 +24,6 @@ import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"
 import { LiveClock } from "@/components/dashboard/LiveClock"
 import { WeatherWidget } from "@/components/dashboard/WeatherWidget"
 import { AcCard } from "@/components/dashboard/AcCard"
-import { MoodWidget } from "@/components/dashboard/MoodWidget"
 import { QuickLog } from "@/components/dashboard/QuickLog"
 import { LocationCard } from "@/components/dashboard/LocationCard"
 
@@ -196,7 +195,7 @@ export default async function DashboardPage() {
     userGoals,
     todayCheckin,
     checkinStreakRows,
-    healthLogs, habits, reminders, transactions, calendarEvents, todayMoodLogs, gmailData, todayIntake, todayFocus, todayOuraTags,
+    healthLogs, habits, reminders, transactions, calendarEvents, gmailData, todayIntake, todayFocus, todayOuraTags,
   ] = await Promise.all([
     getGoals(userId),
     prisma.$queryRaw<{id: string}[]>`
@@ -237,10 +236,6 @@ export default async function DashboardPage() {
       where: { userId, date: { gte: monthStart }, isTransfer: false },
     }),
     getUpcomingEvents(userId, 14),
-    prisma.moodLog.findMany({
-      where: { userId, date: { gte: today } },
-      take: 1,
-    }),
     // Gmail is feature-flagged off in V3 — skip the external API round-trip
     isFeatureEnabled("gmail")
       ? getGmailSummary(userId)
@@ -366,7 +361,6 @@ export default async function DashboardPage() {
   }
 
   // ── mood
-  const todayMood = todayMoodLogs[0]?.mood ?? null
 
   // ── wellness score
   const { score: absoluteScore, components: scorePillars } = computeWellnessScore({
@@ -416,10 +410,6 @@ export default async function DashboardPage() {
               <p className={`text-[11px] font-semibold uppercase tracking-wider ${scoreColor}`}>{scoreEmoji} {scoreLabel}</p>
               {scoreDriver && <p className="text-[10px] text-muted-foreground mt-0.5">{scoreDriver}</p>}
             </div>
-          </div>
-          <div className="flex-1 min-w-0 bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">How do you feel?</p>
-            <MoodWidget todayMood={todayMood} />
           </div>
         </div>
 
@@ -814,7 +804,7 @@ export default async function DashboardPage() {
     ),
 
     quicklog: (
-      <QuickLog todayWaterMl={waterMl} todayMood={todayMood} latestWeight={latestHealth?.weight ?? null} waterGoalMl={WATER_GOAL_ML} />
+      <QuickLog todayWaterMl={waterMl} latestWeight={latestHealth?.weight ?? null} waterGoalMl={WATER_GOAL_ML} />
     ),
 
     stats: (
