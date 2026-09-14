@@ -220,6 +220,29 @@ the sleep panel's causes. Plain strings still mean both. **`experiment-suggest.t
 greps the chip** (`/still on board/i`, `/ days$/i`), so a label rename can
 silently re-enable an experiment suggestion on a prescription.
 
+`src/lib/__tests__/mood-one-place.test.ts` exists because **mood lives in two
+tables**. The check-in writes `MorningCheckIn."mood"`; Emergy's `log_mood`
+writes `MoodLog`. Neither is a superset of the other, and a reader that queries
+one of them has silently opted out of the other — no error, no empty state,
+just a metric that stops appearing weeks later. `lib/mood-series.ts` holds the
+only merge, and the only rule: **the check-in wins**, being the answer someone
+stopped to give. `correlations.ts` and `daily-score-load.ts` predate the helper
+and merge by hand; the guard allows that, and requires only that no file ever
+reads one mood table alone.
+
+`src/lib/__tests__/bottom-nav.test.ts` pins `BottomNav.tsx` against Sidebar's
+`IN_BOTTOM_NAV`, which are two hand-maintained lists that must agree. Below
+`lg` the bottom nav *is* navigation and the sidebar is a drawer that hides
+anything pinned there as a duplicate. So a tab moved out of `BottomNav` and
+left in `IN_BOTTOM_NAV` is not demoted — it is **gone on a phone**, hidden in
+favour of a tab that no longer exists. Overview is the one deliberate
+exception, and it is asserted as such.
+
+A note on writing either kind of guard: both of these passed on their first
+draft against code I had deliberately broken — one matched a leftover
+`import` rather than a call, the other a comment rather than the rendered
+string. **Break the code first and watch the guard fail**, or it is decoration.
+
 ## Conventions
 
 - **The trackers are meant to replace other apps, not summarise them.** The
@@ -261,7 +284,7 @@ the only thing that compiles the Java.
 ## Commands
 
 ```bash
-npm test              # vitest, ~1130 tests across 119 files
+npm test              # vitest, ~1454 tests across 128 files
 npm run lint          # eslint
 npx tsc --noEmit      # typecheck
 npm run dev           # needs the local-dev.md setup first
