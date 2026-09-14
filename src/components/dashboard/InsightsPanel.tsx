@@ -196,8 +196,14 @@ function PeriodTab({
 
   const corr = data.correlations
   const hasCorr = corr.length > 0
-  const showLocation = period === "month" || period === "overall"
   const locWithData = data.locationPatterns.filter(l => l.n >= 6 && l.delta != null)
+  // Two periods carry location, so an account with no places printed the same
+  // "import your Timeline" sentence twice, a few rows apart, which reads as a
+  // rendering fault rather than a prompt. The prompt is about the account, not
+  // the window, so it belongs to one of them; real per-period numbers still
+  // show wherever there are any.
+  const showLocation = (period === "month" || period === "overall") &&
+    (locWithData.length > 0 || period === "overall")
 
   // Pinned (watched) correlations always show; the rest fill up to `count`.
   const pinnedInCorr = corr.filter(c => pinned.has(c.id))
@@ -276,8 +282,10 @@ function PeriodTab({
                 <div key={loc.locationKey} className="flex items-center gap-2">
                   <span className="text-sm shrink-0">{loc.emoji}</span>
                   <p className="text-xs text-muted-foreground flex-1 min-w-0 truncate">{loc.label}</p>
+                  {/* The place cards next door say "6 nights"; this said
+                      "n=6" for the same number on the same data. */}
                   <span className={`text-[10px] shrink-0 tabular-nums ${CONFIDENCE_COLORS[loc.confidence]}`}>
-                    n={loc.n}
+                    {loc.n} night{loc.n === 1 ? "" : "s"}
                   </span>
                   {loc.delta != null && (
                     <span className={`text-[10px] font-bold shrink-0 tabular-nums ${loc.delta > 0 ? "text-green-400" : "text-red-400"}`}>
