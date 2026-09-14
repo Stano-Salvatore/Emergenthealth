@@ -2,9 +2,8 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Home, Sun, CheckSquare, DollarSign, Settings } from "lucide-react"
+import { Home, CupSoda, CheckSquare, Settings } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { isFeatureEnabled } from "@/lib/features"
 import { EmergyAvatar } from "@/components/emergy/EmergyAvatar"
 import { useEmergyState } from "@/lib/emergy-store"
 
@@ -16,11 +15,18 @@ type Tab = {
 }
 
 // Emergy sits in the middle as the live mascot (see below); two tabs each side.
+//
+// Four slots for forty destinations, so they go to what you do OFTEN, not to
+// what matters most. Check-in held this one and is a once-a-day wizard; logging
+// a drink happens all day and had no front door at all — it was four taps and
+// two scrolls behind the hamburger, or the very bottom of a five-screen Home.
+//
+// Straight to the chips, not to the tab that greets you: /dashboard/intake
+// opens on a read-only summary, which is a fine page and the wrong one to land
+// on when you came to record a coffee.
 const leftTabs: Tab[] = [
-  { href: "/dashboard",          label: "Home",      Icon: Home,        exact: true },
-  isFeatureEnabled("finances")
-    ? { href: "/dashboard/finances", label: "Finances", Icon: DollarSign }
-    : { href: "/dashboard/checkin",  label: "Check-in", Icon: Sun },
+  { href: "/dashboard",                    label: "Home", Icon: Home, exact: true },
+  { href: "/dashboard/intake?tab=intake",  label: "Log",  Icon: CupSoda },
 ]
 const rightTabs: Tab[] = [
   { href: "/dashboard/habits",   label: "Habits",    Icon: CheckSquare },
@@ -29,7 +35,11 @@ const rightTabs: Tab[] = [
 
 function NavTab({ href, label, Icon, exact }: Tab) {
   const pathname = usePathname()
-  const active = exact ? pathname === href : pathname === href || pathname.startsWith(href + "/")
+  // A tab may point at a query (Log opens Intake on its logging tab) and
+  // usePathname never carries one — matched on the path alone, or the tab
+  // simply never lights up on the page it just opened.
+  const path = href.split("?")[0]
+  const active = exact ? pathname === path : pathname === path || pathname.startsWith(path + "/")
   return (
     <Link href={href} className="flex flex-col items-center gap-0.5 flex-1 min-w-0 relative">
       <div className={cn(
