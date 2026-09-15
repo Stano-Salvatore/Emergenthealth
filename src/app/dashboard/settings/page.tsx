@@ -318,7 +318,7 @@ export default async function SettingsPage({
       </SettingsSection>
 
       {/* ══ Notifications ══ */}
-      <SettingsSection title="Notifications" emoji="🔔">
+      <SettingsSection id="notifications" title="Notifications" emoji="🔔">
       {/* Push notifications */}
       <PushNotifications />
       {/* Daily nudge notifications — Android only */}
@@ -347,7 +347,7 @@ export default async function SettingsPage({
       </SettingsSection>
 
       {/* ══ Connected apps & devices ══ */}
-      <SettingsSection title="Data connections" emoji="🔗">
+      <SettingsSection id="data-connections" title="Data connections" emoji="🔗">
       <TelegramCard />
 
       {/* Oura Ring connection (client component) */}

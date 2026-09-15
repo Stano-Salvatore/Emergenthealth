@@ -169,6 +169,9 @@ export default async function WeekPage() {
   }
 
   const weekLabel = `${format(weekStart, "MMM d")} – ${format(today, "MMM d, yyyy")}`
+  // No ring night, no drink, no focus block, no check-in: the KPI row and the
+  // day table have nothing to say, and a row of "—" says it worse than a line.
+  const weekEmpty = daysInWeek === 0 && thisWeekIntake.length === 0 && thisWeekFocus.length === 0 && checkinCount === 0
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -190,6 +193,14 @@ export default async function WeekPage() {
       {/* mood patterns */}
       <MoodPatterns />
 
+      {weekEmpty ? (
+        <div className="rounded-2xl border border-dashed border-border/50 px-6 py-10 text-center">
+          <p className="text-sm font-semibold">Nothing logged this week yet</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Ring nights, drinks, focus blocks and check-ins fill this page in as they happen.
+          </p>
+        </div>
+      ) : (<>
       {/* top KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KpiCard
@@ -277,6 +288,8 @@ export default async function WeekPage() {
           </div>
         </CardContent>
       </Card>
+
+      </>)}
 
       {/* AI weekly review */}
       <WeekReviewAI />

@@ -135,8 +135,8 @@ export default function StatsPage() {
               <span className="text-primary shrink-0">•</span>
               <span>
                 Connect Oura Ring in{" "}
-                <a href="/dashboard/settings" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">
-                  Settings → Integrations
+                <a href="/dashboard/settings#data-connections" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">
+                  Settings → Data connections
                 </a>
               </span>
             </span>
@@ -153,6 +153,10 @@ export default function StatsPage() {
         </div>
       )}
 
+      {/* Everything below is a number about the data. With none, it used to
+          print four "—" cards, two "0d" streaks and an HRV verdict defaulting
+          to "stable" — claims made from nothing, under the card saying so. */}
+      {dataPoints > 0 && (<>
       {/* ── Pattern findings live on Insights now ── */}
       <Link
         href="/dashboard/insights"
@@ -282,6 +286,7 @@ export default function StatsPage() {
           value={totalFocusMin30 >= 60 ? `${(totalFocusMin30 / 60).toFixed(1)}h` : `${totalFocusMin30}m`}
           sub="deep work" />
       </div>
+      </>)}
     </div>
   )
 }

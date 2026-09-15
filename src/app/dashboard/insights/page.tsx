@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { Star } from "lucide-react"
+import { useInsightsPrefs } from "@/components/dashboard/insightsControls"
 import { WatchedPatterns } from "@/components/dashboard/WatchedPatterns"
 import { DriftCard } from "@/components/dashboard/DriftCard"
 import PlaceCorrelations from "@/components/location/PlaceCorrelations"
@@ -124,6 +126,10 @@ function DeltaPill({ delta }: { delta: number }) {
 // ─── Insight Card ─────────────────────────────────────────────────────────────
 
 function InsightCard({ insight }: { insight: InsightResult }) {
+  // The Watched card on this page says "tap the ⭐ on any pattern", and until
+  // now the only star was on the dashboard widget — this page had none.
+  const { pinned, togglePin } = useInsightsPrefs()
+  const isPinned = pinned.has(insight.id)
   // An association the user can act on gets a way to test it properly.
   const suggestion = experimentSuggestion(insight)
   // A weak card says WHY it's weak: a group too thin to test (keep logging)
@@ -140,6 +146,16 @@ function InsightCard({ insight }: { insight: InsightResult }) {
           </span>
           <span className="font-semibold text-sm flex-1 min-w-0 leading-snug pt-0.5">{insight.title}</span>
           <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => togglePin(insight.id)}
+              className={cn("transition-colors", isPinned ? "text-amber-400" : "text-muted-foreground/30 hover:text-muted-foreground/70")}
+              title={isPinned ? "Stop watching this pattern" : "Watch this pattern — get told when it changes"}
+              aria-pressed={isPinned}
+              aria-label={isPinned ? "Unwatch pattern" : "Watch pattern"}
+            >
+              <Star className={cn("h-3.5 w-3.5", isPinned && "fill-current")} />
+            </button>
             <DeltaPill delta={insight.delta} />
             {/* Trust tier: permutation test + false-discovery control, not just sample size */}
             <Badge

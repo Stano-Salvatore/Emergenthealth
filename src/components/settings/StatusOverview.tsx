@@ -49,6 +49,13 @@ export async function StatusOverview({ userId }: { userId: string }) {
   const { rows, today, cadenceMinutes, overdueHours, newestHealthDate, serverSources } = await loadStatusOverview(userId)
   const groups: StatusRow["group"][] = ["Data", "Notifications", "Emergy"]
   const attention = rows.filter(r => r.tone === "bad" || r.tone === "warn").length
+  // A new account has every row "off", which counts as nothing to worry
+  // about — and read "Everything connected is working" over a list where
+  // nothing was connected. Reassurance needs at least one thing to reassure about.
+  const working = rows.filter(r => r.tone === "ok").length
+  const glance = attention > 0
+    ? `${attention} thing${attention === 1 ? "" : "s"} worth a look.`
+    : working > 0 ? "Everything connected is working." : "Nothing connected yet."
 
   return (
     <Card>
@@ -57,7 +64,7 @@ export async function StatusOverview({ userId }: { userId: string }) {
           <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">At a glance</p>
           <div className="flex items-center gap-1.5">
             <p className="text-[11px] text-muted-foreground">
-              {attention === 0 ? "Everything connected is working." : `${attention} thing${attention === 1 ? "" : "s"} worth a look.`}
+              {glance}
             </p>
             {serverSources.length > 0 && <SyncNowButton sources={serverSources} />}
           </div>

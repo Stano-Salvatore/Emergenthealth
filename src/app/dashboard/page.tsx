@@ -1,5 +1,5 @@
 import { auth } from "@/auth"
-import { scoreText } from "@/lib/score-color"
+import { scoreHex, scoreText } from "@/lib/score-color"
 import { loadDailyScore } from "@/lib/daily-score-load"
 import { scoreGrade as gradeDaily } from "@/lib/daily-score"
 import type { FocusSession, IntakeLog } from "@prisma/client"
@@ -8,7 +8,7 @@ import { habitStreak, isDueOn } from "@/lib/habit-schedule"
 import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { isAlcohol } from "@/lib/body-load"
-import { getUpcomingEvents } from "@/lib/google-calendar"
+import { getUpcomingEventsWithStatus } from "@/lib/google-calendar"
 import { getGmailSummary } from "@/lib/gmail"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -195,7 +195,7 @@ export default async function DashboardPage() {
     userGoals,
     todayCheckin,
     checkinStreakRows,
-    healthLogs, habits, reminders, transactions, calendarEvents, gmailData, todayIntake, todayFocus, todayOuraTags,
+    healthLogs, habits, reminders, transactions, calendar, gmailData, todayIntake, todayFocus, todayOuraTags,
   ] = await Promise.all([
     getGoals(userId),
     prisma.$queryRaw<{id: string}[]>`
@@ -235,7 +235,7 @@ export default async function DashboardPage() {
     prisma.transaction.findMany({
       where: { userId, date: { gte: monthStart }, isTransfer: false },
     }),
-    getUpcomingEvents(userId, 14),
+    getUpcomingEventsWithStatus(userId, 14),
     // Gmail is feature-flagged off in V3 — skip the external API round-trip
     isFeatureEnabled("gmail")
       ? getGmailSummary(userId)
@@ -346,6 +346,10 @@ export default async function DashboardPage() {
     if (!e.start) return null
     try { return e.isAllDay ? new Date(e.start+"T00:00:00") : parseISO(e.start) } catch { return null }
   }
+  const calendarEvents = calendar.events
+  // A linked Google account that did not answer is not an empty day. The card
+  // used to say "Enjoy your day!" over a lapsed grant.
+  const calendarFailed = calendar.google === "failed"
   const todayEvents = calendarEvents.filter(e => { const d=parseEDay(e); return d && isToday(d) })
   const nextEvents = calendarEvents.filter(e => { const d=parseEDay(e); return d && !isToday(d) }).slice(0,4)
   // Per-day colour list for the mini calendar dots — each event contributes its
@@ -379,6 +383,12 @@ export default async function DashboardPage() {
   const wellnessScore = daily?.score ?? absoluteScore
   const { label: scoreLabel, color: scoreColor, emoji: scoreEmoji } =
     daily?.score != null ? gradeDaily(daily.score) : scoreGrade(absoluteScore)
+  // The gauge stroke follows the same scale as the words beside it: the
+  // personal one while the daily score exists, the goal one for the fallback.
+  const gaugeHex = daily?.score != null ? gradeDaily(daily.score).hex : scoreHex(absoluteScore)
+  // "All clear" is only true of a list someone has used. A user who has never
+  // written a reminder was shown a green tick for an empty table.
+  const reminderTotal = reminders.length > 0 ? reminders.length : await prisma.reminder.count({ where: { userId } }).catch(() => 0)
   const scoreDriver = daily?.driver
     ? `${daily.driver.emoji} ${daily.driver.label} ${daily.driver.direction === "up" ? "carried it" : "pulled it down"}`
     : null
@@ -448,6 +458,8 @@ export default async function DashboardPage() {
           the schedule strip on phones; desktop keeps the strip + card grid. */}
       <MobileToday
         score={wellnessScore}
+        scoreHex={gaugeHex}
+        calendarFailed={calendarFailed}
         healthDate={latestHealth ? latestHealth.date.toISOString().slice(0, 10) : null}
         today={todayStr}
         calYear={today.getFullYear()}
@@ -670,7 +682,9 @@ export default async function DashboardPage() {
               <div className="flex-1 min-w-0 border-l pl-3">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">{format(now,"MMM d").toUpperCase()}</p>
                 {todayEvents.length===0 ? (
-                  <div><p className="text-sm font-medium">No events</p><p className="text-xs text-muted-foreground mt-0.5">Enjoy your day!</p></div>
+                  calendarFailed
+                    ? <div><p className="text-sm font-medium text-amber-400">Calendar didn&apos;t answer</p><p className="text-xs text-muted-foreground mt-0.5">Google Calendar failed to load — this may not be a free day.</p></div>
+                    : <div><p className="text-sm font-medium">No events</p><p className="text-xs text-muted-foreground mt-0.5">Enjoy your day!</p></div>
                 ) : (
                   <div className="space-y-2">
                     {todayEvents.map(e => {
@@ -735,7 +749,9 @@ export default async function DashboardPage() {
           </CardHeader>
           <CardContent>
             {reminders.length===0 ? (
-              <div className="flex items-center gap-2 text-green-400"><span className="text-lg">✓</span><p className="text-sm font-medium">All clear!</p></div>
+              reminderTotal === 0
+                ? <p className="text-sm text-muted-foreground">No reminders yet — add one.</p>
+                : <div className="flex items-center gap-2 text-green-400"><span className="text-lg">✓</span><p className="text-sm font-medium">All clear!</p></div>
             ) : (
               <div className="space-y-1.5">
                 {overdueReminders.slice(0,2).map(r => (

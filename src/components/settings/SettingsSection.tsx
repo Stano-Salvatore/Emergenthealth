@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -10,19 +10,37 @@ import { cn } from "@/lib/utils"
 // you find anything — were buried. Server-rendered cards are passed through as
 // children; only the open/closed toggle is client-side.
 export function SettingsSection({
+  id,
   title,
   emoji,
   defaultOpen = false,
   children,
 }: {
+  /** Anchor: `/dashboard/settings#<id>` opens this section and scrolls to it. */
+  id?: string
   title: string
   emoji: string
   defaultOpen?: boolean
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(defaultOpen)
+  // Sections start closed, so a link that says "Settings → Data connections"
+  // used to land on a page where that heading was folded shut and nothing
+  // named "Data connections" was visible. The hash makes the link true.
+  // Opened in a frame callback rather than in the effect body: the server
+  // renders every section closed, and flipping one open before hydration
+  // settles is a mismatch, not a state change.
+  useEffect(() => {
+    if (!id || typeof window === "undefined") return
+    if (window.location.hash !== `#${id}`) return
+    const frame = requestAnimationFrame(() => {
+      setOpen(true)
+      document.getElementById(id)?.scrollIntoView({ block: "start" })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [id])
   return (
-    <section className="space-y-4">
+    <section id={id} className="space-y-4 scroll-mt-4">
       <button
         onClick={() => setOpen(o => !o)}
         aria-expanded={open}

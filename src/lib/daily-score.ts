@@ -230,10 +230,14 @@ export function computeDailyScore(today: ScoreDay, history: ScoreDay[]): DailySc
  * Wording for a scale whose midpoint is "normal for you" — an absolute grading
  * would call a perfectly ordinary day a failure.
  */
-export function scoreGrade(s: number): { label: string; color: string; emoji: string } {
-  if (s >= 75) return { label: "Well above your usual", color: "text-emerald-400", emoji: "🌟" }
-  if (s >= 60) return { label: "Better than usual", color: "text-green-400", emoji: "✨" }
-  if (s >= 41) return { label: "About your usual", color: "text-sky-400", emoji: "🌤️" }
-  if (s >= 26) return { label: "Below your usual", color: "text-amber-400", emoji: "🌥️" }
-  return { label: "Well below your usual", color: "text-rose-400", emoji: "⚠️" }
+export function scoreGrade(s: number): { label: string; color: string; hex: string; emoji: string } {
+  // `hex` is the same band for an SVG stroke. The mobile gauge used to colour
+  // this score through the goal scale (85 green, 70 amber, else red), which
+  // painted an ordinary day — 52, "about your usual" — red beside four
+  // healthy pillars, while the card below it called the same number normal.
+  if (s >= 75) return { label: "Well above your usual", color: "text-emerald-400", hex: "#34d399", emoji: "🌟" }
+  if (s >= 60) return { label: "Better than usual", color: "text-green-400", hex: "#4ade80", emoji: "✨" }
+  if (s >= 41) return { label: "About your usual", color: "text-sky-400", hex: "#38bdf8", emoji: "🌤️" }
+  if (s >= 26) return { label: "Below your usual", color: "text-amber-400", hex: "#fbbf24", emoji: "🌥️" }
+  return { label: "Well below your usual", color: "text-rose-400", hex: "#fb7185", emoji: "⚠️" }
 }
