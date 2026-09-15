@@ -56,6 +56,13 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          # The action's default is "tools platform-tools". Google withdrew the
+          # legacy "tools" package from the SDK repository in September 2026,
+          # and `sdkmanager tools` then fails the job before anything is
+          # built. Only platform-tools is needed here; the platform and
+          # build-tools are installed by the step below.
+          packages: platform-tools
 
       - name: Install Android SDK platform & build-tools
         run: sdkmanager "platforms;android-36" "build-tools;34.0.0"
