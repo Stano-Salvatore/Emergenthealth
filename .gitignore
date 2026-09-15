@@ -53,7 +53,7 @@ __pycache__/
 /ios/
 
 # Smoke-test screenshots
-.ci/smoke-shots/
+.ci/smoke-shots*/
 
 # Every env file except the example; signing material; Firebase service files
 .env*

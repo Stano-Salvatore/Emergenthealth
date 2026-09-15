@@ -29,11 +29,11 @@ const FAQS = [
   },
   {
     q: "How do I cancel my Pro subscription?",
-    a: "Go to Settings → Manage Billing. This opens Stripe's billing portal where you can cancel, update payment methods, or download invoices. Your Pro access continues until the end of your billing period.",
+    a: "In the web app, go to Settings → Account & Plan → Manage Billing. This opens Stripe's billing portal where you can cancel, update payment methods, or download invoices. Billing isn't available inside the Android app (Play policy), so open the site in a browser. Your Pro access continues until the end of your billing period.",
   },
   {
     q: "My morning reminder isn't arriving — why?",
-    a: "Check notification permission (Settings → Push Notifications) and that nothing is blocking notifications. Reminders go out at the hour you picked, in your own timezone — not a fixed UTC time — and only if you haven't done your check-in yet that day.",
+    a: "In the Android app, check that notifications are allowed for Emergenthealth in the phone's own Settings → Apps. In a browser, Settings → Notifications has the push toggle. Reminders go out at the hour you picked, in your own timezone — not a fixed UTC time — and only if you haven't done your check-in yet that day.",
   },
   {
     q: "Can I export my data?",

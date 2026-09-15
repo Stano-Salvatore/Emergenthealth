@@ -264,7 +264,10 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
         <div>
           <h1 className="text-2xl font-bold">Health</h1>
           <p className="text-muted-foreground text-sm mt-0.5">
-            {logs.length} days of data · synced from Oura Ring
+            {/* Provenance only when it is known. Rows carry no source, so
+                this used to credit a ring to Health Connect, Samsung and
+                hand-logged days alike. */}
+            {logs.length} days of data{isOuraConnected ? " · synced from Oura Ring" : ""}
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
@@ -286,8 +289,8 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                 <span className="text-primary mt-0.5 shrink-0">•</span>
                 <span>
                   Connect Oura Ring in{" "}
-                  <a href="/dashboard/settings" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">
-                    Settings → Integrations
+                  <a href="/dashboard/settings#data-connections" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">
+                    Settings → Data connections
                   </a>
                 </span>
               </li>

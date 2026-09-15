@@ -6,7 +6,7 @@
 // Client component so event times format in the user's local timezone.
 
 import Link from "next/link"
-import { scoreHex } from "@/lib/score-color"
+import { SCORE_EMPTY_HEX } from "@/lib/score-color"
 import { format, parseISO } from "date-fns"
 
 export interface TodayEventItem {
@@ -30,6 +30,10 @@ interface Pillar { label: string; pts: number; max: number }
 
 interface MobileTodayProps {
   score: number
+  /** Stroke for the gauge, chosen by the caller on the same scale as the words. */
+  scoreHex: string
+  /** A linked Google Calendar that did not answer — not the same as no events. */
+  calendarFailed?: boolean
   // ISO date of the newest health row — when it isn't today's, the ring
   // numbers describe an earlier day and must say so rather than read "TODAY".
   healthDate: string | null
@@ -70,21 +74,21 @@ function hexOrNull(c: string | null | undefined): string | null {
 }
 
 // 270° arc gauge, Vora-style: score centered, sweep starts bottom-left.
-function ScoreGauge({ score, label }: { score: number; label: string }) {
+function ScoreGauge({ score, hex, label }: { score: number | null; hex: string; label: string }) {
   const r = 34
   const circ = 2 * Math.PI * r
   const arc = circ * 0.75
-  const pct = Math.min(1, Math.max(0, score / 100))
+  const pct = score == null ? 0 : Math.min(1, Math.max(0, score / 100))
   return (
     <div className="relative h-24 w-24 shrink-0">
       <svg viewBox="0 0 84 84" className="h-24 w-24 rotate-[135deg]">
         <circle cx="42" cy="42" r={r} fill="none" strokeWidth="7" strokeLinecap="round"
           className="stroke-secondary" strokeDasharray={`${arc} ${circ}`} />
         <circle cx="42" cy="42" r={r} fill="none" strokeWidth="7" strokeLinecap="round"
-          stroke={scoreHex(score)} strokeDasharray={`${arc * pct} ${circ}`} />
+          stroke={score == null ? SCORE_EMPTY_HEX : hex} strokeDasharray={`${arc * pct} ${circ}`} />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-black tabular-nums leading-none">{score}</span>
+        <span className={`text-3xl font-black tabular-nums leading-none ${score == null ? "text-muted-foreground" : ""}`}>{score ?? "–"}</span>
         <span className="text-[8px] font-bold tracking-[0.15em] text-muted-foreground mt-0.5">{label}</span>
       </div>
     </div>
@@ -193,6 +197,10 @@ export function MobileToday(p: MobileTodayProps) {
   const allDay = p.events.filter(e => e.isAllDay)
   const sleepH = p.sleepMin != null ? (p.sleepMin / 60).toFixed(1) : null
   const latest = p.week[p.week.length - 1]
+  // Three states, not two. No health row at all used to fall through to a
+  // score of 0 painted red under TODAY — a zero that meant "nothing here",
+  // presented as a verdict, on the first screen a new phone shows.
+  const noData = p.healthDate == null
   const stale = !!p.healthDate && p.healthDate !== p.today
   const staleLabel = p.healthDate
     ? format(parseISO(p.healthDate + "T12:00:00"), "EEE d MMM")
@@ -207,17 +215,23 @@ export function MobileToday(p: MobileTodayProps) {
       {/* Score gauge + pillar bars */}
       <div className="rounded-2xl border border-border bg-card px-4 py-4 space-y-3">
         <div className="flex items-center gap-4">
-          <ScoreGauge score={p.score} label={stale ? "LAST DATA" : "TODAY"} />
+          <ScoreGauge score={noData ? null : p.score} hex={p.scoreHex} label={noData ? "NO DATA" : stale ? "LAST DATA" : "TODAY"} />
           <div className="flex-1 min-w-0 space-y-2">
-            {p.pillars.map((pl, i) => (
+            {noData ? (
+              <p className="text-xs text-muted-foreground leading-snug">
+                No health data yet. Connect a ring or Health Connect in{" "}
+                <Link href="/dashboard/settings#data-connections" className="text-primary underline underline-offset-2">Settings → Data connections</Link>,
+                or log a day on the <Link href="/dashboard/health" className="text-primary underline underline-offset-2">Health page</Link>.
+              </p>
+            ) : p.pillars.map((pl, i) => (
               <PillarBar key={pl.label} {...pl} value={p.pillarValues[i] ?? ""} color={PILLAR_COLORS[i % PILLAR_COLORS.length]} />
             ))}
           </div>
         </div>
         {stale && (
           <p className="text-[11px] text-amber-400/90 leading-snug">
-            ⏳ Today&apos;s wearable data hasn&apos;t arrived yet — showing{" "}
-            <span className="font-semibold">{staleLabel}</span>. Oura publishes a night once you&apos;re up; it syncs automatically.
+            ⏳ Today&apos;s data hasn&apos;t arrived yet — showing{" "}
+            <span className="font-semibold">{staleLabel}</span>. A ring publishes the night once you&apos;re up, and it syncs when the app opens.
           </p>
         )}
       </div>
@@ -269,7 +283,9 @@ export function MobileToday(p: MobileTodayProps) {
         <div className="flex-1 min-w-0 border-l border-border pl-3.5">
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Up next</p>
           {p.nextEvents.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nothing coming up 🌿</p>
+            p.calendarFailed
+              ? <p className="text-sm text-amber-400">Calendar didn&apos;t answer</p>
+              : <p className="text-sm text-muted-foreground">Nothing coming up 🌿</p>
           ) : (
             <div className="space-y-1.5">
               {p.nextEvents.slice(0, 4).map(e => {
