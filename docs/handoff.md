@@ -279,6 +279,12 @@ One open PR at a time. Validate before pushing: `npx tsc --noEmit`, `npx
 eslint`, `npx vitest run`. CI runs the same plus the Android build, which is
 the only thing that compiles the Java.
 
+Then render it. In one day, six faults were found by running the app and
+looking at the page, and all six were invisible to 1,400 passing tests — a
+card pointing at a setting that was not there, copy that read wrong only once
+two labels met. When something "passes" and you are unsure, ask for a render
+(`npm run smoke` screenshots every dashboard page) before calling it done.
+
 `versionCode` is CI-derived from the run number — never bump it by hand.
 
 ## Commands
@@ -531,6 +537,58 @@ Roughly in order, most recent first:
 
 ## Open threads
 
+- **Bedtime as a sleep-panel cause.** The panel already measures bedtime, but
+  only as the confound note pinned to every *other* cause ("some of this gap
+  is bedtime", `BEDTIME_CONFOUND_MIN` in `correlations.ts`). It has no card of
+  its own, and it is the biggest single lever on a sleep score this account
+  has. The snag is that the engine has two predicate shapes and bedtime
+  inherits whichever side it is put on. A `SleepCause.test` returns
+  `boolean | null`, and a null day is set aside — a silent day is not a decaf
+  day, and the gate card counts the ones set aside. A `ComboCondition.test`
+  returns `boolean`, and a day with nothing in it (`dense` fills the calendar
+  with `{ date }`) reads as `false` on every condition: no alcohol, no
+  workout, no heavy screen. As a sleep cause, a night without a ring is
+  `null` and drops out, which is right, since that night has no score either.
+  As a combo condition, "late bedtime" on a ringless day reads as "went to bed
+  early", and the triples are grown from that. So the panel is the right
+  home, and a combo condition would need a tri-state the combos do not have
+  (or an `eligible` gate like the caffeine consistency family's). Two smaller
+  snags once it is there: the bedtime lives on the *night's* row
+  (`byDate[nextDateStr(d.date)].bedtimeMin`), which `test(d)` cannot see —
+  the confound block does that lookup by hand, and a cause would need the
+  same; and the confound check must skip the bedtime cause itself, or it
+  will report that nights with a late bedtime began later. Cut at the
+  personal median, per the rule above, not at a borrowed clock time.
+- **The Oura transcript idea.** An advisor that states one quantified change
+  and ends by asking what shifted. The nearest thing in the app is the drift
+  card (`DriftCard.tsx`, `drift.ts`): rolling 30 days against the 30 before,
+  every shift block-permutation tested, "changed alongside" drawn only from
+  what the user logged, and it ends on `driftQuestion` — one copy, shared by
+  the push, the chat tool and the card, and the answer can be written back as
+  a tag (`log_tag`) so the onset family picks it up. That loop is already the
+  intended one. What the card is *not*: one change (it lists every shift,
+  worse first), one voice (the question is generic — "did something change
+  that isn't in the app?" — rather than aimed at the shift), or a cadence
+  (the card is on demand; the push is the 1st of the month). The anomaly
+  watch's `nightQuestion` in `anomalies.ts` is the single-night version of
+  the same move. The pieces exist; what is missing is the editorial choice of
+  *one* thing to say and when to say it.
+- **Usage access on the phone — answered from the repo, and the answer is no.**
+  Android lists an app under Usage access only if its manifest declares
+  `PACKAGE_USAGE_STATS`. `customize-android.py` does not declare it, no commit
+  ever has, and `play-store/COMPLIANCE.md` says "Removed in V3 (screen time is
+  feature-flagged off) — do not declare". Screen time has since been launched
+  (`features.ts` holds back only finances, smarthome and gmail), so the
+  dashboard's Screen Time card says "grant Usage access in Settings → Screen
+  Time", the Settings card's button opens a list Emergenthealth is not in, and
+  Recheck can never turn green: `EhUsage.hasPermission()` (AppOps
+  `OPSTR_GET_USAGE_STATS`, in `patch-kiwi-health.py`) is false for the life of
+  the build. That is the "remedy that isn't rendered" class exactly. A phone
+  check would only confirm it. Two honest ways out: declare the permission,
+  which reopens the Play Console form the compliance note was written to
+  avoid; or take both cards down and say this build cannot read screen time.
+  The current state is the one option that is not honest. The status screen
+  is fine as it is — with no rows it says "not connected", which is true.
 - **Onset/withdrawal** in the correlation engine is half-done — onset ships,
   withdrawal needs pre-window history the engine doesn't load.
 - **Waist and body-fat correlations.** The body family runs on weight and
