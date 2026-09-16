@@ -30,6 +30,10 @@ import { parseQuickAsk, type QuickAsk } from "@/lib/quick-answer"
 import { chipsFromClaim, type SourceChip, type SourceManifest } from "@/lib/chat-sources"
 import { bedtimeMinutesLate } from "@/lib/caffeine-cutoff"
 import { whyNightMissing } from "@/lib/sleep-quality"
+import { isDueOn, normalizeSchedule, weekStart } from "@/lib/habit-schedule"
+import { getTodayEvents } from "@/lib/google-calendar"
+import { loadEventOccurrences } from "@/lib/app-events"
+import { mergeDayEvents } from "@/lib/day-events"
 
 export interface QuickAnswer {
   /** The reply, in Emergy's voice, with a chart tag on its own line where one earns its place. */
@@ -337,6 +341,89 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
  * Answer a lookup question from the database, or return null to let Emergy
  * have it. Null is the answer for anything `parseQuickAsk` is not certain of.
  */
+/**
+ * The briefing, without a model turn.
+ *
+ * The chat screen has a button that asks for five things: last night, today's
+ * calendar, the habits still due, overdue reminders, and what has been taken
+ * so far. Every one is a lookup this app already does, and it was being
+ * answered by the full chat path — Opus, forty-one tool schemas and the whole
+ * cached prefix — to read five sets of rows. It reports and concludes nothing,
+ * like every other answer in this file.
+ */
+async function briefing(userId: string, tz: string): Promise<QuickAnswer> {
+  const today = localDateStr(tz)
+  const { start: dayStart, end: dayEnd } = zonedDayRange(tz)
+
+  const [health, habitRows, overdue, doses, calendarEvents, appEvents] = await Promise.all([
+    // The most recent night, not strictly today's: a ring publishes the night
+    // once you are up, so before it syncs "no sleep data" would be the answer
+    // on most mornings. Which night it is gets said when it is not last night.
+    prisma.healthLog.findFirst({
+      where: { userId, date: { lte: new Date(`${today}T00:00:00Z`) }, sleepDuration: { not: null } },
+      orderBy: { date: "desc" },
+      select: { date: true, sleepDuration: true, sleepScore: true, readinessScore: true },
+    }).catch(() => null),
+    prisma.habit.findMany({
+      where: { userId, isArchived: false },
+      select: {
+        name: true, scheduleDays: true, timesPerWeek: true,
+        // The whole week, because a "three times a week" habit is due until
+        // its third completion lands, not because of what happened today.
+        completions: {
+          where: { date: { gte: new Date(`${weekStart(today)}T00:00:00Z`), lte: new Date(`${today}T00:00:00Z`) } },
+          select: { date: true },
+        },
+        skips: { where: { date: new Date(`${today}T00:00:00Z`) }, select: { date: true } },
+      },
+    }).catch(() => []),
+    prisma.reminder.findMany({
+      where: { userId, isCompleted: false, dueDate: { lt: dayStart } },
+      orderBy: { dueDate: "asc" }, take: 5, select: { title: true },
+    }).catch(() => []),
+    todaysDoses(userId, today),
+    getTodayEvents(userId).catch(() => []),
+    loadEventOccurrences(userId, dayStart, dayEnd, tz).catch(() => []),
+  ])
+
+  const left = habitRows
+    .filter(h => {
+      if (h.skips.length > 0) return false
+      const done = new Set(h.completions.map(c => c.date.toISOString().slice(0, 10)))
+      if (done.has(today)) return false
+      return isDueOn(normalizeSchedule(h), today, done)
+    })
+    .map(h => h.name)
+
+  const events = mergeDayEvents(calendarEvents, appEvents)
+  const at = (iso: string) => new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(new Date(iso))
+
+  const lines = [
+    (() => {
+      if (!health?.sleepDuration) return "**Last night** no night recorded yet."
+      const night = health.date.toISOString().slice(0, 10)
+      const figures = `${hm(health.sleepDuration)}${health.sleepScore != null ? `, score **${health.sleepScore}**` : ""}${health.readinessScore != null ? `, readiness **${health.readinessScore}**` : ""}`
+      return night === today
+        ? `**Last night** ${figures}.`
+        : `**Last night** not synced yet. The most recent is ${pretty(night)}: ${figures}.`
+    })(),
+    `**Today** ${events.length === 0
+      ? "nothing on the calendar."
+      : `${events.slice(0, 6).map(e => (e.isAllDay || !e.start ? `all day ${e.title}` : `${at(e.start)} ${e.title}`)).join(" · ")}.`}`,
+    `**Habits left** ${left.length === 0 ? "none." : `${list(left)}.`}`,
+    `**Overdue** ${overdue.length === 0 ? "nothing." : `${list(overdue.map(r => r.title))}.`}`,
+    `**Taken today** ${doses.length === 0 ? "nothing yet." : `${list(doses.map(d => d.label))}.`}`,
+  ]
+
+  const manifest: SourceManifest = { habits: "today", calendar: "today" }
+  if (health?.sleepDuration) manifest.sleep = "last night"
+  if (doses.length > 0) manifest.meds = "today"
+
+  return { reply: lines.join("\n\n"), sources: chips(manifest) }
+}
+
 export async function runQuickAnswer(userId: string, message: string): Promise<QuickAnswer | null> {
   const ask: QuickAsk | null = parseQuickAsk(message)
   if (!ask) return null
@@ -348,5 +435,6 @@ export async function runQuickAnswer(userId: string, message: string): Promise<Q
     case "doses_today": return dosesToday(userId, tz)
     case "body_now": return bodyNow(userId, tz)
     case "sleep": return sleep(userId, tz, ask.window, ask.debt === true)
+    case "briefing": return briefing(userId, tz)
   }
 }

@@ -35,6 +35,8 @@ export type QuickAsk =
   | { kind: "body_now" }
   /** Last night, or the last seven nights; `debt` asks the shortfall rather than the summary. */
   | { kind: "sleep"; window: "night" | "week"; debt?: true }
+  /** The morning briefing: last night, today's calendar, habits left, overdue reminders, doses. */
+  | { kind: "briefing" }
 
 /**
  * Words that turn a lookup into an argument. Any of these and the message is
@@ -59,6 +61,13 @@ const WHAT_LOGGED = /\bwhat(?:'s| is| has| have| did)?\b.*\b(?:logged|log|logs|r
 const DOSE_WORDS = /\b(?:supplements?|pills?|meds?|medication|medications|medicine|tablets?|vitamins?|doses?)\b/
 const BODY_NOW = /\b(?:in my (?:body|system)|in my blood|still (?:in|circulating)|body load)\b/
 const RIGHT_NOW = /\b(?:right now|rn|now|currently|at the moment|atm)\b/
+
+/**
+ * The briefing. The chat screen has a button that sends this as a long typed
+ * message, and every part of what it asks for is a lookup the app already
+ * computes — so it is answered here rather than by a model turn.
+ */
+const BRIEFING = /\b(?:morning briefing|daily briefing|evening briefing|my briefing|brief me)\b/
 
 const SLEEP = /\b(?:sleep|slept|sleeping|spanok|spal)\b/
 const WEEK = /\b(?:this week|past week|last week|last 7 days|past 7 days|seven days|7 nights|this past week)\b/
@@ -91,7 +100,6 @@ function normalise(message: string): string {
 export function parseQuickAsk(message: string): QuickAsk | null {
   if (!message) return null
   const raw = message.trim()
-  if (raw.length > 120) return null
 
   // Two questions in one message is a conversation, not a lookup.
   if ((raw.match(/\?/g) ?? []).length > 1) return null
@@ -99,6 +107,13 @@ export function parseQuickAsk(message: string): QuickAsk | null {
   const text = normalise(raw)
   if (!text) return null
   if (NEEDS_JUDGEMENT.test(text)) return null
+
+  // Before the length gate, and only here: the briefing is the app's own
+  // request, sent by a button, and it is long by construction. It still has to
+  // clear the judgement words above — "why was my briefing wrong" is his.
+  if (BRIEFING.test(text)) return { kind: "briefing" }
+
+  if (raw.length > 120) return null
 
   // "what did I eat today and how much water?" asks two things and only ends
   // with one question mark. Two question words is the tell.

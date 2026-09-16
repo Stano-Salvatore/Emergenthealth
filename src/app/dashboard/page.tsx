@@ -10,6 +10,7 @@ import { getUserTimezone } from "@/lib/user-timezone"
 import { isAlcohol } from "@/lib/body-load"
 import { getUpcomingEventsWithStatus, type CalendarEvent } from "@/lib/google-calendar"
 import { loadEventOccurrences } from "@/lib/app-events"
+import { mergeDayEvents } from "@/lib/day-events"
 import { getGmailSummary } from "@/lib/gmail"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -355,27 +356,13 @@ export default async function DashboardPage() {
   // an event created with the app's composer was missing from "Up next".
   // Dedupe at minute granularity against a phone-calendar mirror of the same
   // event, the same rule the Google/device merge already applies.
-  const eventKey = (e: { title: string; start: string | null }) =>
-    `${e.title.trim().toLowerCase()}|${(e.start ?? "").slice(0, 16)}`
-  const seenEvents = new Set(calendar.events.map(eventKey))
-  const calendarEvents: CalendarEvent[] = [...calendar.events]
-  for (const o of appEvents) {
-    if (seenEvents.has(eventKey(o))) continue
-    seenEvents.add(eventKey(o))
-    calendarEvents.push({
+  const calendarEvents: CalendarEvent[] = mergeDayEvents(
+    calendar.events,
+    appEvents.map((o): CalendarEvent => ({
       id: o.id, title: o.title, description: o.description, location: o.location,
       start: o.start, end: o.end, isAllDay: o.isAllDay, url: null, color: o.color, source: "app",
-    })
-  }
-  // Chronological across sources, all-day entries heading their day. The old
-  // list was ordered per source, so a phone event could trail a later Google
-  // one and be cut by the slice below.
-  const eventInstant = (e: { start: string | null; isAllDay: boolean }) => {
-    if (!e.start) return Number.MAX_SAFE_INTEGER
-    const t = Date.parse(e.isAllDay ? e.start.slice(0, 10) + "T00:00:00Z" : e.start)
-    return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t
-  }
-  calendarEvents.sort((a, b) => eventInstant(a) - eventInstant(b))
+    })),
+  )
   // A linked Google account that did not answer is not an empty day. The card
   // used to say "Enjoy your day!" over a lapsed grant.
   const calendarFailed = calendar.google === "failed"

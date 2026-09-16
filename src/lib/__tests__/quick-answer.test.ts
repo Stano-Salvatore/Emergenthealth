@@ -6,6 +6,33 @@ import { parseQuickAsk } from "@/lib/quick-answer"
 // change that makes one of them match means the app has started answering a
 // question that wanted a judgement, in a voice that sounds certain.
 
+// The chat screen's briefing button sends this exact message. Every part of it
+// is a lookup, and it used to buy a full model turn.
+const BRIEFING_BUTTON =
+  "Give me a morning briefing: last night's sleep score and quality, today's schedule, " +
+  "which habits I still need to do, any overdue reminders, and what supplements/meds I've taken so far."
+
+describe("parseQuickAsk — the briefing", () => {
+  it("answers the button, long as it is", () => {
+    expect(parseQuickAsk(BRIEFING_BUTTON)).toEqual({ kind: "briefing" })
+    expect(BRIEFING_BUTTON.length).toBeGreaterThan(120)
+  })
+
+  it("takes the shorter ways of asking for one", () => {
+    expect(parseQuickAsk("brief me")).toEqual({ kind: "briefing" })
+    expect(parseQuickAsk("daily briefing")).toEqual({ kind: "briefing" })
+  })
+
+  it("still hands over anything asking for a judgement about it", () => {
+    expect(parseQuickAsk("why was my morning briefing wrong")).toBeNull()
+    expect(parseQuickAsk("should I trust the daily briefing")).toBeNull()
+  })
+
+  it("does not take a long message that merely mentions a brief", () => {
+    expect(parseQuickAsk("I read a briefing about sleep hygiene somewhere and wondered about it")).toBeNull()
+  })
+})
+
 describe("parseQuickAsk — ours", () => {
   it("reads the most asked question in the whole transcript", () => {
     // Seven times, word for word.
