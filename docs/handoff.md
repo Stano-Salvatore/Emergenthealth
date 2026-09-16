@@ -379,11 +379,20 @@ Roughly in order, most recent first:
 - **The questions that were lookups, not judgements.** Of 59 questions ever
   asked in chat, about a third have one true answer the app already computes,
   and "How was my sleep this week?" was asked seven times word for word.
-  `src/lib/quick-answer.ts` recognises those five shapes (today's log, one
+  `src/lib/quick-answer.ts` recognises eleven shapes — today's log, one
   drink's total, today's doses, what is still circulating, sleep for a night or
-  a week) and `quick-answer-run.ts` answers them from the same helpers every
+  a week, the morning briefing the chat screen's button sends, the habits still
+  due, today's calendar, steps for a day or a week, caffeine in milligrams, and
+  the scale — and `quick-answer-run.ts` answers them from the same helpers every
   other reader uses, so a scripted answer and Emergy's can never disagree about
-  a number. **The refusals carry the design**: one word — why, compare, affect,
+  a number. Two questions that share a word are still two questions:
+  **caffeine is milligrams and coffee is millilitres**, so "how much caffeine
+  today" reads `CaffeineLog` while "how much coffee today" reads `IntakeLog`,
+  and "how much caffeine is still in me" is the body-load answer that already
+  existed. **A partial day is reported, never averaged**: today's step count is
+  a running total, so it is kept out of the week's mean and out of "fewest day"
+  and given its own sentence, on the same principle as the night that has not
+  happened above. **The refusals carry the design**: one word — why, compare, affect,
   should, think — hands the message straight back to him, as does a second
   question word, an unstated window, or anything over 120 characters. These
   answers report and never conclude; a test greps for verdict language and
@@ -398,6 +407,27 @@ Roughly in order, most recent first:
   app's own `--primary`, no status colour, because a red bar under a sentence
   that is only reporting a number would be the chart concluding what the words
   did not.
+- **The prompt may say why; it may not re-list what.** Every turn pays for the
+  whole prefix before Emergy says a word — 41 tool schemas (~8,100 tokens),
+  then the system prompt (~2,900). One sentence of the prompt used to write the
+  schemas out again in prose ("You have tools to CREATE habits…, LOG
+  water/coffee/mood…"), 1,574 tokens of it, 42% of the whole prompt, bought
+  twice on every turn. The schemas are the inventory; the prompt is for the
+  policy no single schema can hold — which tool when two apply, what to do with
+  a photo, how sure to sound on four nights of data. `prompt-budget.test.ts`
+  keeps the paragraph from growing back by name rather than by length: a tool
+  named in the prompt has to be one of six with genuinely cross-tool policy,
+  and a rule that belongs to one tool goes in that tool's description, where it
+  is read at the moment it matters.
+- **The per-turn log line ends in dollars.** `EMERGY_CHAT_EFFORT` is wired,
+  validated and deliberately unset — chat is the workload that most often holds
+  quality a step below the default, and stepping it down is an experiment
+  waiting on production. The `[emergy] turn` line prints in/out/cacheRead/
+  cacheWrite and now `usd`, because four token counts that all moved are not an
+  answer: Opus input and output are priced five times apart, a cache write
+  costs a quarter more and a hit costs a tenth. Prices live plainly in
+  `src/lib/model-cost.ts` — the one thing in it that can go stale without
+  anything failing. An unpriced model returns null, never zero.
 - **A fifth of the chat never needed the model.** Reading the whole
   transcript, 33 of 155 messages ever sent to Emergy were log lines — "log me
   300ml water", "add 1L water", "at kaviaren vtak log cold brew 250ml and
@@ -553,6 +583,26 @@ Roughly in order, most recent first:
 - Evening check-in; Emergy setting real alarms; dictation auto-send after 6s
 
 ## Open threads
+
+- **Two chat-cost levers that need a hand outside this repo.** Both are
+  measured and ready; neither can be finished from a session.
+  1. **`EMERGY_CHAT_EFFORT=medium` in production.** Opus 5 defaults to `high`
+     effort, and effort is spent on output tokens, which cost five times what
+     input does — so for a chat turn it is the biggest single lever there is,
+     bigger than the whole 11,000-token prefix. Chat is also the workload most
+     likely to hold quality a step down. One environment variable on Vercel,
+     then read a week of `[emergy] turn` lines: they now carry `usd`, so the
+     before-and-after is a subtraction rather than a study. Step back up if the
+     answers get thinner.
+  2. **The 41 tool schemas, ~8,100 tokens on every turn.** The right fix is not
+     a hand-rolled router but the API's own tool-search tool
+     (`tool_search_tool_bm25_20251119` with `defer_loading: true` on the rest):
+     Claude finds what it needs, and discovered schemas are *appended*, so the
+     cached prefix survives. It trades a discovery round trip on turns that use
+     a tool against ~6,000 tokens saved on turns that do not. That trade needs
+     to be measured against the real model before it ships, and this
+     environment has no API key — which is exactly why it is written down here
+     rather than half-built.
 
 - **Bedtime as a sleep-panel cause.** The panel already measures bedtime, but
   only as the confound note pinned to every *other* cause ("some of this gap

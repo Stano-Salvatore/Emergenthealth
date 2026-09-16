@@ -18,6 +18,7 @@ export type SourceDomain = "sleep" | "heart" | "move" | "fuel" | "mind" | "life"
 export type SourceKey =
   | "sleep" | "journal" | "checkin" | "tags" | "intake" | "habits"
   | "calendar" | "symptoms" | "labs" | "meds" | "workouts" | "patterns" | "memory"
+  | "activity" | "weight"
 
 export interface SourceChip {
   key: string
@@ -41,6 +42,12 @@ const SOURCE_META: Record<SourceKey, { label: string; domain: SourceDomain }> = 
   labs:     { label: "Blood work",  domain: "heart" },
   meds:     { label: "Medications", domain: "fuel"  },
   workouts: { label: "Workouts",    domain: "move"  },
+  // Steps and the scale share the daily health row with sleep, but a "Sleep"
+  // chip under a step count is a false receipt. Both take Move: the design's
+  // hue table gives steps to Move outright, and has no hue for a weight — it
+  // is the body's own measure, which is the same domain.
+  activity: { label: "Activity",    domain: "move"  },
+  weight:   { label: "Weight",      domain: "move"  },
   patterns: { label: "Patterns",    domain: "mind"  },
   memory:   { label: "Memory",      domain: "life"  },
 }

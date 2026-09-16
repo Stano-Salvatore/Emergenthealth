@@ -44,6 +44,13 @@
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
+  /* The larger steps follow --radius as ratios, so a UI style reshapes every
+     rounded-xl/2xl/3xl card, not just the shadcn sizes. At the default
+     0.75rem these resolve to Tailwind's own 0.75 / 1 / 1.5rem — the current
+     look — and at Sharp's 0 they all square off together. */
+  --radius-xl: var(--radius);
+  --radius-2xl: calc(var(--radius) * 4 / 3);
+  --radius-3xl: calc(var(--radius) * 2);
 }
 
 /* ── The two palettes (see design/handoff/README.md) ──
@@ -247,18 +254,25 @@
   --border: #eadfce;
   --input: #eadfce;
   --ring: #e0764f;
-  --radius: 1rem;            /* Sunny is rounder than the dark themes */
   --sidebar-from: #f7efe2;
   --sidebar-to: #fdf6ec;
 }
-/* Sunny's voice: Baloo 2 for headings, falling back to the app's own
-   display face. Prose and figures stay on Geist for its tabular numerals. */
-[data-theme="sunny"] h1,
-[data-theme="sunny"] h2,
-[data-theme="sunny"] .font-display {
-  font-family: var(--font-baloo), var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: 0;
-}
+/* ── The Claude Design appearance set. Themes are colour only — shape and
+   type belong to the data-ui axis below, so any theme pairs with any UI
+   style. Compact one-liners on purpose: eleven more twenty-line blocks
+   would bury this file. Light themes must sit below `.light` (equal
+   specificity, order decides); Sunny above is one of them. ── */
+[data-theme="blossom"] { --background:#fdf0f4; --foreground:#46323c; --card:#ffffff; --card-foreground:#46323c; --popover:#ffffff; --popover-foreground:#46323c; --primary:#ec4899; --primary-foreground:#ffffff; --secondary:#faeaf0; --secondary-foreground:#46323c; --muted:#f6e3ea; --muted-foreground:#96788a; --accent:#faeaf0; --accent-foreground:#46323c; --destructive:#ef4444; --destructive-foreground:#ffffff; --border:#efd7e1; --input:#efd7e1; --ring:#ec4899; --sidebar-from:#faeaf0; --sidebar-to:#fdf0f4; }
+[data-theme="sage"] { --background:#f2f5ee; --foreground:#333d2e; --card:#ffffff; --card-foreground:#333d2e; --popover:#ffffff; --popover-foreground:#333d2e; --primary:#10b981; --primary-foreground:#ffffff; --secondary:#ecf0e4; --secondary-foreground:#333d2e; --muted:#e6ebdd; --muted-foreground:#77836a; --accent:#ecf0e4; --accent-foreground:#333d2e; --destructive:#ef4444; --destructive-foreground:#ffffff; --border:#dbe2cf; --input:#dbe2cf; --ring:#10b981; --sidebar-from:#ecf0e4; --sidebar-to:#f2f5ee; }
+[data-theme="paper"] { --background:#f7f5f1; --foreground:#26221c; --card:#ffffff; --card-foreground:#26221c; --popover:#ffffff; --popover-foreground:#26221c; --primary:#26221c; --primary-foreground:#ffffff; --secondary:#efece5; --secondary-foreground:#26221c; --muted:#e9e5dd; --muted-foreground:#6e675c; --accent:#efece5; --accent-foreground:#26221c; --destructive:#ef4444; --destructive-foreground:#ffffff; --border:#ddd7cc; --input:#ddd7cc; --ring:#26221c; --sidebar-from:#efece5; --sidebar-to:#f7f5f1; }
+[data-theme="lilac"] { --background:#eceafb; --foreground:#3f3956; --card:#f4f2fd; --card-foreground:#3f3956; --popover:#f4f2fd; --popover-foreground:#3f3956; --primary:#8b5cf6; --primary-foreground:#ffffff; --secondary:#e2def7; --secondary-foreground:#3f3956; --muted:#dcd7f5; --muted-foreground:#7d76a3; --accent:#e2def7; --accent-foreground:#3f3956; --destructive:#ef4444; --destructive-foreground:#ffffff; --border:#d5cff2; --input:#d5cff2; --ring:#8b5cf6; --sidebar-from:#e2def7; --sidebar-to:#eceafb; }
+[data-theme="sand"] { --background:#f4ecdf; --foreground:#4a3f2e; --card:#fdf8ee; --card-foreground:#4a3f2e; --popover:#fdf8ee; --popover-foreground:#4a3f2e; --primary:#a0722e; --primary-foreground:#ffffff; --secondary:#efe6d4; --secondary-foreground:#4a3f2e; --muted:#e8dcc6; --muted-foreground:#877a63; --accent:#efe6d4; --accent-foreground:#4a3f2e; --destructive:#ef4444; --destructive-foreground:#ffffff; --border:#ddd0b6; --input:#ddd0b6; --ring:#a0722e; --sidebar-from:#efe6d4; --sidebar-to:#f4ecdf; }
+[data-theme="mint"] { --background:#eafaf3; --foreground:#25443a; --card:#ffffff; --card-foreground:#25443a; --popover:#ffffff; --popover-foreground:#25443a; --primary:#10b981; --primary-foreground:#ffffff; --secondary:#e0f4ea; --secondary-foreground:#25443a; --muted:#d8f0e4; --muted-foreground:#5f8878; --accent:#e0f4ea; --accent-foreground:#25443a; --destructive:#ef4444; --destructive-foreground:#ffffff; --border:#c8e6d7; --input:#c8e6d7; --ring:#10b981; --sidebar-from:#e0f4ea; --sidebar-to:#eafaf3; }
+[data-theme="dusk"] { --background:#171221; --foreground:#efe8f7; --card:#211a30; --card-foreground:#efe8f7; --popover:#211a30; --popover-foreground:#efe8f7; --primary:#8b5cf6; --primary-foreground:#ffffff; --secondary:#251d38; --secondary-foreground:#efe8f7; --muted:#2b2240; --muted-foreground:#a294bd; --accent:#251d38; --accent-foreground:#efe8f7; --destructive:#ef4444; --destructive-foreground:#ffffff; --border:#362b4e; --input:#362b4e; --ring:#8b5cf6; --sidebar-from:#1d1729; --sidebar-to:#171221; }
+[data-theme="ember"] { --background:#14100e; --foreground:#f2e9e4; --card:#1f1815; --card-foreground:#f2e9e4; --popover:#1f1815; --popover-foreground:#f2e9e4; --primary:#f97316; --primary-foreground:#ffffff; --secondary:#241b17; --secondary-foreground:#f2e9e4; --muted:#2a211c; --muted-foreground:#a89a8f; --accent:#241b17; --accent-foreground:#f2e9e4; --destructive:#ef4444; --destructive-foreground:#ffffff; --border:#362a23; --input:#362a23; --ring:#f97316; --sidebar-from:#1a1411; --sidebar-to:#14100e; }
+[data-theme="navy"] { --background:#0c1020; --foreground:#eef1fa; --card:#151d33; --card-foreground:#eef1fa; --popover:#151d33; --popover-foreground:#eef1fa; --primary:#6366f1; --primary-foreground:#ffffff; --secondary:#111a30; --secondary-foreground:#eef1fa; --muted:#1c2540; --muted-foreground:#8fa0c2; --accent:#111a30; --accent-foreground:#eef1fa; --destructive:#ef4444; --destructive-foreground:#ffffff; --border:#25314f; --input:#25314f; --ring:#6366f1; --sidebar-from:#111a30; --sidebar-to:#0c1020; }
+[data-theme="phosphor"] { --background:#050805; --foreground:#c9f0cd; --card:#0a120b; --card-foreground:#c9f0cd; --popover:#0a120b; --popover-foreground:#c9f0cd; --primary:#34d399; --primary-foreground:#04110a; --secondary:#0e1a10; --secondary-foreground:#c9f0cd; --muted:#142316; --muted-foreground:#79997e; --accent:#0e1a10; --accent-foreground:#c9f0cd; --destructive:#f87171; --destructive-foreground:#04110a; --border:#1e3322; --input:#1e3322; --ring:#34d399; --sidebar-from:#0a120b; --sidebar-to:#050805; }
+[data-theme="nord"] { --background:#242933; --foreground:#e5e9f0; --card:#2e3440; --card-foreground:#e5e9f0; --popover:#2e3440; --popover-foreground:#e5e9f0; --primary:#88c0d0; --primary-foreground:#242933; --secondary:#333b4a; --secondary-foreground:#e5e9f0; --muted:#3b4252; --muted-foreground:#9aa7bd; --accent:#333b4a; --accent-foreground:#e5e9f0; --destructive:#bf616a; --destructive-foreground:#ffffff; --border:#434c5e; --input:#434c5e; --ring:#88c0d0; --sidebar-from:#2e3440; --sidebar-to:#242933; }
 
 /* ── Accent overrides ── */
 [data-accent="emerald"] { --primary: #10b981; --ring: #10b981; }
@@ -270,6 +284,33 @@
 [data-accent="teal"]    { --primary: #14b8a6; --ring: #14b8a6; }
 [data-accent="pink"]    { --primary: #ec4899; --ring: #ec4899; }
 [data-accent="coral"]   { --primary: #e0764f; --ring: #e0764f; }
+[data-accent="lime"]    { --primary: #84cc16; --ring: #84cc16; }
+[data-accent="slate"]   { --primary: #64748b; --ring: #64748b; }
+
+/* ── UI styles (data-ui) — shape and type only, combined freely with any
+   theme and accent. No attribute = Original, the current look. --radius
+   feeds every rounded-* size through the scale in the theme block above;
+   --card-shadow is worn by the Card component, and its default is exactly
+   Tailwind's `shadow`, so Original renders byte-identical. ── */
+:root { --card-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); }
+[data-ui="sunny"]  { --radius: 1.25rem; --card-shadow: 0 2px 10px color-mix(in oklab, var(--foreground) 8%, transparent); }
+[data-ui="glass"]  { --radius: 1.1rem;  --card-shadow: 0 0 0 1px var(--border); }
+[data-ui="clay"]   { --radius: 1.4rem;  --card-shadow: 7px 7px 16px color-mix(in oklab, var(--foreground) 18%, transparent), -5px -5px 12px color-mix(in oklab, var(--background) 45%, white); }
+[data-ui="pillow"] { --radius: 1.9rem;  --card-shadow: 0 10px 28px color-mix(in oklab, var(--foreground) 12%, transparent); }
+[data-ui="sharp"]  { --radius: 0rem;    --card-shadow: 0 0 0 1px var(--border); }
+[data-ui="vitals"] { --radius: 0.35rem; --card-shadow: 0 0 0 1px var(--border); }
+[data-ui="retro"]  { --radius: 0.6rem;  --card-shadow: 4px 4px 0 var(--foreground); }
+
+/* Type voices. The soft styles take Nunito for prose and Baloo for headings;
+   Vitals and Retro go mono throughout. Prose everywhere else stays on Geist,
+   whose tabular numerals carry the charts and tables. */
+[data-ui="sunny"] body, [data-ui="clay"] body, [data-ui="pillow"] body { font-family: var(--font-nunito), var(--font-geist-sans), sans-serif; }
+[data-ui="sunny"] h1, [data-ui="sunny"] h2, [data-ui="sunny"] .font-display,
+[data-ui="clay"] h1, [data-ui="clay"] h2, [data-ui="clay"] .font-display,
+[data-ui="pillow"] h1, [data-ui="pillow"] h2, [data-ui="pillow"] .font-display { font-family: var(--font-baloo), var(--font-bricolage), sans-serif; letter-spacing: 0; }
+[data-ui="glass"] body { font-family: ui-rounded, var(--font-geist-sans), system-ui, sans-serif; }
+[data-ui="vitals"] body, [data-ui="retro"] body,
+[data-ui="vitals"] h1, [data-ui="vitals"] h2, [data-ui="retro"] h1, [data-ui="retro"] h2 { font-family: var(--font-geist-mono), ui-monospace, monospace; }
 
 /* Defensive catch-all: no element (a wide flex row that refuses to shrink, a
    fixed-width chart, an unbroken string) may ever push the page wider than

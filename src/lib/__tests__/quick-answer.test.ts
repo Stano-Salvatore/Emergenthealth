@@ -6,6 +6,33 @@ import { parseQuickAsk } from "@/lib/quick-answer"
 // change that makes one of them match means the app has started answering a
 // question that wanted a judgement, in a voice that sounds certain.
 
+// The chat screen's briefing button sends this exact message. Every part of it
+// is a lookup, and it used to buy a full model turn.
+const BRIEFING_BUTTON =
+  "Give me a morning briefing: last night's sleep score and quality, today's schedule, " +
+  "which habits I still need to do, any overdue reminders, and what supplements/meds I've taken so far."
+
+describe("parseQuickAsk — the briefing", () => {
+  it("answers the button, long as it is", () => {
+    expect(parseQuickAsk(BRIEFING_BUTTON)).toEqual({ kind: "briefing" })
+    expect(BRIEFING_BUTTON.length).toBeGreaterThan(120)
+  })
+
+  it("takes the shorter ways of asking for one", () => {
+    expect(parseQuickAsk("brief me")).toEqual({ kind: "briefing" })
+    expect(parseQuickAsk("daily briefing")).toEqual({ kind: "briefing" })
+  })
+
+  it("still hands over anything asking for a judgement about it", () => {
+    expect(parseQuickAsk("why was my morning briefing wrong")).toBeNull()
+    expect(parseQuickAsk("should I trust the daily briefing")).toBeNull()
+  })
+
+  it("does not take a long message that merely mentions a brief", () => {
+    expect(parseQuickAsk("I read a briefing about sleep hygiene somewhere and wondered about it")).toBeNull()
+  })
+})
+
 describe("parseQuickAsk — ours", () => {
   it("reads the most asked question in the whole transcript", () => {
     // Seven times, word for word.
@@ -44,6 +71,72 @@ describe("parseQuickAsk — ours", () => {
   it("reads what is still circulating", () => {
     expect(parseQuickAsk("So what is in my body rn?")).toEqual({ kind: "body_now" })
     expect(parseQuickAsk("what's in my system right now?")).toEqual({ kind: "body_now" })
+  })
+})
+
+// The five questions still reaching the model after the briefing landed. Each
+// was measured in the real chat history, each has one true answer the database
+// already holds, and each was buying a full Opus turn with forty-one tool
+// schemas to read a single row.
+describe("parseQuickAsk — the five that were still costing a model turn", () => {
+  it("reads the habits still due", () => {
+    expect(parseQuickAsk("what habits am I missing today")).toEqual({ kind: "habits_today" })
+    expect(parseQuickAsk("which habits do I still have left today")).toEqual({ kind: "habits_today" })
+    expect(parseQuickAsk("have I done all my habits today?")).toEqual({ kind: "habits_today" })
+  })
+
+  it("reads the day's calendar, however it is asked for", () => {
+    expect(parseQuickAsk("what's on today?")).toEqual({ kind: "events_today" })
+    expect(parseQuickAsk("what do I have today")).toEqual({ kind: "events_today" })
+    expect(parseQuickAsk("what's on my calendar today")).toEqual({ kind: "events_today" })
+    expect(parseQuickAsk("any meetings today?")).toEqual({ kind: "events_today" })
+  })
+
+  it("reads steps, and needs a window like sleep does", () => {
+    expect(parseQuickAsk("how many steps today")).toEqual({ kind: "steps", window: "today" })
+    expect(parseQuickAsk("how many steps this week?")).toEqual({ kind: "steps", window: "week" })
+    expect(parseQuickAsk("how many steps")).toBeNull()
+  })
+
+  it("reads caffeine as milligrams, and coffee as millilitres", () => {
+    // Two different questions that share a word. The dose is what decides
+    // whether tonight is affected; the volume is what was drunk.
+    expect(parseQuickAsk("how is my caffeine today")).toEqual({ kind: "caffeine_today" })
+    expect(parseQuickAsk("how much caffeine have I had today")).toEqual({ kind: "caffeine_today" })
+    expect(parseQuickAsk("how much coffee today")).toEqual({ kind: "intake_total", type: "coffee", label: "coffee" })
+    // And "still in me" is the body-load question, which already existed.
+    expect(parseQuickAsk("how much caffeine is still in my body")).toEqual({ kind: "body_now" })
+  })
+
+  it("reads the scale, with and without a window", () => {
+    expect(parseQuickAsk("what did I weigh last week")).toEqual({ kind: "weight", window: "week" })
+    // The window is read before the figure guard, so the digit in "7 days"
+    // does not send a perfectly clear question to the model.
+    expect(parseQuickAsk("what did I weigh in the last 7 days")).toEqual({ kind: "weight", window: "week" })
+    expect(parseQuickAsk("how many steps in the last 7 days")).toEqual({ kind: "steps", window: "week" })
+    expect(parseQuickAsk("what do I weigh")).toEqual({ kind: "weight", window: "latest" })
+    expect(parseQuickAsk("what's my weight?")).toEqual({ kind: "weight", window: "latest" })
+  })
+
+  it.each([
+    ["what habits should I add?", "should"],
+    ["which habit is my best streak?", "best"],
+    ["what should I do today?", "should"],
+    ["am I getting enough steps today?", "enough"],
+    ["why are my steps down this week?", "why"],
+    ["what's my weight goal?", "a setting, not a reading"],
+    ["how much weight did I lift today?", "a workout, not a scale"],
+    ["should I lose weight?", "should"],
+    ["do my steps affect my sleep this week?", "affect"],
+    // A figure in the message means it is telling the app something, or
+    // naming a day neither window covers. Both are Emergy's.
+    ["log my weight 78.4", "a statement, not a question"],
+    ["I weigh 78.4 today", "a statement, not a question"],
+    ["what did I weigh on 10 Sept", "a day, not a window"],
+    ["I did 12000 steps today", "a statement, not a question"],
+    ["had 200mg of caffeine today", "a statement, not a question"],
+  ])("%s → his (%s)", message => {
+    expect(parseQuickAsk(message)).toBeNull()
   })
 })
 
@@ -130,6 +223,35 @@ describe("the answers stay in front of the model, and stay honest", () => {
     expect(chart).toMatch(/const SPECS = \[/)
     expect(chart).toMatch(/status: 404/)
     expect(markdown).toMatch(/\[chart:/)
+  })
+
+  it("has one copy of the habit rule and one of the day's events", () => {
+    // The briefing and the two new answers ask the same two questions. A
+    // second copy of either is how two screens start disagreeing about what
+    // is due today.
+    expect(run.match(/isDueOn\(/g) ?? []).toHaveLength(1)
+    expect(run.match(/mergeDayEvents\(/g) ?? []).toHaveLength(1)
+  })
+
+  it("never calls a step count final while the day is still running", () => {
+    expect(run).toContain("so far today")
+    expect(run).toContain("still counting")
+    // And a partial day is not allowed into the week's mean, or to win
+    // "fewest": at 09:00 today is the lowest day of any week there has been.
+    expect(run).toMatch(/const done = counted\.filter\(r => r\.day !== today\)/)
+    expect(run).toMatch(/const avg = total \/ done\.length/)
+  })
+
+  it("has one floor for 'still circulating', not two", () => {
+    // The body-load answer and the caffeine total both say it. Two constants
+    // is how one of them starts calling 1mg a fact about the afternoon.
+    expect(run.match(/CAFFEINE_FLOOR_MG =/g) ?? []).toHaveLength(1)
+    expect(run.match(/>= CAFFEINE_FLOOR_MG/g) ?? []).toHaveLength(2)
+  })
+
+  it("dates a weight rather than letting a stale reading pass for today's", () => {
+    expect(run).toMatch(/recorded \$\{latest\.day === today/)
+    expect(run).toContain("Nothing weighed in the last seven days")
   })
 
   it("builds its receipts with the same function the model's use", () => {

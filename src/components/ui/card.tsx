@@ -5,7 +5,9 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("rounded-xl border bg-card text-card-foreground shadow", className)}
+      // The shadow is the UI style's (data-ui in globals.css); the default
+      // var is Tailwind's own `shadow`, so Original looks exactly as before.
+      className={cn("rounded-xl border bg-card text-card-foreground shadow-[var(--card-shadow)]", className)}
       {...props}
     />
   )

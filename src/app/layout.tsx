@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next"
-import { Geist, Geist_Mono, Bricolage_Grotesque, Baloo_2 } from "next/font/google"
+import { Geist, Geist_Mono, Bricolage_Grotesque, Baloo_2, Nunito } from "next/font/google"
 import "./globals.css"
 import { cookies } from "next/headers"
 import { SessionProvider } from "next-auth/react"
@@ -34,7 +34,15 @@ const bricolage = Bricolage_Grotesque({
 const baloo = Baloo_2({
   variable: "--font-baloo",
   subsets: ["latin"],
-  weight: ["600", "700", "800"],
+  weight: ["500", "600", "700", "800"],
+})
+
+// Prose face for the soft UI styles (Sunny, Clay, Pillow — see data-ui in
+// globals.css); everything else keeps Geist.
+const nunito = Nunito({
+  variable: "--font-nunito",
+  subsets: ["latin"],
+  weight: ["400", "600", "700", "800"],
 })
 
 export const metadata: Metadata = {
@@ -94,12 +102,12 @@ export async function generateViewport(): Promise<Viewport> {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${bricolage.variable} ${baloo.variable} h-full`} suppressHydrationWarning>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${bricolage.variable} ${baloo.variable} ${nunito.variable} h-full`} suppressHydrationWarning>
       <head>
         {/* Apply saved accent + base theme before paint to avoid flash */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{const a=localStorage.getItem('accent');if(a&&a!=='indigo')document.documentElement.setAttribute('data-accent',a);const t=localStorage.getItem('base_theme');if(t&&t!=='midnight')document.documentElement.setAttribute('data-theme',t);}catch(e){}`,
+            __html: `try{const a=localStorage.getItem('accent');if(a&&a!=='indigo')document.documentElement.setAttribute('data-accent',a);const t=localStorage.getItem('base_theme');if(t&&t!=='midnight'&&t!=='light')document.documentElement.setAttribute('data-theme',t);const u=localStorage.getItem('ui_style');if(u&&u!=='original')document.documentElement.setAttribute('data-ui',u);}catch(e){}`,
           }}
         />
       </head>

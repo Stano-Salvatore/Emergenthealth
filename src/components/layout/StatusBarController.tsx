@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
+import { LIGHT_THEMES } from "@/lib/theme-mode"
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -27,11 +28,13 @@ export function StatusBarController() {
     const theme = document.documentElement.getAttribute("data-theme")
     const isLight =
       document.documentElement.classList.contains("light") ||
-      theme === "light" || theme === "sunny"
+      LIGHT_THEMES.has(theme ?? "")
 
-    // Match the app background so the bar is seamless. Keep in sync with the
-    // --background values in globals.css.
-    const barColor = theme === "sunny" ? "#fdf6ec" : isLight ? "#f5f5fb" : "#09090f"
+    // Read the theme's own background off the resolved CSS variable instead
+    // of a hand-kept colour map — with eighteen themes a map would be stale
+    // by the second addition. Falls back to the two mode defaults.
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--background").trim()
+    const barColor = /^#[0-9a-fA-F]{6}$/.test(bg) ? bg : isLight ? "#f5f5fb" : "#09090f"
 
     import("@capacitor/status-bar")
       .then(({ StatusBar, Style }) => {

@@ -35,18 +35,32 @@ export type QuickAsk =
   | { kind: "body_now" }
   /** Last night, or the last seven nights; `debt` asks the shortfall rather than the summary. */
   | { kind: "sleep"; window: "night" | "week"; debt?: true }
+  /** The morning briefing: last night, today's calendar, habits left, overdue reminders, doses. */
+  | { kind: "briefing" }
+  /** The habits still due today. */
+  | { kind: "habits_today" }
+  /** What is on the calendar today, from all three sources. */
+  | { kind: "events_today" }
+  /** Steps today, or across the last seven days. */
+  | { kind: "steps"; window: "today" | "week" }
+  /** Caffeine in milligrams — what was drunk today and what is still circulating. */
+  | { kind: "caffeine_today" }
+  /** The latest weight, or every reading in the last seven days. */
+  | { kind: "weight"; window: "latest" | "week" }
 
 /**
  * Words that turn a lookup into an argument. Any of these and the message is
  * Emergy's, however well the rest of it matches — he is the one who can weigh
  * a cause, and a scripted sentence that pretends to is worse than a slow one.
  */
-const NEEDS_JUDGEMENT = /\b(?:why|how come|because|affect|affects|affecting|impact|impacts|influence|cause|causes|correlat\w*|compare|comparison|versus|vs|should|would|could|think|opinion|advice|advise|recommend|suggest|explain|mean|means|meaning|worry|worried|watch for|improve|better|worse|fix|help|best|worst thing|interesting|insight\w*|pattern\w*|trend\w*|predict)\b/
+const NEEDS_JUDGEMENT = /\b(?:why|how come|because|affect|affects|affecting|impact|impacts|influence|cause|causes|correlat\w*|compare|comparison|versus|vs|should|would|could|think|opinion|advice|advise|recommend|suggest|explain|mean|means|meaning|worry|worried|watch for|improve|better|worse|fix|help|best|worst thing|enough|interesting|insight\w*|pattern\w*|trend\w*|predict)\b/
 
 /** A drink type the app stores, with the word people use for it. */
 const INTAKE_WORDS: { re: RegExp; type: string; label: string }[] = [
   { re: /\b(?:water|watter|wather|voda|hydration|fluid)\b/, type: "water", label: "water" },
-  { re: /\b(?:coffee|cofee|coffe|kava|caffeine)\b/, type: "coffee", label: "coffee" },
+  // "caffeine" is deliberately not here: it is a question about milligrams,
+  // answered below, not about how many millilitres of coffee were drunk.
+  { re: /\b(?:coffee|cofee|coffe|kava)\b/, type: "coffee", label: "coffee" },
   { re: /\b(?:beer|pivo|lager)\b/, type: "beer", label: "beer" },
   { re: /\b(?:wine|vino)\b/, type: "wine", label: "wine" },
   { re: /\b(?:tea|caj)\b/, type: "tea", label: "tea" },
@@ -59,6 +73,41 @@ const WHAT_LOGGED = /\bwhat(?:'s| is| has| have| did)?\b.*\b(?:logged|log|logs|r
 const DOSE_WORDS = /\b(?:supplements?|pills?|meds?|medication|medications|medicine|tablets?|vitamins?|doses?)\b/
 const BODY_NOW = /\b(?:in my (?:body|system)|in my blood|still (?:in|circulating)|body load)\b/
 const RIGHT_NOW = /\b(?:right now|rn|now|currently|at the moment|atm)\b/
+
+/**
+ * The briefing. The chat screen has a button that sends this as a long typed
+ * message, and every part of what it asks for is a lookup the app already
+ * computes — so it is answered here rather than by a model turn.
+ */
+const BRIEFING = /\b(?:morning briefing|daily briefing|evening briefing|my briefing|brief me)\b/
+
+/** The habits still due. "Which habits should I add" is his — `should` sees to that. */
+const HABITS = /\b(?:habits?|streaks?)\b/
+const HABIT_LEFT = /\b(?:left|remaining|missing|due|still|outstanding|to do|todo|done)\b/
+
+/** The day's calendar. Both halves matter: the word, or the phrasing. */
+const CALENDAR_WORDS = /\b(?:calendar|schedule|agenda|diary|meetings?|appointments?|events?)\b/
+const WHATS_ON = /\bwhat(?:['’]?s)? (?:on|up|happening)\b|\bwhat do i have\b|\bwhat have i got\b/
+
+const STEPS = /\b(?:steps|step count|kroky|krokov)\b/
+
+/**
+ * A figure in the message, once its window has been read off.
+ *
+ * "I weigh 78.4" and "did 12000 steps today" are statements, not questions, and
+ * the app has no scripted shape that needs a number: a bare weight is Emergy's
+ * to log, and a specific date ("what did I weigh on 10 Sept") is a window
+ * neither answer here covers. Either way, answering with today's figure would
+ * be replying to a question that was not asked.
+ */
+const CARRIES_A_FIGURE = /\d/
+
+/** Milligrams, not millilitres — the coffee question is a different question. */
+const CAFFEINE = /\b(?:caffeine|kofein)\b/
+
+const WEIGHT = /\b(?:weigh|weighs|weighed|weighing|weight|vaha|vazim)\b/
+/** "How much weight did I lift" is a workout, and shares every word with a scale. */
+const WEIGHT_NOT_A_SCALE = /\b(?:lift|lifts|lifted|lifting|training|train|gym|squat\w*|bench|deadlift\w*|reps?|sets?|plates?|goal|target)\b/
 
 const SLEEP = /\b(?:sleep|slept|sleeping|spanok|spal)\b/
 const WEEK = /\b(?:this week|past week|last week|last 7 days|past 7 days|seven days|7 nights|this past week)\b/
@@ -91,7 +140,6 @@ function normalise(message: string): string {
 export function parseQuickAsk(message: string): QuickAsk | null {
   if (!message) return null
   const raw = message.trim()
-  if (raw.length > 120) return null
 
   // Two questions in one message is a conversation, not a lookup.
   if ((raw.match(/\?/g) ?? []).length > 1) return null
@@ -99,6 +147,13 @@ export function parseQuickAsk(message: string): QuickAsk | null {
   const text = normalise(raw)
   if (!text) return null
   if (NEEDS_JUDGEMENT.test(text)) return null
+
+  // Before the length gate, and only here: the briefing is the app's own
+  // request, sent by a button, and it is long by construction. It still has to
+  // clear the judgement words above — "why was my briefing wrong" is his.
+  if (BRIEFING.test(text)) return { kind: "briefing" }
+
+  if (raw.length > 120) return null
 
   // "what did I eat today and how much water?" asks two things and only ends
   // with one question mark. Two question words is the tell.
@@ -117,10 +172,37 @@ export function parseQuickAsk(message: string): QuickAsk | null {
     return null
   }
 
+  // Steps and weight carry their own windows, like sleep, so they are read
+  // before the today-only gate below rather than after it.
+  if (STEPS.test(text)) {
+    if (WEEK.test(text)) return { kind: "steps", window: "week" }
+    if (CARRIES_A_FIGURE.test(text)) return null
+    if (TODAY.test(text) || RIGHT_NOW.test(text)) return { kind: "steps", window: "today" }
+    return null
+  }
+
+  if (WEIGHT.test(text)) {
+    if (WEIGHT_NOT_A_SCALE.test(text)) return null
+    if (WEEK.test(text)) return { kind: "weight", window: "week" }
+    if (CARRIES_A_FIGURE.test(text)) return null
+    // No window needed, unlike sleep: a weight moves over months, so the most
+    // recent reading answers the bare question — and it is given with its date,
+    // so a stale one cannot pass for this morning's.
+    return { kind: "weight", window: "latest" }
+  }
+
   // Everything else here is about today, and says so.
   if (!TODAY.test(text) && !RIGHT_NOW.test(text) && !BODY_NOW.test(text)) return null
 
+  // Body load first: "how much caffeine is still in me" is that question, not
+  // the milligram total below, and it says so in its own words.
   if (BODY_NOW.test(text)) return { kind: "body_now" }
+
+  if (HABITS.test(text) && HABIT_LEFT.test(text)) return { kind: "habits_today" }
+
+  if (CALENDAR_WORDS.test(text) || WHATS_ON.test(text)) return { kind: "events_today" }
+
+  if (CAFFEINE.test(text)) return CARRIES_A_FIGURE.test(text) ? null : { kind: "caffeine_today" }
 
   if (DOSE_WORDS.test(text)) return { kind: "doses_today" }
 

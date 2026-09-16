@@ -48,7 +48,7 @@ export interface CalendarEvent {
   isAllDay: boolean
   url: string | null
   color?: string | null   // hex; device events carry their phone-calendar colour
-  source?: "google" | "device"
+  source?: "google" | "device" | "app"
 }
 
 // ── Device calendar (native Android read: Samsung / local / any account) ──────
