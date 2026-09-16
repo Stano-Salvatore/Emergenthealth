@@ -94,7 +94,13 @@ describe("a dose is grams of ethanol, not millilitres", () => {
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/^\s*\/\/.*$/gm, "")
     expect(engine, "an alcohol card is quoting millilitres").not.toMatch(/drinking days \(\d+\s*ml/i)
-    expect(engine).toContain("DRINKING_DAYS_LABEL")
+    // The label constant that used to sit beside the gram threshold is gone:
+    // the sleep, HRV and resting-HR cards now share one definition of a
+    // drinking day with the sleep panel (any logged drink, silent days set
+    // aside) and print no figure at all. The definition is what must stay
+    // beside the number.
+    expect(engine).toContain("const drankDay")
+    expect(engine).not.toMatch(/drinking days \(\d+\+? ?drinks?\)/i)
   })
 
   it("the engine reasons in grams", () => {

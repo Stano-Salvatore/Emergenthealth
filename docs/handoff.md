@@ -126,6 +126,23 @@ guard would compare two structurally different splits.
 Bump `ENGINE_VERSION` when a group definition moves, not just when a family
 is added: cached cards carry the label they were computed with.
 
+**`higherIsBetter` is about the outcome, never the exposure.** The engine
+negates a card's delta when it is false, so it means "a lower value of the
+thing measured is good" (resting HR, blood pressure, symptom severity,
+minutes to fall asleep). Three cards had set it because the *exposure* was
+bad — alcohol on HRV, alcohol on REM, rain on mood — and each showed a
+harmful effect as a green improvement. Check the outcome column, not the
+title.
+
+**A question is asked once.** The sleep panel's gates on caffeine and alcohol
+are the caffeine → sleep-score and alcohol → sleep-score cards; there are no
+main-battery twins. Caffeine → deep sleep and alcohol → REM are the other
+way round: pre-registered in the main battery so they run whether or not
+the gate clears (a cause can move one component while the score holds
+still), and `PREREGISTERED_ASPECTS` makes the panel skip them. `drankDay`
+is the one definition of a drinking day for the sleep, HRV and resting-HR
+cards: any logged drink, silent days set aside, the same as the panel.
+
 **A day's music genre** comes from `dominantGenre()`: the genre holding a
 majority of the day's tagged plays (`artistPlays`, min 3 tagged). Rows
 written before `artistPlays` existed fall back to the old top-artist lookup;
