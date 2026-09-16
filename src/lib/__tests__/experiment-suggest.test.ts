@@ -3,8 +3,19 @@ import { experimentSuggestion } from "@/lib/experiment-suggest"
 
 describe("experimentSuggestion", () => {
   it("turns a caffeine → sleep finding into an abstention experiment on sleep score", () => {
-    const s = experimentSuggestion({ id: "caffeine_sleep", highGroupLabel: "200mg+ caffeine days" })
+    const s = experimentSuggestion({ id: "sleep_panel_caffeine", highGroupLabel: "200mg+ of caffeine" })
     expect(s).toEqual({ name: "No caffeine over 200mg → sleep score", action: "No caffeine over 200mg", outcome: "sleepScore", outcomeLabel: "sleep score" })
+  })
+
+  // The panel's ids end in the cause (gates) or the aspect, not "_sleep", so
+  // none of its cards had a "Test this" button while the older duplicates did.
+  it("offers an experiment on the sleep panel's cards, but not its place cards", () => {
+    expect(experimentSuggestion({ id: "sleep_panel_alcohol", highGroupLabel: "days with a drink" })?.name).toBe("No alcohol → sleep score")
+    expect(experimentSuggestion({ id: "sleep_panel_caffeine_deep", highGroupLabel: "150mg+ of caffeine" })?.outcome).toBe("deepSleep")
+    expect(experimentSuggestion({ id: "sleep_panel_alcohol_rem", highGroupLabel: "days with a drink" })?.outcome).toBe("remSleep")
+    expect(experimentSuggestion({ id: "caffeine_deep_sleep", highGroupLabel: "150mg+ of caffeine" })?.action).toBe("No caffeine over 150mg")
+    // Both sides of a place card had caffeine; abstaining tests nothing it measured.
+    expect(experimentSuggestion({ id: "sleep_panel_caffeine_at_kaviaren", highGroupLabel: "caffeine at Kaviareň" })).toBeNull()
   })
 
   // The rule correlations.ts states beside `balancedCut` — a card never claims
@@ -13,8 +24,8 @@ describe("experimentSuggestion", () => {
   // said 14:00, and under a 1.5L cut it said two litres.
   it("never names a number the card in front of the user did not", () => {
     const cases: [string, string, string][] = [
-      ["caffeine_sleep", "150mg+ caffeine days", "150mg"],
-      ["sleep_panel_late_caffeine_sleep", "caffeine after 16:00", "16:00"],
+      ["sleep_panel_caffeine", "150mg+ of caffeine", "150mg"],
+      ["sleep_panel_late_caffeine", "caffeine after 16:00", "16:00"],
       ["water_energy", "1.5L+ water days", "1.5L"],
       ["food_late_meal_sleep", "last meal after 20:00", "20:00"],
       ["screen_sleep", "high screen days (4.2h+)", "4.2h"],

@@ -209,7 +209,8 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     // Caffeine → THAT night's sleep: the 300 mg days are the late-dinner days,
     // whose following night scores 65. Joined to the same-dated record (the
     // night before the coffee) this read the other way round.
-    const caffeine = byId["caffeine_sleep"]
+    // The panel's gate is the one caffeine → sleep-score card now.
+    const caffeine = byId["sleep_panel_caffeine"]
     expect(caffeine).toBeDefined()
     expect(caffeine.highGroupAvg).toBe(65)
     // (the light-coffee days include the alcohol nights at 70, so ~80 not 90)
@@ -329,7 +330,7 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     ;(prisma.userPreference.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ value: "Europe/Prague" })
     try {
       const { insights } = await computeCorrelations("user_test", 60)
-      const caffeine = insights.find(i => i.id === "caffeine_sleep")
+      const caffeine = insights.find(i => i.id === "sleep_panel_caffeine")
       // 22:30 UTC is 00:30 in Prague: the 300 mg dose belongs to the NEXT
       // local day (an early-dinner one, whose night scores 90), so the split
       // flips relative to the 15:00 fixture above. GROUP BY the UTC date

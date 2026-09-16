@@ -16,8 +16,13 @@ export interface ExperimentSuggestion {
 }
 
 const OUTCOME_BY_SUFFIX: [RegExp, string, string][] = [
+  // The sleep panel's gate cards end in the cause, not the outcome; the
+  // outcome is always the sleep score. Its aspects end in the aspect key.
+  [/^sleep_panel_(?:caffeine|late_caffeine|alcohol)$/, "sleepScore", "sleep score"],
   [/_deep_sleep$/, "deepSleep", "deep sleep"],
   [/_rem_sleep$/, "remSleep", "REM sleep"],
+  [/_deep$/, "deepSleep", "deep sleep"],
+  [/_rem$/, "remSleep", "REM sleep"],
   [/_resting_hr$/, "restingHR", "resting heart rate"],
   [/_sleep$/, "sleepScore", "sleep score"],
   [/_duration$/, "sleepDuration", "sleep length"],
@@ -58,7 +63,12 @@ function thresholdIn(label: string): string | null {
 const ACTION_BY_PREFIX: [RegExp, (t: string | null) => string][] = [
   [/^caffeine_/, t => (t ? `No caffeine over ${t}` : "No caffeine")],
   [/^sleep_panel_late_caffeine/, t => (t ? `No caffeine after ${t}` : "No caffeine late in the day")],
+  // Not the place cards (`sleep_panel_caffeine_at_<place>`): both of their
+  // sides had caffeine, so "no caffeine" would test something the card
+  // never measured.
+  [/^sleep_panel_caffeine(?!_at_)/, t => (t ? `No caffeine over ${t}` : "No caffeine")],
   [/^alcohol_/, () => "No alcohol"],
+  [/^sleep_panel_alcohol/, () => "No alcohol"],
   [/^food_late_meal_/, t => (t ? `Last meal before ${t}` : "An earlier last meal")],
   [/^screen_/, t => (t ? `Under ${t} of screen time` : "Less screen time")],
   [/^late_music_/, t => (t ? `No music after ${t}` : "No music late in the evening")],

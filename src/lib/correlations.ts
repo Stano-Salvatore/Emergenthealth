@@ -184,7 +184,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 14
+export const ENGINE_VERSION = 15
 
 /**
  * Both sides need this many days before a card is called confident.
@@ -285,16 +285,18 @@ export function balancedCut(raw: (number | undefined)[], fixed: number): Cut {
 const STANDARD_DRINK_G = 10
 
 /**
- * How that threshold is written on a card, kept beside the number so the two
- * cannot drift — which they did: the split moved to grams and four cards went
- * on printing "(50ml+)", a figure the engine had stopped applying. The rule is
- * already written down next to balancedCut, and it was broken here: a card
- * never claims a threshold it did not use.
+ * Whether day D counts as a drinking day for the sleep, HRV and resting-HR
+ * cards: true for a logged drink, false for a day that logged something but
+ * no drink, null for a day that logged nothing at all. The null is the point.
+ * Four cards used to read a silent day as sober — the same mistake as reading
+ * it as decaf, which the sleep panel already refuses to make — and they cut
+ * at one standard drink where the panel cuts at any, so the same account got
+ * two answers to one question. One definition, shared with the panel.
  *
- * "1+ drink" rather than "10g+", because grams of ethanol is the right unit to
- * reason in and the wrong one to read.
+ * The cards that still cut at STANDARD_DRINK_G (blood pressure, the symptom
+ * suspects, the combinations) keep their own gates for now.
  */
-const DRINKING_DAYS_LABEL = "drinking days (1+ drink)"
+const drankDay = (d: DayData): boolean | null => (d.logged ? (d.alcoholG ?? 0) > 0 : null)
 
 /**
  * After this o'clock, local, a dose still has most of its work to do by
@@ -1307,6 +1309,16 @@ export async function computeCorrelations(
     }
   }
   const loggedDayCount = allDays.filter(d => d.logged).length
+  const unknownCaffeineDays = allDays.length - loggedDayCount
+  // Shown on every card that sets silent days aside — the sleep panel's
+  // gates, the alcohol HRV card, the pre-registered deep and REM cards.
+  // Takes the noun, because the same count is attached to the caffeine card
+  // and the alcohol one. It used to end "a day without it", where "it" was
+  // whatever the reader guessed — and on the alcohol card the guess was wrong.
+  const coverageNote = (what: string) => unknownCaffeineDays >= 5
+    ? `${unknownCaffeineDays} of ${allDays.length} days had nothing logged at all. ` +
+      `They are left out: a silent day is not a day without ${what}.`
+    : undefined
 
   /** Places with days on both sides of the question, strongest first, capped. */
   const pickPlaces = (counts: Map<string, number>, universe: number, cap: number): string[] =>
@@ -1447,52 +1459,32 @@ export async function computeCorrelations(
   })
   if (ins_habit_energy) insights.push(ins_habit_energy)
 
-  // 5. Caffeine → same-night sleep score
-  const caffeineSleep = new Split()
-  for (const d of days) {
-    const night = tonight(d)
-    if (d.caffeineMg == null || night?.sleepScore == null) continue
-    if (d.caffeineMg >= cuts.caffeine.at) caffeineSleep.add(true, night.sleepScore)
-    else caffeineSleep.add(false, night.sleepScore)
-  }
-  const ins_caffeine_sleep = compareGroups({
-    id: "caffeine_sleep", category: "caffeine", emoji: "☕", title: "Caffeine Intake & Sleep Quality",
-    highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} caffeine days`,
-    series: caffeineSleep,
-    // One sentence rather than two branches. The old negative branch opened
-    // "Interestingly," — editorialising a null result, which is the case the
-    // engine has least business having an opinion about. The two numbers say
-    // which way it went without being told.
-    findingTemplate: (h, l) => `Nights after ${cafLabel} of caffeine score ${h}; after less, ${l}`,
-  })
-  if (ins_caffeine_sleep) insights.push(ins_caffeine_sleep)
+  // 5 and the sleep half of 6 are gone. "Caffeine Intake & Sleep Quality"
+  // and "Alcohol & Sleep Quality" were the sleep panel's caffeine and alcohol
+  // gates asked a second time in the main battery — same cut, same night —
+  // and each extra test raises the bar every other card must clear. The
+  // alcohol one also read a silent day as sober and had its delta sign
+  // inverted, so a drink that lowered the score showed as a green plus.
 
-  // 6. Alcohol → next-day HRV and sleep
+  // 6. Alcohol → next-day HRV
   const alcoholHrv = new Split()
-  const alcoholSleepEff = new Split()
   for (const d of days) {
-    const drank = (d.alcoholG ?? 0) >= STANDARD_DRINK_G
+    const drank = drankDay(d)
+    if (drank == null) continue
     const next = byDate[nextDateStr(d.date)]
-    if (!next) continue
-    if (next.hrv != null) { if (drank) alcoholHrv.add(true, next.hrv); else alcoholHrv.add(false, next.hrv) }
-    if (next.sleepScore != null) { if (drank) alcoholSleepEff.add(true, next.sleepScore); else alcoholSleepEff.add(false, next.sleepScore) }
+    if (next?.hrv != null) alcoholHrv.add(drank, next.hrv)
   }
   const ins_alcohol_hrv = compareGroups({
-    id: "alcohol_hrv", category: "caffeine", emoji: "🍷", title: "Alcohol & Next-Day HRV",
-    highGroupLabel: DRINKING_DAYS_LABEL, lowGroupLabel: "non-drinking days",
-    series: alcoholHrv, higherIsBetter: false,
+    id: "alcohol_hrv", category: "recovery", emoji: "🍷", title: "Alcohol & Next-Day HRV",
+    highGroupLabel: "days with a drink", lowGroupLabel: "days without",
+    // HRV is a higher-is-better number. This card said the opposite, and the
+    // engine negates the delta when told so — a drink that lowered HRV was
+    // shown as an improvement, and the watch cron read the flip as news.
+    series: alcoholHrv,
     findingTemplate: (h, l) =>
       `Mornings after a drink, HRV averages ${h}ms; after a sober night, ${l}ms`,
   })
-  if (ins_alcohol_hrv) insights.push(ins_alcohol_hrv)
-  const ins_alcohol_sleep = compareGroups({
-    id: "alcohol_sleep", category: "caffeine", emoji: "🍺", title: "Alcohol & Sleep Quality",
-    highGroupLabel: DRINKING_DAYS_LABEL, lowGroupLabel: "non-drinking days",
-    series: alcoholSleepEff, higherIsBetter: false,
-    findingTemplate: (h, l) =>
-      `Nights after a drink score ${h}; sober nights, ${l}`,
-  })
-  if (ins_alcohol_sleep) insights.push(ins_alcohol_sleep)
+  if (ins_alcohol_hrv) { ins_alcohol_hrv.coverage = coverageNote("a drink"); insights.push(ins_alcohol_hrv) }
 
   // 6a/6b. Sleep duration & alcohol → next-day resting HR
   const sleepRhr = new Split()
@@ -1506,11 +1498,10 @@ export async function computeCorrelations(
     }
     const next = tonight(d)
     if (!next || next.restingHR == null) continue
-    if (d.alcoholG != null || d.sleepDuration != null) {
-      const drank = (d.alcoholG ?? 0) >= STANDARD_DRINK_G
-      if (drank) alcoholRhrDrinkSplit.add(true, next.restingHR)
-      else alcoholRhrDrinkSplit.add(false, next.restingHR)
-    }
+    // A ring record is not a log: a day with a night's data and nothing
+    // typed used to count as sober here. Same gate as the sleep panel.
+    const drank = drankDay(d)
+    if (drank != null) alcoholRhrDrinkSplit.add(drank, next.restingHR)
   }
   const ins_sleep_rhr = compareGroups({
     id: "sleep_resting_hr", category: "recovery", emoji: "❤️", title: "Sleep Duration & Resting Heart Rate",
@@ -1522,7 +1513,7 @@ export async function computeCorrelations(
   if (ins_sleep_rhr) insights.push(ins_sleep_rhr)
   const ins_alcohol_rhr = compareGroups({
     id: "alcohol_resting_hr", category: "recovery", emoji: "🍷", title: "Alcohol & Resting Heart Rate",
-    highGroupLabel: DRINKING_DAYS_LABEL, lowGroupLabel: "non-drinking days",
+    highGroupLabel: "days with a drink", lowGroupLabel: "days without",
     series: alcoholRhrDrinkSplit, higherIsBetter: false,
     findingTemplate: (h, l) =>
       h > l
@@ -1657,7 +1648,8 @@ export async function computeCorrelations(
     const ins_rain_mood = compareGroups({
       id: "rain_mood", category: "tags", emoji: "⛅", title: "Weather & Morning Mood",
       highGroupLabel: "rainy days", lowGroupLabel: "dry days",
-      series: rainMoodSplit, higherIsBetter: false,
+      // Mood is higher-is-better; the flag said otherwise and inverted the sign.
+      series: rainMoodSplit, higherIsBetter: true,
       findingTemplate: (h, l) =>
         h < l
           ? `After rainy days, morning mood averages ${h} vs ${l} after dry days`
@@ -2603,41 +2595,43 @@ export async function computeCorrelations(
     if (ins_fast_energy) insights.push(ins_fast_energy)
   }
 
-  // 22. Sleep architecture — deep/REM minutes were synced for months and never
-  // fed into a single insight
+  // 22. Sleep architecture, pre-registered. Deep sleep and REM are parts of
+  // the sleep score, and a cause can move one of them while the score holds
+  // still — caffeine can cut deep minutes that length and efficiency then
+  // cover for. So these two questions are asked ALWAYS, here in the main
+  // battery, rather than only once the sleep panel's gate on the overall
+  // score has cleared; the panel skips these two (cause, aspect) pairs so
+  // each is asked once. Same gate as the panel: a silent day is not a decaf
+  // or a sober day. The REM card used to say REM was lower-is-better, which
+  // inverted its sign, and counted a day as sober because it had logged
+  // caffeine.
   const caffeineDeep = new Split()
-  const alcoholRemDrinkSplit = new Split()
+  const alcoholRem = new Split()
   for (const d of days) {
     const next = tonight(d)
-    if (d.caffeineMg != null && next?.deepSleepMin != null) {
-      if (d.caffeineMg >= cuts.caffeine.at) caffeineDeep.add(true, next.deepSleepMin)
-      else caffeineDeep.add(false, next.deepSleepMin)
-    }
-    if (next?.remSleepMin != null && (d.alcoholG != null || d.caffeineMg != null)) {
-      if ((d.alcoholG ?? 0) >= STANDARD_DRINK_G) alcoholRemDrinkSplit.add(true, next.remSleepMin)
-      else alcoholRemDrinkSplit.add(false, next.remSleepMin)
-    }
+    if (!next) continue
+    if (d.logged && next.deepSleepMin != null) caffeineDeep.add((d.caffeineMg ?? 0) >= cuts.caffeine.at, next.deepSleepMin)
+    const drank = drankDay(d)
+    if (drank != null && next.remSleepMin != null) alcoholRem.add(drank, next.remSleepMin)
   }
   const ins_caffeine_deep = compareGroups({
-    id: "caffeine_deep_sleep", category: "recovery", emoji: "🌊", title: "Caffeine & Deep Sleep",
-    highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} days`,
+    id: "caffeine_deep_sleep", category: "sleep", emoji: "🌊", title: "Caffeine & Deep Sleep",
+    highGroupLabel: { chip: `${cafLabel} of caffeine`, phrase: `${cafLabel} of caffeine` },
+    lowGroupLabel: { chip: cafUnderLabel, phrase: "less" },
     series: caffeineDeep,
-    findingTemplate: (h, l) =>
-      h < l
-        ? `On ${cafLabel} caffeine days you get ${Math.round(h)}min of deep sleep vs ${Math.round(l)}min on lighter days`
-        : `Caffeine doesn't cut your deep sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
+    findingTemplate: (h, l, lab) =>
+      `With ${lab.high}, deep sleep averages ${Math.round(h)} min; with ${lab.low}, ${Math.round(l)} min`,
   })
-  if (ins_caffeine_deep) insights.push(ins_caffeine_deep)
+  if (ins_caffeine_deep) { ins_caffeine_deep.coverage = coverageNote("caffeine"); insights.push(ins_caffeine_deep) }
   const ins_alcohol_rem = compareGroups({
-    id: "alcohol_rem_sleep", category: "recovery", emoji: "🌀", title: "Alcohol & REM Sleep",
-    highGroupLabel: DRINKING_DAYS_LABEL, lowGroupLabel: "non-drinking days",
-    series: alcoholRemDrinkSplit, higherIsBetter: false,
-    findingTemplate: (h, l) =>
-      h < l
-        ? `Nights after drinking you get ${Math.round(h)}min of REM vs ${Math.round(l)}min sober`
-        : `Drinking isn't cutting your REM sleep — ${Math.round(h)}min vs ${Math.round(l)}min`,
+    id: "alcohol_rem_sleep", category: "sleep", emoji: "🌀", title: "Alcohol & REM Sleep",
+    highGroupLabel: { chip: "days with a drink", phrase: "a drink" },
+    lowGroupLabel: { chip: "days without", phrase: "none" },
+    series: alcoholRem,
+    findingTemplate: (h, l, lab) =>
+      `With ${lab.high}, REM sleep averages ${Math.round(h)} min; with ${lab.low}, ${Math.round(l)} min`,
   })
-  if (ins_alcohol_rem) insights.push(ins_alcohol_rem)
+  if (ins_alcohol_rem) { ins_alcohol_rem.coverage = coverageNote("a drink"); insights.push(ins_alcohol_rem) }
 
   // 23. Places — the coarse GPS day-facts, finally in the same battery as
   // everything else (per-place comparisons stay on the Insights page's own
@@ -3017,6 +3011,13 @@ export async function computeCorrelations(
 
   /** A gate has to clear this in the main battery before its aspects are run. */
   const SLEEP_GATE_P = 0.05
+  /**
+   * Asked once. Caffeine → deep sleep and alcohol → REM are pre-registered in
+   * the main battery (family 22) and run whether or not the gate clears —
+   * a cause can move one component while the score holds still. Asking them
+   * again behind the gate would be the duplicate the audit found.
+   */
+  const PREREGISTERED_ASPECTS = new Set(["caffeine:deep", "alcohol:rem"])
 
   /**
    * Bedtimes this far apart make the two sides two different nights, whatever
@@ -3026,15 +3027,6 @@ export async function computeCorrelations(
    * drift accounts for a third of a typical panel gap.
    */
   const BEDTIME_CONFOUND_MIN = 45
-
-  const unknownCaffeineDays = allDays.length - loggedDayCount
-  // Takes the noun, because the same count is attached to the caffeine card
-  // and the alcohol one. It used to end "a day without it", where "it" was
-  // whatever the reader guessed — and on the alcohol card the guess was wrong.
-  const coverageNote = (what: string) => unknownCaffeineDays >= 5
-    ? `${unknownCaffeineDays} of ${allDays.length} days had nothing logged at all. ` +
-      `They are left out: a silent day is not a day without ${what}.`
-    : undefined
 
   const sleepCauses: SleepCause[] = [
     {
@@ -3152,6 +3144,7 @@ export async function computeCorrelations(
     if (permutationsOn && gateIns.pValue > SLEEP_GATE_P) continue
 
     for (const aspect of SLEEP_ASPECTS) {
+      if (PREREGISTERED_ASPECTS.has(`${cause.key}:${aspect.key}`)) continue
       const series = new Split()
       for (const d of days) {
         const side = cause.test(d)

@@ -168,11 +168,28 @@ export async function getTodayEvents(userId: string): Promise<CalendarEvent[]> {
   return mergeEvents(googleEvents, deviceEvents)
 }
 
+/**
+ * Whether Google Calendar took part in the answer. "unlinked" is silence by
+ * design (no Google account, nothing to ask); "failed" is a linked account
+ * whose request threw — a lapsed grant, a revoked scope, an outage. The two
+ * used to collapse into an empty list, and the dashboard then told a user
+ * whose grant had lapsed that their day was clear.
+ */
+export type GoogleCalendarStatus = "ok" | "unlinked" | "failed"
+
 export async function getUpcomingEvents(userId: string, daysAhead = 14): Promise<CalendarEvent[]> {
+  return (await getUpcomingEventsWithStatus(userId, daysAhead)).events
+}
+
+export async function getUpcomingEventsWithStatus(
+  userId: string,
+  daysAhead = 14,
+): Promise<{ events: CalendarEvent[]; google: GoogleCalendarStatus }> {
   const now = new Date()
   const future = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000)
 
   let googleEvents: CalendarEvent[] = []
+  let google: GoogleCalendarStatus = "ok"
   try {
     const calendar = await buildCalendarClient(userId)
     const response = await calendar.events.list({
@@ -195,12 +212,13 @@ export async function getUpcomingEvents(userId: string, daysAhead = 14): Promise
       url: event.htmlLink ?? null,
       source: "google" as const,
     }))
-  } catch {
+  } catch (err) {
     googleEvents = []
+    google = err instanceof Error && err.message === "No Google account linked" ? "unlinked" : "failed"
   }
 
   const deviceEvents = await getDeviceEvents(userId, now, future)
-  return mergeEvents(googleEvents, deviceEvents)
+  return { events: mergeEvents(googleEvents, deviceEvents), google }
 }
 
 /**
