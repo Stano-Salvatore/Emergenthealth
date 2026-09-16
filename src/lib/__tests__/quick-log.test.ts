@@ -201,6 +201,51 @@ describe("parseQuickLog — one time for the whole trip", () => {
   })
 })
 
+// Four messages taken from the real chat history, every one of which parsed to
+// null and bought a full model turn — 41 tool schemas and a 10-15k prefix — to
+// write one intake row. Each failed for its own reason, so each has its own
+// case here, and each is paired with the refusal it must not loosen.
+describe("parseQuickLog — the log lines that used to reach the model", () => {
+  it("reads a log line with no verb at all", () => {
+    expect(parse("500ml water")).toEqual({
+      items: [{ kind: "drink", type: "water", amountMl: 500, note: null, abv: null, minutesAgo: 0 }],
+      place: null,
+    })
+    expect(parse("water 500ml")?.items).toHaveLength(1)
+  })
+
+  it("without a verb it still needs a volume, so a question is not a log", () => {
+    expect(parse("water")).toBeNull()
+    expect(parse("how much water today")).toBeNull()
+    expect(parse("i think water is good for me")).toBeNull()
+  })
+
+  it("takes a coffee misspelling after a brew method, not only on its own", () => {
+    expect(parse("log me batch brew cofee 150ml")?.items[0]).toMatchObject({ type: "coffee", note: "Batch brew", amountMl: 150 })
+    expect(parse("log cold brew coffe 200ml")?.items[0]).toMatchObject({ type: "coffee", note: "Cold brew" })
+  })
+
+  it("keeps a flavour word without changing what the drink is", () => {
+    expect(parse("log lemon cold brew 200ml")?.items[0]).toMatchObject({ type: "coffee", note: "Lemon cold brew", amountMl: 200 })
+  })
+
+  it("never lets a flavour word rewrite alcohol", () => {
+    // "virgin" is the reason this list stops at soft drinks.
+    expect(parse("log lemon beer 500ml")).toBeNull()
+  })
+
+  it("separates a strength reading from the item that follows it", () => {
+    const items = parse("log me beer 150ml 4.8% Elicea")?.items
+    expect(items).toHaveLength(2)
+    expect(items?.[0]).toMatchObject({ kind: "drink", type: "beer", amountMl: 150, abv: 4.8 })
+    expect(items?.[1]).toMatchObject({ kind: "dose", name: "Elicea" })
+  })
+
+  it("leaves the words the strength claims for itself", () => {
+    expect(parse("log me beer 500ml 5% abv")?.items).toHaveLength(1)
+  })
+})
+
 describe("parseQuickLog — his, not ours", () => {
   it.each([
     "so how much beer did i log today?",

@@ -81,21 +81,37 @@ interface DrinkWord {
   defaultMl?: number
 }
 
+/**
+ * "Coffee" as it actually gets typed. Shared, because the misspellings were
+ * only ever accepted for the bare word: "cofee 150ml" parsed and "batch brew
+ * cofee 150ml" did not, so one typo bought a full model turn.
+ */
+const COFFEE_WORD = "coffee|cofee|coffe|coffee?a|kava|kavu|cafe"
+
+/**
+ * A flavour word in front of a drink names a variant without changing what the
+ * drink is — a lemon cold brew is still cold brew, and "lemon cold brew 200ml"
+ * used to fall through to the model. A closed list on purpose: an unknown
+ * adjective is exactly the guess this parser refuses. Never in front of
+ * alcohol, where a word like "virgin" changes the substance itself.
+ */
+const FLAVOUR = /^(lemon|orange|vanilla|caramel|hazelnut|cinnamon|honey)\s+/
+
 const DRINKS: DrinkWord[] = [
   { re: /^(?:still |plain |tap )?(?:wat+er|watter|wattee|watr|wather|voda|h2o)$/, type: "water", label: null },
   { re: /^(?:sparkling(?: water)?|soda water|mineral water|fizzy water|bubbly water)$/, type: "sparkling", label: "Sparkling water" },
   { re: /^(?:double|dbl) (?:espresso|expresso)$/, type: "coffee", label: "Double espresso", defaultMl: 60 },
   { re: /^(?:espresso|expresso)$/, type: "coffee", label: "Espresso", defaultMl: 30 },
-  { re: /^cold ?brew(?: coffee)?$/, type: "coffee", label: "Cold brew" },
-  { re: /^batch(?: ?brew)?(?: coffee)?$/, type: "coffee", label: "Batch brew" },
-  { re: /^v60(?: coffee)?$/, type: "coffee", label: "V60" },
+  { re: new RegExp(`^cold ?brew(?: (?:${COFFEE_WORD}))?$`), type: "coffee", label: "Cold brew" },
+  { re: new RegExp(`^batch(?: ?brew)?(?: (?:${COFFEE_WORD}))?$`), type: "coffee", label: "Batch brew" },
+  { re: new RegExp(`^v60(?: (?:${COFFEE_WORD}))?$`), type: "coffee", label: "V60" },
   { re: /^aeropress$/, type: "coffee", label: "Aeropress" },
-  { re: /^filter(?: coffee)?$/, type: "coffee", label: "Filter coffee" },
+  { re: new RegExp(`^filter(?: (?:${COFFEE_WORD}))?$`), type: "coffee", label: "Filter coffee" },
   { re: /^americano$/, type: "coffee", label: "Americano" },
   { re: /^(?:latte|caffe latte)$/, type: "coffee", label: "Latte" },
   { re: /^(?:cappuccino|capuccino|cappucino)$/, type: "coffee", label: "Cappuccino" },
   { re: /^flat ?white$/, type: "coffee", label: "Flat white" },
-  { re: /^(?:coffee|cofee|coffe|kava|kavu|cafe)$/, type: "coffee", label: "Coffee" },
+  { re: new RegExp(`^(?:${COFFEE_WORD})$`), type: "coffee", label: "Coffee" },
   { re: /^(?:green|black|herbal|mint|ginger|chamomile|earl grey)? ?(?:tea|caj|cay)$/, type: "tea", label: "Tea" },
   { re: /^matcha(?: latte)?$/, type: "matcha", label: "Matcha" },
   { re: /^(?:yerba ?)?mate$/, type: "mate", label: "Mate" },
@@ -273,7 +289,19 @@ function parseItem(raw: string, ctx: QuickLogContext, previous: QuickItem | null
   }
   if (!name) return null
 
-  const drink = DRINKS.find(d => d.re.test(name))
+  let drink = DRINKS.find(d => d.re.test(name))
+  let flavour: string | null = null
+  if (!drink) {
+    const fm = FLAVOUR.exec(name)
+    if (fm) {
+      const base = DRINKS.find(d => d.re.test(name.slice(fm[0].length).trim()))
+      // Alcohol keeps its exact words: see FLAVOUR.
+      if (base && !["beer", "wine", "spirits"].includes(base.type)) {
+        drink = base
+        flavour = fm[1]
+      }
+    }
+  }
   if (drink) {
     if (mg != null || tablets != null) return null
     const ml = amountMl ?? drink.defaultMl ?? null
@@ -282,6 +310,7 @@ function parseItem(raw: string, ctx: QuickLogContext, previous: QuickItem | null
     if (abv != null && !["beer", "wine", "spirits"].includes(drink.type)) return null
     if (plato != null && drink.type !== "beer") return null
     let label = drink.label
+    if (label && flavour) label = `${flavour.charAt(0).toUpperCase()}${flavour.slice(1)} ${label.toLowerCase()}`
     if (drink.type === "wine" && /^(white|red|rose|sparkling)/.test(name)) {
       label = name.charAt(0).toUpperCase() + name.slice(1)
     }
@@ -390,7 +419,10 @@ export function looksLikeQuickLog(message: string): boolean {
   const text = normalise(message)
   if (!text) return false
   const withoutPlace = text.replace(/\b(?:still |currently |now )?at\s+[a-z][a-z' ]*/, " ").trim()
-  return VERB.test(text.replace(LEAD, "").trim()) || VERB.test(withoutPlace.replace(LEAD, "").trim())
+  if (VERB.test(text.replace(LEAD, "").trim()) || VERB.test(withoutPlace.replace(LEAD, "").trim())) return true
+  // No verb, but a volume: "500ml water" is how half of these actually get
+  // typed. parseQuickLog still has to read the whole message.
+  return VOLUME.test(text)
 }
 
 /**
@@ -409,9 +441,19 @@ export function parseQuickLog(message: string, ctx: QuickLogContext): QuickLog |
   text = placed.rest
 
   text = text.replace(LEAD, "").trim()
-  if (!VERB.test(text)) return null
-  text = text.replace(VERB, "").trim()
+  // The verb is the usual signal, and "500ml water" carries none — it was the
+  // one shape of log line that always reached the model. Without a verb the
+  // message must carry a volume, which is what keeps a question out ("how much
+  // water today" has none), and the whole-message rule below still applies:
+  // every part parses or the message is not ours.
+  if (VERB.test(text)) text = text.replace(VERB, "").trim()
+  else if (!VOLUME.test(text)) return null
   if (!text) return null
+
+  // "beer 150ml 4.8% Elicea" — a strength reading runs straight into the next
+  // item with nothing between them for the split to find. The words the ABV
+  // pattern claims for itself are left alone, so "5% abv" stays one token.
+  text = text.replace(/%\s+(?!(?:alcohol|alc|abv|vol)\b)(?=[a-z])/g, "% and ")
 
   const parts = text.split(SEPARATOR).map(p => p.trim()).filter(Boolean)
   if (parts.length === 0 || parts.length > MAX_ITEMS) return null
