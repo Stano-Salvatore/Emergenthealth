@@ -379,11 +379,20 @@ Roughly in order, most recent first:
 - **The questions that were lookups, not judgements.** Of 59 questions ever
   asked in chat, about a third have one true answer the app already computes,
   and "How was my sleep this week?" was asked seven times word for word.
-  `src/lib/quick-answer.ts` recognises those five shapes (today's log, one
+  `src/lib/quick-answer.ts` recognises eleven shapes — today's log, one
   drink's total, today's doses, what is still circulating, sleep for a night or
-  a week) and `quick-answer-run.ts` answers them from the same helpers every
+  a week, the morning briefing the chat screen's button sends, the habits still
+  due, today's calendar, steps for a day or a week, caffeine in milligrams, and
+  the scale — and `quick-answer-run.ts` answers them from the same helpers every
   other reader uses, so a scripted answer and Emergy's can never disagree about
-  a number. **The refusals carry the design**: one word — why, compare, affect,
+  a number. Two questions that share a word are still two questions:
+  **caffeine is milligrams and coffee is millilitres**, so "how much caffeine
+  today" reads `CaffeineLog` while "how much coffee today" reads `IntakeLog`,
+  and "how much caffeine is still in me" is the body-load answer that already
+  existed. **A partial day is reported, never averaged**: today's step count is
+  a running total, so it is kept out of the week's mean and out of "fewest day"
+  and given its own sentence, on the same principle as the night that has not
+  happened above. **The refusals carry the design**: one word — why, compare, affect,
   should, think — hands the message straight back to him, as does a second
   question word, an unstated window, or anything over 120 characters. These
   answers report and never conclude; a test greps for verdict language and

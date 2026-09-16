@@ -2662,6 +2662,9 @@ export async function buildSystemPrompt(
   // was not actually given — see src/lib/chat-sources.ts.
   const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
   const sleepNights = Math.min(recentHealth.length, 7)
+  const shownHealth = recentHealth.slice(0, 7)
+  const stepDays = shownHealth.filter(h => h.steps != null).length
+  const weighDays = shownHealth.filter(h => h.weight != null).length
   const manifest: SourceManifest = {
     ...(sleepNights > 0 && { sleep: plural(sleepNights, "night") }),
     ...(recentNotes.length > 0 && { journal: plural(recentNotes.length, "entry", "entries") }),
@@ -2677,6 +2680,10 @@ export async function buildSystemPrompt(
     ...(latestLabByMarker.size > 0 && { labs: plural(latestLabByMarker.size, "marker") }),
     ...(medSchedules.length > 0 && { meds: plural(medSchedules.length, "schedule") }),
     ...(recentWorkouts.length > 0 && { workouts: plural(recentWorkouts.length, "workout") }),
+    // Steps and weight ride in the health block above, so he may cite them —
+    // counted over the seven days he is actually shown, not the thirty read.
+    ...(stepDays > 0 && { activity: plural(stepDays, "day") }),
+    ...(weighDays > 0 && { weight: plural(weighDays, "reading") }),
     ...(patternsStr && { patterns: plural(patternsStr.split("\n").length, "pattern") }),
     ...(memories.length > 0 && { memory: plural(memories.length, "note") }),
   }
