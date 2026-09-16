@@ -224,6 +224,42 @@
   --sidebar-to: #000000;
 }
 
+/* ── Sunny 🌤 (light, warm cream — from the Claude Design redesign) ──
+   A LIGHT theme: next-themes puts `.light` on the root and this attribute
+   rides on top of it, so it must sit below the `.light` block to win. */
+[data-theme="sunny"] {
+  --background: #fdf6ec;
+  --foreground: #3d3229;
+  --card: #ffffff;
+  --card-foreground: #3d3229;
+  --popover: #ffffff;
+  --popover-foreground: #3d3229;
+  --primary: #e0764f;
+  --primary-foreground: #ffffff;
+  --secondary: #f7efe2;
+  --secondary-foreground: #3d3229;
+  --muted: #f3e9da;
+  --muted-foreground: #8a7a68;
+  --accent: #f7efe2;
+  --accent-foreground: #3d3229;
+  --destructive: #e5484d;
+  --destructive-foreground: #ffffff;
+  --border: #eadfce;
+  --input: #eadfce;
+  --ring: #e0764f;
+  --radius: 1rem;            /* Sunny is rounder than the dark themes */
+  --sidebar-from: #f7efe2;
+  --sidebar-to: #fdf6ec;
+}
+/* Sunny's voice: Baloo 2 for headings, falling back to the app's own
+   display face. Prose and figures stay on Geist for its tabular numerals. */
+[data-theme="sunny"] h1,
+[data-theme="sunny"] h2,
+[data-theme="sunny"] .font-display {
+  font-family: var(--font-baloo), var(--font-bricolage), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
 /* ── Accent overrides ── */
 [data-accent="emerald"] { --primary: #10b981; --ring: #10b981; }
 [data-accent="rose"]    { --primary: #f43f5e; --ring: #f43f5e; }
@@ -233,6 +269,7 @@
 [data-accent="violet"]  { --primary: #8b5cf6; --ring: #8b5cf6; }
 [data-accent="teal"]    { --primary: #14b8a6; --ring: #14b8a6; }
 [data-accent="pink"]    { --primary: #ec4899; --ring: #ec4899; }
+[data-accent="coral"]   { --primary: #e0764f; --ring: #e0764f; }
 
 /* Defensive catch-all: no element (a wide flex row that refuses to shrink, a
    fixed-width chart, an unbroken string) may ever push the page wider than
@@ -291,6 +328,11 @@ h1, h2 {
 }
 [data-theme="ocean"] .text-gradient {
   background: linear-gradient(135deg, #7dd3fc 0%, #38bdf8 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+[data-theme="sunny"] .text-gradient {
+  background: linear-gradient(135deg, #e0764f 0%, #f5a623 100%);
   -webkit-background-clip: text;
   background-clip: text;
 }

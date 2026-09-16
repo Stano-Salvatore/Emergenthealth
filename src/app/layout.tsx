@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next"
-import { Geist, Geist_Mono, Bricolage_Grotesque } from "next/font/google"
+import { Geist, Geist_Mono, Bricolage_Grotesque, Baloo_2 } from "next/font/google"
 import "./globals.css"
 import { cookies } from "next/headers"
 import { SessionProvider } from "next-auth/react"
@@ -27,6 +27,14 @@ const geistMono = Geist_Mono({
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
   subsets: ["latin"],
+})
+
+// The Sunny theme's heading face (globals.css scopes it to data-theme="sunny");
+// every other theme keeps Bricolage.
+const baloo = Baloo_2({
+  variable: "--font-baloo",
+  subsets: ["latin"],
+  weight: ["600", "700", "800"],
 })
 
 export const metadata: Metadata = {
@@ -86,7 +94,7 @@ export async function generateViewport(): Promise<Viewport> {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${bricolage.variable} h-full`} suppressHydrationWarning>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${bricolage.variable} ${baloo.variable} h-full`} suppressHydrationWarning>
       <head>
         {/* Apply saved accent + base theme before paint to avoid flash */}
         <script
