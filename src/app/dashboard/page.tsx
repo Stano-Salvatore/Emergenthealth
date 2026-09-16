@@ -8,7 +8,8 @@ import { habitStreak, isDueOn } from "@/lib/habit-schedule"
 import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { isAlcohol } from "@/lib/body-load"
-import { getUpcomingEventsWithStatus } from "@/lib/google-calendar"
+import { getUpcomingEventsWithStatus, type CalendarEvent } from "@/lib/google-calendar"
+import { loadEventOccurrences } from "@/lib/app-events"
 import { getGmailSummary } from "@/lib/gmail"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -195,7 +196,7 @@ export default async function DashboardPage() {
     userGoals,
     todayCheckin,
     checkinStreakRows,
-    healthLogs, habits, reminders, transactions, calendar, gmailData, todayIntake, todayFocus, todayOuraTags,
+    healthLogs, habits, reminders, transactions, calendar, appEvents, gmailData, todayIntake, todayFocus, todayOuraTags,
   ] = await Promise.all([
     getGoals(userId),
     prisma.$queryRaw<{id: string}[]>`
@@ -236,6 +237,9 @@ export default async function DashboardPage() {
       where: { userId, date: { gte: monthStart }, isTransfer: false },
     }),
     getUpcomingEventsWithStatus(userId, 14),
+    // The app's own events (AppEvent — what the calendar composer writes).
+    // Same 14-day window as the Google + phone merge above.
+    loadEventOccurrences(userId, new Date(), new Date(Date.now() + 14 * 86_400_000), timezone).catch(() => []),
     // Gmail is feature-flagged off in V3 — skip the external API round-trip
     isFeatureEnabled("gmail")
       ? getGmailSummary(userId)
@@ -346,7 +350,32 @@ export default async function DashboardPage() {
     if (!e.start) return null
     try { return e.isAllDay ? new Date(e.start+"T00:00:00") : parseISO(e.start) } catch { return null }
   }
-  const calendarEvents = calendar.events
+  // Three sources, one list. The calendar page has always shown the app's
+  // own events (AppEvent); this card only ever saw Google and the phone, so
+  // an event created with the app's composer was missing from "Up next".
+  // Dedupe at minute granularity against a phone-calendar mirror of the same
+  // event, the same rule the Google/device merge already applies.
+  const eventKey = (e: { title: string; start: string | null }) =>
+    `${e.title.trim().toLowerCase()}|${(e.start ?? "").slice(0, 16)}`
+  const seenEvents = new Set(calendar.events.map(eventKey))
+  const calendarEvents: CalendarEvent[] = [...calendar.events]
+  for (const o of appEvents) {
+    if (seenEvents.has(eventKey(o))) continue
+    seenEvents.add(eventKey(o))
+    calendarEvents.push({
+      id: o.id, title: o.title, description: o.description, location: o.location,
+      start: o.start, end: o.end, isAllDay: o.isAllDay, url: null, color: o.color, source: "app",
+    })
+  }
+  // Chronological across sources, all-day entries heading their day. The old
+  // list was ordered per source, so a phone event could trail a later Google
+  // one and be cut by the slice below.
+  const eventInstant = (e: { start: string | null; isAllDay: boolean }) => {
+    if (!e.start) return Number.MAX_SAFE_INTEGER
+    const t = Date.parse(e.isAllDay ? e.start.slice(0, 10) + "T00:00:00Z" : e.start)
+    return Number.isNaN(t) ? Number.MAX_SAFE_INTEGER : t
+  }
+  calendarEvents.sort((a, b) => eventInstant(a) - eventInstant(b))
   // A linked Google account that did not answer is not an empty day. The card
   // used to say "Enjoy your day!" over a lapsed grant.
   const calendarFailed = calendar.google === "failed"
@@ -717,7 +746,8 @@ export default async function DashboardPage() {
                           />
                           <div>
                             <p className="text-xs text-muted-foreground leading-tight truncate">{e.title}</p>
-                            <p className="text-[10px] text-muted-foreground/60">{d?(isTomorrow(d)?"Tomorrow":format(d,"EEE MMM d")):""}</p>
+                            {/* The mobile card already prints the hour; this one said only the day. */}
+                            <p className="text-[10px] text-muted-foreground/60">{d?(isTomorrow(d)?"Tomorrow":format(d,"EEE MMM d")):""}{e.start && !e.isAllDay ? ` · ${eventTime(e.start, timezone)}` : ""}</p>
                           </div>
                         </div>
                       )
