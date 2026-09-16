@@ -26,6 +26,7 @@ model User {
   habits               Habit[]
   reminders            Reminder[]
   chatMessages         ChatMessage[]
+  chatTurns            ChatTurn[]
   chatConversations    ChatConversation[]
   mcpApiKeys           McpApiKey[]
   fitToken             FitToken?
@@ -585,6 +586,41 @@ model ChatMessage {
 
   @@index([userId, createdAt])
   @@index([conversationId, createdAt])
+}
+
+/// One model turn, and what it cost.
+///
+/// The per-turn figures were only ever written to the runtime log, and this
+/// project keeps about a day of those — at one or two messages a day, "read a
+/// week of turn lines" was never going to reach a week. A row survives, so the
+/// question the EMERGY_CHAT_EFFORT knob exists to answer becomes a query.
+///
+/// `effort` is stored on the row rather than inferred from a date, so the two
+/// arms are told apart by their own label and the setting can be moved back and
+/// forth without ruining the comparison.
+model ChatTurn {
+  id       String @id @default(cuid())
+  userId   String
+  /// Which model answered, so a price change or a model switch stays readable.
+  model    String
+  /// The effort this turn ran at, or "default" when the variable is unset.
+  effort   String
+  /// Index within the one user message: 0, then one per tool round trip.
+  turn     Int
+  stopReason String?
+
+  inputTokens      Int
+  outputTokens     Int
+  cacheReadTokens  Int @default(0)
+  cacheWriteTokens Int @default(0)
+  /// Dollars, priced at the time of the turn. Null for a model with no price.
+  costUsd          Float?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model ChatConversation {

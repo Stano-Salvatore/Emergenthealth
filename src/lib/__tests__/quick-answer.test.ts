@@ -140,6 +140,26 @@ describe("parseQuickAsk — the five that were still costing a model turn", () =
   })
 })
 
+describe("parseQuickAsk — what Emergy costs", () => {
+  it("answers the question the effort knob exists to settle", () => {
+    expect(parseQuickAsk("what have you cost me")).toEqual({ kind: "chat_spend" })
+    expect(parseQuickAsk("how much do you cost")).toEqual({ kind: "chat_spend" })
+    expect(parseQuickAsk("what has emergy cost so far")).toEqual({ kind: "chat_spend" })
+    expect(parseQuickAsk("how many tokens do you use")).toEqual({ kind: "chat_spend" })
+  })
+
+  it.each([
+    // The app holds their bank transactions too, so a bare spending question
+    // is about their money and belongs to him, not to this.
+    ["how much did I spend this week?", "their money, not his"],
+    ["what did I spend on groceries today?", "their money, not his"],
+    ["how much does a coffee cost here?", "no mention of him"],
+    ["are you worth what you cost?", "worth is a judgement"],
+  ])("%s → his (%s)", message => {
+    expect(parseQuickAsk(message)).toBeNull()
+  })
+})
+
 describe("parseQuickAsk — his, not ours", () => {
   it.each([
     // Real questions from the transcript that want a judgement.
@@ -179,6 +199,7 @@ describe("the answers stay in front of the model, and stay honest", () => {
   const run = readFileSync("src/lib/quick-answer-run.ts", "utf8")
   const chart = readFileSync("src/app/api/chat/chart/route.ts", "utf8")
   const markdown = readFileSync("src/components/emergy/ChatMarkdown.tsx", "utf8")
+  const claude = readFileSync("src/lib/claude.ts", "utf8")
 
   it("runs before streamChatEvents", () => {
     expect(route.indexOf("runQuickAnswer")).toBeGreaterThan(-1)
@@ -240,6 +261,22 @@ describe("the answers stay in front of the model, and stay honest", () => {
     // "fewest": at 09:00 today is the lowest day of any week there has been.
     expect(run).toMatch(/const done = counted\.filter\(r => r\.day !== today\)/)
     expect(run).toMatch(/const avg = total \/ done\.length/)
+  })
+
+  it("keeps the cost of a turn in a row, not only in a log line", () => {
+    // Runtime logs on this project last about a day. At one or two messages a
+    // day, "read a week of turn lines" never has a week to read.
+    expect(claude).toContain("prisma.chatTurn.create")
+    // Fire and forget: a failed insert must never cost the user their answer.
+    expect(claude).toMatch(/void prisma\.chatTurn\.create/)
+    expect(claude).toMatch(/\}\)\.catch\(\(\) => \{\}\)/)
+    // The label is stored, so the two arms separate by their own name rather
+    // than by a date, and the setting can move back and forth.
+    expect(claude).toMatch(/effort: effort \?\? "default"/)
+  })
+
+  it("does not tell the user one arm is a comparison", () => {
+    expect(run).toContain("nothing to compare it against yet")
   })
 
   it("has one floor for 'still circulating', not two", () => {
