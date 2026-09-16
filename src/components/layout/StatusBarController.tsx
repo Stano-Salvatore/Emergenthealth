@@ -24,13 +24,14 @@ export function StatusBarController() {
     const cap = (window as any).Capacitor
     if (!cap?.isNativePlatform?.()) return
 
+    const theme = document.documentElement.getAttribute("data-theme")
     const isLight =
       document.documentElement.classList.contains("light") ||
-      document.documentElement.getAttribute("data-theme") === "light"
+      theme === "light" || theme === "sunny"
 
     // Match the app background so the bar is seamless. Keep in sync with the
     // --background values in globals.css.
-    const barColor = isLight ? "#f5f5fb" : "#09090f"
+    const barColor = theme === "sunny" ? "#fdf6ec" : isLight ? "#f5f5fb" : "#09090f"
 
     import("@capacitor/status-bar")
       .then(({ StatusBar, Style }) => {

@@ -4,7 +4,12 @@ import { useTheme } from "next-themes"
 import { readLocalString, useClientValue, useLocalSetting } from "@/lib/use-client-value"
 import { cn } from "@/lib/utils"
 
+// Sunny and Light are light-mode themes: next-themes gets "light" and the
+// data-theme attribute carries the palette on top. Every other entry is dark.
+const LIGHT_MODE_THEMES = new Set(["light", "sunny"])
+
 const BASE_THEMES = [
+  { id: "sunny",    label: "Sunny",    emoji: "🌤",  bg: "#fdf6ec", fg: "#e0764f", desc: "Warm cream" },
   { id: "midnight", label: "Midnight", emoji: "🌑", bg: "#09090f", fg: "#818cf8", desc: "Cool dark" },
   { id: "warm",     label: "Warm",     emoji: "☕", bg: "#120d06", fg: "#f59e0b", desc: "Cozy amber" },
   { id: "forest",   label: "Forest",   emoji: "🌿", bg: "#07100a", fg: "#22c55e", desc: "Deep green" },
@@ -23,6 +28,7 @@ const ACCENTS = [
   { id: "emerald", label: "Emerald", color: "#10b981" },
   { id: "teal",    label: "Teal",    color: "#14b8a6" },
   { id: "sky",     label: "Sky",     color: "#0ea5e9" },
+  { id: "coral",   label: "Coral",   color: "#e0764f" },
 ]
 
 export function ThemeSwitcher() {
@@ -37,9 +43,10 @@ export function ThemeSwitcher() {
   function applyBaseTheme(id: string) {
     setBaseTheme(id)
     localStorage.setItem("base_theme", id)
-    if (id === "light") {
+    if (LIGHT_MODE_THEMES.has(id)) {
       setTheme("light")
-      document.documentElement.removeAttribute("data-theme")
+      if (id === "light") document.documentElement.removeAttribute("data-theme")
+      else document.documentElement.setAttribute("data-theme", id)
     } else {
       setTheme("dark")
       if (id === "midnight") {
