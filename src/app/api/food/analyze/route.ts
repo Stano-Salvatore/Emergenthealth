@@ -28,6 +28,7 @@ export async function POST(req: Request) {
 
   try {
     const analysis = await analyzeMealPhoto(image, {
+      userId: session.user.id,
       hint: typeof hint === "string" ? hint : undefined,
       labelImageDataUrl: labelOk ? label : undefined,
       previous: previous && typeof previous === "object" ? previous : undefined,

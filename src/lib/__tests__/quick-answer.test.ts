@@ -266,17 +266,29 @@ describe("the answers stay in front of the model, and stay honest", () => {
   it("keeps the cost of a turn in a row, not only in a log line", () => {
     // Runtime logs on this project last about a day. At one or two messages a
     // day, "read a week of turn lines" never has a week to read.
-    expect(claude).toContain("prisma.chatTurn.create")
-    // Fire and forget: a failed insert must never cost the user their answer.
-    expect(claude).toMatch(/void prisma\.chatTurn\.create/)
-    expect(claude).toMatch(/\}\)\.catch\(\(\) => \{\}\)/)
-    // The label is stored, so the two arms separate by their own name rather
-    // than by a date, and the setting can move back and forth.
-    expect(claude).toMatch(/effort: effort \?\? "default"/)
+    expect(claude).toContain("recordModelTurn")
+    expect(claude).toMatch(/feature: "chat"/)
+    // One row per tool round trip, so a message that called three tools reads
+    // as the three turns it really was.
+    expect(claude).toMatch(/effort, turn,/)
+  })
+
+  it("answers by feature first, because that is what a surprising bill asks", () => {
+    expect(run).toContain("prisma.modelTurn.findMany")
+    expect(run).toMatch(/tally\(r => r\.feature\)/)
+    // The effort split is chat's alone: the photo paths choose their own
+    // effort per call, so mixing them would compare a meal guess to a chat.
+    expect(run).toMatch(/priced\.filter\(r => r\.feature === "chat"\)/)
   })
 
   it("does not tell the user one arm is a comparison", () => {
     expect(run).toContain("nothing to compare it against yet")
+  })
+
+  it("never prints a real cost as $0.00", () => {
+    // The briefing runs on Haiku and genuinely costs under a cent a call;
+    // "$0.00" beside the other lines would read as free.
+    expect(run).toMatch(/const money = \(n: number\) => \(n >= 0\.01 \? /)
   })
 
   it("has one floor for 'still circulating', not two", () => {

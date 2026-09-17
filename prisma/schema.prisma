@@ -26,7 +26,7 @@ model User {
   habits               Habit[]
   reminders            Reminder[]
   chatMessages         ChatMessage[]
-  chatTurns            ChatTurn[]
+  modelTurns           ModelTurn[]
   chatConversations    ChatConversation[]
   mcpApiKeys           McpApiKey[]
   fitToken             FitToken?
@@ -595,17 +595,26 @@ model ChatMessage {
 /// week of turn lines" was never going to reach a week. A row survives, so the
 /// question the EMERGY_CHAT_EFFORT knob exists to answer becomes a query.
 ///
-/// `effort` is stored on the row rather than inferred from a date, so the two
-/// arms are told apart by their own label and the setting can be moved back and
+/// `effort` is stored on the row rather than inferred from a date, so the arms
+/// are told apart by their own label and the setting can be moved back and
 /// forth without ruining the comparison.
-model ChatTurn {
+///
+/// Mapped to the table it was born as. Chat was the only caller for a day, and
+/// renaming a table under `prisma db push` is a drop and a create — the build
+/// runs that command without --accept-data-loss, so the rename would have
+/// failed the deploy rather than quietly losing rows. The model carries the
+/// honest name; the table keeps the old one.
+model ModelTurn {
   id       String @id @default(cuid())
   userId   String
   /// Which model answered, so a price change or a model switch stays readable.
   model    String
-  /// The effort this turn ran at, or "default" when the variable is unset.
+  /// Which part of the app spent this. The Console gives one total for the
+  /// whole app; this is what says which feature it went on.
+  feature  String @default("chat")
+  /// The effort this turn ran at, or "default" when nothing set one.
   effort   String
-  /// Index within the one user message: 0, then one per tool round trip.
+  /// Index within one request: 0, then one per tool round trip.
   turn     Int
   stopReason String?
 
@@ -621,6 +630,7 @@ model ChatTurn {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+  @@map("ChatTurn")
 }
 
 model ChatConversation {

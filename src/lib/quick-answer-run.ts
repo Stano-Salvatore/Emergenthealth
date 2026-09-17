@@ -365,9 +365,13 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
  */
 const num = (n: number) => new Intl.NumberFormat("en-GB").format(Math.round(n))
 
-/** Dollars as a person reads them; a chat turn costs cents, so cents get their own. */
-const money = (n: number) => `$${n.toFixed(2)}`
+/**
+ * Dollars as a person reads them, falling back to cents below a cent —
+ * `$0.00` beside a real figure reads as free, and the briefing genuinely does
+ * cost less than a cent a call.
+ */
 const cents = (n: number) => (n >= 0.01 ? `${(n * 100).toFixed(1)}c` : `${(n * 100).toFixed(2)}c`)
+const money = (n: number) => (n >= 0.01 ? `$${n.toFixed(2)}` : cents(n))
 
 /** A weight as a scale reads it: one decimal, never 78.40000000000001. */
 const kg = (n: number) => `${Math.round(n * 10) / 10}kg`
@@ -601,57 +605,84 @@ async function eventsToday(userId: string, tz: string): Promise<QuickAnswer> {
 }
 
 /**
- * What Emergy has cost, split by the effort each turn ran at.
+ * What the app has spent on models, by feature and then by effort.
  *
- * This is the readout `EMERGY_CHAT_EFFORT` was wired for. The per-turn log
- * line cannot be it — this project keeps about a day of runtime logs, so a
- * week of them never exists at once — which is why every turn also writes a
- * row. The split is by the label on the row rather than by date, so the
- * setting can be moved back and forth and the two arms still separate.
+ * The Console gives one total for the whole organisation — it will say $8 this
+ * month and cannot say whether that went on chat, the weekly review or one
+ * photographed lab printout. This is the split, and the feature line comes
+ * first because that is the question a surprising bill actually asks.
+ *
+ * The effort lines are the `EMERGY_CHAT_EFFORT` readout. The per-turn log line
+ * cannot be it — this project keeps about a day of runtime logs, so a week of
+ * them never exists at once — which is why every call writes a row. The arms
+ * are split by the label on the row rather than by date, so the setting can be
+ * moved back and forth and they still separate.
  *
  * It reports. Whether the cheaper answers were as good is not a thing a row
  * knows, and this file does not pretend otherwise.
  */
 async function chatSpend(userId: string, tz: string): Promise<QuickAnswer> {
-  const rows = await prisma.chatTurn.findMany({
+  const rows = await prisma.modelTurn.findMany({
     where: { userId },
     orderBy: { createdAt: "asc" },
-    select: { effort: true, costUsd: true, outputTokens: true, createdAt: true },
+    select: { feature: true, effort: true, costUsd: true, outputTokens: true, createdAt: true },
   }).catch(() => [])
 
-  if (rows.length === 0) return { reply: "No model turns recorded yet.", sources: [] }
+  if (rows.length === 0) return { reply: "No model calls recorded yet.", sources: [] }
 
   const day = (d: Date) => pretty(localDateStr(tz, d))
   const priced = rows.filter(r => r.costUsd != null)
   const unpriced = rows.length - priced.length
   const total = priced.reduce((s, r) => s + (r.costUsd ?? 0), 0)
 
-  const byEffort = new Map<string, { turns: number; usd: number; out: number }>()
-  for (const r of priced) {
-    const e = byEffort.get(r.effort) ?? { turns: 0, usd: 0, out: 0 }
-    e.turns += 1
-    e.usd += r.costUsd ?? 0
-    e.out += r.outputTokens
-    byEffort.set(r.effort, e)
+  interface Bucket { turns: number; usd: number; out: number }
+  const tally = (key: (r: typeof priced[number]) => string) => {
+    const m = new Map<string, Bucket>()
+    for (const r of priced) {
+      const b = m.get(key(r)) ?? { turns: 0, usd: 0, out: 0 }
+      b.turns += 1
+      b.usd += r.costUsd ?? 0
+      b.out += r.outputTokens
+      m.set(key(r), b)
+    }
+    // Dearest first: the point of the split is finding where the money went.
+    return [...m.entries()].sort((a, b) => b[1].usd - a[1].usd)
   }
 
-  const lines = [...byEffort.entries()]
-    .sort((a, b) => b[1].turns - a[1].turns)
-    .map(([effort, e]) =>
-      `- **${effort}**: ${money(e.usd)} over ${e.turns} ${e.turns === 1 ? "turn" : "turns"}, ${cents(e.usd / e.turns)} each, ${num(Math.round(e.out / e.turns))} output tokens a turn`)
+  const line = ([label, b]: [string, Bucket]) =>
+    `- **${label}**: ${money(b.usd)} over ${b.turns} ${b.turns === 1 ? "call" : "calls"}, ${cents(b.usd / b.turns)} each, ${num(Math.round(b.out / b.turns))} output tokens a call`
 
-  // One arm is not a comparison. Saying so is the honest version of a table
-  // with a single row in it.
-  const verdict = byEffort.size < 2
-    ? `\n\nOnly one effort setting is in the record, so there is nothing to compare it against yet.`
+  const byFeature = tally(r => r.feature)
+  const chatRows = priced.filter(r => r.feature === "chat")
+
+  // The effort table is only worth printing when there are two arms in it, and
+  // only for chat — the photo paths set their own effort per call, so mixing
+  // them in would compare a first-pass meal guess against a chat answer.
+  const chatOnly = new Map<string, Bucket>()
+  for (const r of chatRows) {
+    const b = chatOnly.get(r.effort) ?? { turns: 0, usd: 0, out: 0 }
+    b.turns += 1
+    b.usd += r.costUsd ?? 0
+    b.out += r.outputTokens
+    chatOnly.set(r.effort, b)
+  }
+  const effortLines = [...chatOnly.entries()].sort((a, b) => b[1].usd - a[1].usd)
+  const effortBlock = effortLines.length >= 2
+    ? `\n\nChat, by effort:\n\n${effortLines.map(line).join("\n")}`
+    : chatRows.length > 0
+      ? `\n\nChat has only run at **${effortLines[0][0]}** effort so far, so there is nothing to compare it against yet.`
+      : ""
+
+  const missing = unpriced > 0
+    ? ` ${unpriced} ${unpriced === 1 ? "call has" : "calls have"} no price — the model was not one this app knows a rate for.`
     : ""
-  const missing = unpriced > 0 ? ` ${unpriced} ${unpriced === 1 ? "turn has" : "turns have"} no price — the model was not one this app knows a rate for.` : ""
 
   return {
-    reply: `Since ${day(rows[0].createdAt)}, Emergy's model turns have cost **${money(total)}** across ${priced.length} ${priced.length === 1 ? "turn" : "turns"}.${missing}\n\n${lines.join("\n")}${verdict}`,
+    reply: `Since ${day(rows[0].createdAt)}, models have cost **${money(total)}** across ${priced.length} ${priced.length === 1 ? "call" : "calls"}.${missing}\n\n${byFeature.map(line).join("\n")}${effortBlock}`,
     sources: [],
   }
 }
+
 
 async function briefing(userId: string, tz: string): Promise<QuickAnswer> {
   const today = localDateStr(tz)

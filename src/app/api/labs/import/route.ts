@@ -30,7 +30,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const parsed = await analyzeLabDocument(document)
+    const parsed = await analyzeLabDocument(document, session.user.id)
     if (!parsed) {
       return NextResponse.json({ error: "Couldn't read that file. A PNG, JPEG or PDF of the report works best." }, { status: 422 })
     }

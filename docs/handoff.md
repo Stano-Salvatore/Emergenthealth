@@ -419,6 +419,29 @@ Roughly in order, most recent first:
   named in the prompt has to be one of six with genuinely cross-tool policy,
   and a rule that belongs to one tool goes in that tool's description, where it
   is read at the moment it matters.
+- **The Console gives one total; the rows say which feature spent it.** Seven
+  places call the API — chat, the briefing, the habit garden, the health
+  report, the weekly review, a meal photo, a lab document — and for a day only
+  chat recorded anything, so a 1.4M-token week had no explanation in it. The
+  guard finds those callers by walking `src/` for `messages.create` and
+  `messages.stream`, not from a list: the first version of it carried six
+  hand-written paths and passed while the garden spent money unrecorded, and
+  the second missed chat itself, whose call streams rather than creates. Every call now
+  writes a `ModelTurn` row carrying the feature, the model and the effort, and
+  "what have you cost me" reports the split, dearest feature first, with chat's
+  effort arms underneath. `model-spend.test.ts` fails if a seventh caller
+  appears without an entry, or an entry without a caller. Two of the six had
+  no user to bill — `analyzeMealPhoto` and `analyzeLabDocument` took only a
+  data URL — so the routes thread one in. The Prisma model is `ModelTurn` and
+  `@@map`s to the table it was born as, `ChatTurn`: renaming a table under
+  `prisma db push` is a drop and a create, and the build runs that command
+  without `--accept-data-loss`, so the rename would have failed the deploy.
+- **Read the bill before optimising it.** Measured on the real account: 85%
+  prompt-cache hit rate, so the prefix is mostly billed at a tenth and prefix
+  trimming is worth about a quarter of its face value. That is why the tool
+  search idea was dropped rather than built — it would have traded ~6,000
+  already-cheap prefix tokens for a discovery round trip billing full output
+  tokens. Output is where the money is, which makes effort the lever.
 - **The per-turn log line ends in dollars.** `EMERGY_CHAT_EFFORT` is wired,
   validated and deliberately unset — chat is the workload that most often holds
   quality a step below the default, and stepping it down is an experiment
@@ -594,15 +617,11 @@ Roughly in order, most recent first:
      then read a week of `[emergy] turn` lines: they now carry `usd`, so the
      before-and-after is a subtraction rather than a study. Step back up if the
      answers get thinner.
-  2. **The 41 tool schemas, ~8,100 tokens on every turn.** The right fix is not
-     a hand-rolled router but the API's own tool-search tool
-     (`tool_search_tool_bm25_20251119` with `defer_loading: true` on the rest):
-     Claude finds what it needs, and discovered schemas are *appended*, so the
-     cached prefix survives. It trades a discovery round trip on turns that use
-     a tool against ~6,000 tokens saved on turns that do not. That trade needs
-     to be measured against the real model before it ships, and this
-     environment has no API key — which is exactly why it is written down here
-     rather than half-built.
+  2. ~~**The 41 tool schemas behind the API's tool-search tool.**~~ Closed
+     without building it. The account's cache hit rate is 85%, so those ~8,100
+     prefix tokens are mostly already billed at a tenth; the discovery round
+     trip would cost full output tokens to save input tokens that are cheap.
+     Reconsider only if the hit rate collapses.
 
 - **Bedtime as a sleep-panel cause.** The panel already measures bedtime, but
   only as the confound note pinned to every *other* cause ("some of this gap

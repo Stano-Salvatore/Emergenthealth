@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import Anthropic from "@anthropic-ai/sdk"
 import { HAIKU } from "@/lib/models"
+import { recordModelTurn } from "@/lib/model-spend"
 
 const anthropic = new Anthropic()
 
@@ -48,6 +49,11 @@ Be specific about their actual habits when relevant. Never make up data not in t
     max_tokens: 160,
     system,
     messages,
+  })
+
+  recordModelTurn({
+    userId: session.user.id, model: HAIKU, feature: "garden",
+    stopReason: response.stop_reason, usage: response.usage,
   })
 
   const text = response.content[0]?.type === "text" ? response.content[0].text : ""

@@ -8,6 +8,7 @@ import { fold } from "@/lib/supplement-normalize"
 import { formatDose, sumDoses, type ParsedDose } from "@/lib/dose"
 import type { InsightResult } from "@/lib/correlations"
 import { OPUS } from "@/lib/models"
+import { recordModelTurn } from "@/lib/model-spend"
 
 // The clinical summary. Everything else this app produces is written for the
 // person living the data; this one is written for the fifteen minutes they get
@@ -433,6 +434,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
         system: CLINICAL_SYSTEM,
         messages: [{ role: "user", content: `Write the summary section for this report.\n\n${context}` }],
       })
+      recordModelTurn({ userId, model: OPUS, feature: "health report", stopReason: res.stop_reason, usage: res.usage })
       narrative = res.stop_reason === "refusal" ? "" : res.content.map(c => (c.type === "text" ? c.text : "")).join("").trim()
     } catch {
       narrative = ""

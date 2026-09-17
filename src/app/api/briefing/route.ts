@@ -11,6 +11,7 @@ import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { loadLabTrends } from "@/lib/lab-trends-load"
 import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
 import { HAIKU } from "@/lib/models"
+import { recordModelTurn } from "@/lib/model-spend"
 import { getGoals } from "@/lib/goals"
 import { loadWeightSeries } from "@/lib/weight-series"
 import { weightGoalProgress } from "@/lib/weight-trend"
@@ -344,6 +345,14 @@ This renders in a speech bubble with your face on it and your name under it, so 
 ${context}`,
       },
     ],
+  })
+
+  // The one call in the app that does not run on Opus, which is the point of
+  // recording it: the same brief costs a fifth here, and the split by feature
+  // is what shows that.
+  recordModelTurn({
+    userId, model: HAIKU, feature: "briefing",
+    stopReason: response.stop_reason, usage: response.usage,
   })
 
   const briefing = response.content[0].type === "text" ? response.content[0].text.trim() : ""
