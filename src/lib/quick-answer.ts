@@ -47,13 +47,15 @@ export type QuickAsk =
   | { kind: "caffeine_today" }
   /** The latest weight, or every reading in the last seven days. */
   | { kind: "weight"; window: "latest" | "week" }
+  /** What Emergy's own model turns have cost, split by the effort they ran at. */
+  | { kind: "chat_spend" }
 
 /**
  * Words that turn a lookup into an argument. Any of these and the message is
  * Emergy's, however well the rest of it matches — he is the one who can weigh
  * a cause, and a scripted sentence that pretends to is worse than a slow one.
  */
-const NEEDS_JUDGEMENT = /\b(?:why|how come|because|affect|affects|affecting|impact|impacts|influence|cause|causes|correlat\w*|compare|comparison|versus|vs|should|would|could|think|opinion|advice|advise|recommend|suggest|explain|mean|means|meaning|worry|worried|watch for|improve|better|worse|fix|help|best|worst thing|enough|interesting|insight\w*|pattern\w*|trend\w*|predict)\b/
+const NEEDS_JUDGEMENT = /\b(?:why|how come|because|affect|affects|affecting|impact|impacts|influence|cause|causes|correlat\w*|compare|comparison|versus|vs|should|would|could|think|opinion|advice|advise|recommend|suggest|explain|mean|means|meaning|worry|worried|watch for|improve|better|worse|fix|help|best|worst thing|enough|worth|worthwhile|interesting|insight\w*|pattern\w*|trend\w*|predict)\b/
 
 /** A drink type the app stores, with the word people use for it. */
 const INTAKE_WORDS: { re: RegExp; type: string; label: string }[] = [
@@ -88,6 +90,14 @@ const HABIT_LEFT = /\b(?:left|remaining|missing|due|still|outstanding|to do|todo
 /** The day's calendar. Both halves matter: the word, or the phrasing. */
 const CALENDAR_WORDS = /\b(?:calendar|schedule|agenda|diary|meetings?|appointments?|events?)\b/
 const WHATS_ON = /\bwhat(?:['’]?s)? (?:on|up|happening)\b|\bwhat do i have\b|\bwhat have i got\b/
+
+/**
+ * What Emergy costs to run. Both halves are required, and the first is what
+ * keeps this apart from a question about money: the app also holds their bank
+ * transactions, so "how much did I spend this week" is theirs, not his.
+ */
+const SPEND_WORDS = /\b(?:cost|costs|costing|spend|spent|spending|bill|expensive|tokens?)\b/
+const IS_ABOUT_EMERGY = /\b(?:you|your|yours|yourself|emergy|emergi|this chat|our chats?)\b/
 
 const STEPS = /\b(?:steps|step count|kroky|krokov)\b/
 
@@ -158,6 +168,10 @@ export function parseQuickAsk(message: string): QuickAsk | null {
   // "what did I eat today and how much water?" asks two things and only ends
   // with one question mark. Two question words is the tell.
   if ((text.match(QUESTION_STEM) ?? []).length > 1) return null
+
+  // What Emergy costs to run. No window is asked for because the answer names
+  // its own — the record starts the day it started being kept.
+  if (SPEND_WORDS.test(text) && IS_ABOUT_EMERGY.test(text)) return { kind: "chat_spend" }
 
   // Sleep, the most asked thing here by a distance.
   if (SLEEP.test(text)) {

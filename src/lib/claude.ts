@@ -2954,14 +2954,33 @@ export async function* streamChatEvents(
     lastStop = response.stop_reason
     // One line per model turn in the runtime logs. Output tokens include the
     // thinking, so this is the number that moves when the effort changes.
+    // The number the effort knob is judged on. Four token counts that all
+    // moved are not an answer; input and output are priced five times apart.
+    const costUsd = turnCostUsd(OPUS, response.usage)
     console.info("[emergy] turn", JSON.stringify({
       turn, stop: response.stop_reason, effort: effort ?? "default",
       in: response.usage.input_tokens, out: response.usage.output_tokens,
       cacheRead: response.usage.cache_read_input_tokens ?? 0, cacheWrite: response.usage.cache_creation_input_tokens ?? 0,
-      // The number the effort knob is judged on. Four token counts that all
-      // moved are not an answer; input and output are priced five times apart.
-      usd: turnCostUsd(OPUS, response.usage),
+      usd: costUsd,
     }))
+    // And a row, because the log line does not survive long enough to answer
+    // the question it was added for: this project keeps about a day of runtime
+    // logs, and at one or two messages a day a week of them never exists at
+    // once. The effort is stored on the row rather than inferred from a date,
+    // so the two arms are told apart by their own label and the setting can
+    // move back and forth without ruining the comparison. Fire and forget: a
+    // failed insert must never cost the user their answer.
+    void prisma.chatTurn.create({
+      data: {
+        userId, model: OPUS, effort: effort ?? "default", turn,
+        stopReason: response.stop_reason,
+        inputTokens: response.usage.input_tokens,
+        outputTokens: response.usage.output_tokens,
+        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
+        costUsd,
+      },
+    }).catch(() => {})
 
     if (response.stop_reason !== "tool_use") break
 
