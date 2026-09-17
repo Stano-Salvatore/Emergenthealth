@@ -11,6 +11,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { canonicalMarker } from "@/lib/lab-markers"
 import { OPUS } from "@/lib/models"
+import { recordModelTurn } from "@/lib/model-spend"
 
 const anthropic = new Anthropic()
 
@@ -102,7 +103,7 @@ const PROMPT =
  * model refusal). Anything readable comes back with the rows it found, which
  * may legitimately be none.
  */
-export async function analyzeLabDocument(dataUrl: string): Promise<ParsedLabReport | null> {
+export async function analyzeLabDocument(dataUrl: string, userId: string): Promise<ParsedLabReport | null> {
   const doc = parseDocumentDataUrl(dataUrl)
   if (!doc) return null
 
@@ -122,6 +123,12 @@ export async function analyzeLabDocument(dataUrl: string): Promise<ParsedLabRepo
     messages: [{ role: "user", content: [block, { type: "text", text: PROMPT }] }],
   })
 
+  // Required rather than optional, unlike the meal photo: this is the most
+  // expensive single call in the app, and it has exactly one caller.
+  recordModelTurn({
+    userId, model: OPUS, feature: "lab document", effort: "high",
+    stopReason: response.stop_reason, usage: response.usage,
+  })
   if (response.stop_reason === "refusal") return null
   const text = response.content.find(b => b.type === "text")?.text
   if (!text) return null

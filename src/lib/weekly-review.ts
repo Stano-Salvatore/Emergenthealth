@@ -6,6 +6,7 @@ import { buildSystemPrompt } from "@/lib/claude"
 import { addDaysISO, localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { OPUS } from "@/lib/models"
+import { recordModelTurn } from "@/lib/model-spend"
 
 // The weekly review used to be three different things: a Sunday email with
 // bare averages, a dashboard button that asked Haiku for 200 generic words,
@@ -177,6 +178,7 @@ Keep it under 250 words.`
     system: systemPrompt,
     messages: [{ role: "user", content: instruction }],
   })
+  recordModelTurn({ userId, model: OPUS, feature: "weekly review", stopReason: response.stop_reason, usage: response.usage })
   if (response.stop_reason === "refusal") return null
 
   const narrative = response.content

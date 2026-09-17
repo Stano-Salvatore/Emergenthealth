@@ -34,6 +34,7 @@ import { DAILY_MAX_DAYS, renderWeek, rollupWeeks, type DailyMetrics } from "@/li
 import { parseDose, formatDose } from "@/lib/dose"
 import { OPUS } from "@/lib/models"
 import { turnCostUsd } from "@/lib/model-cost"
+import { recordModelTurn } from "@/lib/model-spend"
 import { trimToUserTurn } from "@/lib/chat-turns"
 import { parseSaid, SAID_KEY } from "@/lib/emergy-say"
 import { weightSlopeKgWk, weightTrend } from "@/lib/weight-trend"
@@ -2966,21 +2967,12 @@ export async function* streamChatEvents(
     // And a row, because the log line does not survive long enough to answer
     // the question it was added for: this project keeps about a day of runtime
     // logs, and at one or two messages a day a week of them never exists at
-    // once. The effort is stored on the row rather than inferred from a date,
-    // so the two arms are told apart by their own label and the setting can
-    // move back and forth without ruining the comparison. Fire and forget: a
-    // failed insert must never cost the user their answer.
-    void prisma.chatTurn.create({
-      data: {
-        userId, model: OPUS, effort: effort ?? "default", turn,
-        stopReason: response.stop_reason,
-        inputTokens: response.usage.input_tokens,
-        outputTokens: response.usage.output_tokens,
-        cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
-        cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
-        costUsd,
-      },
-    }).catch(() => {})
+    // once. One turn per tool round trip, so a message that called three tools
+    // shows as the three turns it really was.
+    recordModelTurn({
+      userId, model: OPUS, feature: "chat", effort, turn,
+      stopReason: response.stop_reason, usage: response.usage,
+    })
 
     if (response.stop_reason !== "tool_use") break
 

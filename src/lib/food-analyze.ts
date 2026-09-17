@@ -6,6 +6,7 @@ import Anthropic from "@anthropic-ai/sdk"
 import { searchFood, nutrientsForGrams, notableMicros, type DbNutrients } from "@/lib/nutrient-db"
 import { applyPortionPriors } from "@/lib/portion-priors"
 import { OPUS } from "@/lib/models"
+import { recordModelTurn } from "@/lib/model-spend"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
 
@@ -138,6 +139,13 @@ export interface AnalyzeOptions {
   labelImageDataUrl?: string
   /** The previous analysis when the user asks for a re-run with corrections. */
   previous?: unknown
+  /**
+   * Whose meal it is, so the call can be costed. Optional because the unit
+   * tests drive this function directly with a canned model; without it the
+   * analysis still runs and the spend row is simply not written, which
+   * `model-spend.test.ts` checks the route never does.
+   */
+  userId?: string
 }
 
 /**
@@ -198,6 +206,16 @@ export async function analyzeMealPhoto(imageDataUrl: string, opts: AnalyzeOption
     ],
   })
 
+  if (opts.userId) {
+    recordModelTurn({
+      userId: opts.userId, model: OPUS, feature: "meal photo",
+      // The effort is the interesting part here: a first pass runs low to keep
+      // the camera-to-result wait short, a refine pass runs high because the
+      // user asked for accuracy. Two very different prices under one feature.
+      effort: refining ? "high" : "low",
+      stopReason: response.stop_reason, usage: response.usage,
+    })
+  }
   if (response.stop_reason === "refusal") return null
   const text = response.content.find(b => b.type === "text")?.text
   if (!text) return null
