@@ -21,6 +21,7 @@ import { turnCostUsd, type TurnUsage } from "@/lib/model-cost"
 export const TURN_FEATURES = [
   "chat",
   "briefing",
+  "garden",
   "health report",
   "weekly review",
   "meal photo",

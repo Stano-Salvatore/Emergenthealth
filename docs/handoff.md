@@ -419,10 +419,14 @@ Roughly in order, most recent first:
   named in the prompt has to be one of six with genuinely cross-tool policy,
   and a rule that belongs to one tool goes in that tool's description, where it
   is read at the moment it matters.
-- **The Console gives one total; the rows say which feature spent it.** Six
-  places call the API — chat, the briefing, the health report, the weekly
-  review, a meal photo, a lab document — and for a day only chat recorded
-  anything, so a 1.4M-token week had no explanation in it. Every call now
+- **The Console gives one total; the rows say which feature spent it.** Seven
+  places call the API — chat, the briefing, the habit garden, the health
+  report, the weekly review, a meal photo, a lab document — and for a day only
+  chat recorded anything, so a 1.4M-token week had no explanation in it. The
+  guard finds those callers by walking `src/` for `messages.create` and
+  `messages.stream`, not from a list: the first version of it carried six
+  hand-written paths and passed while the garden spent money unrecorded, and
+  the second missed chat itself, whose call streams rather than creates. Every call now
   writes a `ModelTurn` row carrying the feature, the model and the effort, and
   "what have you cost me" reports the split, dearest feature first, with chat's
   effort arms underneath. `model-spend.test.ts` fails if a seventh caller
