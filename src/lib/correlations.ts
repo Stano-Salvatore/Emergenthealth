@@ -3953,6 +3953,10 @@ export async function computeCorrelations(
       for (const combo of candidates) {
         const labels = combo.conds.map(c => c.label)
         const ins = compareGroups({
+          // Outcome first, then the ingredients. experiment-suggest.ts reads
+          // this shape to offer "Run this as an experiment" — every other id in
+          // the file ends in what it measured, so it had been reading a
+          // condition where the outcome is and offering these cards nothing.
           id: `combo_${outcome.key}_${combo.conds.map(c => c.key).join("_")}`,
           category: "interactions",
           emoji: outcome.emoji,

@@ -237,6 +237,16 @@ the sleep panel's causes. Plain strings still mean both. **`experiment-suggest.t
 greps the chip** (`/still on board/i`, `/ days$/i`), so a label rename can
 silently re-enable an experiment suggestion on a prescription.
 
+It also reads **insight ids**, and that is a second thing a rename breaks
+quietly. Almost every id ends in what it measured, so the outcome is taken off
+the suffix — but the interaction cards are `combo_<outcome>_<cond>_<cond>`, with
+the outcome at the front, and for as long as that went unnoticed not one
+combination card offered an experiment. The combination tables in
+`experiment-suggest.ts` are copies of two arrays that live *inside a function* in
+`correlations.ts`, where nothing can import them; a guard test reads the copies
+back against that file, because a condition added there and missed here costs a
+button on every card that uses it.
+
 `src/lib/__tests__/mood-one-place.test.ts` exists because **mood lives in two
 tables**. The check-in writes `MorningCheckIn."mood"`; Emergy's `log_mood`
 writes `MoodLog`. Neither is a superset of the other, and a reader that queries
