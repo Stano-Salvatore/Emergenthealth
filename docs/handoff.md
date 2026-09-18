@@ -681,6 +681,18 @@ Roughly in order, most recent first:
      trip would cost full output tokens to save input tokens that are cheap.
      Reconsider only if the hit rate collapses.
 
+- **An unlabelled smoke warning on the dashboard.** `npm run smoke` is clean on
+  all 39 screens, but `/dashboard` (and `/dashboard/home`, which redirects to
+  it) logs `Each child in a list should have a unique "key" prop. Check the
+  render method of \`DashboardGrid\`. It was passed a child from
+  \`DashboardPage\`.` It is dev-only — React strips these from a production
+  build — and it predates the bedtime work, but the rule on this file is that
+  an unlabelled warning is always new signal, so it is written down rather
+  than left in a log. Every `.map` in `DashboardGrid` and in the page's
+  `header` and `blocks` is keyed on inspection, so the array React is
+  complaining about is being built somewhere less obvious. It reproduces at
+  390px with the demo cookie and a Playwright `console` listener, but not on
+  every load, which is the first thing to pin down.
 - **The Oura transcript idea.** An advisor that states one quantified change
   and ends by asking what shifted. The nearest thing in the app is the drift
   card (`DriftCard.tsx`, `drift.ts`): rolling 30 days against the 30 before,
