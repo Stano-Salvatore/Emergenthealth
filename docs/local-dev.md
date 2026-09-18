@@ -64,6 +64,14 @@ The seeded data is invented and deterministic (a sine wobble rather than
 short nights so trends have a shape, saved places with automatic check-ins, and
 habits with gaps.
 
+The alarm is the fixed point and the bedtime follows from it, which is how
+short nights actually happen. Seeded the other way round — a constant 23:20
+start beside a duration wobbling by an hour and a half — every night began at
+the same minute, so the engine's bedtime cut had nothing to split and the sleep
+panel's bedtime card could not appear on a demo database at all. `upsert` here
+is `update: {}`, so re-running the seed will not correct rows an older version
+wrote; drop them first if the dates look wrong.
+
 ## The smoke test
 
 ```bash

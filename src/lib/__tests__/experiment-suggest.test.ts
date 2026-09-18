@@ -45,6 +45,14 @@ describe("experimentSuggestion", () => {
     expect(action).toBe("More water")
     expect(action).not.toMatch(/\d/)
   })
+  it("offers an earlier bedtime at the card's own hour", () => {
+    const s = experimentSuggestion({ id: "sleep_panel_bedtime", highGroupLabel: "nights begun after 23:30" })!
+    expect(s).toEqual({ name: "Lights out before 23:30 → sleep score", action: "Lights out before 23:30", outcome: "sleepScore", outcomeLabel: "sleep score" })
+    // The cut is personal when the borrowed 23:30 fails to split the nights,
+    // and the suggestion has to follow it rather than name a bedtime here.
+    expect(experimentSuggestion({ id: "sleep_panel_bedtime", highGroupLabel: "nights begun after 01:15" })?.action).toBe("Lights out before 01:15")
+    expect(experimentSuggestion({ id: "sleep_panel_bedtime_deep", highGroupLabel: "nights begun after 23:30" })?.outcome).toBe("deepSleep")
+  })
   it("turns a supplement finding into a take-it experiment, but never a prescription", () => {
     expect(experimentSuggestion({ id: "supplement_magnesium_hrv", highGroupLabel: "Magnesium days" })?.action).toBe("Take Magnesium")
     expect(experimentSuggestion({ id: "supplement_frontin_deep", highGroupLabel: "Frontin still on board (12h half-life)" })).toBeNull()

@@ -59,7 +59,14 @@ for (let i = 0; i < 30; i++) {
     update: {},
     create: {
       userId: user.id, date: day(i),
-      sleepStart: at(i + 1, 23, 20), sleepEnd: at(i, 7, 5),
+      // The alarm is the fixed point, not the bedtime — so a short night is a
+      // LATE one, which is how short nights actually happen. Seeded the other
+      // way round (a constant 23:20 start beside a duration that wobbled by an
+      // hour and a half) every night began at the same minute, and the engine's
+      // bedtime cut had nothing to split: the sleep panel's bedtime card could
+      // not appear on a demo database at all, and the seeded 330-minute nights
+      // were claiming to end at 04:50 while sleepEnd said 07:05.
+      sleepStart: new Date(at(i, 7, 5).getTime() - dur * 60_000), sleepEnd: at(i, 7, 5),
       sleepDuration: dur,
       deepSleep: Math.round(dur * 0.19), remSleep: Math.round(dur * 0.22), lightSleep: Math.round(dur * 0.59),
       sleepScore: (rough ? 62 : 82) + wob(i, 6, 2),

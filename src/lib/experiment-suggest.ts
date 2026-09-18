@@ -18,7 +18,7 @@ export interface ExperimentSuggestion {
 const OUTCOME_BY_SUFFIX: [RegExp, string, string][] = [
   // The sleep panel's gate cards end in the cause, not the outcome; the
   // outcome is always the sleep score. Its aspects end in the aspect key.
-  [/^sleep_panel_(?:caffeine|late_caffeine|alcohol)$/, "sleepScore", "sleep score"],
+  [/^sleep_panel_(?:caffeine|late_caffeine|alcohol|bedtime)$/, "sleepScore", "sleep score"],
   [/_deep_sleep$/, "deepSleep", "deep sleep"],
   [/_rem_sleep$/, "remSleep", "REM sleep"],
   [/_deep$/, "deepSleep", "deep sleep"],
@@ -67,6 +67,9 @@ const ACTION_BY_PREFIX: [RegExp, (t: string | null) => string][] = [
   // sides had caffeine, so "no caffeine" would test something the card
   // never measured.
   [/^sleep_panel_caffeine(?!_at_)/, t => (t ? `No caffeine over ${t}` : "No caffeine")],
+  // The chip is "nights begun after 23:30", so the figure is the cut the card
+  // used — not a bedtime picked here, which would be someone else's clock.
+  [/^sleep_panel_bedtime/, t => (t ? `Lights out before ${t}` : "An earlier bedtime")],
   [/^alcohol_/, () => "No alcohol"],
   [/^sleep_panel_alcohol/, () => "No alcohol"],
   [/^food_late_meal_/, t => (t ? `Last meal before ${t}` : "An earlier last meal")],

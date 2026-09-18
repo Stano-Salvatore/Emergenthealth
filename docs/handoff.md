@@ -143,6 +143,22 @@ still), and `PREREGISTERED_ASPECTS` makes the panel skip them. `drankDay`
 is the one definition of a drinking day for the sleep, HRV and resting-HR
 cards: any logged drink, silent days set aside, the same as the panel.
 
+**Bedtime is a cause, and its caveat is a different column.** It is the one
+`SleepCause` that reads the NIGHT rather than the day (`test(d, night)`), for
+the obvious reason: a bedtime is the night's own first fact, and `byDate` is
+not in scope where the causes are declared. The panel is the right home for
+it rather than a combination condition — a night with no ring has no bedtime
+AND no score, so the same rows drop out of both sides, where a combo would
+have read that night as "went to bed early" and grown triples from it. Every
+other cause is checked against bedtime (`BEDTIME_CONFOUND_MIN`, 45 min); this
+one is checked against **length** (`DURATION_CONFOUND_MIN`, 30 min), because
+a cause cannot confound itself and the question underneath a late night is
+whether it was a short one — the alarm rarely moves, and a sleep score is
+mostly length. The cut is 23:30 borrowed, personal median once that fails to
+split the nights, and the chip carries whichever it used so the "Test this"
+experiment can say "Lights out before 00:15" without naming an hour of its
+own.
+
 **A day's music genre** comes from `dominantGenre()`: the genre holding a
 majority of the day's tagged plays (`artistPlays`, min 3 tagged). Rows
 written before `artistPlays` existed fall back to the old top-artist lookup;
@@ -665,28 +681,6 @@ Roughly in order, most recent first:
      trip would cost full output tokens to save input tokens that are cheap.
      Reconsider only if the hit rate collapses.
 
-- **Bedtime as a sleep-panel cause.** The panel already measures bedtime, but
-  only as the confound note pinned to every *other* cause ("some of this gap
-  is bedtime", `BEDTIME_CONFOUND_MIN` in `correlations.ts`). It has no card of
-  its own, and it is the biggest single lever on a sleep score this account
-  has. The snag is that the engine has two predicate shapes and bedtime
-  inherits whichever side it is put on. A `SleepCause.test` returns
-  `boolean | null`, and a null day is set aside — a silent day is not a decaf
-  day, and the gate card counts the ones set aside. A `ComboCondition.test`
-  returns `boolean`, and a day with nothing in it (`dense` fills the calendar
-  with `{ date }`) reads as `false` on every condition: no alcohol, no
-  workout, no heavy screen. As a sleep cause, a night without a ring is
-  `null` and drops out, which is right, since that night has no score either.
-  As a combo condition, "late bedtime" on a ringless day reads as "went to bed
-  early", and the triples are grown from that. So the panel is the right
-  home, and a combo condition would need a tri-state the combos do not have
-  (or an `eligible` gate like the caffeine consistency family's). Two smaller
-  snags once it is there: the bedtime lives on the *night's* row
-  (`byDate[nextDateStr(d.date)].bedtimeMin`), which `test(d)` cannot see —
-  the confound block does that lookup by hand, and a cause would need the
-  same; and the confound check must skip the bedtime cause itself, or it
-  will report that nights with a late bedtime began later. Cut at the
-  personal median, per the rule above, not at a borrowed clock time.
 - **The Oura transcript idea.** An advisor that states one quantified change
   and ends by asking what shifted. The nearest thing in the app is the drift
   card (`DriftCard.tsx`, `drift.ts`): rolling 30 days against the 30 before,
