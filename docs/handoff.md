@@ -690,9 +690,12 @@ Roughly in order, most recent first:
   an unlabelled warning is always new signal, so it is written down rather
   than left in a log. Every `.map` in `DashboardGrid` and in the page's
   `header` and `blocks` is keyed on inspection, so the array React is
-  complaining about is being built somewhere less obvious. It reproduces at
-  390px with the demo cookie and a Playwright `console` listener, but not on
-  every load, which is the first thing to pin down.
+  complaining about is being built somewhere less obvious — and it is not the
+  obvious suspect either: logging `Array.isArray(header)` and the block values
+  from the server render says neither is an array, so `DashboardGrid` is not
+  simply being handed a list through those two props. It reproduces at 390px
+  with the demo cookie and a Playwright `console` listener, but not on every
+  load, which is the first thing to pin down.
 - **The Oura transcript idea.** An advisor that states one quantified change
   and ends by asking what shifted. The nearest thing in the app is the drift
   card (`DriftCard.tsx`, `drift.ts`): rolling 30 days against the 30 before,
