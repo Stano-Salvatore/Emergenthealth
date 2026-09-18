@@ -143,6 +143,31 @@ still), and `PREREGISTERED_ASPECTS` makes the panel skip them. `drankDay`
 is the one definition of a drinking day for the sleep, HRV and resting-HR
 cards: any logged drink, silent days set aside, the same as the panel.
 
+**Sleep debt has one definition, in `sleep-rhythm.ts`.** It had three: the
+Health screen and Emergy's scripted answer compared the goal against what was
+slept and let a long night pay some back, while the Week screen summed
+`max(0, goal - night)` per night — which can never show a surplus and never
+lets a lie-in count. On the demo week those two read −36 minutes (36 ahead of
+goal) and +24 minutes (a debt warning) from the same five nights. The signed
+one won, because it is the arithmetic the words describe and "debt" is a word
+that implies repayment. A night with no duration is not a zero-hour night; it
+drops out, and `nights` comes back with the figure so the caller can say what
+it is based on.
+
+**Sleep regularity is the Sleep Regularity Index**, not the spread of
+bedtimes — same hours to bed with a four-hour-earlier alarm on weekdays is not
+a regular sleeper. For every minute of the clock it asks how often you were in
+the same state on two days running: 100 is the same day every day, 0 is today
+telling you nothing about tomorrow. Two limits it states on the card rather
+than hiding: it reads the IN-BED window, the only one the API returns, so
+lying awake at 04:00 counts as asleep; and a night with no recording is
+unknown, not awake — without that rule two missing nights in a row would agree
+perfectly with each other and read as a person who keeps immaculate hours.
+Note that a steadily drifting sleeper still scores high (an hour a night
+round the clock comes out at 84), because the index is about consecutive
+days, not about stability over a month. It is read against the account's own
+previous month, never a population average.
+
 **Bedtime is a cause, and its caveat is a different column.** It is the one
 `SleepCause` that reads the NIGHT rather than the day (`test(d, night)`), for
 the obvious reason: a bedtime is the night's own first fact, and `byDate` is
@@ -748,10 +773,10 @@ Roughly in order, most recent first:
   correct; VO2 max's is the least certain. The first sync after deploy will log
   `[oura] <endpoint> mapped no values` with the real keys if any of them is
   wrong. Check the Vercel logs once, then this can be struck off.
-- **Typical Sleep Score, Sleep Debt, Sleep Regularity, Daily Sleep Need and
-  Symptom Radar** appear in the Oura app but not in the API docs. Sleep debt
-  and regularity are computable from the bedtimes and durations already stored,
-  which beats copying a number we cannot explain.
+- **Typical Sleep Score, Daily Sleep Need and Symptom Radar** appear in the
+  Oura app but not in the API docs. Sleep debt and regularity were on this list
+  too and are now built from the durations and bedtimes already stored — see
+  `sleep-rhythm.ts` — which beats copying a number we cannot explain.
 - **The rest of the chat bill.** The parser takes the log lines; three levers
   are left, in order of payoff. (1) `EMERGY_CHAT_EFFORT` is wired
   (`chatEffort()` in `claude.ts`) but unset in production, so every turn runs

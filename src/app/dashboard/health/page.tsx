@@ -27,6 +27,7 @@ import { localDateStr, addDaysISO } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { readSyncStatus } from "@/lib/sync-status-store"
 import { explainBlanks, listPhrase, scopeRemedy, type SyncStatus } from "@/lib/sync-status"
+import { sleepDebt, sleepRegularity } from "@/lib/sleep-rhythm"
 
 interface StravaActivityRow {
   id: string
@@ -102,6 +103,18 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
 
   const since30 = new Date()
   since30.setDate(since30.getDate() - 29)
+
+  // Sixty nights, three columns, for the regularity card below: enough to put
+  // the last month beside the month before it. Deliberately its own query
+  // rather than widening `logs` to 60 — that array is what every chart on this
+  // page is drawn from, and doubling it would silently double every x-axis.
+  const since60 = new Date()
+  since60.setDate(since60.getDate() - 59)
+  const rhythmRows = await prisma.healthLog.findMany({
+    where: { userId, date: { gte: since60 } },
+    orderBy: { date: "desc" },
+    select: { date: true, sleepStart: true, sleepEnd: true },
+  }).catch(() => [] as { date: Date; sleepStart: Date | null; sleepEnd: Date | null }[])
 
   const [moodLogs, logs] = await Promise.all([
     prisma.moodLog.findMany({
@@ -206,11 +219,23 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
     return t ? { text: t.text, good: null } : null   // weight direction isn't inherently good or bad
   })()
 
-  // Sleep debt (7-day window)
-  const sleepDebtDays = recent7.filter(l => l.sleepDuration != null)
-  const debtGoalMin   = sleepDebtDays.length * SLEEP_GOAL_H * 60
-  const debtActualMin = sleepDebtDays.reduce((s, l) => s + (l.sleepDuration ?? 0), 0)
-  const debtMin       = debtGoalMin - debtActualMin  // positive = in debt
+  // Sleep debt over the last seven nights. The arithmetic lives in
+  // sleep-rhythm.ts because this screen, the Week screen and Emergy's scripted
+  // answer were each doing it themselves and two of them disagreed.
+  const debt          = sleepDebt(recent7.map(l => l.sleepDuration), SLEEP_GOAL_H)
+  const debtMin       = debt?.shortfallMin ?? 0   // positive = in debt
+  const debtGoalMin   = (debt?.goalMin ?? 0) * (debt?.nights ?? 0)
+  const debtActualMin = debtGoalMin - debtMin
+
+  // How regular the hours are — the other number Oura shows and its API does
+  // not. Split into the last 30 nights and the 30 before so it is read against
+  // this account's own history rather than a population average nobody here
+  // can check.
+  const asRhythm = (rows: typeof rhythmRows) =>
+    rows.map(r => ({ date: localDateStr(timezone, r.date), sleepStart: r.sleepStart, sleepEnd: r.sleepEnd }))
+  const rhythmNow    = sleepRegularity(asRhythm(rhythmRows.slice(0, 30)), timezone)
+  const rhythmBefore = sleepRegularity(asRhythm(rhythmRows.slice(30)), timezone)
+  const rhythmShift  = rhythmNow && rhythmBefore ? rhythmNow.sri - rhythmBefore.sri : null
 
   const chartData: ChartDay[] = logs.map(l => ({
     date: format(l.date, "MMM d"),
@@ -354,13 +379,13 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
           </div>
 
           {/* ── sleep debt ── */}
-          {sleepDebtDays.length >= 2 && (
+          {debt && (
             <Card className={debtMin > 120 ? "border-red-500/30" : debtMin > 0 ? "border-amber-500/30" : "border-green-500/30"}>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <CardTitle className="text-sm font-medium flex items-center gap-1.5">
                     <Moon className="h-4 w-4 text-primary" />
-                    Sleep Debt — last {sleepDebtDays.length} nights
+                    Sleep Debt — last {debt.nights} nights
                   </CardTitle>
                   <Badge variant="secondary" className={`text-xs font-semibold flex items-center gap-1 ${debtMin > 120 ? "text-red-400" : debtMin > 0 ? "text-amber-400" : "text-green-400"}`}>
                     {debtMin > 120 ? <TrendingDown className="h-3 w-3" /> : debtMin > 0 ? <Minus className="h-3 w-3" /> : <TrendingUp className="h-3 w-3" />}
@@ -416,6 +441,49 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
                     🌟 You&apos;re on track — {(Math.abs(debtMin) / 60).toFixed(1)}h ahead of your sleep goal this week. Keep it up!
                   </p>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── sleep regularity ── */}
+          {rhythmNow && (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <CardTitle className="text-sm font-medium flex items-center gap-1.5">
+                    <Moon className="h-4 w-4 text-primary" />
+                    Sleep Regularity — last {rhythmNow.pairs + 1} nights
+                  </CardTitle>
+                  {rhythmShift != null && Math.abs(rhythmShift) >= 2 && (
+                    <Badge variant="secondary" className={`text-xs font-semibold flex items-center gap-1 ${rhythmShift > 0 ? "text-green-400" : "text-amber-400"}`}>
+                      {rhythmShift > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                      {rhythmShift > 0 ? "+" : ""}{rhythmShift} vs the month before
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-bold tabular-nums">{rhythmNow.sri}</span>
+                  <span className="text-xs text-muted-foreground">out of 100</span>
+                </div>
+                {/* Not a bar chart of nights: the number is about pairs of days,
+                    and a per-night bar would invite reading one night as
+                    "irregular", which it cannot be on its own. */}
+                <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                  <div className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${Math.max(0, Math.min(100, rhythmNow.sri))}%` }} />
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  For every minute of the clock, how often you were in the same state — asleep or awake —
+                  on two days running. 100 is the same hours every day; 0 is today telling you nothing about tomorrow.
+                  {rhythmBefore != null && rhythmShift != null && Math.abs(rhythmShift) < 2 && " Level with the month before."}
+                </p>
+                <p className="text-[11px] text-muted-foreground/80 leading-relaxed border-l-2 border-amber-500/40 pl-2">
+                  Read off the time you were in bed, which is the window the ring reports — lying awake at 04:00 counts
+                  as asleep here. Nights with no recording are left out rather than counted as a day spent up, so this
+                  is {rhythmNow.pairs} {rhythmNow.pairs === 1 ? "pair" : "pairs"} of days, not every pair in the month.
+                </p>
               </CardContent>
             </Card>
           )}

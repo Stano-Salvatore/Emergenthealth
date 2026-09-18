@@ -34,6 +34,7 @@ import { isDueOn, normalizeSchedule, weekStart } from "@/lib/habit-schedule"
 import { getTodayEvents } from "@/lib/google-calendar"
 import { loadEventOccurrences } from "@/lib/app-events"
 import { mergeDayEvents } from "@/lib/day-events"
+import { sleepDebt, sleepRegularity, MIN_REGULARITY_PAIRS } from "@/lib/sleep-rhythm"
 
 export interface QuickAnswer {
   /** The reply, in Emergy's voice, with a chart tag on its own line where one earns its place. */
@@ -223,6 +224,48 @@ async function bodyNow(userId: string, tz: string): Promise<QuickAnswer> {
   }
 }
 
+/**
+ * How regular the hours are, over the last thirty nights and the thirty before.
+ *
+ * A month is the shortest window this can be asked about — the number is built
+ * from pairs of consecutive days, so a week of them is the floor and anything
+ * less has to say so rather than round up to an answer.
+ */
+async function sleepRhythm(userId: string, tz: string): Promise<QuickAnswer> {
+  const today = localDateStr(tz)
+  const from = addDaysISO(today, -59)
+  const rows = await prisma.healthLog.findMany({
+    where: { userId, date: { gte: new Date(from + "T00:00:00Z"), lte: new Date(today + "T00:00:00Z") } },
+    orderBy: { date: "desc" },
+    select: { date: true, sleepStart: true, sleepEnd: true },
+  }).catch(() => [] as { date: Date; sleepStart: Date | null; sleepEnd: Date | null }[])
+
+  const asRhythm = (r: typeof rows) =>
+    r.map(x => ({ date: localDateStr(tz, x.date), sleepStart: x.sleepStart, sleepEnd: x.sleepEnd }))
+  const now = sleepRegularity(asRhythm(rows.slice(0, 30)), tz)
+  if (!now) {
+    return {
+      reply: `Not enough nights with a recorded bed and wake time yet — this needs ${MIN_REGULARITY_PAIRS} pairs of days running, and there ${rows.length === 1 ? "is" : "are"} ${rows.length} night${rows.length === 1 ? "" : "s"} on record in the last two months.`,
+      sources: [],
+    }
+  }
+  const before = sleepRegularity(asRhythm(rows.slice(30)), tz)
+  const shift = before ? now.sri - before.sri : null
+  const versus = shift == null
+    ? ""
+    : Math.abs(shift) < 2
+      ? " Level with the month before."
+      : ` That is ${Math.abs(shift)} ${shift > 0 ? "up on" : "down on"} the month before.`
+  return {
+    reply:
+      `Sleep regularity **${now.sri} out of 100** across ${now.pairs} pairs of days.${versus}\n\n` +
+      `It asks, for every minute of the clock, how often you were in the same state — asleep or awake — ` +
+      `on two days running. 100 is the same hours every day. Read off the time in bed, and nights with ` +
+      `no recording are left out rather than counted as a day spent up.`,
+    sources: chips({ sleep: `${now.pairs + 1} nights` }),
+  }
+}
+
 async function sleep(userId: string, tz: string, window: "night" | "week", debt: boolean): Promise<QuickAnswer> {
   const today = localDateStr(tz)
   const days = window === "week" ? 7 : 1
@@ -242,7 +285,6 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
   }
 
   const goals = await getGoals(userId)
-  const goalMin = Math.round(goals.sleepH * 60)
 
   if (window === "night") {
     const n = nights[nights.length - 1]
@@ -302,7 +344,9 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
   const over = missing + pending > 0 ? ` across the ${nights.length} with data` : ""
 
   if (debt) {
-    const shortfall = goalMin * nights.length - totalMin
+    // Same helper the two screens use, so the number he says matches the one
+    // they show for the same week.
+    const shortfall = sleepDebt(nights.map(n => n.sleepDuration), goals.sleepH)?.shortfallMin ?? 0
     const nightWord = nights.length === 1 ? "night" : "nights"
     const line = shortfall > 0
       ? `Across ${nights.length} ${nightWord} you slept **${hm(shortfall)}** less than your ${goals.sleepH}h goal.`
@@ -743,6 +787,7 @@ export async function runQuickAnswer(userId: string, message: string): Promise<Q
     case "doses_today": return dosesToday(userId, tz)
     case "body_now": return bodyNow(userId, tz)
     case "sleep": return sleep(userId, tz, ask.window, ask.debt === true)
+    case "sleep_rhythm": return sleepRhythm(userId, tz)
     case "briefing": return briefing(userId, tz)
     case "habits_today": return habitsToday(userId, tz)
     case "events_today": return eventsToday(userId, tz)

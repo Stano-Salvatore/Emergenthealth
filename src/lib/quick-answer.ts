@@ -35,6 +35,8 @@ export type QuickAsk =
   | { kind: "body_now" }
   /** Last night, or the last seven nights; `debt` asks the shortfall rather than the summary. */
   | { kind: "sleep"; window: "night" | "week"; debt?: true }
+  /** How regular the hours are — a month's question, so it carries no window. */
+  | { kind: "sleep_rhythm" }
   /** The morning briefing: last night, today's calendar, habits left, overdue reminders, doses. */
   | { kind: "briefing" }
   /** The habits still due today. */
@@ -123,6 +125,11 @@ const SLEEP = /\b(?:sleep|slept|sleeping|spanok|spal)\b/
 const WEEK = /\b(?:this week|past week|last week|last 7 days|past 7 days|seven days|7 nights|this past week)\b/
 const LAST_NIGHT = /\b(?:last night|yesterday night|overnight|vcera v noci)\b/
 const DEBT = /\b(?:debt|deficit|short|shortfall|behind)\b/
+// "Consistent" and "all over the place" are the words people actually use for
+// this; "regularly" is not — "do I regularly sleep badly" is a different
+// question, so the adverb is deliberately absent.
+const RHYTHM = /\b(?:regular|regularity|irregular|consistent|inconsistent|consistency|erratic|same time|all over the place)\b/
+const RHYTHM_SUBJECT = /\b(?:sleep|slept|sleeping|spanok|spal|bed|bedtime|bedtimes|wake up|wake-up|waking)\b/
 
 /**
  * The words a question starts with. Counted, not matched: one is a question,
@@ -172,6 +179,20 @@ export function parseQuickAsk(message: string): QuickAsk | null {
   // What Emergy costs to run. No window is asked for because the answer names
   // its own — the record starts the day it started being kept.
   if (SPEND_WORDS.test(text) && IS_ABOUT_EMERGY.test(text)) return { kind: "chat_spend" }
+
+  // Regularity, before the sleep branch and outside it.
+  //
+  // People ask this about their BEDTIME at least as often as about their
+  // "sleep" — "do I go to bed at the same time?" — and widening SLEEP to catch
+  // "bed" would route every other bedtime question down the sleep branch with
+  // it. So the one question that needs the wider subject carries its own.
+  //
+  // It also needs no window, which the sleep branch demands: the number is
+  // built from pairs of consecutive days, so a month is the question and one
+  // night cannot be regular or irregular at all.
+  if (RHYTHM.test(text) && RHYTHM_SUBJECT.test(text) && !LAST_NIGHT.test(text)) {
+    return { kind: "sleep_rhythm" }
+  }
 
   // Sleep, the most asked thing here by a distance.
   if (SLEEP.test(text)) {
