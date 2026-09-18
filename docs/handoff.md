@@ -605,6 +605,38 @@ Roughly in order, most recent first:
 - Native background location that survives the app closing
 - Evening check-in; Emergy setting real alarms; dictation auto-send after 6s
 
+- **A column that recorded the days you looked at your phone.** `WeatherLog`
+  had one writer — `WeatherWidget.tsx`, in the browser, when the dashboard is
+  on screen — and the engine and the chat prompt both read it as though it
+  recorded the weather. That is not a gap like a missing ring night: a ring
+  night is missing at random with respect to how the day went, this one is
+  missing on exactly the days the app was not opened. `/api/cron/weather` fills
+  it nightly from the phone's last fix, and a `source` column keeps the two
+  apart — the widget stands where the user stands with the browser's own fix,
+  so a `device` row is never overwritten, while the cron corrects its own
+  provisional days once the day's maximum temperature and UV have settled. The
+  window is sized per user from the oldest hole, floored at their oldest row:
+  Open-Meteo's forecast endpoint hands back about 72 days, not the 92 the
+  parameter allows, and without that floor the job asks for three months every
+  night forever, chasing days that do not exist.
+- **Two silent failures in one query, found by running it.** The gap search
+  returned 0 on error, which reads as "no gaps" and shrank the backfill to two
+  days; underneath it, `generate_series` with an interval step yields
+  timestamps so `g.d` needs a date cast, and a bound integer in
+  `CURRENT_DATE - $1` makes the whole expression an integer so the series
+  signature stops existing. Neither is visible from reading the code, and both
+  passed typecheck and lint. The fix names a distinct number for "the query
+  could not run" so the two facts can never wear the same answer again.
+- **What Emergy says when the model call fails.** The chat route was
+  `} catch {` — the thrown value discarded unread, one sentence for every
+  cause, which is precisely the pattern `fetch-error.ts` exists to correct on
+  the client. `chat-error.ts` names them: a spent balance (the failure this app
+  will actually meet), a rotated key, a rate limit, an outage, and the app's
+  own malformed request — which deliberately does not say "try again", because
+  that sends the user round a loop with no exit. What is not recognised says
+  so, and the real error goes to the log either way: the sentence a user reads
+  is not a substitute for the line an owner needs.
+
 ## Open threads
 
 - **Two chat-cost levers that need a hand outside this repo.** Both are
