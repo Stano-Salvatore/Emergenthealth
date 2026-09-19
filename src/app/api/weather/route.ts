@@ -14,8 +14,8 @@ export async function POST(req: NextRequest) {
 
   const id = randomUUID()
   await prisma.$executeRaw`
-    INSERT INTO "WeatherLog"("id","userId","date","tempMaxC","tempMinC","precipMm","uvIndex","weatherCode","lat","lon")
-    VALUES (${id}, ${userId}, ${date}, ${tempMaxC ?? null}, ${tempMinC ?? null}, ${precipMm ?? null}, ${uvIndex ?? null}, ${weatherCode ?? null}, ${lat ?? null}, ${lon ?? null})
+    INSERT INTO "WeatherLog"("id","userId","date","tempMaxC","tempMinC","precipMm","uvIndex","weatherCode","lat","lon","source")
+    VALUES (${id}, ${userId}, ${date}, ${tempMaxC ?? null}, ${tempMinC ?? null}, ${precipMm ?? null}, ${uvIndex ?? null}, ${weatherCode ?? null}, ${lat ?? null}, ${lon ?? null}, 'device')
     ON CONFLICT ("userId","date") DO UPDATE SET
       "tempMaxC" = EXCLUDED."tempMaxC",
       "tempMinC" = EXCLUDED."tempMinC",
@@ -23,7 +23,11 @@ export async function POST(req: NextRequest) {
       "uvIndex" = EXCLUDED."uvIndex",
       "weatherCode" = EXCLUDED."weatherCode",
       "lat" = EXCLUDED."lat",
-      "lon" = EXCLUDED."lon"
+      "lon" = EXCLUDED."lon",
+      -- Standing here with a real fix beats the nightly fill's last-known
+      -- guess, so this row is a measurement from now on and the cron leaves
+      -- it alone.
+      "source" = 'device'
   `
 
   return NextResponse.json({ ok: true })

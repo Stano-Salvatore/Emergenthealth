@@ -8,7 +8,7 @@ import { getGoals } from "@/lib/goals"
 import { computeTargets } from "@/lib/targets"
 import { estimateHome, summariseDays, AWAY_KM } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
-import { bedtimeMinutesLate } from "@/lib/caffeine-cutoff"
+import { bedtimeMinutesLate, hhmm } from "@/lib/caffeine-cutoff"
 import { ALCOHOL_TYPES, ethanolGrams } from "@/lib/body-load"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
@@ -184,7 +184,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 15
+export const ENGINE_VERSION = 16
 
 /**
  * Both sides need this many days before a card is called confident.
@@ -1281,7 +1281,16 @@ export async function computeCorrelations(
     // The borrowed number here is your own target, so `personal` stays false
     // until even that fails to split the days and the median takes over.
     water: balancedCut(allDays.map(d => d.waterMl), targets.waterMl),
+    // Minutes where later is always the bigger number (see bedtimeMinutesLate),
+    // so 23:30 is 1410 and 00:30 is 1470 rather than twenty-three hours
+    // earlier. The borrowed number is 23:30 — the one clock time every "go to
+    // bed earlier" article names — and on a late chronotype it splits nothing,
+    // at which point the personal median takes over, as it should: the
+    // question is whether YOUR late nights cost you, not whether you keep
+    // someone else's hours.
+    bedtime: balancedCut(allDays.map(d => d.bedtimeMin), 23 * 60 + 30),
   }
+  const bedtimeLabel = hhmm(cuts.bedtime.at)
   const waterLabel = cuts.water.at >= 1000
     ? `${(cuts.water.at / 1000).toFixed(cuts.water.at % 1000 === 0 ? 0 : 1)}L`
     : `${Math.round(cuts.water.at)}ml`
@@ -2981,8 +2990,15 @@ export async function computeCorrelations(
     title: string
     highLabel: GroupLabel
     lowLabel: GroupLabel
-    /** true = the cause was present, false = a genuine control, null = this day cannot say. */
-    test: (d: DayData) => boolean | null
+    /**
+     * true = the cause was present, false = a genuine control, null = this day
+     * cannot say.
+     *
+     * The night is handed in because one cause lives on it rather than on the
+     * day: a bedtime is when the night being scored BEGAN, and `byDate` is not
+     * in scope out here. Everything else ignores it.
+     */
+    test: (d: DayData, night: DayData | undefined) => boolean | null
     /** Shown on the gate card when days had to be set aside as unknown. */
     coverage?: string
   }
@@ -3027,8 +3043,37 @@ export async function computeCorrelations(
    * drift accounts for a third of a typical panel gap.
    */
   const BEDTIME_CONFOUND_MIN = 45
+  /**
+   * And what the bedtime card is checked against instead, since a cause cannot
+   * confound itself.
+   *
+   * The question underneath a late night is whether it was a SHORT night: the
+   * alarm rarely moves, so an hour later to bed is usually an hour less sleep,
+   * and a sleep score is mostly length. Thirty minutes rather than forty-five
+   * because the score reads length directly, where it reads bedtime only
+   * through what the late start cost.
+   */
+  const DURATION_CONFOUND_MIN = 30
 
   const sleepCauses: SleepCause[] = [
+    {
+      // The biggest single lever on this account's sleep score, and until now
+      // only ever the fine print on somebody else's card: every other cause
+      // here gets checked against bedtime (BEDTIME_CONFOUND_MIN below) and
+      // bedtime itself was never asked. The panel is the right home for it —
+      // a night with no ring has no bedtime AND no score, so the same rows
+      // drop out of both sides, which is what a combination condition could
+      // not have managed (there, a ringless night reads as "went to bed
+      // early" and the triples grow from that).
+      key: "bedtime",
+      emoji: "🌜",
+      title: "Late Bedtime",
+      highLabel: { chip: `nights begun after ${bedtimeLabel}`, phrase: `a start after ${bedtimeLabel}` },
+      lowLabel: { chip: `nights begun before ${bedtimeLabel}`, phrase: "an earlier start" },
+      // The only cause that reads the night rather than the day, because the
+      // bedtime IS the night's own first fact.
+      test: (_d, night) => (night?.bedtimeMin == null ? null : night.bedtimeMin >= cuts.bedtime.at),
+    },
     {
       key: "caffeine",
       emoji: "☕",
@@ -3089,9 +3134,9 @@ export async function computeCorrelations(
   for (const cause of sleepCauses) {
     const gate = new Split()
     for (const d of days) {
-      const side = cause.test(d)
-      if (side == null) continue
       const night = byDate[nextDateStr(d.date)]
+      const side = cause.test(d, night)
+      if (side == null) continue
       if (night?.sleepScore == null) continue
       gate.add(side, night.sleepScore)
     }
@@ -3116,22 +3161,42 @@ export async function computeCorrelations(
     // What else separates these two sides? Bedtime, usually — and it is the
     // biggest single lever on a sleep score this account has, so a panel card
     // that ignores it can hand the credit to the wrong thing entirely.
+    //
+    // Except on the bedtime card, where that check would only report that late
+    // nights begin late. There the confounder worth naming is LENGTH: the
+    // alarm rarely moves, so the hour lost at the start is usually an hour of
+    // sleep, and a score built mostly on length would show the same gap with
+    // the clock playing no part at all. Same shape, same loop, different
+    // column — and both are in minutes, so the sentence reads the same way.
+    const onBedtime = cause.key === "bedtime"
+    const confoundOf = (n: DayData): number | null =>
+      onBedtime ? (n.sleepDuration == null ? null : n.sleepDuration * 60) : (n.bedtimeMin ?? null)
     const bedHi: number[] = []
     const bedLo: number[] = []
     for (const d of days) {
-      const side = cause.test(d)
-      if (side == null) continue
       const night = byDate[nextDateStr(d.date)]
-      if (night?.bedtimeMin == null) continue
-      ;(side ? bedHi : bedLo).push(night.bedtimeMin)
+      const side = cause.test(d, night)
+      if (side == null) continue
+      const v = night ? confoundOf(night) : null
+      if (v == null) continue
+      ;(side ? bedHi : bedLo).push(v)
     }
     let confounded: string | undefined
     if (bedHi.length >= 5 && bedLo.length >= 5) {
       const gap = avg(bedHi) - avg(bedLo)
-      if (Math.abs(gap) >= BEDTIME_CONFOUND_MIN) {
-        const later = phraseOf(gap > 0 ? cause.highLabel : cause.lowLabel)
-        confounded = `Bedtime does not hold still here. Nights with ${later} typically began ` +
-          `${Math.round(Math.abs(gap))} minutes later, so some of this gap is bedtime.`
+      if (Math.abs(gap) >= (onBedtime ? DURATION_CONFOUND_MIN : BEDTIME_CONFOUND_MIN)) {
+        if (onBedtime) {
+          // gap is high-side minus low-side MINUTES OF SLEEP, so a negative gap
+          // means the late nights were the short ones.
+          const shorter = phraseOf(gap < 0 ? cause.highLabel : cause.lowLabel)
+          confounded = `Length does not hold still here. Nights with ${shorter} ran ` +
+            `${Math.round(Math.abs(gap))} minutes shorter, and a sleep score is mostly length — ` +
+            `so some of this gap is the hours, not the hour.`
+        } else {
+          const later = phraseOf(gap > 0 ? cause.highLabel : cause.lowLabel)
+          confounded = `Bedtime does not hold still here. Nights with ${later} typically began ` +
+            `${Math.round(Math.abs(gap))} minutes later, so some of this gap is bedtime.`
+        }
       }
     }
     if (confounded) gateIns.confounded = confounded
@@ -3147,9 +3212,9 @@ export async function computeCorrelations(
       if (PREREGISTERED_ASPECTS.has(`${cause.key}:${aspect.key}`)) continue
       const series = new Split()
       for (const d of days) {
-        const side = cause.test(d)
-        if (side == null) continue
         const night = byDate[nextDateStr(d.date)]
+        const side = cause.test(d, night)
+        if (side == null) continue
         const v = night ? aspect.value(night) : undefined
         if (v == null) continue
         series.add(side, v)
@@ -3953,6 +4018,10 @@ export async function computeCorrelations(
       for (const combo of candidates) {
         const labels = combo.conds.map(c => c.label)
         const ins = compareGroups({
+          // Outcome first, then the ingredients. experiment-suggest.ts reads
+          // this shape to offer "Run this as an experiment" — every other id in
+          // the file ends in what it measured, so it had been reading a
+          // condition where the outcome is and offering these cards nothing.
           id: `combo_${outcome.key}_${combo.conds.map(c => c.key).join("_")}`,
           category: "interactions",
           emoji: outcome.emoji,

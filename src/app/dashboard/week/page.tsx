@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { getGoals } from "@/lib/goals"
 import { hydrationMl } from "@/lib/hydration"
+import { sleepDebt } from "@/lib/sleep-rhythm"
 
 // The goals a user actually set, not three numbers chosen here. At 47 kg a
 // fixed 2 L target is not the same ask as it is at 90 kg, and the app already
@@ -105,10 +106,13 @@ export default async function WeekPage() {
   // Aggregate
   const daysInWeek = thisWeekLogs.length
 
-  // Sleep debt: sum of (goal - actual) for each day with sleep data
-  const sleepDebtMin = thisWeekLogs
-    .filter(l => l.sleepDuration != null)
-    .reduce((debt, l) => debt + Math.max(0, SLEEP_GOAL_H * 60 - l.sleepDuration!), 0)
+  // This used to sum `max(0, goal - night)` per night, which is a different
+  // number from the one the Health screen shows for the same nights: clamped
+  // per night, a twelve-hour Saturday pays back nothing and the week can never
+  // come out ahead. One definition now, in sleep-rhythm.ts, and it is the
+  // signed one — "debt" is a word that implies repayment.
+  const debt = sleepDebt(thisWeekLogs.map(l => l.sleepDuration), SLEEP_GOAL_H)
+  const sleepDebtMin = debt?.shortfallMin ?? 0
   const sleepDebtH = (sleepDebtMin / 60).toFixed(1)
 
   const thisWeekAvg = {
@@ -303,7 +307,7 @@ export default async function WeekPage() {
               Sleep debt this week: {sleepDebtH}h
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Based on {SLEEP_GOAL_H}h nightly goal · {sleepDebtMin > 120 ? "try to prioritise sleep" : "getting there"}
+              Across the {debt?.nights} {debt?.nights === 1 ? "night" : "nights"} with data, against your {SLEEP_GOAL_H}h goal · {sleepDebtMin > 120 ? "try to prioritise sleep" : "getting there"}
             </p>
           </div>
         </div>

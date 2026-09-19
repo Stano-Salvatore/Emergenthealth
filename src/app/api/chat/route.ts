@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { streamChatEvents } from "@/lib/claude"
 import { runQuickLog } from "@/lib/quick-log-run"
 import { runQuickAnswer } from "@/lib/quick-answer-run"
+import { describeChatFailure, logChatFailure } from "@/lib/chat-error"
 import { checkRateLimit } from "@/lib/rate-limit"
 
 export const maxDuration = 120 // Opus with up to eight tool turns; the default limit cut long replies off mid-tool
@@ -132,8 +133,13 @@ export async function POST(req: NextRequest) {
           if (event.type === "sources") chips = event.chips
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
         }
-      } catch {
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "text", text: "\n\n_(Sorry, something went wrong.)_" })}\n\n`))
+      } catch (error) {
+        // Every cause used to produce one sentence, with the thrown value
+        // discarded unread. The balance running out is the failure this app
+        // will actually meet, and "something went wrong" is the one thing that
+        // cannot lead its owner to the fix.
+        console.error("[emergy] chat failed", logChatFailure(error))
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "text", text: `\n\n_(${describeChatFailure(error)})_` })}\n\n`))
       }
       controller.enqueue(encoder.encode("data: [DONE]\n\n"))
       controller.close()

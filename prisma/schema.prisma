@@ -735,6 +735,12 @@ model WeatherLog {
   weatherCode Int?
   lat         Float?
   lon         Float?
+  /// Who wrote this day. "device" is the dashboard widget, standing where the
+  /// user stood, with the browser's own fix. "cron" is the nightly fill, using
+  /// the last place their phone reported from. The distinction is what lets
+  /// the fill correct its own provisional rows without ever overwriting a
+  /// measurement taken on the spot.
+  source      String @default("device")
   user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date])

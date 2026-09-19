@@ -143,6 +143,47 @@ still), and `PREREGISTERED_ASPECTS` makes the panel skip them. `drankDay`
 is the one definition of a drinking day for the sleep, HRV and resting-HR
 cards: any logged drink, silent days set aside, the same as the panel.
 
+**Sleep debt has one definition, in `sleep-rhythm.ts`.** It had three: the
+Health screen and Emergy's scripted answer compared the goal against what was
+slept and let a long night pay some back, while the Week screen summed
+`max(0, goal - night)` per night — which can never show a surplus and never
+lets a lie-in count. On the demo week those two read −36 minutes (36 ahead of
+goal) and +24 minutes (a debt warning) from the same five nights. The signed
+one won, because it is the arithmetic the words describe and "debt" is a word
+that implies repayment. A night with no duration is not a zero-hour night; it
+drops out, and `nights` comes back with the figure so the caller can say what
+it is based on.
+
+**Sleep regularity is the Sleep Regularity Index**, not the spread of
+bedtimes — same hours to bed with a four-hour-earlier alarm on weekdays is not
+a regular sleeper. For every minute of the clock it asks how often you were in
+the same state on two days running: 100 is the same day every day, 0 is today
+telling you nothing about tomorrow. Two limits it states on the card rather
+than hiding: it reads the IN-BED window, the only one the API returns, so
+lying awake at 04:00 counts as asleep; and a night with no recording is
+unknown, not awake — without that rule two missing nights in a row would agree
+perfectly with each other and read as a person who keeps immaculate hours.
+Note that a steadily drifting sleeper still scores high (an hour a night
+round the clock comes out at 84), because the index is about consecutive
+days, not about stability over a month. It is read against the account's own
+previous month, never a population average.
+
+**Bedtime is a cause, and its caveat is a different column.** It is the one
+`SleepCause` that reads the NIGHT rather than the day (`test(d, night)`), for
+the obvious reason: a bedtime is the night's own first fact, and `byDate` is
+not in scope where the causes are declared. The panel is the right home for
+it rather than a combination condition — a night with no ring has no bedtime
+AND no score, so the same rows drop out of both sides, where a combo would
+have read that night as "went to bed early" and grown triples from it. Every
+other cause is checked against bedtime (`BEDTIME_CONFOUND_MIN`, 45 min); this
+one is checked against **length** (`DURATION_CONFOUND_MIN`, 30 min), because
+a cause cannot confound itself and the question underneath a late night is
+whether it was a short one — the alarm rarely moves, and a sleep score is
+mostly length. The cut is 23:30 borrowed, personal median once that fails to
+split the nights, and the chip carries whichever it used so the "Test this"
+experiment can say "Lights out before 00:15" without naming an hour of its
+own.
+
 **A day's music genre** comes from `dominantGenre()`: the genre holding a
 majority of the day's tagged plays (`artistPlays`, min 3 tagged). Rows
 written before `artistPlays` existed fall back to the old top-artist lookup;
@@ -236,6 +277,16 @@ sentence, `compareGroups` takes `{ chip, phrase }` instead of a string — see
 the sleep panel's causes. Plain strings still mean both. **`experiment-suggest.ts`
 greps the chip** (`/still on board/i`, `/ days$/i`), so a label rename can
 silently re-enable an experiment suggestion on a prescription.
+
+It also reads **insight ids**, and that is a second thing a rename breaks
+quietly. Almost every id ends in what it measured, so the outcome is taken off
+the suffix — but the interaction cards are `combo_<outcome>_<cond>_<cond>`, with
+the outcome at the front, and for as long as that went unnoticed not one
+combination card offered an experiment. The combination tables in
+`experiment-suggest.ts` are copies of two arrays that live *inside a function* in
+`correlations.ts`, where nothing can import them; a guard test reads the copies
+back against that file, because a condition added there and missed here costs a
+button on every card that uses it.
 
 `src/lib/__tests__/mood-one-place.test.ts` exists because **mood lives in two
 tables**. The check-in writes `MorningCheckIn."mood"`; Emergy's `log_mood`
@@ -605,6 +656,38 @@ Roughly in order, most recent first:
 - Native background location that survives the app closing
 - Evening check-in; Emergy setting real alarms; dictation auto-send after 6s
 
+- **A column that recorded the days you looked at your phone.** `WeatherLog`
+  had one writer — `WeatherWidget.tsx`, in the browser, when the dashboard is
+  on screen — and the engine and the chat prompt both read it as though it
+  recorded the weather. That is not a gap like a missing ring night: a ring
+  night is missing at random with respect to how the day went, this one is
+  missing on exactly the days the app was not opened. `/api/cron/weather` fills
+  it nightly from the phone's last fix, and a `source` column keeps the two
+  apart — the widget stands where the user stands with the browser's own fix,
+  so a `device` row is never overwritten, while the cron corrects its own
+  provisional days once the day's maximum temperature and UV have settled. The
+  window is sized per user from the oldest hole, floored at their oldest row:
+  Open-Meteo's forecast endpoint hands back about 72 days, not the 92 the
+  parameter allows, and without that floor the job asks for three months every
+  night forever, chasing days that do not exist.
+- **Two silent failures in one query, found by running it.** The gap search
+  returned 0 on error, which reads as "no gaps" and shrank the backfill to two
+  days; underneath it, `generate_series` with an interval step yields
+  timestamps so `g.d` needs a date cast, and a bound integer in
+  `CURRENT_DATE - $1` makes the whole expression an integer so the series
+  signature stops existing. Neither is visible from reading the code, and both
+  passed typecheck and lint. The fix names a distinct number for "the query
+  could not run" so the two facts can never wear the same answer again.
+- **What Emergy says when the model call fails.** The chat route was
+  `} catch {` — the thrown value discarded unread, one sentence for every
+  cause, which is precisely the pattern `fetch-error.ts` exists to correct on
+  the client. `chat-error.ts` names them: a spent balance (the failure this app
+  will actually meet), a rotated key, a rate limit, an outage, and the app's
+  own malformed request — which deliberately does not say "try again", because
+  that sends the user round a loop with no exit. What is not recognised says
+  so, and the real error goes to the log either way: the sentence a user reads
+  is not a substitute for the line an owner needs.
+
 ## Open threads
 
 - **Two chat-cost levers that need a hand outside this repo.** Both are
@@ -623,28 +706,21 @@ Roughly in order, most recent first:
      trip would cost full output tokens to save input tokens that are cheap.
      Reconsider only if the hit rate collapses.
 
-- **Bedtime as a sleep-panel cause.** The panel already measures bedtime, but
-  only as the confound note pinned to every *other* cause ("some of this gap
-  is bedtime", `BEDTIME_CONFOUND_MIN` in `correlations.ts`). It has no card of
-  its own, and it is the biggest single lever on a sleep score this account
-  has. The snag is that the engine has two predicate shapes and bedtime
-  inherits whichever side it is put on. A `SleepCause.test` returns
-  `boolean | null`, and a null day is set aside — a silent day is not a decaf
-  day, and the gate card counts the ones set aside. A `ComboCondition.test`
-  returns `boolean`, and a day with nothing in it (`dense` fills the calendar
-  with `{ date }`) reads as `false` on every condition: no alcohol, no
-  workout, no heavy screen. As a sleep cause, a night without a ring is
-  `null` and drops out, which is right, since that night has no score either.
-  As a combo condition, "late bedtime" on a ringless day reads as "went to bed
-  early", and the triples are grown from that. So the panel is the right
-  home, and a combo condition would need a tri-state the combos do not have
-  (or an `eligible` gate like the caffeine consistency family's). Two smaller
-  snags once it is there: the bedtime lives on the *night's* row
-  (`byDate[nextDateStr(d.date)].bedtimeMin`), which `test(d)` cannot see —
-  the confound block does that lookup by hand, and a cause would need the
-  same; and the confound check must skip the bedtime cause itself, or it
-  will report that nights with a late bedtime began later. Cut at the
-  personal median, per the rule above, not at a borrowed clock time.
+- **An unlabelled smoke warning on the dashboard.** `npm run smoke` is clean on
+  all 39 screens, but `/dashboard` (and `/dashboard/home`, which redirects to
+  it) logs `Each child in a list should have a unique "key" prop. Check the
+  render method of \`DashboardGrid\`. It was passed a child from
+  \`DashboardPage\`.` It is dev-only — React strips these from a production
+  build — and it predates the bedtime work, but the rule on this file is that
+  an unlabelled warning is always new signal, so it is written down rather
+  than left in a log. Every `.map` in `DashboardGrid` and in the page's
+  `header` and `blocks` is keyed on inspection, so the array React is
+  complaining about is being built somewhere less obvious — and it is not the
+  obvious suspect either: logging `Array.isArray(header)` and the block values
+  from the server render says neither is an array, so `DashboardGrid` is not
+  simply being handed a list through those two props. It reproduces at 390px
+  with the demo cookie and a Playwright `console` listener, but not on every
+  load, which is the first thing to pin down.
 - **The Oura transcript idea.** An advisor that states one quantified change
   and ends by asking what shifted. The nearest thing in the app is the drift
   card (`DriftCard.tsx`, `drift.ts`): rolling 30 days against the 30 before,
@@ -697,10 +773,10 @@ Roughly in order, most recent first:
   correct; VO2 max's is the least certain. The first sync after deploy will log
   `[oura] <endpoint> mapped no values` with the real keys if any of them is
   wrong. Check the Vercel logs once, then this can be struck off.
-- **Typical Sleep Score, Sleep Debt, Sleep Regularity, Daily Sleep Need and
-  Symptom Radar** appear in the Oura app but not in the API docs. Sleep debt
-  and regularity are computable from the bedtimes and durations already stored,
-  which beats copying a number we cannot explain.
+- **Typical Sleep Score, Daily Sleep Need and Symptom Radar** appear in the
+  Oura app but not in the API docs. Sleep debt and regularity were on this list
+  too and are now built from the durations and bedtimes already stored — see
+  `sleep-rhythm.ts` — which beats copying a number we cannot explain.
 - **The rest of the chat bill.** The parser takes the log lines; three levers
   are left, in order of payoff. (1) `EMERGY_CHAT_EFFORT` is wired
   (`chatEffort()` in `claude.ts`) but unset in production, so every turn runs

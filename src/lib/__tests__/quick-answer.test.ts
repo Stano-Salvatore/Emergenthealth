@@ -51,6 +51,17 @@ describe("parseQuickAsk — ours", () => {
     expect(parseQuickAsk("am I behind on sleep this week?")).toEqual({ kind: "sleep", window: "week", debt: true })
   })
 
+  it("reads sleep regularity as its own question, with no window to state", () => {
+    expect(parseQuickAsk("is my sleep regular?")).toEqual({ kind: "sleep_rhythm" })
+    expect(parseQuickAsk("how consistent is my sleep")).toEqual({ kind: "sleep_rhythm" })
+    expect(parseQuickAsk("do I go to bed at the same time?")).toEqual({ kind: "sleep_rhythm" })
+    expect(parseQuickAsk("is my sleep all over the place this week")).toEqual({ kind: "sleep_rhythm" })
+    // One night cannot be regular or irregular, so this is not the question.
+    expect(parseQuickAsk("was my sleep regular last night")).not.toEqual({ kind: "sleep_rhythm" })
+    // "Regularly" is an adverb about frequency, not about rhythm.
+    expect(parseQuickAsk("do I regularly sleep badly this week")).not.toEqual({ kind: "sleep_rhythm" })
+  })
+
   it("reads today's log", () => {
     expect(parseQuickAsk("so whats logged today?")).toEqual({ kind: "logged_today" })
     expect(parseQuickAsk("what did I log today?")).toEqual({ kind: "logged_today" })
