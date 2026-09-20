@@ -129,5 +129,5 @@ fails rather than writing a file Play would reject.
 | Google Health Coach | Gemini + Fitbit only | Device-agnostic: Health Connect, Oura, Samsung |
 
 Strategy: V3 ships the focused core above. Finished-but-flagged features
-(finances, labs, Gmail, Strava, screen time, Last.fm, RescueTime, smart home)
+(labs, Gmail, Strava, screen time, Last.fm, RescueTime, smart home)
 are enabled one per release so the app visibly improves every few weeks.

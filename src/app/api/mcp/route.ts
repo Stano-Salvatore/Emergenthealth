@@ -149,58 +149,6 @@ function buildMcpServer(userId: string): McpServer {
     },
   )
 
-  // ── FINANCE ───────────────────────────────────────────────────────────────
-
-  server.tool(
-    "get_transactions",
-    "Get financial transactions for a date range, optionally filtered by category",
-    { ...dateRange, category: z.string().optional().describe("Filter by category name, e.g. 'Food', 'Transport'") },
-    async ({ startDate, endDate, category }) => {
-      const txns = await prisma.transaction.findMany({
-        where: {
-          userId,
-          date: { gte: startOfDay(startDate), lte: endOfDay(endDate) },
-          ...(category ? { category: { contains: category, mode: "insensitive" } } : {}),
-        },
-        orderBy: { date: "desc" },
-        take: 100,
-      })
-      return ok(txns.map(t => ({
-        date: t.date.toISOString().slice(0, 10),
-        payee: t.payee,
-        amount: (t.amount / 100).toFixed(2),
-        category: t.category,
-        accountName: t.accountName,
-      })))
-    },
-  )
-
-  server.tool(
-    "get_spending_by_category",
-    "Get total spending grouped by category for a date range",
-    dateRange,
-    async ({ startDate, endDate }) => {
-      const txns = await prisma.transaction.findMany({
-        where: {
-          userId,
-          date: { gte: startOfDay(startDate), lte: endOfDay(endDate) },
-          amount: { lt: 0 },
-          isTransfer: false,
-        },
-      })
-      const byCat: Record<string, number> = {}
-      for (const t of txns) {
-        const cat = t.category ?? "Uncategorised"
-        byCat[cat] = (byCat[cat] ?? 0) + Math.abs(t.amount)
-      }
-      const sorted = Object.entries(byCat)
-        .sort((a, b) => b[1] - a[1])
-        .map(([category, cents]) => ({ category, total: `€${(cents / 100).toFixed(2)}` }))
-      const grandTotal = txns.reduce((s, t) => s + Math.abs(t.amount), 0)
-      return ok({ total: `€${(grandTotal / 100).toFixed(2)}`, by_category: sorted })
-    },
-  )
-
   // ── HABITS ────────────────────────────────────────────────────────────────
 
   server.tool(

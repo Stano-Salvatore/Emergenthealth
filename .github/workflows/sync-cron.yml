@@ -41,7 +41,7 @@ jobs:
             exit 1
           fi
 
-          # Data syncs only — health + finances. The notification crons stay on
+          # Data syncs only. The notification crons stay on
           # Vercel's daily schedule; running those this often would spam.
           #
           # Strava is here as well as in vercel.json. That schedule is daily, so
@@ -55,7 +55,7 @@ jobs:
           # as "overdue", which is exactly the false alarm that teaches someone
           # to stop reading the screen.
           auth_failed=0
-          for path in oura strava ynab truelayer lastfm rescuetime; do
+          for path in oura strava lastfm rescuetime; do
             code=$(curl -sS --max-time 300 -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${path}") || true

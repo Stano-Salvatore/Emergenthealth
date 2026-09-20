@@ -47,7 +47,7 @@ export default function TermsPage() {
               any content you create or data you connect.
             </p>
             <p className="mt-3">
-              You are responsible for ensuring that connecting third-party accounts (Oura, YNAB,
+              You are responsible for ensuring that connecting third-party accounts (Oura,
               Strava, etc.) complies with those services&apos; own terms. Emergenthealth is not
               affiliated with or endorsed by any of the third-party services it integrates with.
             </p>

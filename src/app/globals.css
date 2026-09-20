@@ -381,9 +381,8 @@ h1, h2 {
 /* ── Card gradient accents ──
    Derived from the domain hues so they survive a theme switch instead of
    staying emerald in Forest and rose in Ocean. Calendar, habits, reminders,
-   finances and mail are Life — neutral by design. */
+   mail is Life — neutral by design. */
 .card-health    { background: linear-gradient(135deg, color-mix(in srgb, var(--domain-heart) 14%, transparent) 0%, var(--card) 55%); }
-.card-finances  { background: linear-gradient(135deg, color-mix(in srgb, var(--domain-life) 14%, transparent) 0%, var(--card) 55%); }
 .card-calendar  { background: linear-gradient(135deg, color-mix(in srgb, var(--domain-life) 14%, transparent) 0%, var(--card) 55%); }
 .card-habits    { background: linear-gradient(135deg, color-mix(in srgb, var(--domain-life) 16%, transparent) 0%, var(--card) 55%); }
 .card-reminders { background: linear-gradient(135deg, color-mix(in srgb, var(--domain-life) 14%, transparent) 0%, var(--card) 55%); }

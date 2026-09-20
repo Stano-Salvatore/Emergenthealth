@@ -63,7 +63,6 @@ const SETTLE_MAX_MS = Number(process.env.SETTLE_MAX_MS ?? 60_000)
 // listed route 404s, so drift is caught in the failing direction).
 const ROUTES = (process.env.ROUTES ?? [
   "/dashboard",
-  "/dashboard/bills",
   "/dashboard/body",
   "/dashboard/brief",
   "/dashboard/caffeine",
@@ -73,7 +72,6 @@ const ROUTES = (process.env.ROUTES ?? [
   "/dashboard/custom",
   "/dashboard/experiments",
   "/dashboard/fasting",
-  "/dashboard/finances",
   "/dashboard/focus",
   "/dashboard/garden",
   "/dashboard/gmail",
@@ -95,7 +93,6 @@ const ROUTES = (process.env.ROUTES ?? [
   "/dashboard/stats",
   "/dashboard/strava",
   "/dashboard/streaks",
-  "/dashboard/subscriptions",
   "/dashboard/symptoms",
   "/dashboard/timeline",
   "/dashboard/toggl",

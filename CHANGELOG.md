@@ -1,5 +1,40 @@
 # Changelog
 
+## 3.2.0 — Finance comes out
+
+Money tracking is gone: the three screens, the YNAB and TrueLayer
+integrations, the bank-statement imports, the recurring-charge detection and
+both spending insight families. It had been flag-gated since 3.0.0, which
+meant nobody could open it and it still cost something — two bank APIs polled
+every thirty minutes, two rows on the sync status screen, two entries on the
+Vercel cron schedule, a hundred `Transaction` rows read into the chat prompt
+on every cache write, and a data-safety answer that rested on a feature flag
+rather than on the code.
+
+### What went
+- `/dashboard/finances`, `/dashboard/bills`, `/dashboard/subscriptions`
+- The YNAB and TrueLayer connections, their OAuth routes, syncs and crons —
+  and their two entries in the 30-minute sync workflow and in `vercel.json`
+- Revolut CSV import, by upload and from Google Drive
+- Recurring-charge detection
+- The `## Finances` section of Emergy's prompt, and the `get_transactions` /
+  `get_spending_by_category` MCP tools
+- **Spending & Mood** and **Spending & Next-Day Mood** in the correlation
+  engine. These were the one part that earned its keep — card spend is a
+  behavioural signal, not just a financial one — and they go with the sync
+  that fed them. `ENGINE_VERSION` → 18, so every cached result is recomputed.
+
+### What stayed
+- The `Transaction` table and its rows. Nothing writes to it any more and
+  nothing reads it except **data export**, which is the point: anyone who had
+  transactions can still take them out. No migration, no data loss.
+- `Subscription` — that is the Stripe plan, not recurring bills, and is
+  untouched. So is everything else about Pro.
+
+### Also
+- Data safety can now answer "financial info: no" about the code instead of
+  about a flag.
+
 ## 3.1.0 — Honest empty states, and a phone that asks for the right things
 
 Everything in 3.0.0 plus the work below. Nothing was removed from the feature
@@ -133,13 +168,11 @@ one per update — see the roadmap below.
 The list below is `HELD_BACK` in `src/lib/features.ts` — that array is the
 truth, and this section drifted from it once already.
 
-- Finances (bank sync, bills, subscriptions) — four aggregators, only two on a
-  cron; wants a pruning pass first
-- Gmail inbox card — a separate OAuth surface, and Bills depends on it
+- Gmail inbox card — a separate OAuth surface of its own
 - Smart home (AC control) — depends on a self-hosted UDP bridge, not
   multi-tenant
 
-Enable either early with `NEXT_PUBLIC_ENABLED_FEATURES="finances,gmail"`.
+Enable either early with `NEXT_PUBLIC_ENABLED_FEATURES="gmail"`.
 
 ### Launched since V3 shipped, and no longer gated
 Lab results, Strava, Screen time, Last.fm, RescueTime, Fasting. Each is

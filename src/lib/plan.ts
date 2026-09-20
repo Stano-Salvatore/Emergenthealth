@@ -22,7 +22,6 @@ export const PRO_FEATURES = {
   unlimitedHabits: "Unlimited habits (free: 10)",
   fullHistory: "Full history (free: 30 days)",
   dailyAiInsights: "Daily AI insights (free: weekly)",
-  bankSync: "Bank & finance sync",
   dataExport: "Data export (CSV, JSON)",
   customWidgets: "Custom home screen widgets",
   emailDigest: "Daily email digest",

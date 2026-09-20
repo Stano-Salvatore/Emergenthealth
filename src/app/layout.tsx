@@ -50,7 +50,7 @@ export const metadata: Metadata = {
     default: "Emergenthealth — Your health, finally in one place",
     template: "%s | Emergenthealth",
   },
-  description: "Connect your wearables, apps, and habits. Oura Ring, YNAB, Strava, GitHub and more — all in one beautiful dashboard.",
+  description: "Connect your wearables, apps, and habits. Oura Ring, Health Connect, Strava, Google Calendar and more — all in one beautiful dashboard.",
   manifest: "/manifest.json",
   openGraph: {
     type: "website",
@@ -71,7 +71,7 @@ export const metadata: Metadata = {
     statusBarStyle: "black-translucent",
     title: "Emergenthealth",
   },
-  keywords: ["health dashboard", "oura ring", "habit tracking", "health analytics", "YNAB", "strava", "sleep tracking"],
+  keywords: ["health dashboard", "oura ring", "habit tracking", "health analytics", "health connect", "strava", "sleep tracking"],
   other: {
     "mobile-web-app-capable": "yes",
   },

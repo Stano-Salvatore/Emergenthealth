@@ -22,17 +22,10 @@ export interface SyncOverview {
 // source you've hooked up than for one you haven't. Shared by the sync-status
 // API and the Settings overview, so the two can never disagree.
 export async function loadSyncOverview(userId: string): Promise<SyncOverview> {
-  const [status, oura, strava, ynab, truelayer, calendarCount, newest, devicePrefs, lastfm, rescuetime] = await Promise.all([
+  const [status, oura, strava, calendarCount, newest, devicePrefs, lastfm, rescuetime] = await Promise.all([
     readSyncStatus(userId),
     prisma.ouraToken.count({ where: { userId } }).catch(() => 0),
     prisma.stravaToken.count({ where: { userId } }).catch(() => 0),
-    prisma.ynabToken.count({ where: { userId } }).catch(() => 0),
-    // The same conditions the sync itself uses, or a half-finished connection
-    // would show as connected and then never sync.
-    prisma.$queryRaw<{ n: bigint }[]>`
-      SELECT COUNT(*)::int AS n FROM "TruelayerToken"
-      WHERE "userId" = ${userId} AND "accountId" IS NOT NULL AND "accessToken" IS NOT NULL
-    `.then(r => Number(r[0]?.n ?? 0)).catch(() => 0),
     prisma.deviceCalendarEvent.count({ where: { userId } }).catch(() => 0),
     // The freshest health day we hold, as a second opinion: a sync can report
     // success and still be bringing back nothing.
@@ -64,8 +57,6 @@ export async function loadSyncOverview(userId: string): Promise<SyncOverview> {
   const connected: Record<string, boolean> = {
     oura: oura > 0,
     strava: strava > 0,
-    ynab: ynab > 0,
-    truelayer: truelayer > 0,
     lastfm: lastfm > 0,
     rescuetime: rescuetime > 0,
     "health-connect": deviceRun("health_connect_last_sync") != null,

@@ -47,7 +47,7 @@ export function AppSharePrompt() {
       const r = await fetch("/api/invite")
       if (r.ok) { const d = await r.json(); if (d.inviteUrl) url = d.inviteUrl }
     } catch { /* */ }
-    const text = "I've been using Emergenthealth to track my health, habits & finances — check it out!"
+    const text = "I've been using Emergenthealth to track my sleep, habits and health — check it out!"
 
     if (navigator.share) {
       try {

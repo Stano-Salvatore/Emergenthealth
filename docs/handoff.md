@@ -470,6 +470,27 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Finance came out, and the `Transaction` table did not.** The three screens,
+  YNAB, TrueLayer, the Revolut imports, recurring-charge detection, the chat
+  prompt's `## Finances` section, two MCP tools and both spending insight
+  families are gone. It had been flag-gated since 3.0.0 — invisible, and still
+  costing two bank APIs polled every thirty minutes, two rows on the sync
+  status screen and two Vercel cron entries.
+
+  **The one thing to know if you audit the schema:** `Transaction`,
+  `YnabToken` and `TruelayerToken` are still in `schema.prisma` and now have
+  no reader except the data export, which reads `Transaction` on purpose so
+  anyone who had rows can still take them out. That is deliberate, not the
+  dead-table smell — dropping them would be a data-loss migration for no gain.
+  If a later pass wants them gone, that is a migration decision, not a
+  cleanup.
+
+  The two families that went (`spend_mood`, `spend_mood_next`) were the only
+  part of this that earned its keep: card spend is a behavioural signal —
+  eating out, drinking, going out — that the engine could read against mood
+  without anyone opening a budget. If it is ever wanted back, it needs a
+  source of daily spend, not a finance feature.
+
 - **Months of sleep data that nothing ever read.** The ring records time to
   fall asleep, sleep efficiency, restless periods, time in bed and bedtime on
   **91% of nights**, and every one of them was written faithfully by the sync

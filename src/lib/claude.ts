@@ -2057,14 +2057,13 @@ export async function buildSystemPrompt(
   // The user's day starts at THEIR midnight; timestamp columns are compared
   // against that instant, date-only columns against the date itself.
   const dayStart = zonedDayRange(tz, todayStr).start
-  const monthStart = new Date(todayStr.slice(0, 7) + "-01T00:00:00Z")
 
   const since14 = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000)
   const since7 = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
 
   const since7Str = fmtDateISO.format(new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000))
 
-  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, todayFood, recentOuraTags, recentCheckins, recentScreenTime, caffeineDoses24h] =
+  const [recentHealth, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, todayFood, recentOuraTags, recentCheckins, recentScreenTime, caffeineDoses24h] =
     await Promise.all([
       prisma.healthLog.findMany({
         where: { userId }, orderBy: { date: "desc" }, take: 14,
@@ -2075,7 +2074,6 @@ export async function buildSystemPrompt(
           sleepScore: true, sleepStart: true,
         },
       }),
-      prisma.transaction.findMany({ where: { userId, date: { gte: monthStart } }, orderBy: { date: "desc" }, take: 100 }),
       prisma.habit.findMany({
         where: { userId, isArchived: false },
         include: {
@@ -2224,17 +2222,6 @@ export async function buildSystemPrompt(
     }
     return { name: h.name, streak, completedToday: completionDates.has(todayStr) }
   })
-
-  const spendingByCategory = recentTransactions
-    .filter((t) => t.amount < 0 && !t.isTransfer)
-    .reduce((acc, t) => {
-      const cat = t.category ?? "Uncategorized"
-      acc[cat] = (acc[cat] ?? 0) + Math.abs(t.amount)
-      return acc
-    }, {} as Record<string, number>)
-
-  const totalSpent = Object.values(spendingByCategory).reduce((a, b) => a + b, 0)
-  const totalIncome = recentTransactions.filter((t) => t.amount > 0 && !t.isTransfer).reduce((sum, t) => sum + t.amount, 0)
 
   // Non-drink Oura tags today = supplements/meds (drink tags are mirrored into
   // IntakeLog by the Oura sync, so intake totals below already include them —
@@ -2756,10 +2743,6 @@ ${checkinHistoryStr ?? "None this week."}
 ${journalStr ?? "No journal notes in the last 14 days."}
 
 ${screenTimeStr ? `## Screen time (last 7 days)\n${screenTimeStr}\n` : ""}
-## Finances (this month)
-Spent: €${(totalSpent / 100).toFixed(2)} | Income: €${(totalIncome / 100).toFixed(2)}
-${Object.entries(spendingByCategory).sort(([, a], [, b]) => b - a).map(([cat, amt]) => `  ${cat}: €${(amt / 100).toFixed(2)}`).join("\n") || "  No spending yet."}
-
 ## Calendar (from phone + Google)
 ${calendarStr}
 

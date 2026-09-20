@@ -21,7 +21,6 @@ import { VoiceSettings } from "@/components/settings/VoiceSettings"
 import { ThemeSwitcher } from "@/components/ui/ThemeSwitcher"
 import { ZoomControl } from "@/components/settings/ZoomControl"
 import { LayoutModeControl } from "@/components/settings/LayoutModeControl"
-import { CsvImport } from "@/components/settings/CsvImport"
 import { ExportButton } from "@/components/settings/ExportButton"
 import { DigestButton } from "@/components/settings/DigestButton"
 import { StatusOverview } from "@/components/settings/StatusOverview"
@@ -36,8 +35,6 @@ import { StravaManager } from "@/components/settings/StravaManager"
 import { GitHubManager } from "@/components/settings/GitHubManager"
 import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
 import { LastfmManager } from "@/components/settings/LastfmManager"
-import { TruelayerManager } from "@/components/settings/TruelayerManager"
-import { YnabManager } from "@/components/settings/YnabManager"
 import { FeedbackInbox } from "@/components/settings/FeedbackInbox"
 import { DeleteAccount } from "@/components/settings/DeleteAccount"
 import { PushNotifications } from "@/components/settings/PushNotifications"
@@ -366,13 +363,6 @@ export default async function SettingsPage({
       {isFeatureEnabled("rescuetime") && <RescuetimeManager hasKey={hasRescuetimeKey} />}
       {/* Last.fm */}
       {isFeatureEnabled("lastfm") && <LastfmManager />}
-      {/* Banking. Both of these have a daily cron reading the tokens they
-          store, but nothing rendered the screens that obtain those tokens —
-          so the syncs ran against connections there was no way to make. */}
-      {isFeatureEnabled("finances") && <TruelayerManager />}
-      {isFeatureEnabled("finances") && (
-        <YnabManager hasOauthConfig={!!(process.env.YNAB_CLIENT_ID && process.env.YNAB_CLIENT_SECRET)} />
-      )}
       </SettingsSection>
 
       {/* ══ Location & weather ══ Where the app knows you are, and how it
@@ -429,8 +419,6 @@ export default async function SettingsPage({
       <SamsungHealthImporter />
       {/* Google Timeline — location visit history for health correlations */}
       <TimelineImporter />
-      {/* CSV import */}
-      <CsvImport />
 
       <Card>
         <CardContent className="pt-4 pb-4">

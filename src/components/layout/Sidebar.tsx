@@ -43,7 +43,6 @@ const DEFAULT_HIDDEN = new Set([
   "/dashboard/reading",
   "/dashboard/lastfm",
   "/dashboard/rescuetime",
-  "/dashboard/subscriptions",
   "/dashboard/home",
 ])
 const NON_HIDEABLE = new Set(["/dashboard", "/dashboard/settings", "/dashboard/chat"])

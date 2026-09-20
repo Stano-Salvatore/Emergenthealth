@@ -31,7 +31,7 @@ export function InviteCard() {
     if (navigator.share) {
       await navigator.share({
         title: "Try Emergenthealth",
-        text: "I've been tracking my health with Emergenthealth — it connects sleep, habits, finances, and more. Check it out!",
+        text: "I've been tracking my health with Emergenthealth — it connects sleep, habits, meds, and more. Check it out!",
         url: data.inviteUrl,
       }).catch(() => {})
     } else {

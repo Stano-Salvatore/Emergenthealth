@@ -41,7 +41,6 @@ const CATEGORIES: Category[] = [
   { id: "sleep", emoji: "😴", name: "Sleep", description: "Track sleep quality and duration" },
   { id: "fitness", emoji: "🏃", name: "Fitness", description: "Steps, activities, workouts" },
   { id: "productivity", emoji: "🧠", name: "Productivity", description: "Focus time, tasks, coding" },
-  { id: "finances", emoji: "💰", name: "Finances", description: "Spending, budgets, trends" },
   { id: "mood", emoji: "😊", name: "Mood", description: "Daily mood and energy" },
   { id: "reading", emoji: "📖", name: "Reading", description: "Books and learning" },
 ]
@@ -82,7 +81,6 @@ const INTEGRATIONS: Integration[] = [
   { emoji: "💍", name: "Oura Ring", description: "Sleep & HRV tracking" },
   { emoji: "📅", name: "Google Calendar", description: "Schedule context" },
   { emoji: "🚴", name: "Strava", description: "Workouts & activities" },
-  { emoji: "💳", name: "YNAB", description: "Spending & budgets" },
   { emoji: "🎵", name: "Last.fm", description: "Music listening" },
   { emoji: "⏱️", name: "RescueTime", description: "Focus & productivity" },
 ]

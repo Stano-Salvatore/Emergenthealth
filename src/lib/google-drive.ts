@@ -1,16 +1,9 @@
 import { google } from "googleapis"
 import { prisma } from "@/lib/prisma"
 import { parseGpx, GpxTrack } from "./gpx"
-import { errorMessage } from "@/lib/utils"
 
 const GPSLOGGER_FOLDER_ID = "1rmfhtRSJz6OiOcdJilDwHHsjousC6oSy"
 
-export interface DriveStatementFile {
-  id: string
-  name: string
-  createdTime: string
-  size: number
-}
 
 async function buildDriveClient(userId: string) {
   const account = await prisma.account.findFirst({
@@ -40,37 +33,6 @@ async function buildDriveClient(userId: string) {
   })
 
   return google.drive({ version: "v3", auth: oauth2Client })
-}
-
-// Search Drive for Revolut account-statement CSVs anywhere in the user's Drive
-export async function listRevolutStatements(userId: string): Promise<DriveStatementFile[]> {
-  try {
-    const drive = await buildDriveClient(userId)
-    const res = await drive.files.list({
-      q: "name contains 'account-statement' and (mimeType = 'text/comma-separated-values' or mimeType = 'text/csv' or mimeType = 'text/troff') and trashed = false",
-      fields: "files(id, name, createdTime, size)",
-      orderBy: "createdTime desc",
-      pageSize: 50,
-    })
-    return (res.data.files ?? []).map(f => ({
-      id: f.id!,
-      name: f.name!,
-      createdTime: f.createdTime ?? "",
-      size: parseInt(f.size ?? "0"),
-    }))
-  } catch (e) {
-    console.error("[drive] listRevolutStatements failed:", errorMessage(e))
-    return []
-  }
-}
-
-export async function downloadRevolutCsv(userId: string, fileId: string): Promise<string> {
-  const drive = await buildDriveClient(userId)
-  const res = await drive.files.get(
-    { fileId, alt: "media" },
-    { responseType: "arraybuffer" },
-  )
-  return Buffer.from(res.data as ArrayBuffer).toString("utf-8")
 }
 
 export async function getGpxTrackForDate(userId: string, dateStr: string): Promise<GpxTrack | null> {

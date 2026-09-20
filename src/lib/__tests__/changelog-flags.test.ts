@@ -28,7 +28,6 @@ const launched = ALL.filter(k => isFeatureEnabled(k))
 
 /** How each key is spelled for a reader. */
 const PROSE: Record<FeatureKey, string> = {
-  finances: "Finances",
   smarthome: "Smart home",
   gmail: "Gmail",
   strava: "Strava",
