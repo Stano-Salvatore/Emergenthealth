@@ -379,6 +379,21 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **The phone filed two hours of every night under the wrong day.** Health
+  Connect sync runs on the user's own device, and `dateStr()` in
+  `health-connect-service.ts` was slicing an ISO string — the UTC day. In CEST
+  every record between local midnight and 02:00 went to yesterday: the steps
+  walked home after midnight, the calories burned with them, a weight taken
+  before dawn, each then read against the wrong night's sleep by the engine.
+  The standing UTC guard did not see it because it matches
+  `.<timestampField>.toISOString()` and this was a bare local in a helper;
+  `health-connect-local-day.test.ts` sets a timezone rather than assuming one,
+  because CI runs in UTC where the bug is invisible. Also: the chat prefix
+  stopped reading 100 `Transaction` rows to print "No spending yet." on a
+  build where finances is held back — the query and the section are gated on
+  the flag now, the way screen time already was. `docs/review-2026-09-20.md`
+  has the rest of that pass, including the answer to "is there an easier sync"
+  (yes, and it is native — see the open thread below).
 - **Months of sleep data that nothing ever read.** The ring records time to
   fall asleep, sleep efficiency, restless periods, time in bed and bedtime on
   **91% of nights**, and every one of them was written faithfully by the sync
@@ -690,6 +705,24 @@ Roughly in order, most recent first:
 
 ## Open threads
 
+- **Health Connect only syncs while the app is on screen.** It is
+  `driver: "device"` for an honest reason: `HealthConnectAutoSync` fires on
+  `visibilitychange`, once an hour, and re-reads 30 days each time. A week
+  without opening the app is a week with no steps, no phone-side sleep and no
+  weight — missing on exactly the days the app was not opened, which is the
+  hole the weather cron was built to close. Android has since grown the two
+  pieces that fix it: `READ_HEALTH_DATA_IN_BACKGROUND`, and change tokens for
+  incremental reads (they expire after 30 days, so the existing full read
+  stays as the cold path). Neither is exposed by
+  `@kiwi-health/capacitor-health-connect` or by the maintained alternatives,
+  so this is native: a worker under `android-widget/` reading with the
+  androidx client and posting with the widget key, exactly as
+  `EmergyLocationService` does — no WebView, no session, and the 15-minute
+  watchdog already there to keep it alive. Costs an APK, so batch it with the
+  920007 collision and the location queue timer. Note also that a failing
+  phone sync currently reads as a quiet one: `safeRead` swallows a per-type
+  refusal, the auto-sync swallows the POST failure, and the status screen
+  infers health from a timestamp written only on success.
 - **Two chat-cost levers that need a hand outside this repo.** Both are
   measured and ready; neither can be finished from a session.
   1. **`EMERGY_CHAT_EFFORT=medium` in production.** Opus 5 defaults to `high`
