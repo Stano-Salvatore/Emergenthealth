@@ -775,6 +775,32 @@ Roughly in order, most recent first:
   Reproduce with a Playwright context that loads `/dashboard` twice and counts
   `console.error` calls matching `unique`/`key`.
 
+- **One Health Connect type may not be declared, and the phone is now the
+  one to say.** `health-connect-service.ts` requests eight record types.
+  Seven pair exactly with a declared `android.permission.health.READ_*` in
+  `customize-android.py`. The eighth, **`RestingHeartRate`**, has no
+  same-named declaration — while `READ_HEART_RATE` is declared and nothing
+  reads `HeartRateSeries`. That asymmetry is verifiable from the repo; what is
+  not verifiable from here is AndroidX's record→permission table, which is not
+  mechanical (`HeartRateVariabilityRmssd` is granted by
+  `READ_HEART_RATE_VARIABILITY`, suffix dropped), so the permission was
+  deliberately **not** added on a guess — a health permission added
+  speculatively is a Play form answered speculatively.
+
+  Instead the app reports it. `permissionsByType()` asks the plugin about each
+  type on its own, letting AndroidX do its own mapping, and the Health Connect
+  card names anything not granted. Before this, one refusal out of eight came
+  back as a flat "Permission request failed or was denied" while the other
+  seven worked, and `safeRead`'s catch-all then made the refused type look
+  exactly like a type with no records — forever.
+
+  **To settle it:** open Settings on the phone, connect Health Connect,
+  allow everything. If the card still lists `RestingHeartRate`, the
+  permission is missing and `READ_RESTING_HEART_RATE` needs declaring (and
+  `READ_HEART_RATE` most likely removing, since nothing reads that record).
+  Note this is invisible on an Oura account: resting HR arrives from the ring
+  regardless, so only a phone without one shows the gap.
+
 - **The Oura transcript idea.** An advisor that states one quantified change
   and ends by asking what shifted. The nearest thing in the app is the drift
   card (`DriftCard.tsx`, `drift.ts`): rolling 30 days against the 30 before,
