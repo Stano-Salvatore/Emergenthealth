@@ -79,6 +79,12 @@ about what ships.
   error and an error over a blank, and the card says one quiet line with a
   Try again.
 
+### Small things on a phone
+- Garden habit chips truncated into their own streak badge — "No coffee..2".
+  The name now stops before the number.
+- The streaks toast's dismiss ✕ was a 15×18 target; it is 40×40 now, without
+  the toast changing height.
+
 ### Play Store readiness
 - **Health Connect asks for the permission it actually needs.**
   `RestingHeartRate` was never declared, so no phone could have granted it;

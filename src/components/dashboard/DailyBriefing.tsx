@@ -104,11 +104,14 @@ export function DailyBriefing() {
             Couldn&apos;t write your brief just now. Everything else on this page is your own
             data and is unaffected.
           </p>
-          <div className="mt-2 flex items-center justify-end">
+          <div className="mt-1 flex items-center justify-end">
+            {/* -mr-2 keeps the padding from pushing the label off the bubble's
+                right edge: the target grows, the text stays where it looks
+                right. A 15px-tall retry is not a retry anybody hits. */}
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="text-[10px] text-muted-foreground/70 hover:text-foreground transition-colors flex items-center gap-1 disabled:opacity-50"
+              className="text-[10px] text-muted-foreground/70 hover:text-foreground transition-colors flex items-center gap-1 disabled:opacity-50 min-h-[32px] px-2 -mr-2"
             >
               <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
               Try again
