@@ -747,21 +747,34 @@ Roughly in order, most recent first:
      trip would cost full output tokens to save input tokens that are cheap.
      Reconsider only if the hit rate collapses.
 
-- **An unlabelled smoke warning on the dashboard.** `npm run smoke` is clean on
-  all 39 screens, but `/dashboard` (and `/dashboard/home`, which redirects to
-  it) logs `Each child in a list should have a unique "key" prop. Check the
-  render method of \`DashboardGrid\`. It was passed a child from
-  \`DashboardPage\`.` It is dev-only — React strips these from a production
-  build — and it predates the bedtime work, but the rule on this file is that
-  an unlabelled warning is always new signal, so it is written down rather
-  than left in a log. Every `.map` in `DashboardGrid` and in the page's
-  `header` and `blocks` is keyed on inspection, so the array React is
-  complaining about is being built somewhere less obvious — and it is not the
-  obvious suspect either: logging `Array.isArray(header)` and the block values
-  from the server render says neither is an array, so `DashboardGrid` is not
-  simply being handed a list through those two props. It reproduces at 390px
-  with the demo cookie and a Playwright `console` listener, but not on every
-  load, which is the first thing to pin down.
+- **The dashboard's React key warning, now reproducible.** `npm run smoke` is
+  clean on all 39 screens but `/dashboard` logs `Each child in a list should
+  have a unique "key" prop. Check the render method of \`DashboardGrid\`. It was
+  passed a child from \`DashboardPage\`.` Dev-only — React strips it from a
+  production build — and it predates the current work.
+
+  What is now pinned down, by intercepting `console.error` in the page and
+  keeping the call stack:
+
+  * It fires on the **second** visit to `/dashboard` in one browser context,
+    never the first. Fresh context, first load: 0. Same context, load it
+    again: 1. That is the whole of the intermittency.
+  * It is **not** the redirecting routes. `/dashboard/home` and
+    `/dashboard/subscriptions` looked guilty because they follow `/dashboard`
+    in the smoke sweep; a cold context going straight to `/dashboard/home`
+    warns zero times.
+  * So it is the `ready === true` path — first render uses the `!ready`
+    fallback, and only a warm `localStorage` layout puts the real grid up
+    immediately.
+  * `warnOnInvalidKey` recurses three deep in the stack, so the offender is a
+    **nested** array, not a flat one.
+  * Ruled out: neither `header` nor any value in `blocks` is an array at
+    render time (logged from the server component), and every `.map` in
+    `DashboardGrid` and in the page carries a key.
+
+  Reproduce with a Playwright context that loads `/dashboard` twice and counts
+  `console.error` calls matching `unique`/`key`.
+
 - **The Oura transcript idea.** An advisor that states one quantified change
   and ends by asking what shifted. The nearest thing in the app is the drift
   card (`DriftCard.tsx`, `drift.ts`): rolling 30 days against the 30 before,
