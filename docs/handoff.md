@@ -347,6 +347,32 @@ left in `IN_BOTTOM_NAV` is not demoted — it is **gone on a phone**, hidden in
 favour of a tab that no longer exists. Overview is the one deliberate
 exception, and it is asserted as such.
 
+**The generated manifest is checked against itself now, and here is why.**
+`customize-android.py` decides whether to add a component by asking whether
+the manifest already mentions it. It used to ask for the bare class name — and
+the manifest also carries the comments that same script writes into it. One of
+those comments explains `ACCESS_BACKGROUND_LOCATION` by naming
+`EmergyLocationService`. So the check matched its own prose, the `<service>`
+element was never added, and the class shipped compiled-in and undeclared.
+Android will not start an undeclared service, so `startForegroundService`
+threw, the plugin rejected the call, and the Settings card told people to
+check their location permission or Samsung's battery settings. Every phone,
+from 2026-09-02.
+
+Two things came out of that and both are worth keeping:
+
+- **Check the element, not the string.** `android:name=".Foo"`, never `"Foo"`.
+  The same mistake in the other direction hid the missing Health Connect
+  rationale screen: `ACTION_SHOW_PERMISSIONS_RATIONALE` was in the manifest,
+  under `<queries>` — which is how this app *finds* Health Connect and does
+  nothing to let Health Connect find a screen. A `<queries>` entry and an
+  `<intent-filter>` grep identically and mean opposite things.
+- **The script verifies its own output.** Its last step reads the finished
+  manifest and fails the build if any component class compiled into the app is
+  not declared — deriving "is a component" from what the class extends, rather
+  than from a list somebody has to remember to update. Break it and watch it
+  fail: revert one check to the bare name, regenerate, and the build stops.
+
 The three Play guards are a family, and they all exist for one reason: the
 files that describe this app to Google are not code, so nothing notices when
 they stop being true. `screen-time-declared.test.ts` ties the readable flag to
@@ -364,6 +390,12 @@ test rather than a sentence nobody re-read.
 Each of them fails in **both** directions. A permission declared and unused is
 not a tidiness problem — it is a Play Console form asking what a sensitive
 permission is for, and "nothing" is not an answer that gets an app published.
+
+`.ci/smoke.mjs` fails a run in which more than two routes land on `/signin`.
+It used to report **"All 39 screens clean (39 redirected)"** for a sweep that
+was never signed in — the sign-in page renders perfectly thirty-nine times.
+A check that passes while checking nothing is worse than no check. If it
+fires, the demo session expired: `npm run dev:seed`.
 
 A note on writing either kind of guard: both of these passed on their first
 draft against code I had deliberately broken — one matched a leftover

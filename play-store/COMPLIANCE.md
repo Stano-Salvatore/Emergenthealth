@@ -22,8 +22,17 @@ January 2026 health-app enforcement.
   correlations engine that relates sleep/activity/vitals to mood, habits, and
   energy. No type is collected without a visible user-facing feature.
 - Privacy policy must be reachable from the Health Connect permission
-  rationale screen: `https://emergenthealth.vercel.app/privacy`
-  (the manifest's `ACTION_SHOW_PERMISSIONS_RATIONALE` intent is declared).
+  rationale screen: `https://emergenthealth.vercel.app/privacy`.
+  `PermissionsRationaleActivity` handles both forms — Health Connect's own APK
+  sends `ACTION_SHOW_PERMISSIONS_RATIONALE`, the platform version on Android 14+
+  sends `VIEW_PERMISSION_USAGE` with the `HEALTH_PERMISSIONS` category to a
+  system-guarded alias — and opens that page.
+
+  This note used to claim the intent was declared because the action appeared
+  in the manifest. It appeared under `<queries>`, which is how this app *finds*
+  Health Connect and does nothing to let Health Connect find a rationale
+  screen; there was none. Check the element, not the string: a `<queries>`
+  entry and an `<intent-filter>` grep identically and mean opposite things.
 
 ## 2. Data safety section
 
@@ -61,10 +70,12 @@ Console asks about permissions one at a time and months after they were
 written; a permission nobody can explain is either a rejection or an answer
 invented on the spot.
 
-Note that not all of them were written by us. Android's manifest merger folds
-in each Capacitor plugin's own manifest, so `npm install` can add a permission
-to the APK that appears nowhere in this repository — `WAKE_LOCK` arrives that
-way. The guard reads the plugin manifests too, which is how that row got
+Note that not all of them were written by us, and the ones that were not are
+the ones nobody thinks to write down. Two other sources reach the APK: the
+manifest merger folds in each Capacitor plugin's own manifest (`WAKE_LOCK`
+arrives that way, so `npm install` can change what the app asks for), and
+`cap add android` unpacks a project template whose manifest already declares
+`INTERNET`. The guard reads all three, which is how both of those rows got
 written.
 
 ### Declared
@@ -84,6 +95,7 @@ written.
 | `SYSTEM_ALERT_WINDOW` | The floating chat head. Not granted at install — the user turns it on by hand under "Display over other apps", and the head's own notification carries a Stop button. Nothing floats until somebody asks for it. |
 | `RECEIVE_BOOT_COMPLETED` | Only to put the chat head's alarms back. Android clears every alarm an app holds on restart, so without it the pop-outs stop at the first reboot while the app carries on reporting them as armed. |
 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | **Expect a question.** Play allows it only where background work is the core function and the user is asked, not assumed. Here it is asked for from Settings, for two user-visible features they switched on themselves — the location service and the chat head, both of which Samsung's "sleeping apps" logic kills silently. It is never requested at launch. If the reviewer pushes back, the feature degrades rather than breaks, and the ask can move behind a "tracking keeps stopping" prompt. |
+| `INTERNET` | **Not ours.** In the Capacitor project template before any of this repo's code runs — an app that loads a hosted web app could hardly do without it. Install-time, no prompt, no form. Listed because a permission with no row is a permission nobody checked. |
 | `WAKE_LOCK` | **Not ours.** Declared by `@capacitor/local-notifications` so a scheduled reminder can wake the device enough to post its notification. Install-time, no prompt, no Console form — but it is on the Play listing's permission list, so it is here. It leaves if that plugin does. |
 | `SCHEDULE_EXACT_ALARM` | Reminders at user-chosen times. User-granted under "Alarms & reminders"; Settings → Phone Notifications offers it. |
 

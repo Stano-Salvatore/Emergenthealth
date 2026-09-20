@@ -44,6 +44,22 @@ about what ships.
   answer from the data directly — faster, and a good deal cheaper.
 - A turn's cost is recorded rather than logged and lost.
 
+### Fixed on the phone
+- **Background location tracking never started.** `EmergyLocationService` was
+  compiled into the APK and declared nowhere in the manifest, because the
+  build script's "is it already there?" check searched for the class *name*
+  and matched a comment the same script writes into the manifest, which
+  mentions that class in prose. Android refuses to start an undeclared
+  service, so switching on automatic place check-ins failed — and the app
+  blamed the location permission, or Samsung's battery settings. Since
+  2026-09-02. The build now verifies every component class it compiles in is
+  declared, and stops rather than shipping one that isn't.
+- **Health Connect had no privacy-policy screen.** Health Connect requires an
+  activity that answers `ACTION_SHOW_PERMISSIONS_RATIONALE` (and, on Android
+  14+, `VIEW_PERMISSION_USAGE`); the manifest carried that action only under
+  `<queries>`, which points the other way. `PermissionsRationaleActivity`
+  now opens the policy, which is also a publishing requirement.
+
 ### Play Store readiness
 - **Health Connect asks for the permission it actually needs.**
   `RestingHeartRate` was never declared, so no phone could have granted it;
