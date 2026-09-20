@@ -143,6 +143,47 @@ still), and `PREREGISTERED_ASPECTS` makes the panel skip them. `drankDay`
 is the one definition of a drinking day for the sleep, HRV and resting-HR
 cards: any logged drink, silent days set aside, the same as the panel.
 
+**No location means no weather, not somebody else's.** `getWeatherCoords`
+used to fall back to Bratislava for any user with no stored preference. For
+the one account that lives there the guess was invisible and correct; for
+everyone else — a Play reviewer, anyone the app is shown to — the Brief
+opened on a confident hourly forecast for a city they had never been to, with
+an outfit line underneath telling them it was t-shirt weather. It is the rule
+the nightly weather cron states about itself, broken on the first screen:
+**no row rather than a guessed city**. It returns null now, both callers
+already had a no-weather path, and the Brief says where to set it. Found by
+signing in as an empty account rather than by reading the code — the guess is
+invisible from Bratislava.
+
+**A connected source speaks only for the days it existed.** `SOURCE_FROM` in
+`correlations.ts` holds the first day each one produced a row, and
+`sourceCovers(src, date)` is the question every family has to ask before
+reading a zero. The rule was already written here — `calendarFrom` carries a
+comment stating it exactly — and used by one family out of all of them, while
+eight other places read `(d.workoutMin ?? 0) >= 20` and filed every day before
+Strava was linked as a rest day. Those days are all OLDER than the covered
+ones, so "training vs rest" quietly became "since I connected it vs before",
+with the label still saying "rest days". On a 60-day fixture with the same
+workouts either way, a Strava linked 20 days ago compared 10 workout days
+against **9** rest days; linked throughout, 10 against **51**. Before the fix
+both said 51.
+
+`ComboCondition.test` now returns `boolean | null` like `SleepCause.test`,
+which is the tri-state the combinations were noted as lacking — `dense` fills
+the calendar with bare `{ date }` objects and every one of them used to answer
+"no alcohol, no workout, not busy" in the same voice as a real control.
+Watch the two call sites: `null` is falsy, so `dense.filter(c.test)` and
+`conds.every(c.test)` both compiled perfectly and counted unknowns as no.
+`source-coverage-guarded.test.ts` greps for the coercion and allows it only
+with a coverage call within two lines, because the failure is an omission and
+an omission has no runtime symptom.
+
+Still open, and a different shape: a source that **stops**. `SOURCE_FROM` is a
+first-seen date, so it cannot tell a disconnected Strava from a fortnight off
+the bike — which is precisely what the absence family would report as
+"Missing: a workout". It needs a last-seen date and a rule about how long a
+silence has to run before it counts as gone.
+
 **Sleep debt has one definition, in `sleep-rhythm.ts`.** It had three: the
 Health screen and Emergy's scripted answer compared the goal against what was
 slept and let a long night pay some back, while the Week screen summed
@@ -305,6 +346,56 @@ anything pinned there as a duplicate. So a tab moved out of `BottomNav` and
 left in `IN_BOTTOM_NAV` is not demoted — it is **gone on a phone**, hidden in
 favour of a tab that no longer exists. Overview is the one deliberate
 exception, and it is asserted as such.
+
+**The generated manifest is checked against itself now, and here is why.**
+`customize-android.py` decides whether to add a component by asking whether
+the manifest already mentions it. It used to ask for the bare class name — and
+the manifest also carries the comments that same script writes into it. One of
+those comments explains `ACCESS_BACKGROUND_LOCATION` by naming
+`EmergyLocationService`. So the check matched its own prose, the `<service>`
+element was never added, and the class shipped compiled-in and undeclared.
+Android will not start an undeclared service, so `startForegroundService`
+threw, the plugin rejected the call, and the Settings card told people to
+check their location permission or Samsung's battery settings. Every phone,
+from 2026-09-02.
+
+Two things came out of that and both are worth keeping:
+
+- **Check the element, not the string.** `android:name=".Foo"`, never `"Foo"`.
+  The same mistake in the other direction hid the missing Health Connect
+  rationale screen: `ACTION_SHOW_PERMISSIONS_RATIONALE` was in the manifest,
+  under `<queries>` — which is how this app *finds* Health Connect and does
+  nothing to let Health Connect find a screen. A `<queries>` entry and an
+  `<intent-filter>` grep identically and mean opposite things.
+- **The script verifies its own output.** Its last step reads the finished
+  manifest and fails the build if any component class compiled into the app is
+  not declared — deriving "is a component" from what the class extends, rather
+  than from a list somebody has to remember to update. Break it and watch it
+  fail: revert one check to the bare name, regenerate, and the build stops.
+
+The three Play guards are a family, and they all exist for one reason: the
+files that describe this app to Google are not code, so nothing notices when
+they stop being true. `screen-time-declared.test.ts` ties the readable flag to
+the manifest. `health-permissions-declared.test.ts` ties the record types the
+app reads to the `android.permission.health.*` lines and the Play form's list.
+`play-permissions-documented.test.ts` requires every declared permission to
+have a row in `COMPLIANCE.md` — and reads the Capacitor plugins' manifests too,
+because the manifest merger folds those into the APK, which is how `WAKE_LOCK`
+turned out to be shipping with nothing written down about it.
+`privacy-policy-covers-permissions.test.ts` is the same idea pointed at the
+public policy: the manifest decides what the page has to address, so declaring
+background location makes "we do not collect data in the background" a failing
+test rather than a sentence nobody re-read.
+
+Each of them fails in **both** directions. A permission declared and unused is
+not a tidiness problem — it is a Play Console form asking what a sensitive
+permission is for, and "nothing" is not an answer that gets an app published.
+
+`.ci/smoke.mjs` fails a run in which more than two routes land on `/signin`.
+It used to report **"All 39 screens clean (39 redirected)"** for a sweep that
+was never signed in — the sign-in page renders perfectly thirty-nine times.
+A check that passes while checking nothing is worse than no check. If it
+fires, the demo session expired: `npm run dev:seed`.
 
 A note on writing either kind of guard: both of these passed on their first
 draft against code I had deliberately broken — one matched a leftover
@@ -706,21 +797,75 @@ Roughly in order, most recent first:
      trip would cost full output tokens to save input tokens that are cheap.
      Reconsider only if the hit rate collapses.
 
-- **An unlabelled smoke warning on the dashboard.** `npm run smoke` is clean on
-  all 39 screens, but `/dashboard` (and `/dashboard/home`, which redirects to
-  it) logs `Each child in a list should have a unique "key" prop. Check the
-  render method of \`DashboardGrid\`. It was passed a child from
-  \`DashboardPage\`.` It is dev-only — React strips these from a production
-  build — and it predates the bedtime work, but the rule on this file is that
-  an unlabelled warning is always new signal, so it is written down rather
-  than left in a log. Every `.map` in `DashboardGrid` and in the page's
-  `header` and `blocks` is keyed on inspection, so the array React is
-  complaining about is being built somewhere less obvious — and it is not the
-  obvious suspect either: logging `Array.isArray(header)` and the block values
-  from the server render says neither is an array, so `DashboardGrid` is not
-  simply being handed a list through those two props. It reproduces at 390px
-  with the demo cookie and a Playwright `console` listener, but not on every
-  load, which is the first thing to pin down.
+- **The dashboard's React key warning, now reproducible.** `npm run smoke` is
+  clean on all 39 screens but `/dashboard` logs `Each child in a list should
+  have a unique "key" prop. Check the render method of \`DashboardGrid\`. It was
+  passed a child from \`DashboardPage\`.` Dev-only — React strips it from a
+  production build — and it predates the current work.
+
+  What is now pinned down, by intercepting `console.error` in the page and
+  keeping the call stack:
+
+  * It fires on the **second** visit to `/dashboard` in one browser context,
+    never the first. Fresh context, first load: 0. Same context, load it
+    again: 1. That is the whole of the intermittency.
+  * It is **not** the redirecting routes. `/dashboard/home` and
+    `/dashboard/subscriptions` looked guilty because they follow `/dashboard`
+    in the smoke sweep; a cold context going straight to `/dashboard/home`
+    warns zero times.
+  * So it is the `ready === true` path — first render uses the `!ready`
+    fallback, and only a warm `localStorage` layout puts the real grid up
+    immediately.
+  * `warnOnInvalidKey` recurses three deep in the stack, so the offender is a
+    **nested** array, not a flat one.
+  * Ruled out: neither `header` nor any value in `blocks` is an array at
+    render time (logged from the server component), and every `.map` in
+    `DashboardGrid` and in the page carries a key.
+
+  Reproduce with a Playwright context that loads `/dashboard` twice and counts
+  `console.error` calls matching `unique`/`key`.
+
+- **Health Connect permissions are settled, and how.** *(was an open thread;
+  kept because the method is the reusable part.)* The eight record types in
+  `READ_TYPES` now pair one-to-one with the
+  `android.permission.health.READ_*` lines in `customize-android.py`, and
+  `health-permissions-declared.test.ts` fails if they ever stop doing so — in
+  either direction, because a declared-but-unread type is a question on the
+  Play health-apps form with no honest answer.
+
+  Two were wrong. `RestingHeartRate` had no declaration at all, so Health
+  Connect would have refused it on every phone; `READ_HEART_RATE` was declared
+  and grants `HeartRateRecord`, which nothing here reads. They are different
+  permissions — the first does **not** imply the second.
+
+  The previous note said AndroidX's record→permission table was not verifiable
+  from the repo, so the fix waited on a phone. It is verifiable. The table is a
+  static map in the library the build already links, and reading it beats
+  guessing or waiting:
+
+  ```
+  curl -sO https://dl.google.com/dl/android/maven2/androidx/health/connect/\
+  connect-client/1.1.0/connect-client-1.1.0.aar
+  unzip -p connect-client-1.1.0.aar classes.jar > classes.jar && unzip -q classes.jar -d c
+  javap -p -c c/androidx/health/connect/client/permission/HealthPermission.class
+  ```
+
+  Each `ldc class …Record` is followed by the permission string it maps to.
+  Three of the eight are not what the type name suggests: `SleepSession` →
+  `READ_SLEEP`, `HeartRateVariabilityRmssd` → `READ_HEART_RATE_VARIABILITY`,
+  `RestingHeartRate` → `READ_RESTING_HEART_RATE`. Pin the version from
+  `node_modules/@kiwi-health/capacitor-health-connect/android/build.gradle` —
+  a different version could map differently.
+
+  `permissionsByType()` stays. It asks the plugin per type and the Settings
+  card names anything not granted, which is still the only way a user learns a
+  type was refused: `safeRead` catches everything and returns `[]`, so a
+  refused type reads exactly like a type with no records, forever. The
+  difference is that it should now have nothing to report.
+
+  Still invisible on an Oura account — resting HR arrives from the ring
+  whether or not Health Connect hands it over, which is why this survived.
+
 - **The Oura transcript idea.** An advisor that states one quantified change
   and ends by asking what shifted. The nearest thing in the app is the drift
   card (`DriftCard.tsx`, `drift.ts`): rolling 30 days against the 30 before,
@@ -735,22 +880,19 @@ Roughly in order, most recent first:
   watch's `nightQuestion` in `anomalies.ts` is the single-night version of
   the same move. The pieces exist; what is missing is the editorial choice of
   *one* thing to say and when to say it.
-- **Usage access on the phone — answered from the repo, and the answer is no.**
-  Android lists an app under Usage access only if its manifest declares
-  `PACKAGE_USAGE_STATS`. `customize-android.py` does not declare it, no commit
-  ever has, and `play-store/COMPLIANCE.md` says "Removed in V3 (screen time is
-  feature-flagged off) — do not declare". Screen time has since been launched
-  (`features.ts` holds back only finances, smarthome and gmail), so the
-  dashboard's Screen Time card says "grant Usage access in Settings → Screen
-  Time", the Settings card's button opens a list Emergenthealth is not in, and
-  Recheck can never turn green: `EhUsage.hasPermission()` (AppOps
-  `OPSTR_GET_USAGE_STATS`, in `patch-kiwi-health.py`) is false for the life of
-  the build. That is the "remedy that isn't rendered" class exactly. A phone
-  check would only confirm it. Two honest ways out: declare the permission,
-  which reopens the Play Console form the compliance note was written to
-  avoid; or take both cards down and say this build cannot read screen time.
-  The current state is the one option that is not honest. The status screen
-  is fine as it is — with no rows it says "not connected", which is true.
+- **Usage access on the phone — closed, by telling the truth instead.** Android
+  lists an app under Settings → Usage access only if its manifest declares
+  `PACKAGE_USAGE_STATS`; `customize-android.py` does not, no commit ever has,
+  and `play-store/COMPLIANCE.md` says not to. Screen time launched anyway, so
+  the dashboard card and the Settings card both told people to grant something
+  no screen on their phone offers, behind a Recheck that could never turn
+  green — the "remedy that isn't rendered" class exactly. Both now say the
+  build cannot read screen time and why. `SCREEN_TIME_READABLE` in
+  `lib/native/screen-time.ts` is the single switch; `screen-time-declared.test.ts`
+  fails if it and the manifest ever disagree **in either direction**, because a
+  declared-but-unread permission is the version that Play asks awkward
+  questions about. The `EhUsage` bridge is left intact and correct: the day the
+  permission is declared, flipping the constant is the whole change.
 - **Onset/withdrawal** in the correlation engine is half-done — onset ships,
   withdrawal needs pre-window history the engine doesn't load.
 - **Waist and body-fat correlations.** The body family runs on weight and
@@ -762,7 +904,15 @@ Roughly in order, most recent first:
   `onFix` and nowhere else, so points queued while stationary sit until the
   next one arrives. Needs a timer, and an APK.
 - `EMAIL_FROM` is unset — the sender is Resend's sandbox, which only reaches
-  the account owner. Needs a domain.
+  the account owner. Needs a domain, and it is the single thing standing
+  between every other user and any email at all. Until it is set, the app at
+  least says so: `describeMailFailure` checks `EMAIL_SENDER_CONFIGURED`
+  **before** reading the provider's wording, because an unset sender is the
+  failure this deployment actually meets and a 403's text is the provider's to
+  change. The three crons log the rejection through `logMailFailure` rather
+  than catching it into nothing — a missed digest really is non-fatal, but
+  silence made a deployment whose email has never reached anyone look exactly
+  like one that works.
 - **`sleep_time` (Oura's Body Clock) is still unsynced.** Its response nests an
   optimal-bedtime object whose exact shape could not be verified from outside
   the API, and the awake-time bug is what guessing a shape looks like. Worth

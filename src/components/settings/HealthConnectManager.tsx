@@ -7,6 +7,7 @@ import { RefreshCw, Smartphone, CheckCircle2, XCircle, Download } from "lucide-r
 import {
   checkAvailability,
   requestPermissions,
+  permissionsByType,
   syncToServer,
 } from "@/lib/health-connect-service"
 
@@ -17,15 +18,21 @@ export function HealthConnectManager({ lastSync }: { lastSync?: string | null })
   const [syncedCount, setSyncedCount] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastSyncAt, setLastSyncAt] = useState(lastSync ?? null)
+  // Which of the eight types this phone actually hands over. Every read goes
+  // through a catch-all that returns nothing, so a refused type and a type
+  // with no records look identical — for a ring left off that is right, and
+  // for a permission that can never be granted it is a silence that lasts.
+  const [missing, setMissing] = useState<string[] | null>(null)
 
   useEffect(() => {
     // `status` is the whole of what the availability answer is used for.
-    checkAvailability().then(av => {
+    checkAvailability().then(async av => {
       setStatus(
         av === "Available"     ? "ready"
         : av === "NotInstalled" ? "not_installed"
         : "unavailable"
       )
+      if (av === "Available") setMissing((await permissionsByType())?.missing ?? null)
     })
   }, [])
 
@@ -33,9 +40,17 @@ export function HealthConnectManager({ lastSync }: { lastSync?: string | null })
     setStatus("syncing")
     setError(null)
     const granted = await requestPermissions()
+    const byType = await permissionsByType()
+    setMissing(byType?.missing ?? null)
     if (!granted) {
       setStatus("error")
-      setError("Permission request failed or was denied.")
+      // Name the types rather than the verdict. One refusal out of eight used
+      // to read as a flat denial, with the other seven working and no way to
+      // tell from here.
+      setError(byType?.missing.length
+        ? `Not granted: ${byType.missing.join(", ")}. The rest are connected.`
+        : "Permission request failed or was denied.")
+      if (byType && byType.granted.length > 0) await handleSync()
       return
     }
     await handleSync()
@@ -117,7 +132,7 @@ export function HealthConnectManager({ lastSync }: { lastSync?: string | null })
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Sync steps, sleep, heart rate, HRV, SpO₂, and weight from any app that writes to Health Connect — Garmin, Fitbit, Samsung Health, Pixel Watch, and more.
+          Sync steps, sleep, resting heart rate, HRV, SpO₂, calories and weight from any app that writes to Health Connect — Garmin, Fitbit, Samsung Health, Pixel Watch, and more.
         </p>
 
         {error && (
@@ -133,6 +148,17 @@ export function HealthConnectManager({ lastSync }: { lastSync?: string | null })
 
         {lastSyncAt && status !== "done" && (
           <p className="text-xs text-muted-foreground">Last synced at {fmtTime(lastSyncAt)}</p>
+        )}
+
+        {/* A type the phone refuses reads, downstream, exactly like a type with
+            no records — so it is said here, where it can be acted on, instead
+            of going missing from the charts with no explanation. */}
+        {missing != null && missing.length > 0 && (
+          <p className="text-[11px] text-amber-400/90 leading-relaxed border-l-2 border-amber-500/40 pl-2">
+            Not being read: <span className="font-medium">{missing.join(", ")}</span>. Everything else
+            is syncing. If it stays refused after you allow it in Health Connect, this build is not
+            asking for it — which is a fix in an update, not a setting.
+          </p>
         )}
 
         <div className="flex gap-2">

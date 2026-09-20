@@ -426,7 +426,11 @@ export default async function DashboardPage() {
           </div>
           <div className="min-w-0"><WeatherWidget /></div>
         </div>
-        <div className="mt-4 flex flex-col sm:flex-row sm:items-center gap-3">
+        {/* The wrapper is desktop-only too, not just its contents. Its only
+            child is the score chip, which is `hidden md:flex` — so on a phone
+            this rendered nothing and still spent its `mt-4`, leaving a band of
+            empty gradient under the clock on the first screen of the app. */}
+        <div className="mt-4 hidden md:flex flex-col sm:flex-row sm:items-center gap-3">
           {/* Score chip — desktop only; the mobile Today view has the gauge */}
           <div className="hidden md:flex items-center gap-2.5 bg-background/50 backdrop-blur rounded-xl px-4 py-2 border border-border/50 self-start sm:self-auto">
             <p className={`text-3xl font-black leading-none ${scoreColor}`}>{wellnessScore}</p>

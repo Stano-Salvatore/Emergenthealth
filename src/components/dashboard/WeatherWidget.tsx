@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useClientValue } from "@/lib/use-client-value"
+import { locationAlreadyGranted } from "@/lib/native/geolocation"
 
 const WMO: Record<number, { label: string; emoji: string }> = {
   0: { label: "Clear sky", emoji: "☀️" },
@@ -54,6 +55,22 @@ function hasGeolocation(): boolean {
   return typeof navigator !== "undefined" && Boolean(navigator.geolocation)
 }
 
+interface SavedCoords { lat: number; lon: number }
+
+/** Settings → Weather location, if the user has set one. */
+async function savedCoords(): Promise<SavedCoords | null> {
+  try {
+    const res = await fetch("/api/preferences/location")
+    if (!res.ok) return null
+    const data = await res.json()
+    if (typeof data?.lat !== "number" || typeof data?.lon !== "number") return null
+    if (!Number.isFinite(data.lat) || !Number.isFinite(data.lon)) return null
+    return { lat: data.lat, lon: data.lon }
+  } catch {
+    return null
+  }
+}
+
 export function WeatherWidget() {
   const [weather, setWeather] = useState<Weather | null>(null)
   const geolocation = useClientValue(hasGeolocation, true)
@@ -61,64 +78,113 @@ export function WeatherWidget() {
   const loading = geolocation && locating
 
   useEffect(() => {
-    // Matches hasGeolocation above, so `loading` is already false here.
-    if (!navigator.geolocation) return
-    // Whichever of the three paths below arrives first wins; the others become
-    // no-ops rather than fighting over the same state.
     let settled = false
-    navigator.geolocation.getCurrentPosition(
-      async ({ coords }) => {
-        try {
-          const url = new URL("https://api.open-meteo.com/v1/forecast")
-          url.searchParams.set("latitude", String(coords.latitude))
-          url.searchParams.set("longitude", String(coords.longitude))
-          url.searchParams.set("current_weather", "true")
-          url.searchParams.set("daily", "weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,uv_index_max")
-          url.searchParams.set("timezone", "auto")
-          url.searchParams.set("forecast_days", "4")
+    const done = () => { if (!settled) { settled = true; setLocating(false) } }
 
-          const res = await fetch(url)
-          const data = await res.json()
-          const cw = data.current_weather
-          setWeather({
-            temp: Math.round(cw.temperature),
-            code: cw.weathercode,
-            forecast: [1, 2, 3].map((i) => ({
-              code: data.daily.weathercode[i],
-              max: Math.round(data.daily.temperature_2m_max[i]),
-              min: Math.round(data.daily.temperature_2m_min[i]),
-            })),
-          })
-          const _tw = new Date(); const today = [_tw.getFullYear(), String(_tw.getMonth()+1).padStart(2,"0"), String(_tw.getDate()).padStart(2,"0")].join("-")
-          fetch("/api/weather", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              date: today,
-              tempMaxC: data.daily.temperature_2m_max[0],
-              tempMinC: data.daily.temperature_2m_min[0],
-              precipMm: data.daily.precipitation_sum[0],
-              uvIndex: data.daily.uv_index_max[0],
-              weatherCode: data.daily.weathercode[0],
-              lat: coords.latitude,
-              lon: coords.longitude,
-            }),
-          })
-        } catch { /* silent */ }
-        if (!settled) { settled = true; setLocating(false) }
-      },
-      () => { if (!settled) { settled = true; setLocating(false) } },
-      // Covers a slow FIX. It does NOT cover the prompt: the spec starts this
-      // clock once permission is granted, so a prompt the user swipes away
-      // rather than answers reaches neither callback and this never fires.
-      // Hence the timer below, which is the only thing that actually bounds it.
-      { timeout: 10_000, maximumAge: 10 * 60 * 1000 },
-    )
+    async function fetchFor(lat: number, lon: number): Promise<boolean> {
+      try {
+        const url = new URL("https://api.open-meteo.com/v1/forecast")
+        url.searchParams.set("latitude", String(lat))
+        url.searchParams.set("longitude", String(lon))
+        url.searchParams.set("current_weather", "true")
+        url.searchParams.set("daily", "weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,uv_index_max")
+        url.searchParams.set("timezone", "auto")
+        url.searchParams.set("forecast_days", "4")
 
-    // The real guarantee. A skeleton with no path out of it is worse than no
-    // widget: it reads as "still loading" for the rest of the session and
-    // leaves a grey hole in the greeting card.
-    const giveUp = setTimeout(() => { if (!settled) { settled = true; setLocating(false) } }, 15_000)
+        const res = await fetch(url)
+        const data = await res.json()
+        const cw = data.current_weather
+        if (!cw) return false
+        setWeather({
+          temp: Math.round(cw.temperature),
+          code: cw.weathercode,
+          forecast: [1, 2, 3].map((i) => ({
+            code: data.daily.weathercode[i],
+            max: Math.round(data.daily.temperature_2m_max[i]),
+            min: Math.round(data.daily.temperature_2m_min[i]),
+          })),
+        })
+        return true
+      } catch {
+        return false
+      }
+    }
+
+    /** Keep the day's row, so the correlation engine has weather to work with. */
+    function record(data: Record<string, unknown>) {
+      fetch("/api/weather", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }).catch(() => {})
+    }
+
+    void (async () => {
+      // 1. The location the user actually chose, in Settings → Weather
+      //    location. It needs no permission, it is the same position the
+      //    nightly cron uses, and it is right for someone whose phone is
+      //    somewhere they are not.
+      const saved = await savedCoords()
+      if (saved) {
+        await fetchFor(saved.lat, saved.lon)
+        done()
+        return
+      }
+
+      // 2. No saved location. Ask the browser only if it has ALREADY been
+      //    granted — never raise the dialog from here.
+      //
+      //    This used to call getCurrentPosition on mount, so opening the app
+      //    raised a location prompt on the first screen, before anything had
+      //    explained why, and with the greeting card pulsing grey for up to
+      //    fifteen seconds while the person decided. On a Play review that is
+      //    a permission request with no context attached; for everyone else it
+      //    is being asked for their position by a clock.
+      //
+      //    Settings is where weather is turned on now, and the Brief says so
+      //    when there is nothing to show.
+      if (!navigator.geolocation) { done(); return }
+      if ((await locationAlreadyGranted()) !== true) { done(); return }
+
+      navigator.geolocation.getCurrentPosition(
+        async ({ coords }) => {
+          const ok = await fetchFor(coords.latitude, coords.longitude)
+          if (ok) {
+            try {
+              const url = new URL("https://api.open-meteo.com/v1/forecast")
+              url.searchParams.set("latitude", String(coords.latitude))
+              url.searchParams.set("longitude", String(coords.longitude))
+              url.searchParams.set("daily", "weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,uv_index_max")
+              url.searchParams.set("timezone", "auto")
+              url.searchParams.set("forecast_days", "4")
+              const d = await (await fetch(url)).json()
+              const t = new Date()
+              const today = [t.getFullYear(), String(t.getMonth() + 1).padStart(2, "0"), String(t.getDate()).padStart(2, "0")].join("-")
+              record({
+                date: today,
+                tempMaxC: d.daily.temperature_2m_max[0],
+                tempMinC: d.daily.temperature_2m_min[0],
+                precipMm: d.daily.precipitation_sum[0],
+                uvIndex: d.daily.uv_index_max[0],
+                weatherCode: d.daily.weathercode[0],
+                lat: coords.latitude,
+                lon: coords.longitude,
+              })
+            } catch { /* the nightly cron is the other path to a row */ }
+          }
+          done()
+        },
+        done,
+        // Covers a slow FIX. Permission is already granted by this point, so
+        // the dialog case the old comment worried about cannot arise here.
+        { timeout: 10_000, maximumAge: 10 * 60 * 1000 },
+      )
+    })()
+
+    // The backstop. A skeleton with no path out of it is worse than no widget:
+    // it reads as "still loading" for the rest of the session and leaves a grey
+    // hole in the greeting card.
+    const giveUp = setTimeout(done, 15_000)
     return () => clearTimeout(giveUp)
   }, [])
 
