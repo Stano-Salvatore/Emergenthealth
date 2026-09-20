@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { SCREEN_TIME_READABLE } from "@/lib/native/screen-time"
 import { Smartphone } from "lucide-react"
 
 function fmtHm(min: number): string {
@@ -37,16 +38,20 @@ export async function ScreenTimeCard() {
     })
     .catch(() => [])).reverse()
 
-  // Empty state — most likely a web user with no native sync yet.
+  // Empty state. It used to tell everyone to grant Usage access on their
+  // phone, which this build cannot be given — see SCREEN_TIME_READABLE. A card
+  // whose empty state is an instruction nobody can follow is worse than one
+  // that admits there is nothing coming.
   if (rows.length === 0) {
     return (
       <div className="h-full rounded-xl border bg-card p-4 flex flex-col">
         <div className="flex items-center gap-2 text-sm font-semibold mb-2">
           <Smartphone className="h-4 w-4 text-primary" /> Screen Time
         </div>
-        <p className="text-xs text-muted-foreground">
-          No screen-time data yet. Open Emergenthealth on your Android phone and grant Usage access
-          in Settings → Screen Time to start tracking.
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          {SCREEN_TIME_READABLE
+            ? "No screen-time data yet. Open Emergenthealth on your Android phone and grant Usage access in Settings → Screen Time to start tracking."
+            : "This build cannot read screen time — Android only offers Usage access to apps that ask for it in their manifest, and this one does not. Nothing to grant; it would take an update, not a setting."}
         </p>
       </div>
     )

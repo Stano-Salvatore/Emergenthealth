@@ -735,22 +735,19 @@ Roughly in order, most recent first:
   watch's `nightQuestion` in `anomalies.ts` is the single-night version of
   the same move. The pieces exist; what is missing is the editorial choice of
   *one* thing to say and when to say it.
-- **Usage access on the phone — answered from the repo, and the answer is no.**
-  Android lists an app under Usage access only if its manifest declares
-  `PACKAGE_USAGE_STATS`. `customize-android.py` does not declare it, no commit
-  ever has, and `play-store/COMPLIANCE.md` says "Removed in V3 (screen time is
-  feature-flagged off) — do not declare". Screen time has since been launched
-  (`features.ts` holds back only finances, smarthome and gmail), so the
-  dashboard's Screen Time card says "grant Usage access in Settings → Screen
-  Time", the Settings card's button opens a list Emergenthealth is not in, and
-  Recheck can never turn green: `EhUsage.hasPermission()` (AppOps
-  `OPSTR_GET_USAGE_STATS`, in `patch-kiwi-health.py`) is false for the life of
-  the build. That is the "remedy that isn't rendered" class exactly. A phone
-  check would only confirm it. Two honest ways out: declare the permission,
-  which reopens the Play Console form the compliance note was written to
-  avoid; or take both cards down and say this build cannot read screen time.
-  The current state is the one option that is not honest. The status screen
-  is fine as it is — with no rows it says "not connected", which is true.
+- **Usage access on the phone — closed, by telling the truth instead.** Android
+  lists an app under Settings → Usage access only if its manifest declares
+  `PACKAGE_USAGE_STATS`; `customize-android.py` does not, no commit ever has,
+  and `play-store/COMPLIANCE.md` says not to. Screen time launched anyway, so
+  the dashboard card and the Settings card both told people to grant something
+  no screen on their phone offers, behind a Recheck that could never turn
+  green — the "remedy that isn't rendered" class exactly. Both now say the
+  build cannot read screen time and why. `SCREEN_TIME_READABLE` in
+  `lib/native/screen-time.ts` is the single switch; `screen-time-declared.test.ts`
+  fails if it and the manifest ever disagree **in either direction**, because a
+  declared-but-unread permission is the version that Play asks awkward
+  questions about. The `EhUsage` bridge is left intact and correct: the day the
+  permission is declared, flipping the constant is the whole change.
 - **Onset/withdrawal** in the correlation engine is half-done — onset ships,
   withdrawal needs pre-window history the engine doesn't load.
 - **Waist and body-fat correlations.** The body family runs on weight and

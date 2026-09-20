@@ -47,7 +47,7 @@ January 2026 health-app enforcement.
 | `READ_CALENDAR` | Runtime-requested (device calendar sync — core feature) |
 | `SCHEDULE_EXACT_ALARM` | Reminders at user-chosen times. User-granted under "Alarms & reminders"; Settings → Phone Notifications offers it. |
 | `USE_EXACT_ALARM` | **Removed.** Play restricts it to apps whose core functionality is an alarm clock or calendar — this is neither, so the Console's "Exact alarms" form could only be answered falsely. Without it the Capacitor plugin falls back to `setAndAllowWhileIdle`, so reminders still fire, just not to the minute. Do not re-add it. |
-| `PACKAGE_USAGE_STATS` | **Removed in V3** (screen time is feature-flagged off) — do not declare |
+| `PACKAGE_USAGE_STATS` | **Not declared — do not declare.** The reason given here used to be "screen time is feature-flagged off", which stopped being true when `screentime` launched: the feature ships, the permission does not, and Android therefore never lists Emergenthealth under Settings → Usage access. The app says so plainly rather than offering a button to that list (`SCREEN_TIME_READABLE` in `lib/native/screen-time.ts`, guarded by `screen-time-declared.test.ts`). Declaring it means answering the Play form this row exists to avoid, and flipping that constant in the same change. |
 
 ## 4. Billing
 
