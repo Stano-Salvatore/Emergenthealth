@@ -788,7 +788,15 @@ Roughly in order, most recent first:
   `onFix` and nowhere else, so points queued while stationary sit until the
   next one arrives. Needs a timer, and an APK.
 - `EMAIL_FROM` is unset — the sender is Resend's sandbox, which only reaches
-  the account owner. Needs a domain.
+  the account owner. Needs a domain, and it is the single thing standing
+  between every other user and any email at all. Until it is set, the app at
+  least says so: `describeMailFailure` checks `EMAIL_SENDER_CONFIGURED`
+  **before** reading the provider's wording, because an unset sender is the
+  failure this deployment actually meets and a 403's text is the provider's to
+  change. The three crons log the rejection through `logMailFailure` rather
+  than catching it into nothing — a missed digest really is non-fatal, but
+  silence made a deployment whose email has never reached anyone look exactly
+  like one that works.
 - **`sleep_time` (Oura's Body Clock) is still unsynced.** Its response nests an
   optimal-bedtime object whose exact shape could not be verified from outside
   the API, and the awake-time bug is what guessing a shape looks like. Worth
