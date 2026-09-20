@@ -811,9 +811,11 @@ Roughly in order, most recent first:
   `EmergyLocationService` does — no WebView, no session, and the 15-minute
   watchdog already there to keep it alive. Costs an APK, so batch it with the
   920007 collision and the location queue timer. Note also that a failing
-  phone sync currently reads as a quiet one: `safeRead` swallows a per-type
-  refusal, the auto-sync swallows the POST failure, and the status screen
-  infers health from a timestamp written only on success.
+  phone sync still reads as a quiet one away from the Settings card:
+  `permissionsByType` names the refused types there now, but `safeRead` still
+  swallows a per-type read error, the auto-sync swallows the POST failure
+  entirely, and the status screen infers health from a timestamp written only
+  on success.
 - **Two chat-cost levers that need a hand outside this repo.** Both are
   measured and ready; neither can be finished from a session.
   1. **`EMERGY_CHAT_EFFORT=medium` in production.** Opus 5 defaults to `high`
