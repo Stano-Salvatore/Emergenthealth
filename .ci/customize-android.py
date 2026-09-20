@@ -47,6 +47,51 @@ if result.returncode != 0:
 else:
     print("✓ minSdkVersion set to 26")
 
+# 1b. targetSdkVersion floor.
+#
+# Play refuses an upload that targets below its current floor, and it refuses it
+# at the upload, after a green build, a signed bundle and a walk to the Console.
+# Nothing before that point cares: a project left on an old target compiles,
+# installs and runs exactly as well as a current one.
+#
+# The value itself is Capacitor's — the generated variables.gradle carries it,
+# and pinning a second copy here would only drift. This asserts the floor.
+#
+# PLAY_TARGET_SDK_FLOOR is Google's requirement for updates to existing apps,
+# raised every August. 35 = Android 15, required since 31 August 2025. Raise it
+# when Google does; the error below says what to change.
+PLAY_TARGET_SDK_FLOOR = 35
+with open("android/variables.gradle") as f:
+    variables = f.read()
+target_match = re.search(r"targetSdkVersion\s*=\s*(\d+)", variables)
+if target_match:
+    target_sdk = int(target_match.group(1))
+else:
+    # variables.gradle may not set it at all, in which case Capacitor's own
+    # build.gradle supplies the default. Read that rather than failing: a
+    # missing key is not a low target, and a red build over one would be this
+    # check inventing the problem it exists to catch.
+    with open("node_modules/@capacitor/android/capacitor/build.gradle") as f:
+        fallback = re.search(r"targetSdkVersion[^\n]*?:\s*(\d+)", f.read())
+    if not fallback:
+        print("WARNING: no targetSdkVersion in variables.gradle or Capacitor's default — floor unchecked")
+        fallback_sdk = None
+    else:
+        fallback_sdk = int(fallback.group(1))
+    if fallback_sdk is None:
+        target_sdk = PLAY_TARGET_SDK_FLOOR  # unknown; do not fail the build over it
+    else:
+        target_sdk = fallback_sdk
+        print(f"· targetSdkVersion not pinned in variables.gradle; Capacitor defaults to {target_sdk}")
+if target_sdk < PLAY_TARGET_SDK_FLOOR:
+    print(
+        f"::error::targetSdkVersion is {target_sdk}; Play will not accept an upload below "
+        f"{PLAY_TARGET_SDK_FLOOR}. Capacitor sets this in android/variables.gradle — upgrade "
+        "Capacitor, or override it here."
+    )
+    sys.exit(1)
+print(f"✓ targetSdkVersion {target_sdk} (Play floor {PLAY_TARGET_SDK_FLOOR})")
+
 # 2. Add Health Connect + location + notification permissions + App Links intent filter
 manifest_path = "android/app/src/main/AndroidManifest.xml"
 with open(manifest_path) as f:

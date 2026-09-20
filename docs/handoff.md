@@ -347,6 +347,24 @@ left in `IN_BOTTOM_NAV` is not demoted — it is **gone on a phone**, hidden in
 favour of a tab that no longer exists. Overview is the one deliberate
 exception, and it is asserted as such.
 
+The three Play guards are a family, and they all exist for one reason: the
+files that describe this app to Google are not code, so nothing notices when
+they stop being true. `screen-time-declared.test.ts` ties the readable flag to
+the manifest. `health-permissions-declared.test.ts` ties the record types the
+app reads to the `android.permission.health.*` lines and the Play form's list.
+`play-permissions-documented.test.ts` requires every declared permission to
+have a row in `COMPLIANCE.md` — and reads the Capacitor plugins' manifests too,
+because the manifest merger folds those into the APK, which is how `WAKE_LOCK`
+turned out to be shipping with nothing written down about it.
+`privacy-policy-covers-permissions.test.ts` is the same idea pointed at the
+public policy: the manifest decides what the page has to address, so declaring
+background location makes "we do not collect data in the background" a failing
+test rather than a sentence nobody re-read.
+
+Each of them fails in **both** directions. A permission declared and unused is
+not a tidiness problem — it is a Play Console form asking what a sensitive
+permission is for, and "nothing" is not an answer that gets an app published.
+
 A note on writing either kind of guard: both of these passed on their first
 draft against code I had deliberately broken — one matched a leftover
 `import` rather than a call, the other a comment rather than the rendered

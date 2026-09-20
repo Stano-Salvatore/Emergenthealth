@@ -109,3 +109,36 @@ written.
   review notes if questioned.
 - Provide a demo account (email+password credentials provider) in
   Play Console → App access so reviewers can sign in without Google OAuth.
+
+## 6. Uploading a build
+
+In order, because two of these cannot be undone from inside the Console.
+
+1. **Build it.** Push to `main`; the Android workflow signs the bundle and
+   publishes it to the rolling `latest-android` GitHub Release. Take
+   `emergenthealth.aab` from there — Play will not accept the `.apk`, which is
+   for sideloading. The Release notes carry the `versionCode`; Play rejects a
+   bundle whose `versionCode` it has already seen, so that number is the one to
+   expect in the Console, and it comes from the workflow run number.
+2. **`versionName`** is `package.json`'s `version` — nothing else sets it.
+   Bump it in the same commit as the `CHANGELOG.md` entry, and copy the release
+   notes out of `play-store/LISTING.md`, which keeps them under Play's 500
+   characters.
+3. **Health apps declaration** (App content → Health apps). Answer it from
+   section 1 above, per type. The list there is the manifest's, held to the
+   code by a test — do not retype it from memory.
+4. **Permissions declaration for background location.** This is the slow one.
+   It needs the form, and a video showing both the feature and the in-app
+   disclosure that precedes the prompt. Record it from Settings → Automatic
+   place check-ins: the card states the collection, then the Android dialog
+   appears. Budget days, not minutes, for the review of this one.
+5. **Data safety.** Section 2. It has to match what the app does, not what it
+   could do — a held-back feature (`src/lib/features.ts`) collects nothing.
+6. **App access.** Give reviewers the demo account: the email+password
+   credentials provider exists precisely so they never need Google OAuth.
+   `DEMO_USERNAME` / `DEMO_PASSWORD` in the environment.
+7. **Store listing assets.** `play-store/LISTING.md` has the checklist and the
+   commands that regenerate them.
+
+If a submission is rejected, write the reason into section 5 before fixing it.
+The fix is usually obvious in hindsight and the reason never is.

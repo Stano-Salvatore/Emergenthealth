@@ -1,5 +1,65 @@
 # Changelog
 
+## 3.1.0 — Honest empty states, and a phone that asks for the right things
+
+Everything in 3.0.0 plus the work below. Nothing was removed from the feature
+set; `HELD_BACK` in `src/lib/features.ts` is unchanged, and remains the truth
+about what ships.
+
+### Sleep
+- **Sleep regularity.** The Sleep Regularity Index — how much of one day's
+  sleep/wake pattern repeats the next — on the health page, over 60 nights.
+- **One definition of sleep debt.** The health page, the week view and Emergy's
+  quick answers each had their own; they now share `lib/sleep-rhythm.ts`, so
+  the same night cannot be a shortfall on one screen and not on another.
+- **Bedtime is its own question.** The sleep panel asks about lights-out
+  directly instead of carrying it as a caveat on another card, and its
+  experiments got their "Test this" button.
+
+### What the app says when it has nothing to say
+- **Weather.** A user who has never set a location saw a confident hourly
+  forecast for Bratislava with an outfit suggestion under it. No location now
+  means no weather card, and the brief says how to fix it.
+- **Screen time.** The build cannot read screen time — the permission Android
+  needs for it is deliberately not declared — so the card says that, instead of
+  offering a button to a settings list the app does not appear in.
+- **Email.** A failed send used to say "the mail service rejected the message",
+  which is true of every cause and useful for none. It now names the cause, and
+  the three crons that silently discarded the rejection log it.
+- **Health Connect.** A refused record type read exactly like a type with no
+  records, forever. The settings card names anything not being handed over.
+
+### Correlations
+- **A source only speaks for the days it existed.** Connecting Strava mid-way
+  through your history used to turn every earlier day into a "rest day" —
+  nine real ones became fifty-one, and the card still called them rest days.
+  Same for calendar, workouts and screen time.
+- Combination cards get their "Test this" button back.
+
+### Appearance
+- A full appearance system, and **Sunny**: a new base theme with a coral accent.
+
+### Emergy
+- Several questions that were buying a model turn to read a single row now
+  answer from the data directly — faster, and a good deal cheaper.
+- A turn's cost is recorded rather than logged and lost.
+
+### Play Store readiness
+- **Health Connect asks for the permission it actually needs.**
+  `RestingHeartRate` was never declared, so no phone could have granted it;
+  `READ_HEART_RATE` was declared and grants a record type nothing reads. Both
+  are fixed, and a test now holds the manifest, the code and the compliance
+  notes together.
+- **The privacy policy says what the app does.** It claimed no background
+  collection while the build shipped background location, and never mentioned
+  Health Connect — the policy its own permission-rationale screen links to.
+- **Every declared permission is documented**, including the ones Capacitor's
+  plugins add to the merged manifest, and a test fails if one is not.
+- The build now checks its `targetSdkVersion` against Play's floor rather than
+  finding out at upload.
+- `/api/newsletter` removed: a public endpoint collecting email addresses
+  through a door no user could reach.
+
 ## 3.0.0 — Google Play launch
 
 The first Play Store release. V3 ships a focused health core; several finished
