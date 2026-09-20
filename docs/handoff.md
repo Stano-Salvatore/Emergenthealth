@@ -143,6 +143,18 @@ still), and `PREREGISTERED_ASPECTS` makes the panel skip them. `drankDay`
 is the one definition of a drinking day for the sleep, HRV and resting-HR
 cards: any logged drink, silent days set aside, the same as the panel.
 
+**No location means no weather, not somebody else's.** `getWeatherCoords`
+used to fall back to Bratislava for any user with no stored preference. For
+the one account that lives there the guess was invisible and correct; for
+everyone else — a Play reviewer, anyone the app is shown to — the Brief
+opened on a confident hourly forecast for a city they had never been to, with
+an outfit line underneath telling them it was t-shirt weather. It is the rule
+the nightly weather cron states about itself, broken on the first screen:
+**no row rather than a guessed city**. It returns null now, both callers
+already had a no-weather path, and the Brief says where to set it. Found by
+signing in as an empty account rather than by reading the code — the guess is
+invisible from Bratislava.
+
 **A connected source speaks only for the days it existed.** `SOURCE_FROM` in
 `correlations.ts` holds the first day each one produced a row, and
 `sourceCovers(src, date)` is the question every family has to ask before

@@ -60,8 +60,10 @@ export async function GET() {
   // Weather from Open-Meteo
   const wc = await getWeatherCoords(userId)
   let weatherData: { current: { temp: number; code: number }; hourly: { hour: string; temp: number; code: number; rainPct: number }[] } | null = null
-  let outfit = "Check the weather to plan your outfit"
+  // Named so the reader can act. "Check the weather" was advice about the sky.
+  let outfit = wc ? "Check the weather to plan your outfit" : "Set your weather location in Settings to see the forecast here"
   try {
+    if (!wc) throw new Error("no location")
     const res = await fetch(
       `https://api.open-meteo.com/v1/forecast?latitude=${wc.lat}&longitude=${wc.lon}&hourly=temperature_2m,weathercode,precipitation_probability&current=temperature_2m,weathercode&forecast_days=1&timezone=${wc.tz}`,
       { signal: AbortSignal.timeout(4000), next: { revalidate: 1800 } }
