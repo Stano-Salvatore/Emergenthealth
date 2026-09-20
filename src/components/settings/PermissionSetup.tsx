@@ -77,7 +77,11 @@ export function PermissionSetup() {
     if (svc) {
       next.push({
         id: "loc", label: "Location", kind: "prompt",
-        why: "the places you spend time at, and where the night was spent",
+        // This row is the disclosure for the prompt it fires, so it names the
+        // collection and not only what the collection buys. The settings card
+        // says it at length; a list that leads straight to the Android dialog
+        // cannot leave it to another screen the person may never open.
+        why: "the places you spend time at, and where the night was spent — collected even when the app is closed",
         done: svc.fine,
         run: startBackgroundLocation,
       })

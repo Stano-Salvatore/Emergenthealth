@@ -43,7 +43,15 @@ export async function checkAvailability(): Promise<HCAvailability> {
   }
 }
 
-const READ_TYPES = [
+/**
+ * The record types this app asks Health Connect for.
+ *
+ * Exported because the AndroidManifest has to declare a matching
+ * `android.permission.health.READ_*` for every one of them — Health Connect
+ * grants nothing it has not been told about, and the refusal is silent.
+ * `health-permissions-declared.test.ts` holds the two lists together.
+ */
+export const READ_TYPES = [
   "Steps",
   "SleepSession",
   "RestingHeartRate",
@@ -63,6 +71,47 @@ export async function requestPermissions(): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+/** Which of the eight types this phone will actually hand over. */
+export interface TypePermissions {
+  granted: string[]
+  missing: string[]
+}
+
+/**
+ * Ask about each record type on its own.
+ *
+ * Every read goes through `safeRead`, which returns `[]` on any error — so a
+ * type the phone refuses is indistinguishable from a type with no records.
+ * That is fine for a ring taken off for a night and very much not fine for a
+ * permission that can never be granted, which looks the same forever.
+ *
+ * `requestHealthPermissions` answers only `hasAllPermissions`, so one refusal
+ * out of eight reads as a flat "denied" with no way to learn which, while the
+ * other seven may be working perfectly.
+ *
+ * Asked one type at a time deliberately. The plugin's granted list comes back
+ * as Android permission strings, and mapping those back to record types means
+ * re-deriving AndroidX's own table by hand — which is not mechanical
+ * (`HeartRateVariabilityRmssd` is granted by `READ_HEART_RATE_VARIABILITY`,
+ * suffix dropped). Eight cheap calls let the plugin do the mapping it already
+ * does correctly.
+ */
+export async function permissionsByType(): Promise<TypePermissions | null> {
+  const hc = await getPlugin()
+  if (!hc) return null
+  const granted: string[] = []
+  const missing: string[] = []
+  for (const type of READ_TYPES) {
+    try {
+      const r = await hc.checkHealthPermissions({ read: [type], write: [] })
+      ;(r.hasAllPermissions === true ? granted : missing).push(type)
+    } catch {
+      missing.push(type)
+    }
+  }
+  return { granted, missing }
 }
 
 export type DayPayload = {

@@ -14,15 +14,19 @@
   <!-- Push notifications (Android 13+) -->
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-  <!-- Health Connect (all data types we read) -->
+  <!-- Health Connect — one line per record type in READ_TYPES
+       (src/lib/health-connect-service.ts), and nothing else. Note
+       RESTING_HEART_RATE rather than HEART_RATE: they are different
+       permissions and only the first one grants what this app reads.
+       health-permissions-declared.test.ts checks this list too. -->
   <uses-permission android:name="android.permission.health.READ_STEPS" />
   <uses-permission android:name="android.permission.health.READ_SLEEP" />
-  <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+  <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
   <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
   <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+  <uses-permission android:name="android.permission.health.READ_WEIGHT" />
   <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
   <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
-  <uses-permission android:name="android.permission.health.READ_WEIGHT" />
 
   ── 2. QUERIES (inside <manifest>, before <application>) ─────────────────────
   Required to open the Health Connect app for permission grants.

@@ -324,28 +324,51 @@ export async function GET(req: NextRequest) {
 
   const context = lines.join(" ")
 
-  const response = await anthropic.messages.create({
-    model: HAIKU,
-    max_tokens: 200,
-    messages: [
-      {
-        role: "user",
-        content: `You are Emergy 🌱, the plant who lives in this person's health dashboard, writing ${
-          period === "morning" ? "a personal morning briefing — the night just ended and the day is ahead, so read the night and set the day up"
-          : period === "afternoon" ? "a personal midday check-in — the morning has already happened, the rest of the day is ahead, so read how the day is going"
-          : "a personal evening recap — the day is mostly behind, so read back over how it went rather than planning it"
-        }. Based on the user's data, write 2-3 sentences.
+  // The model call is the one thing here that can fail for a reason outside
+  // this app: no credit left, a rate limit, the provider having a bad
+  // afternoon. It used to be unwrapped, so any of those threw out of the
+  // handler as a 500 — and the client turned every non-200 into "nothing to
+  // say" and rendered nothing at all. The headline feature of the dashboard
+  // would simply be gone, with an explanation that existed only in the server
+  // log.
+  //
+  // Same rule the no-key gate above already follows: a stale brief beats an
+  // error, and an error beats a blank.
+  let response: Awaited<ReturnType<typeof anthropic.messages.create>>
+  try {
+    response = await modelCall()
+  } catch (err) {
+    if (staleButServable) {
+      return NextResponse.json({ ...staleButServable, cached: true, stale: true })
+    }
+    console.error("[briefing] model call failed:", err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: "unavailable" }, { status: 503 })
+  }
 
-Pick the two or three things that actually matter right now rather than listing everything — a late dinner before a bad night, a med still circulating that explains feeling foggy, a workout that earned the tiredness, an established pattern today is repeating. Prefer a connection between two facts over two separate observations. If something contradicts an established pattern, that's worth saying too. Match the time of day: don't plan a morning that already happened or recap an evening that hasn't.
+  async function modelCall() {
+    return anthropic.messages.create({
+      model: HAIKU,
+      max_tokens: 200,
+      messages: [
+        {
+          role: "user",
+          content: `You are Emergy 🌱, the plant who lives in this person's health dashboard, writing ${
+            period === "morning" ? "a personal morning briefing — the night just ended and the day is ahead, so read the night and set the day up"
+            : period === "afternoon" ? "a personal midday check-in — the morning has already happened, the rest of the day is ahead, so read how the day is going"
+            : "a personal evening recap — the day is mostly behind, so read back over how it went rather than planning it"
+          }. Based on the user's data, write 2-3 sentences.
 
-Be specific with their numbers. Sound like a smart friend who noticed, not a wellness bot. Never give medical advice or suggest changing a medication. If blood work appears above, you may repeat what it says, but never interpret what a result means, never say what caused it, and never suggest what to do about it — that belongs to the doctor who ordered the test. No greeting — start directly with the observation.
+  Pick the two or three things that actually matter right now rather than listing everything — a late dinner before a bad night, a med still circulating that explains feeling foggy, a workout that earned the tiredness, an established pattern today is repeating. Prefer a connection between two facts over two separate observations. If something contradicts an established pattern, that's worth saying too. Match the time of day: don't plan a morning that already happened or recap an evening that hasn't.
 
-This renders in a speech bubble with your face on it and your name under it, so it is you talking: first person is fine and "I noticed" is better than the passive. Keep yourself out of the way all the same — this is about their day, not about you, so no more than one "I", no plant metaphors, and none of the drama you use in chat. One emoji at most, and only if it earns its place.
+  Be specific with their numbers. Sound like a smart friend who noticed, not a wellness bot. Never give medical advice or suggest changing a medication. If blood work appears above, you may repeat what it says, but never interpret what a result means, never say what caused it, and never suggest what to do about it — that belongs to the doctor who ordered the test. No greeting — start directly with the observation.
 
-${context}`,
-      },
-    ],
-  })
+  This renders in a speech bubble with your face on it and your name under it, so it is you talking: first person is fine and "I noticed" is better than the passive. Keep yourself out of the way all the same — this is about their day, not about you, so no more than one "I", no plant metaphors, and none of the drama you use in chat. One emoji at most, and only if it earns its place.
+
+  ${context}`,
+        },
+      ],
+    })
+  }
 
   // The one call in the app that does not run on Opus, which is the point of
   // recording it: the same brief costs a fifth here, and the split by feature

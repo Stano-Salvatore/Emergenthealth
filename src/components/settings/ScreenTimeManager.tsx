@@ -9,6 +9,7 @@ import {
   hasUsagePermission,
   openUsageSettings,
   syncScreenTime,
+  SCREEN_TIME_READABLE,
   type ScreenTimeReading,
 } from "@/lib/native/screen-time"
 
@@ -52,6 +53,33 @@ export function ScreenTimeManager() {
 
   // Only meaningful inside the Android app — hide entirely on the web.
   if (!inApp) return null
+
+  // This build cannot be granted Usage access at all, so the card says that
+  // rather than offering a button to a settings list Emergenthealth is not in.
+  // Naming the reason matters: "not supported yet" would read as a bug in the
+  // phone, and the next person to look would go hunting for one.
+  if (!SCREEN_TIME_READABLE) {
+    return (
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Smartphone className="h-4 w-4" /> Screen Time
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            This build cannot read screen time. Android only offers Usage access to apps that ask
+            for it in their manifest, and this one deliberately does not — so there is nothing to
+            grant, and no switch anywhere on your phone that would change it.
+          </p>
+          <p className="text-xs text-muted-foreground/80 mt-2 leading-relaxed">
+            Everything else on your Insights page is unaffected. If screen time becomes worth the
+            extra Play Store declaration it needs, it arrives in an update rather than a setting.
+          </p>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card>

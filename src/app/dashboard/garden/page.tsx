@@ -666,7 +666,14 @@ export default function GardenPage() {
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={`/garden-assets/${plantSpriteKey(plantKey, stage)}.png`}
                       alt="" style={{ height: 26, width: "auto" }} />
-                    <span className="font-bold truncate max-w-full px-0.5" style={{ color: "#4a3f2c", fontSize: 10 }}>{h.name}</span>
+                    {/* The streak badge is positioned over this line's right
+                        end, so the name has to stop before it — otherwise a
+                        long habit truncates into the number and you get
+                        "No coffee..2", which reads as neither. */}
+                    <span className="font-bold truncate max-w-full px-0.5"
+                      style={{ color: "#4a3f2c", fontSize: 10, paddingRight: h.streak > 0 ? 13 : undefined }}>
+                      {h.name}
+                    </span>
                     {h.streak > 0 && (
                       <span className="absolute font-extrabold" style={{ right: 5, bottom: 3, color: "#7a6f56", fontSize: 9 }}>
                         {h.streak}

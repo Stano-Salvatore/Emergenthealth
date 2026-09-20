@@ -8,7 +8,7 @@ import { localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 import { generateWeeklyReview, saveWeeklyReview, type WeeklyReview } from "@/lib/weekly-review"
 import { isReviewWindow, parseSchedule } from "@/lib/weekly-review-schedule"
-import { EMAIL_FROM } from "@/lib/email"
+import { EMAIL_FROM, logMailFailure } from "@/lib/email"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -183,7 +183,12 @@ export async function GET(req: NextRequest) {
           html: reviewEmail(user.name?.split(" ")[0] ?? "there", review, appUrl, prefsByUser.get(user.id) ?? parseDigestPrefs(undefined)),
         })
         emailed++
-      } catch { /* non-fatal */ }
+      } catch (error) {
+        // Non-fatal — a missed digest breaks nothing. But silence here is how
+        // a deployment whose email has never reached anyone looks identical
+        // to one where it works.
+        logMailFailure("weekly review", user.email, error)
+      }
     }
 
     // One generation per tick: a full-context Opus call runs tens of seconds,

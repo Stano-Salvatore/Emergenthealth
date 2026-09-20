@@ -184,7 +184,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 16
+export const ENGINE_VERSION = 17
 
 /**
  * Both sides need this many days before a card is called confident.
@@ -1020,6 +1020,22 @@ export async function computeCorrelations(
   const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz })
   const localDay = (d: Date): string => dayFmt.format(d)
 
+  /**
+   * Is `date` inside what this source can speak about?
+   *
+   * `from` is the earliest day the source produced anything in the window —
+   * null when it produced nothing at all, in which case it covers no day, and
+   * every question asked of it is unanswerable rather than answered "no".
+   */
+  const coversFrom = (from: string | null, date: string): boolean => from != null && date >= from
+
+  /** The earliest of a source's days, or null if it has none in the window. */
+  const earliest = (days: (string | null | undefined)[]): string | null => {
+    let first: string | null = null
+    for (const d of days) if (d != null && (first == null || d < first)) first = d
+    return first
+  }
+
   const timeFmt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false })
   const localMinutes = (date: Date): number => {
     const [h, m] = timeFmt.format(date).split(":").map(Number)
@@ -1030,6 +1046,14 @@ export async function computeCorrelations(
   // with no events after that point is a genuinely quiet day; a day before it
   // is simply unknown, and the calendar-load family must not file it under
   // "quiet" — that turned every pre-sync day into the control group.
+  //
+  // That sentence is true of every source that gets CONNECTED rather than
+  // always having been there. Strava starts the day it was linked; so does
+  // screen time. Every day before that reads as a rest day, or a day without
+  // screens — and those days are all OLDER, so the comparison quietly becomes
+  // "recently, versus back then". It was written here for the calendar and
+  // then used by exactly one family. `sourceCovers` below carries it to the
+  // rest, because the bug does not care which source it is.
   let calendarFrom: string | null = null
   for (const ev of (deviceEvents as { title: string; start: Date }[])) {
     const dateStr = localDay(ev.start)
@@ -1038,7 +1062,7 @@ export async function computeCorrelations(
     ;(d.eventTitles ??= []).push((ev.title ?? "").trim())
     if (calendarFrom == null || dateStr < calendarFrom) calendarFrom = dateStr
   }
-  const calendarCovers = (date: string): boolean => calendarFrom != null && date >= calendarFrom
+  const calendarCovers = (date: string): boolean => coversFrom(calendarFrom, date)
 
   for (const w of waterRows) {
     const dateStr = localDay(w.loggedAt)
@@ -1267,6 +1291,27 @@ export async function computeCorrelations(
     birthYear: goals?.birthYear ?? null,
     sex: goals?.sex === "male" || goals?.sex === "female" ? goals.sex : null,
   })
+
+  // When each connected source's knowledge begins.
+  //
+  // Read once, here, after every loader has run — not per family, because a
+  // family that forgot to ask is precisely the failure this exists to stop.
+  // A source with no rows in the window covers no day at all, so a question
+  // about it comes back null everywhere and the family drops out rather than
+  // filing every day under "didn't".
+  //
+  // The ring, the diary and the weather are deliberately absent from this
+  // list. A missing ring night is already null on every field it would have
+  // written; a silent diary day is what `DayData.logged` is for; and the
+  // weather column is filled nightly by its own cron for every day the user
+  // existed, so it has no "before it was connected".
+  const SOURCE_FROM = {
+    calendar: calendarFrom,
+    workout: earliest(stravaRows.map(a => a.day)),
+    screen: earliest((screenRows as { date: string }[]).map(r => r.date)),
+  } as const
+  type SourceKey = keyof typeof SOURCE_FROM
+  const sourceCovers = (src: SourceKey, date: string): boolean => coversFrom(SOURCE_FROM[src], date)
 
   // Three sources are still cut at a borrowed number rather than a personal
   // one. Like customDefs above, the cut is decided on the FULL window and not
@@ -2220,7 +2265,7 @@ export async function computeCorrelations(
       { key: "poor_sleep", chip: "days after a poor night", phrase: "after a night scoring under 70", short: "a poor night", test: d => d.sleepScore != null ? d.sleepScore < 70 : null },
       { key: "late_meal", chip: "days after a late dinner", phrase: "the day after a late dinner", short: "late dinners", test: (_d, prev) => prev?.lastMealMin != null ? prev.lastMealMin >= 20 * 60 : null },
       { key: "high_screen", chip: "days after heavy screen time", phrase: "the day after heavy screen time", short: "heavy screen time", test: (_d, prev) => prev?.screenTimeMin != null ? prev.screenTimeMin >= 300 : null },
-      { key: "workout", chip: "days after training", phrase: "the day after training", short: "training", test: (_d, prev) => prev ? (prev.workoutMin ?? 0) >= 20 : null },
+      { key: "workout", chip: "days after training", phrase: "the day after training", short: "training", test: (_d, prev) => (prev && sourceCovers("workout", prev.date) ? (prev.workoutMin ?? 0) >= 20 : null) },
       // "less than 1.5L", not "under 1.5L" — "after under" stacks two prepositions.
       { key: "low_water", chip: "days after low water", phrase: "the day after less than 1.5L of water", short: "low water", test: (_d, prev) => prev?.waterMl != null ? prev.waterMl < 1500 : null },
     ]
@@ -2289,6 +2334,11 @@ export async function computeCorrelations(
   const workoutReadinessSplit = new Split()
   const workoutHrvSplit = new Split()
   for (const d of days) {
+    // A day before Strava was linked is not a rest day. Those days are all
+    // older than the covered ones, so counting them turns "training vs rest"
+    // into "since I connected it vs before" — and the label still says
+    // "rest days".
+    if (!sourceCovers("workout", d.date)) continue
     const trained = (d.workoutMin ?? 0) >= 20
     const next = tonight(d)
     if (!next) continue
@@ -3511,7 +3561,7 @@ export async function computeCorrelations(
       absenceCheck("walking", "walking 20+ min", "🚶",
         d => (d.walkMin ?? 0) >= 20, d => d.mood, "mood")
       absenceCheck("workout", "a workout", "💪",
-        d => (d.workoutMin ?? 0) >= 20, d => d.energy, "morning energy")
+        d => sourceCovers("workout", d.date) && (d.workoutMin ?? 0) >= 20, d => d.energy, "morning energy")
       absenceCheck("focus", "a focus session", "🎯",
         d => (d.focusMin ?? 0) >= 25, d => d.mood, "mood")
 
@@ -3623,6 +3673,16 @@ export async function computeCorrelations(
        * with nothing logged answers `false` to "any caffeine day" in exactly
        * the same voice as a day you drank water and no coffee. One of those is
        * a control and the other is a day nobody wrote anything down.
+       *
+       * Two more kinds of ineligibility go through here, found by auditing
+       * what every predicate reads when its source is silent:
+       *
+       *   the diary was shut — the alcohol predictors below said
+       *     `(d.alcoholG ?? 0) > 0`, bypassing `drankDay`, which is the one
+       *     definition of a drinking day everywhere else in this file
+       *   the source was not connected yet — `sourceCovers`, for a workout
+       *     moderator that read every pre-Strava day as a rest day, and a
+       *     calendar predictor that read every pre-sync day as quiet
        */
       eligible?: (d: DayData) => boolean
       /** The number being watched — measured on day D or D+1. */
@@ -3649,16 +3709,18 @@ export async function computeCorrelations(
         id: "alcohol_hrv_by_workout",
         title: "Does a workout soften what drinking does to HRV?",
         emoji: "🍷",
-        predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
+        eligible: d => drankDay(d) != null,
+        predictor: { label: "drinking day", predicate: d => drankDay(d) === true },
         outcome: { label: "morning HRV", nextDay: true, accessor: d => d.hrv, higherIsBetter: true },
         moderator: { key: "workout", onLabel: "with a workout that day", offLabel: "without a workout",
-                     predicate: d => (d.workoutMin ?? 0) >= 20 },
+                     predicate: d => sourceCovers("workout", d.date) && (d.workoutMin ?? 0) >= 20 },
       },
       {
         id: "alcohol_sleep_by_early_dinner",
         title: "Does an early dinner soften what drinking does to sleep?",
         emoji: "🌙",
-        predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
+        eligible: d => drankDay(d) != null,
+        predictor: { label: "drinking day", predicate: d => drankDay(d) === true },
         outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
         moderator: { key: "early_dinner", onLabel: "when dinner was before 8pm", offLabel: "when it was later",
                      predicate: d => d.lastMealMin != null && d.lastMealMin < 20 * 60 },
@@ -3671,7 +3733,7 @@ export async function computeCorrelations(
         outcome: { label: "next-day mood", nextDay: true, accessor: d => d.mood, higherIsBetter: true },
         moderator: { key: "workout_next", onLabel: "when you worked out that day",
                      offLabel: "when you didn't",
-                     predicate: d => (d.workoutMin ?? 0) >= 20, onOutcomeDay: true },
+                     predicate: d => sourceCovers("workout", d.date) && (d.workoutMin ?? 0) >= 20, onOutcomeDay: true },
       },
       {
         id: "short_sleep_energy_by_next_workout",
@@ -3681,7 +3743,7 @@ export async function computeCorrelations(
         outcome: { label: "next-day energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
         moderator: { key: "workout_next", onLabel: "when you worked out that day",
                      offLabel: "when you didn't",
-                     predicate: d => (d.workoutMin ?? 0) >= 20, onOutcomeDay: true },
+                     predicate: d => sourceCovers("workout", d.date) && (d.workoutMin ?? 0) >= 20, onOutcomeDay: true },
       },
       {
         id: "caffeine_sleep_by_amount",
@@ -3715,7 +3777,8 @@ export async function computeCorrelations(
         id: "alcohol_efficiency_by_early_dinner",
         title: "Does an early dinner protect your sleep efficiency when you drink?",
         emoji: "🍷",
-        predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
+        eligible: d => drankDay(d) != null,
+        predictor: { label: "drinking day", predicate: d => drankDay(d) === true },
         outcome: { label: "sleep efficiency", nextDay: false, accessor: d => d.sleepEfficiency, higherIsBetter: true },
         moderator: { key: "early_dinner", onLabel: "when dinner was before 8pm", offLabel: "when it was later",
                      predicate: d => d.lastMealMin != null && d.lastMealMin < 20 * 60 },
@@ -3724,15 +3787,17 @@ export async function computeCorrelations(
         id: "long_calendar_sleep_by_workout",
         title: "Does a workout protect your sleep on a busy day?",
         emoji: "📅",
+        eligible: d => calendarCovers(d.date),
         predictor: { label: "busy day (5+ events)", predicate: d => (d.eventCount ?? 0) >= 5 },
         outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
         moderator: { key: "workout", onLabel: "with a workout that day", offLabel: "without one",
-                     predicate: d => (d.workoutMin ?? 0) >= 20 },
+                     predicate: d => sourceCovers("workout", d.date) && (d.workoutMin ?? 0) >= 20 },
       },
       {
         id: "workout_energy_by_sleep_prior",
         title: "Does a workout give you more energy when you slept well first?",
         emoji: "😴",
+        eligible: d => sourceCovers("workout", d.date),
         predictor: { label: "workout day", predicate: d => (d.workoutMin ?? 0) >= 20 },
         outcome: { label: "same-day energy", nextDay: false, accessor: d => d.energy, higherIsBetter: true },
         moderator: { key: "slept_well_prior", onLabel: "on well-rested days", offLabel: "on tired ones",
@@ -3751,7 +3816,8 @@ export async function computeCorrelations(
         id: "alcohol_energy_by_water",
         title: "Does water change how you feel the day after drinking?",
         emoji: "💧",
-        predictor: { label: "drinking day", predicate: d => (d.alcoholG ?? 0) > 0 },
+        eligible: d => drankDay(d) != null,
+        predictor: { label: "drinking day", predicate: d => drankDay(d) === true },
         outcome: { label: "next-day energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
         moderator: { key: "hydrated", onLabel: `when you drank ${waterLabel}+ of fluid`,
                      offLabel: "when you didn't",
@@ -3780,7 +3846,8 @@ export async function computeCorrelations(
     // Point the two placeholders at the personal thresholds now they exist.
     for (const def of INTERACTIONS) {
       if (def.id === "screen_sleep_by_late_use") {
-        def.predictor.predicate = d => (d.screenTimeMin ?? 0) >= screenP66
+        def.predictor.predicate = d => sourceCovers("screen", d.date) && (d.screenTimeMin ?? 0) >= screenP66
+        def.eligible = d => sourceCovers("screen", d.date)
         def.moderator.predicate = d => d.firstUnlockMin != null &&
           Math.abs(d.firstUnlockMin - wakeMedian) <= 30
       }
@@ -3891,19 +3958,42 @@ export async function computeCorrelations(
       short: string
       /** Sentence form — "alcohol", "a late meal". */
       label: string
-      test: (d: DayData) => boolean
+      /**
+       * true = it happened, false = a genuine control, null = this day cannot
+       * say — the same tri-state a `SleepCause` has, and for the same reason.
+       *
+       * It used to be a plain boolean, and `dense` fills the calendar with
+       * bare `{ date }` objects for days with nothing in them at all. Every
+       * one of those answered "no alcohol, no workout, no heavy screen, not
+       * busy" in the same voice as a day that genuinely had none of those —
+       * and then triples were grown out of the agreement.
+       */
+      test: (d: DayData) => boolean | null
     }
+    //
+    // Each `test` says how it knows the day cannot answer, and they are three
+    // different kinds of not-knowing:
+    //
+    //   the diary was shut      — `logged` is false, so a zero is the app's
+    //                             silence rather than the user's
+    //   the ring wrote nothing  — the field is simply null
+    //   the source did not yet  — `sourceCovers`, for the ones that get
+    //   exist                     connected partway through the window
     const COMBO_CONDITIONS: ComboCondition[] = [
-      { key: "alcohol", short: "Alcohol", label: "alcohol", test: d => (d.alcoholG ?? 0) > 0 },
-      { key: "caffeine", short: "Heavy caffeine", label: `${cafLabel} of caffeine`, test: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
-      { key: "late_meal", short: "Late meal", label: "a late meal", test: d => d.lastMealMin != null && d.lastMealMin >= 21 * 60 },
-      { key: "short_night", short: "Short night", label: "a short night before", test: d => d.sleepDuration != null && d.sleepDuration < 7 },
-      { key: "workout", short: "Workout", label: "a workout", test: d => (d.workoutMin ?? 0) >= 20 },
-      { key: "hydrated", short: "Hydrated", label: `${waterLabel}+ of fluid`, test: d => (d.waterMl ?? 0) >= cuts.water.at },
-      { key: "busy", short: "Busy day", label: "a busy calendar", test: d => (d.eventCount ?? 0) >= 5 },
-      { key: "screen", short: "Heavy screen", label: "heavy screen time", test: d => (d.screenTimeMin ?? 0) >= screenP66 },
-      { key: "stress", short: "High stress", label: stressLabel, test: d => (d.stressHighMin ?? 0) >= cuts.stress.at },
-      { key: "away", short: "Away", label: "a day away from home", test: d => d.presence === "away" },
+      // drankDay is the one definition of a drinking day, shared with the
+      // sleep panel and the HRV cards. It already sets silent days aside.
+      { key: "alcohol", short: "Alcohol", label: "alcohol", test: drankDay },
+      { key: "caffeine", short: "Heavy caffeine", label: `${cafLabel} of caffeine`, test: d => (d.logged ? (d.caffeineMg ?? 0) >= cuts.caffeine.at : null) },
+      // A logged day with no meal in it is not an early dinner; it is a day
+      // the food tab went untouched, which most logged days are.
+      { key: "late_meal", short: "Late meal", label: "a late meal", test: d => (d.lastMealMin == null ? null : d.lastMealMin >= 21 * 60) },
+      { key: "short_night", short: "Short night", label: "a short night before", test: d => (d.sleepDuration == null ? null : d.sleepDuration < 7) },
+      { key: "workout", short: "Workout", label: "a workout", test: d => (sourceCovers("workout", d.date) ? (d.workoutMin ?? 0) >= 20 : null) },
+      { key: "hydrated", short: "Hydrated", label: `${waterLabel}+ of fluid`, test: d => (d.logged ? (d.waterMl ?? 0) >= cuts.water.at : null) },
+      { key: "busy", short: "Busy day", label: "a busy calendar", test: d => (sourceCovers("calendar", d.date) ? (d.eventCount ?? 0) >= 5 : null) },
+      { key: "screen", short: "Heavy screen", label: "heavy screen time", test: d => (sourceCovers("screen", d.date) ? (d.screenTimeMin ?? 0) >= screenP66 : null) },
+      { key: "stress", short: "High stress", label: stressLabel, test: d => (d.stressHighMin == null ? null : d.stressHighMin >= cuts.stress.at) },
+      { key: "away", short: "Away", label: "a day away from home", test: d => (d.presence == null ? null : d.presence === "away") },
     ]
     const COMBO_OUTCOMES: { key: string; label: string; emoji: string; accessor: (d: DayData) => number | null | undefined }[] = [
       { key: "sleep", label: "sleep score", emoji: "😴", accessor: d => d.sleepScore },
@@ -3925,9 +4015,19 @@ export async function computeCorrelations(
 
     // A condition nobody's data ever meets (or always meets) can only make
     // empty cells; drop it before it multiplies through the pairs.
+    //
+    // Counted over the days that can ANSWER, not over the calendar. `null` is
+    // falsy, so the old `dense.filter(c.test)` quietly counted every unknown
+    // day on the control side — which is how a source connected three weeks
+    // ago could look like a condition with ten months of clean controls.
     const active = COMBO_CONDITIONS.filter(c => {
-      const n = dense.filter(c.test).length
-      return n >= MIN_COMBO_DAYS && dense.length - n >= MIN_COMBO_DAYS
+      let yes = 0, no = 0
+      for (const d of dense) {
+        const side = c.test(d)
+        if (side === true) yes++
+        else if (side === false) no++
+      }
+      return yes >= MIN_COMBO_DAYS && no >= MIN_COMBO_DAYS
     })
 
     // Day-ordered observations: the conjunction on day D against the next
@@ -3937,7 +4037,12 @@ export async function computeCorrelations(
       for (let i = 0; i < dense.length - 1; i++) {
         const v = accessor(dense[i + 1])
         if (v == null || !Number.isFinite(v)) continue
-        s.add(conds.every(c => c.test(dense[i])), v)
+        // Every ingredient has to be able to answer. One unknown among three
+        // makes the conjunction unknown too — `every` would have read it as a
+        // no and filed the day as a control, which is the whole bug.
+        const sides = conds.map(c => c.test(dense[i]))
+        if (sides.some(x => x == null)) continue
+        s.add(sides.every(Boolean), v)
       }
       return s
     }
@@ -4127,7 +4232,7 @@ export async function computeCorrelations(
       { key: "calories", label: "Calories", unit: "kcal a day", per: d => d.calories ?? null },
       { key: "protein", label: "Protein", unit: "g of protein a day", per: d => d.proteinG ?? null },
       { key: "alcohol", label: "Alcohol", unit: "g of alcohol a day", per: d => d.alcoholG ?? 0 },
-      { key: "workout", label: "Workouts", unit: "minutes of exercise a day", per: d => d.workoutMin ?? 0 },
+      { key: "workout", label: "Workouts", unit: "minutes of exercise a day", per: d => (sourceCovers("workout", d.date) ? (d.workoutMin ?? 0) : null) },
       { key: "steps", label: "Steps", unit: "steps a day", per: d => d.steps ?? null },
       { key: "sleep", label: "Sleep", unit: "hours of sleep a night", per: d => d.sleepDuration ?? null,
         fmt: v => v.toFixed(1) },

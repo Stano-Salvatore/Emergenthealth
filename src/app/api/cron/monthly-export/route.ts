@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 import { buildExportBundle } from "@/lib/export"
-import { EMAIL_FROM } from "@/lib/email"
+import { EMAIL_FROM, logMailFailure } from "@/lib/email"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -90,7 +90,9 @@ export async function GET(req: NextRequest) {
           </div>`,
         })
         emailed++
-      } catch { /* non-fatal */ }
+      } catch (error) {
+        logMailFailure("monthly backup", user.email!, error)
+      }
       continue
     }
     const sizeMb = (bundle.bytes / 1024 / 1024).toFixed(1)
@@ -107,7 +109,11 @@ export async function GET(req: NextRequest) {
         attachments: [{ filename: bundle.filename, content: Buffer.from(bundle.json, "utf8").toString("base64") }],
       })
       emailed++
-    } catch { /* non-fatal — the Settings download always works */ }
+    } catch (error) {
+      // Non-fatal — the Settings download always works. Logged anyway,
+      // because "nobody ever received one" and "it works" looked the same.
+      logMailFailure("monthly backup", user.email!, error)
+    }
   }
 
   return NextResponse.json({ ok: true, emailed, skippedSize, users: users.length })

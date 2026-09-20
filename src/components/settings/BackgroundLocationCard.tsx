@@ -242,10 +242,27 @@ export function BackgroundLocationCard() {
           <p className="text-xs text-muted-foreground">Checking what this device can do…</p>
         ) : support === "ready" ? (
           <>
+            {/*
+              Play's prominent-disclosure rule for background location is not
+              satisfied by explaining the feature. It asks for the collection,
+              in the app, before the permission prompt, in words that say the
+              data is taken when the app is closed or not in use — reviewers
+              look for that phrase, and "logs the visit without you opening
+              anything" was the feature described, not the collection
+              disclosed. It is also simply the more honest sentence: what
+              somebody is agreeing to is a phone that reports where it is while
+              they are not looking at it.
+            */}
             <p className="text-xs text-muted-foreground">
               Emergy notices when you&apos;ve spent a while somewhere you&apos;ve saved — the garden,
-              a café — and logs the visit without you opening anything. Android shows a
-              notification the whole time it&apos;s running.
+              a café — and logs the visit without you opening anything.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              To do that, <b>Emergenthealth collects location data even when the app is closed
+              or not in use</b>, and keeps it in your account to build your places, journeys and
+              location insights. It is never sold and never shared for advertising. Android
+              shows a notification the whole time it&apos;s running, and you can stop it here at
+              any time.
             </p>
             {places === 0 && (
               <p className="text-xs text-amber-400">

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { buildHealthReport } from "@/lib/health-report"
 import { renderReportEmail, reportSubject } from "@/lib/health-report-email"
-import { EMAIL_FROM } from "@/lib/email"
+import { EMAIL_FROM, describeMailFailure, logMailFailure } from "@/lib/email"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -56,8 +56,9 @@ export async function POST(req: NextRequest) {
       subject: reportSubject(report),
       html: renderReportEmail(report),
     })
-  } catch {
-    return NextResponse.json({ error: "The mail service rejected the message." }, { status: 502 })
+  } catch (error) {
+    logMailFailure("health report", user.email, error)
+    return NextResponse.json({ error: describeMailFailure(error) }, { status: 502 })
   }
 
   return NextResponse.json({ ok: true, to: user.email })

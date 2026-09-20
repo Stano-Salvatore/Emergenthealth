@@ -158,6 +158,7 @@ export async function GET() {
   const wc = await getWeatherCoords(userId)
   let weather: { code: number; temp: number } | null = null
   try {
+    if (!wc) throw new Error("no location")
     const res = await fetch(
       `https://api.open-meteo.com/v1/forecast?latitude=${wc.lat}&longitude=${wc.lon}&current=temperature_2m,weathercode&forecast_days=1&timezone=${wc.tz}`,
       { signal: AbortSignal.timeout(3000), next: { revalidate: 1800 } }

@@ -60,7 +60,24 @@ with what is actually submitted.
      something the shipped build does not have. Add each one back as its
      release goes out. -->
 
-## Release notes template (per update)
+## Release notes (per update)
+
+Play caps this field at 500 characters. Write it from `CHANGELOG.md`, and say
+what changed for the person holding the phone — not what changed in the repo.
+
+### V3.1 (current)
+
+> ✨ V3.1
+> • Sleep regularity, and one honest figure for sleep debt
+> • Correlations no longer count the days before you connected a source
+> • Weather, screen time and Health Connect say what they can't do instead of guessing
+> • Health Connect now asks for resting heart rate properly
+> • New Sunny theme, and a faster, cheaper Emergy
+> More lands every few weeks. 🌱
+
+<!-- Character count matters: keep it under 500 including the bullets. -->
+
+### V3.0 (Play Store launch)
 
 > 🚀 V3.0 — Play Store launch!
 > • Emergy AI chat, daily briefs & correlations

@@ -9,7 +9,7 @@
 
 import { useEffect, useState, useRef } from "react"
 import { MapPin, X, Check, Loader2, Star } from "lucide-react"
-import { getCurrentPosition } from "@/lib/native/geolocation"
+import { getCurrentPosition, locationAlreadyGranted } from "@/lib/native/geolocation"
 import { matchSavedPlace, type PlaceLike } from "@/lib/places"
 
 const DISMISS_KEY = "place_detector_dismissed_until"
@@ -66,6 +66,13 @@ export function PlaceDetector() {
       .then(r => r.ok ? r.json() : [])
       .then(async (recent: unknown[]) => {
         if (Array.isArray(recent) && recent.length > 0) { dismiss(); return }
+        // Only if location is already granted. This runs on its own, when
+        // the dashboard mounts — so calling getCurrentPosition here raised a
+        // permission dialog on the first screen of the app, before anything
+        // had said what it was for. Settings is where place check-ins are
+        // switched on, and that card explains the collection before it asks.
+        if ((await locationAlreadyGranted()) !== true) { dismiss(); return }
+
         setState("detecting")
         const [pos, placesRes] = await Promise.all([
           getCurrentPosition(),

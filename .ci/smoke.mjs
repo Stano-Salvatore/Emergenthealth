@@ -356,6 +356,22 @@ if (redirects.length) {
   for (const r of redirects) console.log("  · " + r)
 }
 
+// A run that was never signed in reports every screen as clean, because the
+// sign-in page renders perfectly. That happened: a session row expired between
+// two runs and the sweep walked /signin thirty-nine times and called it
+// "All 39 screens clean (39 redirected)". A check that passes when it is
+// checking nothing is worse than no check.
+//
+// One or two are believable — a route can legitimately bounce you. Most of
+// them means the cookie is dead, and the fix is `npm run dev:seed`.
+const signedOut = redirects.filter(r => r.endsWith("→ /signin"))
+if (signedOut.length > 2) {
+  failures.push(
+    `${signedOut.length} of ${ROUTES.length} routes redirected to /signin — this run was not signed in, ` +
+    "so nothing was actually checked. Re-seed the session (npm run dev:seed) and run it again."
+  )
+}
+
 if (failures.length) {
   console.error(`\n${failures.length} problem(s):`)
   for (const f of failures) console.error("  ✗ " + f)

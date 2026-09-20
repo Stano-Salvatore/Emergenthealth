@@ -196,7 +196,14 @@ export default function StreaksPage() {
                 <p className="text-xs text-foreground font-medium">{t.title}</p>
                 <p className="text-xs text-muted-foreground">{t.desc}</p>
               </div>
-              <button onClick={() => dismissToast(t.id)} className="text-muted-foreground hover:text-foreground text-lg leading-none ml-1">✕</button>
+              <button
+                onClick={() => dismissToast(t.id)}
+                aria-label="Dismiss"
+                /* The glyph is 15x18 and the thing you have to hit is a
+                   thumb. Padding grows the target without moving the ✕,
+                   and -my-2 keeps the toast the height it was. */
+                className="text-muted-foreground hover:text-foreground text-lg leading-none ml-1 px-2 -mx-1 py-2 -my-2 min-w-[40px] min-h-[40px] flex items-center justify-center"
+              >✕</button>
             </div>
           ))}
         </div>

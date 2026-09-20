@@ -47,6 +47,51 @@ if result.returncode != 0:
 else:
     print("✓ minSdkVersion set to 26")
 
+# 1b. targetSdkVersion floor.
+#
+# Play refuses an upload that targets below its current floor, and it refuses it
+# at the upload, after a green build, a signed bundle and a walk to the Console.
+# Nothing before that point cares: a project left on an old target compiles,
+# installs and runs exactly as well as a current one.
+#
+# The value itself is Capacitor's — the generated variables.gradle carries it,
+# and pinning a second copy here would only drift. This asserts the floor.
+#
+# PLAY_TARGET_SDK_FLOOR is Google's requirement for updates to existing apps,
+# raised every August. 35 = Android 15, required since 31 August 2025. Raise it
+# when Google does; the error below says what to change.
+PLAY_TARGET_SDK_FLOOR = 35
+with open("android/variables.gradle") as f:
+    variables = f.read()
+target_match = re.search(r"targetSdkVersion\s*=\s*(\d+)", variables)
+if target_match:
+    target_sdk = int(target_match.group(1))
+else:
+    # variables.gradle may not set it at all, in which case Capacitor's own
+    # build.gradle supplies the default. Read that rather than failing: a
+    # missing key is not a low target, and a red build over one would be this
+    # check inventing the problem it exists to catch.
+    with open("node_modules/@capacitor/android/capacitor/build.gradle") as f:
+        fallback = re.search(r"targetSdkVersion[^\n]*?:\s*(\d+)", f.read())
+    if not fallback:
+        print("WARNING: no targetSdkVersion in variables.gradle or Capacitor's default — floor unchecked")
+        fallback_sdk = None
+    else:
+        fallback_sdk = int(fallback.group(1))
+    if fallback_sdk is None:
+        target_sdk = PLAY_TARGET_SDK_FLOOR  # unknown; do not fail the build over it
+    else:
+        target_sdk = fallback_sdk
+        print(f"· targetSdkVersion not pinned in variables.gradle; Capacitor defaults to {target_sdk}")
+if target_sdk < PLAY_TARGET_SDK_FLOOR:
+    print(
+        f"::error::targetSdkVersion is {target_sdk}; Play will not accept an upload below "
+        f"{PLAY_TARGET_SDK_FLOOR}. Capacitor sets this in android/variables.gradle — upgrade "
+        "Capacitor, or override it here."
+    )
+    sys.exit(1)
+print(f"✓ targetSdkVersion {target_sdk} (Play floor {PLAY_TARGET_SDK_FLOOR})")
+
 # 2. Add Health Connect + location + notification permissions + App Links intent filter
 manifest_path = "android/app/src/main/AndroidManifest.xml"
 with open(manifest_path) as f:
@@ -138,14 +183,38 @@ extra_permissions = """
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!--
+      One line per record type in READ_TYPES (lib/health-connect-service.ts),
+      in that order, and nothing else. Health Connect never grants a permission
+      the manifest does not declare, and the refusal is silent: safeRead returns
+      [] for a refused type exactly as it does for a type with no records.
+
+      The record-type -> permission mapping is not mechanical, so it was read
+      out of the library the build actually links rather than guessed —
+      androidx.health.connect:connect-client 1.1.0, pinned by the plugin's own
+      build.gradle, disassembled at HealthPermission's static map:
+
+        RestingHeartRate          -> READ_RESTING_HEART_RATE
+        HeartRateVariabilityRmssd -> READ_HEART_RATE_VARIABILITY   (suffix dropped)
+        SleepSession              -> READ_SLEEP                    (not READ_SLEEP_SESSION)
+
+      READ_HEART_RATE is deliberately absent. It grants HeartRateRecord, which
+      the plugin calls "HeartRateSeries" and nothing here reads; it does NOT
+      grant RestingHeartRate. Both halves of that mistake were invisible on the
+      account this was built from, where resting heart rate arrives from an Oura
+      ring whether Health Connect hands it over or not.
+
+      health-permissions-declared.test.ts fails if this list and READ_TYPES
+      drift apart in either direction. Adding a type there is half a change.
+    -->
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
-    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
     <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
     <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
     <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
-    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
 
     <queries>
         <package android:name="com.google.android.apps.healthdata" />
@@ -303,6 +372,8 @@ widget_copies = [
     (f"{widget_src}/EmergyLocationService.java", f"{pkg_java_dir}/EmergyLocationService.java"),
     (f"{widget_src}/EmergyWakeService.java",     f"{pkg_java_dir}/EmergyWakeService.java"),
     (f"{widget_src}/SherpaWakeDetector.java",    f"{pkg_java_dir}/SherpaWakeDetector.java"),
+    # The screen Health Connect opens to show the privacy policy.
+    (f"{widget_src}/PermissionsRationaleActivity.java", f"{pkg_java_dir}/PermissionsRationaleActivity.java"),
     (f"{widget_src}/head_circle.xml",           f"{res_drawable}/head_circle.xml"),
     (f"{widget_src}/head_panel.xml",            f"{res_drawable}/head_panel.xml"),
 ]
@@ -324,7 +395,7 @@ if widget_ok:
     # Register the widget receiver inside <application> (idempotent).
     with open(manifest_path) as f:
         m = f.read()
-    if "QuickLogWidget" not in m:
+    if 'android:name=".QuickLogWidget"' not in m:
         widget_receiver = """
         <receiver android:name=".QuickLogWidget" android:exported="true">
             <intent-filter>
@@ -398,7 +469,7 @@ if widget_ok:
     # resizeable and embeddable.
     with open(manifest_path) as f:
         m = f.read()
-    if "BubbleActivity" not in m:
+    if 'android:name=".BubbleActivity"' not in m:
         bubble = """
         <activity
             android:name=".BubbleActivity"
@@ -415,11 +486,83 @@ if widget_ok:
     else:
         print("ℹ️  BubbleActivity already present")
 
+    # The privacy-policy screen Health Connect opens.
+    #
+    # Two declarations, because Android changed how it asks. Health Connect's
+    # own APK (Android 13 and below) sends ACTION_SHOW_PERMISSIONS_RATIONALE;
+    # the platform version (Android 14+) sends VIEW_PERMISSION_USAGE with the
+    # HEALTH_PERMISSIONS category to an alias guarded by
+    # START_VIEW_PERMISSION_USAGE, which only the system holds. Declaring one
+    # and not the other leaves half the phones with no privacy link.
+    #
+    # Both are exported on purpose: the whole point is that something outside
+    # this app can open them. The alias's android:permission is what keeps
+    # "exported" from meaning "anyone".
+    #
+    # The manifest already listed this action under <queries>. That lets this
+    # app find Health Connect and does nothing whatsoever to let Health Connect
+    # find this screen — but it greps the same, which is why COMPLIANCE.md
+    # claimed for months that the rationale intent was declared.
+    with open(manifest_path) as f:
+        m = f.read()
+    if 'android:name=".PermissionsRationaleActivity"' not in m:
+        rationale = """
+        <activity
+            android:name=".PermissionsRationaleActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".PermissionsRationaleActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
+"""
+        m = m.replace("</application>", rationale + "    </application>", 1)
+        with open(manifest_path, "w") as f:
+            f.write(m)
+        print("✓ AndroidManifest.xml updated with PermissionsRationaleActivity")
+    else:
+        print("ℹ️  PermissionsRationaleActivity already present")
+
+    # The privacy URL the rationale screen falls back to before the app has
+    # ever run. Taken from capacitor.config.ts so there is one address, not
+    # two — and NEXT_PUBLIC_APP_URL overrides it the same way it does there.
+    rationale_java = f"{pkg_java_dir}/PermissionsRationaleActivity.java"
+    if os.path.exists(rationale_java):
+        with open("capacitor.config.ts") as f:
+            cfg_url = re.search(r"NEXT_PUBLIC_APP_URL \?\? '([^']+)'", f.read())
+        app_url = os.environ.get("NEXT_PUBLIC_APP_URL") or (cfg_url.group(1) if cfg_url else "")
+        if not app_url.startswith("http"):
+            print("::error::Could not work out the app URL for PermissionsRationaleActivity "
+                  "(no NEXT_PUBLIC_APP_URL, and capacitor.config.ts has no default to read). "
+                  "Health Connect's privacy link would open nothing.")
+            sys.exit(1)
+        with open(rationale_java) as f:
+            rj = f.read()
+        rj = rj.replace("__APP_URL__", app_url)
+        if "__APP_URL__" in rj:
+            print("::error::PermissionsRationaleActivity still carries the __APP_URL__ placeholder")
+            sys.exit(1)
+        with open(rationale_java, "w") as f:
+            f.write(rj)
+        print(f"✓ PermissionsRationaleActivity points at {app_url}/privacy")
+
     # The transition receiver. Not exported and with no intent-filter: the
     # only sender is the explicit PendingIntent the plugin registers.
     with open(manifest_path) as f:
         m = f.read()
-    if "EmergyActivityReceiver" not in m:
+    if 'android:name=".EmergyActivityReceiver"' not in m:
         receiver = """
         <receiver
             android:name=".EmergyActivityReceiver"
@@ -455,7 +598,7 @@ if widget_ok:
     # spelling out what the special use actually is.
     with open(manifest_path) as f:
         m = f.read()
-    if "EmergyHeadService" not in m:
+    if 'android:name=".EmergyHeadService"' not in m:
         head_service = """
         <service
             android:name=".EmergyHeadService"
@@ -477,7 +620,7 @@ if widget_ok:
     # service receive fixes while the app is in the background at all.
     with open(manifest_path) as f:
         m = f.read()
-    if "EmergyLocationService" not in m:
+    if 'android:name=".EmergyLocationService"' not in m:
         location_service = """
         <service
             android:name=".EmergyLocationService"
@@ -494,7 +637,7 @@ if widget_ok:
     # notification — which is the right trade for something always listening.
     with open(manifest_path) as f:
         m = f.read()
-    if "EmergyWakeService" not in m:
+    if 'android:name=".EmergyWakeService"' not in m:
         wake_service = """
         <service
             android:name=".EmergyWakeService"
@@ -512,7 +655,7 @@ if widget_ok:
     # outside this app has any business making it draw over the screen.
     with open(manifest_path) as f:
         m = f.read()
-    if "HeadAlarmReceiver" not in m:
+    if 'android:name=".HeadAlarmReceiver"' not in m:
         head_receiver = """
         <receiver android:name=".HeadAlarmReceiver" android:exported="false">
             <intent-filter>
@@ -531,7 +674,7 @@ if widget_ok:
     # wipe them. Exported, because the system is the sender.
     with open(manifest_path) as f:
         m = f.read()
-    if "HeadBootReceiver" not in m:
+    if 'android:name=".HeadBootReceiver"' not in m:
         boot_receiver = """
         <receiver android:name=".HeadBootReceiver" android:exported="true">
             <intent-filter>
@@ -592,7 +735,7 @@ if widget_ok:
 
         with open(manifest_path) as f:
             m = f.read()
-        if "EmergyFcmService" not in m:
+        if 'android:name=".EmergyFcmService"' not in m:
             fcm_service = """
         <service
             android:name=".EmergyFcmService"
@@ -612,7 +755,9 @@ if widget_ok:
     for name, block in extra_receivers.items():
         with open(manifest_path) as f:
             m = f.read()
-        if name not in m:
+        # The declaration, not the bare name — see the note on the
+        # verification pass at the end of this file.
+        if f'android:name=".{name}"' not in m:
             m = m.replace("</application>", block + "    </application>", 1)
             with open(manifest_path, "w") as f:
                 f.write(m)
@@ -731,6 +876,63 @@ if changed:
     print("✓ app/build.gradle given the sherpa-onnx AAR and abiFilters")
 else:
     print("ℹ️  sherpa-onnx already wired into app/build.gradle")
+
+# ── Verify what actually ended up declared ───────────────────────────────
+#
+# Every idempotency check above used to ask whether a class NAME appeared
+# anywhere in the manifest. The manifest also carries the comments this
+# script writes into it — and the one explaining ACCESS_BACKGROUND_LOCATION
+# names EmergyLocationService in prose. So that check matched its own
+# comment, concluded the service was already there, and the <service>
+# element was never added.
+#
+# The class still compiled into the APK. Android refuses to start a service
+# the manifest does not declare, so startForegroundService threw, the plugin
+# rejected the call, and the Settings card told people their location
+# permission or Samsung's battery settings were to blame. On every phone,
+# from 2026-09-02 until this was found.
+#
+# The checks now look for android:name=".Class". This pass is the one that
+# does not depend on them being right: a component compiled into the app has
+# to be in the manifest, and the build stops here rather than on a phone.
+#
+# Which classes are components is read from the sources rather than listed —
+# a list is one more thing to forget. Android requires a manifest entry for
+# exactly these base classes, and nothing else in this package has one:
+# EmergyBubblePlugin extends Plugin and is registered in code,
+# SherpaWakeDetector is a plain helper.
+COMPONENT_BASES = ("Activity", "Service", "BroadcastReceiver", "AppWidgetProvider")
+
+if os.path.isdir(pkg_java_dir):
+    with open(manifest_path) as f:
+        final_manifest = f.read()
+
+    undeclared = []
+    for java in sorted(os.listdir(pkg_java_dir)):
+        if not java.endswith(".java"):
+            continue
+        cls = java[:-5]
+        with open(os.path.join(pkg_java_dir, java)) as f:
+            base = re.search(rf"class\s+{re.escape(cls)}\s+extends\s+(\w+)", f.read())
+        if not base or not base.group(1).endswith(COMPONENT_BASES):
+            continue
+        # Push is the one conditional component: without google-services.json
+        # the service is deliberately left out of the manifest, and the file
+        # it needs is not in git.
+        if cls == "EmergyFcmService" and not os.path.exists("android/app/google-services.json"):
+            continue
+        if f'android:name=".{cls}"' not in final_manifest:
+            undeclared.append(f"{cls} (extends {base.group(1)})")
+
+    if undeclared:
+        print(
+            "::error::These classes are compiled into the app but declared nowhere in "
+            "AndroidManifest.xml: " + ", ".join(undeclared) + ". Android will refuse to start "
+            "them at runtime, and the failure looks like a permission problem rather than a "
+            "missing declaration. Add the element in this script."
+        )
+        sys.exit(1)
+    print("✓ every component class compiled into the app is declared in the manifest")
 
 print("All Android customizations applied successfully.")
 

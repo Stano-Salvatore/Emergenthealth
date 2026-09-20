@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser, type Delivery } from "@/lib/push"
 import { sayAsEmergy } from "@/lib/emergy-say"
 import { computeCorrelations, ENGINE_VERSION } from "@/lib/correlations"
-import { EMAIL_FROM } from "@/lib/email"
+import { EMAIL_FROM, logMailFailure } from "@/lib/email"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -212,7 +212,12 @@ export async function GET(req: NextRequest) {
           html: buildEmail(u.name, changes, appUrl),
         })
         emailed++
-      } catch { /* non-fatal */ }
+      } catch (error) {
+        // Non-fatal — a missed digest breaks nothing. But silence here is how
+        // a deployment whose email has never reached anyone looks identical
+        // to one where it works.
+        logMailFailure("pattern-change alert", u.email, error)
+      }
     }
   }
 
