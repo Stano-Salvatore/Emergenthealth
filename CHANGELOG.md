@@ -60,6 +60,25 @@ about what ships.
   `<queries>`, which points the other way. `PermissionsRationaleActivity`
   now opens the policy, which is also a publishing requirement.
 
+### The first screen
+- **The dashboard no longer asks for your location on sight.** Two components
+  requested a position in a mount effect, so opening the app — on a first
+  launch, before anything had explained why — raised a permission dialog, and
+  the weather widget then pulsed a grey skeleton in the greeting card for up
+  to fifteen seconds while you decided. Both now check whether location has
+  already been granted, which can be asked without prompting, and stay quiet
+  otherwise. Settings is where location is turned on, with the disclosure.
+- **Weather uses the location you set.** The widget asked the browser and
+  ignored Settings → Weather location entirely, so the one place to set it
+  changed nothing on the dashboard. It reads the saved position first now, and
+  needs no permission at all to do it.
+- **A brief that cannot be written says so.** The model call was unwrapped, so
+  an expired API credit threw a 500; the client turned every failure into
+  "nothing to say" and rendered nothing, leaving a hole where the first thing
+  on the dashboard had been. The server now prefers a stale brief over an
+  error and an error over a blank, and the card says one quiet line with a
+  Try again.
+
 ### Play Store readiness
 - **Health Connect asks for the permission it actually needs.**
   `RestingHeartRate` was never declared, so no phone could have granted it;

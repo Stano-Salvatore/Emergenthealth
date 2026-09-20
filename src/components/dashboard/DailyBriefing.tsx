@@ -10,11 +10,24 @@ type BriefingState =
   | { status: "loading" }
   | { status: "loaded"; briefing: string; generatedAt: string }
   | { status: "empty" }
+  | { status: "unavailable" }
 
+/**
+ * `empty` and `unavailable` are different answers and used not to be.
+ *
+ * Every failure — a 503 with no API key, a model call that fell over because
+ * the credit ran out, a dropped connection — collapsed into `empty`, and
+ * `empty` renders nothing. So the headline feature of the dashboard would one
+ * day simply not be there, with no message, and the only account of why lived
+ * in a server log.
+ *
+ * `empty` still means what it says: the server answered, and there was
+ * nothing to write. That renders nothing, and should.
+ */
 async function loadBriefing(force: boolean): Promise<BriefingState> {
   try {
     const res = await fetch(force ? "/api/briefing?force=1" : "/api/briefing")
-    if (!res.ok) return { status: "empty" }
+    if (!res.ok) return { status: "unavailable" }
     const data = await res.json() as { briefing?: string; generatedAt?: string }
     if (!data.briefing) return { status: "empty" }
     return {
@@ -23,7 +36,7 @@ async function loadBriefing(force: boolean): Promise<BriefingState> {
       generatedAt: data.generatedAt ?? new Date().toISOString(),
     }
   } catch {
-    return { status: "empty" }
+    return { status: "unavailable" }
   }
 }
 
@@ -75,6 +88,36 @@ export function DailyBriefing() {
   }
 
   if (state.status === "empty") return null
+
+  // Quiet, and in Emergy's own bubble rather than as an error banner — a brief
+  // that could not be written is a small thing, not a fault the person needs
+  // to act on. It says so and offers the retry that is already here, instead
+  // of leaving a gap where the first thing on the screen used to be.
+  if (state.status === "unavailable") {
+    return (
+      <div className="flex items-end gap-2.5">
+        <div className="shrink-0 mb-0.5">
+          <EmergyAvatar mood={mood} fit="icon" size={44} />
+        </div>
+        <div className="flex-1 min-w-0 rounded-2xl rounded-bl-md border border-border/40 bg-secondary/20 px-4 py-3">
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            Couldn&apos;t write your brief just now. Everything else on this page is your own
+            data and is unaffected.
+          </p>
+          <div className="mt-2 flex items-center justify-end">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="text-[10px] text-muted-foreground/70 hover:text-foreground transition-colors flex items-center gap-1 disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`} />
+              Try again
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   const { briefing, generatedAt } = state
 
