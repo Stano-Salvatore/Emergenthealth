@@ -55,7 +55,12 @@ public class PermissionsRationaleActivity extends Activity {
         try {
             SharedPreferences cap = getSharedPreferences("CapacitorStorage", Context.MODE_PRIVATE);
             String stored = cap.getString("widget_app_url", null);
-            if (stored != null && stored.startsWith("http")) base = stored;
+            // https only. This activity is exported, so whatever it opens is
+            // reachable from outside the app; the stored value is written by
+            // this app and nothing else can touch a MODE_PRIVATE preference,
+            // but "starts with http" would also accept cleartext, and a
+            // privacy policy is a poor thing to fetch over one.
+            if (stored != null && stored.startsWith("https://")) base = stored;
         } catch (Exception ignored) {
             // Fall back to the build-time address.
         }
