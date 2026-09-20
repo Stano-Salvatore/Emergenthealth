@@ -143,6 +143,35 @@ still), and `PREREGISTERED_ASPECTS` makes the panel skip them. `drankDay`
 is the one definition of a drinking day for the sleep, HRV and resting-HR
 cards: any logged drink, silent days set aside, the same as the panel.
 
+**A connected source speaks only for the days it existed.** `SOURCE_FROM` in
+`correlations.ts` holds the first day each one produced a row, and
+`sourceCovers(src, date)` is the question every family has to ask before
+reading a zero. The rule was already written here — `calendarFrom` carries a
+comment stating it exactly — and used by one family out of all of them, while
+eight other places read `(d.workoutMin ?? 0) >= 20` and filed every day before
+Strava was linked as a rest day. Those days are all OLDER than the covered
+ones, so "training vs rest" quietly became "since I connected it vs before",
+with the label still saying "rest days". On a 60-day fixture with the same
+workouts either way, a Strava linked 20 days ago compared 10 workout days
+against **9** rest days; linked throughout, 10 against **51**. Before the fix
+both said 51.
+
+`ComboCondition.test` now returns `boolean | null` like `SleepCause.test`,
+which is the tri-state the combinations were noted as lacking — `dense` fills
+the calendar with bare `{ date }` objects and every one of them used to answer
+"no alcohol, no workout, not busy" in the same voice as a real control.
+Watch the two call sites: `null` is falsy, so `dense.filter(c.test)` and
+`conds.every(c.test)` both compiled perfectly and counted unknowns as no.
+`source-coverage-guarded.test.ts` greps for the coercion and allows it only
+with a coverage call within two lines, because the failure is an omission and
+an omission has no runtime symptom.
+
+Still open, and a different shape: a source that **stops**. `SOURCE_FROM` is a
+first-seen date, so it cannot tell a disconnected Strava from a fortnight off
+the bike — which is precisely what the absence family would report as
+"Missing: a workout". It needs a last-seen date and a rule about how long a
+silence has to run before it counts as gone.
+
 **Sleep debt has one definition, in `sleep-rhythm.ts`.** It had three: the
 Health screen and Emergy's scripted answer compared the goal against what was
 slept and let a long night pay some back, while the Week screen summed
