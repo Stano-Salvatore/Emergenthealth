@@ -57,6 +57,29 @@ describe("the privacy policy covers what the app actually asks for", () => {
     ).toBe(true)
   })
 
+  // Play's prominent-disclosure rule is about the app, not the policy: the
+  // collection has to be named on screen, before the runtime prompt, in words
+  // that say the app is closed or not in use. There is no rendering test in
+  // this repo to assert it appears — these are the two places that fire the
+  // prompt, so this asserts the sentence is still in them.
+  it("carries the in-app disclosure at both places that ask for location", () => {
+    if (!manifest().includes("android.permission.ACCESS_BACKGROUND_LOCATION")) return
+
+    const surfaces = [
+      "src/components/settings/BackgroundLocationCard.tsx",
+      "src/components/settings/PermissionSetup.tsx",
+    ]
+    const said = /app is closed|when the app is closed|not in use/i
+
+    for (const file of surfaces) {
+      expect(
+        said.test(readFileSync(file, "utf8")),
+        `${file} requests location without saying it is collected while the app is closed. ` +
+          "Play wants that said before the prompt, in the app, not only in the policy.",
+      ).toBe(true)
+    }
+  })
+
   it("accounts for the microphone when it holds RECORD_AUDIO", () => {
     if (!manifest().includes("android.permission.RECORD_AUDIO")) return
 
