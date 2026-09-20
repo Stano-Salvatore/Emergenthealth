@@ -42,7 +42,15 @@ export async function checkAvailability(): Promise<HCAvailability> {
   }
 }
 
-const READ_TYPES = [
+/**
+ * The record types this app asks Health Connect for.
+ *
+ * Exported because the AndroidManifest has to declare a matching
+ * `android.permission.health.READ_*` for every one of them — Health Connect
+ * grants nothing it has not been told about, and the refusal is silent.
+ * `health-permissions-declared.test.ts` holds the two lists together.
+ */
+export const READ_TYPES = [
   "Steps",
   "SleepSession",
   "RestingHeartRate",

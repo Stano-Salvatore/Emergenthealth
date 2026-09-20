@@ -10,9 +10,13 @@ January 2026 health-app enforcement.
 - Category: **Health and fitness tracking / coaching** (consumer wellness).
   NOT a medical device; the app gives lifestyle insights, not diagnoses.
 - The app reads Health Connect data types:
-  `READ_STEPS`, `READ_SLEEP`, `READ_HEART_RATE`, `READ_HEART_RATE_VARIABILITY`,
-  `READ_OXYGEN_SATURATION`, `READ_ACTIVE_CALORIES_BURNED`,
-  `READ_TOTAL_CALORIES_BURNED`, `READ_WEIGHT`
+  `READ_STEPS`, `READ_SLEEP`, `READ_RESTING_HEART_RATE`,
+  `READ_HEART_RATE_VARIABILITY`, `READ_OXYGEN_SATURATION`, `READ_WEIGHT`,
+  `READ_ACTIVE_CALORIES_BURNED`, `READ_TOTAL_CALORIES_BURNED`
+- That list is not typed by hand. It is the manifest's, held to the record
+  types in `lib/health-connect-service.ts` by
+  `health-permissions-declared.test.ts`, which fails if this file, the manifest
+  and the code stop agreeing. Answer the form from here, not from memory.
 - Justification (required per-type since Jan 2026): each type feeds the app's
   **primary function** — the daily brief, health dashboard, and the
   correlations engine that relates sleep/activity/vitals to mood, habits, and
@@ -42,6 +46,7 @@ January 2026 health-app enforcement.
 | Permission | Status |
 |---|---|
 | `android.permission.health.*` (8 read types) | Declared via Health apps form (above) |
+| `android.permission.health.READ_HEART_RATE` | **Removed.** It grants `HeartRateRecord` — the plugin's `HeartRateSeries` — which nothing in the app reads, and it does *not* grant resting heart rate; that is its own permission, now declared. Both halves were invisible on an account whose resting heart rate arrives from an Oura ring regardless. Do not re-add it without a feature that reads the series. |
 | `ACCESS_FINE/COARSE_LOCATION` | Runtime-requested, optional feature (location insights); disclose in Data safety |
 | `POST_NOTIFICATIONS` | Runtime-requested (reminders, nudges) |
 | `READ_CALENDAR` | Runtime-requested (device calendar sync — core feature) |

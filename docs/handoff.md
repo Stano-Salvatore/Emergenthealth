@@ -775,31 +775,46 @@ Roughly in order, most recent first:
   Reproduce with a Playwright context that loads `/dashboard` twice and counts
   `console.error` calls matching `unique`/`key`.
 
-- **One Health Connect type may not be declared, and the phone is now the
-  one to say.** `health-connect-service.ts` requests eight record types.
-  Seven pair exactly with a declared `android.permission.health.READ_*` in
-  `customize-android.py`. The eighth, **`RestingHeartRate`**, has no
-  same-named declaration — while `READ_HEART_RATE` is declared and nothing
-  reads `HeartRateSeries`. That asymmetry is verifiable from the repo; what is
-  not verifiable from here is AndroidX's record→permission table, which is not
-  mechanical (`HeartRateVariabilityRmssd` is granted by
-  `READ_HEART_RATE_VARIABILITY`, suffix dropped), so the permission was
-  deliberately **not** added on a guess — a health permission added
-  speculatively is a Play form answered speculatively.
+- **Health Connect permissions are settled, and how.** *(was an open thread;
+  kept because the method is the reusable part.)* The eight record types in
+  `READ_TYPES` now pair one-to-one with the
+  `android.permission.health.READ_*` lines in `customize-android.py`, and
+  `health-permissions-declared.test.ts` fails if they ever stop doing so — in
+  either direction, because a declared-but-unread type is a question on the
+  Play health-apps form with no honest answer.
 
-  Instead the app reports it. `permissionsByType()` asks the plugin about each
-  type on its own, letting AndroidX do its own mapping, and the Health Connect
-  card names anything not granted. Before this, one refusal out of eight came
-  back as a flat "Permission request failed or was denied" while the other
-  seven worked, and `safeRead`'s catch-all then made the refused type look
-  exactly like a type with no records — forever.
+  Two were wrong. `RestingHeartRate` had no declaration at all, so Health
+  Connect would have refused it on every phone; `READ_HEART_RATE` was declared
+  and grants `HeartRateRecord`, which nothing here reads. They are different
+  permissions — the first does **not** imply the second.
 
-  **To settle it:** open Settings on the phone, connect Health Connect,
-  allow everything. If the card still lists `RestingHeartRate`, the
-  permission is missing and `READ_RESTING_HEART_RATE` needs declaring (and
-  `READ_HEART_RATE` most likely removing, since nothing reads that record).
-  Note this is invisible on an Oura account: resting HR arrives from the ring
-  regardless, so only a phone without one shows the gap.
+  The previous note said AndroidX's record→permission table was not verifiable
+  from the repo, so the fix waited on a phone. It is verifiable. The table is a
+  static map in the library the build already links, and reading it beats
+  guessing or waiting:
+
+  ```
+  curl -sO https://dl.google.com/dl/android/maven2/androidx/health/connect/\
+  connect-client/1.1.0/connect-client-1.1.0.aar
+  unzip -p connect-client-1.1.0.aar classes.jar > classes.jar && unzip -q classes.jar -d c
+  javap -p -c c/androidx/health/connect/client/permission/HealthPermission.class
+  ```
+
+  Each `ldc class …Record` is followed by the permission string it maps to.
+  Three of the eight are not what the type name suggests: `SleepSession` →
+  `READ_SLEEP`, `HeartRateVariabilityRmssd` → `READ_HEART_RATE_VARIABILITY`,
+  `RestingHeartRate` → `READ_RESTING_HEART_RATE`. Pin the version from
+  `node_modules/@kiwi-health/capacitor-health-connect/android/build.gradle` —
+  a different version could map differently.
+
+  `permissionsByType()` stays. It asks the plugin per type and the Settings
+  card names anything not granted, which is still the only way a user learns a
+  type was refused: `safeRead` catches everything and returns `[]`, so a
+  refused type reads exactly like a type with no records, forever. The
+  difference is that it should now have nothing to report.
+
+  Still invisible on an Oura account — resting HR arrives from the ring
+  whether or not Health Connect hands it over, which is why this survived.
 
 - **The Oura transcript idea.** An advisor that states one quantified change
   and ends by asking what shifted. The nearest thing in the app is the drift

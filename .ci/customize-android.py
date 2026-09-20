@@ -138,14 +138,38 @@ extra_permissions = """
     -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!--
+      One line per record type in READ_TYPES (lib/health-connect-service.ts),
+      in that order, and nothing else. Health Connect never grants a permission
+      the manifest does not declare, and the refusal is silent: safeRead returns
+      [] for a refused type exactly as it does for a type with no records.
+
+      The record-type -> permission mapping is not mechanical, so it was read
+      out of the library the build actually links rather than guessed —
+      androidx.health.connect:connect-client 1.1.0, pinned by the plugin's own
+      build.gradle, disassembled at HealthPermission's static map:
+
+        RestingHeartRate          -> READ_RESTING_HEART_RATE
+        HeartRateVariabilityRmssd -> READ_HEART_RATE_VARIABILITY   (suffix dropped)
+        SleepSession              -> READ_SLEEP                    (not READ_SLEEP_SESSION)
+
+      READ_HEART_RATE is deliberately absent. It grants HeartRateRecord, which
+      the plugin calls "HeartRateSeries" and nothing here reads; it does NOT
+      grant RestingHeartRate. Both halves of that mistake were invisible on the
+      account this was built from, where resting heart rate arrives from an Oura
+      ring whether Health Connect hands it over or not.
+
+      health-permissions-declared.test.ts fails if this list and READ_TYPES
+      drift apart in either direction. Adding a type there is half a change.
+    -->
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <uses-permission android:name="android.permission.health.READ_SLEEP" />
-    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_RESTING_HEART_RATE" />
     <uses-permission android:name="android.permission.health.READ_HEART_RATE_VARIABILITY" />
     <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
     <uses-permission android:name="android.permission.health.READ_ACTIVE_CALORIES_BURNED" />
     <uses-permission android:name="android.permission.health.READ_TOTAL_CALORIES_BURNED" />
-    <uses-permission android:name="android.permission.health.READ_WEIGHT" />
 
     <queries>
         <package android:name="com.google.android.apps.healthdata" />

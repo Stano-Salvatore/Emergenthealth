@@ -132,7 +132,7 @@ export function HealthConnectManager({ lastSync }: { lastSync?: string | null })
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Sync steps, sleep, heart rate, HRV, SpO₂, and weight from any app that writes to Health Connect — Garmin, Fitbit, Samsung Health, Pixel Watch, and more.
+          Sync steps, sleep, resting heart rate, HRV, SpO₂, calories and weight from any app that writes to Health Connect — Garmin, Fitbit, Samsung Health, Pixel Watch, and more.
         </p>
 
         {error && (
