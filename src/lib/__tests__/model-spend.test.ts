@@ -92,6 +92,10 @@ describe("every model call records what it cost", () => {
     const schema = readFileSync("prisma/schema.prisma", "utf8")
     expect(schema).toMatch(/model ModelTurn \{/)
     expect(schema).toMatch(/@@map\("ChatTurn"\)/)
-    expect(schema).toMatch(/feature\s+String @default\("chat"\)/)
+    // Whitespace-tolerant on purpose: `prisma format` owns the column
+    // alignment in this file and re-aligns it whenever a model is added
+    // elsewhere, so a literal single space here fails on a formatting run
+    // that changed nothing about this column.
+    expect(schema).toMatch(/feature\s+String\s+@default\("chat"\)/)
   })
 })

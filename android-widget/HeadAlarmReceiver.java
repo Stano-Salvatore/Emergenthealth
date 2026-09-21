@@ -160,6 +160,11 @@ public class HeadAlarmReceiver extends BroadcastReceiver {
             // fix to be uploaded, because the flush timer was only ever armed
             // after one was queued. This is the tick that does not need one.
             try { EmergyLocationService.flushPending(ctx); } catch (Exception ignored) {}
+            // The heartbeat is also the cheapest clock there is to read the
+            // room on: it is already waking the phone, so a one-shot light and
+            // pressure reading here costs an alarm that was going to fire
+            // anyway. The sampler's own floor decides whether to take it.
+            try { EmergyAmbientSampler.sample(ctx); } catch (Exception ignored) {}
             return;
         }
         if (!ACTION_POP.equals(intent.getAction())) return;

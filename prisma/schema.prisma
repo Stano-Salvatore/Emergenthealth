@@ -75,6 +75,9 @@ model User {
   rescuetimeLogs       RescuetimeLog[]
   togglToken           TogglToken?
   activitySpans        ActivitySpan[]
+  ambientSamples       AmbientSample[]
+  phoneEvents          PhoneEvent[]
+  phoneSleep           PhoneSleepSegment[]
 }
 
 model Account {
@@ -168,18 +171,18 @@ model HealthLog {
   // These move over weeks, not nights, and each comes from its own endpoint.
   /// Vascular age in years, from /daily_cardiovascular_age. Compared against
   /// actual age by Oura's "aligned / above / below" wording, never by us.
-  cardiovascularAge    Float?
+  cardiovascularAge Float?
   /// Arterial stiffness, m/s. Arrives in the same document as vascular age.
-  pulseWaveVelocity    Float?
+  pulseWaveVelocity Float?
   /// Cardio capacity, from /vO2_max. Updates rarely — monthly at best.
-  vo2Max               Float?
+  vo2Max            Float?
   /// "limited" | "adequate" | "solid" | "strong" | "exceptional", from
   /// /daily_resilience. Stored as Oura's own word rather than a number we
   /// would have to invent a scale for.
-  resilienceLevel      String?
+  resilienceLevel   String?
   /// "restored" | "normal" | "stressed" — the day summary that rides along with
   /// the stress minutes we already keep.
-  stressSummary        String?
+  stressSummary     String?
 
   syncedAt DateTime @default(now())
 
@@ -605,23 +608,23 @@ model ChatMessage {
 /// failed the deploy rather than quietly losing rows. The model carries the
 /// honest name; the table keeps the old one.
 model ModelTurn {
-  id       String @id @default(cuid())
-  userId   String
+  id         String  @id @default(cuid())
+  userId     String
   /// Which model answered, so a price change or a model switch stays readable.
-  model    String
+  model      String
   /// Which part of the app spent this. The Console gives one total for the
   /// whole app; this is what says which feature it went on.
-  feature  String @default("chat")
+  feature    String  @default("chat")
   /// The effort this turn ran at, or "default" when nothing set one.
-  effort   String
+  effort     String
   /// Index within one request: 0, then one per tool round trip.
-  turn     Int
+  turn       Int
   stopReason String?
 
   inputTokens      Int
   outputTokens     Int
-  cacheReadTokens  Int @default(0)
-  cacheWriteTokens Int @default(0)
+  cacheReadTokens  Int    @default(0)
+  cacheWriteTokens Int    @default(0)
   /// Dollars, priced at the time of the turn. Null for a model with no price.
   costUsd          Float?
 
@@ -674,20 +677,20 @@ model FitToken {
 }
 
 model OuraTag {
-  id        String   @id
-  userId    String
-  day       String
-  timestamp DateTime
-  tagName   String?
-  text      String?
-  tags      String[]
+  id         String   @id
+  userId     String
+  day        String
+  timestamp  DateTime
+  tagName    String?
+  text       String?
+  tags       String[]
   /// How much was taken. Null means the label said nothing about quantity —
   /// which is not the same as one tablet, and is never assumed to be.
   doseAmount Float?
   /// "mg" (absolute) or "tablet" (a share of an unknown strength). The two are
   /// never converted into one another.
   doseUnit   String?
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, day])
 }
@@ -706,19 +709,19 @@ model OuraToken {
 }
 
 model MorningCheckIn {
-  id          String   @id
-  userId      String
-  date        String
-  energy      Int
-  mood        Int
-  intention   String?
+  id               String   @id
+  userId           String
+  date             String
+  energy           Int
+  mood             Int
+  intention        String?
   /// The evening's answer to the morning's intention: "done" | "partly" | "no".
   /// Null until asked; the morning sets a course, this is whether it was held.
   intentionOutcome String?
   intentionNote    String?
-  waterGoalMl Int      @default(2000)
-  createdAt   DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  waterGoalMl      Int      @default(2000)
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date])
   @@index([userId])
@@ -1044,28 +1047,28 @@ model PushSubscription {
 // health page, and any feature iterating DailyNote met a JSON blob wearing a
 // journal entry's clothes. Existing blobs migrate on first read.
 model UserGoals {
-  userId       String   @id
-  sleepH       Float    @default(7.5)
-  steps        Int      @default(8000)
-  waterMl      Int      @default(2000)
-  focusMin     Int      @default(90)
-  habitsTarget Int      @default(100)
-  readinessMin Int      @default(70)
+  userId              String    @id
+  sleepH              Float     @default(7.5)
+  steps               Int       @default(8000)
+  waterMl             Int       @default(2000)
+  focusMin            Int       @default(90)
+  habitsTarget        Int       @default(100)
+  readinessMin        Int       @default(70)
   /// Caffeine, in milligrams per day — not millilitres of coffee.
-  coffeeMax    Int      @default(400)
-  weightKg     Float?
-  heightCm     Float?
-  birthYear    Int?
-  sex          String?
+  coffeeMax           Int       @default(400)
+  weightKg            Float?
+  heightCm            Float?
+  birthYear           Int?
+  sex                 String?
   /// Weight goal: "lose" | "gain" | "maintain". Null means no goal set.
-  weightGoalMode    String?
-  weightTargetKg    Float?
+  weightGoalMode      String?
+  weightTargetKg      Float?
   /// Desired pace in kg per week (always positive; direction comes from mode).
-  weightPaceKgWk    Float?
+  weightPaceKgWk      Float?
   /// Weight when the goal was set, so progress has a fixed starting line.
-  weightGoalStartKg Float?
+  weightGoalStartKg   Float?
   weightGoalStartedAt DateTime? @db.Timestamptz
-  updatedAt    DateTime @updatedAt
+  updatedAt           DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -1082,26 +1085,26 @@ model UserGoals {
 // to spend statistical power on false-discovery correction precisely because
 // nobody chose its questions in advance.
 model Experiment {
-  id        String   @id @default(cuid())
-  userId    String
-  name      String // "Magnesium before bed"
+  id          String   @id @default(cuid())
+  userId      String
+  name        String // "Magnesium before bed"
   /// What the user does during an ON block, in their own words.
-  action    String
+  action      String
   /// The measured thing being watched, e.g. "sleepScore" or "custom:<metricId>".
-  outcome   String
+  outcome     String
   /// Length of one block in days. Blocks alternate ON/OFF.
-  blockDays Int      @default(7)
+  blockDays   Int      @default(7)
   /// Total number of blocks; 4 gives the classic ABAB.
-  blocks    Int      @default(4)
+  blocks      Int      @default(4)
   /// Days to discard after each switch, for carry-over.
-  washoutDays Int    @default(1)
+  washoutDays Int      @default(1)
   /// True when the first block is an ON block. Randomised at creation.
-  startsOn  Boolean  @default(true)
-  startDate String // YYYY-MM-DD, the user's local day
-  status    String   @default("running") // running | completed | abandoned
-  note      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  startsOn    Boolean  @default(true)
+  startDate   String // YYYY-MM-DD, the user's local day
+  status      String   @default("running") // running | completed | abandoned
+  note        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   user User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   days ExperimentDay[]
@@ -1310,7 +1313,7 @@ model RescuetimeKey {
 }
 
 model RescuetimeLog {
-  id                String @id
+  id                String  @id
   userId            String
   date              String
   productivityScore Int?
@@ -1368,17 +1371,90 @@ model TruelayerToken {
 // sensor can) and Android's Activity Recognition transitions from the phone
 // itself. lib/day-journeys overlays these onto inferred moves as "known".
 model ActivitySpan {
+  id          String   @id
+  userId      String
+  start       DateTime @db.Timestamptz
+  end         DateTime @db.Timestamptz
+  /// lib/day-journeys TravelMode: walk|run|cycle|transit|drive|train|flight
+  mode        String
+  /// The recogniser could only say "in a vehicle" — bus vs car stays open,
+  /// so the overlay refines the guess instead of asserting a mode.
+  vehicleOnly Boolean  @default(false)
+  /// "timeline" (Google export) or "phone" (Activity Recognition)
+  source      String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, start])
+}
+
+/// A reading of the phone's own environment sensors, taken on the watchdog
+/// tick and whenever the app comes to the foreground.
+///
+/// Both readings are optional because neither sensor is guaranteed: most
+/// Samsung flagships have a barometer, plenty of phones do not, and a row with
+/// one of the two is still worth keeping. A row with neither is never written.
+///
+/// The sampling is deliberately sparse and biased, and anything reading this
+/// has to know it: the light sensor sits on the front of the phone, so it
+/// reads a pocket as darkness and a face-down desk as night. Treated as "how
+/// much light was around when the phone could see" it is informative;
+/// treated as lux-hours it is a lie.
+model AmbientSample {
+  id          String   @id
+  userId      String
+  at          DateTime @db.Timestamptz
+  /// Illuminance in lux, from Sensor.TYPE_LIGHT.
+  lux         Float?
+  /// Station pressure in hPa, from Sensor.TYPE_PRESSURE. NOT sea-level
+  /// adjusted, so it moves with altitude as well as weather — a drive up a
+  /// hill looks like a storm front unless the reader accounts for it.
+  pressureHpa Float?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, at])
+}
+
+/// Screen and power moments from the phone.
+///
+/// This exists because usage access does not: declaring PACKAGE_USAGE_STATS is
+/// the thing play-store/COMPLIANCE.md says not to do, so the screen-time card
+/// tells the truth and reads nothing. These events need no permission at all
+/// and still answer most of what screen time was wanted for — when the phone
+/// went dark for the night, when it was first unlocked, how often it was
+/// picked up, and when it went on charge.
+///
+/// Raw moments, paired into nights and counted into days by whatever reads
+/// them, for the same reason the transition receiver stores raw: pairing on
+/// the phone is logic that can only be debugged on a phone.
+model PhoneEvent {
+  id     String   @id
+  userId String
+  at     DateTime @db.Timestamptz
+  /// screen_on | screen_off | unlock | charge_on | charge_off
+  kind   String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, at])
+}
+
+/// Sleep as the phone guessed it, which is never the same thing as sleep as
+/// the ring measured it.
+///
+/// Kept in its own table rather than written into HealthLog on purpose. The
+/// ring is the better instrument on every night it was worn, and a phone
+/// segment must never overwrite one; this is for the nights it was not — the
+/// charger nights, the nights it was forgotten — where a confident guess beats
+/// the gap that is there now.
+model PhoneSleepSegment {
   id     String   @id
   userId String
   start  DateTime @db.Timestamptz
   end    DateTime @db.Timestamptz
-  /// lib/day-journeys TravelMode: walk|run|cycle|transit|drive|train|flight
-  mode   String
-  /// The recogniser could only say "in a vehicle" — bus vs car stays open,
-  /// so the overlay refines the guess instead of asserting a mode.
-  vehicleOnly Boolean @default(false)
-  /// "timeline" (Google export) or "phone" (Activity Recognition)
-  source String
+  /// SleepSegmentEvent status: 0 successful, 1 missing data, 2 not detected.
+  status Int      @default(0)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

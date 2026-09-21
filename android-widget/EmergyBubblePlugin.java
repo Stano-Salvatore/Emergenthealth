@@ -882,6 +882,118 @@ public class EmergyBubblePlugin extends Plugin {
         call.resolve(out);
     }
 
+    // ------------------------------------------- the phone's own sensors
+
+    /**
+     * What this phone can actually contribute, before anything is switched on.
+     *
+     * Every one of these costs no new permission. The Sleep API runs on the
+     * ACTIVITY_RECOGNITION grant the motion transitions already use, and light,
+     * pressure, screen and charge need nothing at all — which is the whole
+     * reason they are worth having now rather than after a Play review.
+     */
+    @PluginMethod
+    public void sensorStatus(PluginCall call) {
+        Context ctx = getContext();
+        android.hardware.SensorManager sm = ctx.getSystemService(android.hardware.SensorManager.class);
+        JSObject out = new JSObject();
+        out.put("light", sm != null
+            && sm.getDefaultSensor(android.hardware.Sensor.TYPE_LIGHT) != null);
+        out.put("pressure", sm != null
+            && sm.getDefaultSensor(android.hardware.Sensor.TYPE_PRESSURE) != null);
+        // The screen receiver needs no permission and no hardware; what it
+        // needs is a foreground service alive to host it, because its
+        // broadcasts cannot be declared in a manifest.
+        out.put("phoneEventsHosted",
+            EmergyLocationService.isRunning() || EmergyWakeService.isRunning());
+        out.put("sleepPermitted", getPermissionState("activity") == PermissionState.GRANTED);
+        out.put("sleepTracking", EmergySleepReceiver.tracking(ctx));
+        out.put("queuedAmbient", EmergyAmbientSampler.queuedCount(ctx));
+        out.put("queuedPhoneEvents", EmergyPhoneEventReceiver.queuedCount(ctx));
+        out.put("queuedSleep", EmergySleepReceiver.queuedCount(ctx));
+        call.resolve(out);
+    }
+
+    /** Take one reading now, so opening the app is itself a sample. */
+    @PluginMethod
+    public void sampleAmbient(PluginCall call) {
+        try { EmergyAmbientSampler.sample(getContext()); } catch (Exception ignored) { }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void startSleepTracking(PluginCall call) {
+        if (getPermissionState("activity") != PermissionState.GRANTED) {
+            call.reject("Motion permission not granted yet.");
+            return;
+        }
+        try {
+            Context ctx = getContext();
+            Intent intent = new Intent(ctx, EmergySleepReceiver.class);
+            // MUTABLE for the same reason the transitions one is: the system
+            // writes the result into the intent it was handed.
+            PendingIntent pi = PendingIntent.getBroadcast(
+                ctx, 920009, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+
+            com.google.android.gms.location.ActivityRecognition.getClient(ctx)
+                .requestSleepSegmentUpdates(pi,
+                    com.google.android.gms.location.SleepSegmentRequest
+                        .getDefaultSleepSegmentRequest())
+                .addOnSuccessListener(unused -> {
+                    ctx.getSharedPreferences(EmergySleepReceiver.PREFS, Context.MODE_PRIVATE)
+                        .edit().putBoolean(EmergySleepReceiver.KEY_TRACKING, true).apply();
+                    call.resolve();
+                })
+                .addOnFailureListener(e ->
+                    call.reject(e.getMessage() == null ? "Couldn't start sleep detection" : e.getMessage()));
+        } catch (Exception e) {
+            call.reject(e.getMessage() == null ? "Couldn't start sleep detection" : e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void stopSleepTracking(PluginCall call) {
+        try {
+            Context ctx = getContext();
+            Intent intent = new Intent(ctx, EmergySleepReceiver.class);
+            PendingIntent pi = PendingIntent.getBroadcast(
+                ctx, 920009, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+            com.google.android.gms.location.ActivityRecognition.getClient(ctx)
+                .removeSleepSegmentUpdates(pi);
+            ctx.getSharedPreferences(EmergySleepReceiver.PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(EmergySleepReceiver.KEY_TRACKING, false).apply();
+        } catch (Exception ignored) { }
+        call.resolve();
+    }
+
+    /**
+     * Hand over everything the phone collected and clear it.
+     *
+     * A handover, not a mailbox — the same contract as drainActivityEvents and
+     * takePendingSay. Drained twice would mean the same night counted twice,
+     * and the ingest routes make duplicates harmless rather than relying on
+     * this never happening; both, because either alone is one failure from
+     * doubling somebody's data.
+     */
+    @PluginMethod
+    public void drainSensorData(PluginCall call) {
+        Context ctx = getContext();
+        JSObject out = new JSObject();
+        out.put("ambient", takeAndClear(ctx, EmergyAmbientSampler.PREFS, EmergyAmbientSampler.KEY_SAMPLES));
+        out.put("phoneEvents", takeAndClear(ctx, EmergyPhoneEventReceiver.PREFS, EmergyPhoneEventReceiver.KEY_EVENTS));
+        out.put("sleep", takeAndClear(ctx, EmergySleepReceiver.PREFS, EmergySleepReceiver.KEY_SEGMENTS));
+        call.resolve(out);
+    }
+
+    private static String takeAndClear(Context ctx, String prefs, String key) {
+        android.content.SharedPreferences p = ctx.getSharedPreferences(prefs, Context.MODE_PRIVATE);
+        String raw = p.getString(key, "[]");
+        p.edit().remove(key).apply();
+        return raw;
+    }
+
     /**
      * What the chat head last said, handed to the web layer once and then
      * forgotten.

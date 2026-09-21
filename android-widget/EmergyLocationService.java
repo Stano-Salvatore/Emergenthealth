@@ -108,6 +108,12 @@ public class EmergyLocationService extends Service {
 
     private FusedLocationProviderClient client;
     private LocationCallback callback;
+    /**
+     * Screen and charge moments, which no manifest can carry (see
+     * EmergyPhoneEventReceiver). This service is the best host for it: it is
+     * the longest-lived of the three and the one most likely to be on.
+     */
+    private EmergyPhoneEventReceiver phoneEvents;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Runnable flushNow = new Runnable() { @Override public void run() { flush(); } };
     private volatile boolean uploading = false;
@@ -279,6 +285,7 @@ public class EmergyLocationService extends Service {
             return;
         }
         running = true;
+        phoneEvents = EmergyPhoneEventReceiver.register(this);
 
         client = LocationServices.getFusedLocationProviderClient(this);
         LocationRequest request = new LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, INTERVAL_MS)
@@ -366,6 +373,8 @@ public class EmergyLocationService extends Service {
     @Override
     public void onDestroy() {
         main.removeCallbacks(flushNow);
+        EmergyPhoneEventReceiver.unregister(this, phoneEvents);
+        phoneEvents = null;
         if (client != null && callback != null) {
             try { client.removeLocationUpdates(callback); } catch (Exception ignored) {}
         }

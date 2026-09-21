@@ -470,6 +470,51 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **The phone's own sensors, and the permission budget they did not spend
+  (3.3.0).** Light, barometric pressure, screen/charge moments and the Sleep
+  API. The whole design constraint was that **none of them costs a permission
+  the app did not already hold** — light and pressure are readable by any app,
+  the screen and power broadcasts need nothing, and `SleepSegmentRequest` runs
+  on the `ACTIVITY_RECOGNITION` grant the travel-mode transitions already use.
+  That is what made it safe to add while the health-apps declaration was being
+  filled in, and it is why `play-permissions-documented.test.ts` still passes
+  untouched. Data safety is a different question from permissions and COMPLIANCE
+  §2 now answers it.
+
+  All four store-and-forward into SharedPreferences and drain on foreground,
+  the same shape as `EmergyActivityReceiver` — they happen while the web layer
+  does not exist. `/api/phone/sensors` takes all three buffers in one request
+  and keys every row by what it is, so the handover and the deterministic id
+  fail in opposite directions: one drops, the other doubles, and neither is
+  trusted alone.
+
+  **Two things worth knowing before touching this:**
+
+  1. `EmergyPhoneEventReceiver` is deliberately NOT in the manifest, and
+     `customize-android.py`'s undeclared-component check exempts it by name.
+     `ACTION_SCREEN_ON`/`OFF` are delivered only to receivers registered with
+     `registerReceiver()`; a manifest entry is accepted and never fires. So it
+     is registered by the location and wake services, it collects only while
+     one of them is alive, and the Settings card says so. `phone-sensors.test.ts`
+     fails in both directions — if it gets declared, and if no service registers
+     it.
+  2. It registers through `ContextCompat` with `RECEIVER_NOT_EXPORTED`. Plain
+     `registerReceiver()` throws from Android 14 and the caller swallows the
+     failure, so it would have collected nothing while looking entirely healthy.
+     The wake service's power receiver already had this right; copying it was
+     what caught it.
+
+  The light sensor faces the front of the phone, so a pocket reads as darkness
+  and a face-down desk reads as night. Anything built on this column has to
+  treat it as "light around the phone when it could see" — lux-hours would be
+  a lie. The pressure column is **station** pressure, not sea-level adjusted,
+  so it moves with altitude as well as weather.
+
+  **No correlation families yet, on purpose.** Families over an empty table
+  find nothing, and the cut points cannot be chosen without seeing real
+  distributions — the same reason `SOURCE_FROM` exists. They come once there
+  are a few weeks of rows.
+
 - **Four ways a background service could stop without saying so (3.2.1).**
   All native, all found by reading the audit's A12 and C10 rather than by
   anything failing.

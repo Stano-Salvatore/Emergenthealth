@@ -84,6 +84,8 @@ public class EmergyWakeService extends Service {
     };
     private WakeDetector detector;
     private BroadcastReceiver powerReceiver;
+    /** See EmergyLocationService: the same receiver, so either service hosting it is enough. */
+    private EmergyPhoneEventReceiver phoneEvents;
 
     // ------------------------------------------------------------ the wish
 
@@ -242,6 +244,7 @@ public class EmergyWakeService extends Service {
         // shipped, and ContextCompat handles the older ones.
         androidx.core.content.ContextCompat.registerReceiver(
             this, powerReceiver, power, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
+        phoneEvents = EmergyPhoneEventReceiver.register(this);
 
         syncListening();
     }
@@ -293,6 +296,8 @@ public class EmergyWakeService extends Service {
     @Override
     public void onDestroy() {
         main.removeCallbacks(resumeAfterHandoff);
+        EmergyPhoneEventReceiver.unregister(this, phoneEvents);
+        phoneEvents = null;
         stopListening();
         if (powerReceiver != null) {
             try { unregisterReceiver(powerReceiver); } catch (Exception ignored) {}

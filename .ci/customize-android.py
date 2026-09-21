@@ -363,6 +363,13 @@ widget_copies = [
     (f"{widget_src}/EmergyBubblePlugin.java",   f"{pkg_java_dir}/EmergyBubblePlugin.java"),
     # Activity Recognition — motion transitions caught while the app is closed
     (f"{widget_src}/EmergyActivityReceiver.java", f"{pkg_java_dir}/EmergyActivityReceiver.java"),
+    # The phone's own sensors and moments — light, pressure, screen, charge,
+    # and the Sleep API. None of these costs a permission the app did not
+    # already hold; the Sleep API runs on the same ACTIVITY_RECOGNITION grant
+    # as the transitions above.
+    (f"{widget_src}/EmergyAmbientSampler.java", f"{pkg_java_dir}/EmergyAmbientSampler.java"),
+    (f"{widget_src}/EmergyPhoneEventReceiver.java", f"{pkg_java_dir}/EmergyPhoneEventReceiver.java"),
+    (f"{widget_src}/EmergySleepReceiver.java", f"{pkg_java_dir}/EmergySleepReceiver.java"),
     (f"{widget_src}/BubbleActivity.java",       f"{pkg_java_dir}/BubbleActivity.java"),
     # Chat head — the Messenger kind: an overlay window this app draws itself,
     # which is the only version that can work on a build with no Bubbles.
@@ -574,6 +581,26 @@ if widget_ok:
         print("✓ AndroidManifest.xml updated with EmergyActivityReceiver")
     else:
         print("ℹ️  EmergyActivityReceiver already present")
+
+    # The Sleep API delivers to an explicit PendingIntent, same as the
+    # transitions above, so this is not exported either.
+    #
+    # EmergyPhoneEventReceiver is deliberately absent: SCREEN_ON and SCREEN_OFF
+    # are protected broadcasts the system delivers ONLY to receivers registered
+    # at runtime. Declaring it here would look like it worked and collect
+    # nothing — so the foreground services register it instead.
+    if 'android:name=".EmergySleepReceiver"' not in m:
+        sleep_receiver = """
+        <receiver
+            android:name=".EmergySleepReceiver"
+            android:exported="false" />
+"""
+        m = m.replace("</application>", sleep_receiver + "    </application>", 1)
+        with open(manifest_path, "w") as f:
+            f.write(m)
+        print("✓ AndroidManifest.xml updated with EmergySleepReceiver")
+    else:
+        print("ℹ️  EmergySleepReceiver already present")
 
     # Activity Recognition lives in play-services-location, which only the
     # background-geolocation plugin's own module depends on — that does not
@@ -920,6 +947,16 @@ if os.path.isdir(pkg_java_dir):
         # the service is deliberately left out of the manifest, and the file
         # it needs is not in git.
         if cls == "EmergyFcmService" and not os.path.exists("android/app/google-services.json"):
+            continue
+        # Registered at runtime, and it HAS to be. ACTION_SCREEN_ON and
+        # ACTION_SCREEN_OFF are protected broadcasts Android delivers only to
+        # a receiver registered with registerReceiver() — a manifest entry for
+        # them is accepted, looks correct, and never fires. So this one is
+        # declared nowhere on purpose, and the foreground services register it.
+        # It is exempted by name rather than by rule because "extends
+        # BroadcastReceiver and is missing" is exactly the mistake this check
+        # exists to catch, and a rule would let the next one through.
+        if cls == "EmergyPhoneEventReceiver":
             continue
         if f'android:name=".{cls}"' not in final_manifest:
             undeclared.append(f"{cls} (extends {base.group(1)})")
