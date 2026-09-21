@@ -123,6 +123,7 @@ vi.mock("@/lib/prisma", () => ({
     rescuetimeLog: { findMany: vi.fn().mockResolvedValue([]) },
     bloodPressureLog: { findMany: vi.fn().mockResolvedValue([]) },
     bodyMeasurement: { findMany: vi.fn().mockResolvedValue([]) },
+    bodyMeasurementLog: { findMany: vi.fn().mockResolvedValue([]) },
     userPreference: { findUnique: vi.fn().mockResolvedValue({ value: "UTC" }) },
     $queryRaw: vi.fn((strings: TemplateStringsArray) => {
       const sql = strings.join("?")

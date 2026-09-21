@@ -106,6 +106,8 @@ vi.mock("@/lib/prisma", () => ({
   prisma: {
     healthLog: { findMany: vi.fn().mockResolvedValue(healthLogs) },
     bodyMeasurement: { findMany: vi.fn().mockResolvedValue(bodyRows) },
+    // The second body table — the one the measurement form writes (audit A2).
+    bodyMeasurementLog: { findMany: vi.fn().mockResolvedValue([]) },
     foodLog: { findMany: vi.fn().mockResolvedValue(foodLogs) },
     stravaActivity: { findMany: vi.fn().mockResolvedValue(stravaRows) },
     intakeLog: {
