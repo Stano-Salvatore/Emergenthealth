@@ -470,6 +470,80 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **The phone's own sensors, and the permission budget they did not spend
+  (3.3.0).** Light, barometric pressure, screen/charge moments and the Sleep
+  API. The whole design constraint was that **none of them costs a permission
+  the app did not already hold** — light and pressure are readable by any app,
+  the screen and power broadcasts need nothing, and `SleepSegmentRequest` runs
+  on the `ACTIVITY_RECOGNITION` grant the travel-mode transitions already use.
+  That is what made it safe to add while the health-apps declaration was being
+  filled in, and it is why `play-permissions-documented.test.ts` still passes
+  untouched. Data safety is a different question from permissions and COMPLIANCE
+  §2 now answers it.
+
+  All four store-and-forward into SharedPreferences and drain on foreground,
+  the same shape as `EmergyActivityReceiver` — they happen while the web layer
+  does not exist. `/api/phone/sensors` takes all three buffers in one request
+  and keys every row by what it is, so the handover and the deterministic id
+  fail in opposite directions: one drops, the other doubles, and neither is
+  trusted alone.
+
+  **Two things worth knowing before touching this:**
+
+  1. `EmergyPhoneEventReceiver` is deliberately NOT in the manifest, and
+     `customize-android.py`'s undeclared-component check exempts it by name.
+     `ACTION_SCREEN_ON`/`OFF` are delivered only to receivers registered with
+     `registerReceiver()`; a manifest entry is accepted and never fires. So it
+     is registered by the location and wake services, it collects only while
+     one of them is alive, and the Settings card says so. `phone-sensors.test.ts`
+     fails in both directions — if it gets declared, and if no service registers
+     it.
+  2. It registers through `ContextCompat` with `RECEIVER_NOT_EXPORTED`. Plain
+     `registerReceiver()` throws from Android 14 and the caller swallows the
+     failure, so it would have collected nothing while looking entirely healthy.
+     The wake service's power receiver already had this right; copying it was
+     what caught it.
+
+  The light sensor faces the front of the phone, so a pocket reads as darkness
+  and a face-down desk reads as night. Anything built on this column has to
+  treat it as "light around the phone when it could see" — lux-hours would be
+  a lie. The pressure column is **station** pressure, not sea-level adjusted,
+  so it moves with altitude as well as weather.
+
+  **No correlation families yet, on purpose.** Families over an empty table
+  find nothing, and the cut points cannot be chosen without seeing real
+  distributions — the same reason `SOURCE_FROM` exists. They come once there
+  are a few weeks of rows.
+
+- **Four ways a background service could stop without saying so (3.2.1).**
+  All native, all found by reading the audit's A12 and C10 rather than by
+  anything failing.
+
+  The wake-word restart and the watchdog shared request code 920007 against
+  the same receiver, so they were one PendingIntent that behaved only because
+  their actions differed. `android-request-codes.test.ts` now fails when two
+  components share a code from the 9200xx block; it reads the sources with
+  comments stripped, because the comment explaining the fix contains the old
+  number and the first version of the guard failed on it.
+
+  The watchdog also restarted location and the wake word only, never the head
+  — which is on the same sticky-restart path it exists to compensate for — and
+  nothing armed the watchdog for the head at all, so a phone with only the
+  head on had no heartbeat to be restarted by. `HeadAlarmReceiver
+  .anythingWanted()` is now the one list of what keeps the heartbeat alive,
+  because the two stop paths each named the other service and neither had
+  heard of the head.
+
+  And `flush()` was reachable only from a new fix, including the retry after a
+  failed upload, so points queued while the phone then sat still waited for it
+  to move — with `MAX_QUEUED` dropping the oldest meanwhile.
+  `EmergyLocationService.flushPending()` hangs it off the watchdog tick, which
+  works because `setAndAllowWhileIdle` survives Doze and a `postDelayed` does
+  not.
+
+  **None of it is verified on a phone.** CI compiles it and the guard covers
+  the collision; the rest is reasoning about Android's lifecycle.
+
 - **Finance came out, and the `Transaction` table did not.** The three screens,
   YNAB, TrueLayer, the Revolut imports, recurring-charge detection, the chat
   prompt's `## Finances` section, two MCP tools and both spending insight
@@ -830,8 +904,19 @@ Roughly in order, most recent first:
   so this is native: a worker under `android-widget/` reading with the
   androidx client and posting with the widget key, exactly as
   `EmergyLocationService` does — no WebView, no session, and the 15-minute
-  watchdog already there to keep it alive. Costs an APK, so batch it with the
-  920007 collision and the location queue timer. Note also that a failing
+  watchdog already there to keep it alive. Costs an APK.
+
+  **It was to be batched with the 920007 collision and the location queue
+  timer; those two went out in 3.2.1 without it, deliberately.** Background
+  reads need `android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND`, which
+  is a health permission, which means the Play health-apps declaration — the
+  one being filled in from COMPLIANCE.md §1 right now — would have to be
+  answered for a permission the app did not yet have a worked-out story for.
+  `health-permissions-declared.test.ts` says the same thing in code: it fails
+  on any `android.permission.health.*` line that no entry in `READ_TYPES`
+  accounts for, and a background-read permission is not a record type. Doing
+  this after the submission costs one more APK; doing it before costs a
+  redone declaration. Note also that a failing
   phone sync still reads as a quiet one away from the Settings card:
   `permissionsByType` names the refused types there now, but `safeRead` still
   swallows a per-type read error, the auto-sync swallows the POST failure

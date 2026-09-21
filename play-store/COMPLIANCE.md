@@ -49,6 +49,22 @@ collects something or explains why it does not.
   rather than a feature flag. The bank integrations, their screens and their
   crons are gone; the `Transaction` table is retained only so anyone who had
   rows can still export them, and nothing but the export reads it.
+- **New in 3.3.0 — sensor readings taken with no new permission.** Ambient
+  light (lux) and barometric pressure from the phone's own sensors, screen
+  on/off/unlock and charge connect/disconnect moments, and sleep segments from
+  the Android Sleep API. **The permissions table in section 3 is unchanged and
+  needs no new row**, which is the point: light and pressure are readable by
+  any app, the screen and power broadcasts need no permission, and the Sleep
+  API runs on the `ACTIVITY_RECOGNITION` grant already declared for motion.
+  Data safety asks what is *collected*, though, not what is requested, so:
+  the sleep segments belong under **health & fitness** (already declared);
+  the screen and charge moments under **app activity**, declared as app
+  interactions (already declared); light and pressure fit no Play category
+  cleanly and are device-environment readings tied to the account — declare
+  them under app activity with the rest rather than leaving them unlisted.
+  None of it is shared, sold or used for tracking. Note for the reviewer, if
+  asked: this is deliberately NOT usage access — see `PACKAGE_USAGE_STATS`
+  under "Deliberately absent".
 - **Not collected, though the permission suggests otherwise:** audio. The
   microphone is used for dictation and the wake word, both of which hand back
   text; no recording is stored, no recording leaves the device, and there is

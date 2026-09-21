@@ -34,7 +34,18 @@ public class HeadAlarmReceiver extends BroadcastReceiver {
     public static final String ACTION_WATCHDOG = "app.emergenthealth.WATCHDOG";
     public static final String EXTRA_MESSAGE = "message";
 
-    private static final int WATCHDOG_REQUEST = 920007;
+    /**
+     * Its own code, and not 920007.
+     *
+     * That was EmergyWakeService.RESTART_REQUEST as well. Two PendingIntents
+     * with the same request code and the same target are the same PendingIntent
+     * unless something else about the Intent differs — here only the action
+     * did, which is thin ice to stand a watchdog on: give the wake restart the
+     * watchdog's action, or drop the action from either, and cancelWatchdog()
+     * silently cancels the wake restart instead. Nothing would have looked
+     * wrong; the phone would just have stopped listening one day.
+     */
+    private static final int WATCHDOG_REQUEST = 920008;
     /**
      * How often to check that what should be running still is.
      *
@@ -79,6 +90,33 @@ public class HeadAlarmReceiver extends BroadcastReceiver {
         }
     }
 
+    /**
+     * Is there anything left that wants the heartbeat?
+     *
+     * One list, in one place, because the two stop paths each used to name the
+     * other service — EmergyLocationService's stop asked about the wake word,
+     * the wake word's asked about location — and neither had heard of the
+     * head. Adding a fourth keeper would have had to find both of them. The
+     * watchdog tick reads the same list, so what is guarded and what keeps the
+     * heartbeat alive cannot disagree.
+     */
+    static boolean anythingWanted(Context ctx) {
+        return EmergyLocationService.keep(ctx)
+            || EmergyWakeService.keep(ctx)
+            || EmergyBubblePlugin.keepHead(ctx);
+    }
+
+    /**
+     * Stop the heartbeat, but only if nothing is left that wants it.
+     *
+     * What a stop path should call: switching one thing off must not stop the
+     * watching of the others.
+     */
+    static void cancelWatchdogIfIdle(Context ctx) {
+        if (anythingWanted(ctx)) return;
+        cancelWatchdog(ctx);
+    }
+
     /** Stop the heartbeat once nothing wants keeping. */
     static void cancelWatchdog(Context ctx) {
         AlarmManager am = ctx.getSystemService(AlarmManager.class);
@@ -105,11 +143,28 @@ public class HeadAlarmReceiver extends BroadcastReceiver {
             // Re-arm FIRST. Whatever ensureRunning does or throws below, the
             // heartbeat has to outlive it — a watchdog that stops watching
             // after one bad tick is the failure it was written to prevent.
-            boolean wanted = EmergyLocationService.keep(ctx) || EmergyWakeService.keep(ctx);
+            //
+            // The head is in this list because it is on the START_STICKY path
+            // the watchdog exists to compensate for: Samsung ends a "sleeping"
+            // app's service without honouring sticky restart and without
+            // calling onTaskRemoved, so the head had nothing at all to bring
+            // it back except opening the app. It was the one kept service the
+            // heartbeat did not check.
+            boolean wanted = anythingWanted(ctx);
             if (wanted) scheduleWatchdog(ctx); else cancelWatchdog(ctx);
             if (!wanted) return;
             try { EmergyLocationService.ensureRunning(ctx); } catch (Exception ignored) {}
             try { EmergyWakeService.ensureRunning(ctx); } catch (Exception ignored) {}
+            try { EmergyBubblePlugin.ensureHeadRunning(ctx); } catch (Exception ignored) {}
+            // Points queued while the phone sat still used to wait for the next
+            // fix to be uploaded, because the flush timer was only ever armed
+            // after one was queued. This is the tick that does not need one.
+            try { EmergyLocationService.flushPending(ctx); } catch (Exception ignored) {}
+            // The heartbeat is also the cheapest clock there is to read the
+            // room on: it is already waking the phone, so a one-shot light and
+            // pressure reading here costs an alarm that was going to fire
+            // anyway. The sampler's own floor decides whether to take it.
+            try { EmergyAmbientSampler.sample(ctx); } catch (Exception ignored) {}
             return;
         }
         if (!ACTION_POP.equals(intent.getAction())) return;

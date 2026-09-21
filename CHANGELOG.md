@@ -1,5 +1,66 @@
 # Changelog
 
+## 3.3.0 — The phone had four instruments nobody was reading
+
+Your phone has been taking these readings all along. Nothing was looking at
+them, and **none of them costs a permission the app did not already have** —
+which is the only reason this could be added while a Play health declaration
+was being filled in.
+
+- **Light.** How bright it is around you, in lux. The reason to want it is
+  sleep: evening light against how long it takes you to fall asleep is the
+  best-established relationship in this app's data, and sleep latency is
+  already recorded on most nights. Honest limit, and the card says it: the
+  sensor is on the front of the phone, so a pocket reads as darkness. It is
+  "light around the phone when it could see", not exposure.
+- **Air pressure.** The weather cron already fetches pressure for your rough
+  location from an API. This is the same quantity, measured where you actually
+  are. Pressure drops are a documented migraine and joint-pain trigger, and
+  that is not testable on your own data without the number. Not every phone
+  has a barometer; the card says so when yours does not.
+- **Screen and charging moments.** When the phone went dark for the night, when
+  you first unlocked it, how often you picked it up, when it went on charge.
+  This is the honest half of what screen time was wanted for — without
+  `PACKAGE_USAGE_STATS`, which the compliance notes say not to declare and
+  which this does not reopen. It only records while location or the wake word
+  is switched on, because its broadcasts cannot come from a manifest, and the
+  card says that rather than implying otherwise.
+- **Sleep, when the ring is off.** Android's Sleep API, running on the motion
+  permission you already granted for travel modes. It is worse than the ring in
+  every respect and **never overwrites it** — it is for the nights the ring was
+  on the charger, which until now read as though you had not slept at all.
+
+Everything is stored on the phone and sent when the app next opens, the same
+store-and-forward the chat head and the location queue use. Nothing here is
+shared, sold or used for tracking.
+
+**Not yet:** correlations over any of it. Insight families over an empty table
+find nothing, and the cut points cannot be chosen without seeing real
+distributions. Those come once there is a few weeks of data.
+
+## 3.2.1 — Four ways the background services could stop without saying so
+
+All native, so this one needs the new APK to reach you.
+
+- **Two alarms shared one identity.** The wake-word restart and the
+  fifteen-minute watchdog were both request code 920007 against the same
+  receiver, which makes them one alarm as far as Android is concerned. They
+  behaved only because their actions differed; cancelling the watchdog would
+  have cancelled the wake restart. The watchdog now has its own code, and
+  `android-request-codes.test.ts` fails if two components ever share one again.
+- **The watchdog did not watch the chat head.** It restarted location and the
+  wake word, never Emergy himself — even though the head sits on exactly the
+  sticky-restart path the watchdog exists to compensate for. It does now.
+- **Nothing armed the watchdog for the head.** So a phone with only the head
+  switched on had no heartbeat running at all: guarded in name, not in fact.
+  The head service now arms it on start, the way the other two always did.
+- **Points queued while the phone sat still waited for it to move.** Every
+  path to the upload ran off a new location fix, including the retry after a
+  failed one — so an upload that failed while the phone was then put down
+  waited for movement, and the queue drops its oldest points when full. The
+  watchdog tick now retries it, which works because it is an alarm that
+  survives Doze rather than a timer that does not.
+
 ## 3.2.0 — Finance comes out
 
 Money tracking is gone: the three screens, the YNAB and TrueLayer

@@ -58,6 +58,31 @@ type EmergyBubblePlugin = {
   drainActivityEvents(): Promise<{ events: string }>
   setPopsEnabled(options: { enabled: boolean }): Promise<void>
   requestBatteryUnrestricted(): Promise<void>
+  sensorStatus(): Promise<SensorStatus>
+  sampleAmbient(): Promise<void>
+  startSleepTracking(): Promise<void>
+  stopSleepTracking(): Promise<void>
+  drainSensorData(): Promise<{ ambient: string; phoneEvents: string; sleep: string }>
+}
+
+/**
+ * What this particular phone can contribute, and what is waiting to be sent.
+ *
+ * Two of these are hardware questions with real "no" answers: plenty of phones
+ * have no barometer, and a few have no light sensor either. The cards have to
+ * be able to say "this phone cannot" rather than showing an empty chart
+ * forever.
+ */
+export type SensorStatus = {
+  light: boolean
+  pressure: boolean
+  /** A foreground service is alive to host the screen receiver (see below). */
+  phoneEventsHosted: boolean
+  sleepPermitted: boolean
+  sleepTracking: boolean
+  queuedAmbient: number
+  queuedPhoneEvents: number
+  queuedSleep: number
 }
 
 /** One moment at which Emergy should appear and say something. */
@@ -428,5 +453,111 @@ export async function drainActivityEvents(): Promise<{ type: number; transition:
       .filter(e => Number.isFinite(e.type) && Number.isFinite(e.transition) && Number.isFinite(e.at))
   } catch {
     return []
+  }
+}
+
+
+// ─── The phone's own sensors ─────────────────────────────────────────────────
+//
+// Four signals, no new permission between them. Light and pressure are read
+// one-shot from the sensors; screen and charge moments come from a receiver
+// the services host; sleep segments come from the Sleep API on the
+// ACTIVITY_RECOGNITION grant the motion transitions already use.
+//
+// All four store-and-forward on the phone and are drained here, because all
+// four happen while this code is not running.
+
+export async function sensorStatus(): Promise<SensorStatus | null> {
+  if (!Capacitor.isNativePlatform()) return null
+  try {
+    return await plugin.sensorStatus()
+  } catch {
+    return null
+  }
+}
+
+/** Opening the app is itself a reading. Cheap, and the sampler's floor applies. */
+export async function sampleAmbient(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try { await plugin.sampleAmbient() } catch { /* a missed sample is not an error */ }
+}
+
+export async function startSleepTracking(): Promise<string | null> {
+  if (!Capacitor.isNativePlatform()) return "Not on a phone."
+  try {
+    await plugin.startSleepTracking()
+    return null
+  } catch (e) {
+    return e instanceof Error ? e.message : "Couldn't start sleep detection"
+  }
+}
+
+export async function stopSleepTracking(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return
+  try { await plugin.stopSleepTracking() } catch { /* already stopped is fine */ }
+}
+
+export type AmbientSample = { at: number; lux: number | null; pressureHpa: number | null }
+export type PhoneEvent = { at: number; kind: string }
+export type PhoneSleepSegment = { start: number; end: number; status: number }
+
+/** The kinds the receiver emits. Anything else is a build mismatch, so it is dropped. */
+const PHONE_EVENT_KINDS = new Set(["screen_on", "screen_off", "unlock", "charge_on", "charge_off"])
+
+const parseArray = (raw: string): unknown[] => {
+  try {
+    const parsed = JSON.parse(raw || "[]")
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Everything the phone collected, cleared as it is handed over.
+ *
+ * Absent stays absent: a phone with no barometer sends `pressureHpa: null`,
+ * and Number(undefined) is NaN rather than a plausible-looking 0 — the same
+ * trap the location ingest had, where 0 metres is a perfect fix.
+ */
+export async function drainSensorData(): Promise<{
+  ambient: AmbientSample[]
+  phoneEvents: PhoneEvent[]
+  sleep: PhoneSleepSegment[]
+}> {
+  const empty = { ambient: [], phoneEvents: [], sleep: [] }
+  if (!Capacitor.isNativePlatform()) return empty
+  try {
+    const raw = await plugin.drainSensorData()
+
+    const num = (v: unknown): number | null => {
+      const n = Number(v)
+      return v === undefined || v === null || !Number.isFinite(n) ? null : n
+    }
+
+    const ambient = parseArray(raw.ambient)
+      .map(r => {
+        const row = r as { at?: unknown; lx?: unknown; hpa?: unknown }
+        return { at: Number(row?.at), lux: num(row?.lx), pressureHpa: num(row?.hpa) }
+      })
+      .filter(r => Number.isFinite(r.at) && (r.lux !== null || r.pressureHpa !== null))
+
+    const phoneEvents = parseArray(raw.phoneEvents)
+      .map(r => {
+        const row = r as { at?: unknown; k?: unknown }
+        return { at: Number(row?.at), kind: String(row?.k ?? "") }
+      })
+      .filter(r => Number.isFinite(r.at) && PHONE_EVENT_KINDS.has(r.kind))
+
+    const sleep = parseArray(raw.sleep)
+      .map(r => {
+        const row = r as { s?: unknown; e?: unknown; st?: unknown }
+        return { start: Number(row?.s), end: Number(row?.e), status: Number(row?.st ?? 0) }
+      })
+      .filter(r => Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start)
+
+    return { ambient, phoneEvents, sleep }
+  } catch {
+    return empty
   }
 }
