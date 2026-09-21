@@ -40,6 +40,7 @@ interface Daily {
   temperature_2m_min: (number | null)[]
   precipitation_sum: (number | null)[]
   uv_index_max: (number | null)[]
+  pressure_msl_mean?: (number | null)[]
 }
 
 /**
@@ -101,6 +102,20 @@ async function backfillDays(userId: string): Promise<number> {
       WHERE NOT EXISTS (
         SELECT 1 FROM "WeatherLog" w
         WHERE w."userId" = ${userId} AND w."date" = to_char(g.d, 'YYYY-MM-DD')
+          -- A cron row without pressure counts as a gap too, so the column
+          -- added in 3.3.1 backfills itself through the machinery that fills
+          -- missing days: the ON CONFLICT update only ever touches cron rows,
+          -- and a device row is complete as it is (a browser has no
+          -- barometer). Bounded to the engine's own 60-day read window, so if
+          -- the provider ever declines pressure for a day it otherwise
+          -- serves, the chase stays inside the range anything would read
+          -- instead of becoming the endless nightly backfill the floor above
+          -- exists to prevent.
+          AND (
+            w."source" <> 'cron'
+            OR w."pressureMslHpa" IS NOT NULL
+            OR g.d::date < CURRENT_DATE - make_interval(days => 60)
+          )
       )
     `
     return rows[0]?.days ?? 0
@@ -136,7 +151,7 @@ export async function GET(req: NextRequest) {
     const url = new URL("https://api.open-meteo.com/v1/forecast")
     url.searchParams.set("latitude", String(place.lat))
     url.searchParams.set("longitude", String(place.lon))
-    url.searchParams.set("daily", "weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,uv_index_max")
+    url.searchParams.set("daily", "weathercode,temperature_2m_max,temperature_2m_min,precipitation_sum,uv_index_max,pressure_msl_mean")
     url.searchParams.set("timezone", "auto")
     url.searchParams.set("past_days", String(pastDays))
     url.searchParams.set("forecast_days", "1")
@@ -154,16 +169,18 @@ export async function GET(req: NextRequest) {
       if (daily.temperature_2m_max[i] == null && daily.weathercode[i] == null) continue
 
       const written = await prisma.$executeRaw`
-        INSERT INTO "WeatherLog"("id","userId","date","tempMaxC","tempMinC","precipMm","uvIndex","weatherCode","lat","lon","source")
+        INSERT INTO "WeatherLog"("id","userId","date","tempMaxC","tempMinC","precipMm","uvIndex","pressureMslHpa","weatherCode","lat","lon","source")
         VALUES (${randomUUID()}, ${userId}, ${daily.time[i]},
                 ${daily.temperature_2m_max[i]}, ${daily.temperature_2m_min[i]},
                 ${daily.precipitation_sum[i]}, ${daily.uv_index_max[i]},
+                ${daily.pressure_msl_mean?.[i] ?? null},
                 ${daily.weathercode[i]}, ${place.lat}, ${place.lon}, 'cron')
         ON CONFLICT ("userId","date") DO UPDATE SET
           "tempMaxC" = EXCLUDED."tempMaxC",
           "tempMinC" = EXCLUDED."tempMinC",
           "precipMm" = EXCLUDED."precipMm",
           "uvIndex" = EXCLUDED."uvIndex",
+          "pressureMslHpa" = EXCLUDED."pressureMslHpa",
           "weatherCode" = EXCLUDED."weatherCode",
           "lat" = EXCLUDED."lat",
           "lon" = EXCLUDED."lon"

@@ -470,7 +470,7 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
-- **Two things the engine was already holding and not reading (3.3.1).**
+- **Four things the engine was already holding and not reading (3.3.1).**
   Audit A2 closed: the Body page's measurement form writes into
   `BodyMeasurementLog` and the engine read only `BodyMeasurement`, so
   form-logged waist never reached the waist family. Both are read now; the
@@ -480,11 +480,26 @@ Roughly in order, most recent first:
   with a `vehicle_mood` / `vehicle_sleep` family pair cut at the user's own
   median. The gate demands at least one day with real vehicle time, so a
   person who never drives is not compared against themselves.
-  `ENGINE_VERSION` → 19. `correlations-unread-sources.test.ts` plants both —
+  Also: `WeatherLog` gains `pressureMslHpa` (Open-Meteo's
+  `pressure_msl_mean`, requested by the cron it already runs), and the gap
+  query treats a pressure-less cron row inside the engine's 60-day window as
+  a gap, so the column backfills itself once through the machinery that fills
+  missing days — bounded, so a day the provider will not serve cannot become
+  the endless nightly backfill the query's own comment warns about. A
+  `pressure_drop` suspect (≥ 4 hPa between day MEANS — day-averaging flattens
+  the intraday 6–10 hPa the literature quotes) fans across every logged
+  symptom. And `breathingDisturbance` gets its first reader ever:
+  `alcohol_breathing`, in recovery, higher-is-worse declared the way
+  `alcohol_hrv`'s comment insists.
+  `ENGINE_VERSION` → 20. `correlations-unread-sources.test.ts` plants the first two —
   waist ONLY in the log table, a mood gap on irregular heavy-transit runs —
   and both were broken first and watched to fail. The first vehicle fixture
   used `i % 4` and the block permutation test rightly refused it; the fix was
   an aperiodic plant, not a looser test.
+  `correlations-pressure-breathing.test.ts` plants the other two the same
+  way, with the drop days ISOLATED as well as irregular — on the second of
+  two consecutive low days the pressure has already fallen, the suspect
+  rightly says no, and a headache planted there blurs its own effect.
 
 - **The phone's own sensors, and the permission budget they did not spend
   (3.3.0).** Light, barometric pressure, screen/charge moments and the Sleep

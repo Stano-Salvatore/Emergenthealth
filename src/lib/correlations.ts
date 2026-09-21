@@ -91,6 +91,7 @@ type DayData = {
   lateTracks?: number      // scrobbles between 22:00 and 04:00 local
   musicGenre?: string      // majority genre of the day's plays (top artist on old rows)
   uvIndex?: number
+  pressureMslHpa?: number   // day-mean sea-level pressure (WeatherLog, cron rows)
   fastH?: number           // longest completed fast ending this day
   presence?: "home" | "local" | "away" // coarse GPS day-fact (lib/day-location)
   sleptAway?: boolean      // where the night ENDING this morning was spent
@@ -101,6 +102,7 @@ type DayData = {
   systolic?: number        // blood pressure — the day's average systolic
   weightKg?: number        // a weigh-in recorded on this day (BodyMeasurement)
   waistCm?: number
+  breathingDisturbance?: number // Oura's sleep breathing disturbance index for the night ending this morning
 }
 
 export type InsightResult = {
@@ -184,7 +186,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 19
+export const ENGINE_VERSION = 20
 
 /**
  * Both sides need this many days before a card is called confident.
@@ -710,6 +712,7 @@ export async function computeCorrelations(
         restingHR: true,
         stressHigh: true,
         hrv: true,
+        breathingDisturbance: true,
         steps: true,
         activityScore: true,
         deepSleep: true,
@@ -759,8 +762,8 @@ export async function computeCorrelations(
 
     prisma.weatherLog.findMany({
       where: { userId, date: { gte: since60str } },
-      select: { date: true, precipMm: true, tempMaxC: true, weatherCode: true, uvIndex: true },
-    }).catch(() => [] as { date: string; precipMm: number | null; tempMaxC: number | null; weatherCode: number | null; uvIndex: number | null }[]),
+      select: { date: true, precipMm: true, tempMaxC: true, weatherCode: true, uvIndex: true, pressureMslHpa: true },
+    }).catch(() => [] as { date: string; precipMm: number | null; tempMaxC: number | null; weatherCode: number | null; uvIndex: number | null; pressureMslHpa: number | null }[]),
 
     prisma.screenTimeLog.findMany({
       where: { userId, date: { gte: since60str } },
@@ -928,6 +931,7 @@ export async function computeCorrelations(
     if (l.restingHR != null) d.restingHR = l.restingHR
     if (l.stressHigh != null) d.stressHighMin = l.stressHigh
     if (l.hrv != null) d.hrv = l.hrv
+    if (l.breathingDisturbance != null) d.breathingDisturbance = l.breathingDisturbance
     if (l.steps != null) d.steps = l.steps
     if (l.activityScore != null) d.activityScore = l.activityScore
     if (l.deepSleep != null) d.deepSleepMin = l.deepSleep
@@ -982,6 +986,7 @@ export async function computeCorrelations(
     if (w.tempMaxC != null) d.tempMaxC = w.tempMaxC
     if (w.weatherCode != null) d.weatherCode = w.weatherCode
     if (w.uvIndex != null) d.uvIndex = w.uvIndex
+    if (w.pressureMslHpa != null) d.pressureMslHpa = w.pressureMslHpa
   }
 
   for (const s of (screenRows as { date: string; totalMin: number; firstUnlockMin: number | null }[])) {
@@ -1563,6 +1568,32 @@ export async function computeCorrelations(
       `Mornings after a drink, HRV averages ${h}ms; after a sober night, ${l}ms`,
   })
   if (ins_alcohol_hrv) { ins_alcohol_hrv.coverage = coverageNote("a drink"); insights.push(ins_alcohol_hrv) }
+
+  // 5b. Alcohol & the night's breathing. Oura has written a breathing
+  // disturbance index on every ring night since the v2 sync and nothing here
+  // ever read it — the column's first reader. Alcohol relaxes the upper
+  // airway, and worse breathing after drinking is one of the better-evidenced
+  // effects in sleep medicine; unlike HRV it is also a number people have
+  // never seen moved by their own behaviour, because nothing ever showed them.
+  const alcoholBreathing = new Split()
+  for (const d of days) {
+    const drank = drankDay(d)
+    if (drank == null) continue
+    const next = byDate[nextDateStr(d.date)]
+    if (next?.breathingDisturbance != null) alcoholBreathing.add(drank, next.breathingDisturbance)
+  }
+  const ins_alcohol_breathing = compareGroups({
+    id: "alcohol_breathing", category: "recovery", emoji: "🫁", title: "Alcohol & Breathing During Sleep",
+    highGroupLabel: "nights after a drink", lowGroupLabel: "sober nights",
+    series: alcoholBreathing,
+    // A disturbance index: more of it is worse, so a rise must read as a loss.
+    higherIsBetter: false,
+    findingTemplate: (h, l) =>
+      h > l
+        ? `Nights after a drink, breathing disturbances index at ${h} vs ${l} on sober nights`
+        : `Drinking doesn't show up in your sleep breathing — ${h} vs ${l}`,
+  })
+  if (ins_alcohol_breathing) { ins_alcohol_breathing.coverage = coverageNote("a drink"); insights.push(ins_alcohol_breathing) }
 
   // 6a/6b. Sleep duration & alcohol → next-day resting HR
   const sleepRhr = new Split()
@@ -2292,6 +2323,16 @@ export async function computeCorrelations(
       { key: "workout", chip: "days after training", phrase: "the day after training", short: "training", test: (_d, prev) => (prev && sourceCovers("workout", prev.date) ? (prev.workoutMin ?? 0) >= 20 : null) },
       // "less than 1.5L", not "under 1.5L" — "after under" stacks two prepositions.
       { key: "low_water", chip: "days after low water", phrase: "the day after less than 1.5L of water", short: "low water", test: (_d, prev) => prev?.waterMl != null ? prev.waterMl < 1500 : null },
+      // A falling barometer is the classic self-reported migraine and
+      // joint-pain trigger, and until 3.3.1 the app had no pressure to test
+      // it with — WeatherLog carries the day-mean MSL pressure now, and the
+      // phone's own barometer corroborates it later at finer grain. 4 hPa
+      // between day MEANS is a real frontal passage: day-averaging flattens
+      // the swings, so the intraday numbers the literature quotes (6–10 hPa)
+      // would almost never trigger here. A fixed cut, like every other
+      // suspect in this list — balancedCut() is for the family cuts, and can
+      // take over once real data shows where this one's spread sits.
+      { key: "pressure_drop", chip: "falling-pressure days", phrase: "on days the pressure fell", short: "falling pressure", test: (d, prev) => d.pressureMslHpa != null && prev?.pressureMslHpa != null ? prev.pressureMslHpa - d.pressureMslHpa >= 4 : null },
     ]
 
     const prevDateStr = (dateStr: string): string => {

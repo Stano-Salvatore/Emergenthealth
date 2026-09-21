@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.3.1 — Two things the engine was already holding and not reading
+## 3.3.1 — Four things the engine was already holding and not reading
 
 Server-side only: this reaches the phone with no new APK.
 
@@ -17,7 +17,20 @@ Server-side only: this reaches the phone with no new APK.
   cut at your own median like walking is. Flights stay out: a flight day is
   an away day, and the places insights already cover it.
 
-`ENGINE_VERSION` → 19, so every cached result is recomputed with the new
+- **Falling pressure can now be tested against your symptoms.** The weather
+  cron asks Open-Meteo for one more number — the day's mean sea-level
+  pressure — and backfills its own past rows once. A new suspect in the
+  symptom engine then tests every symptom you log against the days pressure
+  fell, headaches first among them. The phone's barometer (3.3.0) will
+  corroborate this at finer grain as its rows accumulate.
+- **Alcohol and the night's breathing.** Oura has written a breathing
+  disturbance index on every ring night since the v2 sync, and nothing ever
+  read the column. Its first reader: a family asking what nights after a
+  drink do to it — one of the better-evidenced effects in sleep medicine,
+  and a number you have never seen moved by your own behaviour, because
+  nothing ever showed you.
+
+`ENGINE_VERSION` → 20, so every cached result is recomputed with the new
 columns in.
 
 ## 3.3.0 — The phone had four instruments nobody was reading

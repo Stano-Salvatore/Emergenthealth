@@ -728,23 +728,30 @@ model MorningCheckIn {
 }
 
 model WeatherLog {
-  id          String @id
-  userId      String
-  date        String
-  tempMaxC    Float?
-  tempMinC    Float?
-  precipMm    Float?
-  uvIndex     Float?
-  weatherCode Int?
-  lat         Float?
-  lon         Float?
+  id             String @id
+  userId         String
+  date           String
+  tempMaxC       Float?
+  tempMinC       Float?
+  precipMm       Float?
+  uvIndex        Float?
+  /// Mean sea-level pressure for the day, hPa, from Open-Meteo. MSL rather
+  /// than station pressure on purpose: it is altitude-normalised, so a drive
+  /// up a hill does not read as a storm front — the phone's barometer rows in
+  /// AmbientSample are the raw complement to this. Null on rows written
+  /// before 3.3.1 and on device-sourced rows (the browser has no barometer);
+  /// the cron's gap logic backfills its own rows once.
+  pressureMslHpa Float?
+  weatherCode    Int?
+  lat            Float?
+  lon            Float?
   /// Who wrote this day. "device" is the dashboard widget, standing where the
   /// user stood, with the browser's own fix. "cron" is the nightly fill, using
   /// the last place their phone reported from. The distinction is what lets
   /// the fill correct its own provisional rows without ever overwriting a
   /// measurement taken on the spot.
-  source      String @default("device")
-  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source         String @default("device")
+  user           User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, date])
   @@index([userId])
