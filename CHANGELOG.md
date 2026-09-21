@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.3.1 — Two things the engine was already holding and not reading
+
+Server-side only: this reaches the phone with no new APK.
+
+- **Waist measurements from the Body page now count.** The measurement form
+  wrote waist, chest and hips into one table and the correlation engine read
+  a different one, so a person could tape-measure themselves for a year and
+  the waist insight would keep saying there was not enough to go on (audit
+  finding A2). The engine now reads both; where the two tables speak for the
+  same day, the form's entry wins.
+- **Time in a vehicle is now a cause.** Drive, transit and train spans were
+  loaded by the engine in the same query as walking — and then thrown away;
+  only walking was ever folded into the day series. Two new insight families
+  ask what your heavier-transit days do to mood and to that night's sleep,
+  cut at your own median like walking is. Flights stay out: a flight day is
+  an away day, and the places insights already cover it.
+
+`ENGINE_VERSION` → 19, so every cached result is recomputed with the new
+columns in.
+
 ## 3.3.0 — The phone had four instruments nobody was reading
 
 Your phone has been taking these readings all along. Nothing was looking at

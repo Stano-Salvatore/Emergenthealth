@@ -66,6 +66,7 @@ vi.mock("@/lib/prisma", () => {
       intakeLog: empty, caffeineLog: empty, foodLog: empty, ouraTag: empty, moodLog: empty,
       stravaActivity: empty, symptomLog: empty, focusSession: empty, transaction: empty,
       activitySpan: empty, rescuetimeLog: empty, bloodPressureLog: empty, bodyMeasurement: empty,
+      bodyMeasurementLog: empty,
       userPreference: { findUnique: vi.fn().mockResolvedValue({ value: "UTC" }) },
       $queryRaw: vi.fn().mockResolvedValue([]),
     },

@@ -86,6 +86,7 @@ vi.mock("@/lib/prisma", () => ({
         Promise.resolve(state.isAlcoholQuery(args?.where?.type) ? state.current.alcoholLogs : [])),
     },
     bodyMeasurement: { findMany: vi.fn().mockResolvedValue([]) },
+    bodyMeasurementLog: { findMany: vi.fn().mockResolvedValue([]) },
     stravaActivity: { findMany: vi.fn().mockResolvedValue([]) },
     habitCompletion: { findMany: vi.fn().mockResolvedValue([]) },
     weatherLog: { findMany: vi.fn().mockResolvedValue([]) },

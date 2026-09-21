@@ -470,6 +470,22 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Two things the engine was already holding and not reading (3.3.1).**
+  Audit A2 closed: the Body page's measurement form writes into
+  `BodyMeasurementLog` and the engine read only `BodyMeasurement`, so
+  form-logged waist never reached the waist family. Both are read now; the
+  form's entry wins where both speak for a day, and body fat stays excluded
+  (impedance tracks hydration). And the travel spans' other modes finally go
+  somewhere: drive + transit + train fold into `vehicleMin` beside `walkMin`,
+  with a `vehicle_mood` / `vehicle_sleep` family pair cut at the user's own
+  median. The gate demands at least one day with real vehicle time, so a
+  person who never drives is not compared against themselves.
+  `ENGINE_VERSION` → 19. `correlations-unread-sources.test.ts` plants both —
+  waist ONLY in the log table, a mood gap on irregular heavy-transit runs —
+  and both were broken first and watched to fail. The first vehicle fixture
+  used `i % 4` and the block permutation test rightly refused it; the fix was
+  an aperiodic plant, not a looser test.
+
 - **The phone's own sensors, and the permission budget they did not spend
   (3.3.0).** Light, barometric pressure, screen/charge moments and the Sleep
   API. The whole design constraint was that **none of them costs a permission
@@ -1038,8 +1054,10 @@ Roughly in order, most recent first:
   withdrawal needs pre-window history the engine doesn't load.
 - **Waist and body-fat correlations.** The body family runs on weight and
   waist; body fat is deliberately excluded (impedance scales track hydration
-  more than fat). Waist rarely has enough weigh-ins to clear the gate, so in
-  practice only weight produces cards.
+  more than fat). Waist rarely cleared the gate for a reason fixed in 3.3.1:
+  the engine only read `BodyMeasurement`, and the measurement form writes
+  `BodyMeasurementLog`, so form entries never counted (audit A2). Both count
+  now — whether waist produces cards is finally a question about the data.
 - **Toggl** stores a token but no daily log table, so nothing correlates.
 - **The upload queue only retries on a new fix.** `flush()` is scheduled from
   `onFix` and nowhere else, so points queued while stationary sit until the

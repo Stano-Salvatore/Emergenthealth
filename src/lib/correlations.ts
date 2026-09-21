@@ -95,6 +95,7 @@ type DayData = {
   presence?: "home" | "local" | "away" // coarse GPS day-fact (lib/day-location)
   sleptAway?: boolean      // where the night ENDING this morning was spent
   walkMin?: number         // minutes recognised as walking (ActivitySpan); 0 on tracked days
+  vehicleMin?: number      // minutes in a vehicle or on transit (ActivitySpan); 0 on tracked days
   productiveH?: number     // RescueTime productive hours
   distractingH?: number    // RescueTime distracting hours
   systolic?: number        // blood pressure — the day's average systolic
@@ -183,7 +184,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 18
+export const ENGINE_VERSION = 19
 
 /**
  * Both sides need this many days before a card is called confident.
@@ -809,7 +810,7 @@ export async function computeCorrelations(
 
   // Sources that used to live only in the /api/stats mini-engine (music, money,
   // focus) or nowhere at all (standalone mood logs, Strava, fasting).
-  const [moodRows, stravaRows, focusRows, lastfmRows, fastPref, symptomRows, customMetricRows, customLogRows, locPoints, travelSpans, rescueRows, bpRows, bodyRows] = await Promise.all([
+  const [moodRows, stravaRows, focusRows, lastfmRows, fastPref, symptomRows, customMetricRows, customLogRows, locPoints, travelSpans, rescueRows, bpRows, bodyRows, bodyLogRows] = await Promise.all([
     prisma.moodLog.findMany({
       where: { userId, date: { gte: since60 } },
       select: { date: true, mood: true },
@@ -879,6 +880,19 @@ export async function computeCorrelations(
       orderBy: { date: "asc" },
       select: { date: true, weightKg: true, waistCm: true },
     }).catch(() => [] as { date: Date; weightKg: number | null; waistCm: number | null }[]),
+
+    // The OTHER body table. The measurement form on the Body page writes
+    // waist/chest/hips into BodyMeasurementLog through /api/body-measurements,
+    // and until now nothing here read it — so a person could log their waist
+    // for a year and the waist family would keep reporting too few
+    // measurements to say anything (audit A2). Only waist is taken: it is the
+    // column the series already carries, and body fat stays excluded on
+    // purpose — impedance scales track hydration more than fat.
+    prisma.bodyMeasurementLog.findMany({
+      where: { userId, loggedAt: { gte: since60 }, waistCm: { not: null } },
+      orderBy: { loggedAt: "asc" },
+      select: { loggedAt: true, waistCm: true },
+    }).catch(() => [] as { loggedAt: Date; waistCm: number | null }[]),
   ])
 
   // Genres for the artists this user's days were topped by — the ArtistGenre
@@ -1186,17 +1200,26 @@ export async function computeCorrelations(
   // all. A tracked day without a walk span is a genuine 0; an untracked day
   // is unknown and stays out of both groups.
   const walkByDay = new Map<string, number>()
+  // Drive, transit and train together: the phone cannot tell a bus from a
+  // car, and for the question being asked — how much of the day went to
+  // being carried somewhere — the difference does not matter. Flights stay
+  // out; a flight day is an away day, and the places families already own it.
+  const vehicleByDay = new Map<string, number>()
   const movementTracked = new Set<string>()
   for (const s of travelSpans) {
     const dateStr = localDay(s.start)
     if (dateStr < since60str) continue
     movementTracked.add(dateStr)
+    const min = Math.max(0, (s.end.getTime() - s.start.getTime()) / 60_000)
     if (s.mode === "walk") {
-      walkByDay.set(dateStr, (walkByDay.get(dateStr) ?? 0) + Math.max(0, (s.end.getTime() - s.start.getTime()) / 60_000))
+      walkByDay.set(dateStr, (walkByDay.get(dateStr) ?? 0) + min)
+    } else if (s.mode === "drive" || s.mode === "transit" || s.mode === "train") {
+      vehicleByDay.set(dateStr, (vehicleByDay.get(dateStr) ?? 0) + min)
     }
   }
   for (const dateStr of movementTracked) {
     getOrCreate(dateStr).walkMin = Math.round(walkByDay.get(dateStr) ?? 0)
+    getOrCreate(dateStr).vehicleMin = Math.round(vehicleByDay.get(dateStr) ?? 0)
   }
 
   for (const r of rescueRows) {
@@ -1225,6 +1248,19 @@ export async function computeCorrelations(
     const d = getOrCreate(b.date.toISOString().slice(0, 10))
     if (b.weightKg != null) d.weightKg = b.weightKg
     if (b.waistCm != null) d.waistCm = b.waistCm
+  }
+
+  // Unlike the date-only column above, loggedAt is a real timestamp from the
+  // measurement form, so it goes through the user's timezone the same way the
+  // travel spans do — an evening measurement in CEST is not tomorrow's.
+  // Where both tables speak for one day, the form's entry wins: it is the one
+  // the person typed with their own hands, ordered ascending so the latest
+  // entry of a day is the one that stays.
+  for (const b of bodyLogRows) {
+    if (b.waistCm == null) continue
+    const dateStr = localDay(b.loggedAt)
+    if (dateStr < since60str) continue
+    getOrCreate(dateStr).waistCm = b.waistCm
   }
 
   const allDays = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date))
@@ -2740,6 +2776,51 @@ export async function computeCorrelations(
           : `Walking more doesn't move your sleep score — ${h} vs ${l}`,
     })
     if (ins_walk_sleep) insights.push(ins_walk_sleep)
+  }
+
+  // 23c. Time in a vehicle — the other half of the same spans. Walking was
+  // read out of ActivitySpan from the start; drive, transit and train were
+  // loaded with it and then thrown away, which is backwards, because time
+  // spent being carried somewhere is one of the most reliably mood-relevant
+  // facts about a day in the whole literature. Same shape as walking: median
+  // cut on the user's own days, tracked-day zeros are real zeros.
+  //
+  // The gate is days WITH vehicle time somewhere in the record, not tracked
+  // days: someone who never drives would otherwise cut at a median of 0 and
+  // compare a day against itself.
+  const vehicleVals = days.filter(d => d.vehicleMin != null).map(d => d.vehicleMin!)
+  if (vehicleVals.length >= 10 && vehicleVals.some(v => v > 0)) {
+    const vehicleMedian = median(vehicleVals)
+    const fmtVehicle = vehicleMedian >= 60 ? `${(vehicleMedian / 60).toFixed(1)}h` : `${Math.round(vehicleMedian)}min`
+    const vehMood = new Split()
+    const vehSleep = new Split()
+    for (const d of days) {
+      if (d.vehicleMin == null) continue
+      const isHigh = d.vehicleMin >= vehicleMedian
+      if (d.mood != null) { if (isHigh) vehMood.add(true, d.mood); else vehMood.add(false, d.mood) }
+      const next = byDate[nextDateStr(d.date)]
+      if (next?.sleepScore != null) { if (isHigh) vehSleep.add(true, next.sleepScore); else vehSleep.add(false, next.sleepScore) }
+    }
+    const ins_veh_mood = compareGroups({
+      id: "vehicle_mood", category: "places", emoji: "🚗", title: "Time in Transit & Mood",
+      highGroupLabel: `heavier transit days (${fmtVehicle}+)`, lowGroupLabel: "lighter transit days",
+      series: vehMood,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `On days with ${fmtVehicle}+ in a vehicle, mood averages ${h} vs ${l} on lighter days`
+          : `Heavier transit days don't dent your mood — ${h} vs ${l}`,
+    })
+    if (ins_veh_mood) insights.push(ins_veh_mood)
+    const ins_veh_sleep = compareGroups({
+      id: "vehicle_sleep", category: "places", emoji: "🌃", title: "Time in Transit & That Night's Sleep",
+      highGroupLabel: `heavier transit days (${fmtVehicle}+)`, lowGroupLabel: "lighter transit days",
+      series: vehSleep,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `Nights after ${fmtVehicle}+ in a vehicle score ${h} vs ${l} after lighter days`
+          : `Time in a vehicle doesn't move your sleep score — ${h} vs ${l}`,
+    })
+    if (ins_veh_sleep) insights.push(ins_veh_sleep)
   }
 
   // 24. Work (RescueTime) — synced daily for months and never correlated with
