@@ -470,6 +470,22 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Three things a screenshot caught at midnight (3.3.2).** The pattern-watch
+  message said "tap to see" inside a chat bubble — the string was written for
+  the push, whose tap works, and reused on a surface with nothing to tap.
+  `watchBodies()` in `lib/watch-message.ts` now composes per surface, and its
+  test bans the word "tap" from the chat body outright. The evening check-in
+  read `s.placeName` from `/api/checkins`, which returns CheckIn rows whose
+  column is `place` — so every stop said "Somewhere", geocoded names and all;
+  the fetch boundary is untyped, so a grep guard (comments stripped — the
+  android-request-codes lesson, learned twice in one day) is the only thing
+  that will catch the next drift. And `/api/emergy` judged the new day at
+  00:05 on counters that were one minute old, so the avatar slumped grey at
+  midnight regardless of the evening it had just watched; before 05:00 local
+  it now scores yesterday — the day still being lived — and the healthLog
+  pick gained an `orderBy` because a two-day window with `findFirst` and no
+  order is an avatar that flickers between moods on refresh.
+
 - **Four things the engine was already holding and not reading (3.3.1).**
   Audit A2 closed: the Body page's measurement form writes into
   `BodyMeasurementLog` and the engine read only `BodyMeasurement`, so
