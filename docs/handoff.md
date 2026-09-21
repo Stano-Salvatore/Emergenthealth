@@ -112,7 +112,7 @@ one type-errors, which is the intent.
 
 **Where a family cuts high from low** is the single biggest lever on whether
 anything ever reads "Solid". Most families cut at the user's own median
-(screen time, spending, walking, productivity, distance, listening, custom
+(screen time, walking, productivity, distance, listening, custom
 trackers). Three were still cut at a borrowed number — 200mg of caffeine,
 25°C, an hour of high stress — and `balancedCut()` now decides between the
 two: it keeps the borrowed number while the days fall on both sides of it,
@@ -491,6 +491,21 @@ Roughly in order, most recent first:
   without anyone opening a budget. If it is ever wanted back, it needs a
   source of daily spend, not a finance feature.
 
+- **The phone filed two hours of every night under the wrong day.** Health
+  Connect sync runs on the user's own device, and `dateStr()` in
+  `health-connect-service.ts` was slicing an ISO string — the UTC day. In CEST
+  every record between local midnight and 02:00 went to yesterday: the steps
+  walked home after midnight, the calories burned with them, a weight taken
+  before dawn, each then read against the wrong night's sleep by the engine.
+  The standing UTC guard did not see it because it matches
+  `.<timestampField>.toISOString()` and this was a bare local in a helper;
+  `health-connect-local-day.test.ts` sets a timezone rather than assuming one,
+  because CI runs in UTC where the bug is invisible. The same pass also gated
+  the chat prefix's 100-row `Transaction` query behind the finances flag;
+  the entry above then removed that query altogether, so the Health Connect
+  fix is the part of this pass that is still live code. `docs/review-2026-09-20.md`
+  has the rest of that pass, including the answer to "is there an easier sync"
+  (yes, and it is native — see the open thread below).
 - **Months of sleep data that nothing ever read.** The ring records time to
   fall asleep, sleep efficiency, restless periods, time in bed and bedtime on
   **91% of nights**, and every one of them was written faithfully by the sync
@@ -802,6 +817,26 @@ Roughly in order, most recent first:
 
 ## Open threads
 
+- **Health Connect only syncs while the app is on screen.** It is
+  `driver: "device"` for an honest reason: `HealthConnectAutoSync` fires on
+  `visibilitychange`, once an hour, and re-reads 30 days each time. A week
+  without opening the app is a week with no steps, no phone-side sleep and no
+  weight — missing on exactly the days the app was not opened, which is the
+  hole the weather cron was built to close. Android has since grown the two
+  pieces that fix it: `READ_HEALTH_DATA_IN_BACKGROUND`, and change tokens for
+  incremental reads (they expire after 30 days, so the existing full read
+  stays as the cold path). Neither is exposed by
+  `@kiwi-health/capacitor-health-connect` or by the maintained alternatives,
+  so this is native: a worker under `android-widget/` reading with the
+  androidx client and posting with the widget key, exactly as
+  `EmergyLocationService` does — no WebView, no session, and the 15-minute
+  watchdog already there to keep it alive. Costs an APK, so batch it with the
+  920007 collision and the location queue timer. Note also that a failing
+  phone sync still reads as a quiet one away from the Settings card:
+  `permissionsByType` names the refused types there now, but `safeRead` still
+  swallows a per-type read error, the auto-sync swallows the POST failure
+  entirely, and the status screen infers health from a timestamp written only
+  on success.
 - **Two chat-cost levers that need a hand outside this repo.** Both are
   measured and ready; neither can be finished from a session.
   1. **`EMERGY_CHAT_EFFORT=medium` in production.** Opus 5 defaults to `high`

@@ -12,6 +12,7 @@
 export type HCAvailability = "Available" | "NotInstalled" | "NotSupported"
 
 import { isNativeShell } from "@/lib/native/shell"
+import { todayLocalISO } from "@/lib/local-date"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Plugin = any
@@ -130,8 +131,20 @@ export type DayPayload = {
   totalCalories?: number
 }
 
-function dateStr(d: Date): string {
-  return d.toISOString().slice(0, 10)
+/**
+ * The day an instant belongs to, on the clock the phone is showing.
+ *
+ * `toISOString().slice(0, 10)` is the UTC day, and this code only ever runs on
+ * the user's own device — so for anyone ahead of Greenwich every record
+ * between local midnight and their offset was filed under yesterday. In
+ * Central European Summer Time that is two hours of every night: the steps
+ * walked home after midnight, the calories burned with them, and a weight
+ * taken before dawn, all added to the wrong day and then correlated against
+ * the wrong night's sleep. Health Connect hands back instants; the device
+ * clock is the one the user keeps.
+ */
+export function dateStr(d: Date): string {
+  return todayLocalISO(d)
 }
 
 function avg(arr: number[]): number | undefined {
