@@ -22,7 +22,8 @@ const WINDOW_DAYS = 90 // watch against the most-evidenced "overall" window
 const BIG_CHANGE = 10  // percentage-point shift that counts as "changed"
 
 type WatchState = Record<string, { delta: number; confident: boolean; tier?: string }>
-type Change = { finding: string; reason: string }
+import { watchBodies, type Change } from "@/lib/watch-message"
+
 
 // A pattern only "graduates" once: from anything weaker to Solid, meaning it
 // survived the permutation test and the false-discovery correction across the
@@ -183,10 +184,7 @@ export async function GET(req: NextRequest) {
 
     if (changes.length === 0) continue
 
-    const first = changes[0]
-    const body = changes.length === 1
-      ? `${first.reason === "is now a solid pattern" ? "New solid pattern" : "A pattern you're watching " + first.reason}: ${first.finding}`
-      : `${changes.length} patterns changed — tap to see.`
+    const { push: body, chat: chatBody } = watchBodies(changes)
 
     // ── Push ──
     const userSubs = subsByUser.get(userId)
@@ -198,7 +196,7 @@ export async function GET(req: NextRequest) {
       requireInteraction: false,
     })) {
       pushed++
-      await sayAsEmergy(userId, body).catch(() => null)
+      await sayAsEmergy(userId, chatBody).catch(() => null)
     }
 
     // ── Email ──

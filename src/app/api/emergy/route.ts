@@ -1,7 +1,7 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { userDay } from "@/lib/user-timezone"
-import { localTimeStr } from "@/lib/local-date"
+import { localTimeStr, zonedDayRange } from "@/lib/local-date"
 import { NextResponse } from "next/server"
 import { computeXp, getLevel } from "@/lib/xp"
 import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
@@ -48,12 +48,41 @@ export async function GET() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const { timezone, dateColumn: today, start: dayStart } = await userDay(userId)
+  const { timezone, dateColumn, start } = await userDay(userId)
+
+  // The wall-clock hour drives two things below: the screaming thresholds,
+  // and — new — which day is being judged at all.
+  const hourNow = Number(localTimeStr(timezone).slice(0, 2))
+
+  // Before five in the morning, the day being lived is still yesterday.
+  //
+  // At 23:58 the avatar was thriving on a full day of water, habits and a
+  // 5/5 mood; at 00:05, seven minutes later, it was grey — because midnight
+  // reset every counter to zero and the empty ledger averaged out as
+  // "tired". Nobody's evening ends at midnight, and a companion that slumps
+  // the moment the date changes reads as sulking at exactly the wrong
+  // moment. Until 05:00 local — before anyone's day has honestly started —
+  // the scores are yesterday's, the day that is still being lived. The
+  // screaming thresholds are wall-clock-gated at 16:00 and 21:00, so they
+  // cannot fire in that window either way.
+  let today = dateColumn
+  let dayStart = start
+  if (hourNow < 5) {
+    const y = new Date(dateColumn.getTime() - 24 * 60 * 60 * 1000)
+    const yStr = y.toISOString().slice(0, 10)
+    today = new Date(yStr + "T00:00:00Z")
+    dayStart = zonedDayRange(timezone, yStr).start
+  }
 
   const [[todayHealth, todayWater, todayHabitsDone, totalHabits], xpBreakdown] = await Promise.all([
     Promise.all([
       prisma.healthLog.findFirst({
         where: { userId, date: { gte: today } },
+        // Ascending, and not as a nicety: pre-dawn the window spans two days,
+        // and the one with a whole night's scores in it is the earlier one —
+        // findFirst without an order would pick whichever the planner felt
+        // like, which is the same avatar flickering between moods on refresh.
+        orderBy: { date: "asc" },
         select: { sleepScore: true, readinessScore: true },
       }).catch(() => null),
       prisma.intakeLog.findMany({
@@ -74,7 +103,7 @@ export async function GET() {
   const readiness  = todayHealth?.readinessScore ?? null
   const habitsPct  = totalHabits > 0 ? (todayHabitsDone / totalHabits) * 100 : null
   // The screaming thresholds are wall-clock hours — the user's wall clock.
-  const hour       = Number(localTimeStr(timezone).slice(0, 2))
+  const hour       = hourNow
 
   // ── Determine state ────────────────────────────────────────────────────
   let state: EmergyState

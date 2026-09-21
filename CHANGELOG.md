@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.3.2 — Three things a screenshot caught at midnight
+
+All three arrived in one set of screenshots from a real evening, which is
+better QA than any sweep this repo runs. Web only — no new APK.
+
+- **"Tap to see" sat in a chat bubble with nothing to tap.** The pattern-watch
+  message was written for the push notification, whose tap opens the insights
+  page — and then the same string was reused as an Emergy chat message, where
+  it is plain text. The chat now says the news instead of teasing it: the
+  first changed pattern in full, and where the rest live, in words.
+- **Every place you visited was "Somewhere".** The evening check-in's Where
+  card read a field called `placeName` from an API that has never returned
+  one — the check-in rows call it `place` — so a day spent in Prague rendered
+  as five "Somewhere"s while the geocoded names sat unused in the response.
+  One word, and a guard so it stays fixed: the fetch boundary is untyped, so
+  nothing but that test would notice the next drift.
+- **Emergy went grey at midnight.** Thriving at 23:58, tired at 00:05 — not
+  because anything changed, but because the new day's counters opened at zero
+  and the empty ledger averaged out as exhaustion. Until 05:00 he now judges
+  the day still being lived, which is yesterday's; a companion that slumps
+  the moment the date changes was sulking at exactly the wrong moment.
+
 ## 3.3.1 — Four things the engine was already holding and not reading
 
 Server-side only: this reaches the phone with no new APK.

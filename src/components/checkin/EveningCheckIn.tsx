@@ -46,7 +46,15 @@ const MOODS = [
 
 interface PlaceStop {
   id: string
-  placeName: string | null
+  /**
+   * The CheckIn row's name column is `place`, and the API returns rows as
+   * they are. This card spent its first weeks reading `placeName` — a field
+   * that has never existed on the response — so every stop rendered as
+   * "Somewhere", including the ones the geocoder had named perfectly well.
+   * A wall of five "Somewhere"s from a day spent in Prague is what that
+   * looks like in production.
+   */
+  place: string | null
   checkedAt: string
 }
 
@@ -278,7 +286,7 @@ export function EveningCheckIn() {
                 <ul className="space-y-1.5 mb-3">
                   {stops.map(s => (
                     <li key={s.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 px-3 py-2">
-                      <span className="text-sm truncate">{s.placeName ?? "Somewhere"}</span>
+                      <span className="text-sm truncate">{s.place?.trim() || "Somewhere"}</span>
                       <span className="text-xs text-muted-foreground shrink-0">
                         {new Date(s.checkedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
