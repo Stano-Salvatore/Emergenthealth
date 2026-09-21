@@ -40,7 +40,7 @@ function useMeasuredWidth(initialWidth: number) {
 }
 
 export type BlockId =
-  | "insights" | "health" | "finances" | "calendar" | "habits"
+  | "insights" | "health" | "calendar" | "habits"
   | "reminders" | "gmail" | "quicklog" | "stats"
   | "location" | "ac" | "quests" | "quickstart"
   | "notes"
@@ -51,7 +51,6 @@ interface Block { id: BlockId; label: string }
 const ALL_BLOCKS: Block[] = [
   { id: "insights",   label: "✨ Insights" },
   { id: "health",     label: "❤️ Health" },
-  { id: "finances",   label: "💰 Finances" },
   { id: "calendar",   label: "🗓️ Calendar" },
   { id: "habits",     label: "✅ Habits" },
   { id: "reminders",  label: "🔔 Reminders" },
@@ -74,7 +73,6 @@ const DEFAULT_ITEMS: LayoutItem[] = [
   { i: "quickstart",  x: 0, y: 14, w: 6,  h: 10 },
   { i: "quests",      x: 6, y: 14, w: 6,  h: 10 },
   { i: "health",      x: 0, y: 24, w: 4,  h: 9 },
-  { i: "finances",    x: 4, y: 24, w: 4,  h: 9 },
   { i: "calendar",    x: 8, y: 24, w: 4,  h: 9 },
   { i: "habits",      x: 0, y: 33, w: 4,  h: 7 },
   { i: "reminders",   x: 4, y: 33, w: 4,  h: 6 },

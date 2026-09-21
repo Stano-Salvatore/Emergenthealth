@@ -13,7 +13,6 @@ import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
 import { isAlcohol, ethanolGrams } from "@/lib/body-load"
 import { recordDrink } from "@/lib/intake-write"
 import { recordDose } from "@/lib/dose-write"
-import { isFeatureEnabled } from "@/lib/features"
 import type { DoseUnit } from "@/lib/dose"
 import {
   chipsFromClaim, chipsFromTools, createSourceFilter, mergeChips, SOURCE_KEYS,
@@ -2058,14 +2057,13 @@ export async function buildSystemPrompt(
   // The user's day starts at THEIR midnight; timestamp columns are compared
   // against that instant, date-only columns against the date itself.
   const dayStart = zonedDayRange(tz, todayStr).start
-  const monthStart = new Date(todayStr.slice(0, 7) + "-01T00:00:00Z")
 
   const since14 = new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000)
   const since7 = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
 
   const since7Str = fmtDateISO.format(new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000))
 
-  const [recentHealth, recentTransactions, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, todayFood, recentOuraTags, recentCheckins, recentScreenTime, caffeineDoses24h] =
+  const [recentHealth, habits, upcomingReminders, calendarEvents, todayMood, todayIntake, todayFood, recentOuraTags, recentCheckins, recentScreenTime, caffeineDoses24h] =
     await Promise.all([
       prisma.healthLog.findMany({
         where: { userId }, orderBy: { date: "desc" }, take: 14,
@@ -2076,12 +2074,6 @@ export async function buildSystemPrompt(
           sleepScore: true, sleepStart: true,
         },
       }),
-      // Held back on this build, so the hundred rows would be read, formatted
-      // and paid for inside the cached prefix on every cache write, to print
-      // "No spending yet." A flag nobody can turn on is not a reason to query.
-      isFeatureEnabled("finances")
-        ? prisma.transaction.findMany({ where: { userId, date: { gte: monthStart } }, orderBy: { date: "desc" }, take: 100 })
-        : Promise.resolve([] as Awaited<ReturnType<typeof prisma.transaction.findMany>>),
       prisma.habit.findMany({
         where: { userId, isArchived: false },
         include: {
@@ -2230,28 +2222,6 @@ export async function buildSystemPrompt(
     }
     return { name: h.name, streak, completedToday: completionDates.has(todayStr) }
   })
-
-  const spendingByCategory = recentTransactions
-    .filter((t) => t.amount < 0 && !t.isTransfer)
-    .reduce((acc, t) => {
-      const cat = t.category ?? "Uncategorized"
-      acc[cat] = (acc[cat] ?? 0) + Math.abs(t.amount)
-      return acc
-    }, {} as Record<string, number>)
-
-  const totalSpent = Object.values(spendingByCategory).reduce((a, b) => a + b, 0)
-  const totalIncome = recentTransactions.filter((t) => t.amount > 0 && !t.isTransfer).reduce((sum, t) => sum + t.amount, 0)
-
-  // Empty when finances is held back or when the month has no rows — the
-  // screen-time section above is written the same way, and for the same
-  // reason: a heading with nothing under it is prefix bought every turn to
-  // tell Emergy about a feature this build does not have.
-  const financesStr = recentTransactions.length === 0 ? null : [
-    `Spent: €${(totalSpent / 100).toFixed(2)} | Income: €${(totalIncome / 100).toFixed(2)}`,
-    ...Object.entries(spendingByCategory)
-      .sort(([, a], [, b]) => b - a)
-      .map(([cat, amt]) => `  ${cat}: €${(amt / 100).toFixed(2)}`),
-  ].join("\n")
 
   // Non-drink Oura tags today = supplements/meds (drink tags are mirrored into
   // IntakeLog by the Oura sync, so intake totals below already include them —
@@ -2773,8 +2743,6 @@ ${checkinHistoryStr ?? "None this week."}
 ${journalStr ?? "No journal notes in the last 14 days."}
 
 ${screenTimeStr ? `## Screen time (last 7 days)\n${screenTimeStr}\n` : ""}
-${financesStr ? `## Finances (this month)\n${financesStr}\n` : ""}
-
 ## Calendar (from phone + Google)
 ${calendarStr}
 

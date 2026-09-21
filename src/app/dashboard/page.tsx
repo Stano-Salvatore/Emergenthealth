@@ -14,13 +14,12 @@ import { mergeDayEvents } from "@/lib/day-events"
 import { getGmailSummary } from "@/lib/gmail"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import Link from "next/link"
 import {
   Activity, CheckSquare, Moon,
   Footprints, ChevronRight, Heart, Clock,
-  TrendingUp, TrendingDown, Shield,
-  Wind, Flame, Droplets, Timer,
+  Shield,
+  Wind, Droplets, Timer,
 } from "lucide-react"
 import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"
 import { LiveClock } from "@/components/dashboard/LiveClock"
@@ -188,7 +187,6 @@ export default async function DashboardPage() {
   const { start: todayStart, end: todayEnd } = zonedDayRange(timezone)
 
   const today = new Date(todayStr + "T00:00:00")
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
   const weekAgo = new Date(todayStart.getTime() - 7 * 24 * 60 * 60 * 1000)
 
   // Single parallel batch — goals, check-in, and all dashboard data in one
@@ -197,7 +195,7 @@ export default async function DashboardPage() {
     userGoals,
     todayCheckin,
     checkinStreakRows,
-    healthLogs, habits, reminders, transactions, calendar, appEvents, gmailData, todayIntake, todayFocus, todayOuraTags,
+    healthLogs, habits, reminders, calendar, appEvents, gmailData, todayIntake, todayFocus, todayOuraTags,
   ] = await Promise.all([
     getGoals(userId),
     prisma.$queryRaw<{id: string}[]>`
@@ -233,9 +231,6 @@ export default async function DashboardPage() {
       where: { userId, isCompleted: false },
       orderBy: [{ dueDate: "asc" }],
       take: 10,
-    }),
-    prisma.transaction.findMany({
-      where: { userId, date: { gte: monthStart }, isTransfer: false },
     }),
     getUpcomingEventsWithStatus(userId, 14),
     // The app's own events (AppEvent — what the calendar composer writes).
@@ -310,20 +305,6 @@ export default async function DashboardPage() {
   const sleepAvg = sleepLogs.length ? sleepLogs.reduce((s,l) => s+l.sleepDuration!,0)/sleepLogs.length : null
   const stepsLogs = healthLogs.filter(l => l.steps != null)
   const stepsAvg = stepsLogs.length ? stepsLogs.reduce((s,l) => s+l.steps!,0)/stepsLogs.length : null
-
-  // ── finances
-  const spending = transactions.filter(t => t.amount < 0)
-  const incomeT = transactions.filter(t => t.amount > 0)
-  const totalSpent = spending.reduce((s,t) => s+Math.abs(t.amount),0)
-  const totalIncome = incomeT.reduce((s,t) => s+t.amount,0)
-  const net = totalIncome - totalSpent
-  const byCategory = spending.reduce((acc,t) => {
-    const c = t.category ?? "Uncategorized"
-    acc[c] = (acc[c]??0)+Math.abs(t.amount)
-    return acc
-  },{} as Record<string,number>)
-  const topCategories = Object.entries(byCategory).sort(([,a],[,b])=>b-a).slice(0,4)
-  const maxCat = topCategories[0]?.[1]??1
 
   // ── habits
   // Only what today asks for: an off-day habit is neither done nor missing
@@ -639,54 +620,6 @@ export default async function DashboardPage() {
       </Link>
     ),
 
-    finances: !isFeatureEnabled("finances") ? null : (
-      <Link href="/dashboard/finances" className="block h-full">
-        <Card className="card-finances hover:border-emerald-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-emerald-500/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-              <span className="flex items-center gap-1.5">💰 Finances</span>
-              <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-end justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground">Spent this month</p>
-                <p className="text-2xl font-black text-red-400">€{(totalSpent/100).toFixed(2)}</p>
-              </div>
-              {totalIncome>0 && (
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground">Income</p>
-                  <p className="text-sm font-bold text-green-400">€{(totalIncome/100).toFixed(2)}</p>
-                </div>
-              )}
-            </div>
-            {totalIncome>0 && (
-              <div className="flex items-center gap-1.5 bg-secondary/50 rounded-lg px-2.5 py-1.5">
-                {net>=0 ? <TrendingUp className="h-3.5 w-3.5 text-green-400 shrink-0"/> : <TrendingDown className="h-3.5 w-3.5 text-red-400 shrink-0"/>}
-                <span className={`text-sm font-semibold ${net>=0?"text-green-400":"text-red-400"}`}>
-                  Net: {net>=0?"+":""}€{(net/100).toFixed(2)}
-                </span>
-              </div>
-            )}
-            {topCategories.length>0 && (
-              <div className="space-y-1.5">
-                {topCategories.map(([cat,amt]) => (
-                  <div key={cat}>
-                    <div className="flex justify-between text-xs mb-0.5">
-                      <span className="text-muted-foreground truncate max-w-[60%]">{cat}</span>
-                      <span className="font-medium">€{(amt/100).toFixed(2)}</span>
-                    </div>
-                    <Progress value={(amt/maxCat)*100} className="h-1" />
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </Link>
-    ),
-
     calendar: (
       <Link href="/dashboard/calendar" className="block h-full">
         <Card className="card-calendar hover:border-blue-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-blue-500/5">
@@ -867,9 +800,6 @@ export default async function DashboardPage() {
           <StatTile label="Habits today" value={`${doneToday}/${habits.length}`} icon={<CheckSquare className="h-4 w-4 text-amber-400"/>}
             progress={habits.length > 0 ? (doneToday/habits.length)*100 : 0} />
         </Link>
-        {isFeatureEnabled("finances") && (
-          <StatTile label="Spent this month" value={`€${(totalSpent/100).toFixed(0)}`} icon={<Flame className="h-4 w-4 text-emerald-400"/>} />
-        )}
         {todayMedTags.length > 0 ? (
           <Link href="/dashboard/intake?tab=meds">
             <StatTile label="Taken today" value={`${todayMedTags.length}`}

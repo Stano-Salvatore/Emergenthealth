@@ -112,7 +112,7 @@ one type-errors, which is the intent.
 
 **Where a family cuts high from low** is the single biggest lever on whether
 anything ever reads "Solid". Most families cut at the user's own median
-(screen time, spending, walking, productivity, distance, listening, custom
+(screen time, walking, productivity, distance, listening, custom
 trackers). Three were still cut at a borrowed number — 200mg of caffeine,
 25°C, an hour of high stress — and `balancedCut()` now decides between the
 two: it keeps the borrowed number while the days fall on both sides of it,
@@ -470,6 +470,27 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Finance came out, and the `Transaction` table did not.** The three screens,
+  YNAB, TrueLayer, the Revolut imports, recurring-charge detection, the chat
+  prompt's `## Finances` section, two MCP tools and both spending insight
+  families are gone. It had been flag-gated since 3.0.0 — invisible, and still
+  costing two bank APIs polled every thirty minutes, two rows on the sync
+  status screen and two Vercel cron entries.
+
+  **The one thing to know if you audit the schema:** `Transaction`,
+  `YnabToken` and `TruelayerToken` are still in `schema.prisma` and now have
+  no reader except the data export, which reads `Transaction` on purpose so
+  anyone who had rows can still take them out. That is deliberate, not the
+  dead-table smell — dropping them would be a data-loss migration for no gain.
+  If a later pass wants them gone, that is a migration decision, not a
+  cleanup.
+
+  The two families that went (`spend_mood`, `spend_mood_next`) were the only
+  part of this that earned its keep: card spend is a behavioural signal —
+  eating out, drinking, going out — that the engine could read against mood
+  without anyone opening a budget. If it is ever wanted back, it needs a
+  source of daily spend, not a finance feature.
+
 - **The phone filed two hours of every night under the wrong day.** Health
   Connect sync runs on the user's own device, and `dateStr()` in
   `health-connect-service.ts` was slicing an ISO string — the UTC day. In CEST
@@ -479,10 +500,10 @@ Roughly in order, most recent first:
   The standing UTC guard did not see it because it matches
   `.<timestampField>.toISOString()` and this was a bare local in a helper;
   `health-connect-local-day.test.ts` sets a timezone rather than assuming one,
-  because CI runs in UTC where the bug is invisible. Also: the chat prefix
-  stopped reading 100 `Transaction` rows to print "No spending yet." on a
-  build where finances is held back — the query and the section are gated on
-  the flag now, the way screen time already was. `docs/review-2026-09-20.md`
+  because CI runs in UTC where the bug is invisible. The same pass also gated
+  the chat prefix's 100-row `Transaction` query behind the finances flag;
+  the entry above then removed that query altogether, so the Health Connect
+  fix is the part of this pass that is still live code. `docs/review-2026-09-20.md`
   has the rest of that pass, including the answer to "is there an easier sync"
   (yes, and it is native — see the open thread below).
 - **Months of sleep data that nothing ever read.** The ring records time to

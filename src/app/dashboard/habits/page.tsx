@@ -11,7 +11,6 @@ import {
 } from "@/components/ui/dialog"
 import { Flame, Plus, Check, Trash2, Trophy, CheckCircle2, RotateCcw, X, Zap, Bell, AlertTriangle, Pencil, Archive, ArchiveRestore, SkipForward } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { isFeatureEnabled } from "@/lib/features"
 import { computeBestStreak, computeCompletionRate } from "@/lib/streak"
 import { WEEKDAY_SHORT, isScheduledOn, makeOffDay } from "@/lib/habit-schedule"
 import { format, subDays } from "date-fns"
@@ -1024,12 +1023,10 @@ export default function HabitsPage() {
   }
 
   const inApp = isAndroidApp()
-  // Only list what this release actually ships — finance tracking is held back.
   const PRO_FEATURES = [
     "Unlimited habits & routines",
     "Full data history",
     "Daily AI insights",
-    ...(isFeatureEnabled("finances") ? ["Finance tracking"] : []),
   ]
 
   const regularHabits = habits.filter(h => !h.icon || (h.icon !== "💊" && h.icon !== "🌿"))

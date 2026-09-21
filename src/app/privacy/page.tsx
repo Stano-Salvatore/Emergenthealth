@@ -25,7 +25,7 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-foreground mb-3">The short version</h2>
             <p>
               Emergenthealth is a personal health dashboard — it pulls together your health, fitness,
-              finance, and productivity data in one place, just for you. Your data is never sold,
+              and productivity data in one place, just for you. Your data is never sold,
               never shared with advertisers, and never used to train AI models. It stays yours.
             </p>
           </section>
@@ -42,7 +42,6 @@ export default function PrivacyPage() {
                 "Location — places you log by hand, and, if you turn on automatic place check-ins, your phone's position while the app is closed",
                 "Physical activity — how your phone classifies movement (walking, running, cycling, in a vehicle), used to label journeys",
                 "Photos you attach to a log or a journal entry",
-                "Financial data — spending categories and transaction summaries from YNAB",
                 "Calendar events — event titles, times, and attendees from Google Calendar",
                 "Location check-ins — places you manually log in the Journal",
                 "Mood and habit logs — entries you create directly in the app",
@@ -110,10 +109,6 @@ export default function PrivacyPage() {
                 {
                   name: "Oura API",
                   desc: "Sleep, activity, and HRV data is fetched from your Oura account with your permission.",
-                },
-                {
-                  name: "YNAB API",
-                  desc: "Spending categories and budget data are fetched from your YNAB account with your permission.",
                 },
                 {
                   name: "Strava API",

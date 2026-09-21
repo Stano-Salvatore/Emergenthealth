@@ -15,7 +15,6 @@ import { useEmergyState, refreshEmergy } from "@/lib/emergy-store"
 import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
 import { SourceTrail, ThinkingLine, ToolActivity } from "@/components/emergy/SourceTrail"
 import type { SourceChip } from "@/lib/chat-sources"
-import { isFeatureEnabled } from "@/lib/features"
 import { resyncNotifications } from "@/lib/native/notifications"
 
 // An error we already have a human sentence for — shown to the user verbatim
@@ -593,15 +592,9 @@ export default function ChatPage() {
     sendMessage(prompt)
   }
 
-  // Emergy's intro must only promise what this build actually ships — finances
-  // are held back for a later release (see src/lib/features.ts).
-  const financesOn = isFeatureEnabled("finances")
-  const subtitle = financesOn
-    ? "Your plant companion — knows your health, habits & finances"
-    : "Your plant companion — knows your sleep, habits, meds & calendar"
-  const intro = financesOn
-    ? "I know your sleep, habits, meds, finances, and calendar. Ask me anything or just say hi!"
-    : "I know your sleep, habits, meds, and calendar. Ask me anything or just say hi!"
+  // Emergy's intro must only promise what this build actually ships.
+  const subtitle = "Your plant companion — knows your sleep, habits, meds & calendar"
+  const intro = "I know your sleep, habits, meds, and calendar. Ask me anything or just say hi!"
 
   // Every suggestion sends straight away — previously the big briefing button
   // sent while the six below it only pasted text, which looked identical but

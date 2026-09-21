@@ -35,9 +35,6 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/journal",     label: "Journal",         emoji: "📝", section: "Life" },
   { href: "/dashboard/location",    label: "Location",        emoji: "📍", section: "Life" },
   { href: "/dashboard/reading",     label: "Reading",         emoji: "📚", section: "Life" },
-  { href: "/dashboard/finances",    label: "Finances",        emoji: "💰", section: "Life" },
-  { href: "/dashboard/bills",       label: "Bills",           emoji: "🧾", section: "Life" },
-  { href: "/dashboard/subscriptions", label: "Subscriptions", emoji: "🔄", section: "Life" },
   { href: "/dashboard/gmail",       label: "Gmail",           emoji: "📬", section: "Life" },
   { href: "/dashboard/home",        label: "Home",            emoji: "🏡", section: "Life" },
 

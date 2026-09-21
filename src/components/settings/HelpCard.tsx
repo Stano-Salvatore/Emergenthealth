@@ -12,10 +12,6 @@ const FAQS = [
     a: "Go to Settings → Oura Ring and tap 'Connect'. You'll be redirected to Oura's authorization page. Once connected, data syncs automatically every morning via a scheduled cron job. You can also trigger a manual sync by tapping 'Sync now'.",
   },
   {
-    q: "Why isn't my bank connected?",
-    a: "Bank connections go through TrueLayer. If the connection fails, try disconnecting and reconnecting. Make sure to complete the bank's own authentication flow fully before being redirected back.",
-  },
-  {
     q: "How does the habit streak work?",
     a: "A streak counts consecutive days where you completed the habit. Missing a day resets the streak to 0. Use Vacation Mode (on the Habits page) to freeze streaks for a set period — perfect for holidays or illness.",
   },

@@ -102,12 +102,12 @@ export default function OGImage() {
             marginBottom: "48px",
           }}
         >
-          Oura Ring · YNAB · Strava · GitHub · Google Calendar — all connected, all beautiful.
+          Oura Ring · Health Connect · Strava · Google Calendar — all connected, all beautiful.
         </div>
 
         {/* Integration pills */}
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", justifyContent: "center" }}>
-          {["💍 Sleep & HRV", "🏃 Activities", "💰 Finances", "🤖 AI Insights", "🎯 Habits"].map(label => (
+          {["💍 Sleep & HRV", "🏃 Activities", "🌿 Habits", "🤖 AI Insights", "🗓️ Calendar"].map(label => (
             <div
               key={label}
               style={{

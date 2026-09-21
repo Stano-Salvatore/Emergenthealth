@@ -23,8 +23,6 @@ export function AutoSync() {
     running.current = true
     setSyncing(true)
     try {
-      // Check if YNAB is connected before including it in the sync batch
-      const ynab = await fetch("/api/ynab/connect").then(r => r.json()).catch(() => ({ connected: false }))
       const jsonPost = (url: string, body: unknown) =>
         fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
       const ouraSync = fetch("/api/sync/oura", { method: "POST" })
@@ -43,7 +41,6 @@ export function AutoSync() {
         jsonPost("/api/lastfm", { action: "sync" }),
         jsonPost("/api/rescuetime", { action: "sync" }),
       ]
-      if (ynab.connected) syncs.push(fetch("/api/sync/ynab", { method: "POST" }))
       await Promise.allSettled(syncs)
 
       // Tags silently failing (usually a pre-"tag"-scope Oura connection) is

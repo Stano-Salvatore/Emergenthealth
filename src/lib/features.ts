@@ -3,11 +3,10 @@
 // so they can be launched one at a time in later releases (v3.1, v3.2, …).
 //
 // To launch a feature: remove its key from HELD_BACK below, or set
-// NEXT_PUBLIC_ENABLED_FEATURES="finances,gmail" in the environment to enable
+// NEXT_PUBLIC_ENABLED_FEATURES="gmail" in the environment to enable
 // without a code change. Works in server components, proxy, and client code.
 
 export type FeatureKey =
-  | "finances"
   | "smarthome"
   | "gmail"
   | "strava"
@@ -18,7 +17,6 @@ export type FeatureKey =
   | "fasting"
 
 export const FEATURE_ROUTES: Record<FeatureKey, string[]> = {
-  finances:   ["/dashboard/finances", "/dashboard/bills", "/dashboard/subscriptions"],
   smarthome:  ["/dashboard/home"],
   gmail:      ["/dashboard/gmail"],
   strava:     ["/dashboard/strava"],
@@ -35,11 +33,9 @@ export const FEATURE_ROUTES: Record<FeatureKey, string[]> = {
 // sync cron, so hiding their pages only hid the data's home.
 //
 // Still held back, each for a concrete reason rather than caution:
-//   finances  — four bank aggregators, only two on a cron; needs a pruning pass
 //   smarthome — depends on a self-hosted UDP bridge, not multi-tenant
-//   gmail     — separate OAuth surface, and Bills depends on it
+//   gmail     — separate OAuth surface of its own
 const HELD_BACK: FeatureKey[] = [
-  "finances",
   "smarthome",
   "gmail",
 ]

@@ -45,7 +45,10 @@ collects something or explains why it does not.
   to a log; **precise and approximate location, including in the background**
   (optional, off until switched on — see `ACCESS_BACKGROUND_LOCATION` in
   section 3); physical activity (motion type, for the journey view).
-  Financial info: **no** (the feature is disabled in V3 builds).
+  Financial info: **no** — and as of 3.2.0 that is a fact about the code
+  rather than a feature flag. The bank integrations, their screens and their
+  crons are gone; the `Transaction` table is retained only so anyone who had
+  rows can still export them, and nothing but the export reads it.
 - **Not collected, though the permission suggests otherwise:** audio. The
   microphone is used for dictation and the wake word, both of which hand back
   text; no recording is stored, no recording leaves the device, and there is

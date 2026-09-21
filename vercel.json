@@ -9,14 +9,6 @@
       "schedule": "30 9 * * *"
     },
     {
-      "path": "/api/cron/ynab",
-      "schedule": "0 8 * * *"
-    },
-    {
-      "path": "/api/cron/truelayer",
-      "schedule": "5 8 * * *"
-    },
-    {
       "path": "/api/cron/emergy-push",
       "schedule": "0 15 * * *"
     },

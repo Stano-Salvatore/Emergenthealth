@@ -90,7 +90,6 @@ type DayData = {
   listeningMin?: number    // Last.fm music listening (estimated: tracks × 3min)
   lateTracks?: number      // scrobbles between 22:00 and 04:00 local
   musicGenre?: string      // majority genre of the day's plays (top artist on old rows)
-  spendEur?: number        // card spending (outgoing, transfers excluded)
   uvIndex?: number
   fastH?: number           // longest completed fast ending this day
   presence?: "home" | "local" | "away" // coarse GPS day-fact (lib/day-location)
@@ -184,7 +183,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 17
+export const ENGINE_VERSION = 18
 
 /**
  * Both sides need this many days before a card is called confident.
@@ -810,7 +809,7 @@ export async function computeCorrelations(
 
   // Sources that used to live only in the /api/stats mini-engine (music, money,
   // focus) or nowhere at all (standalone mood logs, Strava, fasting).
-  const [moodRows, stravaRows, focusRows, lastfmRows, txRows, fastPref, symptomRows, customMetricRows, customLogRows, locPoints, travelSpans, rescueRows, bpRows, bodyRows] = await Promise.all([
+  const [moodRows, stravaRows, focusRows, lastfmRows, fastPref, symptomRows, customMetricRows, customLogRows, locPoints, travelSpans, rescueRows, bpRows, bodyRows] = await Promise.all([
     prisma.moodLog.findMany({
       where: { userId, date: { gte: since60 } },
       select: { date: true, mood: true },
@@ -831,11 +830,6 @@ export async function computeCorrelations(
       SELECT "date", "listeningMin", "lateTracks", "topArtist", "artistPlays" FROM "LastfmLog"
       WHERE "userId" = ${userId} AND "date" >= ${since60str}
     `.catch(() => [] as { date: string; listeningMin: number; lateTracks: number | null; topArtist: string | null; artistPlays: Record<string, number> | null }[]),
-
-    prisma.transaction.findMany({
-      where: { userId, date: { gte: since60 }, isTransfer: false, amount: { lt: 0 } },
-      select: { date: true, amount: true },
-    }).catch(() => [] as { date: Date; amount: number }[]),
 
     prisma.userPreference.findUnique({
       where: { userId_key: { userId, key: "fast:history" } },
@@ -1161,12 +1155,6 @@ export async function computeCorrelations(
       ? dominantGenre(l.artistPlays, genreByArtist)
       : l.topArtist ? genreByArtist.get(l.topArtist.toLowerCase()) ?? null : null
     if (genre) getOrCreate(l.date).musicGenre = genre
-  }
-
-  for (const t of txRows) {
-    const dateStr = t.date.toISOString().slice(0, 10)
-    const d = getOrCreate(dateStr)
-    d.spendEur = (d.spendEur ?? 0) + Math.abs(t.amount) / 100
   }
 
   // Completed fasts (fasting page history — a JSON blob in UserPreference).
@@ -2524,42 +2512,6 @@ export async function computeCorrelations(
           : `${genre} days link to a sleep score of ${h} vs ${l} on other music days`,
     })
     if (ins_genre_sleep) insights.push(ins_genre_sleep)
-  }
-
-  // 18. Spending — also ported from /api/stats. Only days with transactions
-  // count (a day with no synced card activity isn't a €0 day, just unknown).
-  const spendVals = days.filter(d => d.spendEur != null).map(d => d.spendEur!)
-  if (spendVals.length >= 10) {
-    const spendMedian = median(spendVals)
-    const spendMood = new Split()
-    const spendMoodNext = new Split()
-    for (const d of days) {
-      if (d.spendEur == null) continue
-      const isHigh = d.spendEur >= spendMedian
-      if (d.mood != null) { if (isHigh) spendMood.add(true, d.mood); else spendMood.add(false, d.mood) }
-      const next = byDate[nextDateStr(d.date)]
-      if (next?.mood != null) { if (isHigh) spendMoodNext.add(true, next.mood); else spendMoodNext.add(false, next.mood) }
-    }
-    const ins_spend_mood = compareGroups({
-      id: "spend_mood", category: "money", emoji: "💸", title: "Spending & Mood",
-      highGroupLabel: `bigger-spend days (€${Math.round(spendMedian)}+)`, lowGroupLabel: "lighter-spend days",
-      series: spendMood,
-      findingTemplate: (h, l) =>
-        h > l
-          ? `On bigger-spend days (€${Math.round(spendMedian)}+), mood averages ${h} vs ${l} on lighter days`
-          : `Spending more doesn't go with a better mood — ${h} vs ${l} on lighter days`,
-    })
-    if (ins_spend_mood) insights.push(ins_spend_mood)
-    const ins_spend_mood_next = compareGroups({
-      id: "spend_mood_next", category: "money", emoji: "💳", title: "Spending & Next-Day Mood",
-      highGroupLabel: `bigger-spend days (€${Math.round(spendMedian)}+)`, lowGroupLabel: "lighter-spend days",
-      series: spendMoodNext,
-      findingTemplate: (h, l) =>
-        h < l
-          ? `The morning after bigger-spend days, mood averages ${h} vs ${l} after lighter days`
-          : `Bigger-spend days don't change the next morning's mood — ${h} vs ${l}`,
-    })
-    if (ins_spend_mood_next) insights.push(ins_spend_mood_next)
   }
 
   // 19. UV — the one weather column nothing consumed
