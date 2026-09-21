@@ -84,9 +84,16 @@ public class EmergyHeadService extends Service {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             // The Stop button: an explicit "put him away", so he must not come back.
             EmergyBubblePlugin.setKeepHead(this, false);
+            HeadAlarmReceiver.cancelWatchdogIfIdle(this);
             stopSelf();
             return START_NOT_STICKY;
         }
+        // Arm the heartbeat, the same way location and the wake word do on
+        // their own starts. The head is now one of the things the watchdog
+        // restarts, and without this a phone with ONLY the head switched on
+        // would have had no heartbeat running to do it — guarded in name and
+        // not in fact.
+        if (EmergyBubblePlugin.keepHead(this)) HeadAlarmReceiver.scheduleWatchdog(this);
         if (intent != null && ACTION_POP.equals(intent.getAction())) {
             // A reminder came due. The head is already on screen by now —
             // onCreate ran before this if the service was not up — so all that

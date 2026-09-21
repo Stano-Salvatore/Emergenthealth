@@ -470,6 +470,35 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Four ways a background service could stop without saying so (3.2.1).**
+  All native, all found by reading the audit's A12 and C10 rather than by
+  anything failing.
+
+  The wake-word restart and the watchdog shared request code 920007 against
+  the same receiver, so they were one PendingIntent that behaved only because
+  their actions differed. `android-request-codes.test.ts` now fails when two
+  components share a code from the 9200xx block; it reads the sources with
+  comments stripped, because the comment explaining the fix contains the old
+  number and the first version of the guard failed on it.
+
+  The watchdog also restarted location and the wake word only, never the head
+  — which is on the same sticky-restart path it exists to compensate for — and
+  nothing armed the watchdog for the head at all, so a phone with only the
+  head on had no heartbeat to be restarted by. `HeadAlarmReceiver
+  .anythingWanted()` is now the one list of what keeps the heartbeat alive,
+  because the two stop paths each named the other service and neither had
+  heard of the head.
+
+  And `flush()` was reachable only from a new fix, including the retry after a
+  failed upload, so points queued while the phone then sat still waited for it
+  to move — with `MAX_QUEUED` dropping the oldest meanwhile.
+  `EmergyLocationService.flushPending()` hangs it off the watchdog tick, which
+  works because `setAndAllowWhileIdle` survives Doze and a `postDelayed` does
+  not.
+
+  **None of it is verified on a phone.** CI compiles it and the guard covers
+  the collision; the rest is reasoning about Android's lifecycle.
+
 - **Finance came out, and the `Transaction` table did not.** The three screens,
   YNAB, TrueLayer, the Revolut imports, recurring-charge detection, the chat
   prompt's `## Finances` section, two MCP tools and both spending insight
@@ -830,8 +859,19 @@ Roughly in order, most recent first:
   so this is native: a worker under `android-widget/` reading with the
   androidx client and posting with the widget key, exactly as
   `EmergyLocationService` does — no WebView, no session, and the 15-minute
-  watchdog already there to keep it alive. Costs an APK, so batch it with the
-  920007 collision and the location queue timer. Note also that a failing
+  watchdog already there to keep it alive. Costs an APK.
+
+  **It was to be batched with the 920007 collision and the location queue
+  timer; those two went out in 3.2.1 without it, deliberately.** Background
+  reads need `android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND`, which
+  is a health permission, which means the Play health-apps declaration — the
+  one being filled in from COMPLIANCE.md §1 right now — would have to be
+  answered for a permission the app did not yet have a worked-out story for.
+  `health-permissions-declared.test.ts` says the same thing in code: it fails
+  on any `android.permission.health.*` line that no entry in `READ_TYPES`
+  accounts for, and a background-read permission is not a record type. Doing
+  this after the submission costs one more APK; doing it before costs a
+  redone declaration. Note also that a failing
   phone sync still reads as a quiet one away from the Settings card:
   `permissionsByType` names the refused types there now, but `safeRead` still
   swallows a per-type read error, the auto-sync swallows the POST failure

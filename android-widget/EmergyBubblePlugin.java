@@ -600,6 +600,9 @@ public class EmergyBubblePlugin extends Plugin {
     public void stopLocationService(PluginCall call) {
         Context ctx = getContext();
         EmergyLocationService.setKeep(ctx, false);
+        // Same as stopHead: stopService skips onStartCommand, where the other
+        // release lives, so the heartbeat is let go here.
+        HeadAlarmReceiver.cancelWatchdogIfIdle(ctx);
         ctx.stopService(new Intent(ctx, EmergyLocationService.class));
         call.resolve();
     }
@@ -700,6 +703,9 @@ public class EmergyBubblePlugin extends Plugin {
     public void stopWake(PluginCall call) {
         Context ctx = getContext();
         EmergyWakeService.setKeep(ctx, false);
+        // Same as stopHead: stopService skips onStartCommand, where the other
+        // release lives, so the heartbeat is let go here.
+        HeadAlarmReceiver.cancelWatchdogIfIdle(ctx);
         ctx.stopService(new Intent(ctx, EmergyWakeService.class));
         call.resolve();
     }
@@ -995,6 +1001,10 @@ public class EmergyBubblePlugin extends Plugin {
     public void stopHead(PluginCall call) {
         Context ctx = getContext();
         setKeepHead(ctx, false);
+        // stopService does not go through onStartCommand, so the heartbeat has
+        // to be released here too — otherwise switching the head off from the
+        // app leaves a 15-minute alarm running with nothing left to guard.
+        HeadAlarmReceiver.cancelWatchdogIfIdle(ctx);
         ctx.stopService(new Intent(ctx, EmergyHeadService.class));
         call.resolve();
     }

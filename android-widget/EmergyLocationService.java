@@ -63,6 +63,8 @@ import java.util.TimeZone;
 public class EmergyLocationService extends Service {
 
     public static final String ACTION_STOP = "app.emergenthealth.LOCATION_STOP";
+    /** Try the upload queue again, from outside, without a new fix (see flushPending). */
+    public static final String ACTION_FLUSH = "app.emergenthealth.LOCATION_FLUSH";
 
     static final String PREFS = "emergy_location";
     private static final String KEEP_KEY = "keep";
@@ -226,6 +228,36 @@ public class EmergyLocationService extends Service {
         }
     }
 
+    /**
+     * Retry the upload queue on someone else's clock.
+     *
+     * Every path to flush() ran off a new fix: onFix() arms the timer after
+     * queueing a point, and a failed upload kept the batch to "try after the
+     * next fix". So an upload that failed while the phone then sat still — put
+     * down for the night, out of signal, wifi that comes back at 3am — waited
+     * for movement to be retried, and the queue is capped at MAX_QUEUED with
+     * the oldest dropped. Points could be lost to a network hiccup and a quiet
+     * evening, which is the combination a location log is most likely to meet.
+     *
+     * The heartbeat is the fix because it is an alarm rather than a Handler:
+     * setAndAllowWhileIdle survives Doze, which is precisely when this
+     * happens, and a postDelayed on the main looper does not.
+     *
+     * Not started from here when it is down — ensureRunning() covers that, and
+     * onStartCommand flushes two seconds after any start.
+     */
+    static void flushPending(Context ctx) {
+        if (!running) return;
+        // Nothing waiting: do not wake the radio to say so.
+        if (queuedCount(ctx) == 0) return;
+        try {
+            ctx.startService(new Intent(ctx, EmergyLocationService.class).setAction(ACTION_FLUSH));
+        } catch (Exception ignored) {
+            // A background start the system refused. The next fix still flushes,
+            // which is exactly where this was before — no worse for trying.
+        }
+    }
+
     // ---------------------------------------------------------- lifecycle
 
     @Override
@@ -293,9 +325,16 @@ public class EmergyLocationService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             setKeep(this, false);
-            if (!EmergyWakeService.keep(this)) HeadAlarmReceiver.cancelWatchdog(this);
+            HeadAlarmReceiver.cancelWatchdogIfIdle(this);
             stopSelf();
             return START_NOT_STICKY;
+        }
+        if (intent != null && ACTION_FLUSH.equals(intent.getAction())) {
+            // Already running, already foreground, already armed: the only
+            // thing being asked for is the upload.
+            main.removeCallbacks(flushNow);
+            main.post(flushNow);
+            return keep(this) ? START_STICKY : START_NOT_STICKY;
         }
         // Arm the next heartbeat every time the service starts. That covers the
         // first start, a sticky restart, and a restart the heartbeat itself

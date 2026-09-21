@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.2.1 — Four ways the background services could stop without saying so
+
+All native, so this one needs the new APK to reach you.
+
+- **Two alarms shared one identity.** The wake-word restart and the
+  fifteen-minute watchdog were both request code 920007 against the same
+  receiver, which makes them one alarm as far as Android is concerned. They
+  behaved only because their actions differed; cancelling the watchdog would
+  have cancelled the wake restart. The watchdog now has its own code, and
+  `android-request-codes.test.ts` fails if two components ever share one again.
+- **The watchdog did not watch the chat head.** It restarted location and the
+  wake word, never Emergy himself — even though the head sits on exactly the
+  sticky-restart path the watchdog exists to compensate for. It does now.
+- **Nothing armed the watchdog for the head.** So a phone with only the head
+  switched on had no heartbeat running at all: guarded in name, not in fact.
+  The head service now arms it on start, the way the other two always did.
+- **Points queued while the phone sat still waited for it to move.** Every
+  path to the upload ran off a new location fix, including the retry after a
+  failed one — so an upload that failed while the phone was then put down
+  waited for movement, and the queue drops its oldest points when full. The
+  watchdog tick now retries it, which works because it is an alarm that
+  survives Doze rather than a timer that does not.
+
 ## 3.2.0 — Finance comes out
 
 Money tracking is gone: the three screens, the YNAB and TrueLayer
