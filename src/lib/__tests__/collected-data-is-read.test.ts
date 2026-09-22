@@ -143,3 +143,32 @@ describe("the phone's buffers are emptied on foreground, not only in Settings", 
     }
   })
 })
+
+describe("the other sleep readers consult the phone too", () => {
+  // The brief learned this in 3.3.4; the chat prompt — the one Emergy reads
+  // on every turn — still told him "never state or imply sleep figures" over
+  // nights the phone had recorded, and the weekly review averaged "no data".
+  // One helper (lib/phone-sleep) now, and the two readers ask it BEFORE they
+  // assert ignorance.
+  const stripped = (file: string): string =>
+    readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+
+  it("the chat prompt asks the phone before forbidding sleep figures", () => {
+    const chat = stripped("src/lib/claude.ts")
+    const ask = chat.indexOf("phoneNights(")
+    const forbid = chat.indexOf("never state or imply")
+    expect(ask, "claude.ts no longer reads phone sleep at all").toBeGreaterThan(-1)
+    expect(forbid).toBeGreaterThan(-1)
+    expect(ask < forbid, "claude.ts forbids sleep figures before consulting the phone's estimate").toBe(true)
+    expect(chat, "the prohibition must be scoped to RING figures now that phone estimates are offered").toMatch(/imply RING sleep figures/)
+  })
+
+  it("the weekly review names the ring and lists the phone's nights apart", () => {
+    const review = stripped("src/lib/weekly-review.ts")
+    expect(review, "weekly-review.ts no longer reads phone sleep").toContain("phoneNights(")
+    expect(review, "the review's sleep average must say which instrument it averaged").toMatch(/Sleep \(ring\): avg/)
+    // Kept apart on purpose: a motion guess folded into the ring average is
+    // a number that is not a measurement.
+    expect(review).not.toMatch(/avg\(\[\.\.\.thisWeekLogs[^\n]*phone/)
+  })
+})

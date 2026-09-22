@@ -43,6 +43,18 @@ and Settings. Four families, each with a guard that was broken first.
   Mood, Focus, Weight, Strava, GitHub, Last.fm and a Spending toggle for a
   feature removed a release ago were switches wired to nothing. The card
   now offers the four that work and says which email they shape.
+- **Weight, the same disease as mood.** Six readers picked weigh-ins from
+  the ring's column alone: "what does the scale say?" answered "No weight
+  recorded yet" over a year of Body-page weigh-ins, the substance curve and
+  the quick-log box used a stale or missing figure, two achievements never
+  counted a Body-page weigh-in, and the Health card labelled "Latest weight"
+  showed a 7-day mean under that label. All read both tables now, and a
+  tree-walking guard holds it.
+- **Emergy now knows about the phone's nights in chat and in the Sunday
+  review.** The 3.3.4 fix taught the brief; the chat prompt still told him
+  "never state or imply sleep figures" over a night the phone had recorded,
+  and the weekly review averaged "no data". Both consult the phone's
+  estimate first and label it as one — never folded into the ring average.
 - For whoever sweeps next: `.ci/fake-clock.cjs` and `.ci/render-at.mjs`
   render every page with the server's and the browser's clocks both set to
   a chosen instant, which is how the header above was caught.

@@ -43,6 +43,7 @@ import { isFeatureEnabled } from "@/lib/features"
 import { getGoals } from "@/lib/goals"
 import { MobileToday } from "@/components/dashboard/MobileToday"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { latestWeighIn } from "@/lib/weight-series"
 
 const DEFAULT_STEP_GOAL = 8_000
 const DEFAULT_SLEEP_GOAL_H = 7.5
@@ -303,6 +304,9 @@ export default async function DashboardPage() {
 
   // ── health
   const latestHealth = healthLogs[0] ?? null
+  // From either weight table: the newest health row's weight column is
+  // usually null, so the quick-log box opened blank under a week of weigh-ins.
+  const latestWeightKg = await latestWeighIn(userId).then(w => w?.kg ?? null).catch(() => null)
   const sleepLogs = healthLogs.filter(l => l.sleepDuration != null)
   const sleepAvg = sleepLogs.length ? sleepLogs.reduce((s,l) => s+l.sleepDuration!,0)/sleepLogs.length : null
   const stepsLogs = healthLogs.filter(l => l.steps != null)
@@ -786,7 +790,7 @@ export default async function DashboardPage() {
     ),
 
     quicklog: (
-      <QuickLog todayWaterMl={waterMl} latestWeight={latestHealth?.weight ?? null} waterGoalMl={WATER_GOAL_ML} />
+      <QuickLog todayWaterMl={waterMl} latestWeight={latestWeightKg} waterGoalMl={WATER_GOAL_ML} />
     ),
 
     stats: (

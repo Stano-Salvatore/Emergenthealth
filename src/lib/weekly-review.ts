@@ -7,6 +7,7 @@ import { addDaysISO, localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { OPUS } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
+import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
 
 // The weekly review used to be three different things: a Sunday email with
 // bare averages, a dashboard button that asked Haiku for 200 generic words,
@@ -101,8 +102,14 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
     }).catch(() => [] as { name: string | null; type: string; distanceM: number | null; movingTimeSec: number }[]),
   ])
 
+  // The nights the ring missed but the phone estimated. Their own line and
+  // their own count: a motion guess averaged in with ring nights would move
+  // "avg sleep" with a number that is not a measurement.
+  const ringNightDays = new Set(thisWeekLogs.filter(l => l.sleepDuration != null).map(l => l.date.toISOString().slice(0, 10)))
+  const phoneOnly = (await phoneNights(userId, weekStart, new Date(), tz)).filter(n => !ringNightDays.has(n.day))
+
   // Nothing tracked all week — a review would be fiction.
-  if (thisWeekLogs.length === 0 && checkinRows.length === 0) return null
+  if (thisWeekLogs.length === 0 && checkinRows.length === 0 && phoneOnly.length === 0) return null
 
   const daysThisWeek = ((dow + 6) % 7) + 1
   const trackedDays = new Set(thisWeekLogs.map(l => l.date.toISOString().slice(0, 10))).size
@@ -139,7 +146,10 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
 
   const lines: string[] = [
     `Days with wearable data: ${trackedDays}/${daysThisWeek}${trackedDays < daysThisWeek ? " (the rest are gaps, not zeros)" : ""}`,
-    `Sleep: avg ${avgSleepH ?? "no data"}h/night${prevAvgSleepH != null ? ` (last week ${prevAvgSleepH}h)` : ""}`,
+    `Sleep (ring): avg ${avgSleepH ?? "no data"}h/night${prevAvgSleepH != null ? ` (last week ${prevAvgSleepH}h)` : ""}`,
+    phoneOnly.length > 0
+      ? `Nights the ring missed but the phone estimated: ${phoneOnly.map(n => `${n.day} ≈ ${hoursLabel(n.minutes)}`).join(", ")} — motion-based guesses, no stages or score; mention them as the phone's estimate, never fold them into the ring average`
+      : null,
     `HRV: avg ${avgHrv ?? "no data"}ms${prevAvgHrv != null ? ` (last week ${prevAvgHrv}ms)` : ""}`,
     `Readiness: avg ${avgReadiness ?? "no data"}${prevAvgReadiness != null ? ` (last week ${prevAvgReadiness})` : ""}`,
     `Steps: ${totalSteps.toLocaleString()} total${prevTotalSteps > 0 ? ` (last week ${prevTotalSteps.toLocaleString()})` : ""}`,

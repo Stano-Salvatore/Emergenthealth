@@ -29,6 +29,7 @@ import { readSyncStatus } from "@/lib/sync-status-store"
 import { explainBlanks, listPhrase, scopeRemedy, type SyncStatus } from "@/lib/sync-status"
 import { sleepDebt, sleepRegularity } from "@/lib/sleep-rhythm"
 import { loadMoodByDay, moodDay } from "@/lib/mood-series"
+import { loadWeightSeries } from "@/lib/weight-series"
 
 interface StravaActivityRow {
   id: string
@@ -177,7 +178,15 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   const avgSleepMin     = avg(recent7.map(l => l.sleepDuration))
   const avgSteps        = avg(recent7.map(l => l.steps))
   const avgHR           = avg(recent7.map(l => l.restingHR))
-  const avgWeight       = avg(recent7.map(l => l.weight))
+  // Weight from both tables (lib/weight-series), and the card says LATEST,
+  // so it shows the latest reading — it used to show a 7-day mean of the
+  // ring's column under that label.
+  const weightSeries = await loadWeightSeries(userId, 14)
+  const todayISO = localDateStr(timezone)
+  const weightRecent = weightSeries.filter(p => p.date >= addDaysISO(todayISO, -6))
+  const weightPrior = weightSeries.filter(p => p.date < addDaysISO(todayISO, -6))
+  const latestWeight    = weightSeries.length ? weightSeries[weightSeries.length - 1].kg : null
+  const avgWeight       = avg(weightRecent.map(p => p.kg))
   const avgActiveMins   = avg(recent7.map(l => l.activeMinutes))
   const avgReadiness    = avg(recent7.map(l => l.readinessScore))
   const avgHRV          = avg(recent7.map(l => l.hrv))
@@ -212,7 +221,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   const tHRV        = trend(avgHRV, avg(prior7.map(l => l.hrv)), { suffix: "ms", minDelta: 1 })
   const tActivityScore = trend(avgActivityScore, avg(prior7.map(l => l.activityScore)), { minDelta: 1 })
   const tWeight     = (() => {
-    const t = trend(avgWeight, avg(prior7.map(l => l.weight)), { digits: 1, suffix: "kg", minDelta: 0.1 })
+    const t = trend(avgWeight, avg(weightPrior.map(p => p.kg)), { digits: 1, suffix: "kg", minDelta: 0.1 })
     return t ? { text: t.text, good: null } : null   // weight direction isn't inherently good or bad
   })()
 
@@ -359,7 +368,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
             <SummaryCard icon={<Heart className="h-4 w-4 text-red-400" />} label="Avg resting HR"
               value={avgHR != null ? `${Math.round(avgHR)} bpm` : "—"} delta={tHR} />
             <SummaryCard icon={<Scale className="h-4 w-4 text-blue-400" />} label="Latest weight"
-              value={avgWeight != null ? `${avgWeight.toFixed(1)} kg` : "—"} delta={tWeight} />
+              value={latestWeight != null ? `${latestWeight.toFixed(1)} kg` : "—"} delta={tWeight} />
             <SummaryCard icon={<Zap className="h-4 w-4 text-amber-400" />} label="Avg active"
               value={avgActiveMins != null ? `${Math.round(avgActiveMins)} min` : "—"} delta={tActive} />
             <SummaryCard icon={<Shield className="h-4 w-4 text-emerald-400" />} label="Avg readiness"

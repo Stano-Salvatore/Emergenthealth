@@ -530,6 +530,15 @@ Roughly in order, most recent first:
   which asked `/api/mood?days=1` for whatever day the picker was on and
   filtered check-ins by the UTC day of `checkedAt`; `/api/mood` now takes
   `?date=` and merges both tables, so it came off the mood guard's own-list.
+  Then the same walk for weight (`weight-one-place.test.ts`, idiom
+  `weight: { not: null }`, every hit must import `lib/weight-series`) found
+  six lone readers, and the sleep one found that only the brief and the
+  quick answer ever consulted `PhoneSleepSegment`: `lib/phone-sleep.ts` is
+  the one definition of a phone night now (status 0, ≥ 3 h, filed under the
+  day it ended), the chat prompt asks it before forbidding sleep figures and
+  scopes the prohibition to RING figures, and the weekly review lists the
+  phone's nights on their own line rather than averaging a motion guess in
+  with ring nights. `collected-data-is-read.test.ts` pins the order in both.
   And a settings surface of a different shape: `DigestPreferences` offered
   eleven section toggles of which the only reader — `on(key)` in the Sunday
   review email — consulted four; `digest-toggles-honoured.test.ts` holds the

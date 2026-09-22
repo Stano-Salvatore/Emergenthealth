@@ -35,6 +35,7 @@ import { getTodayEvents } from "@/lib/google-calendar"
 import { loadEventOccurrences } from "@/lib/app-events"
 import { mergeDayEvents } from "@/lib/day-events"
 import { sleepDebt, sleepRegularity, MIN_REGULARITY_PAIRS } from "@/lib/sleep-rhythm"
+import { loadWeightSeries } from "@/lib/weight-series"
 
 export interface QuickAnswer {
   /** The reply, in Emergy's voice, with a chart tag on its own line where one earns its place. */
@@ -562,13 +563,13 @@ async function caffeineToday(userId: string, tz: string): Promise<QuickAnswer> {
 
 async function weight(userId: string, tz: string, window: "latest" | "week"): Promise<QuickAnswer> {
   const today = localDateStr(tz)
-  const rows = await prisma.healthLog.findMany({
-    where: { userId, date: { lte: new Date(today + "T00:00:00Z") }, weight: { not: null } },
-    orderBy: { date: "desc" }, take: 120,
-    select: { date: true, weight: true },
-  }).catch(() => [])
-
-  const readings = rows.map(r => ({ day: r.date.toISOString().slice(0, 10), kg: r.weight! }))
+  // Both weight tables (lib/weight-series): the quick "log weight" box and
+  // the Body page's form write different ones, and "No weight recorded yet"
+  // was the answer to a year of tape-measure-and-scale mornings.
+  const readings = (await loadWeightSeries(userId, 120))
+    .filter(p => p.date <= today)
+    .map(p => ({ day: p.date, kg: p.kg }))
+    .reverse()
   if (readings.length === 0) return { reply: "No weight recorded yet.", sources: [] }
 
   const latest = readings[0]

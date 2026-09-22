@@ -6,6 +6,7 @@ import { NextResponse } from "next/server"
 import { getLevel, computeXp, getGithubStats, currentDayStreak } from "@/lib/xp"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { localDateStr } from "@/lib/local-date"
+import { loadWeightSeries } from "@/lib/weight-series"
 
 function longestStreak(sortedDates: string[]): number {
   if (!sortedDates.length) return 0
@@ -109,7 +110,9 @@ export async function GET() {
   const maxLongestStreak = Math.max(0, ...habitStreaks.map(h => h.longestStreak))
 
   // Counts the achievements below still need (XP itself comes from computeXp)
-  const weightLogs = await prisma.healthLog.count({ where: { userId, weight: { not: null } } })
+  // Weigh-in days from both tables (lib/weight-series); the Body page's form
+  // never counted toward "Scale Starter".
+  const weightLogs = (await loadWeightSeries(userId, 3650)).length
   const intakeDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: timezone })
   const intakeDateSet = new Set(intakeDays.map(l => intakeDayFmt.format(l.loggedAt as Date)))
   const supplementDays = (ouraTagDays as { day: string }[]).length

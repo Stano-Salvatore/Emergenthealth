@@ -20,6 +20,7 @@ import {
 } from "@/lib/chat-sources"
 import { addDaysISO, localDateStr, localTimeStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone, userDay } from "@/lib/user-timezone"
+import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
 import { dailyTagsKey, mergeTags, resolveTagDate, MAX_TAGS_PER_DAY } from "@/lib/daily-tags"
 import { resolveReminderWhen, parseHhMm } from "@/lib/reminder-when"
 import { distanceM } from "@/lib/places"
@@ -2541,10 +2542,22 @@ export async function buildSystemPrompt(
   const daysSinceHealth = latestHealthDay
     ? Math.round((new Date(todayStr).getTime() - new Date(latestHealthDay).getTime()) / 86400_000)
     : null
+  // Before telling him the nights are unknown, ask the phone: on exactly the
+  // nights the ring was on its charger, the Sleep API may have an estimate,
+  // and "never imply sleep figures" over a night the app holds is the app
+  // denying what it knows (the 3.3.4 bug, in the prompt that mattered most).
+  const ringGap = latestHealthDay != null && daysSinceHealth != null && daysSinceHealth >= 1
+  const gapFrom = ringGap ? zonedDayRange(tz, addDaysISO(latestHealthDay!, 1)).start : null
+  const phoneGapNights = ringGap && gapFrom
+    ? await phoneNights(userId, gapFrom, new Date(), tz)
+    : []
+  const phoneStr = phoneGapNights.length > 0
+    ? ` The phone's own Sleep API did record ${phoneGapNights.length === 1 ? "that night" : `${phoneGapNights.length} of those nights`}: ${phoneGapNights.map(n => `${n.day} ≈ ${hoursLabel(n.minutes)}`).join(", ")}. That is a motion-based estimate — no stages, no score, not comparable with a ring night — so you may give it as "the phone estimated", never as a measurement.`
+    : ""
   const wearableStr = latestHealthDay == null
     ? "No wearable data recorded at all yet."
-    : daysSinceHealth != null && daysSinceHealth >= 1
-      ? `⚠️ No Oura data for ${daysSinceHealth === 1 ? "last night" : `${daysSinceHealth} days`} — the last recorded night is ${latestHealthDay}. The ring is most likely off the finger or out of battery. Say so once, kindly and briefly, if sleep, readiness or energy comes up; never state or imply sleep figures for the nights that are missing, and don't treat the gap as a bad night.`
+    : ringGap
+      ? `⚠️ No Oura data for ${daysSinceHealth === 1 ? "last night" : `${daysSinceHealth} days`} — the last recorded night is ${latestHealthDay}. The ring is most likely off the finger or out of battery. Say so once, kindly and briefly, if sleep, readiness or energy comes up; never state or imply RING sleep figures for the nights that are missing, and don't treat the gap as a bad night.${phoneStr}`
       : null
 
   // ── Summaries for the newly-visible sources ──────────────────────────────
