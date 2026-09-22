@@ -7,10 +7,14 @@ import { EMAIL_FROM } from "@/lib/email"
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null
 
+// Keys must match what FeedbackForm sends — it says "praise", and for a
+// while this map only knew "love", so every piece of praise notified the
+// owner under the 💬 fallback. feedback-surface.test.ts holds the three
+// copies of this vocabulary (form, this map, the inbox icons) together.
 const TYPE_EMOJI: Record<string, string> = {
   suggestion: "💡",
   bug: "🐛",
-  love: "❤️",
+  praise: "❤️",
 }
 
 /** User-supplied text goes into an HTML email; it must not be able to write HTML. */

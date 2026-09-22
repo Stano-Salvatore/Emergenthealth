@@ -73,9 +73,11 @@ export function trainingLoad(sessions: LoadSession[], today: string): TrainingLo
     // feel like it is not paying attention.
     //
     // Naming the source is the whole fix here: what this cannot see —
-    // walking, the steps the phone counts, anything logged outside Strava —
-    // is now visibly outside the claim rather than silently inside it.
-    resting: "No Strava sessions in the last four weeks (this counts Strava only — walks and step counts are not in it).",
+    // walking, the steps the phone counts — is now visibly outside the claim
+    // rather than silently inside it. Hand-logged workouts DO count: chat's
+    // logWorkout writes them into StravaActivity as source "manual", so the
+    // claim names both feeders instead of pretending Strava is alone.
+    resting: "No training logged in the last four weeks — no Strava sessions and no hand-logged workouts (walks and step counts are not in this).",
     easing: `Lighter week than usual — ${s7} session${s7 === 1 ? "" : "s"}, ${m7} min. Good if it's planned recovery.`,
     steady: `Steady load — ${s7} session${s7 === 1 ? "" : "s"}, ${m7} min this week, in line with your four-week average.`,
     building: s28 > 0 && ratio == null
