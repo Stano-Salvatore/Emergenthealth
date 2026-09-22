@@ -33,6 +33,16 @@ and Settings. Four families, each with a guard that was broken first.
   the score's real components back against the prose.
 - The daily quests also respect habit off-days and skips, use the water
   goal you set, and see weigh-ins from the Body page.
+- **The Journal showed no mood for any day but today**, and none at all on
+  days answered in the check-in: it asked for "the last 24 hours" whatever
+  day the picker was on, from the one table. It asks for the day now, from
+  both. A check-in at 00:30 also filed itself under the day before in the
+  Journal's list; it doesn't any more.
+- **Seven of the eleven digest toggles did nothing.** Only Sleep, Steps,
+  HRV and Habits were ever read, and only by the Sunday review email;
+  Mood, Focus, Weight, Strava, GitHub, Last.fm and a Spending toggle for a
+  feature removed a release ago were switches wired to nothing. The card
+  now offers the four that work and says which email they shape.
 - For whoever sweeps next: `.ci/fake-clock.cjs` and `.ci/render-at.mjs`
   render every page with the server's and the browser's clocks both set to
   a chosen instant, which is how the header above was caught.

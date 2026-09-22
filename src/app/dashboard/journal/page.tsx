@@ -88,9 +88,13 @@ export default function JournalPage() {
 
   async function loadDay(d: string) {
     const [moodRes, noteRes, checkinsRes] = await Promise.all([
-      fetch(`/api/mood?days=1`),
+      // The day asked for, not "the last 24 hours": with ?days=1 the mood
+      // of any earlier day the picker landed on came back empty.
+      fetch(`/api/mood?date=${d}`),
       fetch(`/api/daily-note?date=${d}`),
-      fetch(`/api/checkins?since=${d}T00:00:00Z&limit=50`),
+      // Local midnight, as an instant. `${d}T00:00:00Z` was UTC midnight,
+      // and a check-in at 00:30 here filed under the day before.
+      fetch(`/api/checkins?since=${new Date(`${d}T00:00:00`).toISOString()}&limit=50`),
     ])
 
     if (moodRes.ok) {
@@ -101,7 +105,7 @@ export default function JournalPage() {
     if (noteRes.ok) setNote(await noteRes.json())
     if (checkinsRes.ok) {
       const all: CheckIn[] = await checkinsRes.json()
-      setCheckIns(all.filter(c => c.checkedAt.startsWith(d)))
+      setCheckIns(all.filter(c => localDateStr(new Date(c.checkedAt)) === d))
     }
     setNoteSaveState("idle")
   }

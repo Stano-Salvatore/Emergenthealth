@@ -25,10 +25,9 @@ const walk = (dir: string): string[] =>
     return /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : []
   })
 
-/** Files allowed to touch MoodLog on its own: its writer, the export, and the merge itself. */
+/** Files allowed to touch MoodLog on its own: the export, and the merge itself. */
 const MOOD_LOG_OWN = [
   "src/lib/mood-series.ts",
-  "src/app/api/mood/route.ts",
   "src/app/api/export/route.ts",
 ]
 

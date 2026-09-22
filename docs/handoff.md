@@ -525,6 +525,17 @@ Roughly in order, most recent first:
   reads `COMPONENTS` back against the prose. The insights panel's "check back
   after syncing your Oura ring" named one of three sources.
 
+  The fetch-shape pass (shape 1, every page and component against its
+  route's real response) came back clean everywhere except the Journal,
+  which asked `/api/mood?days=1` for whatever day the picker was on and
+  filtered check-ins by the UTC day of `checkedAt`; `/api/mood` now takes
+  `?date=` and merges both tables, so it came off the mood guard's own-list.
+  And a settings surface of a different shape: `DigestPreferences` offered
+  eleven section toggles of which the only reader — `on(key)` in the Sunday
+  review email — consulted four; `digest-toggles-honoured.test.ts` holds the
+  card's list to the email's, and the Spending toggle (finance came out in
+  3.2) is gone with the other six.
+
   Rendered locally (00:30 and noon, Europe/Bratislava, server and browser
   clocks both shifted) rather than against the Vercel preview: the preview
   needs a real session and the demo cookie exists only in a seeded database.
