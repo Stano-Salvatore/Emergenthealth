@@ -65,7 +65,17 @@ export function trainingLoad(sessions: LoadSession[], today: string): TrainingLo
   else trend = "spiking"
 
   const summary = {
-    resting: "No sessions in the last four weeks.",
+    // "No sessions", unqualified, is a claim about the person. This function
+    // only ever sees Strava activities (loadSessionsForUser reads that table
+    // and nothing else), so it was telling somebody who had walked 12,000
+    // steps the day before that they had not trained in a month. True of the
+    // table, false of them, and the kind of sentence that makes a companion
+    // feel like it is not paying attention.
+    //
+    // Naming the source is the whole fix here: what this cannot see —
+    // walking, the steps the phone counts, anything logged outside Strava —
+    // is now visibly outside the claim rather than silently inside it.
+    resting: "No Strava sessions in the last four weeks (this counts Strava only — walks and step counts are not in it).",
     easing: `Lighter week than usual — ${s7} session${s7 === 1 ? "" : "s"}, ${m7} min. Good if it's planned recovery.`,
     steady: `Steady load — ${s7} session${s7 === 1 ? "" : "s"}, ${m7} min this week, in line with your four-week average.`,
     building: s28 > 0 && ratio == null

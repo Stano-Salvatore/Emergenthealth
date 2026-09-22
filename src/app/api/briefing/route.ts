@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
 
   const yesterdayStart = new Date(todayStart.getTime() - 24 * 3_600_000)
 
-  const [checkinRows, latestHealth, habitRows, intakeRows, foodRows, workoutRows, insightsRow, medTagRows] = await Promise.all([
+  const [checkinRows, latestHealth, stepRows, walkSpans, habitRows, intakeRows, foodRows, workoutRows, insightsRow, medTagRows] = await Promise.all([
     prisma.$queryRaw<{ energy: number; mood: number; intention: string | null }[]>`
       SELECT "energy", "mood", "intention" FROM "MorningCheckIn"
       WHERE "userId" = ${userId} AND "date" = ${todayStr}
@@ -117,6 +117,26 @@ export async function GET(req: NextRequest) {
       orderBy: { date: "desc" },
       select: { sleepDuration: true, readinessScore: true, date: true },
     }).catch(() => null),
+
+    // Steps for today and yesterday, and the movement the phone recognised
+    // as walking.
+    //
+    // Neither was in this prompt, and their absence had a voice: the training
+    // block can say "no sessions in four weeks" — Strava-only — and with no
+    // step count anywhere in the brief there was nothing to stop that reading
+    // as "you have not moved in a month". It said exactly that to somebody who
+    // had walked 12,000 steps around Prague the day before.
+    prisma.healthLog.findMany({
+      where: { userId, date: { gte: new Date(todayStart.getTime() - 86_400_000) } },
+      orderBy: { date: "desc" },
+      select: { date: true, steps: true },
+      take: 2,
+    }).catch(() => [] as { date: Date; steps: number | null }[]),
+
+    prisma.activitySpan.findMany({
+      where: { userId, start: { gte: new Date(todayStart.getTime() - 86_400_000) }, mode: "walk" },
+      select: { start: true, end: true },
+    }).catch(() => [] as { start: Date; end: Date }[]),
 
     prisma.$queryRaw<{ name: string }[]>`
       SELECT h."name"
@@ -235,6 +255,34 @@ export async function GET(req: NextRequest) {
   if (workoutRows.length > 0) {
     const mins = Math.round(workoutRows.reduce((s, w) => s + w.movingTimeSec, 0) / 60)
     lines.push(`Recent training: ${workoutRows.map(w => w.type).join(", ")} (${mins} min total).`)
+  }
+
+  // Movement that is not a logged workout, stated before the training block
+  // so the model reads what the person DID before it reads what Strava
+  // lacks. Walking to the shops is not a session and this does not pretend
+  // otherwise — but a brief that mentions neither, and then says "no
+  // sessions in four weeks", is telling somebody who walked all day that
+  // they have been still.
+  const stepsFor = (offsetDays: number): number | null => {
+    const want = new Date(todayStart.getTime() - offsetDays * 86_400_000).toISOString().slice(0, 10)
+    const row = stepRows.find(r => r.date.toISOString().slice(0, 10) === want)
+    return row?.steps ?? null
+  }
+  const stepsToday = stepsFor(0)
+  const stepsYesterday = stepsFor(1)
+  const walkMin = Math.round(
+    walkSpans.reduce((m, w) => m + Math.max(0, (w.end.getTime() - w.start.getTime()) / 60_000), 0),
+  )
+
+  const movement: string[] = []
+  if (period === "morning") {
+    if (stepsYesterday != null) movement.push(`${stepsYesterday.toLocaleString("en-GB")} steps yesterday`)
+  } else if (stepsToday != null) {
+    movement.push(`${stepsToday.toLocaleString("en-GB")} steps so far today`)
+  }
+  if (walkMin >= 10) movement.push(`${walkMin} min the phone recognised as walking`)
+  if (movement.length > 0) {
+    lines.push(`Movement: ${movement.join(", ")}. This is not a logged workout, and it is still moving — do not call a day like this inactive.`)
   }
 
   // Training load and what readiness says to do with it — only when there is

@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.3.3 — "Four weeks without training" said to someone who'd walked all day
+
+Web only — no new APK.
+
+The training-load line reads Strava and nothing else, and its summary said
+"No sessions in the last four weeks" without saying whose sessions. The daily
+brief pastes that straight into Emergy's prompt — and the brief carried **no
+step count at all**, so there was nothing there to contradict it. The result
+was Emergy telling someone who had walked 12,000 steps around Prague the day
+before that they hadn't trained in a month.
+
+- The summary now names Strava, and says outright that walks and step counts
+  are not in it.
+- The brief now carries your steps and the minutes the phone recognised as
+  walking, with the instruction not to call a day like that inactive. Walking
+  to the shops still isn't a training session — but it isn't stillness either,
+  and the app knew the difference all along without ever saying so.
+
 ## 3.3.2 — Three things a screenshot caught at midnight
 
 All three arrived in one set of screenshots from a real evening, which is

@@ -470,6 +470,21 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **The brief had no steps in it (3.3.3).** `trainingLoad()` reads
+  `StravaActivity` and nothing else — `loadSessionsForUser` is the only feeder
+  — and its resting summary said "No sessions in the last four weeks" without
+  naming the source. `/api/briefing` pastes that line into the prompt, and the
+  prompt contained **no step count whatsoever**, so nothing in it could
+  contradict the reading. Emergy told a person who had walked 12k steps the
+  previous day that they had not trained in a month. Two fixes, because it was
+  two faults: the summary now names Strava and says walks and steps are
+  outside it, and the brief now carries steps (today or yesterday, by period)
+  plus recognised walking minutes with an explicit "do not call a day like
+  this inactive". Guarded in `training-load.test.ts`, broken first. The
+  general lesson is the one this codebase keeps relearning: a sentence
+  measuring one table must name that table, because the reader assumes it
+  measured everything.
+
 - **Three things a screenshot caught at midnight (3.3.2).** The pattern-watch
   message said "tap to see" inside a chat bubble — the string was written for
   the push, whose tap works, and reused on a surface with nothing to tap.
