@@ -55,6 +55,11 @@ and Settings. Four families, each with a guard that was broken first.
   "never state or imply sleep figures" over a night the phone had recorded,
   and the weekly review averaged "no data". Both consult the phone's
   estimate first and label it as one — never folded into the ring average.
+- **Three hydration totals still counted only water.** The intake tab's own
+  tile, the MCP daily summary and the drift report's "drank less alongside"
+  factor filtered rows typed "water", while the dashboard counted every
+  drink at its hydration factor — so a day that ran on tea read as nearly
+  dry on one screen and fine on another. All three use the one helper now.
 - For whoever sweeps next: `.ci/fake-clock.cjs` and `.ci/render-at.mjs`
   render every page with the server's and the browser's clocks both set to
   a chosen instant, which is how the header above was caught.

@@ -13,6 +13,7 @@ import { getUserTimezone, userToday } from "@/lib/user-timezone"
 import { loadMoodByDay, moodDay } from "@/lib/mood-series"
 import { estimateHome, summariseDays, detectTrips, awayVsHome, type DayMetrics } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
+import { sumHydration } from "@/lib/hydration"
 
 export const runtime = "nodejs"
 
@@ -854,7 +855,8 @@ function buildMcpServer(userId: string): McpServer {
         }).catch(() => null),
       ])
 
-      const waterMl = intakeLogs.filter(l => l.type === "water").reduce((s, l) => s + l.amountMl, 0)
+      // Hydration is every drink at its factor (lib/hydration), not the rows typed "water".
+      const waterMl = sumHydration(intakeLogs)
       const coffeeCups = intakeLogs.filter(l => l.type === "coffee").length
       const focusMin = focusSessions.reduce((s, f) => s + f.durationMin, 0)
       const habitsCompleted = habits.filter(h => h.completions.length > 0).length

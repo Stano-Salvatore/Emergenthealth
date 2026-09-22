@@ -539,6 +539,10 @@ Roughly in order, most recent first:
   scopes the prohibition to RING figures, and the weekly review lists the
   phone's nights on their own line rather than averaging a motion guess in
   with ring nights. `collected-data-is-read.test.ts` pins the order in both.
+  Hydration had the same shape one more time: `hydration-one-place.test.ts`
+  walks for `.type === "water"` comparisons and requires `lib/hydration`;
+  the intake overview tile, the MCP daily summary and `drift-load`'s water
+  factor were the three that never got the 3.1 fix.
   And a settings surface of a different shape: `DigestPreferences` offered
   eleven section toggles of which the only reader — `on(key)` in the Sunday
   review email — consulted four; `digest-toggles-honoured.test.ts` holds the
@@ -1054,6 +1058,22 @@ Roughly in order, most recent first:
   is not a substitute for the line an owner needs.
 
 ## Open threads
+
+- **Two writers into one HealthLog row, last one wins.** `/api/sync/health`
+  (Health Connect, hourly while the app is open) upserts `sleepDuration`,
+  `deepSleep`/`remSleep`/`lightSleep`, `steps`, `restingHR`, `caloriesBurned`
+  and `activeMinutes` for a day; `oura-sync.ts` upserts the same columns
+  from the ring. Neither checks who wrote the value it overwrites and the
+  table has no `source` column, so a day's steps can be the ring's at 10:00
+  UTC and the phone's pedometer's an hour later, and a ring night's
+  duration can be replaced by whatever Health Connect holds for that night
+  (Oura's own export via Health Connect, or a watch). Nothing is visibly
+  wrong on a phone where Health Connect's sleep IS Oura's; it is wrong the
+  day a second wearable appears. Found while checking hydration's readers;
+  left alone because which source should win is a product decision, not a
+  bug fix — the honest options are a `source` column with a precedence
+  table, or Health Connect declining to overwrite a non-null ring value for
+  the sleep columns.
 
 - **Health Connect only syncs while the app is on screen.** It is
   `driver: "device"` for an honest reason: `HealthConnectAutoSync` fires on
