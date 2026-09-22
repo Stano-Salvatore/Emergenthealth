@@ -470,6 +470,65 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Where the sweeps had not been (3.3.6).** An adversarial pass over the
+  surfaces 3.3.2–3.3.5 skipped — the dashboard pages' client and server
+  components, the Android bridge, the insights rendering, Settings — looking
+  for the six proven shapes. Four families, every one guarded and every guard
+  broken first:
+
+  1. **Mood read from one table, in seven more places.** `mood-one-place.test.ts`
+     held a hand-written list of readers, and that is exactly the failure it
+     warns about: the Health chart's mood line, the month glyphs, both
+     place-mood comparisons, "mood today vs your average", the daily quests'
+     "Log your mood" (sitting under a check-in quest that had just said
+     "Energy & mood logged") and three MCP tools all read `MoodLog` alone —
+     and since the dashboard's mood buttons came off, the morning check-in is
+     where most moods are answered. All go through `loadMoodByDay` now, and
+     the guard WALKS `src/` for `moodLog.find*` readers instead of naming
+     them. The quests also honour off-days and skips, read the water goal
+     the user set, and find a weigh-in in either weight table.
+  2. **The phone's buffers drained only in Settings.** `drainSensorData` and
+     `drainActivityEvents` were called from `PhoneSensorsCard` and
+     `MotionCard` and nowhere else, so light, pressure, screen moments, the
+     Sleep API's nights and the travel modes reached the server on the days
+     the user opened Settings — and the 3.3.4 phone-sleep fallback read a
+     table that, for anyone who never did, stayed empty on exactly the nights
+     it was built for. `lib/native/phone-uploads.ts` is the one uploader,
+     `NativeBridge` runs it on every foreground, and
+     `collected-data-is-read.test.ts` fails if the bridge stops calling it or
+     a second copy of the POST appears. Web only; the Java is untouched.
+  3. **The server's clock, in three server components and a route.** The
+     Week page built its week from `startOfWeek(new Date())` — UTC on Vercel,
+     so for two hours after every Bratislava midnight "today" was yesterday
+     and on a Monday the page showed last week. The dashboard greeted "Good
+     morning" until 14:00 local, filed calendar events by the server's day,
+     and counted every reminder due today as **overdue** from the moment the
+     day began (`isBefore(dueDate, now)` against a UTC-midnight due date —
+     the Reminders page says in a comment that today's are never overdue).
+     `/api/mood-history` cut its fortnight a day short the same way; the
+     custom-metrics page held "today" in a module-level constant, evaluated
+     once at SSR. `no-utc-day-bucketing.test.ts` now also greps the date-fns
+     spellings — `format(new Date(), "yyyy-MM-dd")` outside a client render,
+     and `isToday`/`isTomorrow`/`isYesterday` in any server file. Its first
+     draft passed against a deliberately broken Week page: a `["']` class in
+     the pattern ended the shell's single quotes. Break it first.
+  4. **The check-in tab at 00:30.** `checkInModeFor(0)` was "morning" — the
+     test even asserted it — so just after midnight the tab opened on "How
+     did you sleep?" for a night not yet slept, and the evening check-in, if
+     switched to, filed "how was today", the places recap and the closed
+     intention under a date thirty minutes old. `DAY_TURNS_AT_HOUR` (05:00)
+     in `checkin-mode.ts` is now the one rule, shared with `/api/emergy`
+     (which had its own literal), and `eveningDayOf()` is the evening's date.
+
+  Also: the Help FAQ described the score daily-score.ts opens by saying it
+  replaced, and a streak rule a year out of date; `help-card-truthful.test.ts`
+  reads `COMPONENTS` back against the prose. The insights panel's "check back
+  after syncing your Oura ring" named one of three sources.
+
+  Rendered locally (00:30 and noon, Europe/Bratislava, server and browser
+  clocks both shifted) rather than against the Vercel preview: the preview
+  needs a real session and the demo cookie exists only in a seeded database.
+
 - **Collected and never read (3.3.4).** Hunting the 3.3.3 bug's whole class
   turned up its twin, one release old and self-inflicted: `PhoneSleepSegment`
   was written by `/api/phone/sensors` and read by nothing. The feature exists
@@ -565,7 +624,10 @@ Roughly in order, most recent first:
 
   All four store-and-forward into SharedPreferences and drain on foreground,
   the same shape as `EmergyActivityReceiver` — they happen while the web layer
-  does not exist. `/api/phone/sensors` takes all three buffers in one request
+  does not exist. (Said here from 3.3.0, true only from 3.3.6: until then the
+  only drains were the two Settings cards, so nothing shipped unless Settings
+  was opened. `lib/native/phone-uploads.ts` is the one uploader now and
+  `NativeBridge` calls it on every foreground.) `/api/phone/sensors` takes all three buffers in one request
   and keys every row by what it is, so the handover and the deterministic id
   fail in opposite directions: one drops, the other doubles, and neither is
   trusted alone.

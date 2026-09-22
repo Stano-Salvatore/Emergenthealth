@@ -29,6 +29,11 @@ export async function loadWeightSeries(userId: string, days = 120): Promise<Weig
 
 /** The most recent reading from either table, or null. */
 export async function latestWeightKg(userId: string): Promise<number | null> {
+  return (await latestWeighIn(userId))?.kg ?? null
+}
+
+/** The most recent reading from either table with the day it was taken, or null. */
+export async function latestWeighIn(userId: string): Promise<WeightPoint | null> {
   const series = await loadWeightSeries(userId, 365)
-  return series.length ? series[series.length - 1].kg : null
+  return series.length ? series[series.length - 1] : null
 }

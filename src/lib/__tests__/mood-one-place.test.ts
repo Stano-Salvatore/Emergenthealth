@@ -18,6 +18,20 @@ const src = (f: string) => readFileSync(f, "utf8")
 const code = (f: string) =>
   src(f).replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ")
 
+/** Every .ts/.tsx under `dir`, tests excluded. */
+const walk = (dir: string): string[] =>
+  readdirSync(dir, { withFileTypes: true }).flatMap(e => {
+    if (e.isDirectory()) return e.name === "__tests__" ? [] : walk(join(dir, e.name))
+    return /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : []
+  })
+
+/** Files allowed to touch MoodLog on its own: its writer, the export, and the merge itself. */
+const MOOD_LOG_OWN = [
+  "src/lib/mood-series.ts",
+  "src/app/api/mood/route.ts",
+  "src/app/api/export/route.ts",
+]
+
 describe("one surface asks it", () => {
   it("the check-in still does", () => {
     const checkin = src("src/app/dashboard/checkin/page.tsx")
@@ -65,19 +79,23 @@ describe("every reader sees both tables", () => {
     // broken: a file may reach MoodLog directly — several predate the helper
     // and read those rows for other columns too — but never WITHOUT also
     // reaching the check-in's. That combination is the silent failure.
-    const everyMoodReader = [
-      ...READERS,
-      "src/lib/correlations.ts",
-      "src/lib/daily-score-load.ts",
-    ]
-    for (const f of everyMoodReader) {
-      const c = code(f)
-      if (!/moodLog\.(findMany|findFirst)/.test(c)) continue
+    //
+    // Found by WALKING src, not from a list. The first version of this test
+    // named five readers by hand, and six more read MoodLog alone the whole
+    // time it passed: the Health chart's mood line, the month glyphs, both
+    // place-mood comparisons, the "mood today vs your average" row and the
+    // daily quests' "Log your mood" — which sat under a check-in quest that
+    // had just said "Energy & mood logged".
+    const readsMoodLog = /moodLog\.(findMany|findFirst|findUnique|count|aggregate|groupBy)/
+    const readers = walk("src").filter(f => readsMoodLog.test(code(f)))
+    expect(readers.length, "no MoodLog reader found at all — the regex is reading nothing").toBeGreaterThan(5)
+    for (const f of readers) {
+      if (MOOD_LOG_OWN.some(o => f.endsWith(o))) continue
       // The parenthesis matters: an unused `import { loadMoodSeries }` left
       // behind by a revert satisfies the bare name and proves nothing. The
       // first draft of this test did exactly that and passed against a reader
       // I had deliberately broken.
-      expect(c, `${f} reads MoodLog and never MorningCheckIn — every check-in mood is invisible to it`)
+      expect(code(f), `${f} reads MoodLog and never MorningCheckIn — every check-in mood is invisible to it`)
         .toMatch(/MorningCheckIn|loadMoodByDay\(|loadMoodSeries\(/)
     }
   })

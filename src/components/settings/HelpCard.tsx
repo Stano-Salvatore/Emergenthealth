@@ -13,11 +13,11 @@ const FAQS = [
   },
   {
     q: "How does the habit streak work?",
-    a: "A streak counts consecutive days where you completed the habit. Missing a day resets the streak to 0. Use Vacation Mode (on the Habits page) to freeze streaks for a set period — perfect for holidays or illness.",
+    a: "A streak counts consecutive scheduled days where you completed the habit. Days the habit isn't scheduled for don't count against it, and a day you skip on purpose (\"not today, because…\") bridges the streak without adding to it. Missing a scheduled day resets it to 0. Use Vacation Mode (on the Habits page) to freeze streaks for a set period — perfect for holidays or illness.",
   },
   {
     q: "What is the wellness score?",
-    a: "The wellness score (0–100) combines four pillars: Sleep (25 pts), Steps (25 pts), Readiness from Oura (25 pts), and Habit completion (25 pts). It gives you a quick daily pulse on how you're doing overall.",
+    a: "The daily score (0–100) is measured against you, not a poster in a gym: 50 is your typical day, higher is better. It combines four parts — Sleep, Recovery, Movement and Mind — each scored against your own recent median, so a person who runs on 7 hours can still score well. A metric that didn't sync is left out rather than counted as zero, and the card says how much of the score it could cover.",
   },
   {
     q: "How do I install the app on my phone?",

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { execSync } from "node:child_process"
+import { readFileSync } from "node:fs"
 
 // A standing guard, not a unit test.
 //
@@ -175,6 +176,113 @@ describe("midnight is the user's midnight, not the server's", () => {
       "",
       "dateColumn for @db.Date columns (HabitCompletion.date, MoodLog.date…),",
       "start/end for timestamp columns (IntakeLog.loggedAt…).",
+    ].join("\n")).toEqual([])
+  })
+})
+
+// ─── The same mistake in date-fns clothing ───────────────────────────────────
+//
+// `format(new Date(), "yyyy-MM-dd")` is `toISOString().slice(0, 10)` with a
+// nicer name: date-fns formats in the PROCESS timezone, which on Vercel is
+// UTC. The Week page built its whole week from `startOfWeek(new Date())`, so
+// for two hours after every Bratislava midnight "today" was yesterday and on
+// a Monday the page showed last week as this one. In a client component the
+// clock is the user's — but only inside a render: a module-level constant is
+// evaluated once, at SSR on the server and then never again in a tab left
+// open past midnight.
+
+// No quote characters in here: the pattern is handed to grep inside single
+// quotes, and the first draft carried a ["'] class that ended the quoting —
+// so it matched nothing and passed against a deliberately broken Week page.
+//
+// Any format of the server's `now` is the server's date, whatever the format
+// string: the dashboard header read "Tuesday, September 22" at 00:30 on the
+// 23rd from `format(now, "EEEE, MMMM d, yyyy")`, which the yyyy-MM-dd-only
+// first version of this pattern walked straight past.
+// A `today` built from the user's date string is fine to format; one that
+// is `new Date()` under another name is caught by its yyyy-MM-dd use.
+const DATEFNS_TODAY = `format\\((new Date\\(\\)|now), ?.|format\\(today, ?.yyyy-MM-dd.\\)`
+
+/** file entries that are correct despite matching. Each needs a reason. */
+const DATEFNS_ALLOWED: string[] = []
+
+describe("date-fns does not decide what day it is on the server either", () => {
+  it("finds no new occurrences", () => {
+    let out = ""
+    try {
+      out = execSync(
+        `grep -rnE '${DATEFNS_TODAY}' src --include=*.ts --include=*.tsx || true`,
+        { encoding: "utf8", cwd: process.cwd() },
+      )
+    } catch {
+      out = ""
+    }
+    const isClientFile = (file: string) => /^\s*["']use client["']/.test(readFileSync(file, "utf8"))
+    const hits = out
+      .split("\n")
+      .map(l => l.trim())
+      .filter(Boolean)
+      .filter(l => !l.includes("__tests__"))
+      .filter(l => !/^\S+?:\d+:\s*(\/\/|\*)/.test(l))
+      .filter(l => !DATEFNS_ALLOWED.some(a => l.startsWith(a)))
+      .filter(l => {
+        const [file, , ...rest] = l.split(":")
+        const code = rest.join(":")
+        // Inside a client component's render the clock is the user's own;
+        // at module scope (no indentation) it is evaluated once, on the server.
+        return !isClientFile(file) || /^(const|let|var)\s/.test(code)
+      })
+
+    expect(hits, [
+      "Something is using the server's day as \"today\" via date-fns.",
+      "",
+      "  server:  const day = await userToday(userId)   // @/lib/user-timezone",
+      "  client:  const day = todayLocalISO()           // @/lib/local-date, inside the render",
+      "",
+      "If this really is correct, add it to DATEFNS_ALLOWED in this file with the reason.",
+    ].join("\n")).toEqual([])
+  })
+})
+
+// ─── isToday() is the same question, asked of the server ─────────────────────
+//
+// date-fns' isToday / isTomorrow / isYesterday compare against the process
+// clock. In a server component on Vercel that is UTC: the dashboard filed an
+// event at 00:30 tomorrow under today, and every reminder due today counted
+// as overdue via isBefore(dueDate, now) against a UTC-midnight due date.
+// Client components may use them — there the clock is the user's.
+
+const DATEFNS_RELATIVE = `\\b(isToday|isTomorrow|isYesterday)\\(`
+const RELATIVE_ALLOWED: string[] = []
+
+describe("date-fns relative-day predicates stay out of server code", () => {
+  it("finds no new occurrences", () => {
+    let out = ""
+    try {
+      out = execSync(
+        `grep -rnE '${DATEFNS_RELATIVE}' src --include=*.ts --include=*.tsx || true`,
+        { encoding: "utf8", cwd: process.cwd() },
+      )
+    } catch {
+      out = ""
+    }
+    const isClientFile = (file: string) => /^\s*["']use client["']/.test(readFileSync(file, "utf8"))
+    const hits = out
+      .split("\n")
+      .map(l => l.trim())
+      .filter(Boolean)
+      .filter(l => !l.includes("__tests__"))
+      .filter(l => !/^\S+?:\d+:\s*(\/\/|\*)/.test(l))
+      .filter(l => !RELATIVE_ALLOWED.some(a => l.startsWith(a)))
+      .filter(l => !isClientFile(l.split(":")[0]))
+
+    expect(hits, [
+      "A server file asks date-fns whether an instant is today — that is the server's today.",
+      "",
+      "  const timezone = await getUserTimezone(userId)",
+      "  const isTodayZ = (d: Date) => localDateStr(timezone, d) === localDateStr(timezone)",
+      "",
+      "If this really is correct, add it to RELATIVE_ALLOWED in this file with the reason.",
     ].join("\n")).toEqual([])
   })
 })

@@ -101,3 +101,45 @@ describe("the brief does not claim ignorance it does not have", () => {
     ).toBe(true)
   })
 })
+
+describe("the phone's buffers are emptied on foreground, not only in Settings", () => {
+  // The rows the guard above insists on being READ have to ARRIVE first.
+  // Light, pressure, screen moments, the Sleep API's nights and the travel
+  // modes are parked natively and shipped only when the web layer asks — and
+  // for a release the only askers were two Settings cards. So the sleep
+  // fallback that 3.3.4 built read a table that stayed empty for anyone who
+  // never opened Settings: written faithfully on the phone, capped, and never
+  // sent. Comments are stripped before matching, because the comment
+  // explaining this bug names the very calls it checks for.
+  const stripped = (file: string): string =>
+    readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+
+  it("NativeBridge ships both buffers every time the app comes to the front", () => {
+    const bridge = stripped("src/components/NativeBridge.tsx")
+    for (const call of ["uploadPhoneSensors(", "uploadActivityEvents("]) {
+      expect(
+        bridge.includes(call),
+        `NativeBridge.tsx no longer calls ${call}). The phone's buffers then reach the server only ` +
+          "while a Settings card is on screen, and the app claims \"no sleep data\" over nights the phone recorded.",
+      ).toBe(true)
+    }
+    // The call has to be inside the foreground handler, not only the mount:
+    // a phone that stays open all day still drains on the next return.
+    const handler = bridge.slice(bridge.indexOf("const onVisible"))
+    expect(handler, "the foreground handler in NativeBridge no longer drains the phone").toMatch(/drainPhone\(\)/)
+  })
+
+  it("one uploader, and it posts to the routes that write the tables", () => {
+    const helper = stripped("src/lib/native/phone-uploads.ts")
+    expect(helper).toContain('"/api/phone/sensors"')
+    expect(helper).toContain('"/api/activity/transitions"')
+    // Nothing else may post those routes: a second copy in a card is how the
+    // drain came to exist only in Settings in the first place.
+    for (const f of sourceFiles(SRC)) {
+      if (f.endsWith("phone-uploads.ts")) continue
+      const c = stripped(f)
+      expect(c, `${f} posts /api/phone/sensors itself; use uploadPhoneSensors()`).not.toContain('"/api/phone/sensors"')
+      expect(c, `${f} posts /api/activity/transitions itself; use uploadActivityEvents()`).not.toContain('"/api/activity/transitions"')
+    }
+  })
+})

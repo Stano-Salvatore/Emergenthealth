@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { loadMoodByDay, moodDay } from "@/lib/mood-series"
 
 export const runtime = "nodejs"
 export const maxDuration = 60 // a year of visits joined to health rows
@@ -136,7 +137,7 @@ export async function GET(req: NextRequest) {
 
   const isMood = metric === "mood"
 
-  const [checkIns, healthLogs, moodLogs] = await Promise.all([
+  const [checkIns, healthLogs, moodByDay] = await Promise.all([
     prisma.$queryRaw<{ checkedAt: Date; place: string; emoji: string; savedPlaceId: string | null }[]>`
       SELECT "checkedAt", "place", "emoji", "savedPlaceId" FROM "CheckIn"
       WHERE "userId" = ${userId}
@@ -163,16 +164,11 @@ export async function GET(req: NextRequest) {
           orderBy: { date: "asc" },
         }),
 
+    // Both mood tables, merged in lib/mood-series. Reading MoodLog alone
+    // left the mood metric with nothing but Emergy's log_mood rows.
     isMood
-      ? prisma.moodLog.findMany({
-          where: {
-            userId,
-            date: { gte: startDate, lte: endDate },
-          },
-          select: { date: true, mood: true },
-          orderBy: { date: "asc" },
-        })
-      : Promise.resolve([]),
+      ? loadMoodByDay(userId, moodDay(startDate), moodDay(endDate))
+      : Promise.resolve(new Map<string, number>()),
   ])
 
   // ── Which places, and which days ──────────────────────────────────────────
@@ -230,10 +226,7 @@ export async function GET(req: NextRequest) {
   const dateMetricMap = new Map<string, number>()
 
   if (isMood) {
-    for (const log of moodLogs) {
-      const dateStr = (log.date as Date).toISOString().slice(0, 10)
-      if (log.mood != null) dateMetricMap.set(dateStr, log.mood)
-    }
+    for (const [dateStr, mood] of moodByDay) dateMetricMap.set(dateStr, mood)
   } else {
     for (const log of healthLogs) {
       const dateStr = (log.date as Date).toISOString().slice(0, 10)

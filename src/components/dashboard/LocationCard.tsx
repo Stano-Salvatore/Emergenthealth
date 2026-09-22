@@ -67,7 +67,7 @@ export async function LocationCard() {
             <MapPin className="h-4 w-4 text-primary" /> Location
           </span>
           <div className="flex items-center gap-1">
-            <span className="text-xs text-muted-foreground">{format(new Date(), "MMM d")}</span>
+            <span className="text-xs text-muted-foreground">{format(new Date(today + "T12:00:00Z"), "MMM d")}</span>
             <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
           </div>
         </div>

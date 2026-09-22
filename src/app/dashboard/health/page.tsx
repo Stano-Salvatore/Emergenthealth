@@ -28,6 +28,7 @@ import { getUserTimezone } from "@/lib/user-timezone"
 import { readSyncStatus } from "@/lib/sync-status-store"
 import { explainBlanks, listPhrase, scopeRemedy, type SyncStatus } from "@/lib/sync-status"
 import { sleepDebt, sleepRegularity } from "@/lib/sleep-rhythm"
+import { loadMoodByDay, moodDay } from "@/lib/mood-series"
 
 interface StravaActivityRow {
   id: string
@@ -116,12 +117,11 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
     select: { date: true, sleepStart: true, sleepEnd: true },
   }).catch(() => [] as { date: Date; sleepStart: Date | null; sleepEnd: Date | null }[])
 
-  const [moodLogs, logs] = await Promise.all([
-    prisma.moodLog.findMany({
-      where: { userId, date: { gte: since30 } },
-      orderBy: { date: "desc" },
-      take: 30,
-    }),
+  const [moodByDay, logs] = await Promise.all([
+    // The mood line on the chart, from both tables. It read MoodLog alone,
+    // and since the dashboard's mood buttons came off, the morning check-in
+    // is where most moods are answered — so the line had quietly emptied.
+    loadMoodByDay(userId, moodDay(since30), "9999-12-31"),
     prisma.healthLog.findMany({
     where: { userId },
     orderBy: { date: "desc" },
@@ -166,9 +166,6 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   }),
   ])
 
-  const moodByDate = Object.fromEntries(
-    moodLogs.map(m => [m.date.toISOString().split("T")[0], m.mood])
-  )
 
   const recent7 = logs.slice(0, 7)
   const prior7  = logs.slice(7, 14)
@@ -258,7 +255,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
     stressHigh:    l.stressHigh ?? null,
     recoveryHigh:  l.recoveryHigh ?? null,
     sedentaryMin:  l.sedentaryTime ?? null,
-    mood:          moodByDate[l.date.toISOString().split("T")[0]] ?? null,
+    mood:          moodByDay.get(moodDay(l.date)) ?? null,
   }))
 
   const latestLog = logs[0] ?? null

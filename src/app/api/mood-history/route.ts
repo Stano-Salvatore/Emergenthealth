@@ -1,16 +1,21 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { format, subDays } from "date-fns"
+import { userToday } from "@/lib/user-timezone"
+import { addDaysISO } from "@/lib/local-date"
+import { format } from "date-fns"
 
 export async function GET(_req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const userId = session.user.id
-  const since = subDays(new Date(), 14)
-  const sinceStr = format(since, "yyyy-MM-dd")
-  const todayStr = format(new Date(), "yyyy-MM-dd")
+  // The user's day: `format(new Date())` on Vercel is UTC, which cut the
+  // last fortnight one day short — today's check-in — for the first hours
+  // of every morning east of Greenwich.
+  const todayStr = await userToday(userId)
+  const sinceStr = addDaysISO(todayStr, -14)
+  const since = new Date(sinceStr + "T00:00:00Z")
 
   // Fetch MoodLog entries (the primary mood source)
   const moodLogs = await prisma.moodLog.findMany({

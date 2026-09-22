@@ -1,5 +1,42 @@
 # Changelog
 
+## 3.3.6 — Where the sweeps had not been
+
+Web only — no new APK. An adversarial pass over the surfaces the last four
+releases skipped: the dashboard pages, the phone bridge, the insights cards
+and Settings. Four families, each with a guard that was broken first.
+
+- **Your check-in moods were invisible to seven screens.** The Health chart's
+  mood line, the month view's glyphs, both "how you feel at this place"
+  comparisons, "mood today vs your average", the daily quests and three of
+  the MCP tools read only the standalone mood log — and since the dashboard's
+  mood buttons came off, the morning check-in is where most moods are
+  answered. The quests card said "Log your mood" all day directly under a
+  check-in quest that had just reported "Energy & mood logged". All read both
+  now, and the guard that was supposed to catch this walks the whole tree
+  instead of a hand-written list of readers.
+- **The phone's sensors only reached the server when you opened Settings.**
+  Light, pressure, screen moments, the phone's own sleep estimate and the
+  travel modes were collected faithfully on the phone and uploaded by two
+  Settings cards and nothing else. The 3.3.4 fix — "the phone knew you
+  slept" — read a table that stayed empty for anyone who never visited
+  Settings. The app now uploads them every time it comes to the front.
+- **Midnight, again.** The Week page showed last week until 02:00 on
+  Mondays and yesterday as today for two hours every night; the dashboard
+  said "Good morning" until two in the afternoon and marked every reminder
+  due today as overdue from the moment the day began; the Check-in tab
+  opened on "How did you sleep?" at 00:30 and, switched to the evening one,
+  filed the day under the new date. All of these now run on your clock and
+  the app's one rule for when the day turns (05:00).
+- **The Help card described a score that no longer exists**, and a streak
+  rule from before off-days and skips. Both rewritten, and a test now reads
+  the score's real components back against the prose.
+- The daily quests also respect habit off-days and skips, use the water
+  goal you set, and see weigh-ins from the Body page.
+- For whoever sweeps next: `.ci/fake-clock.cjs` and `.ci/render-at.mjs`
+  render every page with the server's and the browser's clocks both set to
+  a chosen instant, which is how the header above was caught.
+
 ## 3.3.4 — The phone knew you slept, and the app said it didn't
 
 Web only — no new APK. Found by looking for more of yesterday's bug rather

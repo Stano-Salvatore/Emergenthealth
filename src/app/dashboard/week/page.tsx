@@ -4,7 +4,9 @@ export const metadata: Metadata = { title: "This Week" }
 
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { format, subDays, startOfWeek } from "date-fns"
+import { format } from "date-fns"
+import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
+import { getUserTimezone } from "@/lib/user-timezone"
 import { WeekReviewAI } from "@/components/dashboard/WeekReviewAI"
 import { MoodPatterns } from "@/components/dashboard/MoodPatterns"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -43,13 +45,22 @@ export default async function WeekPage() {
   if (!session?.user?.id) return null
   const userId = session.user.id
 
-  const today = new Date()
-  const weekStart = startOfWeek(today, { weekStartsOn: 1 })
-  const prevWeekStart = subDays(weekStart, 7)
-  const prevWeekEnd = subDays(weekStart, 1)
-
-  const weekStartStr = format(weekStart, "yyyy-MM-dd")
-  const todayStr = format(today, "yyyy-MM-dd")
+  // The user's week, not the server's. `startOfWeek(new Date())` on Vercel
+  // is UTC: for two hours after every Bratislava midnight "today" was still
+  // yesterday, and on a Monday the page showed LAST week as this one until
+  // 02:00. The date columns take UTC-midnight dates; the timestamp columns
+  // take the instant the user's Monday actually began.
+  const timezone = await getUserTimezone(userId)
+  const todayStr = localDateStr(timezone)
+  const dowFromMonday = (new Date(todayStr + "T12:00:00Z").getUTCDay() + 6) % 7
+  const weekStartStr = addDaysISO(todayStr, -dowFromMonday)
+  const dateCol = (day: string) => new Date(day + "T00:00:00Z")
+  const today = dateCol(todayStr)
+  const weekStart = dateCol(weekStartStr)
+  const prevWeekStart = dateCol(addDaysISO(weekStartStr, -7))
+  const prevWeekEnd = dateCol(addDaysISO(weekStartStr, -1))
+  const weekStartAt = zonedDayRange(timezone, weekStartStr).start
+  const now = new Date()
 
   const goals = await getGoals(userId)
   const SLEEP_GOAL_H = goals.sleepH
@@ -85,11 +96,11 @@ export default async function WeekPage() {
     // this page was still doing it, so a week that ran on coffee and mate
     // reported a fraction of what was actually drunk.
     prisma.intakeLog.findMany({
-      where: { userId, loggedAt: { gte: weekStart, lte: today } },
+      where: { userId, loggedAt: { gte: weekStartAt, lte: now } },
       select: { amountMl: true, loggedAt: true, type: true },
     }).catch(() => [] as { amountMl: number; loggedAt: Date; type: string }[]),
     prisma.focusSession.findMany({
-      where: { userId, type: "focus", endedAt: { gte: weekStart, lte: today } },
+      where: { userId, type: "focus", endedAt: { gte: weekStartAt, lte: now } },
       select: { durationMin: true },
     }).catch(() => [] as { durationMin: number }[]),
     prisma.moodLog.findMany({
@@ -172,7 +183,8 @@ export default async function WeekPage() {
     return "😴"
   }
 
-  const weekLabel = `${format(weekStart, "MMM d")} – ${format(today, "MMM d, yyyy")}`
+  // Labelled from noon UTC of each date so the local `format` cannot slide a day.
+  const weekLabel = `${format(new Date(weekStartStr + "T12:00:00Z"), "MMM d")} – ${format(new Date(todayStr + "T12:00:00Z"), "MMM d, yyyy")}`
   // No ring night, no drink, no focus block, no check-in: the KPI row and the
   // day table have nothing to say, and a row of "—" says it worse than a line.
   const weekEmpty = daysInWeek === 0 && thisWeekIntake.length === 0 && thisWeekFocus.length === 0 && checkinCount === 0

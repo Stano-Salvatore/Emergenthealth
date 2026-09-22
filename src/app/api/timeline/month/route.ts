@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { userToday } from "@/lib/user-timezone"
+import { loadMoodByDay } from "@/lib/mood-series"
 import { dayGlyph, monthGrid, type DayGlyph } from "@/lib/day-glyphs"
 
 const dayOf = (d: Date) => d.toISOString().slice(0, 10)
@@ -31,15 +32,15 @@ export async function GET(req: NextRequest) {
   const start = new Date(`${first}T00:00:00.000Z`)
   const end = new Date(`${last}T00:00:00.000Z`)
 
-  const [health, moods, completions, habits, symptoms] = await Promise.all([
+  const [health, moodByDay, completions, habits, symptoms] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: start, lte: end } },
       select: { date: true, sleepScore: true },
     }).catch(() => []),
-    prisma.moodLog.findMany({
-      where: { userId, date: { gte: start, lte: end } },
-      select: { date: true, mood: true },
-    }).catch(() => []),
+    // Both mood tables, through the one merge — the check-in's answer is the
+    // one most days have, and a glyph reading MoodLog alone drew a month of
+    // blank faces for anyone who answers the morning question.
+    loadMoodByDay(userId, first, last),
     prisma.habitCompletion.findMany({
       where: { userId, date: { gte: start, lte: end } },
       select: { date: true, habitId: true },
@@ -57,8 +58,6 @@ export async function GET(req: NextRequest) {
   const sleepByDay = new Map<string, number>()
   for (const h of health) if (h.sleepScore != null) sleepByDay.set(dayOf(h.date), h.sleepScore)
 
-  const moodByDay = new Map<string, number>()
-  for (const m of moods) moodByDay.set(dayOf(m.date), m.mood)
 
   const doneByDay = new Map<string, number>()
   const firstTickByHabit = new Map<string, string>()

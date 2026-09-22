@@ -3,6 +3,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { subDays } from "date-fns"
 import { userToday } from "@/lib/user-timezone"
+import { loadMoodByDay } from "@/lib/mood-series"
 
 export const runtime = "nodejs"
 
@@ -24,7 +25,7 @@ export async function GET() {
   const todayStr = await userToday(userId)
   const since30 = subDays(now, 30)
 
-  const [todayLog, baselineLogs, todayMood, baselineMoods] = await Promise.all([
+  const [todayLog, baselineLogs, moodByDay] = await Promise.all([
     prisma.healthLog.findFirst({
       where: { userId, date: new Date(todayStr + "T00:00:00.000Z") },
       select: { sleepDuration: true, hrv: true, readinessScore: true, steps: true, restingHR: true, sleepEfficiency: true },
@@ -35,15 +36,10 @@ export async function GET() {
       select: { sleepDuration: true, hrv: true, readinessScore: true, steps: true, restingHR: true, sleepEfficiency: true },
     }).catch(() => []),
 
-    prisma.moodLog.findFirst({
-      where: { userId, date: new Date(todayStr + "T00:00:00.000Z") },
-      select: { mood: true },
-    }).catch(() => null),
-
-    prisma.moodLog.findMany({
-      where: { userId, date: { gte: since30 } },
-      select: { mood: true },
-    }).catch(() => []),
+    // Both mood tables, through the one merge. "Mood today vs your average"
+    // read MoodLog alone, so the morning check-in's answer — the one most
+    // days actually have — never showed here.
+    loadMoodByDay(userId, since30.toISOString().slice(0, 10), todayStr),
   ])
 
   function avg(vals: (number | null)[]): number | null {
@@ -103,8 +99,8 @@ export async function GET() {
     {
       label: "Mood",
       key: "mood",
-      today: todayMood?.mood ?? null,
-      baseline: avg(baselineMoods.map(l => l.mood)),
+      today: moodByDay.get(todayStr) ?? null,
+      baseline: avg([...moodByDay.values()]),
       unit: "/5",
       higherIsBetter: true,
     },

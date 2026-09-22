@@ -6,7 +6,9 @@ import {
 } from "@/lib/oura"
 import { classifyOuraTag, INTAKE_KINDS } from "@/lib/oura-tag-classify"
 import { estimateCaffeine } from "@/lib/caffeine"
-import { format, subDays } from "date-fns"
+
+import { userToday } from "@/lib/user-timezone"
+import { addDaysISO } from "@/lib/local-date"
 import { isMeasuredNight } from "@/lib/sleep-quality"
 import type { EndpointOutcome } from "@/lib/sync-status"
 
@@ -24,8 +26,11 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
   if (!ouraToken) return { ok: false, error: "Oura Ring not connected", notConnected: true }
 
   try {
-    const endDate = format(new Date(), "yyyy-MM-dd")
-    const startDate = format(subDays(new Date(), 29), "yyyy-MM-dd")
+    // Oura files a night under the day you wake, in YOUR timezone — so the
+    // window ends on the user's day, not the server's UTC one, which for a
+    // sync just after a Bratislava midnight left tonight's tags out.
+    const endDate = await userToday(userId)
+    const startDate = addDaysISO(endDate, -29)
 
     // allSettled, not all: these three are newer endpoints, and a plan or scope
     // that does not include one of them must not take the whole sync down with
