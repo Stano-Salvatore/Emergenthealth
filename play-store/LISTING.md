@@ -65,7 +65,22 @@ with what is actually submitted.
 Play caps this field at 500 characters. Write it from `CHANGELOG.md`, and say
 what changed for the person holding the phone — not what changed in the repo.
 
-### V3.1 (current)
+### V3.3 (current)
+
+> ✨ V3.3
+> • New insights: how time in transit affects your mood and sleep, whether falling air pressure tracks your symptoms, and what a drink does to your breathing at night
+> • Waist measurements now count toward body insights
+> • Your phone can detect sleep on nights you skip the ring
+> • Background tracking and the floating chat head no longer stop quietly
+> More lands every few weeks. 🌱
+
+<!-- 383 characters. Deliberately silent about the phone's light and pressure
+     sensors: 3.3.0 started COLLECTING them and no insight reads them yet, so
+     naming them here would sell a feature the build does not have — the same
+     rule as the held-back features above. They get a line in the release that
+     ships their correlations. -->
+
+### V3.1
 
 > ✨ V3.1
 > • Sleep regularity, and one honest figure for sleep debt
