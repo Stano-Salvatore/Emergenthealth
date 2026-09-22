@@ -17,6 +17,13 @@ Web only — no new APK.
   its question is aimed at that shift — "HRV is down to 44 ms from 52 ms.
   Did something change that isn't in the app?" — on the card, in the push
   and in chat alike.
+- **Figures you can find.** Emergy's replies and the daily brief are prose
+  with the numbers buried in it. Every figure now renders bold and in the
+  hue of what it measures — sleep hours indigo, HRV and readiness rose,
+  steps and kilometres lime, litres and milligrams cyan, mood and energy
+  violet — the same identity colours the rest of the app uses, never a
+  verdict colour. A number that merely counts ("14 days") stays as prose.
+  The pattern-watch chat message also gained the full stop it was missing.
 - **The ring wins where it speaks.** Health Connect and the Oura sync wrote
   the same daily row and the last one to sync won, hourly. Now a row the
   ring has written keeps the ring's sleep, steps and resting heart rate,

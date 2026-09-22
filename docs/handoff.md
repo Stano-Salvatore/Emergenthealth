@@ -489,6 +489,15 @@ Roughly in order, most recent first:
   is set — `phoneFieldsRespectingRing` is pure and tested, and the guard
   holds both writers to it.
 
+  Also in 3.4.0: `lib/figure-marks.ts` finds the figures in a sentence and
+  tags each with its domain by unit (`h`, `ms`, `km`, `ml`, `/5`…) or by the
+  nearest domain word back to the start of the sentence ("readiness is up at
+  73", "REM sleep averages 65 min"); `ChatMarkdown` and `DailyBriefing` render
+  them bold, tabular and in the identity hue. Identity only — the file is
+  guarded against status colours — because a green "6.0h" would be the colour
+  concluding what the words did not. A bare number counting things ("14
+  days") is left as prose on purpose.
+
 - **Where the sweeps had not been (3.3.6).** An adversarial pass over the
   surfaces 3.3.2–3.3.5 skipped — the dashboard pages' client and server
   components, the Android bridge, the insights rendering, Settings — looking

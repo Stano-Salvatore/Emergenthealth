@@ -1,20 +1,36 @@
 import React from "react"
 import { ChatChart } from "@/components/emergy/ChatChart"
+import { figureClass, markFigures } from "@/lib/figure-marks"
 
 // Minimal markdown for Emergy's replies: **bold**, *italic*, `figures`,
 // "- " bullets, "## " headings and "> " quotes from the user's own journal.
 // Streaming-safe — unmatched markers render as plain text until closed.
 //
-// Nothing here is tinted with a status colour. Green means "on target" across
+// Nothing here is tinted with a STATUS colour. Green means "on target" across
 // the app (design/handoff/README.md), so a green figure inside a sentence
-// arguing the opposite would contradict the words around it. The source chips
-// under a reply carry the hue instead.
+// arguing the opposite would contradict the words around it. Figures do take
+// their IDENTITY hue — sleep hours indigo, HRV rose, litres cyan — which is
+// the palette rule applied to prose (lib/figure-marks), and is what makes
+// "you're running on 6.0h and 5.9h" findable at a glance on a phone.
 
 const INLINE_RE = /(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`]+`)/g
 
-function renderInline(text: string): React.ReactNode {
+/** Plain prose with its figures bold, tabular and in their domain hue. */
+export function Figures({ text }: { text: string }) {
+  const segs = markFigures(text)
+  if (segs.length === 1 && !segs[0].figure) return <>{text}</>
+  return (
+    <>
+      {segs.map((s, i) => s.figure
+        ? <span key={i} className={figureClass(s.domain)}>{s.text}</span>
+        : <React.Fragment key={i}>{s.text}</React.Fragment>)}
+    </>
+  )
+}
+
+export function renderInline(text: string): React.ReactNode {
   const parts = text.split(INLINE_RE)
-  if (parts.length === 1) return text
+  if (parts.length === 1) return <Figures text={text} />
   return parts.map((part, i) => {
     // Recurse: he writes **`500ml`** often enough, and without this the inner
     // figure never got parsed — the backticks rendered as literal characters
@@ -30,9 +46,9 @@ function renderInline(text: string): React.ReactNode {
     // Tabular figures are the only treatment left, so digits still line up
     // down a column of bullets.
     if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
-      return <span key={i} className="tabular-nums">{part.slice(1, -1)}</span>
+      return <span key={i} className="tabular-nums"><Figures text={part.slice(1, -1)} /></span>
     }
-    return part
+    return <Figures key={i} text={part} />
   })
 }
 

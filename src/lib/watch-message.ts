@@ -27,6 +27,6 @@ export function watchBodies(changes: Change[]): { push: string; chat: string } {
     push: `${changes.length} patterns changed — tap to see.`,
     chat: `${changes.length} patterns changed. One of them ${first.reason === "is now a solid pattern"
       ? "is solid now"
-      : first.reason}: ${first.finding} The rest are on your insights page.`,
+      : first.reason}: ${first.finding.replace(/[.\s]*$/, "")}. The rest are on your insights page.`,
   }
 }
