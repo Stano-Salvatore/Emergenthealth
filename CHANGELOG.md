@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.4.0 — Tonight's brief, one thing to say, and the ring wins where it speaks
+
+Web only — no new APK.
+
+- **Tonight's brief.** After 17:00 the Brief page reads like the phone's own
+  night brief: one line about tonight, a two-day outlook (tonight's low,
+  tomorrow's high and low, rain chance), "You have N events tomorrow" from
+  Google and the app's own calendar, and how today's targets ended — steps,
+  hydration and habits as rings against the goals you set — with when the
+  ring or phone last synced. Each part comes from its own source and is
+  absent, not invented, when that source has nothing.
+- **The drift card says one thing first.** It used to open on a table of
+  every shift; now it leads with the one that matters most (worse before
+  better, the most certain first), folds the rest under "N more moved", and
+  its question is aimed at that shift — "HRV is down to 44 ms from 52 ms.
+  Did something change that isn't in the app?" — on the card, in the push
+  and in chat alike.
+- **The ring wins where it speaks.** Health Connect and the Oura sync wrote
+  the same daily row and the last one to sync won, hourly. Now a row the
+  ring has written keeps the ring's sleep, steps and resting heart rate,
+  and the phone fills only what the ring left blank.
+
 ## 3.3.6 — Where the sweeps had not been
 
 Web only — no new APK. An adversarial pass over the surfaces the last four

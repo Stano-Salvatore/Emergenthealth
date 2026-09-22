@@ -146,6 +146,10 @@ model HealthLog {
   restingHR Int?
   weight    Float?
 
+  /// When the ring last wrote this row. While set, Health Connect fills only
+  /// the columns the ring left null (lib/health-precedence).
+  ringAt DateTime?
+
   // Oura extended metrics
   readinessScore       Int?
   hrv                  Float?

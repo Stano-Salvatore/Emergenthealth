@@ -211,6 +211,9 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         ...(v?.vo2Max             != null && { vo2Max:               v.vo2Max }),
         ...(res?.level            != null && { resilienceLevel:      res.level }),
         syncedAt: new Date(),
+        // The ring has spoken for this day: Health Connect may now only fill
+        // what it left null (lib/health-precedence).
+        ringAt: new Date(),
       }
 
       return prisma.healthLog.upsert({

@@ -215,21 +215,48 @@ function factorLine(f: FactorShift): string {
 }
 
 /**
+ * The one shift worth leading with.
+ *
+ * Worse before better — it is the half someone came to this card to find —
+ * and within a half, the most certain first. The card, the push and the chat
+ * tool all open on this one, so a report with five shifts still says one
+ * thing before it says the rest.
+ */
+export function leadShift(r: DriftReport): MetricShift | null {
+  if (r.shifts.length === 0) return null
+  const rank = (s: MetricShift) => (s.verdict === "worse" ? 0 : s.verdict === "better" ? 1 : 2)
+  return [...r.shifts].sort((a, b) => rank(a) - rank(b) || a.p - b.p)[0]
+}
+
+/** "Sleep score is down to 74 from 78" — the lead shift as a clause. */
+export function leadClause(s: MetricShift): string {
+  const dir = s.delta > 0 ? "up" : "down"
+  return `${s.label} is ${dir} to ${fmtDrift(s.recentMean, s.unit)} from ${fmtDrift(s.priorMean, s.unit)}`
+}
+
+/**
  * The question the comparison ends on, and the reason it exists.
  *
- * It changes with whether anything the user logged can account for the shift:
- * with candidates it asks them to pick, without them it asks what the app
- * never saw. Emergy can now write the answer back as a tag on the days it
- * describes (log_tag), which is what turns this from a rhetorical flourish
- * into the start of the onset family's next card.
+ * It is aimed at the lead shift rather than at "it": the previous version
+ * asked "did something change?" about a list, and a question about a list is
+ * a question nobody answers. It still changes with whether anything the user
+ * logged can account for the shift: with candidates it asks them to pick,
+ * without them it asks what the app never saw. Emergy can write the answer
+ * back as a tag on the days it describes (log_tag), which is what turns this
+ * from a rhetorical flourish into the start of the onset family's next card.
  *
  * One copy, because the push, the chat tool and the card all ask it, and three
  * near-identical questions would read as three different features.
  */
-export function driftQuestion(r: DriftReport): string {
+export function driftQuestionTail(r: DriftReport): string {
   return r.factors.length === 0
     ? "Nothing logged accounts for it — did something change that isn't in the app?"
     : "Does one of these ring true, or was it something else?"
+}
+
+export function driftQuestion(r: DriftReport): string {
+  const lead = leadShift(r)
+  return `${lead ? `${leadClause(lead)}. ` : ""}${driftQuestionTail(r)}`
 }
 
 export interface DriftText {
@@ -258,15 +285,19 @@ export function renderDrift(
 
   const better = r.shifts.filter(s => s.verdict === "better")
   const worse = r.shifts.filter(s => s.verdict === "worse")
-  const lead = [...better, ...worse].sort((a, b) => a.p - b.p)[0]
+  const lead = leadShift(r) ?? r.shifts[0]
 
+  // The question already names the lead shift, so the headline does not
+  // name it twice: the numbers, then the count, then the candidates, then
+  // the aimed question.
   const question = driftQuestion(r)
+  const tail = driftQuestionTail(r)
 
   const candidates = r.factors.slice(0, 2).map(factorLine).join(", ")
   let headline = `${recentName} vs ${priorName}: ${shiftLine(lead)}.`
   if (r.shifts.length > 1) headline += ` ${r.shifts.length - 1} more moved.`
   if (candidates) headline += ` Changed alongside: ${candidates}.`
-  headline += ` ${question}`
+  headline += ` ${tail}`
   if (headline.length > 296) headline = headline.slice(0, 293).replace(/\s+\S*$/, "") + "…"
 
   const lines = [

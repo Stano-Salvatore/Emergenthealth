@@ -470,6 +470,25 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Tonight's brief, one thing to say, the ring wins (3.4.0).** Three
+  features, all web. `/api/today` now also returns `tomorrow` (Google via
+  `getEventsInRange` merged with `loadEventOccurrences` by `mergeDayEvents`),
+  `daily` (Open-Meteo's two-day max/min/code/rain), and `targets` (steps
+  against `goals.steps`, `sumHydration` against `goals.waterMl`, habits due
+  by `isDueOn` with skips counted done, and the newest ok sync of `oura` or
+  `health-connect` as `lastSyncedAt`); `BriefView`'s evening layout is built
+  from those and `brief-evening.test.ts` holds the two files to one
+  vocabulary. It says nothing about tomorrow's calendar when the list is
+  empty, because an unlinked calendar and a free day look identical there.
+  `leadShift()` in `drift.ts` is the one shift the card, the push and the
+  chat tool open on (worse before better, then by p); `driftQuestion` names
+  it and `driftQuestionTail` is the shared ending the push must still end
+  on. And `lib/health-precedence.ts` closes the two-writers thread below:
+  `HealthLog.ringAt` marks a row the ring has written, `oura-sync` sets it,
+  and `/api/sync/health` writes only the columns the ring left null while it
+  is set — `phoneFieldsRespectingRing` is pure and tested, and the guard
+  holds both writers to it.
+
 - **Where the sweeps had not been (3.3.6).** An adversarial pass over the
   surfaces 3.3.2–3.3.5 skipped — the dashboard pages' client and server
   components, the Android bridge, the insights rendering, Settings — looking
@@ -1059,21 +1078,12 @@ Roughly in order, most recent first:
 
 ## Open threads
 
-- **Two writers into one HealthLog row, last one wins.** `/api/sync/health`
-  (Health Connect, hourly while the app is open) upserts `sleepDuration`,
-  `deepSleep`/`remSleep`/`lightSleep`, `steps`, `restingHR`, `caloriesBurned`
-  and `activeMinutes` for a day; `oura-sync.ts` upserts the same columns
-  from the ring. Neither checks who wrote the value it overwrites and the
-  table has no `source` column, so a day's steps can be the ring's at 10:00
-  UTC and the phone's pedometer's an hour later, and a ring night's
-  duration can be replaced by whatever Health Connect holds for that night
-  (Oura's own export via Health Connect, or a watch). Nothing is visibly
-  wrong on a phone where Health Connect's sleep IS Oura's; it is wrong the
-  day a second wearable appears. Found while checking hydration's readers;
-  left alone because which source should win is a product decision, not a
-  bug fix — the honest options are a `source` column with a precedence
-  table, or Health Connect declining to overwrite a non-null ring value for
-  the sleep columns.
+- ~~**Two writers into one HealthLog row, last one wins.**~~ Closed in
+  3.4.0 by `lib/health-precedence.ts`: the ring wins where it speaks
+  (`HealthLog.ringAt`), the phone fills what it left null. What remains
+  open is the reverse case — a user with Health Connect only, whose row
+  never carries `ringAt`, still gets last-writer-wins between Health
+  Connect's own sources, which is Health Connect's job to arbitrate.
 
 - **Health Connect only syncs while the app is on screen.** It is
   `driver: "device"` for an honest reason: `HealthConnectAutoSync` fires on

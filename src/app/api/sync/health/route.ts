@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { phoneFieldsRespectingRing } from "@/lib/health-precedence"
 
 export const maxDuration = 60 // Health Connect batches
 
@@ -37,30 +38,38 @@ export async function POST(req: NextRequest) {
       ? (Number(deepSleepMin ?? 0) + Number(remMin ?? 0) + Number(lightSleepMin ?? 0))
       : undefined
 
+  const incoming = {
+    sleepDuration,
+    deepSleep: deepSleepMin != null ? Number(deepSleepMin) : undefined,
+    remSleep: remMin != null ? Number(remMin) : undefined,
+    lightSleep: lightSleepMin != null ? Number(lightSleepMin) : undefined,
+    steps: steps != null ? Number(steps) : undefined,
+    caloriesBurned: caloriesBurned != null ? Number(caloriesBurned) : undefined,
+    activeMinutes: activeMinutes != null ? Number(activeMinutes) : undefined,
+    restingHR: restingHR != null ? Number(restingHR) : undefined,
+  }
+
+  // The ring wins where it speaks. This route used to overwrite whatever the
+  // ring had written for the day, hourly — see lib/health-precedence.
+  const existing = await prisma.healthLog.findUnique({
+    where: { userId_date: { userId: session.user.id, date: dateObj } },
+    select: {
+      ringAt: true, sleepDuration: true, deepSleep: true, remSleep: true, lightSleep: true,
+      steps: true, caloriesBurned: true, activeMinutes: true, restingHR: true,
+    },
+  }).catch(() => null)
+  const allowed = phoneFieldsRespectingRing(existing, incoming)
+
   const log = await prisma.healthLog.upsert({
     where: { userId_date: { userId: session.user.id, date: dateObj } },
     create: {
       userId: session.user.id,
       date: dateObj,
-      sleepDuration,
-      deepSleep: deepSleepMin != null ? Number(deepSleepMin) : undefined,
-      remSleep: remMin != null ? Number(remMin) : undefined,
-      lightSleep: lightSleepMin != null ? Number(lightSleepMin) : undefined,
-      steps: steps != null ? Number(steps) : undefined,
-      caloriesBurned: caloriesBurned != null ? Number(caloriesBurned) : undefined,
-      activeMinutes: activeMinutes != null ? Number(activeMinutes) : undefined,
-      restingHR: restingHR != null ? Number(restingHR) : undefined,
+      ...incoming,
       workouts: workouts ?? undefined,
     },
     update: {
-      sleepDuration,
-      deepSleep: deepSleepMin != null ? Number(deepSleepMin) : undefined,
-      remSleep: remMin != null ? Number(remMin) : undefined,
-      lightSleep: lightSleepMin != null ? Number(lightSleepMin) : undefined,
-      steps: steps != null ? Number(steps) : undefined,
-      caloriesBurned: caloriesBurned != null ? Number(caloriesBurned) : undefined,
-      activeMinutes: activeMinutes != null ? Number(activeMinutes) : undefined,
-      restingHR: restingHR != null ? Number(restingHR) : undefined,
+      ...allowed,
       workouts: workouts ?? undefined,
       syncedAt: new Date(),
     },

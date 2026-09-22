@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
-import { driftQuestion, fmtDrift, renderDrift, type DriftReport } from "@/lib/drift"
+import { driftQuestion, driftQuestionTail, fmtDrift, renderDrift, type DriftReport } from "@/lib/drift"
 import { rollingWindows, calendarWindows } from "@/lib/drift-load"
 
 // The month-on-month comparison is the app's most careful one — every shift
@@ -42,11 +42,21 @@ describe("one question, asked the same way everywhere", () => {
 
   it("is the same sentence the push and the chat tool end on", () => {
     // The failure this prevents: three surfaces each growing their own
-    // phrasing, so the same feature reads as three.
+    // phrasing, so the same feature reads as three. The card's and the chat
+    // tool's question opens by naming the lead shift; the push has already
+    // named it in its own first clause, so it ends on the shared tail alone.
     for (const r of [report(), report({ factors: [{ label: "Magnesium", unit: "days", recent: 24, prior: 4 }] })]) {
-      expect(renderDrift(r)!.headline).toContain(driftQuestion(r))
+      const tail = driftQuestionTail(r)
+      expect(driftQuestion(r).endsWith(tail)).toBe(true)
+      expect(renderDrift(r)!.headline.endsWith(tail)).toBe(true)
       expect(renderDrift(r)!.detail).toContain(driftQuestion(r))
     }
+  })
+
+  it("aims the question at the lead shift, worse before better", () => {
+    const worse = shift({ key: "hrv", label: "HRV", unit: "ms", recentMean: 44, priorMean: 52, delta: -8, p: 0.03, verdict: "worse" })
+    const q = driftQuestion(report({ shifts: [shift(), worse] }))
+    expect(q).toMatch(/^HRV is down to 44 ms from 52 ms\. /)
   })
 
   it("the card takes the question rather than writing one", () => {
