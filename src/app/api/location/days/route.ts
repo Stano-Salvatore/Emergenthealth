@@ -15,12 +15,12 @@ import {
   type DatedPoint, type DayMetrics,
 } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
+import { loadMoodByDay } from "@/lib/mood-series"
 
 const DEFAULT_DAYS = 180
 const MAX_DAYS = 730
 
 type HealthRow = { date: Date; readinessScore: number | null; sleepDuration: number | null; hrv: number | null }
-type MoodRow = { date: Date; mood: number }
 
 const dayOf = (d: Date) => d.toISOString().slice(0, 10)
 
@@ -33,17 +33,17 @@ export async function GET(req: NextRequest) {
   const window = Number.isFinite(asked) && asked > 0 ? Math.min(asked, MAX_DAYS) : DEFAULT_DAYS
   const since = new Date(Date.now() - window * 24 * 60 * 60 * 1000)
 
-  const [timezone, loaded, healthLogs, moodLogs] = await Promise.all([
+  const [timezone, loaded, healthLogs, moodByDay] = await Promise.all([
     getUserTimezone(userId),
     loadCoarsePoints(userId, since),
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since } },
       select: { date: true, readinessScore: true, sleepDuration: true, hrv: true },
     }).catch(() => [] as HealthRow[]),
-    prisma.moodLog.findMany({
-      where: { userId, date: { gte: since } },
-      select: { date: true, mood: true },
-    }).catch(() => [] as MoodRow[]),
+    // Mood lives in two tables; the merge in lib/mood-series is the only
+    // reader that sees both, and "away days did to mood" measured from the
+    // standalone log alone missed every check-in answer.
+    loadMoodByDay(userId, since.toISOString().slice(0, 10), "9999-12-31"),
   ])
 
   const dated: DatedPoint[] = loaded.points
@@ -73,11 +73,10 @@ export async function GET(req: NextRequest) {
       mood: null,
     })
   }
-  for (const m of moodLogs as MoodRow[]) {
-    const key = dayOf(m.date)
+  for (const [key, mood] of moodByDay) {
     const row = metrics.get(key)
-    if (row) row.mood = m.mood
-    else metrics.set(key, { sleepHours: null, readiness: null, hrv: null, mood: m.mood })
+    if (row) row.mood = mood
+    else metrics.set(key, { sleepHours: null, readiness: null, hrv: null, mood })
   }
 
   return NextResponse.json({

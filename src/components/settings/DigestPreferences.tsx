@@ -40,18 +40,19 @@ const defaultPrefs: DigestPrefs = {
   thresholds: { minDays: 3 },
 }
 
+// Only the tiles the Sunday review email actually consults (`on(key)` in
+// api/cron/emergy-weekly-review). Eleven toggles used to sit here; seven of
+// them — mood, focus, weight, Strava, GitHub, Last.fm and a Spending one for
+// a feature that no longer exists — were written to the preference and read
+// by nothing, so a person switching Mood off watched a control that did
+// nothing. The stored JSON still tolerates the old keys; they are just not
+// offered as a promise the email cannot keep. digest-toggles-honoured.test.ts
+// holds this list to the email's.
 const SECTION_META: { key: keyof DigestSections; emoji: string; label: string }[] = [
   { key: "sleep",    emoji: "😴", label: "Sleep" },
   { key: "steps",    emoji: "👣", label: "Steps" },
   { key: "hrv",      emoji: "💓", label: "HRV" },
   { key: "habits",   emoji: "✅", label: "Habits" },
-  { key: "mood",     emoji: "😊", label: "Mood" },
-  { key: "focus",    emoji: "🎯", label: "Focus" },
-  { key: "weight",   emoji: "⚖️", label: "Weight" },
-  { key: "strava",   emoji: "🚴", label: "Strava" },
-  { key: "github",   emoji: "💻", label: "GitHub" },
-  { key: "spending", emoji: "💰", label: "Spending" },
-  { key: "lastfm",   emoji: "🎵", label: "Last.fm" },
 ]
 
 export function DigestPreferences() {
@@ -113,7 +114,8 @@ export function DigestPreferences() {
           {saveStatus === "saved" && <span className="text-[11px] font-normal text-green-400">Saved</span>}
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Choose which stats appear in your weekly review email
+          Which stat tiles the Sunday review email carries under Emergy&apos;s write-up. The
+          digest you send yourself below always includes all four.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">

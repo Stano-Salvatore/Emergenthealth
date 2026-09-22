@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Loader2, Ruler } from "lucide-react"
 import { computeTargets } from "@/lib/targets"
 import { todayLocalISO } from "@/lib/local-date"
+import { sumHydration } from "@/lib/hydration"
 
 interface Micronutrient { name: string; amount: number; unit: string; dailyPct: number }
 interface FoodLogLite {
@@ -47,7 +48,10 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
       ])
       if (intakeRes.ok) {
         const logs: { type: string; amountMl: number }[] = await intakeRes.json()
-        setWaterMl(logs.filter(l => l.type === "water" || l.type === "sparkling").reduce((s, l) => s + l.amountMl, 0))
+        // Every hydrating drink at its factor (lib/hydration), the same total
+        // the dashboard shows — this tab counted water and sparkling only, so
+        // a day that ran on tea and coffee read as nearly dry here and fine there.
+        setWaterMl(sumHydration(logs))
       }
       if (cafRes.ok) setCaffeine(await cafRes.json())
       if (foodRes.ok) {

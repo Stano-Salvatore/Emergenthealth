@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Check, Loader2, MapPin, Plus, X } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { localDayOf, tomorrowOf, SYMPTOM_STARTERS, SYMPTOM_SEVERITY } from "@/lib/checkin-mode"
+import { eveningDayOf, tomorrowOf, SYMPTOM_STARTERS, SYMPTOM_SEVERITY } from "@/lib/checkin-mode"
 import { resyncNotifications } from "@/lib/native/notifications"
 
 // The other end of the day.
@@ -105,7 +105,9 @@ export function EveningCheckIn() {
   const [draft, setDraft] = useState("")
   const [saving, setSaving] = useState(false)
 
-  const today = localDayOf()
+  // Yesterday's date until 05:00: an evening that runs past midnight is
+  // still that evening, and everything below files under it.
+  const today = eveningDayOf()
 
   // Today's automatic check-ins, so the recap is what actually happened rather
   // than a question. Nothing to answer here — it is the map's own record, and
@@ -189,7 +191,7 @@ export function EveningCheckIn() {
       // Tomorrow's list becomes real reminders with a real date, so they show
       // up on the Reminders page and the phone schedules them — a note to self
       // that only this screen remembers is the thing being replaced here.
-      const due = tomorrowOf()
+      const due = tomorrowOf(new Date(`${today}T12:00:00`))
       for (const title of tomorrow) {
         await fetch("/api/reminders", {
           method: "POST",

@@ -10,6 +10,7 @@ import {
   DRIFT_METRICS, judgeFactors, judgeMetric,
   type DayValue, type DriftReport, type Window,
 } from "@/lib/drift"
+import { hydrationMl } from "@/lib/hydration"
 
 /** The last 30 days against the 30 before — the chat's window. */
 export function rollingWindows(today: string): { recent: Window; prior: Window } {
@@ -124,8 +125,13 @@ export async function loadDriftReport(userId: string, timezone: string, windows:
   const waterByDay = new Map<string, number>()
   for (const i of intake) {
     const d = localDateStr(timezone, i.loggedAt)
-    if (i.type === "water") waterByDay.set(d, (waterByDay.get(d) ?? 0) + i.amountMl)
-    else if (i.type === "coffee" || i.type === "alcohol" || i.type === "beer" || i.type === "wine") add(i.type === "beer" || i.type === "wine" ? "alcohol" : i.type, d)
+    // Hydration counts every drink at its factor (lib/hydration); a coffee
+    // is both a hydrating volume and a factor of its own, so the two are not
+    // an either/or. Filtering on "water" alone reported "drank less" for a
+    // month that had merely switched to tea.
+    const ml = hydrationMl(i.type, i.amountMl)
+    if (ml > 0) waterByDay.set(d, (waterByDay.get(d) ?? 0) + ml)
+    if (i.type === "coffee" || i.type === "alcohol" || i.type === "beer" || i.type === "wine") add(i.type === "beer" || i.type === "wine" ? "alcohol" : i.type, d)
   }
 
   const factors = judgeFactors({ daysByLabel, workoutDays: workouts.map(w => w.day), waterByDay }, prior, recent)

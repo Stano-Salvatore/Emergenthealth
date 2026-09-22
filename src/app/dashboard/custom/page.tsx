@@ -9,6 +9,8 @@ import {
   CartesianGrid, Tooltip, ReferenceLine,
 } from "recharts"
 import { cn } from "@/lib/utils"
+import { todayLocalISO } from "@/lib/local-date"
+import { useClientValue } from "@/lib/use-client-value"
 
 interface Metric {
   id: string
@@ -25,7 +27,6 @@ interface LogEntry { date: string; value: number; note: string | null }
 const EMOJI_PICKS = ["📊","😴","⚡","🧠","💪","🍺","☕","💊","🧘","❤️","😣","🔥","💧","🌙","🎯","😤","🤒"]
 const COLOR_PICKS = ["#6366f1","#10b981","#f59e0b","#ef4444","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316"]
 
-const TODAY = format(new Date(), "yyyy-MM-dd")
 
 function sparkData(logs: LogEntry[], days = 14) {
   const result: { date: string; value: number | null }[] = []
@@ -115,7 +116,14 @@ function MetricCard({
   // was simply no way to change it, so every custom metric could only ever be
   // logged as today. Yesterday's reading, entered this morning, landed on the
   // wrong day.
-  const [logDate, setLogDate] = useState(TODAY)
+  // Read per render, not once at module load: a constant there is the
+  // server's UTC day during SSR and a stale one in a tab left open past
+  // midnight. The picked date is null until the user picks one, so "today"
+  // follows the clock without a hydration mismatch.
+  const TODAY = useClientValue(() => todayLocalISO(), todayLocalISO())
+  const [pickedDate, setPickedDate] = useState<string | null>(null)
+  const logDate = pickedDate ?? TODAY
+  const setLogDate = (d: string) => setPickedDate(d === TODAY ? null : d)
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 

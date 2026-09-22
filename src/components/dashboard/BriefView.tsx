@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { weatherEmoji } from "@/lib/weather-codes"
+import { weatherEmoji, weatherLabel } from "@/lib/weather-codes"
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Moon, Target, ChevronRight, Sun, Sunset, CloudSun, Gauge, CalendarDays, Sunrise, LayoutDashboard, ListChecks, HeartPulse } from "lucide-react"
@@ -9,11 +9,55 @@ import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
 
 type Period = "morning" | "afternoon" | "evening"
 
+interface DayOutlook { date: string; max: number; min: number; code: number; rainPct: number }
+interface Targets {
+  steps: { value: number | null; goal: number }
+  hydrationMl: { value: number; goal: number }
+  habits: { done: number; due: number }
+  lastSyncedAt: string | null
+}
 interface TodayData {
   calendar: { id: string; title: string; start: string; end: string }[]
+  tomorrow?: { id: string; title: string; start: string; end: string; isAllDay: boolean }[]
   sleep: { hours: number | null; sleepScore: number | null; readiness: number | null; adequate: boolean | null }
   weather: { current: { temp: number; code: number }; hourly: { hour: string; temp: number; code: number; rainPct: number }[] } | null
+  daily?: { today: DayOutlook; tomorrow: DayOutlook } | null
   outfit: string
+  targets?: Targets | null
+}
+
+/**
+ * One target as a ring. Identity hue per target, never a verdict colour: a
+ * red ring under 4,395 steps of a 1,500 goal would be the picture
+ * concluding what the number did not (see the chart rule in the handoff).
+ */
+function Ring({ value, goal, hue, label, display }: { value: number | null; goal: number; hue: string; label: string; display: string }) {
+  const r = 22
+  const c = 2 * Math.PI * r
+  const frac = value == null || goal <= 0 ? 0 : Math.min(1, value / goal)
+  return (
+    <div className="flex items-center gap-3 min-w-0">
+      <svg width="56" height="56" viewBox="0 0 56 56" role="img" aria-label={`${label}: ${display}`} className="shrink-0">
+        <circle cx="28" cy="28" r={r} fill="none" stroke="currentColor" strokeWidth="6" className="text-secondary" />
+        <circle
+          cx="28" cy="28" r={r} fill="none" stroke={hue} strokeWidth="6" strokeLinecap="round"
+          strokeDasharray={`${c * frac} ${c * (1 - frac)}`} transform="rotate(-90 28 28)"
+        />
+      </svg>
+      <div className="min-w-0">
+        <p className="text-lg font-bold tabular-nums font-display leading-tight">{display}</p>
+        <p className="text-[11px] text-muted-foreground">{label}</p>
+      </div>
+    </div>
+  )
+}
+
+function syncedLabel(iso: string | null): string {
+  if (!iso) return "Not synced yet today"
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  const sameDay = d.toDateString() === new Date().toDateString()
+  return `Last synced ${sameDay ? "" : d.toLocaleDateString([], { day: "numeric", month: "short" }) + " "}${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
 }
 interface CheckIn { energy: number; mood: number; intention: string | null; waterGoalMl: number }
 
@@ -88,6 +132,17 @@ export function BriefView({ name }: { name: string }) {
   const isEvening = period === "evening"
   const dateLabel = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
 
+  // The evening reads like the phone's own night brief: one line about
+  // tonight, the two-day outlook, tomorrow's calendar, and how today's
+  // targets ended — each drawn from its own source and absent, not
+  // invented, when that source has nothing.
+  const daily = today?.daily ?? null
+  const tonightLine = daily
+    ? `${weatherLabel(daily.tomorrow.code)} tomorrow. Low ${Math.min(daily.today.min, daily.tomorrow.min)}°.`
+    : null
+  const tomorrowEvents = today?.tomorrow ?? []
+  const targets = today?.targets ?? null
+
   // Identity, not status: the figures take the sleep domain hue (hours and
   // score both belong to Sleep — see design/handoff/README.md). This card
   // used to paint them green/amber by verdict, which is exactly the
@@ -106,10 +161,13 @@ export function BriefView({ name }: { name: string }) {
           <PeriodIcon className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-2xl font-bold">{greeting}, {name}</h1>
-          <p className="text-muted-foreground text-sm">{dateLabel}</p>
+          <h1 className="text-2xl font-bold">{isEvening ? "Tonight's brief" : `${greeting}, ${name}`}</h1>
+          <p className="text-muted-foreground text-sm">{isEvening ? `Time to wrap up the day, ${name}. ${dateLabel}.` : dateLabel}</p>
         </div>
       </div>
+      {isEvening && tonightLine && !loading && (
+        <p className="text-base text-foreground/90">{tonightLine}</p>
+      )}
 
       {loading ? (
         <div className="space-y-3">
@@ -205,6 +263,92 @@ export function BriefView({ name }: { name: string }) {
           {/* ── EVENING: recap + reflect ── */}
           {isEvening && (
             <>
+              {today?.weather && daily && (
+                <Card>
+                  <CardContent className="pt-4 pb-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-3xl leading-none">{weatherEmoji(today.weather.current.code)}</span>
+                        <div>
+                          <p className="text-2xl font-bold tabular-nums font-display leading-tight">{today.weather.current.temp}°</p>
+                          <p className="text-xs text-muted-foreground">{weatherLabel(today.weather.current.code)} now</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground text-right">↑{daily.today.max}° / ↓{daily.today.min}°</p>
+                    </div>
+                    <div className="border-t border-border/50 mt-3 pt-2 space-y-1.5">
+                      {([["Today", daily.today], ["Tomorrow", daily.tomorrow]] as const).map(([label, d]) => (
+                        <div key={label} className="flex items-center justify-between gap-3 text-sm">
+                          <span className="font-medium w-20">{label}</span>
+                          <span className="text-xs text-muted-foreground tabular-nums w-12">💧 {d.rainPct}%</span>
+                          <span className="text-base leading-none">{weatherEmoji(d.code)}</span>
+                          <span className="tabular-nums w-16 text-right"><span className="font-semibold">{d.max}°</span> <span className="text-muted-foreground">{d.min}°</span></span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {tomorrowEvents.length > 0 && (
+                <Card>
+                  <CardContent className="pt-4 pb-4">
+                    <p className="text-sm mb-2">
+                      You have <span className="text-primary font-medium">{tomorrowEvents.length} {tomorrowEvents.length === 1 ? "event" : "events"}</span> tomorrow.
+                    </p>
+                    <div className="space-y-1.5">
+                      {tomorrowEvents.slice(0, 4).map(e => (
+                        <div key={e.id} className="flex items-center gap-2 text-sm rounded-lg bg-secondary/40 px-3 py-2">
+                          <span className="h-4 w-1 rounded-full bg-primary shrink-0" aria-hidden />
+                          <span className="text-muted-foreground tabular-nums shrink-0">{e.isAllDay ? "All day" : eventTime(e.start)}</span>
+                          <span className="truncate">{e.title}</span>
+                        </div>
+                      ))}
+                      {tomorrowEvents.length > 4 && (
+                        <p className="text-[11px] text-muted-foreground">and {tomorrowEvents.length - 4} more</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {targets && (
+                <Card>
+                  <CardContent className="pt-4 pb-4">
+                    <p className="text-sm mb-3">
+                      {(() => {
+                        const met = [
+                          targets.steps.value != null && targets.steps.value >= targets.steps.goal,
+                          targets.hydrationMl.value >= targets.hydrationMl.goal,
+                          targets.habits.due > 0 && targets.habits.done >= targets.habits.due,
+                        ].filter(Boolean).length
+                        const total = targets.habits.due > 0 ? 3 : 2
+                        return met === total
+                          ? `All ${total} of today's targets reached.`
+                          : `${met} of ${total} daily targets reached. ${total - met === 1 ? "One" : "The rest"} can wait for tomorrow.`
+                      })()}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <Ring
+                        value={targets.steps.value} goal={targets.steps.goal} hue="var(--activity, #34d399)" label={`of ${targets.steps.goal.toLocaleString()} steps`}
+                        display={targets.steps.value != null ? targets.steps.value.toLocaleString() : "—"}
+                      />
+                      <Ring
+                        value={targets.hydrationMl.value} goal={targets.hydrationMl.goal} hue="#60a5fa" label={`of ${(targets.hydrationMl.goal / 1000).toFixed(1)} L`}
+                        display={`${(targets.hydrationMl.value / 1000).toFixed(1)} L`}
+                      />
+                      {targets.habits.due > 0 && (
+                        <Ring
+                          value={targets.habits.done} goal={targets.habits.due} hue="#a78bfa" label={`of ${targets.habits.due} habits`}
+                          display={`${targets.habits.done}`}
+                        />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground text-right mt-3">{syncedLabel(targets.lastSyncedAt)}</p>
+                  </CardContent>
+                </Card>
+              )}
+
               {checkin && (
                 <Card>
                   <CardContent className="pt-4 pb-4">

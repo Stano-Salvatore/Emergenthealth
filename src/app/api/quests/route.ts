@@ -4,6 +4,12 @@ import { prisma } from "@/lib/prisma"
 import { localDateStr, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
+import { loadMoodByDay } from "@/lib/mood-series"
+import { getGoals } from "@/lib/goals"
+import { isDueOn } from "@/lib/habit-schedule"
+import { latestWeighIn } from "@/lib/weight-series"
+
+const isoDay = (d: Date) => d.toISOString().slice(0, 10)
 
 export interface Quest {
   id: string
@@ -28,35 +34,62 @@ export async function GET() {
   const todayStr = localDateStr(timezone)
   const today = zonedDayRange(timezone, todayStr).start
 
+  // A weekly-target habit is "due" by the week's other days, so the
+  // schedule needs the recent completions, not just today's.
+  const since = new Date(today.getTime() - 60 * 24 * 60 * 60 * 1000)
+
   const [
-    habits,
-    completionsToday,
+    allHabits,
     waterToday,
-    moodToday,
+    moodByDay,
     healthToday,
     noteToday,
     focusToday,
     recentWeight,
     checkinToday,
+    goals,
   ] = await Promise.all([
-    prisma.habit.findMany({ where: { userId, isArchived: false }, select: { id: true, name: true, icon: true }, orderBy: { createdAt: "asc" }, take: 5 }),
-    prisma.habitCompletion.findMany({ where: { userId, date: { gte: today } }, select: { habitId: true } }),
+    prisma.habit.findMany({
+      where: { userId, isArchived: false },
+      orderBy: { createdAt: "asc" },
+      include: {
+        completions: { where: { date: { gte: since } }, select: { date: true } },
+        skips: { where: { date: { gte: since } }, select: { date: true } },
+      },
+    }),
     prisma.intakeLog.findMany({ where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: today } }, select: { amountMl: true, type: true } }),
-    prisma.moodLog.findFirst({ where: { userId, date: { gte: today } }, select: { id: true } }),
+    // Both mood tables. The mood quest read MoodLog alone, so the card said
+    // "Log your mood" all day under a check-in quest that had just reported
+    // "Energy & mood logged" — the same card contradicting itself.
+    loadMoodByDay(userId, todayStr, todayStr),
     prisma.healthLog.findFirst({ where: { userId, date: { gte: today } }, select: { id: true } }),
     // DailyNote.date is a Date column: passing the "YYYY-MM-DD" string threw
     // "premature end of input. Expected ISO-8601 DateTime" on every request,
     // so the journal quest never reported as done.
     prisma.dailyNote.findFirst({ where: { userId, date: { gte: today } }, select: { id: true } }),
     prisma.focusSession.findFirst({ where: { userId, type: "focus", startedAt: { gte: today } }, select: { id: true } }),
-    prisma.healthLog.findFirst({ where: { userId, weight: { not: null } }, orderBy: { date: "desc" }, select: { date: true } }),
+    // Both weight tables: the Body page's form writes BodyMeasurement, and
+    // "Last logged never" was what a year of those looked like from here.
+    latestWeighIn(userId),
     prisma.$queryRaw<{ id: string }[]>`SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId} AND "date" = ${todayStr} LIMIT 1`.catch(() => [] as { id: string }[]),
+    getGoals(userId),
   ])
 
-  const completedHabitIds = new Set(completionsToday.map(c => c.habitId))
+  // Only what the schedule asks for today. A habit on its off day, or one
+  // skipped today on purpose, is not "left undone" — the widget and the
+  // Habits page already read it that way, and this card nagged anyway.
+  const habits = allHabits.flatMap(h => {
+    const days = new Set(h.completions.map(c => isoDay(c.date)))
+    const skipDays = new Set(h.skips.map(s => isoDay(s.date)))
+    const schedule = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
+    if (!isDueOn(schedule, todayStr, days) && !days.has(todayStr)) return []
+    return [{ id: h.id, name: h.name, icon: h.icon, doneToday: days.has(todayStr) || skipDays.has(todayStr) }]
+  }).slice(0, 5)
+  const moodToday = moodByDay.has(todayStr)
+  const completedHabitIds = new Set(habits.filter(h => h.doneToday).map(h => h.id))
   const waterMl = sumHydration(waterToday)
   const daysSinceWeight = recentWeight
-    ? Math.floor((Date.now() - new Date(recentWeight.date).getTime()) / 86400000)
+    ? Math.floor((Date.now() - new Date(recentWeight.date + "T00:00:00Z").getTime()) / 86400000)
     : 999
   const hasCheckin = Array.isArray(checkinToday) && checkinToday.length > 0
 
@@ -116,8 +149,8 @@ export async function GET() {
     })
   }
 
-  // Water quest
-  const waterTarget = 2000
+  // Water quest — against the goal the user set, not a number of our own.
+  const waterTarget = goals.waterMl
   quests.push({
     id: "water",
     emoji: "💧",

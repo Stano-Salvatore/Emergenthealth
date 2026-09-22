@@ -5,6 +5,7 @@ import { RefreshCw } from "lucide-react"
 import { generatedLabel } from "@/lib/generated-label"
 import { EmergyAvatar } from "@/components/emergy/EmergyAvatar"
 import { useEmergyState } from "@/lib/emergy-store"
+import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
 
 type BriefingState =
   | { status: "loading" }
@@ -132,7 +133,9 @@ export function DailyBriefing() {
       {/* The flattened corner nearest the avatar is what makes it a speech
           bubble rather than another card. */}
       <div className="flex-1 min-w-0 rounded-2xl rounded-bl-md border border-primary/20 bg-primary/5 px-4 py-3">
-        <p className="text-sm leading-relaxed text-foreground/90">{briefing}</p>
+        {/* The same figure treatment as chat: numbers bold, in their domain
+            hue, so "8.5 hours" and "readiness 73" stand out of the paragraph. */}
+        <div className="text-sm leading-relaxed text-foreground/90"><ChatMarkdown text={briefing} /></div>
         <div className="mt-2 flex items-center justify-between gap-2">
           <p className="text-[10px] text-muted-foreground/60">
             Emergy · {generatedLabel(generatedAt)}

@@ -14,6 +14,7 @@ import { registerNotificationActionHandler, resyncNotifications } from "@/lib/na
 import { syncScreenTime } from "@/lib/native/screen-time"
 import { registerNativePush, reviveHead, takePendingSay } from "@/lib/native/bubble"
 import { takePendingWake } from "@/lib/native/wake-word"
+import { uploadActivityEvents, uploadPhoneSensors } from "@/lib/native/phone-uploads"
 
 const THROTTLE_MS = 30 * 60 * 1000
 const LS_KEY = "native_reminder_sync_at"
@@ -75,11 +76,24 @@ export function NativeBridge() {
       window.location.assign("/dashboard/chat?listen=1")
     }
 
+    // What the phone recorded while the app was shut: light, pressure,
+    // screen moments, the Sleep API's nights, the travel modes. Not
+    // throttled, because the buffers are capped and the oldest rows leave
+    // first; and here rather than only on the Settings cards, because a
+    // night the ring was off is answered from these rows and Settings is a
+    // screen most people open once.
+    const drainPhone = () => {
+      if (document.visibilityState !== "visible") return
+      uploadPhoneSensors().catch(() => {})
+      uploadActivityEvents().catch(() => {})
+    }
+
     collectPendingSay().catch(() => {})
     collectPendingWake().catch(() => {})
     // If he was asked to stay floating and Android killed the process
     // meanwhile, this is where he comes back.
     reviveHead().catch(() => {})
+    drainPhone()
 
     sync()
     const onVisible = () => {
@@ -87,6 +101,7 @@ export function NativeBridge() {
       collectPendingSay().catch(() => {})
       collectPendingWake().catch(() => {})
       reviveHead().catch(() => {})
+      drainPhone()
     }
     document.addEventListener("visibilitychange", onVisible)
     return () => document.removeEventListener("visibilitychange", onVisible)

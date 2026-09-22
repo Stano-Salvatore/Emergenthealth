@@ -10,8 +10,10 @@ import {
 } from "@/lib/oura"
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTimer, stopTimer } from "@/lib/toggl"
 import { getUserTimezone, userToday } from "@/lib/user-timezone"
+import { loadMoodByDay, moodDay } from "@/lib/mood-series"
 import { estimateHome, summariseDays, detectTrips, awayVsHome, type DayMetrics } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
+import { sumHydration } from "@/lib/hydration"
 
 export const runtime = "nodejs"
 
@@ -388,20 +390,30 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_mood_history",
-    "Get mood logs for a date range with scores and notes",
+    "Get the user's mood for a date range, one score per day (1-5) with a label, from both the standalone mood log (with its note) and the morning check-in — the check-in's answer wins a day both have",
     dateRange,
     async ({ startDate, endDate }) => {
-      const logs = await prisma.moodLog.findMany({
-        where: { userId, date: { gte: startOfDay(startDate), lte: endOfDay(endDate) } },
-        orderBy: { date: "asc" },
-      })
+      // Mood lives in two tables. This read MoodLog alone, so a month of
+      // check-in answers came back as "no mood logged".
+      const [byDay, logs] = await Promise.all([
+        loadMoodByDay(userId, startDate, endDate),
+        prisma.moodLog.findMany({
+          where: { userId, date: { gte: startOfDay(startDate), lte: endOfDay(endDate) } },
+          select: { date: true, mood: true, note: true },
+        }).catch(() => []),
+      ])
+      const notes = new Map(logs.map(l => [moodDay(l.date), { mood: l.mood, note: l.note }]))
       const labels = ["", "Awful", "Bad", "Okay", "Good", "Great"]
-      return ok(logs.map(l => ({
-        date: l.date.toISOString().slice(0, 10),
-        score: l.mood,
-        label: labels[l.mood],
-        note: l.note,
-      })))
+      return ok([...byDay.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, score]) => {
+        const standalone = notes.get(date)
+        return {
+          date,
+          score,
+          label: labels[score],
+          source: standalone && standalone.mood === score ? "mood_log" : "morning_checkin",
+          note: standalone?.note ?? null,
+        }
+      }))
     },
   )
 
@@ -654,16 +666,15 @@ function buildMcpServer(userId: string): McpServer {
       const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
       const corrDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
 
-      const [healthLogs, moodLogs] = await Promise.all([
+      const [healthLogs, moodByDay] = await Promise.all([
         prisma.healthLog.findMany({
           where: { userId, date: { gte: since } },
           select: { date: true, readinessScore: true, sleepDuration: true, hrv: true, steps: true, restingHR: true },
         }),
-        prisma.moodLog.findMany({
-          where: { userId, date: { gte: since } },
-          select: { date: true, mood: true },
-        }),
+        // Both mood tables, merged in lib/mood-series.
+        loadMoodByDay(userId, moodDay(since), "9999-12-31"),
       ])
+      const moodLogs = [...moodByDay.entries()].map(([day, mood]) => ({ day, mood }))
 
       function avgNums(nums: (number | null)[]): number | null {
         const valid = nums.filter((n): n is number => n != null)
@@ -689,8 +700,8 @@ function buildMcpServer(userId: string): McpServer {
         const visitDates = new Set(checkIns.map(c => corrDayFmt.format(new Date(c.checkedAt))))
         const visitH    = healthLogs.filter(h =>  visitDates.has(h.date.toISOString().split("T")[0]))
         const nonVisitH = healthLogs.filter(h => !visitDates.has(h.date.toISOString().split("T")[0]))
-        const visitM    = moodLogs.filter(m =>  visitDates.has(m.date.toISOString().split("T")[0]))
-        const nonVisitM = moodLogs.filter(m => !visitDates.has(m.date.toISOString().split("T")[0]))
+        const visitM    = moodLogs.filter(m =>  visitDates.has(m.day))
+        const nonVisitM = moodLogs.filter(m => !visitDates.has(m.day))
 
         const v = {
           readiness: avgNums(visitH.map(h => h.readinessScore)),
@@ -743,17 +754,15 @@ function buildMcpServer(userId: string): McpServer {
       const window = Math.min(Math.max(days ?? 180, 7), 730)
       const since = new Date(Date.now() - window * 24 * 60 * 60 * 1000)
 
-      const [timezone, loaded, healthLogs, moodLogs] = await Promise.all([
+      const [timezone, loaded, healthLogs, moodByDay] = await Promise.all([
         getUserTimezone(userId),
         loadCoarsePoints(userId, since),
         prisma.healthLog.findMany({
           where: { userId, date: { gte: since } },
           select: { date: true, readinessScore: true, sleepDuration: true, hrv: true },
         }).catch(() => []),
-        prisma.moodLog.findMany({
-          where: { userId, date: { gte: since } },
-          select: { date: true, mood: true },
-        }).catch(() => []),
+        // Both mood tables, merged in lib/mood-series.
+        loadMoodByDay(userId, moodDay(since), "9999-12-31"),
       ])
 
       const dated = loaded.points
@@ -771,10 +780,10 @@ function buildMcpServer(userId: string): McpServer {
           mood: null,
         })
       }
-      for (const m of moodLogs) {
-        const row = metrics.get(iso(m.date))
-        if (row) row.mood = m.mood
-        else metrics.set(iso(m.date), { sleepHours: null, readiness: null, hrv: null, mood: m.mood })
+      for (const [day, mood] of moodByDay) {
+        const row = metrics.get(day)
+        if (row) row.mood = mood
+        else metrics.set(day, { sleepHours: null, readiness: null, hrv: null, mood })
       }
 
       const round = (n: number | null, d = 1) => n == null ? null : Math.round(n * 10 ** d) / 10 ** d
@@ -846,7 +855,8 @@ function buildMcpServer(userId: string): McpServer {
         }).catch(() => null),
       ])
 
-      const waterMl = intakeLogs.filter(l => l.type === "water").reduce((s, l) => s + l.amountMl, 0)
+      // Hydration is every drink at its factor (lib/hydration), not the rows typed "water".
+      const waterMl = sumHydration(intakeLogs)
       const coffeeCups = intakeLogs.filter(l => l.type === "coffee").length
       const focusMin = focusSessions.reduce((s, f) => s + f.durationMin, 0)
       const habitsCompleted = habits.filter(h => h.completions.length > 0).length

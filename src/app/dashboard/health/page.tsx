@@ -28,6 +28,8 @@ import { getUserTimezone } from "@/lib/user-timezone"
 import { readSyncStatus } from "@/lib/sync-status-store"
 import { explainBlanks, listPhrase, scopeRemedy, type SyncStatus } from "@/lib/sync-status"
 import { sleepDebt, sleepRegularity } from "@/lib/sleep-rhythm"
+import { loadMoodByDay, moodDay } from "@/lib/mood-series"
+import { loadWeightSeries } from "@/lib/weight-series"
 
 interface StravaActivityRow {
   id: string
@@ -116,12 +118,11 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
     select: { date: true, sleepStart: true, sleepEnd: true },
   }).catch(() => [] as { date: Date; sleepStart: Date | null; sleepEnd: Date | null }[])
 
-  const [moodLogs, logs] = await Promise.all([
-    prisma.moodLog.findMany({
-      where: { userId, date: { gte: since30 } },
-      orderBy: { date: "desc" },
-      take: 30,
-    }),
+  const [moodByDay, logs] = await Promise.all([
+    // The mood line on the chart, from both tables. It read MoodLog alone,
+    // and since the dashboard's mood buttons came off, the morning check-in
+    // is where most moods are answered — so the line had quietly emptied.
+    loadMoodByDay(userId, moodDay(since30), "9999-12-31"),
     prisma.healthLog.findMany({
     where: { userId },
     orderBy: { date: "desc" },
@@ -166,9 +167,6 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   }),
   ])
 
-  const moodByDate = Object.fromEntries(
-    moodLogs.map(m => [m.date.toISOString().split("T")[0], m.mood])
-  )
 
   const recent7 = logs.slice(0, 7)
   const prior7  = logs.slice(7, 14)
@@ -180,7 +178,15 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   const avgSleepMin     = avg(recent7.map(l => l.sleepDuration))
   const avgSteps        = avg(recent7.map(l => l.steps))
   const avgHR           = avg(recent7.map(l => l.restingHR))
-  const avgWeight       = avg(recent7.map(l => l.weight))
+  // Weight from both tables (lib/weight-series), and the card says LATEST,
+  // so it shows the latest reading — it used to show a 7-day mean of the
+  // ring's column under that label.
+  const weightSeries = await loadWeightSeries(userId, 14)
+  const todayISO = localDateStr(timezone)
+  const weightRecent = weightSeries.filter(p => p.date >= addDaysISO(todayISO, -6))
+  const weightPrior = weightSeries.filter(p => p.date < addDaysISO(todayISO, -6))
+  const latestWeight    = weightSeries.length ? weightSeries[weightSeries.length - 1].kg : null
+  const avgWeight       = avg(weightRecent.map(p => p.kg))
   const avgActiveMins   = avg(recent7.map(l => l.activeMinutes))
   const avgReadiness    = avg(recent7.map(l => l.readinessScore))
   const avgHRV          = avg(recent7.map(l => l.hrv))
@@ -215,7 +221,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
   const tHRV        = trend(avgHRV, avg(prior7.map(l => l.hrv)), { suffix: "ms", minDelta: 1 })
   const tActivityScore = trend(avgActivityScore, avg(prior7.map(l => l.activityScore)), { minDelta: 1 })
   const tWeight     = (() => {
-    const t = trend(avgWeight, avg(prior7.map(l => l.weight)), { digits: 1, suffix: "kg", minDelta: 0.1 })
+    const t = trend(avgWeight, avg(weightPrior.map(p => p.kg)), { digits: 1, suffix: "kg", minDelta: 0.1 })
     return t ? { text: t.text, good: null } : null   // weight direction isn't inherently good or bad
   })()
 
@@ -258,7 +264,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
     stressHigh:    l.stressHigh ?? null,
     recoveryHigh:  l.recoveryHigh ?? null,
     sedentaryMin:  l.sedentaryTime ?? null,
-    mood:          moodByDate[l.date.toISOString().split("T")[0]] ?? null,
+    mood:          moodByDay.get(moodDay(l.date)) ?? null,
   }))
 
   const latestLog = logs[0] ?? null
@@ -362,7 +368,7 @@ export default async function HealthPage({ searchParams }: { searchParams: Promi
             <SummaryCard icon={<Heart className="h-4 w-4 text-red-400" />} label="Avg resting HR"
               value={avgHR != null ? `${Math.round(avgHR)} bpm` : "—"} delta={tHR} />
             <SummaryCard icon={<Scale className="h-4 w-4 text-blue-400" />} label="Latest weight"
-              value={avgWeight != null ? `${avgWeight.toFixed(1)} kg` : "—"} delta={tWeight} />
+              value={latestWeight != null ? `${latestWeight.toFixed(1)} kg` : "—"} delta={tWeight} />
             <SummaryCard icon={<Zap className="h-4 w-4 text-amber-400" />} label="Avg active"
               value={avgActiveMins != null ? `${Math.round(avgActiveMins)} min` : "—"} delta={tActive} />
             <SummaryCard icon={<Shield className="h-4 w-4 text-emerald-400" />} label="Avg readiness"

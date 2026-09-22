@@ -18,8 +18,8 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
-import { TrendingUp, TrendingDown, ArrowRight } from "lucide-react"
-import { fmtDrift, type DriftReport } from "@/lib/drift"
+import { TrendingUp, TrendingDown, ArrowRight, ChevronDown, ChevronUp } from "lucide-react"
+import { fmtDrift, leadShift, type DriftReport } from "@/lib/drift"
 
 type DriftResponse = DriftReport & { question: string }
 
@@ -39,6 +39,8 @@ function dayLabel(iso: string): string {
 
 export function DriftCard() {
   const [data, setData] = useState<DriftResponse | null>(null)
+  // The rest of the shifts, folded: one thing said before the list.
+  const [showRest, setShowRest] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -60,6 +62,12 @@ export function DriftCard() {
   const worse = shifts.filter(s => s.verdict === "worse")
   // Worse first: it is the half someone came to this page to find.
   const ordered = [...worse, ...better, ...shifts.filter(s => s.verdict === "changed")]
+  // One thing first. The card used to open on the whole list, worse-first,
+  // which reads as a table; a person answers a question about one shift,
+  // not about five. The lead is the same one the push and the chat tool
+  // open on (lib/drift leadShift), and the rest fold under it.
+  const lead = leadShift(data)
+  const rest = ordered.filter(s => s.key !== lead?.key)
 
   return (
     <Card className="rounded-2xl border border-border bg-card">
@@ -73,25 +81,57 @@ export function DriftCard() {
           </p>
         </div>
 
-        <div className="space-y-1.5">
-          {ordered.map(s => {
-            const up = s.delta > 0
-            const good = s.verdict === "better"
-            const Icon = up ? TrendingUp : TrendingDown
-            return (
-              <div key={s.key} className="flex items-baseline justify-between gap-3 py-1 border-b border-border/40 last:border-0">
-                <span className="flex items-center gap-1.5 text-sm min-w-0">
-                  <Icon className={`h-3.5 w-3.5 shrink-0 ${good ? "text-emerald-400" : "text-amber-400"}`} aria-hidden />
-                  <span className="truncate">{s.label}</span>
-                </span>
-                <span className="text-xs shrink-0 text-right">
-                  <span className={good ? "text-emerald-400" : "text-amber-400"}>{fmtDrift(s.recentMean, s.unit)}</span>
-                  <span className="text-muted-foreground"> from {fmtDrift(s.priorMean, s.unit)}</span>
-                </span>
+        {lead && (
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="flex items-center gap-2 min-w-0">
+              {lead.delta > 0
+                ? <TrendingUp className={`h-4 w-4 shrink-0 ${lead.verdict === "better" ? "text-emerald-400" : "text-amber-400"}`} aria-hidden />
+                : <TrendingDown className={`h-4 w-4 shrink-0 ${lead.verdict === "better" ? "text-emerald-400" : "text-amber-400"}`} aria-hidden />}
+              <span className="text-base font-medium truncate">{lead.label}</span>
+            </span>
+            <span className="shrink-0 text-right">
+              <span className={`text-xl font-bold tabular-nums font-display ${lead.verdict === "better" ? "text-emerald-400" : "text-amber-400"}`}>
+                {fmtDrift(lead.recentMean, lead.unit)}
+              </span>
+              <span className="text-xs text-muted-foreground"> from {fmtDrift(lead.priorMean, lead.unit)}</span>
+            </span>
+          </div>
+        )}
+
+        {rest.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowRest(v => !v)}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              aria-expanded={showRest}
+            >
+              {showRest ? <ChevronUp className="h-3 w-3" aria-hidden /> : <ChevronDown className="h-3 w-3" aria-hidden />}
+              {rest.length === 1 ? "1 more moved" : `${rest.length} more moved`}
+            </button>
+            {showRest && (
+              <div className="space-y-1.5 mt-1.5">
+                {rest.map(s => {
+                  const up = s.delta > 0
+                  const good = s.verdict === "better"
+                  const Icon = up ? TrendingUp : TrendingDown
+                  return (
+                    <div key={s.key} className="flex items-baseline justify-between gap-3 py-1 border-b border-border/40 last:border-0">
+                      <span className="flex items-center gap-1.5 text-sm min-w-0">
+                        <Icon className={`h-3.5 w-3.5 shrink-0 ${good ? "text-emerald-400" : "text-amber-400"}`} aria-hidden />
+                        <span className="truncate">{s.label}</span>
+                      </span>
+                      <span className="text-xs shrink-0 text-right">
+                        <span className={good ? "text-emerald-400" : "text-amber-400"}>{fmtDrift(s.recentMean, s.unit)}</span>
+                        <span className="text-muted-foreground"> from {fmtDrift(s.priorMean, s.unit)}</span>
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
-            )
-          })}
-        </div>
+            )}
+          </div>
+        )}
 
         {/* Candidates, never causes. These are things that also moved between
             the two windows, drawn from the user's own logs — which is why they

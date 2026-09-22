@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone, userToday } from "@/lib/user-timezone"
+import { loadWeightSeries } from "@/lib/weight-series"
 
 export const LEVEL_THRESHOLDS = [0, 100, 250, 500, 900, 1500, 2500, 4000, 6000, 9000, 13000]
 
@@ -173,7 +174,8 @@ export async function computeXp(userId: string): Promise<XpBreakdown> {
   ] = await Promise.all([
     prisma.habitCompletion.count({ where: { userId, date: { gte: since } } }).catch(() => 0),
     prisma.healthLog.count({ where: { userId } }).catch(() => 0),
-    prisma.healthLog.count({ where: { userId, weight: { not: null } } }).catch(() => 0),
+    // Weigh-in days from both tables; a Body-page weigh-in earned no XP.
+    loadWeightSeries(userId, 3650).then(s => s.length).catch(() => 0),
     prisma.moodLog.count({ where: { userId } }).catch(() => 0),
     prisma.dailyNote.count({ where: { userId } }).catch(() => 0),
     prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: since } }, select: { loggedAt: true } }).catch(() => [] as { loggedAt: Date }[]),

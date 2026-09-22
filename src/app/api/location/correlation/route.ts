@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { loadMoodByDay, moodDay } from "@/lib/mood-series"
 
 export type CorrelationConfidence = "insufficient" | "low" | "moderate" | "good"
 
@@ -64,7 +65,8 @@ function nextDay(dateStr: string): string {
 type SavedPlaceRow = { id: string; name: string; emoji: string }
 type CheckInRow = { checkedAt: Date; savedPlaceId: string }
 type HealthRow = { date: Date; readinessScore: number | null; sleepDuration: number | null; hrv: number | null; steps: number | null; restingHR: number | null }
-type MoodRow = { date: Date; mood: number }
+/** Day → mood, from both mood tables (lib/mood-series decides which wins). */
+type MoodByDay = Map<string, number>
 
 // HealthLog.date and MoodLog.date are date-only columns, which Prisma hands
 // back at UTC midnight — slicing those is exact. CheckIn.checkedAt is a real
@@ -79,7 +81,7 @@ function correlatePlace(
   place: SavedPlaceRow,
   placeCheckIns: CheckInRow[],
   health: HealthRow[],
-  moods: MoodRow[],
+  moods: MoodByDay,
   localDay: (at: Date) => string,
 ): PlaceCorrelation {
   const visitDates = new Set(placeCheckIns.map(c => localDay(c.checkedAt)))
@@ -89,8 +91,8 @@ function correlatePlace(
 
   const visitHealth    = health.filter(h =>  visitDates.has(day(h.date)))
   const nonVisitHealth = health.filter(h => !visitDates.has(day(h.date)) && !postVisitDates.has(day(h.date)))
-  const visitMoods     = moods.filter(m =>  visitDates.has(day(m.date)))
-  const nonVisitMoods  = moods.filter(m => !visitDates.has(day(m.date)))
+  const visitMoods     = [...moods].filter(([d]) =>  visitDates.has(d)).map(([, m]) => m)
+  const nonVisitMoods  = [...moods].filter(([d]) => !visitDates.has(d)).map(([, m]) => m)
 
   const nextDayHealth = Array.from(postVisitDates).map(d => healthByDate.get(d)).filter((h): h is HealthRow => h != null)
   const allDates = new Set(health.map(h => day(h.date)))
@@ -108,7 +110,7 @@ function correlatePlace(
     visitAvg: {
       readiness: avg(visitHealth.map(h => h.readinessScore)),
       sleepHours: avg(visitHealth.map(h => h.sleepDuration != null ? h.sleepDuration / 60 : null)),
-      mood: avg(visitMoods.map(m => m.mood)),
+      mood: avg(visitMoods),
       hrv: avg(visitHealth.map(h => h.hrv)),
       steps: avg(visitHealth.map(h => h.steps)),
       restingHR: avg(visitHealth.map(h => h.restingHR)),
@@ -116,7 +118,7 @@ function correlatePlace(
     nonVisitAvg: {
       readiness: avg(nonVisitHealth.map(h => h.readinessScore)),
       sleepHours: avg(nonVisitHealth.map(h => h.sleepDuration != null ? h.sleepDuration / 60 : null)),
-      mood: avg(nonVisitMoods.map(m => m.mood)),
+      mood: avg(nonVisitMoods),
       hrv: avg(nonVisitHealth.map(h => h.hrv)),
       steps: avg(nonVisitHealth.map(h => h.steps)),
       restingHR: avg(nonVisitHealth.map(h => h.restingHR)),
@@ -166,7 +168,7 @@ export async function GET(req: NextRequest) {
   const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
   const localDay = (at: Date) => dayFmt.format(at)
 
-  const [checkIns, healthLogs, moodLogs] = await Promise.all([
+  const [checkIns, healthLogs, moodByDay] = await Promise.all([
     prisma.$queryRaw<CheckInRow[]>`
       SELECT "checkedAt", "savedPlaceId" FROM "CheckIn"
       WHERE "userId" = ${userId}
@@ -178,10 +180,9 @@ export async function GET(req: NextRequest) {
       where: { userId, date: { gte: since } },
       select: { date: true, readinessScore: true, sleepDuration: true, hrv: true, steps: true, restingHR: true },
     }),
-    prisma.moodLog.findMany({
-      where: { userId, date: { gte: since } },
-      select: { date: true, mood: true },
-    }),
+    // Both mood tables. "How you feel at this place" read the standalone
+    // log only, and a morning answered in the check-in never reached it.
+    loadMoodByDay(userId, moodDay(since), "9999-12-31"),
   ])
 
   const byPlace = new Map<string, CheckInRow[]>()
@@ -192,7 +193,7 @@ export async function GET(req: NextRequest) {
   }
 
   const results = places.map(place =>
-    correlatePlace(place, byPlace.get(place.id) ?? [], healthLogs as HealthRow[], moodLogs as MoodRow[], localDay)
+    correlatePlace(place, byPlace.get(place.id) ?? [], healthLogs as HealthRow[], moodByDay, localDay)
   )
 
   return NextResponse.json(single ? results[0] : results)

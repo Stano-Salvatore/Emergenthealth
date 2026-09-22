@@ -113,3 +113,23 @@ which is usually the fastest way to see what it saw.
 Anything needing a real device: background location through a night, the
 foreground-service notification, the chat head. And it does not call Anthropic
 — without `ANTHROPIC_API_KEY` the chat screen renders but Emergy cannot answer.
+
+## Rendering at a different hour
+
+Three of the bug shapes this codebase keeps finding only show just after
+midnight — a server component deciding "today" in UTC, the Check-in tab
+picking its mode from the hour, the Week page drawing its week from Monday —
+and no smoke run happens at 00:30. So the clock can be lied to, on both sides:
+
+```bash
+FAKE_NOW=2026-09-22T22:30:00Z NODE_OPTIONS=--require=./.ci/fake-clock.cjs npm run dev
+FAKE_NOW=2026-09-22T22:30:00Z OUT=.ci/shots-0030 node .ci/render-at.mjs   # 00:30 in Bratislava
+FAKE_NOW=2026-09-22T10:00:00Z OUT=.ci/shots-noon node .ci/render-at.mjs   # restart the server likewise
+```
+
+`fake-clock.cjs` shifts the server's `Date`; `render-at.mjs` shifts the
+browser's and pins its timezone (`TZ_ID`, default Europe/Bratislava), then
+writes a screenshot and the page's text per route so the two runs can be
+diffed. It judges nothing — that is `smoke.mjs`'s job. The 3.3.6 dashboard
+header that read "Tuesday, September 22" at 00:30 on the 23rd is what a
+diff of those two text dumps looks like.

@@ -5,9 +5,10 @@ import { Footprints } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
-  activityStatus, drainActivityEvents, requestActivityPermission,
+  activityStatus, requestActivityPermission,
   startActivityTracking, stopActivityTracking, type ActivityStatus,
 } from "@/lib/native/bubble"
+import { uploadActivityEvents } from "@/lib/native/phone-uploads"
 
 // Let the phone name the mode instead of guessing it from speed.
 //
@@ -34,22 +35,10 @@ export function MotionCard() {
   useEffect(() => { void refresh() }, [refresh])
 
   // Drain whatever the phone recorded while the app was closed, whenever this
-  // card is on screen — the same store-and-forward the head and the location
-  // queue use. Harmless on web, where the drain returns nothing.
-  useEffect(() => {
-    let cancelled = false
-    async function pull() {
-      const events = await drainActivityEvents()
-      if (cancelled || events.length === 0) return
-      await fetch("/api/activity/transitions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ events }),
-      }).catch(() => null)
-    }
-    void pull()
-    return () => { cancelled = true }
-  }, [])
+  // card is on screen — the same upload NativeBridge runs on every
+  // foreground, so this is a second chance rather than the only one.
+  // Harmless on web, where the drain returns nothing.
+  useEffect(() => { void uploadActivityEvents() }, [])
 
   async function enable() {
     setBusy(true)

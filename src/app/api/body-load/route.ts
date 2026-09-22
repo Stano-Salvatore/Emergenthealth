@@ -14,6 +14,7 @@ import {
   hoursUntilBelow, decayFraction, MED_FLOOR_FRACTION, CAFFEINE_FLOOR_MG,
   type ActiveSubstance,
 } from "@/lib/body-load"
+import { latestWeightKg } from "@/lib/weight-series"
 
 // Everything currently circulating, in one list. Each source is queried over
 // the window it can plausibly still matter in: caffeine and alcohol 24 h, meds
@@ -52,11 +53,8 @@ export async function GET() {
     // Weight and sex are goals (see @/lib/goals).
     getGoals(userId),
 
-    prisma.healthLog.findFirst({
-      where: { userId, weight: { not: null } },
-      orderBy: { date: "desc" },
-      select: { weight: true },
-    }).catch(() => null),
+    // The most recent weigh-in from either table (lib/weight-series).
+    latestWeightKg(userId).catch(() => null),
   ])
 
   const substances: ActiveSubstance[] = []
@@ -91,7 +89,7 @@ export async function GET() {
 
   // ── Alcohol (zero-order — a flat rate, and a real finishing time) ──
   const sex = goals.sex
-  const weightKg = weightRow?.weight ?? goals.weightKg
+  const weightKg = weightRow ?? goals.weightKg
   const clearance = alcoholClearanceGPerHour(weightKg, sex)
 
   const alcoholDoses = drinks

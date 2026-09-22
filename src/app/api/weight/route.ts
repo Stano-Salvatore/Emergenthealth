@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { userToday } from "@/lib/user-timezone"
 import { NextResponse } from "next/server"
+import { loadWeightSeries } from "@/lib/weight-series"
 
 export async function GET(req: Request) {
   const session = await auth()
@@ -10,18 +11,12 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url)
   const days = parseInt(url.searchParams.get("days") ?? "30", 10)
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
 
-  const logs = await prisma.healthLog.findMany({
-    where: { userId, date: { gte: since }, weight: { not: null } },
-    orderBy: { date: "asc" },
-    select: { date: true, weight: true },
-  })
-
-  return NextResponse.json(logs.map(l => ({
-    date: l.date.toISOString().split("T")[0],
-    weight: l.weight,
-  })))
+  // Both weight tables, merged by day (lib/weight-series) — this route only
+  // WRITES HealthLog, but the intake overview's "latest weight" read it as
+  // if it were the whole record.
+  const series = await loadWeightSeries(userId, days)
+  return NextResponse.json(series.map(p => ({ date: p.date, weight: p.kg })))
 }
 
 export async function POST(req: Request) {

@@ -1,5 +1,98 @@
 # Changelog
 
+## 3.4.0 — Tonight's brief, one thing to say, and the ring wins where it speaks
+
+Web only — no new APK.
+
+- **Tonight's brief.** After 17:00 the Brief page reads like the phone's own
+  night brief: one line about tonight, a two-day outlook (tonight's low,
+  tomorrow's high and low, rain chance), "You have N events tomorrow" from
+  Google and the app's own calendar, and how today's targets ended — steps,
+  hydration and habits as rings against the goals you set — with when the
+  ring or phone last synced. Each part comes from its own source and is
+  absent, not invented, when that source has nothing.
+- **The drift card says one thing first.** It used to open on a table of
+  every shift; now it leads with the one that matters most (worse before
+  better, the most certain first), folds the rest under "N more moved", and
+  its question is aimed at that shift — "HRV is down to 44 ms from 52 ms.
+  Did something change that isn't in the app?" — on the card, in the push
+  and in chat alike.
+- **Figures you can find.** Emergy's replies and the daily brief are prose
+  with the numbers buried in it. Every figure now renders bold and in the
+  hue of what it measures — sleep hours indigo, HRV and readiness rose,
+  steps and kilometres lime, litres and milligrams cyan, mood and energy
+  violet — the same identity colours the rest of the app uses, never a
+  verdict colour. A number that merely counts ("14 days") stays as prose.
+  The pattern-watch chat message also gained the full stop it was missing.
+- **The ring wins where it speaks.** Health Connect and the Oura sync wrote
+  the same daily row and the last one to sync won, hourly. Now a row the
+  ring has written keeps the ring's sleep, steps and resting heart rate,
+  and the phone fills only what the ring left blank.
+
+## 3.3.6 — Where the sweeps had not been
+
+Web only — no new APK. An adversarial pass over the surfaces the last four
+releases skipped: the dashboard pages, the phone bridge, the insights cards
+and Settings. Four families, each with a guard that was broken first.
+
+- **Your check-in moods were invisible to seven screens.** The Health chart's
+  mood line, the month view's glyphs, both "how you feel at this place"
+  comparisons, "mood today vs your average", the daily quests and three of
+  the MCP tools read only the standalone mood log — and since the dashboard's
+  mood buttons came off, the morning check-in is where most moods are
+  answered. The quests card said "Log your mood" all day directly under a
+  check-in quest that had just reported "Energy & mood logged". All read both
+  now, and the guard that was supposed to catch this walks the whole tree
+  instead of a hand-written list of readers.
+- **The phone's sensors only reached the server when you opened Settings.**
+  Light, pressure, screen moments, the phone's own sleep estimate and the
+  travel modes were collected faithfully on the phone and uploaded by two
+  Settings cards and nothing else. The 3.3.4 fix — "the phone knew you
+  slept" — read a table that stayed empty for anyone who never visited
+  Settings. The app now uploads them every time it comes to the front.
+- **Midnight, again.** The Week page showed last week until 02:00 on
+  Mondays and yesterday as today for two hours every night; the dashboard
+  said "Good morning" until two in the afternoon and marked every reminder
+  due today as overdue from the moment the day began; the Check-in tab
+  opened on "How did you sleep?" at 00:30 and, switched to the evening one,
+  filed the day under the new date. All of these now run on your clock and
+  the app's one rule for when the day turns (05:00).
+- **The Help card described a score that no longer exists**, and a streak
+  rule from before off-days and skips. Both rewritten, and a test now reads
+  the score's real components back against the prose.
+- The daily quests also respect habit off-days and skips, use the water
+  goal you set, and see weigh-ins from the Body page.
+- **The Journal showed no mood for any day but today**, and none at all on
+  days answered in the check-in: it asked for "the last 24 hours" whatever
+  day the picker was on, from the one table. It asks for the day now, from
+  both. A check-in at 00:30 also filed itself under the day before in the
+  Journal's list; it doesn't any more.
+- **Seven of the eleven digest toggles did nothing.** Only Sleep, Steps,
+  HRV and Habits were ever read, and only by the Sunday review email;
+  Mood, Focus, Weight, Strava, GitHub, Last.fm and a Spending toggle for a
+  feature removed a release ago were switches wired to nothing. The card
+  now offers the four that work and says which email they shape.
+- **Weight, the same disease as mood.** Six readers picked weigh-ins from
+  the ring's column alone: "what does the scale say?" answered "No weight
+  recorded yet" over a year of Body-page weigh-ins, the substance curve and
+  the quick-log box used a stale or missing figure, two achievements never
+  counted a Body-page weigh-in, and the Health card labelled "Latest weight"
+  showed a 7-day mean under that label. All read both tables now, and a
+  tree-walking guard holds it.
+- **Emergy now knows about the phone's nights in chat and in the Sunday
+  review.** The 3.3.4 fix taught the brief; the chat prompt still told him
+  "never state or imply sleep figures" over a night the phone had recorded,
+  and the weekly review averaged "no data". Both consult the phone's
+  estimate first and label it as one — never folded into the ring average.
+- **Three hydration totals still counted only water.** The intake tab's own
+  tile, the MCP daily summary and the drift report's "drank less alongside"
+  factor filtered rows typed "water", while the dashboard counted every
+  drink at its hydration factor — so a day that ran on tea read as nearly
+  dry on one screen and fine on another. All three use the one helper now.
+- For whoever sweeps next: `.ci/fake-clock.cjs` and `.ci/render-at.mjs`
+  render every page with the server's and the browser's clocks both set to
+  a chosen instant, which is how the header above was caught.
+
 ## 3.3.4 — The phone knew you slept, and the app said it didn't
 
 Web only — no new APK. Found by looking for more of yesterday's bug rather

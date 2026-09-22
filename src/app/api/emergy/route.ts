@@ -5,6 +5,7 @@ import { localTimeStr, zonedDayRange } from "@/lib/local-date"
 import { NextResponse } from "next/server"
 import { computeXp, getLevel } from "@/lib/xp"
 import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
+import { DAY_TURNS_AT_HOUR } from "@/lib/checkin-mode"
 
 export type EmergyState = "thriving" | "happy" | "okay" | "tired" | "wilting" | "screaming"
 
@@ -67,7 +68,7 @@ export async function GET() {
   // cannot fire in that window either way.
   let today = dateColumn
   let dayStart = start
-  if (hourNow < 5) {
+  if (hourNow < DAY_TURNS_AT_HOUR) {
     const y = new Date(dateColumn.getTime() - 24 * 60 * 60 * 1000)
     const yStr = y.toISOString().slice(0, 10)
     today = new Date(yStr + "T00:00:00Z")

@@ -5,7 +5,7 @@ import { scoreGrade as gradeDaily } from "@/lib/daily-score"
 import type { FocusSession, IntakeLog } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { habitStreak, isDueOn } from "@/lib/habit-schedule"
-import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
+import { addDaysISO, localDateStr, localTimeStr, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { isAlcohol } from "@/lib/body-load"
 import { getUpcomingEventsWithStatus, type CalendarEvent } from "@/lib/google-calendar"
@@ -21,7 +21,7 @@ import {
   Shield,
   Wind, Droplets, Timer,
 } from "lucide-react"
-import { format, isToday, isTomorrow, parseISO, isBefore } from "date-fns"
+import { format, parseISO } from "date-fns"
 import { LiveClock } from "@/components/dashboard/LiveClock"
 import { WeatherWidget } from "@/components/dashboard/WeatherWidget"
 import { AcCard } from "@/components/dashboard/AcCard"
@@ -43,12 +43,16 @@ import { isFeatureEnabled } from "@/lib/features"
 import { getGoals } from "@/lib/goals"
 import { MobileToday } from "@/components/dashboard/MobileToday"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { latestWeighIn } from "@/lib/weight-series"
 
 const DEFAULT_STEP_GOAL = 8_000
 const DEFAULT_SLEEP_GOAL_H = 7.5
 
-function getTimeGreeting() {
-  const h = new Date().getHours()
+// The hour on the user's wall clock, never the server's: this page renders on
+// Vercel, where getHours() is UTC and "Good morning" ran until two in the
+// afternoon in Bratislava.
+function getTimeGreeting(timezone: string) {
+  const h = Number(localTimeStr(timezone).slice(0, 2))
   if (h < 12) return "morning"
   if (h < 18) return "afternoon"
   return "evening"
@@ -175,7 +179,6 @@ export default async function DashboardPage() {
   if (!session?.user?.id) return null
   const userId = session.user.id
 
-  const now = new Date()
 
   // This page renders on the server, where midnight and toISOString() are the
   // server's — UTC on Vercel. Every night between local midnight and 02:00 the
@@ -301,6 +304,9 @@ export default async function DashboardPage() {
 
   // ── health
   const latestHealth = healthLogs[0] ?? null
+  // From either weight table: the newest health row's weight column is
+  // usually null, so the quick-log box opened blank under a week of weigh-ins.
+  const latestWeightKg = await latestWeighIn(userId).then(w => w?.kg ?? null).catch(() => null)
   const sleepLogs = healthLogs.filter(l => l.sleepDuration != null)
   const sleepAvg = sleepLogs.length ? sleepLogs.reduce((s,l) => s+l.sleepDuration!,0)/sleepLogs.length : null
   const stepsLogs = healthLogs.filter(l => l.steps != null)
@@ -323,9 +329,14 @@ export default async function DashboardPage() {
   const doneToday = habitsWithStreaks.filter(h => h.completedToday).length
 
   // ── reminders
-  const overdueReminders = reminders.filter(r => r.dueDate && isBefore(r.dueDate, new Date()))
-  const dueToday = reminders.filter(r => r.dueDate && isToday(r.dueDate))
-  const upcomingR = reminders.filter(r => !r.dueDate || (!isBefore(r.dueDate, new Date()) && !isToday(r.dueDate)))
+  // A due date is stored as UTC midnight of its calendar day, and a reminder
+  // is due until the END of that day — the Reminders page and the widget both
+  // say so. `isBefore(dueDate, now)` here made every reminder due today
+  // overdue from the moment the day began, so the card wore a red "overdue"
+  // badge all day and listed the same reminder twice.
+  const overdueReminders = reminders.filter(r => r.dueDate && r.dueDate < todayStart)
+  const dueToday = reminders.filter(r => r.dueDate && r.dueDate >= todayStart && r.dueDate <= todayEnd)
+  const upcomingR = reminders.filter(r => !r.dueDate || r.dueDate > todayEnd)
 
   // ── calendar
   function parseEDay(e: { start: string|null; isAllDay: boolean }) {
@@ -347,15 +358,20 @@ export default async function DashboardPage() {
   // A linked Google account that did not answer is not an empty day. The card
   // used to say "Enjoy your day!" over a lapsed grant.
   const calendarFailed = calendar.google === "failed"
-  const todayEvents = calendarEvents.filter(e => { const d=parseEDay(e); return d && isToday(d) })
-  const nextEvents = calendarEvents.filter(e => { const d=parseEDay(e); return d && !isToday(d) }).slice(0,4)
+  // The user's day for an instant, not date-fns' isToday, which reads the
+  // server's clock: an event at 00:30 tomorrow was "today" and, after a
+  // Bratislava midnight, today's events sat under "Up next" until 02:00.
+  const dayOf = (d: Date) => localDateStr(timezone, d)
+  const tomorrowStr = addDaysISO(todayStr, 1)
+  const todayEvents = calendarEvents.filter(e => { const d=parseEDay(e); return d && dayOf(d) === todayStr })
+  const nextEvents = calendarEvents.filter(e => { const d=parseEDay(e); return d && dayOf(d) !== todayStr }).slice(0,4)
   // Per-day colour list for the mini calendar dots — each event contributes its
   // own colour (or null → default), so the widget matches the calendar page.
   const eventsByDay = new Map<string, (string | null)[]>()
   for (const e of calendarEvents) {
     const d = parseEDay(e)
     if (!d) continue
-    const key = format(d, "yyyy-MM-dd")
+    const key = dayOf(d)
     const arr = eventsByDay.get(key) ?? []
     arr.push(e.color ?? null)
     eventsByDay.set(key, arr)
@@ -400,9 +416,9 @@ export default async function DashboardPage() {
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 relative min-w-0">
           <div className="min-w-0">
             <h1 className="text-2xl font-bold">
-              Good {getTimeGreeting()}, {session!.user.name?.split(" ")[0] ?? "there"}
+              Good {getTimeGreeting(timezone)}, {session!.user.name?.split(" ")[0] ?? "there"}
             </h1>
-            <p className="text-muted-foreground text-sm mt-0.5">{format(now,"EEEE, MMMM d, yyyy")}</p>
+            <p className="text-muted-foreground text-sm mt-0.5">{format(today,"EEEE, MMMM d, yyyy")}</p>
             <div className="mt-1"><LiveClock /></div>
           </div>
           <div className="min-w-0"><WeatherWidget /></div>
@@ -625,15 +641,15 @@ export default async function DashboardPage() {
         <Card className="card-calendar hover:border-blue-500/40 transition-all cursor-pointer h-full group hover:shadow-lg hover:shadow-blue-500/5">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-              <span className="flex items-center gap-1.5">🗓️ {format(now,"MMMM yyyy")}</span>
+              <span className="flex items-center gap-1.5">🗓️ {format(today,"MMMM yyyy")}</span>
               <ChevronRight className="h-4 w-4 group-hover:translate-x-0.5 transition-transform" />
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="flex gap-4">
-              <MiniMonthCalendar year={now.getFullYear()} month={now.getMonth()} todayDate={now.getDate()} eventsByDay={eventsByDay} />
+              <MiniMonthCalendar year={today.getFullYear()} month={today.getMonth()} todayDate={today.getDate()} eventsByDay={eventsByDay} />
               <div className="flex-1 min-w-0 border-l pl-3">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">{format(now,"MMM d").toUpperCase()}</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">{format(today,"MMM d").toUpperCase()}</p>
                 {todayEvents.length===0 ? (
                   calendarFailed
                     ? <div><p className="text-sm font-medium text-amber-400">Calendar didn&apos;t answer</p><p className="text-xs text-muted-foreground mt-0.5">Google Calendar failed to load — this may not be a free day.</p></div>
@@ -671,7 +687,7 @@ export default async function DashboardPage() {
                           <div>
                             <p className="text-xs text-muted-foreground leading-tight truncate">{e.title}</p>
                             {/* The mobile card already prints the hour; this one said only the day. */}
-                            <p className="text-[10px] text-muted-foreground/60">{d?(isTomorrow(d)?"Tomorrow":format(d,"EEE MMM d")):""}{e.start && !e.isAllDay ? ` · ${eventTime(e.start, timezone)}` : ""}</p>
+                            <p className="text-[10px] text-muted-foreground/60">{d?(dayOf(d) === tomorrowStr?"Tomorrow":format(d,"EEE MMM d")):""}{e.start && !e.isAllDay ? ` · ${eventTime(e.start, timezone)}` : ""}</p>
                           </div>
                         </div>
                       )
@@ -774,7 +790,7 @@ export default async function DashboardPage() {
     ),
 
     quicklog: (
-      <QuickLog todayWaterMl={waterMl} latestWeight={latestHealth?.weight ?? null} waterGoalMl={WATER_GOAL_ML} />
+      <QuickLog todayWaterMl={waterMl} latestWeight={latestWeightKg} waterGoalMl={WATER_GOAL_ML} />
     ),
 
     stats: (

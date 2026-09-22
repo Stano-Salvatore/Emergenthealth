@@ -5,9 +5,9 @@ import { Activity } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
-  sensorStatus, sampleAmbient, drainSensorData,
-  startSleepTracking, stopSleepTracking, type SensorStatus,
+  sensorStatus, startSleepTracking, stopSleepTracking, type SensorStatus,
 } from "@/lib/native/bubble"
+import { uploadPhoneSensors } from "@/lib/native/phone-uploads"
 
 // The phone as an instrument, rather than as a thing that carries the app.
 //
@@ -42,21 +42,16 @@ export function PhoneSensorsCard() {
 
   useEffect(() => { void refresh() }, [refresh])
 
-  // Opening this card is itself a reading, and a chance to send the backlog.
+  // Opening this card is itself a reading, and a chance to send the backlog
+  // — the same upload NativeBridge runs on every foreground, so the queue
+  // counts shown below are what is left AFTER a send, not a backlog waiting
+  // for someone to open Settings.
   useEffect(() => {
     let cancelled = false
     async function pull() {
-      await sampleAmbient()
-      const data = await drainSensorData()
-      if (cancelled) return
-      const total = data.ambient.length + data.phoneEvents.length + data.sleep.length
-      if (total === 0) return
-      await fetch("/api/phone/sensors", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }).catch(() => null)
-      if (!cancelled) await refresh()
+      const sent = await uploadPhoneSensors()
+      if (cancelled || sent === 0) return
+      await refresh()
     }
     void pull()
     return () => { cancelled = true }

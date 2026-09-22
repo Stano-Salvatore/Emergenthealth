@@ -10,8 +10,20 @@ export type CheckInMode = "morning" | "evening"
 /** Evening from 17:00. Before that the morning check-in is the useful one. */
 export const EVENING_FROM_HOUR = 17
 
+/**
+ * Before this hour the day being lived is still yesterday's.
+ *
+ * The same rule /api/emergy scores by: at 00:30 nobody's evening has ended,
+ * so the check-in tab opened on "How did you sleep?" for a night not yet
+ * slept, and the evening check-in — if you switched to it — filed "how was
+ * today", the places recap and the closed intention under a date that was
+ * thirty minutes old. Until 05:00 the evening check-in is the one offered,
+ * and it is about yesterday's date.
+ */
+export const DAY_TURNS_AT_HOUR = 5
+
 export function checkInModeFor(hour: number): CheckInMode {
-  return hour >= EVENING_FROM_HOUR ? "evening" : "morning"
+  return hour >= EVENING_FROM_HOUR || hour < DAY_TURNS_AT_HOUR ? "evening" : "morning"
 }
 
 /** Local "YYYY-MM-DD" from a Date, without going through UTC. */
@@ -27,6 +39,13 @@ export function localDayOf(d: Date = new Date()): string {
 export function tomorrowOf(d: Date = new Date()): string {
   const t = new Date(d)
   t.setDate(t.getDate() + 1)
+  return localDayOf(t)
+}
+
+/** The day an evening check-in is about: the calendar day until 05:00 the next morning. */
+export function eveningDayOf(d: Date = new Date()): string {
+  const t = new Date(d)
+  if (t.getHours() < DAY_TURNS_AT_HOUR) t.setDate(t.getDate() - 1)
   return localDayOf(t)
 }
 

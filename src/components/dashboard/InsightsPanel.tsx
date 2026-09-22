@@ -61,7 +61,7 @@ function TodayTab() {
   if (visible.length === 0) {
     return (
       <p className="text-xs text-muted-foreground py-2">
-        No data logged yet today. Check back after syncing your Oura ring.
+        Nothing for today yet — a ring sync, a phone sync or the morning check-in fills this in.
       </p>
     )
   }
