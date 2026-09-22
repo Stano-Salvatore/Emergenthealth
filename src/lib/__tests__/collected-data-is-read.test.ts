@@ -1,0 +1,103 @@
+import { describe, it, expect } from "vitest"
+import { readFileSync, readdirSync, statSync } from "node:fs"
+import { join } from "node:path"
+
+// A table the app writes and nothing reads is not a neutral gap. It becomes a
+// lie the moment some other surface says "no data" for the thing it holds.
+//
+// That is exactly what happened to PhoneSleepSegment. 3.3.0 shipped the Sleep
+// API collection for "the nights the ring was on its charger", wrote the rows
+// faithfully — and nothing read them. So on precisely those nights the daily
+// brief still told the model "NO SLEEP DATA ... never invent or imply sleep
+// figures", and the quick answer still said "No sleep data for last night",
+// while the estimate sat in the table. The feature's whole promise was hollow
+// and no test noticed, because every test passed: the writer worked.
+//
+// This guard holds the writer and the reader together. It does NOT demand that
+// every table be read — plenty are written for export or for a future pass,
+// and saying so is a decision, not an oversight. It demands that the tables
+// listed here, which exist to answer a question the app asks out loud, have
+// somebody asking.
+
+const SRC = "src"
+
+/** Every .ts/.tsx under src, excluding tests. */
+const sourceFiles = (dir: string): string[] => {
+  const out: string[] = []
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry)
+    if (statSync(full).isDirectory()) {
+      if (entry === "__tests__") continue
+      out.push(...sourceFiles(full))
+      continue
+    }
+    if (/\.tsx?$/.test(entry)) out.push(full)
+  }
+  return out
+}
+
+const readersOf = (delegate: string, writerPaths: string[]): string[] => {
+  const calls = new RegExp(`prisma\\.${delegate}\\.(findMany|findFirst|findUnique|count|aggregate|groupBy)`)
+  return sourceFiles(SRC).filter(f => {
+    if (writerPaths.some(w => f.endsWith(w))) return false
+    return calls.test(readFileSync(f, "utf8"))
+  })
+}
+
+// delegate → the file(s) that WRITE it, which do not count as readers.
+const MUST_BE_READ: { delegate: string; writers: string[]; because: string }[] = [
+  {
+    delegate: "phoneSleepSegment",
+    writers: ["api/phone/sensors/route.ts"],
+    because:
+      "the app says \"no sleep data\" on exactly the nights these rows cover, so an unread table here " +
+      "is the app calling itself ignorant while holding the answer",
+  },
+  {
+    delegate: "activitySpan",
+    writers: ["api/activity/transitions/route.ts"],
+    because:
+      "walking and transit minutes are the movement the app points at when it talks about a day, and " +
+      "the brief now promises not to call such a day inactive",
+  },
+]
+
+describe("data the app collects, something reads", () => {
+  it.each(MUST_BE_READ)("$delegate has a reader", ({ delegate, writers, because }) => {
+    const readers = readersOf(delegate, writers)
+    expect(
+      readers.length,
+      `Nothing reads prisma.${delegate} outside ${writers.join(", ")} — it is written and never used. ` +
+        `That matters here because ${because}. Either wire a reader, or if this is deliberately deferred, ` +
+        "take it off the list in this test with the reason, so the decision is visible instead of silent.",
+    ).toBeGreaterThan(0)
+  })
+})
+
+describe("the brief does not claim ignorance it does not have", () => {
+  const brief = readFileSync("src/app/api/briefing/route.ts", "utf8")
+
+  it("asks the phone before saying there is no sleep", () => {
+    // Order matters as much as presence: the fallback has to be consulted on
+    // the branch that would otherwise assert nothing is known.
+    const noData = brief.indexOf("NO SLEEP DATA for last night")
+    const phoneRead = brief.indexOf("phoneSleep")
+    expect(phoneRead, "The brief no longer reads phone sleep at all.").toBeGreaterThan(-1)
+    expect(
+      phoneRead < noData,
+      "The brief asserts NO SLEEP DATA before consulting the phone's own estimate. On a night the ring " +
+        "was not worn that is the app denying what it holds.",
+    ).toBe(true)
+  })
+
+  it("tells the model what the day's movement was", () => {
+    // The "four weeks without training" bug was not a wording problem: the
+    // prompt contained no step count at all, so nothing could contradict it.
+    expect(
+      /steps/i.test(brief),
+      "The brief carries no step count. The training block can say \"no Strava sessions in four weeks\", " +
+        "and with no steps anywhere in the prompt the model has nothing to weigh that against — which is " +
+        "how it told someone who walked 12,000 steps that they had not trained in a month.",
+    ).toBe(true)
+  })
+})

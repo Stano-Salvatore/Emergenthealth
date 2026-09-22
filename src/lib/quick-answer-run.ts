@@ -281,6 +281,42 @@ async function sleep(userId: string, tz: string, window: "night" | "week", debt:
 
   const nights = rows.filter(r => r.sleepDuration != null && r.sleepDuration > 0)
   if (nights.length === 0) {
+    // The ring has nothing. Ask the phone before saying the app knows nothing:
+    // its Sleep API segments exist precisely for the nights the ring was on
+    // its charger, and answering "no sleep data" while holding an estimate is
+    // the same fault as telling a walker they had not trained.
+    //
+    // status 0 only — 1 is "missing data", 2 is "not detected" — and a night
+    // is at least three hours, so a nap the detector caught is not offered as
+    // one.
+    const from2 = new Date(from + "T00:00:00Z")
+    const segs = await prisma.phoneSleepSegment.findMany({
+      where: { userId, status: 0, end: { gte: from2 } },
+      select: { start: true, end: true },
+    }).catch(() => [] as { start: Date; end: Date }[])
+    const realNights = segs
+      .map(g => ({ ...g, min: (g.end.getTime() - g.start.getTime()) / 60_000 }))
+      .filter(g => g.min >= 180)
+
+    if (realNights.length > 0) {
+      if (window === "night") {
+        const g = realNights.sort((a, b) => b.end.getTime() - a.end.getTime())[0]
+        return {
+          reply:
+            `No ring data for last night, but your phone estimated **${hm(Math.round(g.min))}** of sleep. ` +
+            `That is the phone's guess from motion and light — no stages, no score.`,
+          sources: [],
+        }
+      }
+      // A week: the phone's estimates are not comparable with ring nights and
+      // are not averaged in as though they were. Say they exist and stop.
+      return {
+        reply:
+          `No ring sleep data for the last seven nights. Your phone estimated ${realNights.length} ` +
+          `night${realNights.length === 1 ? "" : "s"} in that stretch — rough guesses from motion, not measurements.`,
+        sources: [],
+      }
+    }
     return { reply: window === "week" ? "No sleep data for the last seven nights." : "No sleep data for last night.", sources: [] }
   }
 

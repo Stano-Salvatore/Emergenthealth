@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.3.4 — The phone knew you slept, and the app said it didn't
+
+Web only — no new APK. Found by looking for more of yesterday's bug rather
+than waiting for it to be reported.
+
+3.3.0 added phone-detected sleep "for the nights the ring was on its charger".
+It collected faithfully and **nothing ever read it** — so on exactly those
+nights the daily brief still told Emergy there was no sleep data and not to
+imply any, and asking "how did I sleep?" still answered "No sleep data for
+last night". The estimate was sitting in the table the whole time.
+
+- The brief and the quick answer now fall back to the phone's estimate when
+  the ring has nothing, and label it honestly: the phone's guess from motion,
+  no stages and no score. Naps are excluded — under three hours is not a night.
+- A week's answer says the phone recorded N nights rather than folding rough
+  estimates into ring averages as though they were the same measurement.
+- A new guard fails when a table the app collects has no reader at all, so
+  "shipped a writer, forgot the reader" can't happen quietly again.
+
 ## 3.3.3 — "Four weeks without training" said to someone who'd walked all day
 
 Web only — no new APK.

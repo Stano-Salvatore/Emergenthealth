@@ -470,6 +470,26 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Collected and never read (3.3.4).** Hunting the 3.3.3 bug's whole class
+  turned up its twin, one release old and self-inflicted: `PhoneSleepSegment`
+  was written by `/api/phone/sensors` and read by nothing. The feature exists
+  for the nights the ring is on its charger — and on exactly those nights the
+  brief said "NO SLEEP DATA ... never invent or imply sleep figures" and
+  `quick-answer-run` said "No sleep data for last night", while the estimate
+  sat in the table. Both now fall back to it, labelled as the phone's guess
+  (no stages, no score), with a 3-hour floor so a nap is not sold as a night;
+  a week's answer reports the count rather than averaging phone guesses in
+  with ring measurements.
+
+  `collected-data-is-read.test.ts` is the general guard: for tables that exist
+  to answer a question the app asks out loud, it fails when nothing reads
+  them, and it also pins that the brief consults the phone BEFORE asserting
+  ignorance and that it carries a step count at all. Deliberate deferrals stay
+  legal — they just have to come off the list with a reason, so the decision is
+  visible instead of silent. `AmbientSample` and `PhoneEvent` are deliberately
+  NOT on the list: nothing anywhere claims "you had no light yesterday", so an
+  unread row there is a gap and not a contradiction.
+
 - **The brief had no steps in it (3.3.3).** `trainingLoad()` reads
   `StravaActivity` and nothing else — `loadSessionsForUser` is the only feeder
   — and its resting summary said "No sessions in the last four weeks" without

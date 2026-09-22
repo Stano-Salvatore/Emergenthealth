@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
 
   const yesterdayStart = new Date(todayStart.getTime() - 24 * 3_600_000)
 
-  const [checkinRows, latestHealth, stepRows, walkSpans, habitRows, intakeRows, foodRows, workoutRows, insightsRow, medTagRows] = await Promise.all([
+  const [checkinRows, latestHealth, stepRows, walkSpans, phoneSleep, habitRows, intakeRows, foodRows, workoutRows, insightsRow, medTagRows] = await Promise.all([
     prisma.$queryRaw<{ energy: number; mood: number; intention: string | null }[]>`
       SELECT "energy", "mood", "intention" FROM "MorningCheckIn"
       WHERE "userId" = ${userId} AND "date" = ${todayStr}
@@ -135,6 +135,22 @@ export async function GET(req: NextRequest) {
 
     prisma.activitySpan.findMany({
       where: { userId, start: { gte: new Date(todayStart.getTime() - 86_400_000) }, mode: "walk" },
+      select: { start: true, end: true },
+    }).catch(() => [] as { start: Date; end: Date }[]),
+
+    // Sleep as the PHONE guessed it, for the night that ended this morning.
+    //
+    // 3.3.0 started collecting these and nothing read them — which made the
+    // feature's whole promise hollow, because the nights it exists for are
+    // exactly the nights this brief was saying "NO SLEEP DATA ... never invent
+    // or imply sleep figures". The ring on its charger, and an app insisting
+    // it knew nothing while the phone's estimate sat in the table.
+    //
+    // status 0 only: 1 is "missing data" and 2 is "not detected", and neither
+    // is a night anyone slept through — reporting those as sleep would be the
+    // invention the line below rightly forbids.
+    prisma.phoneSleepSegment.findMany({
+      where: { userId, status: 0, end: { gte: todayStart, lte: todayEnd } },
       select: { start: true, end: true },
     }).catch(() => [] as { start: Date; end: Date }[]),
 
@@ -217,9 +233,30 @@ export async function GET(req: NextRequest) {
     const readinessStr = latestHealth.readinessScore != null ? `, readiness ${latestHealth.readinessScore}/100` : ""
     lines.push(`Last night's sleep: ${sleepHrs} hours${readinessStr}.`)
   } else {
-    lines.push(latestHealth?.date
-      ? `NO SLEEP DATA for last night yet — the newest recorded night is ${latestHealth.date.toISOString().slice(0, 10)}. Say there's no sleep data for today yet; never invent or imply sleep figures from an older night.`
-      : `NO SLEEP DATA recorded at all yet. Never invent or imply sleep figures.`)
+    // The ring has nothing for last night. Before saying the app knows
+    // nothing, ask the phone — which is the entire reason those segments are
+    // collected. The longest of them is the night; short daytime naps the
+    // detector picks up are not what is being asked about here.
+    const night = phoneSleep
+      .map(w => ({ ...w, min: (w.end.getTime() - w.start.getTime()) / 60_000 }))
+      .sort((a, b) => b.min - a.min)[0]
+
+    // Under three hours is a nap or a bad guess, not a night, and reporting
+    // it as one would be its own small lie.
+    if (night && night.min >= 180) {
+      const hrs = (night.min / 60).toFixed(1)
+      const from = night.start.toISOString().slice(11, 16)
+      const to = night.end.toISOString().slice(11, 16)
+      lines.push(
+        `No ring data for last night, but the PHONE detected sleep: about ${hrs} hours (${from}–${to} UTC). ` +
+        `Call it what it is — the phone's estimate, not the ring's measurement — and do not quote stages, ` +
+        `HRV or a sleep score from it, because it has none.`,
+      )
+    } else {
+      lines.push(latestHealth?.date
+        ? `NO SLEEP DATA for last night yet — no ring night, and no phone estimate either. The newest recorded night is ${latestHealth.date.toISOString().slice(0, 10)}. Say there's no sleep data for today yet; never invent or imply sleep figures from an older night.`
+        : `NO SLEEP DATA recorded at all yet. Never invent or imply sleep figures.`)
+    }
   }
 
   if (habitRows.length > 0) {
