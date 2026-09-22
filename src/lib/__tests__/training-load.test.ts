@@ -21,6 +21,24 @@ describe("trainingLoad", () => {
     expect(l.ratio).toBeNull()
   })
 
+  // This function only ever sees Strava activities — loadSessionsForUser
+  // reads that table and nothing else. The resting sentence used to say "No
+  // sessions in the last four weeks", full stop, and the daily brief pastes
+  // it straight into the model's prompt. Somebody who had walked 12,000 steps
+  // the day before was told they had not trained in a month: true of the
+  // table, false of them, and read by the person as the app not paying
+  // attention.
+  it("says WHOSE sessions it cannot see when there are none", () => {
+    const summary = trainingLoad([], TODAY).summary
+    expect(
+      /strava/i.test(summary),
+      `The resting summary is "${summary}". It has to name Strava: this function cannot see walking, ` +
+        "steps or anything logged elsewhere, and unqualified it tells an active person they have been still.",
+    ).toBe(true)
+    // And it must not claim the silence covers everything.
+    expect(summary).toMatch(/walk|step/i)
+  })
+
   it("calls a steady four weeks steady", () => {
     const sessions = []
     for (let i = 0; i < 28; i += 2) sessions.push({ day: d(i), minutes: 45, rpe: 6 })

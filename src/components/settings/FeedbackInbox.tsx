@@ -11,8 +11,12 @@ type Feedback = {
   message: string
   type: string
   createdAt: string
-  email: string
-  name: string
+  // The route joins the author in NESTED: include { user: select { email,
+  // name } }. These were once declared at the top level here — fields that
+  // never existed on the response — and every byline rendered empty. The
+  // fetch is untyped, so only feedback-surface.test.ts stands between this
+  // shape and that response.
+  user: { email: string | null; name: string | null } | null
 }
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
@@ -84,7 +88,7 @@ export function FeedbackInbox() {
                 <div className="flex-1 min-w-0">
                   <p className={`whitespace-pre-wrap break-words ${f.type === "error" ? "text-xs font-mono" : "text-sm"}`}>{f.message}</p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {f.name || f.email} · {formatDistanceToNow(new Date(f.createdAt), { addSuffix: true })}
+                    {f.user?.name || f.user?.email || "unknown"} · {formatDistanceToNow(new Date(f.createdAt), { addSuffix: true })}
                   </p>
                 </div>
                 <button

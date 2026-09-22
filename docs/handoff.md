@@ -470,6 +470,41 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Collected and never read (3.3.4).** Hunting the 3.3.3 bug's whole class
+  turned up its twin, one release old and self-inflicted: `PhoneSleepSegment`
+  was written by `/api/phone/sensors` and read by nothing. The feature exists
+  for the nights the ring is on its charger — and on exactly those nights the
+  brief said "NO SLEEP DATA ... never invent or imply sleep figures" and
+  `quick-answer-run` said "No sleep data for last night", while the estimate
+  sat in the table. Both now fall back to it, labelled as the phone's guess
+  (no stages, no score), with a 3-hour floor so a nap is not sold as a night;
+  a week's answer reports the count rather than averaging phone guesses in
+  with ring measurements.
+
+  `collected-data-is-read.test.ts` is the general guard: for tables that exist
+  to answer a question the app asks out loud, it fails when nothing reads
+  them, and it also pins that the brief consults the phone BEFORE asserting
+  ignorance and that it carries a step count at all. Deliberate deferrals stay
+  legal — they just have to come off the list with a reason, so the decision is
+  visible instead of silent. `AmbientSample` and `PhoneEvent` are deliberately
+  NOT on the list: nothing anywhere claims "you had no light yesterday", so an
+  unread row there is a gap and not a contradiction.
+
+- **The brief had no steps in it (3.3.3).** `trainingLoad()` reads
+  `StravaActivity` and nothing else — `loadSessionsForUser` is the only feeder
+  — and its resting summary said "No sessions in the last four weeks" without
+  naming the source. `/api/briefing` pastes that line into the prompt, and the
+  prompt contained **no step count whatsoever**, so nothing in it could
+  contradict the reading. Emergy told a person who had walked 12k steps the
+  previous day that they had not trained in a month. Two fixes, because it was
+  two faults: the summary now names Strava and says walks and steps are
+  outside it, and the brief now carries steps (today or yesterday, by period)
+  plus recognised walking minutes with an explicit "do not call a day like
+  this inactive". Guarded in `training-load.test.ts`, broken first. The
+  general lesson is the one this codebase keeps relearning: a sentence
+  measuring one table must name that table, because the reader assumes it
+  measured everything.
+
 - **Three things a screenshot caught at midnight (3.3.2).** The pattern-watch
   message said "tap to see" inside a chat bubble — the string was written for
   the push, whose tap works, and reused on a surface with nothing to tap.
