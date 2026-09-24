@@ -14,7 +14,7 @@ import { registerNotificationActionHandler, resyncNotifications } from "@/lib/na
 import { syncScreenTime } from "@/lib/native/screen-time"
 import { registerNativePush, reviveHead, takePendingSay } from "@/lib/native/bubble"
 import { takePendingWake } from "@/lib/native/wake-word"
-import { uploadActivityEvents, uploadPhoneSensors } from "@/lib/native/phone-uploads"
+import { drainPhone as drainPhoneBuffers } from "@/lib/native/phone-uploads"
 
 const THROTTLE_MS = 30 * 60 * 1000
 const LS_KEY = "native_reminder_sync_at"
@@ -84,8 +84,7 @@ export function NativeBridge() {
     // screen most people open once.
     const drainPhone = () => {
       if (document.visibilityState !== "visible") return
-      uploadPhoneSensors().catch(() => {})
-      uploadActivityEvents().catch(() => {})
+      drainPhoneBuffers().catch(() => {})
     }
 
     collectPendingSay().catch(() => {})

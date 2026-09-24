@@ -116,11 +116,18 @@ describe("the phone's buffers are emptied on foreground, not only in Settings", 
 
   it("NativeBridge ships both buffers every time the app comes to the front", () => {
     const bridge = stripped("src/components/NativeBridge.tsx")
+    expect(
+      bridge.includes("drainPhoneBuffers()"),
+      "NativeBridge.tsx no longer calls drainPhone() from phone-uploads. The phone's buffers then reach the " +
+        "server only while a Settings card is on screen, and the app claims \"no sleep data\" over nights the phone recorded.",
+    ).toBe(true)
+    const helper = stripped("src/lib/native/phone-uploads.ts")
+    const from = helper.indexOf("export function drainPhone(")
+    const drain = helper.slice(from, helper.indexOf("\nexport ", from + 1))
     for (const call of ["uploadPhoneSensors(", "uploadActivityEvents("]) {
       expect(
-        bridge.includes(call),
-        `NativeBridge.tsx no longer calls ${call}). The phone's buffers then reach the server only ` +
-          "while a Settings card is on screen, and the app claims \"no sleep data\" over nights the phone recorded.",
+        drain.includes(call),
+        `drainPhone() in phone-uploads.ts no longer calls ${call}), so one of the two buffers is never shipped.`,
       ).toBe(true)
     }
     // The call has to be inside the foreground handler, not only the mount:
