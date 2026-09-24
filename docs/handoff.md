@@ -525,6 +525,16 @@ Roughly in order, most recent first:
      `NativeBridge` runs it on every foreground, and
      `collected-data-is-read.test.ts` fails if the bridge stops calling it or
      a second copy of the POST appears. Web only; the Java is untouched.
+     3.4.1 closed the half that was still open: the dashboard mounts the
+     brief *before* `NativeBridge`, so the brief asked the server before the
+     drain began and cached "no sleep data" over a night that landed one
+     second later (the production trace: POST /api/phone/sensors 06:12:58,
+     GET /api/briefing 06:12:59). `waitForPhoneDrain()` in `phone-uploads.ts`
+     holds the brief for the drain, bounded and a no-op on the web; the
+     cached-brief re-check reads `PhoneSleepSegment` as well as `HealthLog`;
+     and `/api/phone/sensors` logs `sleep=N/M` per upload so "the phone sent
+     nothing" and "it arrived late" stop looking identical.
+     `phone-drain-before-brief.test.ts` guards all three.
   3. **The server's clock, in three server components and a route.** The
      Week page built its week from `startOfWeek(new Date())` — UTC on Vercel,
      so for two hours after every Bratislava midnight "today" was yesterday
@@ -1086,6 +1096,18 @@ Roughly in order, most recent first:
   is not a substitute for the line an owner needs.
 
 ## Open threads
+
+- **The Sleep API subscription is not re-registered after a reboot.**
+  `startSleepTracking` registers a PendingIntent with Play Services and
+  writes `tracking=true` to SharedPreferences; `HeadBootReceiver` re-arms
+  alarms, the head, location and the wake service, but neither the Sleep
+  API nor the activity-transition subscription. Play Services drops both on
+  reboot (and, for the transitions, on app update), so after a restart the
+  Settings card still says "On — segments arrive each morning" while nothing
+  arrives — the sentence is wider than its scope, the shape 3.3.6 swept for.
+  The fix is two calls in `HeadBootReceiver` gated on the stored flags,
+  under `android-widget/`, so it costs an APK; until then, turning sleep
+  detection off and on again in Settings re-subscribes.
 
 - ~~**Two writers into one HealthLog row, last one wins.**~~ Closed in
   3.4.0 by `lib/health-precedence.ts`: the ring wins where it speaks

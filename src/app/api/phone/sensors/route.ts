@@ -127,5 +127,14 @@ export async function POST(req: NextRequest) {
       : Promise.resolve({ count: 0 }),
   ])
 
+  // What arrived and what was new, per POST. Without this line a morning
+  // brief that says "no sleep data" cannot be told apart from a night the
+  // Sleep API never delivered — the request was a 200 either way.
+  const received = (v: unknown) => (Array.isArray(v) ? v.length : 0)
+  console.log(
+    `[phone-sensors] user=${userId} ambient=${a.count}/${received(body.ambient)} ` +
+    `events=${e.count}/${received(body.phoneEvents)} sleep=${s.count}/${received(body.sleep)} (new/received)`,
+  )
+
   return NextResponse.json({ ok: true, ambient: a.count, phoneEvents: e.count, sleep: s.count })
 }

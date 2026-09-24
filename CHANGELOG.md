@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.4.1 — The brief waits for the phone
+
+Web only — no new APK.
+
+- **The morning brief asks after the phone has been drained.** The dashboard
+  mounts the brief before the native bridge, so on every cold open the brief
+  was generated — and cached — before the Sleep API's segments had left the
+  phone. On a ring-off night that meant "No sleep data came through last
+  night" one second before the night landed, and that answer stayed all
+  morning because the cache only re-checked the ring's table. The brief now
+  holds for the drain (bounded to four seconds, nothing on the web), and a
+  cached sleepless brief is re-checked against the phone's nights too.
+- **The sensors route says what it received.** One log line per upload
+  (`[phone-sensors] … sleep=N/M`), so a morning with no phone sleep can be
+  told apart as "the phone sent nothing" or "it arrived after the brief".
+
 ## 3.4.0 — Tonight's brief, one thing to say, and the ring wins where it speaks
 
 Web only — no new APK.

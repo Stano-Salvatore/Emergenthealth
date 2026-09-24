@@ -6,6 +6,7 @@ import { generatedLabel } from "@/lib/generated-label"
 import { EmergyAvatar } from "@/components/emergy/EmergyAvatar"
 import { useEmergyState } from "@/lib/emergy-store"
 import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
+import { waitForPhoneDrain } from "@/lib/native/phone-uploads"
 
 type BriefingState =
   | { status: "loading" }
@@ -61,6 +62,11 @@ export function DailyBriefing() {
   useEffect(() => {
     let cancelled = false
     void (async () => {
+      // On the phone, last night may still be sitting in the Sleep API's
+      // buffer: NativeBridge mounts after this component, so without the
+      // wait the brief is generated — and cached — before the drain begins.
+      await waitForPhoneDrain()
+      if (cancelled) return
       const next = await loadBriefing(false)
       if (!cancelled) setState(next)
     })()

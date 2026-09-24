@@ -10,6 +10,7 @@ import { supplementInfoFor } from "@/lib/supplement-info"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { loadLabTrends } from "@/lib/lab-trends-load"
 import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
+import { PHONE_NIGHT_MIN_MINUTES } from "@/lib/phone-sleep"
 import { HAIKU } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
 import { getGoals } from "@/lib/goals"
@@ -70,13 +71,29 @@ export async function GET(req: NextRequest) {
         // than the bug it replaced — so a sleepless brief is regenerated the
         // first time it's requested after today's sleep row lands. Old cache
         // entries without the flags are left alone; they expire at midnight.
+        //
+        // "Lands" means from either instrument. The phone's segments arrive
+        // on foreground and can land a second after a cold open's brief was
+        // generated; checking only the ring's row here kept that sleepless
+        // brief all morning on exactly the nights the phone exists for.
         let sleepArrived = false
         if (!periodChanged && parsed.hadSleep === false) {
-          const todaySleep = await prisma.healthLog.findFirst({
-            where: { userId, date: new Date(todayStr), sleepDuration: { not: null } },
-            select: { id: true },
-          }).catch(() => null)
-          sleepArrived = todaySleep != null
+          const dayStart = new Date(todayStr + "T00:00:00.000Z")
+          const dayEnd = new Date(todayStr + "T23:59:59.999Z")
+          const [ring, phone] = await Promise.all([
+            prisma.healthLog.findFirst({
+              where: { userId, date: new Date(todayStr), sleepDuration: { not: null } },
+              select: { id: true },
+            }).catch(() => null),
+            prisma.phoneSleepSegment.findFirst({
+              where: { userId, status: 0, end: { gte: dayStart, lte: dayEnd } },
+              select: { start: true, end: true },
+              orderBy: { end: "desc" },
+            }).catch(() => null),
+          ])
+          const phoneNight = phone != null
+            && phone.end.getTime() - phone.start.getTime() >= PHONE_NIGHT_MIN_MINUTES * 60_000
+          sleepArrived = ring != null || phoneNight
         }
         if (!periodChanged && !sleepArrived) {
           return NextResponse.json({ briefing: parsed.briefing, generatedAt: parsed.generatedAt, cached: true })
@@ -228,6 +245,10 @@ export async function GET(req: NextRequest) {
   // reads a stale night as fresh. Same fix as /api/emergy/brief.
   const sleepIsToday = latestHealth?.sleepDuration != null
     && latestHealth.date.toISOString().slice(0, 10) === todayStr
+  // Set below when the phone's estimate stands in for the ring. The cache
+  // flag counts it as sleep, or a phone-night brief would be regenerated
+  // on every request as "sleep just arrived".
+  let phoneNightUsed = false
   if (sleepIsToday && latestHealth?.sleepDuration != null) {
     const sleepHrs = (latestHealth.sleepDuration / 60).toFixed(1)
     const readinessStr = latestHealth.readinessScore != null ? `, readiness ${latestHealth.readinessScore}/100` : ""
@@ -243,7 +264,8 @@ export async function GET(req: NextRequest) {
 
     // Under three hours is a nap or a bad guess, not a night, and reporting
     // it as one would be its own small lie.
-    if (night && night.min >= 180) {
+    if (night && night.min >= PHONE_NIGHT_MIN_MINUTES) {
+      phoneNightUsed = true
       const hrs = (night.min / 60).toFixed(1)
       const from = night.start.toISOString().slice(11, 16)
       const to = night.end.toISOString().slice(11, 16)
@@ -468,7 +490,7 @@ export async function GET(req: NextRequest) {
 
   // Store in cache
   try {
-    const cacheValue = JSON.stringify({ briefing, generatedAt, hadSleep: sleepIsToday, period })
+    const cacheValue = JSON.stringify({ briefing, generatedAt, hadSleep: sleepIsToday || phoneNightUsed, period })
     await prisma.$executeRaw`
       INSERT INTO "UserPreference" ("userId","key","value") VALUES (${userId},${cacheKey},${cacheValue})
       ON CONFLICT ("userId","key") DO UPDATE SET "value"=${cacheValue}
