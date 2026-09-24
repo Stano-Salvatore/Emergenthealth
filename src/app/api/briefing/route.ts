@@ -11,6 +11,7 @@ import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { loadLabTrends } from "@/lib/lab-trends-load"
 import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
 import { PHONE_NIGHT_MIN_MINUTES } from "@/lib/phone-sleep"
+import { phoneNightUse } from "@/lib/phone-day"
 import { HAIKU } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
 import { getGoals } from "@/lib/goals"
@@ -122,7 +123,7 @@ export async function GET(req: NextRequest) {
 
   const yesterdayStart = new Date(todayStart.getTime() - 24 * 3_600_000)
 
-  const [checkinRows, latestHealth, stepRows, walkSpans, phoneSleep, habitRows, intakeRows, foodRows, workoutRows, insightsRow, medTagRows] = await Promise.all([
+  const [checkinRows, latestHealth, stepRows, walkSpans, phoneSleep, phoneUse, habitRows, intakeRows, foodRows, workoutRows, insightsRow, medTagRows] = await Promise.all([
     prisma.$queryRaw<{ energy: number; mood: number; intention: string | null }[]>`
       SELECT "energy", "mood", "intention" FROM "MorningCheckIn"
       WHERE "userId" = ${userId} AND "date" = ${todayStr}
@@ -170,6 +171,10 @@ export async function GET(req: NextRequest) {
       where: { userId, status: 0, end: { gte: todayStart, lte: todayEnd } },
       select: { start: true, end: true },
     }).catch(() => [] as { start: Date; end: Date }[]),
+
+    // When the phone went quiet last night and when it was picked up — the
+    // screen events' first reader. A proxy the prompt must label as one.
+    phoneNightUse(userId, todayStr, timezone),
 
     prisma.$queryRaw<{ name: string }[]>`
       SELECT h."name"
@@ -279,6 +284,16 @@ export async function GET(req: NextRequest) {
         ? `NO SLEEP DATA for last night yet — no ring night, and no phone estimate either. The newest recorded night is ${latestHealth.date.toISOString().slice(0, 10)}. Say there's no sleep data for today yet; never invent or imply sleep figures from an older night.`
         : `NO SLEEP DATA recorded at all yet. Never invent or imply sleep figures.`)
     }
+  }
+
+  if (phoneUse.phoneDownLocal && phoneUse.pickedUpLocal) {
+    const pickups = phoneUse.pickupsAfter22 > 0
+      ? ` ${phoneUse.pickupsAfter22} pickup${phoneUse.pickupsAfter22 === 1 ? "" : "s"} after 22:00 before that.`
+      : ""
+    lines.push(
+      `Phone use last night: put down at ${phoneUse.phoneDownLocal}, first picked up at ${phoneUse.pickedUpLocal} (local).${pickups} ` +
+      `This is when the PHONE went quiet, not when the user slept — treat it as a bedtime clue, never quote it as sleep.`,
+    )
   }
 
   if (habitRows.length > 0) {

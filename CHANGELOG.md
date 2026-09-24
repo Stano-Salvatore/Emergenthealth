@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.4.2 — The screen events get their first reader
+
+Web only — no new APK.
+
+- **"Phone down at 00:40."** The screen and charge moments the phone has
+  been collecting since 3.3.6 were written and never read. `lib/phone-day.ts`
+  is their first reader and the one definition: the night is the longest
+  quiet gap between screen events (so a 3 a.m. glance does not become the
+  bedtime), under three hours is not a night, and evening light is the
+  median of what was actually sampled. The morning brief now knows when the
+  phone went quiet and was picked up, plus pickups after 22:00 — labelled
+  as a bedtime clue, never as sleep.
+- **`get_phone_day` in the chat tools.** Emergy (and the MCP connector) can
+  now answer "what did my phone see yesterday": phone-down and pickup
+  times, quiet minutes, pickups after 22:00, evening light, any
+  phone-detected sleep, and the day's raw counts with lux min/max and
+  average pressure.
+- The must-be-read guard now covers `PhoneEvent` and `AmbientSample`, so
+  these tables can never silently return to being written-only.
+
 ## 3.4.1 — The brief waits for the phone
 
 Web only — no new APK.
