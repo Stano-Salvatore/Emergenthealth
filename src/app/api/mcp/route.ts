@@ -11,6 +11,8 @@ import {
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTimer, stopTimer } from "@/lib/toggl"
 import { getUserTimezone, userToday } from "@/lib/user-timezone"
 import { loadMoodByDay, moodDay } from "@/lib/mood-series"
+import { phoneNightUse } from "@/lib/phone-day"
+import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
 import { estimateHome, summariseDays, detectTrips, awayVsHome, type DayMetrics } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
 import { sumHydration } from "@/lib/hydration"
@@ -86,6 +88,51 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool("get_daily_summary", "Full health snapshot for one day (steps, sleep, HR, distance)", { date: z.string().describe("YYYY-MM-DD") },
     async ({ date }) => ok(await getDailySummary(userId, date)))
+
+  server.tool(
+    "get_phone_day",
+    "What the user's PHONE sensors said about a day: when the phone went quiet for the night and was " +
+      "picked up (a bedtime clue, not sleep), pickups after 22:00, evening light level, any phone-detected " +
+      "sleep, and how many light/pressure readings and screen events the day produced. This is the phone's " +
+      "own instrument panel — use it on nights the ring was off, and always label it as the phone's estimate.",
+    { date: z.string().describe("YYYY-MM-DD (defaults to today)").optional() },
+    async ({ date }) => {
+      const timezone = await getUserTimezone(userId)
+      const day = date ?? await todayFor(userId)
+      const dayStart = startOfDay(day)
+      const dayEnd = endOfDay(day)
+      const [use, nights, eventCount, ambientAgg] = await Promise.all([
+        phoneNightUse(userId, day, timezone),
+        phoneNights(userId, dayStart, dayEnd, timezone),
+        prisma.phoneEvent.count({ where: { userId, at: { gte: dayStart, lte: dayEnd } } }).catch(() => 0),
+        prisma.ambientSample.aggregate({
+          where: { userId, at: { gte: dayStart, lte: dayEnd } },
+          _count: { _all: true }, _min: { lux: true }, _max: { lux: true }, _avg: { pressureHpa: true },
+        }).catch(() => null),
+      ])
+      return ok({
+        date: day,
+        night: {
+          phoneDownAt: use.phoneDownLocal,
+          firstPickedUpAt: use.pickedUpLocal,
+          quietMinutes: use.quietMinutes,
+          pickupsAfter22: use.pickupsAfter22,
+          eveningMedianLux: use.eveningLux,
+          note: "When the PHONE went quiet — a bedtime clue, not a sleep measurement.",
+        },
+        phoneDetectedSleep: nights.map(n => ({
+          day: n.day, minutes: n.minutes, label: hoursLabel(n.minutes),
+          start: n.start.toISOString(), end: n.end.toISOString(),
+        })),
+        counts: {
+          screenAndChargeEvents: eventCount,
+          ambientReadings: ambientAgg?._count._all ?? 0,
+          luxMin: ambientAgg?._min.lux ?? null,
+          luxMax: ambientAgg?._max.lux ?? null,
+          pressureAvgHpa: ambientAgg?._avg.pressureHpa != null ? Math.round(ambientAgg._avg.pressureHpa * 10) / 10 : null,
+        },
+      })
+    })
 
   server.tool(
     "get_oura_tags",

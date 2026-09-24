@@ -1097,6 +1097,14 @@ Roughly in order, most recent first:
 
 ## Open threads
 
+- ~~**Ambient light and screen events written, never read.**~~ Closed in
+  3.4.2: `lib/phone-day.ts` (longest-quiet-gap bedtime proxy, evening
+  median lux) feeds the brief and the `get_phone_day` MCP tool, and
+  `collected-data-is-read.test.ts` now lists both tables. Still open on
+  top of it: nothing CORRELATES these with sleep quality yet — "your worst
+  nights follow screen use past 1 am" needs the correlations engine to
+  take `phoneNightUse` as an input series.
+
 - **The Sleep API subscription is not re-registered after a reboot.**
   `startSleepTracking` registers a PendingIntent with Play Services and
   writes `tracking=true` to SharedPreferences; `HeadBootReceiver` re-arms

@@ -54,6 +54,19 @@ const MUST_BE_READ: { delegate: string; writers: string[]; because: string }[] =
       "is the app calling itself ignorant while holding the answer",
   },
   {
+    delegate: "phoneEvent",
+    writers: ["api/phone/sensors/route.ts"],
+    because:
+      "screen and charge moments are collected on every foreground precisely so the app can say when the " +
+      "phone was put down for the night; unread, that promise is a table nobody looks at",
+  },
+  {
+    delegate: "ambientSample",
+    writers: ["api/phone/sensors/route.ts"],
+    because:
+      "evening light is collected to explain bad nights; unread, the sampling is battery spent on nothing",
+  },
+  {
     delegate: "activitySpan",
     writers: ["api/activity/transitions/route.ts"],
     because:
