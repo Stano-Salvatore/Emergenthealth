@@ -1,5 +1,31 @@
 # Changelog
 
+## 3.5.0 — The score survives the ring, vitals get a card, bedtime gets a suggestion
+
+Web only — no new APK. The three top items from the September platform
+comparison (Samsung Health 7.0, Apple Health iOS 27, Google Health), built
+the house way: personal baselines, honest absence, no invented numbers.
+
+- **The daily score survives a ring-off night.** Sleep, recovery and steps
+  all read absent without the ring, coverage fell under the floor, and the
+  home screen's one number went blank — on exactly the days the phone's
+  estimate sat in its table. Today's sleep now fills from the phone when
+  the ring has nothing, the card says "Sleep is the phone's estimate", and
+  history baselines stay ring-only, per the no-blending rule.
+- **Last night's vitals, as a card.** Five overnight signals — resting
+  heart rate, HRV, breathing, skin temperature, blood oxygen — each against
+  your own 45-day median. "All in your usual band" is shown, not silence;
+  a flag is the same two-sigma spike the anomaly scan would call; a signal
+  the ring didn't report shows a dash, and a quiet ring gets one honest
+  line instead of stale rows.
+- **Tonight aim for ~23:30.** The evening brief suggests a bedtime: the
+  median start of your better recent nights (by your own sleep scores),
+  falling back to phone-down times when the ring's record is thin, with a
+  gentle 20-minute-earlier nudge when the week is more than an hour short
+  of your sleep goal. Midnight doesn't cut the calculation in half, and
+  too little data is no answer rather than a made-up one. The AI brief and
+  the Tonight card share one suggestion, so they can never disagree.
+
 ## 3.4.4 — Replies that stay, changes you can ask about, buttons that go places
 
 Web only — no new APK.

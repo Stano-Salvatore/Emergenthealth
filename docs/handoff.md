@@ -1097,6 +1097,12 @@ Roughly in order, most recent first:
 
 ## Open threads
 
+- **From the September platform comparison, two steal-list items remain.**
+  Barcode food scanning (camera file-input + OpenFoodFacts, probably no
+  APK) and a Longevity/long-view page over the labs and fitness trends
+  (deliberately NOT a fake "health age"). The top three — score on
+  ring-off days, the vitals card, bedtime guidance — shipped in 3.5.0.
+
 - **Chat replies persist before the stream closes (3.4.4), but a reply
   aborted MID-stream is still lost** — if the function dies while tokens
   are flowing, nothing was accumulated worth saving and the user message

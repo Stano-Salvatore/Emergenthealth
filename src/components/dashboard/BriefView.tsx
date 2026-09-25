@@ -24,6 +24,7 @@ interface TodayData {
   daily?: { today: DayOutlook; tomorrow: DayOutlook } | null
   outfit: string
   targets?: Targets | null
+  bedtime?: { target: string; basis: "ring" | "phone"; sample: number; debtH: number | null } | null
 }
 
 /**
@@ -345,6 +346,15 @@ export function BriefView({ name }: { name: string }) {
                       )}
                     </div>
                     <p className="text-[11px] text-muted-foreground text-right mt-3">{syncedLabel(targets.lastSyncedAt)}</p>
+                    {today?.bedtime && (
+                      <p className="text-sm mt-3 pt-3 border-t border-border/60">
+                        Tonight aim for ~<span className="font-semibold">{today.bedtime.target}</span> — {
+                          today.bedtime.basis === "ring"
+                            ? "your best nights started around then"
+                            : "when your phone usually goes down for the night"
+                        }{today.bedtime.debtH != null ? `. You're about ${today.bedtime.debtH}h short of your sleep goal this week, so a little earlier pays it back` : ""}.
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
               )}
