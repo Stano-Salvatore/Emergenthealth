@@ -22,6 +22,7 @@ import { addDaysISO, localDateStr, localTimeStr, zonedDateTime, zonedDayRange } 
 import { getUserTimezone, userDay } from "@/lib/user-timezone"
 import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
 import { phoneDaySummary } from "@/lib/phone-day"
+import { parseInsightsCache } from "@/lib/insights-cache"
 import { musicRange } from "@/lib/music-days"
 import { dailyTagsKey, mergeTags, resolveTagDate, MAX_TAGS_PER_DAY } from "@/lib/daily-tags"
 import { resolveReminderWhen, parseHhMm } from "@/lib/reminder-when"
@@ -2084,16 +2085,29 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     }
 
     if (kind === "patterns") {
-      const pref = await prisma.userPreference.findUnique({ where: { userId_key: { userId, key: "insights_cache:overall" } } }).catch(() => null)
+      const [pref, watchPref] = await Promise.all([
+        prisma.userPreference.findUnique({ where: { userId_key: { userId, key: "insights_cache:overall" } } }).catch(() => null),
+        prisma.userPreference.findUnique({ where: { userId_key: { userId, key: "insights_watch:last_changes" } } }).catch(() => null),
+      ])
       if (!pref?.value) return "No pattern run cached yet — it is computed when they open Patterns, so ask them to open it once."
-      let list: Array<Record<string, unknown>> = []
-      try {
-        const parsed = JSON.parse(pref.value)
-        list = Array.isArray(parsed?.insights) ? parsed.insights : Array.isArray(parsed) ? parsed : []
-      } catch { list = [] }
+      const { insights: list } = parseInsightsCache(pref.value)
       if (list.length === 0) return "The cached pattern run is empty — not enough overlapping days yet."
+
+      // What the last watch actually announced — the diff the "N patterns
+      // changed" bubble refers to. Without this the change list existed only
+      // in the cron's memory and "what else moved?" was unanswerable.
+      let changesStr = ""
+      try {
+        const watch = watchPref?.value ? JSON.parse(watchPref.value) as { at?: number; changes?: { finding: string; reason: string }[] } : null
+        if (watch?.changes?.length && watch.at && Date.now() - watch.at < 72 * 3600_000) {
+          const when = new Date(watch.at).toISOString().slice(0, 10)
+          changesStr = `What moved at the last check (${when}):\n` +
+            watch.changes.map(c => `- ${c.finding} — ${c.reason}`).join("\n") + "\n\nAll current patterns:\n"
+        }
+      } catch { /* a malformed diff must not hide the patterns */ }
+
       const shown = list.filter(i => i.tier !== "noise").slice(0, 20)
-      return shown.map(i => `- [${i.tier}${i.weekendDriven ? ", weekend-driven" : ""}] ${i.title}: ${i.finding} (${i.highGroupN}+${i.lowGroupN} days, ${Number(i.delta) > 0 ? "+" : ""}${i.delta}%)${i.coverage ? ` [coverage: ${i.coverage}]` : ""}${i.confounded ? ` [confounded: ${i.confounded}]` : ""}`).join("\n")
+      return changesStr + shown.map(i => `- [${i.tier}${i.weekendDriven ? ", weekend-driven" : ""}] ${i.title}: ${i.finding} (${i.highGroupN}+${i.lowGroupN} days, ${Number(i.delta) > 0 ? "+" : ""}${i.delta}%)${i.coverage ? ` [coverage: ${i.coverage}]` : ""}${i.confounded ? ` [confounded: ${i.confounded}]` : ""}`).join("\n")
         + "\n'strong' survived false-discovery correction; 'suggestive' did not — soften it. All association, not cause."
     }
 
@@ -2597,8 +2611,7 @@ export async function buildSystemPrompt(
   // this a remark he makes when it fits, not a report he delivers.
   let patternsStr: string | null = null
   try {
-    const parsed = cachedInsights?.value ? JSON.parse(cachedInsights.value) : null
-    const all: { title?: string; finding?: string; tier?: string }[] = parsed?.payload?.insights ?? []
+    const all = parseInsightsCache(cachedInsights?.value).insights
     const ranked = [
       ...all.filter(i => i.tier === "strong"),
       ...all.filter(i => i.tier === "suggestive"),
@@ -2878,6 +2891,7 @@ const CHAT_PRESENTATION = `
 The chat screen shows your answer with its working, so write it that way.
 - Put any figure you read from their data in backticks — \`6h 10m\`, \`68\`, \`3.2k\`. They render as ordinary prose; the backticks only set the digits in tabular figures so they line up down a list.
 - When their own words say it better than yours, quote the journal back as a blockquote opening with the date: "> 24 Aug — Woke up already behind." One quote at most, only when it earns its place, and never paraphrased inside the quote marks — if you cannot quote it as written, do not quote it.
+- When your answer points somewhere in the app, end that sentence with a markdown link the screen renders as a tappable button — e.g. "the full list is on [Patterns](/dashboard/insights)". Use ONLY these paths: /dashboard (home), /dashboard/insights (Patterns), /dashboard/experiments, /dashboard/health, /dashboard/journal, /dashboard/brief, /dashboard/week, /dashboard/habits, /dashboard/weight, /dashboard/timeline (day journeys), /dashboard/labs, /dashboard/medications, /dashboard/settings. One link per reply at most; never invent other paths; never link when the answer itself is complete.
 - If the answer leaned on their data, close with one final line naming what you used, exactly like this: [sources: sleep, journal]. Choose only from: ${SOURCE_KEYS.join(", ")}. Name only what actually shaped the answer, not everything you can see, and leave the line off entirely for small talk or anything you answered without reading. The user never sees the line itself — it draws the source chips under your reply, so a source you name but did not use puts a false receipt on their screen.`
 
 /**

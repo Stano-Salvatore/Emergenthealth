@@ -1097,6 +1097,12 @@ Roughly in order, most recent first:
 
 ## Open threads
 
+- **Chat replies persist before the stream closes (3.4.4), but a reply
+  aborted MID-stream is still lost** — if the function dies while tokens
+  are flowing, nothing was accumulated worth saving and the user message
+  sits answerless. Reproducing needs a killed deployment mid-turn; if it
+  shows up, checkpoint partial text every ~2s under the same message row.
+
 - **`ArtistGenre` is read by the correlation engine and `lib/music-days.ts`
   only at lookup time; nothing refreshes it.** An artist first seen in a new
   sync gets a genre row only if the Last.fm sync's lookup wrote one; the

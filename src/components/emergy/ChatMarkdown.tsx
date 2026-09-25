@@ -1,4 +1,5 @@
 import React from "react"
+import Link from "next/link"
 import { ChatChart } from "@/components/emergy/ChatChart"
 import { figureClass, markFigures } from "@/lib/figure-marks"
 
@@ -13,7 +14,9 @@ import { figureClass, markFigures } from "@/lib/figure-marks"
 // the palette rule applied to prose (lib/figure-marks), and is what makes
 // "you're running on 6.0h and 5.9h" findable at a glance on a phone.
 
-const INLINE_RE = /(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`]+`)/g
+const INLINE_RE = /(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`]+`|\[[^\]\n]+\]\([^)\s]+\))/g
+
+const LINK_RE = /^\[([^\]\n]+)\]\(([^)\s]+)\)$/
 
 /** Plain prose with its figures bold, tabular and in their domain hue. */
 export function Figures({ text }: { text: string }) {
@@ -47,6 +50,22 @@ export function renderInline(text: string): React.ReactNode {
     // down a column of bullets.
     if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
       return <span key={i} className="tabular-nums"><Figures text={part.slice(1, -1)} /></span>
+    }
+    const link = LINK_RE.exec(part)
+    if (link) {
+      const [, label, href] = link
+      if (href.startsWith("/")) {
+        return (
+          <Link key={i} href={href}
+            className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-primary font-medium no-underline align-baseline">
+            {label} <span aria-hidden>→</span>
+          </Link>
+        )
+      }
+      if (href.startsWith("https://") || href.startsWith("http://")) {
+        return <a key={i} href={href} target="_blank" rel="noopener noreferrer" className="underline text-primary">{label}</a>
+      }
+      return <Figures key={i} text={part} />
     }
     return <Figures key={i} text={part} />
   })

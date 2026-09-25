@@ -175,6 +175,18 @@ export async function GET(req: NextRequest) {
       if (reason) changes.push({ finding: ins.finding, reason })
     }
 
+    // The list itself, not just the first sentence. The chat bubble now says
+    // "Ask me what else moved", and this is what Emergy answers from — the
+    // change list used to exist only in this loop's memory and the diff was
+    // unanswerable one second after the push went out.
+    if (changes.length > 0) {
+      await prisma.userPreference.upsert({
+        where: { userId_key: { userId, key: "insights_watch:last_changes" } },
+        create: { userId, key: "insights_watch:last_changes", value: JSON.stringify({ at: Date.now(), changes }) },
+        update: { value: JSON.stringify({ at: Date.now(), changes }) },
+      }).catch(() => null)
+    }
+
     // Persist the new baseline regardless of whether we notified.
     const stateJson = JSON.stringify(nextState)
     await prisma.$executeRaw`

@@ -141,8 +141,12 @@ export async function POST(req: NextRequest) {
         console.error("[emergy] chat failed", logChatFailure(error))
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "text", text: `\n\n_(${describeChatFailure(error)})_` })}\n\n`))
       }
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-      controller.close()
+      // Persist BEFORE closing the response. Closing is the signal that lets
+      // the serverless runtime freeze this function, so anything after it
+      // runs only when the platform feels like it — which is how a reply the
+      // user watched stream in full was never written, and vanished the next
+      // time the chat loaded. The few milliseconds of extra spinner are the
+      // price of the transcript being real.
       if (full.trim()) {
         await prisma.chatMessage.create({
           data: {
@@ -152,6 +156,8 @@ export async function POST(req: NextRequest) {
         }).catch(() => {})
       }
       await prisma.chatConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } }).catch(() => {})
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"))
+      controller.close()
     },
   })
 

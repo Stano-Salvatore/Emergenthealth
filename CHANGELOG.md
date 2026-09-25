@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.4.4 — Replies that stay, changes you can ask about, buttons that go places
+
+Web only — no new APK.
+
+- **Chat replies no longer vanish.** The reply was saved to the transcript
+  after the response stream closed — and closing the stream is exactly what
+  lets the serverless runtime freeze the function, so the save sometimes
+  never ran. A reply you watched stream in full could be gone on the next
+  open. It is now written before the stream reports done.
+- **"What else moved?" has an answer.** The pattern watch computed exactly
+  which patterns changed, sent one sentence, and discarded the list — so
+  neither Emergy nor the insights page could name the rest. The change list
+  is stored now, Emergy's patterns tool leads with it for three days, and
+  the bubble says "Ask me what else moved" instead of pointing at a page
+  that never knew.
+- **The empty-cache lie.** Two readers of the pattern cache disagreed about
+  its shape: the chat context saw ten patterns while the patterns tool read
+  the wrong level, saw nothing, and said the run was empty. One shared
+  parser now, guarded so a third reader can never disagree again.
+- **Emergy's replies can navigate.** An internal markdown link renders as a
+  tappable chip — "the full list is on [Patterns] →" — for a fixed list of
+  app pages. External links open in a new tab.
+
 ## 3.4.3 — Emergy reads the phone and the record shelf, and stops narrating GPS drift
 
 Web only — no new APK.
