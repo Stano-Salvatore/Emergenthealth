@@ -143,7 +143,14 @@ export function PhoneSensorsCard() {
             </p>
           ) : status.sleepTracking ? (
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-emerald-400">On — segments arrive each morning.</span>
+              <span className="text-sm text-emerald-400">
+                On — segments arrive each morning.
+                {status.queuedSleep > 0 && (
+                  <span className="block text-xs text-muted-foreground">
+                    {status.queuedSleep} segment{status.queuedSleep === 1 ? "" : "s"} on the phone, uploading on this visit.
+                  </span>
+                )}
+              </span>
               <Button size="sm" variant="ghost" disabled={busy} onClick={disableSleep}>
                 Turn off
               </Button>

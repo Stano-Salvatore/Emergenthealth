@@ -1,7 +1,8 @@
 // Barcode reading via the browser's built-in BarcodeDetector — supported in
 // Chrome/Android WebView (which is what the Capacitor app runs in). No native
 // plugin, no external library: snap a photo of the barcode, detect on the
-// still image. Callers fall back to manual code entry when unsupported.
+// still image. Unsupported browsers get an honest error from the caller and
+// the photo-estimate path instead — there is no manual code entry (yet).
 
 interface DetectedBarcode {
   rawValue: string

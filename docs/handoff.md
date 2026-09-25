@@ -1097,11 +1097,14 @@ Roughly in order, most recent first:
 
 ## Open threads
 
-- **From the September platform comparison, two steal-list items remain.**
-  Barcode food scanning (camera file-input + OpenFoodFacts, probably no
-  APK) and a Longevity/long-view page over the labs and fitness trends
-  (deliberately NOT a fake "health age"). The top three — score on
-  ring-off days, the vitals card, bedtime guidance — shipped in 3.5.0.
+- ~~**From the September platform comparison, two steal-list items
+  remain.**~~ Both closed: barcode scanning turned out to already exist
+  (shipped in the 3.2 overhaul — Food tab → Scan, photo + BarcodeDetector
+  + Open Food Facts; the comparison matrix was wrong), and the long view
+  shipped in 3.6.0 (stats page section + `get_analysis kind:"season"`,
+  both over `seasonWindows` and the drift engine). Left deliberately
+  unbuilt: a live camera viewfinder for barcodes (needs the CAMERA
+  permission — an APK) and manual barcode entry as a no-detector fallback.
 
 - **Chat replies persist before the stream closes (3.4.4), but a reply
   aborted MID-stream is still lost** — if the function dies while tokens
@@ -1131,17 +1134,13 @@ Roughly in order, most recent first:
   nights follow screen use past 1 am" needs the correlations engine to
   take `phoneNightUse` as an input series.
 
-- **The Sleep API subscription is not re-registered after a reboot.**
-  `startSleepTracking` registers a PendingIntent with Play Services and
-  writes `tracking=true` to SharedPreferences; `HeadBootReceiver` re-arms
-  alarms, the head, location and the wake service, but neither the Sleep
-  API nor the activity-transition subscription. Play Services drops both on
-  reboot (and, for the transitions, on app update), so after a restart the
-  Settings card still says "On — segments arrive each morning" while nothing
-  arrives — the sentence is wider than its scope, the shape 3.3.6 swept for.
-  The fix is two calls in `HeadBootReceiver` gated on the stored flags,
-  under `android-widget/`, so it costs an APK; until then, turning sleep
-  detection off and on again in Settings re-subscribes.
+- ~~**The Sleep API subscription is not re-registered after a reboot.**~~
+  Closed in 3.6.1: `HeadBootReceiver` calls `resubscribe()` on both
+  `EmergySleepReceiver` and `EmergyActivityReceiver`, each gated on its
+  stored flag and the ACTIVITY_RECOGNITION permission, turning the flag
+  off when re-subscribing cannot succeed so the Settings card stays
+  truthful. `subscriptions-survive-reboot.test.ts` greps the Java for the
+  calls, the flag-off rule, and the single PendingIntent definitions.
 
 - ~~**Two writers into one HealthLog row, last one wins.**~~ Closed in
   3.4.0 by `lib/health-precedence.ts`: the ring wins where it speaks

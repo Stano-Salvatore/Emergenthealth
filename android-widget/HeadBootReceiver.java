@@ -44,6 +44,14 @@ public class HeadBootReceiver extends BroadcastReceiver {
             if (EmergyLocationService.keep(ctx) || EmergyWakeService.keep(ctx)) {
                 HeadAlarmReceiver.scheduleWatchdog(ctx);
             }
+            // Play Services drops its subscriptions on reboot and app update
+            // while the stored flags keep saying "On" — the Settings card
+            // then claims a dead subscription is alive, and the first
+            // ring-off night quietly records nothing. Each re-subscribe
+            // checks its own flag and permission, and turns the flag off
+            // when it cannot succeed, so the card tells the truth either way.
+            EmergySleepReceiver.resubscribe(ctx);
+            EmergyActivityReceiver.resubscribe(ctx);
         } catch (Exception ignored) {
             // Best effort. The notifications for the same reminders are
             // rescheduled by the app itself; the head popping out is the

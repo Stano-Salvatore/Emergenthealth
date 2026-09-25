@@ -20,6 +20,14 @@ export function rollingWindows(today: string): { recent: Window; prior: Window }
   }
 }
 
+/** This quarter against the last: 90 days each, contiguous — the long view's window. */
+export function seasonWindows(today: string): { recent: Window; prior: Window } {
+  return {
+    recent: { from: addDaysISO(today, -89), to: today },
+    prior: { from: addDaysISO(today, -179), to: addDaysISO(today, -90) },
+  }
+}
+
 /**
  * "Since <date>" against the same number of days before it — the chat's
  * anchor-date comparison. Matched length on purpose, as in the engine's
