@@ -1097,6 +1097,12 @@ Roughly in order, most recent first:
 
 ## Open threads
 
+- **`ArtistGenre` is read by the correlation engine and `lib/music-days.ts`
+  only at lookup time; nothing refreshes it.** An artist first seen in a new
+  sync gets a genre row only if the Last.fm sync's lookup wrote one; the
+  music tool reports `genre: null` for the rest, honestly. If genres look
+  sparse in practice, the refresh belongs in the sync, not the readers.
+
 - **Night drift is merged by accuracy; daytime drift is not.**
   `mergeIndistinctStops` in `lib/day-stops.ts` (3.4.3) folds a stop into its
   neighbour when their separation is inside the sum of their reported

@@ -12,6 +12,7 @@ import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTim
 import { getUserTimezone, userToday } from "@/lib/user-timezone"
 import { loadMoodByDay, moodDay } from "@/lib/mood-series"
 import { phoneDaySummary } from "@/lib/phone-day"
+import { musicRange } from "@/lib/music-days"
 import { estimateHome, summariseDays, detectTrips, awayVsHome, type DayMetrics } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
 import { sumHydration } from "@/lib/hydration"
@@ -100,6 +101,12 @@ function buildMcpServer(userId: string): McpServer {
       const day = date ?? await todayFor(userId)
       return ok(await phoneDaySummary(userId, day, timezone))
     })
+
+  server.tool(
+    "get_music",
+    "What the user listened to (Last.fm / YouTube Music history): per-day tracks, listening minutes, top artist/track, late-evening tracks, and the range's top artists with plays and genre. Null minutes mean an old import whose minutes were never counted — not silence.",
+    dateRange,
+    async ({ startDate, endDate }) => ok(await musicRange(userId, startDate, endDate)))
 
   server.tool(
     "get_oura_tags",

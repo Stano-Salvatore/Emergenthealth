@@ -1,9 +1,15 @@
 # Changelog
 
-## 3.4.3 — Emergy reads the phone, and stops narrating GPS drift
+## 3.4.3 — Emergy reads the phone and the record shelf, and stops narrating GPS drift
 
 Web only — no new APK.
 
+- **"What did I listen to?" now works.** Emergy and the connector gain a
+  music tool over the Last.fm / YouTube Music history, through one shared
+  range reader: per-day tracks, minutes, top artist and track, late-evening
+  tracks, and the stretch's top artists with plays and genre. Old imported
+  days whose minutes were never counted say so instead of posing as
+  silence.
 - **"What did my phone see?" now works in chat.** Emergy's own chat gains
   the phone-day tool the connector already had, through the same shared
   summary, so the two can never describe the same phone differently. It
