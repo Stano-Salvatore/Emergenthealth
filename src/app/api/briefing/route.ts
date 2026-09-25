@@ -12,6 +12,7 @@ import { loadLabTrends } from "@/lib/lab-trends-load"
 import { sumHydration, HYDRATING_TYPES } from "@/lib/hydration"
 import { PHONE_NIGHT_MIN_MINUTES } from "@/lib/phone-sleep"
 import { phoneNightUse } from "@/lib/phone-day"
+import { suggestBedtime } from "@/lib/bedtime"
 import { HAIKU } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
 import { getGoals } from "@/lib/goals"
@@ -294,6 +295,20 @@ export async function GET(req: NextRequest) {
       `Phone use last night: put down at ${phoneUse.phoneDownLocal}, first picked up at ${phoneUse.pickedUpLocal} (local).${pickups} ` +
       `This is when the PHONE went quiet, not when the user slept — treat it as a bedtime clue, never quote it as sleep.`,
     )
+  }
+
+  if (period === "evening") {
+    // The same suggestion Tonight's brief shows as a card, so the two
+    // surfaces can never name different bedtimes.
+    const bt = await suggestBedtime(userId, timezone).catch(() => null)
+    if (bt) {
+      lines.push(
+        `Suggested bedtime tonight: ${bt.target} — the median start of their better recent nights` +
+        (bt.basis === "phone" ? " (from phone-down times, the ring's record being thin)" : "") +
+        (bt.debtH != null ? `; they are about ${bt.debtH}h short of their sleep goal this week` : "") +
+        `. Mention it once, gently — guidance, not homework.`,
+      )
+    }
   }
 
   if (habitRows.length > 0) {

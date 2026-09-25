@@ -1,3 +1,4 @@
+import { parseInsightsCache } from "@/lib/insights-cache"
 import { prisma } from "@/lib/prisma"
 import Anthropic from "@anthropic-ai/sdk"
 import { format } from "date-fns"
@@ -317,8 +318,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   // ── Patterns: only what survived the statistics ────────────────────────────
   let patterns: HealthReport["patterns"] = []
   try {
-    const parsed = insightRow ? JSON.parse(insightRow.value) : null
-    const insights: InsightResult[] = parsed?.payload?.insights ?? []
+    const insights = parseInsightsCache(insightRow?.value).insights as unknown as InsightResult[]
     patterns = insights
       .filter(i => (i.tier === "strong" || i.tier === "suggestive") && !i.weekendDriven)
       .slice(0, 6)

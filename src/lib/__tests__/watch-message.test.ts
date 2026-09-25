@@ -29,8 +29,11 @@ describe("watchBodies", () => {
     // The chat says the news instead, because there is nothing to tap there.
     expect(chat).not.toMatch(/tap/i)
     expect(chat).toContain(finding)
-    // And it still says where the rest live, in words rather than gestures.
-    expect(chat).toMatch(/insights/i)
+    // And it points at a surface that can actually answer. "The rest are on
+    // your insights page" was a second broken promise: the page shows the
+    // CURRENT patterns, not what changed, and Emergy holds the change list —
+    // so the bubble sends the reader to him.
+    expect(chat).toMatch(/ask me/i)
   })
 })
 

@@ -17,6 +17,7 @@ interface ScorePayload {
   score: number | null
   components: Component[]
   coverage: number
+  sleepSource?: "ring" | "phone" | null
   basis: number
   driver: { label: string; emoji: string; score: number; direction: "up" | "down" } | null
   reason?: string
@@ -120,6 +121,7 @@ export function DailyScoreCard() {
             an ordinary day for you and each step of 15 is one robust deviation. Anything that didn&apos;t
             sync is left out rather than counted as zero
             {data.coverage < 1 && `; ${Math.round(data.coverage * 100)}% of the usual inputs were available today`}.
+            {data.sleepSource === "phone" && " Sleep is the phone's estimate — the ring had nothing for last night."}
           </p>
         )}
       </CardContent>

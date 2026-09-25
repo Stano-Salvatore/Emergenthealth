@@ -1,3 +1,4 @@
+import { suggestBedtime } from "@/lib/bedtime"
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
@@ -197,5 +198,9 @@ export async function GET() {
     }
   } catch {}
 
-  return NextResponse.json({ calendar, tomorrow, sleep, weather: weatherData, daily, outfit, targets })
+  // Tonight's suggested bedtime, from the user's own better nights. Absent
+  // when the record is too thin — no answer beats a made-up one.
+  const bedtime = await suggestBedtime(userId, timezone).catch(() => null)
+
+  return NextResponse.json({ calendar, tomorrow, sleep, weather: weatherData, daily, outfit, targets, bedtime })
 }

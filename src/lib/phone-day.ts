@@ -79,11 +79,7 @@ export async function phoneNightUse(
   // The longest gap between consecutive events is the night. One event or
   // none means the phone was quiet the whole window — which is a phone left
   // in another room, not a bedtime worth reporting.
-  let best: { start: Date; end: Date; minutes: number } | null = null
-  for (let i = 1; i < events.length; i++) {
-    const minutes = (events[i].at.getTime() - events[i - 1].at.getTime()) / 60_000
-    if (!best || minutes > best.minutes) best = { start: events[i - 1].at, end: events[i].at, minutes }
-  }
+  const best = longestQuietGap(events)
   if (!best || best.minutes < MIN_NIGHT_GAP_MINUTES) {
     return { ...EMPTY, eveningLux }
   }
@@ -144,4 +140,45 @@ export async function phoneDaySummary(userId: string, dayISO: string, timezone: 
       pressureAvgHpa: ambientAgg?._avg.pressureHpa != null ? Math.round(ambientAgg._avg.pressureHpa * 10) / 10 : null,
     },
   }
+}
+
+function longestQuietGap(events: { at: Date }[]): { start: Date; end: Date; minutes: number } | null {
+  let best: { start: Date; end: Date; minutes: number } | null = null
+  for (let i = 1; i < events.length; i++) {
+    const minutes = (events[i].at.getTime() - events[i - 1].at.getTime()) / 60_000
+    if (!best || minutes > best.minutes) best = { start: events[i - 1].at, end: events[i].at, minutes }
+  }
+  return best
+}
+
+/**
+ * "HH:MM" local phone-down times for the last `nights` nights, one query.
+ *
+ * Feeds the bedtime suggestion when the ring's record is too thin. Each
+ * night is judged in its own 20:00–11:00 window by the same longest-gap
+ * rule as phoneNightUse, so the two can never name different bedtimes.
+ */
+export async function phoneDownTimes(userId: string, nights: number, timezone: string): Promise<string[]> {
+  const today = new Date()
+  const todayISO = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(today)
+  const firstEvening = zonedDateTime(timezone, `${addDaysISO(todayISO, -nights)}T20:00`)
+  const lastMorning = zonedDateTime(timezone, `${todayISO}T11:00`)
+  if (!firstEvening || !lastMorning) return []
+  const events = await prisma.phoneEvent.findMany({
+    where: { userId, at: { gte: firstEvening, lte: lastMorning } },
+    orderBy: { at: "asc" },
+    select: { at: true },
+  }).catch(() => [] as { at: Date }[])
+  if (events.length < 2) return []
+
+  const out: string[] = []
+  for (let d = nights; d >= 1; d--) {
+    const evening = zonedDateTime(timezone, `${addDaysISO(todayISO, -d)}T20:00`)
+    const morning = zonedDateTime(timezone, `${addDaysISO(todayISO, -(d - 1))}T11:00`)
+    if (!evening || !morning) continue
+    const win = events.filter(e => e.at >= evening && e.at <= morning)
+    const gap = longestQuietGap(win)
+    if (gap && gap.minutes >= MIN_NIGHT_GAP_MINUTES) out.push(localTimeStr(timezone, gap.start))
+  }
+  return out
 }

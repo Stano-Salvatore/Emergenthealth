@@ -37,6 +37,7 @@ import { TodayStrip } from "@/components/dashboard/TodayStrip"
 import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
 import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
+import { VitalsCard } from "@/components/dashboard/VitalsCard"
 import { NotesWidget } from "@/components/dashboard/NotesWidget"
 import { ScreenTimeCard } from "@/components/dashboard/ScreenTimeCard"
 import { isFeatureEnabled } from "@/lib/features"
@@ -445,6 +446,7 @@ export default async function DashboardPage() {
             the dashboard reads as one card instead of three overlapping ones. */}
         <div className="mt-4 space-y-3 relative">
           <DailyBriefing />
+          <VitalsCard userId={userId} />
           {/* TodayStrip — desktop only; the mobile gauge + timeline cover it */}
           <div className="hidden md:block"><TodayStrip /></div>
         </div>
