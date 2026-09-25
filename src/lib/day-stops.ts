@@ -36,6 +36,8 @@ export interface TimedPoint {
   lat: number
   lon: number
   time: Date
+  /** The fix's own error bar, when the tracker reported one. */
+  accuracyM?: number | null
 }
 
 export interface Stop {
@@ -46,6 +48,8 @@ export interface Stop {
   end: Date
   minutes: number
   points: number
+  /** Median of the cluster's reported accuracies; null when none were reported. */
+  accuracyM?: number | null
 }
 
 /**
@@ -70,6 +74,10 @@ export function detectStops(points: TimedPoint[]): Stop[] {
       const end = cluster[cluster.length - 1].time
       const minutes = (end.getTime() - start.getTime()) / 60_000
       if (minutes >= STOP_MIN_MIN) {
+        const accs = cluster
+          .map(c => c.accuracyM)
+          .filter((a): a is number => a != null && Number.isFinite(a) && a > 0)
+          .sort((a, b) => a - b)
         stops.push({
           lat: sumLat / cluster.length,
           lon: sumLon / cluster.length,
@@ -77,6 +85,7 @@ export function detectStops(points: TimedPoint[]): Stop[] {
           end,
           minutes: Math.round(minutes),
           points: cluster.length,
+          accuracyM: accs.length ? accs[Math.floor(accs.length / 2)] : null,
         })
       }
     }
@@ -112,7 +121,53 @@ export function detectStops(points: TimedPoint[]): Stop[] {
   }
   close()
 
-  return stops
+  return mergeIndistinctStops(stops)
+}
+
+/**
+ * Two consecutive stops closer together than their combined error bars are
+ * one place, and reporting them as two narrates the noise.
+ *
+ * The case this exists for: a sleeping phone whose fixes drift onto wifi or
+ * cell accuracy overnight. The drifted fixes cluster a few hundred metres
+ * out, pass every stop threshold, and the day then reads "a 262m walk to
+ * somewhere unnamed at 05:27" about a user who was in bed. The fix's own
+ * accuracy is the discriminator the trace actually carries: a 260m
+ * separation on 400m accuracy distinguishes nothing, while the same 260m on
+ * a 15m outdoor fix is a real errand and must survive.
+ *
+ * A stop with no reported accuracy never merges — the absence of an error
+ * bar is not a small error bar.
+ */
+export function mergeIndistinctStops(stops: Stop[]): Stop[] {
+  const out: Stop[] = []
+  for (const next of stops) {
+    const prev = out[out.length - 1]
+    if (prev) {
+      const pauseMin = (next.start.getTime() - prev.end.getTime()) / 60_000
+      const accPrev = prev.accuracyM ?? null
+      const accNext = next.accuracyM ?? null
+      const separation = distanceM(prev.lat, prev.lon, next.lat, next.lon)
+      if (
+        pauseMin <= STOP_MAX_GAP_MIN &&
+        accPrev != null && accNext != null &&
+        separation <= accPrev + accNext
+      ) {
+        // Weight the centre by fixes, so a night at home is not dragged
+        // toward an hour of drift.
+        const total = prev.points + next.points
+        prev.lat = (prev.lat * prev.points + next.lat * next.points) / total
+        prev.lon = (prev.lon * prev.points + next.lon * next.points) / total
+        prev.end = next.end
+        prev.minutes = Math.round((prev.end.getTime() - prev.start.getTime()) / 60_000)
+        prev.accuracyM = Math.round((accPrev * prev.points + accNext * next.points) / total)
+        prev.points = total
+        continue
+      }
+    }
+    out.push({ ...next })
+  }
+  return out
 }
 
 export { STOP_RADIUS_M, STOP_MIN_MIN, STOP_MAX_GAP_MIN }

@@ -83,6 +83,8 @@ const TOOL_SOURCES: Record<string, { label: string; domain: SourceDomain }> = {
   find_my_logs:        { label: "Logs",           domain: "life"  },
   search_chat_history: { label: "Past chats",     domain: "life"  },
   get_day_journey:     { label: "Where you were", domain: "life"  },
+  get_phone_day:       { label: "Phone sensors",  domain: "life"  },
+  get_music:           { label: "Music",          domain: "life"  },
   compare_periods:     { label: "Before & after", domain: "sleep" },
 }
 
@@ -112,6 +114,8 @@ const TOOL_ACTIVITY: Record<string, string> = {
   find_my_logs:       "looking through your logs",
   search_chat_history: "looking back through our chats",
   get_day_journey:    "retracing that day",
+  get_phone_day:      "reading what your phone noticed",
+  get_music:          "flipping through your listening history",
   compare_periods:    "comparing before and after",
   get_analysis:       "reading what the app worked out",
   correct_log:        "fixing that entry",

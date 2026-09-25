@@ -1,5 +1,36 @@
 # Changelog
 
+## 3.4.3 — Emergy reads the phone and the record shelf, and stops narrating GPS drift
+
+Web only — no new APK.
+
+- **"What did I listen to?" now works.** Emergy and the connector gain a
+  music tool over the Last.fm / YouTube Music history, through one shared
+  range reader: per-day tracks, minutes, top artist and track, late-evening
+  tracks, and the stretch's top artists with plays and genre. Old imported
+  days whose minutes were never counted say so instead of posing as
+  silence.
+- **"What did my phone see?" now works in chat.** Emergy's own chat gains
+  the phone-day tool the connector already had, through the same shared
+  summary, so the two can never describe the same phone differently. It
+  answers with phone-down and first-pickup times, pickups after 22:00,
+  evening light, any phone-detected sleep, and the day's raw counts — and
+  the chat shows "reading what your phone noticed" while it runs, with a
+  Phone sensors source chip under the reply.
+- **July can no longer pose as "last 7 days".** The chat's screen-time
+  context took the seven newest rows whatever their age, under a heading
+  that said last 7 days — so a table last written in July answered as this
+  week. The query is floored to the actual week; when there is nothing
+  recent, the section is absent instead of stale.
+- **The 5 a.m. walk that never happened.** A sleeping phone's fixes drift
+  onto wifi/cell accuracy, cluster a few hundred metres out, and the day
+  then read "a 262m walk to somewhere unnamed at 05:27" about someone in
+  bed. Two consecutive stops closer together than their combined reported
+  accuracy now merge into one stay — a 260m separation on 400m accuracy
+  distinguishes nothing, while the same 260m on a 15m outdoor fix is a real
+  errand and survives. Stops with no reported accuracy never merge: the
+  absence of an error bar is not a small one.
+
 ## 3.4.2 — The screen events get their first reader
 
 Web only — no new APK.
