@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.6.0 — The long view
+
+Web only — no new APK.
+
+- **The stats page gains the long view.** This quarter judged against the
+  last through the same drift engine the monthly card uses — 90 days a
+  side, relevance floor and permutation test included, so every shift
+  shown is one that survived. "Same as last quarter" is said as the real
+  answer it is. Below it, twelve months of sleep and step averages where
+  an absent month is a hole, never a zero bar, and the blood-work markers
+  that moved since their previous draw. Deliberately no synthetic "health
+  age": trends against your own history, nothing more.
+- **Emergy answers at quarter scale.** A new season analysis joins the
+  monthly drift: "how does this quarter compare?" gets tested shifts and
+  candidate factors, and Emergy can point at the Long view with a button.
+- Corrected on the way: the barcode reader's comment promised a manual
+  code-entry fallback that was never built.
+
 ## 3.5.0 — The score survives the ring, vitals get a card, bedtime gets a suggestion
 
 Web only — no new APK. The three top items from the September platform

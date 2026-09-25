@@ -1097,11 +1097,14 @@ Roughly in order, most recent first:
 
 ## Open threads
 
-- **From the September platform comparison, two steal-list items remain.**
-  Barcode food scanning (camera file-input + OpenFoodFacts, probably no
-  APK) and a Longevity/long-view page over the labs and fitness trends
-  (deliberately NOT a fake "health age"). The top three — score on
-  ring-off days, the vitals card, bedtime guidance — shipped in 3.5.0.
+- ~~**From the September platform comparison, two steal-list items
+  remain.**~~ Both closed: barcode scanning turned out to already exist
+  (shipped in the 3.2 overhaul — Food tab → Scan, photo + BarcodeDetector
+  + Open Food Facts; the comparison matrix was wrong), and the long view
+  shipped in 3.6.0 (stats page section + `get_analysis kind:"season"`,
+  both over `seasonWindows` and the drift engine). Left deliberately
+  unbuilt: a live camera viewfinder for barcodes (needs the CAMERA
+  permission — an APK) and manual barcode entry as a no-detector fallback.
 
 - **Chat replies persist before the stream closes (3.4.4), but a reply
   aborted MID-stream is still lost** — if the function dies while tokens

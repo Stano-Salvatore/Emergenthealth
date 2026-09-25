@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrendingUp, TrendingDown, Minus, BarChart3, Moon, Footprints, Activity, Zap } from "lucide-react"
+import { LongView } from "@/components/stats/LongView"
 
 interface StatsData {
   dowStats: { day: string; avgSleep: number | null; avgSteps: number | null; avgReadiness: number | null }[]
@@ -287,6 +288,7 @@ export default function StatsPage() {
           sub="deep work" />
       </div>
       </>)}
+      <LongView />
     </div>
   )
 }

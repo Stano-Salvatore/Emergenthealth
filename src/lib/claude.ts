@@ -42,7 +42,7 @@ import { recordModelTurn } from "@/lib/model-spend"
 import { trimToUserTurn } from "@/lib/chat-turns"
 import { parseSaid, SAID_KEY } from "@/lib/emergy-say"
 import { weightSlopeKgWk, weightTrend } from "@/lib/weight-trend"
-import { anchoredWindows, loadDriftReport, rollingWindows } from "@/lib/drift-load"
+import { anchoredWindows, loadDriftReport, rollingWindows, seasonWindows } from "@/lib/drift-load"
 import { renderDrift } from "@/lib/drift"
 import { closeIntention, parseOutcome } from "@/lib/intention"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
@@ -716,7 +716,7 @@ const TOOLS: Anthropic.Tool[] = [
     input_schema: {
       type: "object" as const,
       properties: {
-        kind: { type: "string", enum: ["experiments", "anomalies", "labs", "nutrients", "adherence", "patterns", "drift"] },
+        kind: { type: "string", enum: ["experiments", "anomalies", "labs", "nutrients", "adherence", "patterns", "drift", "season"] },
       },
       required: ["kind"],
     },
@@ -2111,6 +2111,15 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         + "\n'strong' survived false-discovery correction; 'suggestive' did not — soften it. All association, not cause."
     }
 
+    if (kind === "season") {
+      const tz = await getUserTimezone(userId)
+      const report = await loadDriftReport(userId, tz, seasonWindows(localDateStr(tz)))
+      if (report.judged === 0) return "Not enough data yet — a quarter-on-quarter comparison needs at least 10 days of a metric in each 90-day window."
+      const text = renderDrift(report, { names: { recent: "the last 90 days", prior: "the 90 before" } })
+      if (!text) return `Nothing moved between this quarter and the last: ${report.judged} metrics had enough data and none shifted past both the relevance floor and the permutation test. Same as last quarter is a real answer — say it plainly. The charts live on [the Long view](/dashboard/stats).`
+      return text.detail + "\nQuarter-scale: the shifts are tested; the factors are only what changed alongside. Offer candidates, never causes."
+    }
+
     if (kind === "drift") {
       const tz = await getUserTimezone(userId)
       const report = await loadDriftReport(userId, tz, rollingWindows(localDateStr(tz)))
@@ -2891,7 +2900,7 @@ const CHAT_PRESENTATION = `
 The chat screen shows your answer with its working, so write it that way.
 - Put any figure you read from their data in backticks — \`6h 10m\`, \`68\`, \`3.2k\`. They render as ordinary prose; the backticks only set the digits in tabular figures so they line up down a list.
 - When their own words say it better than yours, quote the journal back as a blockquote opening with the date: "> 24 Aug — Woke up already behind." One quote at most, only when it earns its place, and never paraphrased inside the quote marks — if you cannot quote it as written, do not quote it.
-- When your answer points somewhere in the app, end that sentence with a markdown link the screen renders as a tappable button — e.g. "the full list is on [Patterns](/dashboard/insights)". Use ONLY these paths: /dashboard (home), /dashboard/insights (Patterns), /dashboard/experiments, /dashboard/health, /dashboard/journal, /dashboard/brief, /dashboard/week, /dashboard/habits, /dashboard/weight, /dashboard/timeline (day journeys), /dashboard/labs, /dashboard/medications, /dashboard/settings. One link per reply at most; never invent other paths; never link when the answer itself is complete.
+- When your answer points somewhere in the app, end that sentence with a markdown link the screen renders as a tappable button — e.g. "the full list is on [Patterns](/dashboard/insights)". Use ONLY these paths: /dashboard (home), /dashboard/insights (Patterns), /dashboard/experiments, /dashboard/health, /dashboard/journal, /dashboard/brief, /dashboard/week, /dashboard/habits, /dashboard/weight, /dashboard/timeline (day journeys), /dashboard/stats (the Long view: quarter vs quarter, monthly averages), /dashboard/labs, /dashboard/medications, /dashboard/settings. One link per reply at most; never invent other paths; never link when the answer itself is complete.
 - If the answer leaned on their data, close with one final line naming what you used, exactly like this: [sources: sleep, journal]. Choose only from: ${SOURCE_KEYS.join(", ")}. Name only what actually shaped the answer, not everything you can see, and leave the line off entirely for small talk or anything you answered without reading. The user never sees the line itself — it draws the source chips under your reply, so a source you name but did not use puts a false receipt on their screen.`
 
 /**
