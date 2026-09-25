@@ -21,6 +21,7 @@ import {
 import { addDaysISO, localDateStr, localTimeStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone, userDay } from "@/lib/user-timezone"
 import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
+import { phoneDaySummary } from "@/lib/phone-day"
 import { dailyTagsKey, mergeTags, resolveTagDate, MAX_TAGS_PER_DAY } from "@/lib/daily-tags"
 import { resolveReminderWhen, parseHhMm } from "@/lib/reminder-when"
 import { distanceM } from "@/lib/places"
@@ -358,6 +359,17 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "get_day_journey",
     description: "Retrace where the user actually spent a day: the places they stayed, how long at each, and how they travelled between them. The daily summaries you already have say only how far they moved and when tracking started and stopped — this says where. Use it when the day itself is the question ('what did I do on Saturday', 'was I out much last week'), and when somewhere they were might explain how they felt. Travel modes are inferred and some are guesses; they are marked, and a guess should not be stated as fact.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD in the user's local time. Defaults to today." },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "get_phone_day",
+    description: "What the user's PHONE sensors said about a day: when the phone went quiet for the night and was first picked up (a bedtime clue — never quote it as sleep), pickups after 22:00, evening light level, any phone-detected sleep, and the day's raw counts (screen/charge events, light readings with lux range, average air pressure). Use it on nights the ring was off, and when they ask what the phone saw or when they put the phone down. Everything here is the phone's own estimate and must be labelled as such.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -1303,11 +1315,13 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     const rows = await prisma.locationPoint.findMany({
       where: { userId, trackedAt: { gte: jStart, lte: jEnd } },
       orderBy: { trackedAt: "asc" },
-      select: { lat: true, lng: true, trackedAt: true },
+      select: { lat: true, lng: true, trackedAt: true, accuracyM: true },
     }).catch(() => [])
     if (rows.length < 2) return `No location was tracked on ${jDate}.`
 
-    const points = rows.map(r => ({ lat: r.lat, lon: r.lng, time: r.trackedAt }))
+    // accuracy included so indistinct night-drift stops merge away instead
+    // of being narrated as 5 a.m. walks.
+    const points = rows.map(r => ({ lat: r.lat, lon: r.lng, time: r.trackedAt, accuracyM: r.accuracyM }))
     // The same overlay the location page applies: Strava, imported Timeline
     // activities, the phone's recognition. Without it his description of a
     // day and the page's drawing of it could name different modes.
@@ -1353,6 +1367,29 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     })
 
     return `Where ${jDate} went:\n${lines.join("\n")}`
+  }
+
+  if (name === "get_phone_day") {
+    const pTz = await getUserTimezone(userId)
+    const raw = String(input.date ?? "").trim()
+    const pDay = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : localDateStr(pTz)
+    const d = await phoneDaySummary(userId, pDay, pTz)
+    const night = d.night.phoneDownAt && d.night.firstPickedUpAt
+      ? `phone down ${d.night.phoneDownAt}, first pickup ${d.night.firstPickedUpAt} (${Math.floor((d.night.quietMinutes ?? 0) / 60)}h ${(d.night.quietMinutes ?? 0) % 60}m quiet), ` +
+        `${d.night.pickupsAfter22} pickup(s) after 22:00` +
+        (d.night.eveningMedianLux != null ? `, evening light median ${d.night.eveningMedianLux} lx` : "")
+      : "no qualifying quiet stretch found (fewer than 3h between screen touches)"
+    const sleep = d.phoneDetectedSleep.length
+      ? d.phoneDetectedSleep.map(n => `${n.label} (${n.start.slice(11, 16)}–${n.end.slice(11, 16)} UTC)`).join("; ")
+      : "none — the Sleep API delivered no segments for this day"
+    return [
+      `Phone sensors for ${d.date} (all of this is the phone's estimate, not a measurement):`,
+      `- Night: ${night}. This is when the PHONE went quiet — a bedtime clue, never to be quoted as sleep.`,
+      `- Phone-detected sleep: ${sleep}.`,
+      `- Day counts: ${d.counts.screenAndChargeEvents} screen/charge events, ${d.counts.ambientReadings} light readings` +
+        (d.counts.luxMax != null ? ` (lux ${d.counts.luxMin}–${d.counts.luxMax})` : "") +
+        (d.counts.pressureAvgHpa != null ? `, avg pressure ${d.counts.pressureAvgHpa} hPa` : "") + ".",
+    ].join("\n")
   }
 
   if (name === "search_chat_history") {
@@ -2110,8 +2147,11 @@ export async function buildSystemPrompt(
         SELECT "date","energy","mood","intention","intentionOutcome","waterGoalMl" FROM "MorningCheckIn"
         WHERE "userId" = ${userId} AND "date" >= ${since7Str} ORDER BY "date" DESC
       `.catch(() => []),
+      // Floored to the actual week: the prompt heads these rows "last 7
+      // days", and without the floor a table last written in July answered
+      // as if it were this week.
       prisma.screenTimeLog.findMany({
-        where: { userId }, orderBy: { date: "desc" }, take: 7,
+        where: { userId, date: { gte: since7Str } }, orderBy: { date: "desc" }, take: 7,
         select: { date: true, totalMin: true, firstUnlockMin: true },
       }).catch(() => [] as { date: string; totalMin: number; firstUnlockMin: number | null }[]),
       prisma.caffeineLog.findMany({

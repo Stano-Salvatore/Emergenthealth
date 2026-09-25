@@ -16,7 +16,8 @@
 // the phone was down, not that its owner was asleep. Callers must say so.
 
 import { prisma } from "@/lib/prisma"
-import { addDaysISO, localTimeStr, zonedDateTime } from "@/lib/local-date"
+import { addDaysISO, localTimeStr, zonedDateTime, zonedDayRange } from "@/lib/local-date"
+import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
 
 /** Under this, a screen-quiet gap is an evening out or a long film, not a night. */
 export const MIN_NIGHT_GAP_MINUTES = 180
@@ -100,5 +101,47 @@ export async function phoneNightUse(
     eveningLux,
     phoneDownLocal: localTimeStr(timezone, down),
     pickedUpLocal: localTimeStr(timezone, best.end),
+  }
+}
+
+/**
+ * The phone's whole instrument panel for one day, shaped for a tool answer.
+ *
+ * One function because two tools serve it — the MCP connector and Emergy's
+ * own chat — and the bug this closes was exactly those two describing the
+ * same phone differently.
+ */
+export async function phoneDaySummary(userId: string, dayISO: string, timezone: string) {
+  const { start, end } = zonedDayRange(timezone, dayISO)
+  const [use, nights, eventCount, ambientAgg] = await Promise.all([
+    phoneNightUse(userId, dayISO, timezone),
+    phoneNights(userId, start, end, timezone),
+    prisma.phoneEvent.count({ where: { userId, at: { gte: start, lte: end } } }).catch(() => 0),
+    prisma.ambientSample.aggregate({
+      where: { userId, at: { gte: start, lte: end } },
+      _count: { _all: true }, _min: { lux: true }, _max: { lux: true }, _avg: { pressureHpa: true },
+    }).catch(() => null),
+  ])
+  return {
+    date: dayISO,
+    night: {
+      phoneDownAt: use.phoneDownLocal,
+      firstPickedUpAt: use.pickedUpLocal,
+      quietMinutes: use.quietMinutes,
+      pickupsAfter22: use.pickupsAfter22,
+      eveningMedianLux: use.eveningLux,
+      note: "When the PHONE went quiet — a bedtime clue, not a sleep measurement.",
+    },
+    phoneDetectedSleep: nights.map(n => ({
+      day: n.day, minutes: n.minutes, label: hoursLabel(n.minutes),
+      start: n.start.toISOString(), end: n.end.toISOString(),
+    })),
+    counts: {
+      screenAndChargeEvents: eventCount,
+      ambientReadings: ambientAgg?._count._all ?? 0,
+      luxMin: ambientAgg?._min.lux ?? null,
+      luxMax: ambientAgg?._max.lux ?? null,
+      pressureAvgHpa: ambientAgg?._avg.pressureHpa != null ? Math.round(ambientAgg._avg.pressureHpa * 10) / 10 : null,
+    },
   }
 }

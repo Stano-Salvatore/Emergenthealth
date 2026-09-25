@@ -11,8 +11,7 @@ import {
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTimer, stopTimer } from "@/lib/toggl"
 import { getUserTimezone, userToday } from "@/lib/user-timezone"
 import { loadMoodByDay, moodDay } from "@/lib/mood-series"
-import { phoneNightUse } from "@/lib/phone-day"
-import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
+import { phoneDaySummary } from "@/lib/phone-day"
 import { estimateHome, summariseDays, detectTrips, awayVsHome, type DayMetrics } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
 import { sumHydration } from "@/lib/hydration"
@@ -99,39 +98,7 @@ function buildMcpServer(userId: string): McpServer {
     async ({ date }) => {
       const timezone = await getUserTimezone(userId)
       const day = date ?? await todayFor(userId)
-      const dayStart = startOfDay(day)
-      const dayEnd = endOfDay(day)
-      const [use, nights, eventCount, ambientAgg] = await Promise.all([
-        phoneNightUse(userId, day, timezone),
-        phoneNights(userId, dayStart, dayEnd, timezone),
-        prisma.phoneEvent.count({ where: { userId, at: { gte: dayStart, lte: dayEnd } } }).catch(() => 0),
-        prisma.ambientSample.aggregate({
-          where: { userId, at: { gte: dayStart, lte: dayEnd } },
-          _count: { _all: true }, _min: { lux: true }, _max: { lux: true }, _avg: { pressureHpa: true },
-        }).catch(() => null),
-      ])
-      return ok({
-        date: day,
-        night: {
-          phoneDownAt: use.phoneDownLocal,
-          firstPickedUpAt: use.pickedUpLocal,
-          quietMinutes: use.quietMinutes,
-          pickupsAfter22: use.pickupsAfter22,
-          eveningMedianLux: use.eveningLux,
-          note: "When the PHONE went quiet — a bedtime clue, not a sleep measurement.",
-        },
-        phoneDetectedSleep: nights.map(n => ({
-          day: n.day, minutes: n.minutes, label: hoursLabel(n.minutes),
-          start: n.start.toISOString(), end: n.end.toISOString(),
-        })),
-        counts: {
-          screenAndChargeEvents: eventCount,
-          ambientReadings: ambientAgg?._count._all ?? 0,
-          luxMin: ambientAgg?._min.lux ?? null,
-          luxMax: ambientAgg?._max.lux ?? null,
-          pressureAvgHpa: ambientAgg?._avg.pressureHpa != null ? Math.round(ambientAgg._avg.pressureHpa * 10) / 10 : null,
-        },
-      })
+      return ok(await phoneDaySummary(userId, day, timezone))
     })
 
   server.tool(

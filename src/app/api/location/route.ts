@@ -174,7 +174,7 @@ export async function GET(req: Request) {
     where: { userId: session.user.id, trackedAt: { gte: dayStart, lte: dayEnd } },
     orderBy: { trackedAt: "asc" },
   })
-  const ownTracksPoints = ownTracksRows.map(r => ({ lat: r.lat, lon: r.lng, time: r.trackedAt }))
+  const ownTracksPoints = ownTracksRows.map(r => ({ lat: r.lat, lon: r.lng, time: r.trackedAt, accuracyM: r.accuracyM }))
 
   const track = await getGpxTrackForDate(session.user.id, date)
 

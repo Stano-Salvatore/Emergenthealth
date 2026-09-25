@@ -97,6 +97,28 @@ describe("the brief and the chat tool read the same definition", () => {
   it("the MCP tool exists and goes through the shared library", () => {
     const mcp = stripped("src/app/api/mcp/route.ts")
     expect(mcp).toContain('"get_phone_day"')
-    expect(mcp).toMatch(/phoneNightUse\(/)
+    expect(mcp).toMatch(/phoneDaySummary\(/)
+  })
+
+  it("Emergy's own chat has the tool too, through the same library", () => {
+    // The connector had it and the in-app chat did not, so "ask Emergy" and
+    // "ask the connector" gave different answers about the same phone.
+    const chat = stripped("src/lib/claude.ts")
+    expect(chat).toContain('"get_phone_day"')
+    expect(chat).toMatch(/phoneDaySummary\(/)
+  })
+
+  it("the chat's screen-time context cannot serve July as \"last 7 days\"", () => {
+    // screenTimeLog.findMany took the 7 newest rows whatever their age, and
+    // the prompt headed them "Screen time (last 7 days)" — so a table whose
+    // last import was July answered as if it were this week.
+    const chat = stripped("src/lib/claude.ts")
+    const q = chat.indexOf("prisma.screenTimeLog.findMany")
+    expect(q).toBeGreaterThan(-1)
+    const call = chat.slice(q, q + 400)
+    expect(
+      /date: ?\{ ?gte/.test(call),
+      "The screen-time query has no date floor: rows from months ago are presented as the last 7 days.",
+    ).toBe(true)
   })
 })
