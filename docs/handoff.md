@@ -1134,17 +1134,13 @@ Roughly in order, most recent first:
   nights follow screen use past 1 am" needs the correlations engine to
   take `phoneNightUse` as an input series.
 
-- **The Sleep API subscription is not re-registered after a reboot.**
-  `startSleepTracking` registers a PendingIntent with Play Services and
-  writes `tracking=true` to SharedPreferences; `HeadBootReceiver` re-arms
-  alarms, the head, location and the wake service, but neither the Sleep
-  API nor the activity-transition subscription. Play Services drops both on
-  reboot (and, for the transitions, on app update), so after a restart the
-  Settings card still says "On — segments arrive each morning" while nothing
-  arrives — the sentence is wider than its scope, the shape 3.3.6 swept for.
-  The fix is two calls in `HeadBootReceiver` gated on the stored flags,
-  under `android-widget/`, so it costs an APK; until then, turning sleep
-  detection off and on again in Settings re-subscribes.
+- ~~**The Sleep API subscription is not re-registered after a reboot.**~~
+  Closed in 3.6.1: `HeadBootReceiver` calls `resubscribe()` on both
+  `EmergySleepReceiver` and `EmergyActivityReceiver`, each gated on its
+  stored flag and the ACTIVITY_RECOGNITION permission, turning the flag
+  off when re-subscribing cannot succeed so the Settings card stays
+  truthful. `subscriptions-survive-reboot.test.ts` greps the Java for the
+  calls, the flag-off rule, and the single PendingIntent definitions.
 
 - ~~**Two writers into one HealthLog row, last one wins.**~~ Closed in
   3.4.0 by `lib/health-precedence.ts`: the ring wins where it speaks

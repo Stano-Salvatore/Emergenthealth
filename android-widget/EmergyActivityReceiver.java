@@ -1,9 +1,11 @@
 package app.emergenthealth;
 
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import com.google.android.gms.location.ActivityTransitionEvent;
 import com.google.android.gms.location.ActivityTransitionResult;
 import org.json.JSONArray;
@@ -27,6 +29,62 @@ public class EmergyActivityReceiver extends BroadcastReceiver {
 
     static final String PREFS = "emergy_activity";
     static final String KEY_EVENTS = "events";
+    static final String KEY_TRACKING = "tracking";
+
+    /** Same contract as EmergySleepReceiver.pendingIntent — one definition. */
+    static PendingIntent pendingIntent(Context ctx) {
+        Intent intent = new Intent(ctx, EmergyActivityReceiver.class);
+        return PendingIntent.getBroadcast(
+            ctx, 920010, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+    }
+
+    /** The transition set the plugin subscribes to — the one definition. */
+    static com.google.android.gms.location.ActivityTransitionRequest request() {
+        java.util.List<com.google.android.gms.location.ActivityTransition> transitions =
+            new java.util.ArrayList<>();
+        int[] types = {
+            com.google.android.gms.location.DetectedActivity.WALKING,
+            com.google.android.gms.location.DetectedActivity.RUNNING,
+            com.google.android.gms.location.DetectedActivity.ON_BICYCLE,
+            com.google.android.gms.location.DetectedActivity.IN_VEHICLE,
+        };
+        for (int type : types) {
+            transitions.add(new com.google.android.gms.location.ActivityTransition.Builder()
+                .setActivityType(type)
+                .setActivityTransition(
+                    com.google.android.gms.location.ActivityTransition.ACTIVITY_TRANSITION_ENTER)
+                .build());
+            transitions.add(new com.google.android.gms.location.ActivityTransition.Builder()
+                .setActivityType(type)
+                .setActivityTransition(
+                    com.google.android.gms.location.ActivityTransition.ACTIVITY_TRANSITION_EXIT)
+                .build());
+        }
+        return new com.google.android.gms.location.ActivityTransitionRequest(transitions);
+    }
+
+    /**
+     * Put the subscription back after Android threw it away — see
+     * EmergySleepReceiver.resubscribe for why, and for the flag-off rule.
+     */
+    static void resubscribe(Context ctx) {
+        SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (!p.getBoolean(KEY_TRACKING, false)) return;
+        if (ctx.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION)
+                != PackageManager.PERMISSION_GRANTED) {
+            p.edit().putBoolean(KEY_TRACKING, false).apply();
+            return;
+        }
+        try {
+            com.google.android.gms.location.ActivityRecognition.getClient(ctx)
+                .requestActivityTransitionUpdates(request(), pendingIntent(ctx))
+                .addOnFailureListener(e ->
+                    p.edit().putBoolean(KEY_TRACKING, false).apply());
+        } catch (Exception e) {
+            p.edit().putBoolean(KEY_TRACKING, false).apply();
+        }
+    }
 
     /**
      * More than a week of dense transitions. Past this the OLDEST are dropped:

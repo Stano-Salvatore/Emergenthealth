@@ -806,41 +806,13 @@ public class EmergyBubblePlugin extends Plugin {
             return;
         }
         try {
-            java.util.List<com.google.android.gms.location.ActivityTransition> transitions =
-                new java.util.ArrayList<>();
-            int[] types = {
-                com.google.android.gms.location.DetectedActivity.WALKING,
-                com.google.android.gms.location.DetectedActivity.RUNNING,
-                com.google.android.gms.location.DetectedActivity.ON_BICYCLE,
-                com.google.android.gms.location.DetectedActivity.IN_VEHICLE,
-            };
-            for (int type : types) {
-                transitions.add(new com.google.android.gms.location.ActivityTransition.Builder()
-                    .setActivityType(type)
-                    .setActivityTransition(
-                        com.google.android.gms.location.ActivityTransition.ACTIVITY_TRANSITION_ENTER)
-                    .build());
-                transitions.add(new com.google.android.gms.location.ActivityTransition.Builder()
-                    .setActivityType(type)
-                    .setActivityTransition(
-                        com.google.android.gms.location.ActivityTransition.ACTIVITY_TRANSITION_EXIT)
-                    .build());
-            }
-
             Context ctx = getContext();
-            Intent intent = new Intent(ctx, EmergyActivityReceiver.class);
-            // MUTABLE, required for activity recognition PendingIntents on 31+:
-            // the system writes the transition result into the intent.
-            PendingIntent pi = PendingIntent.getBroadcast(
-                ctx, 920010, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
-
             com.google.android.gms.location.ActivityRecognition.getClient(ctx)
                 .requestActivityTransitionUpdates(
-                    new com.google.android.gms.location.ActivityTransitionRequest(transitions), pi)
+                    EmergyActivityReceiver.request(), EmergyActivityReceiver.pendingIntent(ctx))
                 .addOnSuccessListener(unused -> {
                     ctx.getSharedPreferences(EmergyActivityReceiver.PREFS, Context.MODE_PRIVATE)
-                        .edit().putBoolean("tracking", true).apply();
+                        .edit().putBoolean(EmergyActivityReceiver.KEY_TRACKING, true).apply();
                     call.resolve();
                 })
                 .addOnFailureListener(e ->
@@ -854,14 +826,10 @@ public class EmergyBubblePlugin extends Plugin {
     public void stopActivityTransitions(PluginCall call) {
         try {
             Context ctx = getContext();
-            Intent intent = new Intent(ctx, EmergyActivityReceiver.class);
-            PendingIntent pi = PendingIntent.getBroadcast(
-                ctx, 920010, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
             com.google.android.gms.location.ActivityRecognition.getClient(ctx)
-                .removeActivityTransitionUpdates(pi);
+                .removeActivityTransitionUpdates(EmergyActivityReceiver.pendingIntent(ctx));
             ctx.getSharedPreferences(EmergyActivityReceiver.PREFS, Context.MODE_PRIVATE)
-                .edit().putBoolean("tracking", false).apply();
+                .edit().putBoolean(EmergyActivityReceiver.KEY_TRACKING, false).apply();
         } catch (Exception ignored) { }
         call.resolve();
     }
@@ -929,12 +897,9 @@ public class EmergyBubblePlugin extends Plugin {
         }
         try {
             Context ctx = getContext();
-            Intent intent = new Intent(ctx, EmergySleepReceiver.class);
-            // MUTABLE for the same reason the transitions one is: the system
-            // writes the result into the intent it was handed.
-            PendingIntent pi = PendingIntent.getBroadcast(
-                ctx, 920009, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+            // Built by the receiver itself, so the boot re-subscribe and this
+            // start can never hold different request codes.
+            PendingIntent pi = EmergySleepReceiver.pendingIntent(ctx);
 
             com.google.android.gms.location.ActivityRecognition.getClient(ctx)
                 .requestSleepSegmentUpdates(pi,
@@ -956,12 +921,8 @@ public class EmergyBubblePlugin extends Plugin {
     public void stopSleepTracking(PluginCall call) {
         try {
             Context ctx = getContext();
-            Intent intent = new Intent(ctx, EmergySleepReceiver.class);
-            PendingIntent pi = PendingIntent.getBroadcast(
-                ctx, 920009, intent,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
             com.google.android.gms.location.ActivityRecognition.getClient(ctx)
-                .removeSleepSegmentUpdates(pi);
+                .removeSleepSegmentUpdates(EmergySleepReceiver.pendingIntent(ctx));
             ctx.getSharedPreferences(EmergySleepReceiver.PREFS, Context.MODE_PRIVATE)
                 .edit().putBoolean(EmergySleepReceiver.KEY_TRACKING, false).apply();
         } catch (Exception ignored) { }

@@ -1,9 +1,11 @@
 package app.emergenthealth;
 
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 
 import com.google.android.gms.location.SleepSegmentEvent;
 
@@ -49,6 +51,49 @@ public class EmergySleepReceiver extends BroadcastReceiver {
 
     static boolean tracking(Context ctx) {
         return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_TRACKING, false);
+    }
+
+    /**
+     * The one definition of this subscription's PendingIntent. The plugin's
+     * start/stop and the boot re-subscribe all go through here, so the
+     * request code cannot quietly diverge between them — MUTABLE because the
+     * system writes the sleep events into the intent it was handed.
+     */
+    static PendingIntent pendingIntent(Context ctx) {
+        Intent intent = new Intent(ctx, EmergySleepReceiver.class);
+        return PendingIntent.getBroadcast(
+            ctx, 920009, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+    }
+
+    /**
+     * Put the subscription back after Android threw it away.
+     *
+     * A reboot (and an app update) silently drops Play Services
+     * subscriptions while the stored flag keeps saying "On" — which is how a
+     * first tracked night produced zero segments under a card that smiled.
+     * Called from HeadBootReceiver. If the permission is gone or Play
+     * Services refuses, the flag is turned OFF so the Settings card tells
+     * the truth instead of claiming a dead subscription is alive.
+     */
+    static void resubscribe(Context ctx) {
+        SharedPreferences p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (!p.getBoolean(KEY_TRACKING, false)) return;
+        if (ctx.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION)
+                != PackageManager.PERMISSION_GRANTED) {
+            p.edit().putBoolean(KEY_TRACKING, false).apply();
+            return;
+        }
+        try {
+            com.google.android.gms.location.ActivityRecognition.getClient(ctx)
+                .requestSleepSegmentUpdates(pendingIntent(ctx),
+                    com.google.android.gms.location.SleepSegmentRequest
+                        .getDefaultSleepSegmentRequest())
+                .addOnFailureListener(e ->
+                    p.edit().putBoolean(KEY_TRACKING, false).apply());
+        } catch (Exception e) {
+            p.edit().putBoolean(KEY_TRACKING, false).apply();
+        }
     }
 
     static int queuedCount(Context ctx) {

@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.6.1 — Subscriptions that survive a restart
+
+**Needs the new APK** — CI builds and signs it on merge; the in-app update
+banner offers it.
+
+- **A reboot no longer silently kills sleep detection and travel modes.**
+  Android drops Play Services subscriptions on restart and app update while
+  the app's stored flags kept saying "On" — so the Settings card claimed a
+  dead subscription was alive, and the first ring-off night recorded
+  nothing under a smiling toggle. The boot receiver now re-subscribes both
+  from the stored flags; a re-subscribe that cannot succeed (permission
+  revoked, Play Services refusal) turns its flag OFF, so the card tells
+  the truth either way. The plugin and the receivers now build their
+  PendingIntents in one place each, so the request codes can never
+  quietly diverge.
+- **Settings shows what is stuck on the phone**: when sleep segments are
+  queued and not yet uploaded, the sleep section says how many.
+
 ## 3.6.0 — The long view
 
 Web only — no new APK.
