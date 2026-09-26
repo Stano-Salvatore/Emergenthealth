@@ -1139,10 +1139,11 @@ Roughly in order, most recent first:
 - ~~**Ambient light and screen events written, never read.**~~ Closed in
   3.4.2: `lib/phone-day.ts` (longest-quiet-gap bedtime proxy, evening
   median lux) feeds the brief and the `get_phone_day` MCP tool, and
-  `collected-data-is-read.test.ts` now lists both tables. Still open on
-  top of it: nothing CORRELATES these with sleep quality yet — "your worst
-  nights follow screen use past 1 am" needs the correlations engine to
-  take `phoneNightUse` as an input series.
+  `collected-data-is-read.test.ts` now lists both tables. The follow-on
+  closed in 3.6.6: `phoneNightSeries` (one query for the window,
+  absent-not-zero nights) feeds the correlation engine, which now runs
+  "Phone In Bed & Sleep" and "Phone In Bed & Morning Energy" on the user's
+  own median pickup count — `phone-nights-correlate.test.ts` pins the shape.
 
 - ~~**The Sleep API subscription is not re-registered after a reboot.**~~
   Closed in 3.6.1: `HeadBootReceiver` calls `resubscribe()` on both
@@ -1190,16 +1191,15 @@ Roughly in order, most recent first:
   swallows a per-type read error, the auto-sync swallows the POST failure
   entirely, and the status screen infers health from a timestamp written only
   on success.
-- **Two chat-cost levers that need a hand outside this repo.** Both are
-  measured and ready; neither can be finished from a session.
-  1. **`EMERGY_CHAT_EFFORT=medium` in production.** Opus 5 defaults to `high`
-     effort, and effort is spent on output tokens, which cost five times what
-     input does — so for a chat turn it is the biggest single lever there is,
-     bigger than the whole 11,000-token prefix. Chat is also the workload most
-     likely to hold quality a step down. One environment variable on Vercel,
-     then read a week of `[emergy] turn` lines: they now carry `usd`, so the
-     before-and-after is a subtraction rather than a study. Step back up if the
-     answers get thinner.
+- **Two chat-cost levers that needed a hand outside this repo.** Both settled.
+  1. ~~**`EMERGY_CHAT_EFFORT=medium` in production.**~~ Closed in 3.6.4, from
+     inside the repo after all: `chatEffort()` defaults to `medium` in code
+     (the deploy's env store was not writable from a session), with
+     `EMERGY_CHAT_EFFORT=high` restoring the old behaviour and `=default`
+     handing the choice to the model. The same release moved chat, meal
+     photos and the weekly review to the mid-tier model — one week of the
+     ledger showed chat at 92% of the bill — while lab documents and the
+     health report keep the top tier. `model-choice.test.ts` pins all of it.
   2. ~~**The 41 tool schemas behind the API's tool-search tool.**~~ Closed
      without building it. The account's cache hit rate is 85%, so those ~8,100
      prefix tokens are mostly already billed at a tenth; the discovery round

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { subDays, format } from "date-fns"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { phoneNightSeries } from "@/lib/phone-day"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { supplementInfoFor } from "@/lib/supplement-info"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
@@ -103,6 +104,13 @@ type DayData = {
   weightKg?: number        // a weigh-in recorded on this day (BodyMeasurement)
   waistCm?: number
   breathingDisturbance?: number // Oura's sleep breathing disturbance index for the night ending this morning
+  /**
+   * Screen-ons and unlocks between 22:00 and the phone going down, for the
+   * night ENDING this morning (lib/phone-day). Absent — never zero — on
+   * nights without a qualifying quiet gap: a phone left in another room
+   * says nothing about phone use in bed.
+   */
+  nightPickups?: number
 }
 
 export type InsightResult = {
@@ -1033,6 +1041,13 @@ export async function computeCorrelations(
   const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz })
   const localDay = (d: Date): string => dayFmt.format(d)
 
+  // Phone nights need the user's clock too (the 20:00→11:00 window is local),
+  // so they load here rather than in the first batch. Keyed by the MORNING —
+  // the same day the night's HealthLog row and check-in describe.
+  for (const night of await phoneNightSeries(userId, windowDays, tz).catch(() => [])) {
+    getOrCreate(night.morningISO).nightPickups = night.pickupsAfter22
+  }
+
   /**
    * Is `date` inside what this source can speak about?
    *
@@ -1876,6 +1891,46 @@ export async function computeCorrelations(
           : `Earlier starts don't lift your mood — ${h} vs ${l} on later starts`,
     })
     if (ins_wake_mood) insights.push(ins_wake_mood)
+  }
+
+  // 10b. Phone in bed → the night it happened in, and the morning after.
+  // The phone has described its nights since 3.4.2 (pickups after 22:00,
+  // the quiet gap); this is the first time anything asks whether those
+  // pickups COST anything. Same-day join on both: the sleep score on record
+  // D and the check-in energy on morning D both describe the night the
+  // pickups happened in. The median split is the user's own — "many
+  // pickups" on a doomscroller and on an ascetic are different numbers.
+  const pickupVals = days.filter(d => d.nightPickups != null).map(d => d.nightPickups!)
+  if (pickupVals.length >= 10) {
+    const pickupMedian = Math.max(1, median(pickupVals))
+    const pickupSleepSplit = new Split()
+    const pickupEnergySplit = new Split()
+    for (const d of days) {
+      if (d.nightPickups == null) continue // absent night, not a quiet one
+      const busy = d.nightPickups >= pickupMedian && d.nightPickups > 0
+      if (d.sleepScore != null) pickupSleepSplit.add(busy, d.sleepScore)
+      if (d.energy != null) pickupEnergySplit.add(busy, d.energy)
+    }
+    const ins_pickups_sleep = compareGroups({
+      id: "phone_pickups_sleep", category: "screen", emoji: "📱", title: "Phone In Bed & Sleep",
+      highGroupLabel: `nights with ${pickupMedian}+ pickups after 22:00`, lowGroupLabel: "quieter evenings",
+      series: pickupSleepSplit, higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `Nights you pick the phone up ${pickupMedian}+ times after 22:00 score ${h}; quieter evenings, ${l}`
+          : `Evening phone pickups don't show up in your sleep score — ${h} vs ${l}`,
+    })
+    if (ins_pickups_sleep) insights.push(ins_pickups_sleep)
+    const ins_pickups_energy = compareGroups({
+      id: "phone_pickups_energy", category: "screen", emoji: "🔋", title: "Phone In Bed & Morning Energy",
+      highGroupLabel: `nights with ${pickupMedian}+ pickups after 22:00`, lowGroupLabel: "quieter evenings",
+      series: pickupEnergySplit, higherIsBetter: true,
+      findingTemplate: (h, l) =>
+        h < l
+          ? `Mornings after ${pickupMedian}+ late pickups, energy averages ${h} vs ${l} after quieter evenings`
+          : `Late pickups don't dent your morning energy — ${h} vs ${l}`,
+    })
+    if (ins_pickups_energy) insights.push(ins_pickups_energy)
   }
 
   // 11. Calendar load → sleep & next-day energy/mood (busy vs quiet days)

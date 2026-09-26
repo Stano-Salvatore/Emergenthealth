@@ -152,9 +152,9 @@ function avg(arr: number[]): number | undefined {
   return arr.reduce((a, b) => a + b, 0) / arr.length
 }
 
-export async function readLast30Days(): Promise<DayPayload[]> {
+export async function readLast30Days(): Promise<{ days: DayPayload[]; failedTypes: string[] }> {
   const hc = await getPlugin()
-  if (!hc) return []
+  if (!hc) return { days: [], failedTypes: [] }
 
   const endTime = new Date()
   const startTime = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
@@ -170,11 +170,16 @@ export async function readLast30Days(): Promise<DayPayload[]> {
   const hrvMap = new Map<string, number[]>()
   const spo2Map = new Map<string, number[]>()
 
+  // A refused type still reads as an empty list downstream — but its NAME is
+  // collected now, so the sync outcome can say which reads failed this run
+  // instead of a broken read posing as a quiet week.
+  const failedTypes: string[] = []
   async function safeRead(type: string) {
     try {
       const { records } = await hc.readRecords({ type, timeRangeFilter })
       return records as any[] // eslint-disable-line @typescript-eslint/no-explicit-any
     } catch {
+      failedTypes.push(type)
       return []
     }
   }
@@ -277,7 +282,7 @@ export async function readLast30Days(): Promise<DayPayload[]> {
     const a = avg(vals); if (a != null) getDay(d).spo2 = Math.round(a * 10) / 10
   }
 
-  return [...dayMap.values()]
+  return { days: [...dayMap.values()], failedTypes }
 }
 
 function toKcal(energy: { unit: string; value: number } | null | undefined): number {
@@ -291,15 +296,63 @@ function toKcal(energy: { unit: string; value: number } | null | undefined): num
   }
 }
 
-export async function syncToServer(): Promise<{ synced: number }> {
-  const days = await readLast30Days()
-  if (days.length === 0) return { synced: 0 }
-  const res = await fetch("/api/sync/health-connect", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ days }),
-  })
-  if (!res.ok) throw new Error(`Sync failed: ${res.status}`)
-  const data = await res.json()
-  return { synced: data.synced ?? days.length }
+/**
+ * What the last sync run actually did. A failing sync used to look exactly
+ * like a quiet one — safeRead erased refused types, the auto-sync swallowed
+ * the POST failure, and Settings inferred health from a timestamp written
+ * only on success. Every run writes this record now, both endings, and the
+ * Settings card reads it back where someone can act on it.
+ */
+export interface SyncOutcome {
+  at: number
+  ok: boolean
+  synced?: number
+  /** Record types the phone refused THIS run — partial data, said out loud. */
+  failedTypes?: string[]
+  error?: string
+}
+
+export const SYNC_OUTCOME_KEY = "hc_last_sync_outcome"
+
+export function lastSyncOutcome(): SyncOutcome | null {
+  try {
+    const raw = localStorage.getItem(SYNC_OUTCOME_KEY)
+    const parsed = raw ? JSON.parse(raw) as SyncOutcome : null
+    return parsed && typeof parsed.at === "number" && typeof parsed.ok === "boolean" ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function recordOutcome(o: SyncOutcome) {
+  try { localStorage.setItem(SYNC_OUTCOME_KEY, JSON.stringify(o)) } catch { /* storage unavailable — the sync itself still ran */ }
+}
+
+export async function syncToServer(): Promise<{ synced: number; failedTypes: string[] }> {
+  let failedTypes: string[] = []
+  try {
+    const read = await readLast30Days()
+    failedTypes = read.failedTypes
+    const days = read.days
+    if (days.length === 0) {
+      recordOutcome({ at: Date.now(), ok: true, synced: 0, failedTypes })
+      return { synced: 0, failedTypes }
+    }
+    const res = await fetch("/api/sync/health-connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days }),
+    })
+    if (!res.ok) throw new Error(`Sync failed: ${res.status}`)
+    const data = await res.json()
+    const synced = data.synced ?? days.length
+    recordOutcome({ at: Date.now(), ok: true, synced, failedTypes })
+    return { synced, failedTypes }
+  } catch (err) {
+    recordOutcome({
+      at: Date.now(), ok: false, failedTypes,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    throw err
+  }
 }
