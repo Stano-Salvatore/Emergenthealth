@@ -840,6 +840,15 @@ async function correctRef(
   }
 }
 
+// A write the user is told about has to be a write that happened. "Logged"
+// over a swallowed failure is how a whole meal vanished on 26 Sept: the row
+// never existed, the error went nowhere, and nothing could say why. Failures
+// land in the server log here and the handler owns up instead.
+const writeFailed = (what: string) => (err: unknown) => {
+  console.error(`[chat-tools] ${what} write failed:`, err)
+  return null
+}
+
 async function executeTool(name: string, input: Record<string, string>, userId: string): Promise<string> {
   if (name === "create_habit") {
     const schedule = normalizeSchedule({ scheduleDays: input.scheduleDays, timesPerWeek: input.timesPerWeek })
@@ -1000,7 +1009,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       return Number.isFinite(n) && n >= 0 ? Math.round(n * 10) / 10 : null
     }
     const food = loggedAtFrom(input)
-    await prisma.foodLog.create({
+    const savedFood = await prisma.foodLog.create({
       data: {
         loggedAt: food.at,
         userId,
@@ -1012,7 +1021,8 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         carbsG: macro(input.carbsG),
         fatG: macro(input.fatG),
       },
-    }).catch(() => null)
+    }).catch(writeFailed("food"))
+    if (!savedFood) return `Couldn't save ${label} — the log didn't write. Worth retrying.`
     return `Logged ${label} — ≈${calories} kcal${agoSuffix(food.minutesAgo)}. (Estimated from the name, so treat it as a ballpark.)`
   }
 
@@ -1060,22 +1070,24 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   if (name === "log_mood") {
     const mood = Math.min(5, Math.max(1, parseInt(String(input.mood), 10)))
     const { dateColumn: today } = await userDay(userId)
-    await prisma.moodLog.upsert({
+    const savedMood = await prisma.moodLog.upsert({
       where: { userId_date: { userId, date: today } },
       create: { userId, date: today, mood },
       update: { mood },
-    }).catch(() => null)
+    }).catch(writeFailed("mood"))
+    if (!savedMood) return "Couldn't save that mood — the log didn't write. Worth retrying."
     return `Logged mood: ${mood}/5 for today.`
   }
 
   if (name === "log_weight") {
     const weight = parseFloat(String(input.weightKg))
     const { dateColumn: today } = await userDay(userId)
-    await prisma.healthLog.upsert({
+    const savedWeight = await prisma.healthLog.upsert({
       where: { userId_date: { userId, date: today } },
       create: { userId, date: today, weight },
       update: { weight },
-    }).catch(() => null)
+    }).catch(writeFailed("weight"))
+    if (!savedWeight) return "Couldn't save that weight — the log didn't write. Worth retrying."
     return `Logged weight: ${weight}kg for today.`
   }
 
@@ -1101,11 +1113,12 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
 
     if (added.length > 0) {
       const value = JSON.stringify(tags)
-      await prisma.$executeRaw`
+      const wroteTags = await prisma.$executeRaw`
         INSERT INTO "UserPreference" ("userId", "key", "value")
         VALUES (${userId}, ${key}, ${value})
         ON CONFLICT ("userId", "key") DO UPDATE SET "value" = ${value}
-      `.catch(() => null)
+      `.catch(writeFailed("tags"))
+      if (wroteTags == null) return "Couldn't save those tags — the write didn't land. Worth retrying."
     }
 
     const dayLabel = when.day === today ? "today" : when.day
@@ -1123,11 +1136,12 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     // A note written at 00:30 local was filed under the previous day, which is
     // the same mistake log_moment made and the reverse of what the user meant.
     const todayStr = localDateStr(await getUserTimezone(userId))
-    await prisma.$executeRaw`
+    const wroteNote = await prisma.$executeRaw`
       INSERT INTO "DailyNote" ("id","userId","date","content","updatedAt")
       VALUES (gen_random_uuid()::text, ${userId}, ${todayStr}::date, ${input.content}, NOW())
       ON CONFLICT ("userId","date") DO UPDATE SET "content" = ${input.content}, "updatedAt" = NOW()
-    `.catch(() => null)
+    `.catch(writeFailed("journal note"))
+    if (wroteNote == null) return "Couldn't save the note — the write didn't land. Worth retrying."
     return `Journal note saved for today.`
   }
 
@@ -1140,13 +1154,14 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     // mislabel the check-in — it writes over, or fails to find, another day's.
     const todayStr = localDateStr(await getUserTimezone(userId))
     const id = `mci_${userId}_${todayStr}`
-    await prisma.$executeRaw`
+    const wroteCheckin = await prisma.$executeRaw`
       INSERT INTO "MorningCheckIn" ("id","userId","date","energy","mood","intention","waterGoalMl")
       VALUES (${id}, ${userId}, ${todayStr}, ${energy}, ${mood}, ${intention}, ${waterGoalMl})
       ON CONFLICT ("userId","date") DO UPDATE SET
         "energy" = EXCLUDED."energy", "mood" = EXCLUDED."mood",
         "intention" = EXCLUDED."intention", "waterGoalMl" = EXCLUDED."waterGoalMl"
-    `.catch(() => null)
+    `.catch(writeFailed("morning check-in"))
+    if (wroteCheckin == null) return "Couldn't save the check-in — the write didn't land. Worth retrying."
     const energyLabels: Record<number, string> = { 1: "exhausted", 2: "tired", 3: "ok", 4: "good", 5: "amazing" }
     const moodLabels: Record<number, string> = { 1: "awful", 2: "bad", 3: "ok", 4: "good", 5: "great" }
     return `Morning check-in logged! Energy: ${energy}/5 (${energyLabels[energy]}), Mood: ${mood}/5 (${moodLabels[mood]})${intention ? `, Intention: "${intention}"` : ""}.`
@@ -1526,16 +1541,25 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     // Exact-string dedupe kept "I hate mornings" and "hates mornings" as two
     // memories, spending two of fifty slots to say one thing.
     const today = localDateStr(await getUserTimezone(userId))
-    const existing = await prisma.userPreference.findUnique({
-      where: { userId_key: { userId, key: MEMORY_KEY } },
-      select: { value: true },
-    }).catch(() => null)
+    // A failed read is not an empty memory: parsed as one, the upsert below
+    // would replace every saved fact with just this one.
+    let existing: { value: string } | null
+    try {
+      existing = await prisma.userPreference.findUnique({
+        where: { userId_key: { userId, key: MEMORY_KEY } },
+        select: { value: true },
+      })
+    } catch (err) {
+      console.error("[chat-tools] memory read failed:", err)
+      return "Couldn't reach the saved memories, so nothing was written. Worth retrying."
+    }
     const facts = addFact(parseFacts(existing?.value), fact, today)
-    await prisma.userPreference.upsert({
+    const savedMemory = await prisma.userPreference.upsert({
       where: { userId_key: { userId, key: MEMORY_KEY } },
       create: { userId, key: MEMORY_KEY, value: serialiseFacts(facts) },
       update: { value: serialiseFacts(facts) },
-    }).catch(() => null)
+    }).catch(writeFailed("memory"))
+    if (!savedMemory) return "Couldn't save that — the memory didn't write. Worth retrying."
     return `Got it — I'll remember that: "${fact}".`
   }
 
@@ -1546,10 +1570,17 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     // remove it — only Settings, which means noticing and going to look.
     const query = String(input.fact ?? "").trim()
     if (!query) return "Forget what?"
-    const row = await prisma.userPreference.findUnique({
-      where: { userId_key: { userId, key: MEMORY_KEY } },
-      select: { value: true },
-    }).catch(() => null)
+    // Same rule as remember: a failed read must not pose as an empty list.
+    let row: { value: string } | null
+    try {
+      row = await prisma.userPreference.findUnique({
+        where: { userId_key: { userId, key: MEMORY_KEY } },
+        select: { value: true },
+      })
+    } catch (err) {
+      console.error("[chat-tools] memory read failed:", err)
+      return "Couldn't reach the saved memories — nothing was forgotten. Worth retrying."
+    }
     const before = parseFacts(row?.value)
     if (before.length === 0) return "There is nothing saved about them yet."
 
@@ -1562,11 +1593,12 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     }
     if (!removed) return `Nothing saved matches "${query}", so there is nothing to forget.`
 
-    await prisma.userPreference.upsert({
+    const savedForget = await prisma.userPreference.upsert({
       where: { userId_key: { userId, key: MEMORY_KEY } },
       create: { userId, key: MEMORY_KEY, value: serialiseFacts(facts) },
       update: { value: serialiseFacts(facts) },
-    }).catch(() => null)
+    }).catch(writeFailed("memory"))
+    if (!savedForget) return "Couldn't remove it — the memory didn't write. Worth retrying."
     return `Forgotten: "${removed.fact}".`
   }
 
