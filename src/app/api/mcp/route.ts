@@ -16,6 +16,7 @@ import { musicRange } from "@/lib/music-days"
 import { estimateHome, summariseDays, detectTrips, awayVsHome, type DayMetrics } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
 import { sumHydration } from "@/lib/hydration"
+import { drinkCaloriesTotal } from "@/lib/drink-calories"
 
 export const runtime = "nodejs"
 
@@ -487,15 +488,25 @@ function buildMcpServer(userId: string): McpServer {
     { date: z.string().optional().describe("Day as YYYY-MM-DD, defaults to today") },
     async ({ date }) => {
       const day = date ?? await todayFor(userId)
-      const logs = await prisma.foodLog.findMany({
-        where: { userId, loggedAt: { gte: startOfDay(day), lte: endOfDay(day) } },
-        orderBy: { loggedAt: "asc" },
-        select: {
-          name: true, mealType: true, calories: true, proteinG: true, carbsG: true,
-          fatG: true, sugarG: true, items: true, micros: true, note: true,
-          place: true, loggedAt: true,
-        },
-      })
+      const [logs, dayDrinks] = await Promise.all([
+        prisma.foodLog.findMany({
+          where: { userId, loggedAt: { gte: startOfDay(day), lte: endOfDay(day) } },
+          orderBy: { loggedAt: "asc" },
+          select: {
+            name: true, mealType: true, calories: true, proteinG: true, carbsG: true,
+            fatG: true, sugarG: true, items: true, micros: true, note: true,
+            place: true, loggedAt: true,
+          },
+        }),
+        prisma.intakeLog.findMany({
+          where: { userId, loggedAt: { gte: startOfDay(day), lte: endOfDay(day) } },
+          select: { type: true, amountMl: true, note: true },
+        }).catch(() => [] as { type: string; amountMl: number; note: string | null }[]),
+      ])
+      // Drinks carry calories too — meals alone made a wine evening read as
+      // fasting. Kept as its own number so the meal list stays the meal list.
+      const drinkKcal = drinkCaloriesTotal(dayDrinks)
+      const mealKcal = logs.reduce((s, l) => s + l.calories, 0)
       return ok({
         date: day,
         meals: logs.map(l => ({
@@ -509,7 +520,9 @@ function buildMcpServer(userId: string): McpServer {
           note: l.note,
           place: l.place,
         })),
-        total_calories: logs.reduce((s, l) => s + l.calories, 0),
+        meal_calories: mealKcal,
+        drink_calories: drinkKcal,
+        total_calories: mealKcal + drinkKcal,
       })
     },
   )

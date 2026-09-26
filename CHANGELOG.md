@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.6.3 — Drinks count, and the alcohol card speaks ‰
+
+- **Drink calories join the daily total.** Wine, beer, spirits, juice, soda
+  and milk are costed (alcohol from its actual ethanol grams at 7 kcal/g —
+  a stated "8%" IPA is priced as an 8% IPA — plus residual sugar; soft
+  drinks per 100 ml) and counted into the Overview calorie ring, Emergy's
+  day context, chat drink replies, and `get_food_log`. Water, coffee and
+  tea stay zero: ~2 kcal a cup is rounding noise dressed up as tracking.
+- **The alcohol card shows ‰.** Same Widmark model that already draws the
+  clearance ramp, so the "clear by" time and the ‰ describe the same body.
+  Headline ≈‰ now, ‰ still there at bedtime, grams kept alongside. Said
+  plainly on the card: not a breathalyzer, never a basis for deciding
+  whether to drive.
+
 ## 3.6.2 — Chat writes tell the truth
 
 - **"Logged" now means logged.** Every chat tool that stores something

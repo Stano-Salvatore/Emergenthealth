@@ -10,6 +10,7 @@ import { Loader2, Ruler } from "lucide-react"
 import { computeTargets } from "@/lib/targets"
 import { todayLocalISO } from "@/lib/local-date"
 import { sumHydration } from "@/lib/hydration"
+import { drinkCaloriesTotal } from "@/lib/drink-calories"
 
 interface Micronutrient { name: string; amount: number; unit: string; dailyPct: number }
 interface FoodLogLite {
@@ -21,6 +22,7 @@ interface Goals { waterMl?: number; weightKg?: number | null; heightCm?: number 
 export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
   const [loading, setLoading] = useState(true)
   const [waterMl, setWaterMl] = useState(0)
+  const [drinkKcal, setDrinkKcal] = useState(0)
   const [caffeine, setCaffeine] = useState<{ totalMg: number; activeMg?: number } | null>(null)
   const [food, setFood] = useState<FoodLogLite[]>([])
   const [supplements, setSupplements] = useState<string[]>([])
@@ -47,11 +49,15 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
         fetch("/api/weight?days=90"),
       ])
       if (intakeRes.ok) {
-        const logs: { type: string; amountMl: number }[] = await intakeRes.json()
+        const logs: { type: string; amountMl: number; note?: string | null }[] = await intakeRes.json()
         // Every hydrating drink at its factor (lib/hydration), the same total
         // the dashboard shows — this tab counted water and sparkling only, so
         // a day that ran on tea and coffee read as nearly dry here and fine there.
         setWaterMl(sumHydration(logs))
+        // The same rows costed as calories: wine and juice belong in the day's
+        // energy total, or two glasses of wine make an evening look lighter
+        // than a slice of bread.
+        setDrinkKcal(drinkCaloriesTotal(logs))
       }
       if (cafRes.ok) setCaffeine(await cafRes.json())
       if (foodRes.ok) {
@@ -154,8 +160,9 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
       {/* calories & protein */}
       <GoalRow
         emoji="🔥" label="Calories" onClick={() => onGoTo("food")}
-        value={totals.calories} goal={t.calories}
-        display={`≈${totals.calories} of ≈${t.calories} kcal${t.personalized ? "" : " (default)"}`}
+        value={totals.calories + drinkKcal} goal={t.calories}
+        display={`≈${totals.calories + drinkKcal} of ≈${t.calories} kcal${
+          drinkKcal > 0 ? ` (≈${drinkKcal} from drinks)` : ""}${t.personalized ? "" : " (default)"}`}
         color="bg-orange-500" overIsBad={false}
       />
       <GoalRow

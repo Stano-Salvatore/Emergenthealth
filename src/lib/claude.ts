@@ -10,6 +10,7 @@ import { activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
+import { drinkCalories, drinkCaloriesTotal } from "@/lib/drink-calories"
 import { isAlcohol, ethanolGrams } from "@/lib/body-load"
 import { recordDrink } from "@/lib/intake-write"
 import { recordDose } from "@/lib/dose-write"
@@ -995,6 +996,10 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     const fluid = hydrationMl(type, amountMl)
     const parts = [`Logged ${amountMl}ml ${label}`]
     if (caffeineMg && caffeineMg > 0) parts.push(`≈${caffeineMg}mg caffeine`)
+    // The label doubles as the note, so a stated strength ("IPA 8%") prices
+    // the actual drink the same way the intake card does.
+    const kcal = drinkCalories(type, amountMl, label)
+    if (kcal > 0) parts.push(`≈${kcal} kcal`)
     if (fluid !== amountMl) parts.push(`counts as ${fluid}ml fluid`)
     else parts.push(`${fluid}ml toward hydration`)
     return parts.join(" · ") + agoSuffix(minutesAgo) + "."
@@ -2416,9 +2421,16 @@ export async function buildSystemPrompt(
   }
   const microsStr = [...microAgg.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
     .map(([n, p]) => `${n} ≈${Math.round(p)}% DV`).join(", ")
+  // Drinks carry calories too (lib/drink-calories) — without this line Emergy
+  // totalled the meals and called it the day, and an evening of wine read as
+  // fasting.
+  const drinkKcalToday = drinkCaloriesTotal(todayIntake as { type: string; amountMl: number; note?: string | null }[])
+  const drinkKcalStr = drinkKcalToday > 0
+    ? ` Plus ≈${drinkKcalToday} kcal from drinks (wine/beer/juice — counted in the Overview ring, not in the meal list).`
+    : ""
   const foodLine = foodRows.length > 0
-    ? `- Food today: ≈${foodRows.reduce((s, f) => s + f.calories, 0)} kcal — ${foodRows.map(f => `${f.name} (${f.mealType}, ${f.calories} kcal)`).join(", ")}${microsStr ? ` | vitamins/minerals from food: ${microsStr} (combine with the Oura supplements below when asked about vitamin coverage)` : ""}`
-    : "- No meals logged today (the user can snap a meal or drink photo on the Intake → Food tab)"
+    ? `- Food today: ≈${foodRows.reduce((s, f) => s + f.calories, 0)} kcal — ${foodRows.map(f => `${f.name} (${f.mealType}, ${f.calories} kcal)`).join(", ")}${microsStr ? ` | vitamins/minerals from food: ${microsStr} (combine with the Oura supplements below when asked about vitamin coverage)` : ""}${drinkKcalStr}`
+    : `- No meals logged today (the user can snap a meal or drink photo on the Intake → Food tab)${drinkKcalStr}`
 
   // Intake totals (IntakeLog — includes drinks mirrored from Oura tags)
   const waterToday = (todayIntake as any[]).filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
