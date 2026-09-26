@@ -11,10 +11,11 @@
 // the one thing here that can go stale without anything failing, so they are
 // listed plainly rather than buried in a formula.
 
-import { OPUS, HAIKU } from "@/lib/models"
+import { OPUS, SONNET, HAIKU } from "@/lib/models"
 
 const PER_MILLION: Record<string, { input: number; output: number }> = {
   [OPUS]: { input: 5, output: 25 },
+  [SONNET]: { input: 2, output: 10 },
   [HAIKU]: { input: 1, output: 5 },
 }
 

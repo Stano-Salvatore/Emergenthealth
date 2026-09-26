@@ -5,7 +5,7 @@ import { format } from "date-fns"
 import { buildSystemPrompt } from "@/lib/claude"
 import { addDaysISO, localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { OPUS } from "@/lib/models"
+import { SONNET } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
 import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
 
@@ -179,7 +179,7 @@ Keep it under 250 words.`
   const { prompt: systemPrompt } = await buildSystemPrompt(userId)
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const response = await client.messages.create({
-    model: OPUS,
+    model: SONNET,
     // Thinking is on by default on this model and counts against the cap: at
     // 700 the review could spend its whole budget thinking and come back with
     // no prose, which read as "nothing to review". Length is set by the
@@ -188,7 +188,7 @@ Keep it under 250 words.`
     system: systemPrompt,
     messages: [{ role: "user", content: instruction }],
   })
-  recordModelTurn({ userId, model: OPUS, feature: "weekly review", stopReason: response.stop_reason, usage: response.usage })
+  recordModelTurn({ userId, model: SONNET, feature: "weekly review", stopReason: response.stop_reason, usage: response.usage })
   if (response.stop_reason === "refusal") return null
 
   const narrative = response.content

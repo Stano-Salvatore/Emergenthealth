@@ -1,5 +1,21 @@
 # Changelog
 
+## 3.6.4 — The bill, cut where the bill was
+
+One week of the spend ledger: $4.91, of which chat was $4.53 — 92%.
+
+- **Chat, meal photos and the weekly review move to the mid-tier model**
+  (Sonnet 5, $2/$10 per MTok vs $5/$25) — conversational tool work it does
+  well. **Lab documents and the health report stay on the top-tier model**:
+  the two places where being subtly wrong costs the most. Briefing and
+  garden stay on the small model. `model-choice.test.ts` pins the
+  assignment; the ledger records the model per row, so before/after is
+  readable in the app ("how much did you cost me this week?").
+- **Chat effort defaults to `medium`** instead of the model's own default —
+  the experiment the code always said to run, now running.
+  `EMERGY_CHAT_EFFORT=high` puts it back; `=default` hands the choice to
+  the model. Expected together: roughly 60–70% off the bill.
+
 ## 3.6.3 — Drinks count, and the alcohol card speaks ‰
 
 - **Drink calories join the daily total.** Wine, beer, spirits, juice, soda

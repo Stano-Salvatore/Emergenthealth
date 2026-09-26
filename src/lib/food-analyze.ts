@@ -5,7 +5,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { searchFood, nutrientsForGrams, notableMicros, type DbNutrients } from "@/lib/nutrient-db"
 import { applyPortionPriors } from "@/lib/portion-priors"
-import { OPUS } from "@/lib/models"
+import { SONNET } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
@@ -186,7 +186,7 @@ export async function analyzeMealPhoto(imageDataUrl: string, opts: AnalyzeOption
   })
 
   const response = await anthropic.messages.create({
-    model: OPUS,
+    model: SONNET,
     max_tokens: 8192,
     output_config: {
       // First pass optimizes the camera-to-result wait; a refine pass trades
@@ -208,7 +208,7 @@ export async function analyzeMealPhoto(imageDataUrl: string, opts: AnalyzeOption
 
   if (opts.userId) {
     recordModelTurn({
-      userId: opts.userId, model: OPUS, feature: "meal photo",
+      userId: opts.userId, model: SONNET, feature: "meal photo",
       // The effort is the interesting part here: a first pass runs low to keep
       // the camera-to-result wait short, a refine pass runs high because the
       // user asked for accuracy. Two very different prices under one feature.
