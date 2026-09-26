@@ -114,6 +114,7 @@ export function BodyLoadTab() {
         <AlcoholCurveCard
           gramsLeft={alcohol.gramsLeft}
           clearanceGPerH={alcohol.clearanceGPerH}
+          distributionKg={alcohol.distributionKg}
           bedH={bedH}
           bedLabel="23:00"
         />

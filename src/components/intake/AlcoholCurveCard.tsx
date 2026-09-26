@@ -21,9 +21,11 @@ import { alcoholAtHour, alcoholHoursToClear, standardDrinks } from "@/lib/body-l
 /** The window both this chart and the caffeine one above are drawn on. */
 const WINDOW_H = 12
 
-export function AlcoholCurveCard({ gramsLeft, clearanceGPerH, bedH, bedLabel }: {
+export function AlcoholCurveCard({ gramsLeft, clearanceGPerH, distributionKg, bedH, bedLabel }: {
   gramsLeft: number
   clearanceGPerH: number
+  /** Widmark r × body mass, kg — turns any gram figure on this card into ‰. */
+  distributionKg?: number
   /** Hours from now until their usual bedtime. */
   bedH: number
   bedLabel: string
@@ -41,6 +43,14 @@ export function AlcoholCurveCard({ gramsLeft, clearanceGPerH, bedH, bedLabel }: 
 
   const atBed = alcoholAtHour(gramsLeft, clearanceGPerH, bedH)
   const clearsBeforeBed = atBed <= 0
+
+  // ‰ is the same grams divided by the body they're spread through — the
+  // number people actually know from the driving limit, which is exactly why
+  // the footer refuses the comparison: this is a population model, not blood.
+  const permille = (g: number) =>
+    distributionKg && distributionKg > 0 ? Math.round((g / distributionKg) * 100) / 100 : null
+  const permilleNow = permille(gramsLeft)
+  const permilleAtBed = permille(atBed)
 
   // Two points would do for a straight line, but sampling it the way the
   // caffeine curve is sampled keeps the floor honest: the ramp stops at the
@@ -72,9 +82,11 @@ export function AlcoholCurveCard({ gramsLeft, clearanceGPerH, bedH, bedLabel }: 
           <div>
             <p className="text-xs text-muted-foreground">Alcohol in your system now</p>
             <p className="text-2xl font-black mt-0.5">
-              {Math.round(gramsLeft)} <span className="text-sm font-semibold text-muted-foreground">g</span>
+              {permilleNow != null
+                ? <>≈{permilleNow.toFixed(2)} <span className="text-sm font-semibold text-muted-foreground">‰</span></>
+                : <>{Math.round(gramsLeft)} <span className="text-sm font-semibold text-muted-foreground">g</span></>}
               <span className="text-sm font-semibold text-muted-foreground ml-2">
-                · {standardDrinks(gramsLeft)} drinks
+                · {standardDrinks(gramsLeft)} drinks{permilleNow != null ? ` · ${Math.round(gramsLeft)} g` : ""}
               </span>
             </p>
           </div>
@@ -86,7 +98,9 @@ export function AlcoholCurveCard({ gramsLeft, clearanceGPerH, bedH, bedLabel }: 
         <p className={`text-xs mt-1.5 ${clearsBeforeBed ? "text-muted-foreground" : "text-amber-400"}`}>
           {clearsBeforeBed
             ? `Gone before ${bedLabel}`
-            : `≈${Math.round(atBed)} g still there at ${bedLabel}`}
+            : permilleAtBed != null
+              ? `≈${permilleAtBed.toFixed(2)}‰ still there at ${bedLabel}`
+              : `≈${Math.round(atBed)} g still there at ${bedLabel}`}
           <span className="text-muted-foreground/70 font-normal">
             {" "}· clearing {clearanceGPerH.toFixed(1)} g an hour
           </span>
@@ -127,7 +141,8 @@ export function AlcoholCurveCard({ gramsLeft, clearanceGPerH, bedH, bedLabel }: 
         <p className="text-[10px] text-muted-foreground/70 mt-2 pt-2 border-t border-border/50">
           ⏱️ A straight line, not a curve: alcohol leaves at a roughly fixed rate rather than
           halving, so it has a real finishing time. Estimated from your weight — one body against
-          a population average.
+          a population average. Not a breathalyzer, and never a basis for deciding whether
+          to drive.
         </p>
       </CardContent>
     </Card>

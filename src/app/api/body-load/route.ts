@@ -11,6 +11,7 @@ import { COMPOUND_LABELS } from "@/lib/caffeine"
 import {
   ALCOHOL_TYPES,
   ethanolGrams, alcoholClearanceGPerHour, alcoholRemainingG, standardDrinks,
+  permilleFromGrams, widmarkDistributionKg,
   hoursUntilBelow, decayFraction, MED_FLOOR_FRACTION, CAFFEINE_FLOOR_MG,
   type ActiveSubstance,
 } from "@/lib/body-load"
@@ -111,6 +112,8 @@ export async function GET() {
       // prose. A chart parsing its own label is one rewording from breaking.
       gramsLeft: Math.round(alcohol.remainingG * 10) / 10,
       clearanceGPerH: Math.round(clearance * 10) / 10,
+      permille: permilleFromGrams(alcohol.remainingG, weightKg, sex),
+      distributionKg: Math.round(widmarkDistributionKg(weightKg, sex) * 10) / 10,
     })
   }
 

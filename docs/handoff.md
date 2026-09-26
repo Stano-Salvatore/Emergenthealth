@@ -299,6 +299,16 @@ a slow one. It also asserts the parser still runs *before* the model in
 `/api/chat`, and `intake-backdating.test.ts` asserts the tools still write
 through `recordDrink` rather than reaching for `intakeLog.create` again.
 
+`src/lib/__tests__/chat-writes-tell-the-truth.test.ts` greps the chat tool
+handlers in `claude.ts`: every one that stores something must check its own
+write and answer "didn't write — worth retrying" on failure, and must not
+carry `.catch(() => null)`. It exists because a meal said "Logged 🍲" on 26
+Sept and never reached the food log — the create's swallowed catch let the
+success line run over a row that never existed, with no server log to say
+why. The memory tools are additionally held to aborting on a failed *read*,
+which would otherwise pose as an empty list and let the next write wipe
+every saved fact.
+
 `src/lib/__tests__/insight-language.test.ts` holds the engine's *sentences* to
 the standard `quick-answer.test.ts` holds the scripted answers to. The rule
 lives in `insight-lint.ts`: no preposition stacked inside one clause, no phrase

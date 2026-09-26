@@ -1,5 +1,33 @@
 # Changelog
 
+## 3.6.3 — Drinks count, and the alcohol card speaks ‰
+
+- **Drink calories join the daily total.** Wine, beer, spirits, juice, soda
+  and milk are costed (alcohol from its actual ethanol grams at 7 kcal/g —
+  a stated "8%" IPA is priced as an 8% IPA — plus residual sugar; soft
+  drinks per 100 ml) and counted into the Overview calorie ring, Emergy's
+  day context, chat drink replies, and `get_food_log`. Water, coffee and
+  tea stay zero: ~2 kcal a cup is rounding noise dressed up as tracking.
+- **The alcohol card shows ‰.** Same Widmark model that already draws the
+  clearance ramp, so the "clear by" time and the ‰ describe the same body.
+  Headline ≈‰ now, ‰ still there at bedtime, grams kept alongside. Said
+  plainly on the card: not a breathalyzer, never a basis for deciding
+  whether to drive.
+
+## 3.6.2 — Chat writes tell the truth
+
+- **"Logged" now means logged.** Every chat tool that stores something
+  (food, mood, weight, tags, journal note, morning check-in, memories)
+  checked nothing: a failed database write was swallowed and the success
+  line ran anyway. That is how a whole meal said "Logged 🍲" on 26 Sept
+  and never reached the food log. Each write is now checked; a failure
+  answers "didn't write — worth retrying" and lands in the server log
+  with its cause.
+- **A failed memory read no longer poses as an empty list.** `remember`
+  parsed a read error as "no facts yet", and the write that followed
+  would have replaced every saved fact with the new one. Both memory
+  tools now abort loudly when the store can't be reached.
+
 ## 3.6.1 — Subscriptions that survive a restart
 
 **Needs the new APK** — CI builds and signs it on merge; the in-app update

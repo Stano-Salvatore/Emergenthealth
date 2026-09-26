@@ -49,6 +49,10 @@ export interface ActiveSubstance {
    */
   gramsLeft?: number
   clearanceGPerH?: number
+  /** Estimated blood alcohol right now, ‰. Same caveat as everything here. */
+  permille?: number
+  /** Widmark r × body mass — lets the card turn any gram figure into ‰. */
+  distributionKg?: number
 }
 
 // ── Alcohol ──────────────────────────────────────────────────────────────────
@@ -94,14 +98,34 @@ export function ethanolGrams(type: string, amountMl: number, note?: string): num
 }
 
 /**
+ * Widmark's distribution mass: the kilograms of body water the alcohol
+ * spreads through (r × body mass). One definition — clearance and ‰ both
+ * divide by it, and if the two used different r tables the card's "clear
+ * by" time and its ‰ readout would quietly describe two different bodies.
+ */
+export function widmarkDistributionKg(weightKg?: number | null, sex?: string | null): number {
+  const r = sex === "male" ? 0.68 : sex === "female" ? 0.55 : 0.62
+  const mass = weightKg && weightKg >= 30 && weightKg <= 250 ? weightKg : 75
+  return r * mass
+}
+
+/**
  * Grams of ethanol cleared per hour. Widmark: the body eliminates about
  * 0.15 g/L of blood-water per hour, and the distribution volume scales with
  * body mass and sex.
  */
 export function alcoholClearanceGPerHour(weightKg?: number | null, sex?: string | null): number {
-  const r = sex === "male" ? 0.68 : sex === "female" ? 0.55 : 0.62
-  const mass = weightKg && weightKg >= 30 && weightKg <= 250 ? weightKg : 75
-  return 0.15 * r * mass
+  return 0.15 * widmarkDistributionKg(weightKg, sex)
+}
+
+/**
+ * Blood alcohol in ‰ (grams per kg of distribution mass) for what is still
+ * unprocessed. A population model of one body: for planning an evening,
+ * explicitly never for deciding whether to drive.
+ */
+export function permilleFromGrams(grams: number, weightKg?: number | null, sex?: string | null): number {
+  if (!(grams > 0)) return 0
+  return Math.round((grams / widmarkDistributionKg(weightKg, sex)) * 100) / 100
 }
 
 /**
