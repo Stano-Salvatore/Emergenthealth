@@ -183,6 +183,12 @@ export default function ChatPage() {
   // dictation from it — but it needs to call the CURRENT sendMessage, which is
   // redeclared every render. A ref is the join: stable identity, live target.
   const sendRef = useRef<((text: string) => void) | null>(null)
+  // A turn whose stream never finished cleanly. The server keeps running it
+  // (see /api/chat — the turn is kept alive past the response), so when the
+  // app comes back to the foreground the transcript is the truth, not the
+  // half-streamed bubble this screen was left holding.
+  const pendingTurn = useRef(false)
+  const convRef = useRef<string | null>(null)
 
   // This page had its own copy of the browser SpeechRecognition API, which does
   // not exist inside an Android WebView — so in the app the mic button hit
@@ -364,6 +370,43 @@ export default function ChatPage() {
     }
   }, [messages])
 
+  useEffect(() => { convRef.current = conversationId }, [conversationId])
+
+  // "log the goulash", pocket the phone. Locking the screen kills this page's
+  // stream, but the server finishes the turn on its own — so on return, poll
+  // the transcript until the reply lands (the turn may still be running) and
+  // replace whatever half-streamed state was left behind.
+  useEffect(() => {
+    let cancelled = false
+    async function catchUp() {
+      for (let attempt = 0; attempt < 15 && !cancelled; attempt++) {
+        if (document.visibilityState !== "visible" || !pendingTurn.current) return
+        const id = convRef.current
+        if (!id) return
+        try {
+          const res = await fetch(`/api/chat?conversation=${encodeURIComponent(id)}`)
+          if (res.ok) {
+            const rows: (Omit<Message, "sources"> & { sources?: string | null })[] = await res.json()
+            if (rows.length > 0 && rows[rows.length - 1].role === "assistant") {
+              if (cancelled || !pendingTurn.current) return
+              pendingTurn.current = false
+              setMessages(rows.map(row => ({
+                ...row,
+                sources: row.sources ? safeChips(row.sources) : undefined,
+              })))
+              setSending(false)
+              return
+            }
+          }
+        } catch { /* offline for a moment — the next attempt will see */ }
+        await new Promise(r => setTimeout(r, 2500))
+      }
+    }
+    const onVisible = () => { if (document.visibilityState === "visible" && pendingTurn.current) void catchUp() }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVisible) }
+  }, [])
+
   // Tapping anywhere outside the panel (or pressing Escape) closes it — the X
   // was previously the only way out.
   useEffect(() => {
@@ -428,6 +471,11 @@ export default function ChatPage() {
     const assistantMsg: Message = { role: "assistant", content: "", streaming: true }
     setMessages((m) => [...m, assistantMsg])
 
+    // From here the server owns the turn; if this screen never sees [DONE]
+    // (locked phone, dropped connection), the catch-up poll reconciles from
+    // the transcript on the next foreground.
+    pendingTurn.current = true
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -484,6 +532,7 @@ export default function ChatPage() {
           if (!line.startsWith("data: ")) continue
           const data = line.slice(6)
           if (data === "[DONE]") {
+            pendingTurn.current = false
             setMessages((m) =>
               m.map((msg, i) =>
                 i === m.length - 1 ? { ...msg, streaming: false, activeTool: undefined } : msg

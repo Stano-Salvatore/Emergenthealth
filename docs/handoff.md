@@ -1116,11 +1116,15 @@ Roughly in order, most recent first:
   unbuilt: a live camera viewfinder for barcodes (needs the CAMERA
   permission — an APK) and manual barcode entry as a no-detector fallback.
 
-- **Chat replies persist before the stream closes (3.4.4), but a reply
-  aborted MID-stream is still lost** — if the function dies while tokens
-  are flowing, nothing was accumulated worth saving and the user message
-  sits answerless. Reproducing needs a killed deployment mid-turn; if it
-  shows up, checkpoint partial text every ~2s under the same message row.
+- **Chat replies persist before the stream closes (3.4.4), and since 3.6.7
+  a turn survives the CLIENT leaving** — the run is kept alive past the
+  response with `after()` (next/server), a dead stream only silences the
+  narration, the reply or the failure note always reaches the transcript,
+  and the chat screen polls the transcript back in on the next foreground
+  (`chat-survives-pocket.test.ts` pins all of it). What remains open is the
+  narrower case: the FUNCTION itself dying mid-generation (killed
+  deployment, hard timeout) still loses the partial text. If it shows up,
+  checkpoint partial text every ~2s under the same message row.
 
 - **`ArtistGenre` is read by the correlation engine and `lib/music-days.ts`
   only at lookup time; nothing refreshes it.** An artist first seen in a new

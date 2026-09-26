@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse, after } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { streamChatEvents } from "@/lib/claude"
@@ -115,49 +115,83 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Real token streaming — forward Claude's deltas straight to the client as
-  // they arrive, then persist the accumulated reply once the stream finishes.
+  // Real token streaming — but the TURN does not belong to the stream. "log
+  // the goulash", pocket the phone: locking the screen cancels the response,
+  // and when the run lived inside it, the next write threw and the whole
+  // turn died mid-flight — tools half-executed, reply never written, the
+  // message answerless on reopen. Writing to the screen is best-effort now;
+  // finishing the turn is not.
   const encoder = new TextEncoder()
+  let clientGone = false
   const readable = new ReadableStream({
-    async start(controller) {
-      // Tell the client which conversation this turn landed in before any text
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ conversationId: convId })}\n\n`))
-      let full = ""
-      let chips: unknown[] = []
-      try {
-        // Text is what gets persisted; the tool and sources events are about
-        // this turn only — they describe how the answer was reached, so they
-        // are streamed to the screen and not written into the transcript.
-        for await (const event of streamChatEvents(userId, message ?? "", history ?? [], attachments)) {
-          if (event.type === "text") full += event.text
-          if (event.type === "sources") chips = event.chips
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
+    start(controller) {
+      // The one place bytes reach the wire. A dead stream flips the flag and
+      // the narration stops; the work below never notices.
+      const send = (payload: unknown) => {
+        if (clientGone) return
+        try {
+          controller.enqueue(encoder.encode(`data: ${typeof payload === "string" ? payload : JSON.stringify(payload)}\n\n`))
+        } catch {
+          clientGone = true
         }
-      } catch (error) {
-        // Every cause used to produce one sentence, with the thrown value
-        // discarded unread. The balance running out is the failure this app
-        // will actually meet, and "something went wrong" is the one thing that
-        // cannot lead its owner to the fix.
-        console.error("[emergy] chat failed", logChatFailure(error))
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "text", text: `\n\n_(${describeChatFailure(error)})_` })}\n\n`))
       }
-      // Persist BEFORE closing the response. Closing is the signal that lets
-      // the serverless runtime freeze this function, so anything after it
-      // runs only when the platform feels like it — which is how a reply the
-      // user watched stream in full was never written, and vanished the next
-      // time the chat loaded. The few milliseconds of extra spinner are the
-      // price of the transcript being real.
-      if (full.trim()) {
-        await prisma.chatMessage.create({
-          data: {
-            userId, conversationId: convId, role: "assistant", content: full,
-            sources: chips.length > 0 ? JSON.stringify(chips) : null,
-          },
-        }).catch(() => {})
-      }
-      await prisma.chatConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } }).catch(() => {})
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"))
-      controller.close()
+
+      const work = (async () => {
+        // Tell the client which conversation this turn landed in before any text
+        send({ conversationId: convId })
+        let full = ""
+        let chips: unknown[] = []
+        try {
+          // Text is what gets persisted; the tool and sources events are about
+          // this turn only — they describe how the answer was reached, so they
+          // are streamed to the screen and not written into the transcript.
+          for await (const event of streamChatEvents(userId, message ?? "", history ?? [], attachments)) {
+            if (event.type === "text") full += event.text
+            if (event.type === "sources") chips = event.chips
+            send(event)
+          }
+        } catch (error) {
+          // Every cause used to produce one sentence, with the thrown value
+          // discarded unread. The balance running out is the failure this app
+          // will actually meet, and "something went wrong" is the one thing
+          // that cannot lead its owner to the fix. The note goes into the
+          // transcript too: with the phone pocketed there is no screen to
+          // stream it to, and an answerless message is what this whole path
+          // exists to prevent.
+          console.error("[emergy] chat failed", logChatFailure(error))
+          full += `\n\n_(${describeChatFailure(error)})_`
+          send({ type: "text", text: `\n\n_(${describeChatFailure(error)})_` })
+        }
+        // Persist BEFORE closing the response. Closing is the signal that lets
+        // the serverless runtime freeze this function, so anything after it
+        // runs only when the platform feels like it — which is how a reply the
+        // user watched stream in full was never written, and vanished the next
+        // time the chat loaded. The few milliseconds of extra spinner are the
+        // price of the transcript being real.
+        if (full.trim()) {
+          await prisma.chatMessage.create({
+            data: {
+              userId, conversationId: convId, role: "assistant", content: full,
+              sources: chips.length > 0 ? JSON.stringify(chips) : null,
+            },
+          }).catch(() => {})
+        }
+        await prisma.chatConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } }).catch(() => {})
+        send("[DONE]")
+        if (!clientGone) {
+          try { controller.close() } catch { /* cancelled between send and close */ }
+        }
+      })()
+
+      // Once the client walks away the platform may freeze this function at
+      // the next await. after() (next/server) keeps it running to the end of
+      // the turn — it fires even when the response didn't complete.
+      after(() => work)
+    },
+    cancel() {
+      // The user pocketed the phone. The turn keeps running; only the
+      // narration stops.
+      clientGone = true
     },
   })
 

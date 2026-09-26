@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.6.7 — Send it and pocket the phone
+
+- **A chat turn no longer needs an audience.** "log xy", lock the screen:
+  the turn used to live inside the response stream, so cancelling it killed
+  the run mid-flight — tools half-executed, reply never written. The server
+  now finishes the turn on its own (the stream is just narration; a dead
+  one is noted and ignored), the reply — or the failure and its reason —
+  always lands in the transcript, and when the app comes back to the
+  foreground the chat screen polls the transcript and replaces whatever
+  half-streamed bubble it was left holding.
+
 ## 3.6.6 — The phone's nights get judged, and the sync stops hiding
 
 - **Phone-in-bed finally reaches the correlation engine.** The phone has
