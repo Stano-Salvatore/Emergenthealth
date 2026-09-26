@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { auth } from "@/auth"
 import { scoreHex, scoreText } from "@/lib/score-color"
 import { loadDailyScore } from "@/lib/daily-score-load"
@@ -8,7 +9,7 @@ import { habitStreak, isDueOn } from "@/lib/habit-schedule"
 import { addDaysISO, localDateStr, localTimeStr, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { isAlcohol } from "@/lib/body-load"
-import { getUpcomingEventsWithStatus, type CalendarEvent } from "@/lib/google-calendar"
+import { getUpcomingEventsWithStatusCached, type CalendarEvent } from "@/lib/google-calendar"
 import { loadEventOccurrences } from "@/lib/app-events"
 import { mergeDayEvents } from "@/lib/day-events"
 import { getGmailSummary } from "@/lib/gmail"
@@ -200,6 +201,7 @@ export default async function DashboardPage() {
     todayCheckin,
     checkinStreakRows,
     healthLogs, habits, reminders, calendar, appEvents, gmailData, todayIntake, todayFocus, todayOuraTags,
+    latestWeightKg, daily, reminderCountAll,
   ] = await Promise.all([
     getGoals(userId),
     prisma.$queryRaw<{id: string}[]>`
@@ -236,7 +238,9 @@ export default async function DashboardPage() {
       orderBy: [{ dueDate: "asc" }],
       take: 10,
     }),
-    getUpcomingEventsWithStatus(userId, 14),
+    // The cached variant: a live Google round trip here is startup time on
+    // the phone (see lib/google-calendar).
+    getUpcomingEventsWithStatusCached(userId, 14),
     // The app's own events (AppEvent — what the calendar composer writes).
     // Same 14-day window as the Google + phone merge above.
     loadEventOccurrences(userId, new Date(), new Date(Date.now() + 14 * 86_400_000), timezone).catch(() => []),
@@ -254,6 +258,12 @@ export default async function DashboardPage() {
       SELECT "tagName", "text" FROM "OuraTag"
       WHERE "userId" = ${userId} AND "day" = ${todayStr}
     `.catch(() => [] as OuraTagRow[]),
+    // These three ran as sequential awaits AFTER this batch — three extra
+    // database round trips on the page's critical path, which on the phone
+    // is startup time.
+    latestWeighIn(userId).then(w => w?.kg ?? null).catch(() => null),
+    loadDailyScore(userId).catch(() => null),
+    prisma.reminder.count({ where: { userId } }).catch(() => 0),
   ])
 
   // ── goals + check-in (parsed from the batch above)
@@ -307,7 +317,6 @@ export default async function DashboardPage() {
   const latestHealth = healthLogs[0] ?? null
   // From either weight table: the newest health row's weight column is
   // usually null, so the quick-log box opened blank under a week of weigh-ins.
-  const latestWeightKg = await latestWeighIn(userId).then(w => w?.kg ?? null).catch(() => null)
   const sleepLogs = healthLogs.filter(l => l.sleepDuration != null)
   const sleepAvg = sleepLogs.length ? sleepLogs.reduce((s,l) => s+l.sleepDuration!,0)/sleepLogs.length : null
   const stepsLogs = healthLogs.filter(l => l.steps != null)
@@ -393,7 +402,6 @@ export default async function DashboardPage() {
   // person's own 45-day baselines (50 = a typical day for them); the gauge
   // here used an absolute scale and disagreed with it every morning. The
   // absolute score remains only as the fallback for the first ten days.
-  const daily = await loadDailyScore(userId).catch(() => null)
   const wellnessScore = daily?.score ?? absoluteScore
   const { label: scoreLabel, color: scoreColor, emoji: scoreEmoji } =
     daily?.score != null ? gradeDaily(daily.score) : scoreGrade(absoluteScore)
@@ -402,7 +410,7 @@ export default async function DashboardPage() {
   const gaugeHex = daily?.score != null ? gradeDaily(daily.score).hex : scoreHex(absoluteScore)
   // "All clear" is only true of a list someone has used. A user who has never
   // written a reminder was shown a green tick for an empty table.
-  const reminderTotal = reminders.length > 0 ? reminders.length : await prisma.reminder.count({ where: { userId } }).catch(() => 0)
+  const reminderTotal = reminders.length > 0 ? reminders.length : reminderCountAll
   const scoreDriver = daily?.driver
     ? `${daily.driver.emoji} ${daily.driver.label} ${daily.driver.direction === "up" ? "carried it" : "pulled it down"}`
     : null
@@ -446,7 +454,17 @@ export default async function DashboardPage() {
             the dashboard reads as one card instead of three overlapping ones. */}
         <div className="mt-4 space-y-3 relative">
           <DailyBriefing />
-          <VitalsCard userId={userId} />
+          {/* Streams in after first paint: the anomaly scan is the page's
+              heaviest read, and one card's homework must not hold the whole
+              dashboard's HTML — on the phone that wait IS app startup. */}
+          <Suspense fallback={
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">Last night&apos;s vitals</CardTitle></CardHeader>
+              <CardContent className="pt-0"><p className="text-sm text-muted-foreground">Checking against your baselines…</p></CardContent>
+            </Card>
+          }>
+            <VitalsCard userId={userId} />
+          </Suspense>
           {/* TodayStrip — desktop only; the mobile gauge + timeline cover it */}
           <div className="hidden md:block"><TodayStrip /></div>
         </div>

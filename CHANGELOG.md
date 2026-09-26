@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.6.5 — First paint
+
+The native app is the live site in a WebView (a service worker in that
+shell is a scar, not an option — it pinned phones to dead builds), so the
+dashboard's server render IS app startup time. Three things sat on that
+critical path that didn't need to:
+
+- **A live Google Calendar round trip on every open** — hundreds of ms of
+  someone else's latency. The Google half is now cached for two minutes;
+  device and app events stay live (an event added a second ago must not
+  vanish), and a failed fetch is never cached, so a lapsed grant keeps its
+  banner.
+- **The vitals anomaly scan blocked the whole page's HTML** for one card.
+  It streams in behind Suspense now — the dashboard paints, the card says
+  "Checking against your baselines…" and fills in.
+- **Three sequential awaits after the parallel batch** (weigh-in, daily
+  score, reminder count) — folded into the batch.
+
 ## 3.6.4 — The bill, cut where the bill was
 
 One week of the spend ledger: $4.91, of which chat was $4.53 — 92%.
