@@ -37,7 +37,7 @@ import { applyKnownModes, buildJourney } from "@/lib/day-journeys"
 import { matchSavedPlace, placeNameKey } from "@/lib/places"
 import { DAILY_MAX_DAYS, renderWeek, rollupWeeks, type DailyMetrics } from "@/lib/health-rollup"
 import { parseDose, formatDose } from "@/lib/dose"
-import { OPUS } from "@/lib/models"
+import { SONNET } from "@/lib/models"
 import { turnCostUsd } from "@/lib/model-cost"
 import { recordModelTurn } from "@/lib/model-spend"
 import { trimToUserTurn } from "@/lib/chat-turns"
@@ -2948,10 +2948,11 @@ The chat screen shows your answer with its working, so write it that way.
 - If the answer leaned on their data, close with one final line naming what you used, exactly like this: [sources: sleep, journal]. Choose only from: ${SOURCE_KEYS.join(", ")}. Name only what actually shaped the answer, not everything you can see, and leave the line off entirely for small talk or anything you answered without reading. The user never sees the line itself — it draws the source chips under your reply, so a source you name but did not use puts a false receipt on their screen.`
 
 /**
- * Chat effort from the environment, validated. Unset means the model's
- * default. EMERGY_CHAT_EFFORT=medium is the experiment to run: chat is the
- * workload that most often holds quality a step below the default, and the
- * per-turn usage line says by how much the bill moves.
+ * Chat effort, from the environment when set, "medium" otherwise. Chat is the
+ * workload that most often holds quality a step below the default — a week of
+ * the ledger put it at 92% of the bill — so medium IS the experiment now, and
+ * the rows it writes are the readout. EMERGY_CHAT_EFFORT=high puts it back;
+ * EMERGY_CHAT_EFFORT=default hands the choice to the model.
  */
 // "xhigh" exists on the API but not in this SDK version's types; it is not
 // a level this knob is for anyway — the knob exists to step DOWN and measure.
@@ -2959,7 +2960,8 @@ const EFFORT_LEVELS = ["low", "medium", "high", "max"] as const
 type Effort = (typeof EFFORT_LEVELS)[number]
 export function chatEffort(): Effort | null {
   const raw = (process.env.EMERGY_CHAT_EFFORT ?? "").trim().toLowerCase()
-  return (EFFORT_LEVELS as readonly string[]).includes(raw) ? raw as Effort : null
+  if (raw === "default") return null
+  return (EFFORT_LEVELS as readonly string[]).includes(raw) ? raw as Effort : "medium"
 }
 
 /** One thing that happened while Emergy was answering. */
@@ -3055,7 +3057,7 @@ export async function* streamChatEvents(
     // surplus blank line, so a turn that did end cleanly loses nothing.
     let breakDue = spoke
     const stream = anthropic.messages.stream({
-      model: OPUS,
+      model: SONNET,
       // Thinking is on by default on this model and its tokens count against
       // max_tokens. At 2048 a "give me a detailed analysis" turn thought its
       // way to the cap after the tool results came back, stopped with
@@ -3101,7 +3103,7 @@ export async function* streamChatEvents(
     // thinking, so this is the number that moves when the effort changes.
     // The number the effort knob is judged on. Four token counts that all
     // moved are not an answer; input and output are priced five times apart.
-    const costUsd = turnCostUsd(OPUS, response.usage)
+    const costUsd = turnCostUsd(SONNET, response.usage)
     console.info("[emergy] turn", JSON.stringify({
       turn, stop: response.stop_reason, effort: effort ?? "default",
       in: response.usage.input_tokens, out: response.usage.output_tokens,
@@ -3114,7 +3116,7 @@ export async function* streamChatEvents(
     // once. One turn per tool round trip, so a message that called three tools
     // shows as the three turns it really was.
     recordModelTurn({
-      userId, model: OPUS, feature: "chat", effort, turn,
+      userId, model: SONNET, feature: "chat", effort, turn,
       stopReason: response.stop_reason, usage: response.usage,
     })
 
