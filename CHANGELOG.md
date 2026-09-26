@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.6.6 — The phone's nights get judged, and the sync stops hiding
+
+- **Phone-in-bed finally reaches the correlation engine.** The phone has
+  described its nights since 3.4.2 (pickups after 22:00, the quiet gap);
+  now the engine asks whether they cost anything: "Phone In Bed & Sleep"
+  and "Phone In Bed & Morning Energy", split on your own median pickup
+  count. One query loads the whole window; a night without a qualifying
+  quiet gap is absent, never zero — a phone in another room says nothing
+  about phone use in bed.
+- **A failing Health Connect sync no longer poses as a quiet week.** Every
+  sync run records its outcome — success with the record types the phone
+  refused this run, or the failure and its reason — and the Settings card
+  reads it back, background runs included.
+
 ## 3.6.5 — First paint
 
 The native app is the live site in a WebView (a service worker in that
