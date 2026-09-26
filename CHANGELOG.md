@@ -1,5 +1,48 @@
 # Changelog
 
+## 3.6.7 — Send it and pocket the phone
+
+- **A chat turn no longer needs an audience.** "log xy", lock the screen:
+  the turn used to live inside the response stream, so cancelling it killed
+  the run mid-flight — tools half-executed, reply never written. The server
+  now finishes the turn on its own (the stream is just narration; a dead
+  one is noted and ignored), the reply — or the failure and its reason —
+  always lands in the transcript, and when the app comes back to the
+  foreground the chat screen polls the transcript and replaces whatever
+  half-streamed bubble it was left holding.
+
+## 3.6.6 — The phone's nights get judged, and the sync stops hiding
+
+- **Phone-in-bed finally reaches the correlation engine.** The phone has
+  described its nights since 3.4.2 (pickups after 22:00, the quiet gap);
+  now the engine asks whether they cost anything: "Phone In Bed & Sleep"
+  and "Phone In Bed & Morning Energy", split on your own median pickup
+  count. One query loads the whole window; a night without a qualifying
+  quiet gap is absent, never zero — a phone in another room says nothing
+  about phone use in bed.
+- **A failing Health Connect sync no longer poses as a quiet week.** Every
+  sync run records its outcome — success with the record types the phone
+  refused this run, or the failure and its reason — and the Settings card
+  reads it back, background runs included.
+
+## 3.6.5 — First paint
+
+The native app is the live site in a WebView (a service worker in that
+shell is a scar, not an option — it pinned phones to dead builds), so the
+dashboard's server render IS app startup time. Three things sat on that
+critical path that didn't need to:
+
+- **A live Google Calendar round trip on every open** — hundreds of ms of
+  someone else's latency. The Google half is now cached for two minutes;
+  device and app events stay live (an event added a second ago must not
+  vanish), and a failed fetch is never cached, so a lapsed grant keeps its
+  banner.
+- **The vitals anomaly scan blocked the whole page's HTML** for one card.
+  It streams in behind Suspense now — the dashboard paints, the card says
+  "Checking against your baselines…" and fills in.
+- **Three sequential awaits after the parallel batch** (weigh-in, daily
+  score, reminder count) — folded into the batch.
+
 ## 3.6.4 — The bill, cut where the bill was
 
 One week of the spend ledger: $4.91, of which chat was $4.53 — 92%.

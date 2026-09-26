@@ -158,6 +158,56 @@ function longestQuietGap(events: { at: Date }[]): { start: Date; end: Date; minu
  * night is judged in its own 20:00–11:00 window by the same longest-gap
  * rule as phoneNightUse, so the two can never name different bedtimes.
  */
+/** One night as the correlation engine wants it: keyed by the MORNING. */
+export interface PhoneNightRow {
+  /** The day the night ended — the same day its HealthLog row describes. */
+  morningISO: string
+  /** Screen-ons and unlocks between 22:00 and the phone going down. */
+  pickupsAfter22: number
+  quietMinutes: number
+}
+
+/**
+ * Every qualifying night in the last `nights` days, from ONE PhoneEvent
+ * query — this feeds the correlation engine, where a per-night query would
+ * be ~90 round trips inside a cron. A night whose longest gap is under
+ * MIN_NIGHT_GAP_MINUTES is left out entirely: a phone that was quiet all
+ * evening was in another room, and says nothing about phone use in bed.
+ */
+export async function phoneNightSeries(
+  userId: string, nights: number, timezone: string,
+): Promise<PhoneNightRow[]> {
+  const todayISO = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date())
+  const firstEvening = zonedDateTime(timezone, `${addDaysISO(todayISO, -nights)}T20:00`)
+  const lastMorning = zonedDateTime(timezone, `${todayISO}T11:00`)
+  if (!firstEvening || !lastMorning) return []
+
+  const events = await prisma.phoneEvent.findMany({
+    where: { userId, at: { gte: firstEvening, lte: lastMorning } },
+    orderBy: { at: "asc" },
+    select: { at: true, kind: true },
+  }).catch(() => [] as { at: Date; kind: string }[])
+  if (events.length < 2) return []
+
+  const out: PhoneNightRow[] = []
+  for (let d = nights; d >= 1; d--) {
+    const prevISO = addDaysISO(todayISO, -d)
+    const morningISO = addDaysISO(todayISO, -(d - 1))
+    const evening = zonedDateTime(timezone, `${prevISO}T20:00`)
+    const tenPm = zonedDateTime(timezone, `${prevISO}T22:00`)
+    const morning = zonedDateTime(timezone, `${morningISO}T11:00`)
+    if (!evening || !tenPm || !morning) continue
+    const win = events.filter(e => e.at >= evening && e.at <= morning)
+    const gap = longestQuietGap(win)
+    if (!gap || gap.minutes < MIN_NIGHT_GAP_MINUTES) continue
+    const pickupsAfter22 = win.filter(
+      e => (e.kind === "screen_on" || e.kind === "unlock") && e.at >= tenPm && e.at < gap.start,
+    ).length
+    out.push({ morningISO, pickupsAfter22, quietMinutes: Math.round(gap.minutes) })
+  }
+  return out
+}
+
 export async function phoneDownTimes(userId: string, nights: number, timezone: string): Promise<string[]> {
   const today = new Date()
   const todayISO = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(today)
