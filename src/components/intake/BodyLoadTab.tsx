@@ -16,6 +16,7 @@ import { AlcoholCurveCard } from "./AlcoholCurveCard"
 // where the API builds these. Two declarations of one shape drift, and this
 // pair had: the server grew fields the client's copy did not know about.
 import type { ActiveSubstance } from "@/lib/body-load"
+import type { UnmodeledDose } from "@/lib/body-load-now"
 
 const KIND_COLOR: Record<ActiveSubstance["kind"], string> = {
   caffeine: "bg-amber-500",
@@ -47,6 +48,7 @@ function progress(s: ActiveSubstance): number {
 
 export function BodyLoadTab() {
   const [substances, setSubstances] = useState<ActiveSubstance[]>([])
+  const [unmodeled, setUnmodeled] = useState<UnmodeledDose[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -57,6 +59,7 @@ export function BodyLoadTab() {
       if (res.ok) {
         const d = await res.json()
         setSubstances(d.substances ?? [])
+        setUnmodeled(d.unmodeled ?? [])
       }
     } catch { /* keep what's on screen */ }
     finally { setLoading(false); setRefreshing(false) }
@@ -123,7 +126,9 @@ export function BodyLoadTab() {
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           {substances.length === 0
-            ? "Nothing measurable circulating right now."
+            ? unmodeled.length === 0
+              ? "Nothing measurable circulating right now."
+              : "Nothing the app can measure — but see below."
             : `${substances.length} substance${substances.length === 1 ? "" : "s"} still working through you.`}
         </p>
         <button
@@ -134,7 +139,25 @@ export function BodyLoadTab() {
         </button>
       </div>
 
-      {substances.length === 0 ? (
+      {/* A dose the app has no half-life for may well still be working. Left
+          out, the screen said "Clear right now" an hour after a sleeping pill. */}
+      {unmodeled.length > 0 && (
+        <Card className="border-dashed">
+          <CardContent className="pt-3 pb-3 space-y-1">
+            {unmodeled.map(u => (
+              <p key={u.name} className="text-sm">
+                <span className="mr-1.5">💊</span>{u.name}
+                <span className="text-xs text-muted-foreground">, taken {clock(u.takenAt)}, no half-life on file</span>
+              </p>
+            ))}
+            <p className="text-[10px] text-muted-foreground/60">
+              How much is left can&apos;t be worked out without one, so it isn&apos;t counted as gone.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {substances.length === 0 && unmodeled.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="pt-8 pb-8 text-center space-y-2">
             <p className="text-4xl">🫀</p>
@@ -144,7 +167,7 @@ export function BodyLoadTab() {
             </p>
           </CardContent>
         </Card>
-      ) : (
+      ) : substances.length > 0 && (
         <div className="space-y-2.5">
           {substances.map(s => (
             <Card key={`${s.kind}:${s.name}`} className="border-border">

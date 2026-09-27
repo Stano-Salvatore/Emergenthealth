@@ -80,7 +80,7 @@ describe("the calories and the ‰ reach their surfaces", () => {
     expect(read("src/lib/claude.ts")).toMatch(/drinkCalories\(/)
   })
   it("the body-load endpoint sends ‰ alongside the grams", () => {
-    expect(read("src/app/api/body-load/route.ts")).toMatch(/permilleFromGrams\(/)
+    expect(read("src/lib/body-load-now.ts")).toMatch(/permilleFromGrams\(/)
   })
   it("the alcohol card shows ‰ and refuses to be a breathalyzer", () => {
     const s = read("src/components/intake/AlcoholCurveCard.tsx")

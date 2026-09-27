@@ -9,7 +9,7 @@ import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
-import { hydrationMl, HYDRATION_FACTOR } from "@/lib/hydration"
+import { hydrationMl, hydrationBreakdown, sumHydration, HYDRATION_FACTOR } from "@/lib/hydration"
 import { drinkCalories, drinkCaloriesTotal } from "@/lib/drink-calories"
 import { isAlcohol, ethanolGrams } from "@/lib/body-load"
 import { recordDrink } from "@/lib/intake-write"
@@ -40,7 +40,7 @@ import { parseDose, formatDose } from "@/lib/dose"
 import { SONNET } from "@/lib/models"
 import { turnCostUsd } from "@/lib/model-cost"
 import { recordModelTurn } from "@/lib/model-spend"
-import { trimToUserTurn } from "@/lib/chat-turns"
+import { stampTurnGaps, trimToUserTurn } from "@/lib/chat-turns"
 import { parseSaid, SAID_KEY } from "@/lib/emergy-say"
 import { weightSlopeKgWk, weightTrend } from "@/lib/weight-trend"
 import { anchoredWindows, loadDriftReport, rollingWindows, seasonWindows } from "@/lib/drift-load"
@@ -53,7 +53,8 @@ import { loadLabTrends } from "@/lib/lab-trends-load"
 import { loadNutrientReport } from "@/lib/nutrient-gaps-load"
 import { getGoals, saveGoals } from "@/lib/goals"
 import { completeReminder } from "@/lib/reminders"
-import { normalizeSchedule, scheduleLabel } from "@/lib/habit-schedule"
+import { habitStreak, isDueOn, normalizeSchedule, scheduleLabel } from "@/lib/habit-schedule"
+import { getVacationWindow, makeIsFrozen } from "@/lib/streak"
 import { normalizeRepeat, repeatLabel } from "@/lib/recurrence"
 import { parseEventInput } from "@/lib/app-events"
 import { latestWeightKg, loadWeightSeries } from "@/lib/weight-series"
@@ -277,7 +278,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "log_mood",
-    description: "Log the user's mood for today (1=awful, 2=bad, 3=ok, 4=good, 5=great)",
+    description: "Log the user's mood for today (1=awful, 2=bad, 3=ok, 4=good, 5=great). A morning check-in's mood takes precedence on the same day.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -348,7 +349,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "get_health_range",
-    description: "Read the user's daily history: health metrics (sleep duration and score, how many minutes they took to fall asleep, sleep efficiency, bedtime, restless periods, resting HR, HRV, readiness, steps), Oura Ring tags (coffee, supplements, meds, alcohol — the user logs these in the Oura app), morning check-ins (energy/mood/intention), mood logs, journal notes, and logged water/coffee. Use this to answer questions about trends and causes — e.g. 'does coffee affect my sleep', 'how did I feel that week'. Reason over the returned data instead of guessing. Either pass `days` to look back from today, or `from`/`to` for a specific stretch — imported history goes back years, so a question about last autumn is answerable. Ranges longer than about four months come back as weekly averages instead of daily rows; narrow the window when you need a particular day.",
+    description: "Read the user's daily history: health metrics (sleep duration and score, how many minutes they took to fall asleep, sleep efficiency, bedtime, restless periods, resting HR, HRV, readiness, steps), Oura Ring tags (supplements, meds, drinks — anything the user tagged in the Oura app; drink tags also appear among the logged drinks), morning check-ins (energy/mood/intention), mood logs, journal notes, and every drink logged in the app (water, coffee, tea, mate, beer/wine/spirits with grams of ethanol, …) with the day's fluid total. Use this to answer questions about trends and causes — e.g. 'does coffee affect my sleep', 'how did I feel that week'. Reason over the returned data instead of guessing. Either pass `days` to look back from today, or `from`/`to` for a specific stretch — imported history goes back years, so a question about last autumn is answerable. Ranges longer than about four months come back as weekly averages instead of daily rows; narrow the window when you need a particular day.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -850,7 +851,31 @@ const writeFailed = (what: string) => (err: unknown) => {
   return null
 }
 
-async function executeTool(name: string, input: Record<string, string>, userId: string): Promise<string> {
+/** The drink saved but its caffeine row did not — said, never swallowed. */
+function caffeineMissing(w: { caffeineMirrorFailed?: true }): string {
+  return w.caffeineMirrorFailed ? " The caffeine entry didn't save, so it's missing from body load." : ""
+}
+
+/**
+ * Today's drinks as the log holds them, for the drink tools to answer with.
+ * Over a long evening Emergy kept his own running tally, and on 26 Sept it
+ * drifted from the rows the Intake tab, the calories and tomorrow's
+ * correlations all read. Quoting the database means a missing row shows.
+ */
+async function drinkDayTotals(userId: string): Promise<string> {
+  const { start, end } = await userDay(userId)
+  const rows = await prisma.intakeLog.findMany({
+    where: { userId, loggedAt: { gte: start, lte: end } },
+    select: { type: true, amountMl: true, note: true },
+  }).catch((e: unknown) => { console.error("[chat-tools] day totals read failed:", e); return null })
+  if (!rows) return ""
+  const fluid = sumHydration(rows)
+  const alcoholG = Math.round(rows.filter(r => isAlcohol(r.type))
+    .reduce((g, r) => g + ethanolGrams(r.type, r.amountMl, r.note ?? undefined), 0))
+  return ` Today so far, per the log: ${fluid}ml fluid${alcoholG > 0 ? `, ${alcoholG}g alcohol` : ""} — quote these totals rather than a tally of your own.`
+}
+
+export async function executeTool(name: string, input: Record<string, string>, userId: string): Promise<string> {
   if (name === "create_habit") {
     const schedule = normalizeSchedule({ scheduleDays: input.scheduleDays, timesPerWeek: input.timesPerWeek })
     const reminderTime = typeof input.reminderTime === "string" && parseHhMm(input.reminderTime) != null ? input.reminderTime : null
@@ -957,20 +982,22 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
   }
 
   if (name === "log_water") {
-    const amountMl = parseInt(String(input.amountMl), 10)
+    const amountMl = clampInt(input.amountMl, 1, 5000, 250)
     const { at, minutesAgo } = loggedAtFrom(input)
-    await recordDrink({ userId, type: "water", amountMl, at })
-    return `Logged ${amountMl}ml of water${agoSuffix(minutesAgo)}.`
+    const saved = await recordDrink({ userId, type: "water", amountMl, at })
+    if (!saved) return "Couldn't save that water — the log didn't write. Worth retrying."
+    return `Logged ${amountMl}ml of water${agoSuffix(minutesAgo)}.${await drinkDayTotals(userId)}`
   }
 
   if (name === "log_coffee") {
-    const amountMl = parseInt(String(input.amountMl), 10)
+    const amountMl = clampInt(input.amountMl, 1, 2000, 200)
     const { at, minutesAgo } = loggedAtFrom(input)
     // The caffeine entry lands at the SAME instant as the intake — it is read
     // as a decay curve against bedtime, so a cup logged an hour late reads as
     // an hour more of it still circulating. recordDrink guarantees that.
-    await recordDrink({ userId, type: "coffee", amountMl, at })
-    return `Logged ${amountMl}ml of coffee${agoSuffix(minutesAgo)}.`
+    const saved = await recordDrink({ userId, type: "coffee", amountMl, at })
+    if (!saved) return "Couldn't save that coffee — the log didn't write. Worth retrying."
+    return `Logged ${amountMl}ml of coffee${agoSuffix(minutesAgo)}.${caffeineMissing(saved)}${await drinkDayTotals(userId)}`
   }
 
   if (name === "log_drink") {
@@ -987,22 +1014,23 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       : Math.max(0, Math.min(600, Math.round(rawMg)))
 
     const { at, minutesAgo } = loggedAtFrom(input)
-    // His figure, not the app's estimate: he knows what is in a Club-Mate and
-    // the lookup table does not. Passing it explicitly (null included) is how
-    // recordDrink is told to trust the caller rather than guess.
-    const drinkLog = await recordDrink({ userId, type, amountMl, note: label, at, caffeineMg })
-    if (!drinkLog) return "Couldn't save that drink — the log didn't write."
+    // His figure over the app's estimate: he knows what is in a Club-Mate and
+    // the lookup table does not. Only a usable figure is trusted, 0 included;
+    // with none, recordDrink estimates — recordDrink reads null as "none", and
+    // passing it for a figure left out logged flat whites with no caffeine.
+    const drinkLog = await recordDrink({ userId, type, amountMl, note: label, at, caffeineMg: caffeineMg ?? undefined })
+    if (!drinkLog) return "Couldn't save that drink — the log didn't write. Worth retrying."
 
     const fluid = hydrationMl(type, amountMl)
     const parts = [`Logged ${amountMl}ml ${label}`]
-    if (caffeineMg && caffeineMg > 0) parts.push(`≈${caffeineMg}mg caffeine`)
+    if (drinkLog.caffeineMg && drinkLog.caffeineMg > 0) parts.push(`≈${drinkLog.caffeineMg}mg caffeine`)
     // The label doubles as the note, so a stated strength ("IPA 8%") prices
     // the actual drink the same way the intake card does.
     const kcal = drinkCalories(type, amountMl, label)
     if (kcal > 0) parts.push(`≈${kcal} kcal`)
     if (fluid !== amountMl) parts.push(`counts as ${fluid}ml fluid`)
     else parts.push(`${fluid}ml toward hydration`)
-    return parts.join(" · ") + agoSuffix(minutesAgo) + "."
+    return parts.join(" · ") + agoSuffix(minutesAgo) + "." + caffeineMissing(drinkLog) + await drinkDayTotals(userId)
   }
 
   if (name === "log_food") {
@@ -1045,11 +1073,13 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         return `No saved place matching "${input.placeName}" has a usual order. Places with a usual: ${withUsual.map(p => p.name).join(", ")}.`
       }
     } else {
-      // default to where they last checked in; unambiguous single place also works
+      // default to where they last checked in; unambiguous single place also works.
+      // A failed read only means asking which place, but it is logged, not
+      // silenced — a swallowed failure is how the 26 Sept meal vanished.
       const lastCheckin = await prisma.checkIn.findFirst({
         where: { userId, savedPlaceId: { in: withUsual.map(p => p.id) } },
         orderBy: { checkedAt: "desc" },
-      }).catch(() => null)
+      }).catch((e: unknown) => { console.error("[chat-tools] last check-in read failed:", e); return null })
       place = withUsual.find(p => p.id === lastCheckin?.savedPlaceId)
         ?? (withUsual.length === 1 ? withUsual[0] : null)
       if (!place) {
@@ -1068,19 +1098,27 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       caffeineLabel: place.usualNote ?? "",
       at: usual.at,
     })
-    if (!log) return "Couldn't save that — the log didn't write."
-    return `Logged the usual at ${place.name}: ${place.usualNote || place.usualType}, ${place.usualMl} ml${agoSuffix(usual.minutesAgo)}.${log.caffeineMg ? ` Tracked ${log.caffeineMg} mg caffeine.` : ""}`
+    if (!log) return "Couldn't save that — the log didn't write. Worth retrying."
+    return `Logged the usual at ${place.name}: ${place.usualNote || place.usualType}, ${place.usualMl} ml${agoSuffix(usual.minutesAgo)}.${log.caffeineMg ? ` Tracked ${log.caffeineMg} mg caffeine.` : ""}${caffeineMissing(log)}${await drinkDayTotals(userId)}`
   }
 
   if (name === "log_mood") {
     const mood = Math.min(5, Math.max(1, parseInt(String(input.mood), 10)))
-    const { dateColumn: today } = await userDay(userId)
+    const { dateColumn: today, today: todayStr } = await userDay(userId)
     const savedMood = await prisma.moodLog.upsert({
       where: { userId_date: { userId, date: today } },
       create: { userId, date: today, mood },
       update: { mood },
     }).catch(writeFailed("mood"))
     if (!savedMood) return "Couldn't save that mood — the log didn't write. Worth retrying."
+    // The check-in wins on its own day (lib/mood-series), so a later mood is
+    // stored and then read nowhere. Saying "Logged" over that is a write the
+    // user is told about that no screen will ever show.
+    const effective = (await loadMoodByDay(userId, todayStr, todayStr)
+      .catch((e: unknown) => { console.error("[chat-tools] mood read-back failed:", e); return null }))?.get(todayStr)
+    if (effective != null && effective !== mood) {
+      return `Noted mood ${mood}/5 alongside today's morning check-in, but the check-in's ${effective}/5 stays the day's mood everywhere (snapshot, trends, correlations). Tell the user that plainly; if they want ${mood}/5 to be today's mood, the check-in itself has to change (log_morning_checkin, carrying over today's energy, intention and water goal, which it replaces).`
+    }
     return `Logged mood: ${mood}/5 for today.`
   }
 
@@ -1230,8 +1268,8 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       }).catch(() => [] as { date: Date; mood: number }[]),
       prisma.intakeLog.findMany({
         where: { userId, loggedAt: { gte: since, lte: until } },
-        select: { loggedAt: true, type: true, amountMl: true },
-      }).catch(() => [] as { loggedAt: Date; type: string; amountMl: number }[]),
+        select: { loggedAt: true, type: true, amountMl: true, note: true },
+      }).catch(() => [] as { loggedAt: Date; type: string; amountMl: number; note: string | null }[]),
     ])
 
     const tagsByDay = new Map<string, string[]>()
@@ -1245,15 +1283,19 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     const checkinByDay = new Map(checkins.map(c => [c.date, c]))
     const noteByDay = new Map(notes.map(n => [n.date.toISOString().split("T")[0], n.content]))
     const moodByDay = new Map(moods.map(m => [m.date.toISOString().split("T")[0], m.mood]))
-    const intakeByDay = new Map<string, { water: number; coffee: number }>()
+    // Every type, not water and coffee alone: wine logged in the app on nine
+    // evenings came back as nine evenings of nothing, and a question about
+    // drinking and sleep was reasoned over a missing reading as if it were 0.
+    const intakeByDay = new Map<string, { ml: Map<string, number>; fluid: number; alcoholG: number }>()
     // loggedAt is a timestamp; slicing it buckets by UTC day, so a late-night
     // glass of water was reported against the day before.
     const intakeDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
     for (const i of intake) {
       const d = intakeDayFmt.format(i.loggedAt)
-      const acc = intakeByDay.get(d) ?? { water: 0, coffee: 0 }
-      if (i.type === "water") acc.water += i.amountMl
-      else if (i.type === "coffee") acc.coffee += i.amountMl
+      const acc = intakeByDay.get(d) ?? { ml: new Map<string, number>(), fluid: 0, alcoholG: 0 }
+      acc.ml.set(i.type, (acc.ml.get(i.type) ?? 0) + i.amountMl)
+      acc.fluid += hydrationMl(i.type, i.amountMl)
+      if (isAlcohol(i.type)) acc.alcoholG += ethanolGrams(i.type, i.amountMl, i.note ?? undefined)
       intakeByDay.set(d, acc)
     }
 
@@ -1322,8 +1364,10 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       const dayTags = tagsByDay.get(d)
       if (dayTags?.length) parts.push(`Oura tags: ${dayTags.join(", ")}`)
       const ink = intakeByDay.get(d)
-      if (ink && (ink.water > 0 || ink.coffee > 0)) {
-        parts.push(`logged:${ink.water > 0 ? ` water ${ink.water}ml` : ""}${ink.coffee > 0 ? ` coffee ${ink.coffee}ml` : ""}`)
+      const drinks = ink ? [...ink.ml].filter(([, ml]) => ml > 0) : []
+      if (ink && drinks.length > 0) {
+        const alcohol = ink.alcoholG > 0 ? ` (≈${Math.round(ink.alcoholG)}g ethanol)` : ""
+        parts.push(`logged: ${drinks.map(([t, ml]) => `${t} ${ml}ml`).join(", ")}${alcohol}; fluid ${ink.fluid}ml`)
       }
       const c = checkinByDay.get(d)
       if (c) parts.push(`check-in: energy ${c.energy}/5, mood ${c.mood}/5${c.intention ? `, intention "${c.intention}"` : ""}`)
@@ -2213,13 +2257,16 @@ export async function buildSystemPrompt(
           sleepScore: true, sleepStart: true,
         },
       }),
+      // Long enough for a real streak (a 30-day window capped every streak at
+      // 30), and the skips, which hold a streak exactly as the Habits page does.
       prisma.habit.findMany({
         where: { userId, isArchived: false },
         include: {
           completions: {
-            where: { date: { gte: new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000) } },
+            where: { date: { gte: new Date(addDaysISO(todayStr, -400) + "T00:00:00Z") } },
             orderBy: { date: "desc" },
           },
+          skips: { where: { date: { gte: new Date(addDaysISO(todayStr, -400) + "T00:00:00Z") } } },
         },
       }),
       prisma.reminder.findMany({ where: { userId, isCompleted: false }, orderBy: { dueDate: "asc" }, take: 20 }),
@@ -2352,17 +2399,24 @@ export async function buildSystemPrompt(
   }).catch(() => null)
   const memories = parseFacts(memoryRow?.value)
 
+  // The streak the Habits page shows, from the same function. The walk that
+  // was here stopped at today, so every morning read "0-day streak", and it
+  // knew nothing of schedules, skips or vacation — Emergy reported a broken
+  // streak on a Mon/Wed/Fri habit every Tuesday, and right after
+  // skip_habit_today had promised "the streak holds".
+  const isFrozen = makeIsFrozen(await getVacationWindow(userId))
   const habitsWithStreaks = habits.map((h) => {
-    let streak = 0
-    // Walked in date-string space from the user's today. c.date is a date-only
-    // column, so slicing its ISO string is exact; the cursor was not, and
-    // started from the server's midnight.
-    let cursor = todayStr
-    const completionDates = new Set(h.completions.map((c) => c.date.toISOString().split("T")[0]))
-    while (completionDates.has(cursor)) {
-      streak++; cursor = addDaysISO(cursor, -1)
+    // c.date is a date-only column, so slicing its ISO string is exact.
+    const done = new Set(h.completions.map((c) => c.date.toISOString().split("T")[0]))
+    const skipped = new Set(h.skips.map((k) => k.date.toISOString().split("T")[0]))
+    const schedule = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
+    const { streak, unit } = habitStreak(schedule, done, skipped, todayStr, isFrozen)
+    return {
+      name: h.name, streak, unit,
+      completedToday: done.has(todayStr),
+      skippedToday: skipped.has(todayStr),
+      dueToday: isDueOn(schedule, todayStr, done),
     }
-    return { name: h.name, streak, completedToday: completionDates.has(todayStr) }
   })
 
   // Non-drink Oura tags today = supplements/meds (drink tags are mirrored into
@@ -2433,7 +2487,9 @@ export async function buildSystemPrompt(
     : `- No meals logged today (the user can snap a meal or drink photo on the Intake → Food tab)${drinkKcalStr}`
 
   // Intake totals (IntakeLog — includes drinks mirrored from Oura tags)
-  const waterToday = (todayIntake as any[]).filter((l: any) => l.type === "water").reduce((a: number, l: any) => a + l.amountMl, 0)
+  // Every hydrating drink, as the Overview tile counts it: a day of sparkling
+  // water and tea was "Water: 0ml" here, and Emergy nudged him to drink.
+  const fluidToday = hydrationBreakdown(todayIntake as { type: string; amountMl: number }[])
   const coffeeToday = (todayIntake as any[]).filter((l: any) => l.type === "coffee").reduce((a: number, l: any) => a + l.amountMl, 0)
   // Beer and wine are alcohol. Filtering on the one type spelled "alcohol"
   // told Emergy you had drunk nothing on every evening you had — see
@@ -2683,9 +2739,12 @@ export async function buildSystemPrompt(
   // and read straight past it, so a ring left on the charger produced a
   // cheerful brief about a night nobody measured. This states the gap plainly
   // so he can mention it instead of talking around a hole.
-  const latestHealthDay = recentHealth.length > 0
-    ? fmtDateISO.format(recentHealth[0].date)
-    : null
+  // The newest row that holds a NIGHT, not the newest row: Health Connect and
+  // the Oura activity sync write today's row with steps and no sleep, which
+  // made a missing night look covered and hid the phone's estimate of it.
+  // `date` is a date-only column, so its ISO date is the day itself.
+  const latestNightRow = recentHealth.find(h => h.sleepDuration != null)
+  const latestHealthDay = latestNightRow ? latestNightRow.date.toISOString().slice(0, 10) : null
   const daysSinceHealth = latestHealthDay
     ? Math.round((new Date(todayStr).getTime() - new Date(latestHealthDay).getTime()) / 86400_000)
     : null
@@ -2694,18 +2753,21 @@ export async function buildSystemPrompt(
   // and "never imply sleep figures" over a night the app holds is the app
   // denying what it knows (the 3.3.4 bug, in the prompt that mattered most).
   const ringGap = latestHealthDay != null && daysSinceHealth != null && daysSinceHealth >= 1
-  const gapFrom = ringGap ? zonedDayRange(tz, addDaysISO(latestHealthDay!, 1)).start : null
-  const phoneGapNights = ringGap && gapFrom
+  const noRingNight = recentHealth.length > 0 && latestHealthDay == null
+  const gapFrom = ringGap ? zonedDayRange(tz, addDaysISO(latestHealthDay!, 1)).start : noRingNight ? since14 : null
+  const phoneGapNights = gapFrom
     ? await phoneNights(userId, gapFrom, new Date(), tz)
     : []
   const phoneStr = phoneGapNights.length > 0
     ? ` The phone's own Sleep API did record ${phoneGapNights.length === 1 ? "that night" : `${phoneGapNights.length} of those nights`}: ${phoneGapNights.map(n => `${n.day} ≈ ${hoursLabel(n.minutes)}`).join(", ")}. That is a motion-based estimate — no stages, no score, not comparable with a ring night — so you may give it as "the phone estimated", never as a measurement.`
     : ""
-  const wearableStr = latestHealthDay == null
+  const wearableStr = recentHealth.length === 0
     ? "No wearable data recorded at all yet."
-    : ringGap
-      ? `⚠️ No Oura data for ${daysSinceHealth === 1 ? "last night" : `${daysSinceHealth} days`} — the last recorded night is ${latestHealthDay}. The ring is most likely off the finger or out of battery. Say so once, kindly and briefly, if sleep, readiness or energy comes up; never state or imply RING sleep figures for the nights that are missing, and don't treat the gap as a bad night.${phoneStr}`
-      : null
+    : latestHealthDay == null
+      ? `No ring night in the recent logs at all — never state or imply ring sleep figures.${phoneStr}`
+      : ringGap
+        ? `⚠️ No Oura sleep data for ${daysSinceHealth === 1 ? "last night" : `${daysSinceHealth} days`} — the last recorded night is ${latestHealthDay}. The ring is most likely off the finger or out of battery. Say so once, kindly and briefly, if sleep, readiness or energy comes up; never state or imply RING sleep figures for the nights that are missing, and don't treat the gap as a bad night.${phoneStr}`
+        : null
 
   // ── Summaries for the newly-visible sources ──────────────────────────────
   // Raw pings say nothing on their own, so location becomes what a person
@@ -2819,7 +2881,7 @@ export async function buildSystemPrompt(
     ...(recentNotes.length > 0 && { journal: plural(recentNotes.length, "entry", "entries") }),
     ...(checkinRows.length > 0 && { checkin: plural(checkinRows.length, "day") }),
     ...(tagDayMap.size > 0 && { tags: plural(tagDayMap.size, "day") }),
-    ...((waterToday > 0 || coffeeToday > 0 || ouraMeds.length > 0) && { intake: "today" }),
+    ...((fluidToday.total > 0 || coffeeToday > 0 || ouraMeds.length > 0) && { intake: "today" }),
     ...(habitsWithStreaks.length > 0 && { habits: plural(habitsWithStreaks.length, "habit") }),
     // A span, not a row count: the calendar section reaches 30 days back and 14
     // forward, so "65 events" read as though he had gone through sixty-five of
@@ -2862,7 +2924,7 @@ ${experimentsStr ? `## Experiments running (N-of-1; when it is relevant, say whi
 ${anomaliesStr ? `## Off their own baseline right now (45-day median/MAD scan of their ring data)\n${anomaliesStr}\nBring one up only when it fits what they ask; it is a flag, never a diagnosis.\n` : ""}
 ## Today's snapshot
 - Mood: ${todayMood ? `${todayMood.mood}/5 (${moodLabels[todayMood.mood]})` : "not logged yet"}
-- Water: ${waterToday}ml${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml (≈${alcoholGToday}g ethanol)` : ""}
+- Fluid: ${fluidToday.total}ml (plain water ${fluidToday.water}ml; the water goal counts all fluid)${coffeeToday > 0 ? ` · Coffee: ${coffeeToday}ml` : ""}${alcoholToday > 0 ? ` · Alcohol: ${alcoholToday}ml (≈${alcoholGToday}g ethanol)` : ""}
 ${foodLine}
 ${todayCaffeineMg > 0 || activeCaffeineMg > 0 ? `- Caffeine: ${todayCaffeineMg}mg today (${halfLifeIsPersonal ? `${halfLifeH}h half-life, fitted from their own sleep data` : `${halfLifeH}h half-life — the population default, not yet fitted to them, so don't state it as their personal figure`} — how much is still circulating right now is in the LIVE block; factor it into sleep/energy advice, e.g. discourage more coffee if a lot is still active late in the day)` : ""}
 ${caffeineCutoffStr ?? ""}
@@ -2912,7 +2974,7 @@ ${timelineStr ? `## Their timeline (moments they marked, last 14 days)\n${timeli
 ${booksStr ? `## Reading\n${booksStr}\n` : ""}
 ${routinesStr ? `## Habit routines (groups they've built)\n${routinesStr}\n` : ""}
 ## Habits
-${habitsWithStreaks.length === 0 ? "No habits set up yet." : habitsWithStreaks.map((h) => `- ${h.name}: ${h.streak}-day streak, ${h.completedToday ? "✓ done today" : "not done today"}`).join("\n")}
+${habitsWithStreaks.length === 0 ? "No habits set up yet." : habitsWithStreaks.map((h) => `- ${h.name}: ${h.streak}-${h.unit === "weeks" ? "week" : "day"} streak, ${h.completedToday ? "✓ done today" : h.skippedToday ? "skipped today (streak holds)" : h.dueToday ? "not done yet today" : "not due today"}`).join("\n")}
 
 ## Reminders
 ${upcomingReminders.length === 0 ? "No pending reminders." : upcomingReminders.map((r) => `- [${r.priority}] ${r.title}${r.dueDate ? ` — due ${r.dueDate.toISOString().split("T")[0]}` : ""}`).join("\n")}
@@ -2988,14 +3050,21 @@ const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "
 export async function* streamChatEvents(
   userId: string,
   userMessage: string,
-  messageHistory: Array<{ role: "user" | "assistant"; content: string }>,
+  messageHistory: Array<{ role: "user" | "assistant"; content: string; at?: string | Date | null }>,
   images: ChatImage[] = [],
   // Only the chat screen renders markdown. Telegram posts his reply as plain
   // text, where a backticked figure is just a figure wearing backticks — so
   // that surface asks for prose and gets it.
   { presentation = true }: { presentation?: boolean } = {},
 ): AsyncGenerator<ChatEvent> {
-  const { prompt: systemPrompt, manifest, live } = await buildSystemPrompt(userId)
+  const [{ prompt: systemPrompt, manifest, live }, historyTz] = await Promise.all([
+    buildSystemPrompt(userId),
+    getUserTimezone(userId),
+  ])
+  // Turns carry their time when there was a gap before them, and the current
+  // message says how long it has been — otherwise an overnight conversation
+  // reads to him as one sitting.
+  const { history, current: sinceLast } = stampTurnGaps(trimToUserTurn(messageHistory.slice(-20)), new Date(), historyTz)
 
   // Cache system prompt and tools — both are large and stable within a session.
   // The live block (clock, active caffeine, fast in progress) comes after the
@@ -3019,12 +3088,11 @@ export async function* streamChatEvents(
           type: "image" as const,
           source: { type: "base64" as const, media_type: img.mediaType as "image/jpeg", data: img.base64 },
         })),
-        { type: "text" as const, text: userMessage || "What do you make of this?" },
+        { type: "text" as const, text: sinceLast + (userMessage || "What do you make of this?") },
       ]
-    : userMessage
+    : sinceLast + userMessage
 
   // Cache the conversation history prefix (all but the current message)
-  const history = trimToUserTurn(messageHistory.slice(-20))
   const messages: Anthropic.MessageParam[] = history.length > 0
     ? [
         ...history.slice(0, -1),
@@ -3174,7 +3242,7 @@ export async function* streamChatEvents(
 export async function* streamChatResponse(
   userId: string,
   userMessage: string,
-  messageHistory: Array<{ role: "user" | "assistant"; content: string }>,
+  messageHistory: Array<{ role: "user" | "assistant"; content: string; at?: string | Date | null }>,
   images: ChatImage[] = [],
 ): AsyncGenerator<string> {
   for await (const event of streamChatEvents(userId, userMessage, messageHistory, images, { presentation: false })) {

@@ -304,9 +304,13 @@ describe("the answers stay in front of the model, and stay honest", () => {
 
   it("has one floor for 'still circulating', not two", () => {
     // The body-load answer and the caffeine total both say it. Two constants
-    // is how one of them starts calling 1mg a fact about the afternoon.
-    expect(run.match(/CAFFEINE_FLOOR_MG =/g) ?? []).toHaveLength(1)
-    expect(run.match(/>= CAFFEINE_FLOOR_MG/g) ?? []).toHaveLength(2)
+    // is how one of them starts calling 1mg a fact about the afternoon. The
+    // body-load answer now reads lib/body-load-now, the same list the "In my
+    // body" tab shows, so the one floor is body-load's.
+    expect(run).not.toMatch(/CAFFEINE_FLOOR_MG =/)
+    expect(run).toMatch(/import \{[^}]*\bCAFFEINE_FLOOR_MG\b[^}]*\} from "@\/lib\/body-load"/)
+    expect(run.match(/>= CAFFEINE_FLOOR_MG/g) ?? []).toHaveLength(1)
+    expect(readFileSync("src/lib/body-load-now.ts", "utf8")).toMatch(/>= CAFFEINE_FLOOR_MG/)
   })
 
   it("dates a weight rather than letting a stale reading pass for today's", () => {
