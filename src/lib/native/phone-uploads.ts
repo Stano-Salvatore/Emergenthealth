@@ -89,6 +89,9 @@ async function readSaved<T>(key: string): Promise<T | null> {
   }
 }
 
+/** A saved list, or none. Anything else in storage is dropped rather than thrown on every foreground. */
+const listOf = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : [])
+
 async function save(key: string, value: unknown): Promise<void> {
   try {
     if (value == null) await Preferences.remove({ key })
@@ -121,11 +124,11 @@ const post = (url: string, body: unknown) =>
 export const uploadPhoneSensors = oneAtATime(async (): Promise<number> => {
   await sampleAmbient()
   const fresh = await drainSensorData()
-  const owed = await readSaved<typeof fresh>(OWED_SENSORS)
+  const owed = await readSaved<Partial<Record<keyof typeof fresh, unknown>>>(OWED_SENSORS)
   const data = {
-    ambient: [...(owed?.ambient ?? []), ...fresh.ambient].slice(-CAP),
-    phoneEvents: [...(owed?.phoneEvents ?? []), ...fresh.phoneEvents].slice(-CAP),
-    sleep: [...(owed?.sleep ?? []), ...fresh.sleep].slice(-CAP),
+    ambient: [...listOf<typeof fresh.ambient[number]>(owed?.ambient), ...fresh.ambient].slice(-CAP),
+    phoneEvents: [...listOf<typeof fresh.phoneEvents[number]>(owed?.phoneEvents), ...fresh.phoneEvents].slice(-CAP),
+    sleep: [...listOf<typeof fresh.sleep[number]>(owed?.sleep), ...fresh.sleep].slice(-CAP),
   }
   const total = data.ambient.length + data.phoneEvents.length + data.sleep.length
   if (total === 0) return 0
@@ -141,11 +144,11 @@ type Transition = Awaited<ReturnType<typeof drainActivityEvents>>[number]
 /** Ships the activity-recognition transitions recorded while the app was closed. Returns rows the server took. */
 export const uploadActivityEvents = oneAtATime(async (): Promise<number> => {
   const fresh = await drainActivityEvents()
-  const owed = (await readSaved<Transition[]>(OWED_ACTIVITY)) ?? []
+  const owed = listOf<Transition>(await readSaved(OWED_ACTIVITY))
   // Nothing new and nothing failed: the carried tail alone cannot pair, so
   // it waits for the next drain rather than going up by itself.
   if (fresh.length === 0 && owed.length === 0) return 0
-  const carry = (await readSaved<Transition[]>(ACTIVITY_CARRY)) ?? []
+  const carry = listOf<Transition>(await readSaved(ACTIVITY_CARRY))
   const events = [...carry, ...owed, ...fresh].sort((a, b) => a.at - b.at).slice(-CAP)
   await save(OWED_ACTIVITY, events)
   await save(ACTIVITY_CARRY, null)

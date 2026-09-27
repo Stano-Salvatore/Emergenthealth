@@ -87,11 +87,27 @@ describe("uploadPhoneSensors keeps a batch the server never took", () => {
   })
 
   it("two callers at once do not both send the saved batch", async () => {
+    // NativeBridge and the Settings card both call in on the same foreground.
+    // Overlapping runs would each read the batch a failed POST left behind
+    // and each send it.
     const { uploadPhoneSensors } = await load()
     phone.sensors = [{ ambient: [], phoneEvents: [], sleep: [night] }]
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"))
+    await uploadPhoneSensors()
+
     fetchMock.mockResolvedValue(new Response("{}"))
     await Promise.all([uploadPhoneSensors(), uploadPhoneSensors()])
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock, "the saved batch went up once per caller").toHaveBeenCalledTimes(2)
+    expect(bodyOf(1).sleep).toEqual([night])
+  })
+
+  it("a saved batch of the wrong shape is dropped, not a crash on every foreground", async () => {
+    const { uploadPhoneSensors } = await load()
+    phone.prefs.set("phone_sensors_owed", JSON.stringify({ ambient: {}, phoneEvents: "x" }))
+    phone.sensors = [{ ambient: [], phoneEvents: [{ at: 5, kind: "unlock" }], sleep: [] }]
+    fetchMock.mockResolvedValue(new Response("{}"))
+    expect(await uploadPhoneSensors()).toBe(1)
+    expect(bodyOf(0).phoneEvents).toEqual([{ at: 5, kind: "unlock" }])
   })
 })
 
