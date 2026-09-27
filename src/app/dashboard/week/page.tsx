@@ -18,6 +18,7 @@ import { getGoals } from "@/lib/goals"
 import { hydrationMl } from "@/lib/hydration"
 import { loadMoodSeries } from "@/lib/mood-series"
 import { weekTally } from "@/lib/habit-schedule"
+import { getVacationWindow, makeIsFrozen } from "@/lib/streak"
 import { sleepDebt } from "@/lib/sleep-rhythm"
 
 // The goals a user actually set, not three numbers chosen here. At 47 kg a
@@ -69,7 +70,7 @@ export default async function WeekPage() {
   const STEP_GOAL = goals.steps
   const WATER_GOAL = goals.waterMl
 
-  const [thisWeekLogs, prevWeekLogs, thisWeekHabits, thisWeekIntake, thisWeekFocus, moodSeries, checkinRows] = await Promise.all([
+  const [thisWeekLogs, prevWeekLogs, thisWeekHabits, thisWeekIntake, thisWeekFocus, moodSeries, checkinRows, vacation] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: weekStart, lte: today } },
       orderBy: { date: "asc" },
@@ -114,6 +115,7 @@ export default async function WeekPage() {
       WHERE "userId" = ${userId} AND "date" >= ${weekStartStr} AND "date" <= ${todayStr}
       ORDER BY "date" ASC
     `.catch(() => [] as { date: string; energy: number; mood: number }[]),
+    getVacationWindow(userId),
   ])
 
   // Aggregate
@@ -151,16 +153,17 @@ export default async function WeekPage() {
   const elapsedDays = dowFromMonday + 1
 
   // Habits, against what each one's schedule asked this week.
+  const isFrozen = makeIsFrozen(vacation)
   const habitsStats = thisWeekHabits.map(h => {
     // Date-only columns come back at UTC midnight, so the slice is the day.
     const done = new Set(h.completions.map(c => c.date.toISOString().slice(0, 10)))
     const skipped = new Set(h.skips.map(s => s.date.toISOString().slice(0, 10)))
     const tally = weekTally(
       { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek },
-      done, skipped, weekStartStr, todayStr, localDateStr(timezone, h.createdAt),
+      done, skipped, weekStartStr, todayStr, localDateStr(timezone, h.createdAt), isFrozen,
     )
     return {
-      name: h.name, color: h.color, ...tally,
+      name: h.name, color: h.color, target: h.timesPerWeek, ...tally,
       pct: tally.due > 0 ? Math.round((tally.done / tally.due) * 100) : null,
     }
   }).sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1))
@@ -368,7 +371,7 @@ export default async function WeekPage() {
                   <div key={h.name} className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: h.color }} />
                     <span className="text-xs flex-1 truncate">{h.name}</span>
-                    <span className="text-xs text-muted-foreground shrink-0">{h.due > 0 ? `${h.done}/${h.due}` : "not due yet"}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">{h.due > 0 ? `${h.done}/${h.due}` : h.target != null ? `${h.done}/${h.target} so far` : "not due yet"}</span>
                     {h.pct != null && (
                       <span className={`text-[10px] shrink-0 font-medium ${h.pct >= 80 ? "text-green-400" : h.pct >= 50 ? "text-amber-400" : "text-red-400"}`}>
                         {h.pct}%

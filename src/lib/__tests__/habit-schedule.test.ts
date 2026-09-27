@@ -101,10 +101,34 @@ describe("weekTally — the Weekly Review's done/due", () => {
     expect(weekTally(MWF, done, skipped, "2026-09-07", "2026-09-10")).toEqual({ done: 1, due: 1 })
   })
 
-  it("a weekly-target habit is measured against its target", () => {
+  it("a weekly-target habit is measured against its target once the week is settled", () => {
     const done = new Set(["2026-09-07", "2026-09-09", "2026-09-10", "2026-09-11"])
     expect(weekTally(THRICE, done, none, "2026-09-07", "2026-09-13")).toEqual({ done: 3, due: 3 })
-    expect(weekTally(THRICE, new Set(["2026-09-08"]), none, "2026-09-07", "2026-09-09")).toEqual({ done: 1, due: 3 })
+    // Saturday with one done: the two still owed fit in Saturday and Sunday.
+    expect(weekTally(THRICE, new Set(["2026-09-08"]), none, "2026-09-07", "2026-09-12")).toEqual({ done: 1, due: 0 })
+    // Sunday with one done: two short and one day left — missed.
+    expect(weekTally(THRICE, new Set(["2026-09-08"]), none, "2026-09-07", "2026-09-13")).toEqual({ done: 1, due: 3 })
+  })
+
+  it("a weekly-target habit still within reach is not a 0% on Monday", () => {
+    // 1 of 3 on a Wednesday is on track; scoring it 33% painted every weekly
+    // habit red at the start of each week and dragged the average down.
+    expect(weekTally(THRICE, new Set(["2026-09-08"]), none, "2026-09-07", "2026-09-09")).toEqual({ done: 1, due: 0 })
+    expect(weekTally(THRICE, none, none, "2026-09-07", "2026-09-07")).toEqual({ done: 0, due: 0 })
+  })
+
+  it("a weekly-target week with a skip, a vacation day, or a mid-week start is never failed", () => {
+    const one = new Set(["2026-09-08"])
+    expect(weekTally(THRICE, one, new Set(["2026-09-10"]), "2026-09-07", "2026-09-13")).toEqual({ done: 1, due: 0 })
+    const away = (d: string) => d >= "2026-09-10" && d <= "2026-09-12"
+    expect(weekTally(THRICE, one, none, "2026-09-07", "2026-09-13", null, away)).toEqual({ done: 1, due: 0 })
+    expect(weekTally(THRICE, none, none, "2026-09-07", "2026-09-13", "2026-09-12")).toEqual({ done: 0, due: 0 })
+  })
+
+  it("a vacation day is not a missed day", () => {
+    const done = new Set(["2026-09-07", "2026-09-08"])
+    const away = (d: string) => d >= "2026-09-09" && d <= "2026-09-11"
+    expect(weekTally(DAILY, done, none, "2026-09-07", "2026-09-12", null, away)).toEqual({ done: 2, due: 2 })
   })
 
   it("a habit created mid-week isn't charged for the days before it existed", () => {

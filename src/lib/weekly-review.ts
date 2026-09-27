@@ -9,6 +9,7 @@ import { SONNET } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
 import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
 import { weekTally } from "@/lib/habit-schedule"
+import { getVacationWindow, makeIsFrozen } from "@/lib/streak"
 
 // The weekly review used to be three different things: a Sunday email with
 // bare averages, a dashboard button that asked Haiku for 200 generic words,
@@ -68,7 +69,7 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
   const prevWeekStart = new Date(prevWeekStartStr + "T00:00:00Z")
   const prevWeekEnd = new Date(addDaysISO(weekStartStr, -1) + "T23:59:59Z")
 
-  const [thisWeekLogs, prevWeekLogs, habits, focusSessions, moodLogs, waterLogs, checkinRows, stravaRows] = await Promise.all([
+  const [thisWeekLogs, prevWeekLogs, habits, focusSessions, moodLogs, waterLogs, checkinRows, stravaRows, vacation] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: weekStart, lte: today } },
       orderBy: { date: "asc" },
@@ -104,6 +105,7 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
       where: { userId, day: { gte: weekStartStr } },
       select: { name: true, type: true, distanceM: true, movingTimeSec: true },
     }).catch(() => [] as { name: string | null; type: string; distanceM: number | null; movingTimeSec: number }[]),
+    getVacationWindow(userId),
   ])
 
   // The nights the ring missed but the phone estimated. Their own line and
@@ -132,15 +134,16 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
 
   // Against what each schedule asked, not seven: a Mon/Wed/Fri habit kept
   // perfectly went to Emergy as "Gym: 3/7 days", and he called it a slip.
+  const isFrozen = makeIsFrozen(vacation)
   const habitRows = habits.map(h => {
     const { done, due } = weekTally(
       { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek },
       new Set(h.completions.map(c => c.date.toISOString().slice(0, 10))),
       new Set(h.skips.map(s => s.date.toISOString().slice(0, 10))),
-      weekStartStr, todayStr, localDateStr(tz, h.createdAt),
+      weekStartStr, todayStr, localDateStr(tz, h.createdAt), isFrozen,
     )
     return {
-      name: h.name, done, due, weekly: h.timesPerWeek != null,
+      name: h.name, done, due, target: h.timesPerWeek,
       pct: due > 0 ? Math.round((done / due) * 100) : null,
     }
   })
@@ -173,8 +176,12 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
     `Water: ${totalWaterL}L logged`,
     avgMood != null ? `Mood: avg ${avgMood}/5` : null,
     `Morning check-ins: ${checkinRows.length}/${daysThisWeek}${avgCheckinEnergy != null ? `, avg energy ${avgCheckinEnergy}/5` : ""}`,
-    habitRows.length > 0 ? `Habits (done / asked for by its schedule; skipped days excluded):\n${habitRows.map(h =>
-      `  - ${h.name}: ${h.due === 0 ? "nothing due yet" : h.weekly ? `${h.done}/${h.due} of its weekly target` : `${h.done}/${h.due} due days`}`,
+    habitRows.length > 0 ? `Habits (done / asked for by its schedule; skipped and vacation days excluded):\n${habitRows.map(h =>
+      `  - ${h.name}: ${
+        h.target != null
+          ? h.due === 0 ? `${h.done} of ${h.target} this week so far, still within reach` : `${h.done}/${h.target} of its weekly target`
+          : h.due === 0 ? "nothing due yet" : `${h.done}/${h.due} due days`
+      }`,
     ).join("\n")}` : null,
     intentions.length > 0 ? `Intentions they set this week: ${intentions.slice(0, 7).join(" · ")}` : null,
   ].filter((l): l is string => l != null)

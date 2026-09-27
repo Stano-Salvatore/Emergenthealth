@@ -224,7 +224,7 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
         <div className="flex items-center justify-between gap-2">
           <p className="text-[11px] text-muted-foreground">
             {t.personalized
-              ? <>Targets scaled to your {weightKg} kg{heightCm ? ` · ${heightCm} cm (BMI ${t.bmi})` : ""} — water 35 ml/kg, caffeine 5.7 mg/kg (max 400), protein {t.goalAdjustmentKcal !== 0 ? "1.6" : "1.2"} g/kg, ≈{t.calories} kcal {t.goalAdjustmentKcal !== 0 ? `for your ${goalMode === "lose" ? "weight-loss" : "weight-gain"} goal (${t.goalAdjustmentKcal > 0 ? "+" : ""}${t.goalAdjustmentKcal} vs maintenance)` : t.calorieBasis === "bmr" ? "maintenance (Mifflin-St Jeor × light activity)" : "rough maintenance — add birth year & sex for a real BMR"}.</>
+              ? <>Targets scaled to your {weightKg} kg{heightCm ? ` · ${heightCm} cm (BMI ${t.bmi})` : ""} — caffeine 5.7 mg/kg (max 400), protein {t.goalAdjustmentKcal !== 0 ? "1.6" : "1.2"} g/kg, ≈{t.calories} kcal {t.goalAdjustmentKcal !== 0 ? `for your ${goalMode === "lose" ? "weight-loss" : "weight-gain"} goal (${t.goalAdjustmentKcal > 0 ? "+" : ""}${t.goalAdjustmentKcal} vs maintenance)` : t.calorieBasis === "bmr" ? "maintenance (Mifflin-St Jeor × light activity)" : "rough maintenance — add birth year & sex for a real BMR"}.</>
               : <>Standard targets. Add your height &amp; weight and they scale to your body.</>}
           </p>
           <Button size="sm" variant="ghost" className="gap-1.5 shrink-0 h-7 text-xs" onClick={() => {
