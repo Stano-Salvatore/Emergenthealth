@@ -66,7 +66,7 @@ public class RemindersWidget extends AppWidgetProvider {
                 // Land on the screen this widget is about, not the dashboard.
                 open.putExtra("eh_dest", "/dashboard/reminders");
                 views.setOnClickPendingIntent(R.id.btn_rem_open, PendingIntent.getActivity(
-                    context, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+                    context, 920012, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
             }
 
             String countText = "—";

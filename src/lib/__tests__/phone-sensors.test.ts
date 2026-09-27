@@ -118,4 +118,36 @@ describe("the screen receiver stays out of the manifest", () => {
       ).toBe(true)
     }
   })
+
+  const receiver = () =>
+    readFileSync(NATIVE_RECEIVER, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+  const method = (src: string, name: string) => {
+    const open = src.indexOf(`static synchronized ${name}`)
+    return open === -1 ? "" : src.slice(open, src.indexOf("\n    }\n", open))
+  }
+
+  it("is registered once per process, however many services host it", () => {
+    // Each service used to register its own instance, so with location
+    // tracking and the wake word both on, every screen-on and unlock was
+    // stored twice — and "2 pickups after 22:00" became 4, or 8.
+    const src = receiver()
+    expect(src, "register() no longer keeps a single shared registration").toMatch(
+      /private static EmergyPhoneEventReceiver shared\s*;/,
+    )
+    const reg = method(src, "EmergyPhoneEventReceiver register(")
+    expect(reg, "register() is no longer synchronized — two services starting together would both register").not.toBe("")
+    expect(reg).toMatch(/if \(shared == null\)/)
+    expect(reg, "register on the application context, which outlives either host").toMatch(/getApplicationContext\(\)/)
+  })
+
+  it("says when collection starts and stops, so a dead host is not read as a still phone", () => {
+    // Between the services dying and the next restart nothing is recorded,
+    // and the server could not tell that silence from a phone left on the
+    // nightstand: a 21:04 "bedtime" with zero pickups. The markers let
+    // phone-day.ts leave such a night out.
+    const src = receiver()
+    expect(nativeKinds()).toEqual(expect.arrayContaining(["host_off", "host_on"]))
+    expect(method(src, "EmergyPhoneEventReceiver register(")).toMatch(/store\([^;]*HOST_ON/)
+    expect(method(src, "void unregister(")).toMatch(/store\([^;]*HOST_OFF/)
+  })
 })

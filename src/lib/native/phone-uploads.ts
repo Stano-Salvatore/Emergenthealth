@@ -14,11 +14,16 @@
 // well as from the cards. Both are no-ops on the web, where the drains return
 // nothing.
 //
-// Draining clears the native buffer before the upload is acknowledged, so a
-// failed POST loses that batch — the same trade the cards already made, and
-// the reason the route keys rows deterministically (a retry can double, a
-// handover can drop, and neither is trusted alone). Pushing a failed batch
-// back to the phone would need a plugin method, which costs an APK.
+// Draining clears the native buffer before the upload is acknowledged, so
+// each stream saves what it drained to Preferences BEFORE the POST and clears
+// it only on a 2xx. A failed POST — airplane mode at wake-up, a 401 from a
+// page left open past its session, a 5xx — is sent again on the next
+// foreground, merged with whatever was drained since. The routes key rows
+// deterministically, so a re-send that did land the first time is a no-op.
+//
+// The activity stream also keeps its still-open tail (see openTail): a
+// journey in progress when the app is opened has only its ENTER in this
+// drain, and the EXIT comes in a later one.
 //
 // And the drain has to finish before the brief asks about last night. The
 // dashboard layout mounts the brief inside the page and NativeBridge after
@@ -31,7 +36,9 @@
 // hide the brief.
 
 import { Capacitor } from "@capacitor/core"
+import { Preferences } from "@capacitor/preferences"
 import { drainActivityEvents, drainSensorData, sampleAmbient } from "@/lib/native/bubble"
+import { openTail } from "@/lib/activity-modes"
 
 /** Long enough for a plugin call and one POST on a slow radio; short enough not to look broken. */
 export const DRAIN_WAIT_MS = 4000
@@ -67,28 +74,88 @@ export function waitForPhoneDrain(timeoutMs = DRAIN_WAIT_MS): Promise<void> {
   return Promise.race([drained, deadline])
 }
 
-/** Reads the light/pressure sensors once, then ships every queued sample, screen moment and sleep segment. Returns rows sent. */
-export async function uploadPhoneSensors(): Promise<number> {
-  await sampleAmbient()
-  const data = await drainSensorData()
-  const total = data.ambient.length + data.phoneEvents.length + data.sleep.length
-  if (total === 0) return 0
-  await fetch("/api/phone/sensors", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  }).catch(() => null)
-  return total
+const OWED_SENSORS = "phone_sensors_owed"
+const OWED_ACTIVITY = "activity_events_owed"
+const ACTIVITY_CARRY = "activity_events_carry"
+/** The routes' own per-request ceiling; past it the oldest go. */
+const CAP = 4000
+
+async function readSaved<T>(key: string): Promise<T | null> {
+  try {
+    const { value } = await Preferences.get({ key })
+    return value ? JSON.parse(value) as T : null
+  } catch {
+    return null
+  }
 }
 
-/** Ships the activity-recognition transitions recorded while the app was closed. Returns rows sent. */
-export async function uploadActivityEvents(): Promise<number> {
-  const events = await drainActivityEvents()
-  if (events.length === 0) return 0
-  await fetch("/api/activity/transitions", {
+/** A saved list, or none. Anything else in storage is dropped rather than thrown on every foreground. */
+const listOf = <T>(v: unknown): T[] => (Array.isArray(v) ? v as T[] : [])
+
+async function save(key: string, value: unknown): Promise<void> {
+  try {
+    if (value == null) await Preferences.remove({ key })
+    else await Preferences.set({ key, value: JSON.stringify(value) })
+  } catch { /* best effort: the POST still goes */ }
+}
+
+/**
+ * One run at a time per stream. NativeBridge and a Settings card can both
+ * call in; two overlapping runs would each read the saved batch, and one
+ * could clear it while the other's POST was failing.
+ */
+function oneAtATime<T>(fn: () => Promise<T>): () => Promise<T> {
+  let chain: Promise<unknown> = Promise.resolve()
+  return () => {
+    const run = chain.then(fn, fn)
+    chain = run.catch(() => {})
+    return run
+  }
+}
+
+const post = (url: string, body: unknown) =>
+  fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ events }),
+    body: JSON.stringify(body),
   }).catch(() => null)
+
+/** Reads the light/pressure sensors once, then ships every queued sample, screen moment and sleep segment. Returns rows the server took. */
+export const uploadPhoneSensors = oneAtATime(async (): Promise<number> => {
+  await sampleAmbient()
+  const fresh = await drainSensorData()
+  const owed = await readSaved<Partial<Record<keyof typeof fresh, unknown>>>(OWED_SENSORS)
+  const data = {
+    ambient: [...listOf<typeof fresh.ambient[number]>(owed?.ambient), ...fresh.ambient].slice(-CAP),
+    phoneEvents: [...listOf<typeof fresh.phoneEvents[number]>(owed?.phoneEvents), ...fresh.phoneEvents].slice(-CAP),
+    sleep: [...listOf<typeof fresh.sleep[number]>(owed?.sleep), ...fresh.sleep].slice(-CAP),
+  }
+  const total = data.ambient.length + data.phoneEvents.length + data.sleep.length
+  if (total === 0) return 0
+  await save(OWED_SENSORS, data)
+  const res = await post("/api/phone/sensors", data)
+  if (!res?.ok) return 0
+  await save(OWED_SENSORS, null)
+  return total
+})
+
+type Transition = Awaited<ReturnType<typeof drainActivityEvents>>[number]
+
+/** Ships the activity-recognition transitions recorded while the app was closed. Returns rows the server took. */
+export const uploadActivityEvents = oneAtATime(async (): Promise<number> => {
+  const fresh = await drainActivityEvents()
+  const owed = listOf<Transition>(await readSaved(OWED_ACTIVITY))
+  // Nothing new and nothing failed: the carried tail alone cannot pair, so
+  // it waits for the next drain rather than going up by itself.
+  if (fresh.length === 0 && owed.length === 0) return 0
+  const carry = listOf<Transition>(await readSaved(ACTIVITY_CARRY))
+  const events = [...carry, ...owed, ...fresh].sort((a, b) => a.at - b.at).slice(-CAP)
+  await save(OWED_ACTIVITY, events)
+  await save(ACTIVITY_CARRY, null)
+  const res = await post("/api/activity/transitions", { events })
+  if (!res?.ok) return 0
+  await save(OWED_ACTIVITY, null)
+  const tail = openTail(events, Date.now())
+  await save(ACTIVITY_CARRY, tail.length ? tail : null)
   return events.length
-}
+})

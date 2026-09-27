@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import {
-  googleActivityMode, pairTransitions, spanId, MAX_TRANSITION_SPAN_MS, type TransitionEvent,
+  googleActivityMode, pairTransitions, openTail, spanId, MAX_TRANSITION_SPAN_MS, type TransitionEvent,
 } from "@/lib/activity-modes"
 import { applyKnownModes, type JourneyMove } from "@/lib/day-journeys"
 
@@ -51,7 +51,7 @@ describe("pairTransitions", () => {
     expect(spans[0].end.getTime()).toBe(min(15))
   })
 
-  it("sorts events that arrived out of order across drain batches", () => {
+  it("sorts events that arrived out of order", () => {
     const spans = pairTransitions([ev(7, 1, 20), ev(7, 0, 0)])
     expect(spans).toHaveLength(1)
   })
@@ -109,5 +109,40 @@ describe("spanId", () => {
   it("is deterministic, so a re-import is a no-op", () => {
     expect(spanId("user_abcdefgh", "timeline", 123, "walk"))
       .toBe(spanId("user_abcdefgh", "timeline", 123, "walk"))
+  })
+})
+
+describe("openTail", () => {
+  // A journey still going when the app is opened: the drain sent the ENTER
+  // alone, nothing paired, and the EXIT arrived in a later drain with no
+  // ENTER to close. The whole commute leg was lost. openTail names what the
+  // client must hold back and send again with the next batch.
+  const T0 = Date.UTC(2026, 7, 30, 8, 0, 0)
+  const min = (m: number) => T0 + m * 60_000
+  const ev = (type: number, transition: number, atMin: number): TransitionEvent =>
+    ({ type, transition, at: min(atMin) })
+
+  it("keeps an ENTER that nothing has closed yet", () => {
+    const tail = openTail([ev(7, 0, 0), ev(7, 1, 10), ev(0, 0, 12)], min(20))
+    expect(tail).toEqual([ev(0, 0, 12)])
+  })
+
+  it("carried forward, it pairs with the EXIT from the next drain", () => {
+    const tail = openTail([ev(0, 0, 2)], min(10))
+    const spans = pairTransitions([...tail, ev(0, 1, 31)])
+    expect(spans).toHaveLength(1)
+    expect(spans[0].start.getTime()).toBe(min(2))
+  })
+
+  it("keeps the ENTER's original start when the same activity is re-entered", () => {
+    expect(openTail([ev(7, 0, 0), ev(7, 0, 5)], min(10))).toEqual([ev(7, 0, 0), ev(7, 0, 5)])
+  })
+
+  it("keeps nothing once every ENTER is closed", () => {
+    expect(openTail([ev(7, 0, 0), ev(7, 1, 20)], min(30))).toEqual([])
+  })
+
+  it("lets go of an ENTER older than any span could be", () => {
+    expect(openTail([ev(0, 0, 0)], min(0) + MAX_TRANSITION_SPAN_MS + 1)).toEqual([])
   })
 })

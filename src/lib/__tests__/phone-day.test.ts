@@ -45,9 +45,65 @@ describe("phoneNightUse", () => {
     expect(use.phoneDownLocal).toBe("00:40")
     expect(use.pickedUpLocal).toBe("07:10")
     expect(use.quietMinutes).toBe(390)
-    // screen_on/unlock between 22:00 and phone-down: 22:10, 22:12, 00:38.
-    // The 23:15 screen_off is the phone being put down, not a pickup.
-    expect(use.pickupsAfter22).toBe(3)
+    // Only the 22:12 unlock is a pickup. A screen-on is also every
+    // notification lighting the screen, and every real pickup stores a
+    // screen_on AND an unlock — counting both said "3 pickups" for one.
+    expect(use.pickupsAfter22).toBe(1)
+  })
+
+  it("one unlock stored twice, by two receivers, is one pickup", async () => {
+    // With location tracking and the wake word both on, each service hosted
+    // its own receiver and every broadcast was stored twice, ms apart.
+    const u = at("2026-09-23", "22:30", "unlock")
+    db.events = [
+      at("2026-09-23", "21:30"),
+      u,
+      { at: new Date(u.at.getTime() + 3), kind: "unlock" },
+      at("2026-09-23", "23:30", "screen_off"),
+      at("2026-09-24", "07:10"),
+    ]
+    const use = await phoneNightUse("u1", "2026-09-24", TZ)
+    expect(use.pickupsAfter22).toBe(1)
+  })
+
+  it("a night the phone stopped collecting is unobserved, not a quiet phone", async () => {
+    // The services died at 21:05 and nothing restarted them until the app
+    // was opened at 07:00. The last event before the silence is 21:04 — which
+    // read as "put down at 21:04, ten quiet hours, 0 pickups".
+    db.events = [
+      at("2026-09-23", "21:04", "screen_off"),
+      at("2026-09-23", "21:05", "host_off"),
+      at("2026-09-24", "07:00", "host_on"),
+      at("2026-09-24", "07:00", "unlock"),
+      at("2026-09-24", "07:30", "screen_off"),
+    ]
+    const use = await phoneNightUse("u1", "2026-09-24", TZ)
+    expect(use.phoneDownAt).toBeNull()
+    expect(use.quietMinutes).toBeNull()
+  })
+
+  it("a process killed with no goodbye is caught by the restart's marker alone", async () => {
+    db.events = [
+      at("2026-09-23", "23:00", "screen_off"),
+      at("2026-09-24", "03:00", "host_on"),
+      at("2026-09-24", "07:00", "unlock"),
+    ]
+    const use = await phoneNightUse("u1", "2026-09-24", TZ)
+    expect(use.phoneDownAt).toBeNull()
+  })
+
+  it("a restart well before the night leaves the night alone, and markers are not touches", async () => {
+    db.events = [
+      at("2026-09-23", "20:10", "host_on"),
+      at("2026-09-23", "22:40", "unlock"),
+      at("2026-09-23", "23:30", "screen_off"),
+      at("2026-09-24", "07:10", "unlock"),
+      at("2026-09-24", "09:00", "host_off"),
+    ]
+    const use = await phoneNightUse("u1", "2026-09-24", TZ)
+    expect(use.phoneDownLocal).toBe("23:30")
+    expect(use.pickedUpLocal).toBe("07:10")
+    expect(use.pickupsAfter22).toBe(1)
   })
 
   it("a 3 a.m. check splits the night and the longer half wins", async () => {
@@ -87,6 +143,21 @@ describe("phoneNightUse", () => {
 describe("the brief and the chat tool read the same definition", () => {
   const stripped = (f: string) =>
     readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+
+  it("every night reader judges the night through observedNight", () => {
+    // Three readers each re-derived the night by hand, so a fix to one (the
+    // pickup count, the collection gaps) left the other two telling the
+    // correlation engine and the bedtime suggestion the old story.
+    const src = stripped("src/lib/phone-day.ts")
+    for (const fn of ["phoneNightUse", "phoneNightSeries", "phoneDownTimes"]) {
+      const open = src.indexOf(`export async function ${fn}`)
+      expect(open, `${fn} is gone from phone-day.ts`).toBeGreaterThan(-1)
+      const next = src.indexOf("\nexport", open + 1)
+      const body = src.slice(open, next === -1 ? undefined : next)
+      expect(body, `${fn} no longer goes through observedNight`).toMatch(/observedNight\(/)
+      expect(body, `${fn} calls longestQuietGap directly again`).not.toMatch(/longestQuietGap\(/)
+    }
+  })
 
   it("the brief consults phoneNightUse and labels it a clue, not sleep", () => {
     const brief = stripped("src/app/api/briefing/route.ts")

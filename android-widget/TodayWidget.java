@@ -66,7 +66,7 @@ public class TodayWidget extends AppWidgetProvider {
                     // the app happened to be left open.
                     launch.putExtra("eh_dest", "/dashboard");
                     views.setOnClickPendingIntent(R.id.today_root, PendingIntent.getActivity(
-                            context, 0, launch,
+                            context, 920014, launch,
                             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
                 }
 

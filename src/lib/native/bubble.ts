@@ -502,7 +502,7 @@ export type PhoneEvent = { at: number; kind: string }
 export type PhoneSleepSegment = { start: number; end: number; status: number }
 
 /** The kinds the receiver emits. Anything else is a build mismatch, so it is dropped. */
-const PHONE_EVENT_KINDS = new Set(["screen_on", "screen_off", "unlock", "charge_on", "charge_off"])
+const PHONE_EVENT_KINDS = new Set(["screen_on", "screen_off", "unlock", "charge_on", "charge_off", "host_on", "host_off"])
 
 const parseArray = (raw: string): unknown[] => {
   try {
