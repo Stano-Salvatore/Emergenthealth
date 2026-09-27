@@ -10,6 +10,7 @@ import {
 } from "@/lib/oura"
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTimer, stopTimer } from "@/lib/toggl"
 import { getUserTimezone, userToday } from "@/lib/user-timezone"
+import { localDateStr, localTimeStr, zonedDayRange } from "@/lib/local-date"
 import { loadMoodByDay, moodDay } from "@/lib/mood-series"
 import { phoneDaySummary } from "@/lib/phone-day"
 import { musicRange } from "@/lib/music-days"
@@ -42,8 +43,16 @@ async function resolveUser(req: NextRequest): Promise<string | null> {
 // today" with yesterday's total between midnight and 02:00 is the whole point
 // of this being async.
 async function todayFor(userId: string) { return userToday(userId) }
+// For @db.Date columns only (HealthLog.date, MoodLog.date…), which hold the
+// UTC midnight of a calendar date. A timestamp column wants localRange.
 function startOfDay(dateStr: string) { return new Date(dateStr + "T00:00:00.000Z") }
 function endOfDay(dateStr: string) { return new Date(dateStr + "T23:59:59.999Z") }
+// The user's own midnights, for timestamp columns (loggedAt, endedAt…). The
+// UTC day runs 02:00–01:59 in Prague, so a snack at 00:40 was reported under
+// the day before.
+function localRange(timezone: string, from: string, to: string = from) {
+  return { gte: zonedDayRange(timezone, from).start, lte: zonedDayRange(timezone, to).end }
+}
 function fmtSec(s: number) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60)
   return h > 0 ? `${h}h ${m}m` : `${m}m`
@@ -120,12 +129,13 @@ function buildMcpServer(userId: string): McpServer {
         select: { day: true, timestamp: true, tagName: true, text: true },
       }).catch(() => [])
       if (!tags.length) return msg(`No Oura tags between ${startDate} and ${endDate}. (Tags sync from the Oura app — the user logs coffee/meds there.)`)
+      const timezone = await getUserTimezone(userId)
       const byDay: Record<string, { time: string; tag: string; note: string | null }[]> = {}
       for (const t of tags) {
         const label = (t.tagName ?? t.text ?? "").trim()
         if (!label) continue
         ;(byDay[t.day] ??= []).push({
-          time: t.timestamp.toISOString().slice(11, 16),
+          time: localTimeStr(timezone, t.timestamp),
           tag: label,
           note: t.text && t.text !== label ? t.text : null,
         })
@@ -291,12 +301,13 @@ function buildMcpServer(userId: string): McpServer {
     },
     async ({ startDate, endDate, limit, before }) => {
       const beforeAt = before ? new Date(before) : null
+      const range = localRange(await getUserTimezone(userId), startDate, endDate)
       const rows = await prisma.chatMessage.findMany({
         where: {
           userId,
           createdAt: {
-            gte: startOfDay(startDate),
-            lte: beforeAt && !Number.isNaN(beforeAt.getTime()) && beforeAt < endOfDay(endDate) ? beforeAt : endOfDay(endDate),
+            gte: range.gte,
+            lte: beforeAt && !Number.isNaN(beforeAt.getTime()) && beforeAt < range.lte ? beforeAt : range.lte,
           },
         },
         orderBy: { createdAt: "desc" },
@@ -466,16 +477,15 @@ function buildMcpServer(userId: string): McpServer {
     "Get all intake logs for today (water, coffee, etc.)",
     {},
     async () => {
-      const todayStart = startOfDay(await todayFor(userId))
-      const todayEnd = endOfDay(await todayFor(userId))
+      const timezone = await getUserTimezone(userId)
       const logs = await prisma.intakeLog.findMany({
-        where: { userId, loggedAt: { gte: todayStart, lte: todayEnd } },
+        where: { userId, loggedAt: localRange(timezone, localDateStr(timezone)) },
         orderBy: { loggedAt: "asc" },
       })
       const totals: Record<string, number> = {}
       for (const l of logs) totals[l.type] = (totals[l.type] ?? 0) + l.amountMl
       return ok({
-        entries: logs.map(l => ({ type: l.type, amount_ml: l.amountMl, note: l.note, time: l.loggedAt.toISOString().slice(11, 16) })),
+        entries: logs.map(l => ({ type: l.type, amount_ml: l.amountMl, note: l.note, time: localTimeStr(timezone, l.loggedAt) })),
         totals_ml: totals,
         water_glasses: Math.round((totals.water ?? 0) / 250 * 10) / 10,
       })
@@ -487,10 +497,11 @@ function buildMcpServer(userId: string): McpServer {
     "Get photo-analyzed meals and drinks from the Food tab for a day: per-meal calories/macros, each recognized item with its portion and whether its nutrition came from the USDA database (db) or was model-estimated (est), plus notable vitamins/minerals",
     { date: z.string().optional().describe("Day as YYYY-MM-DD, defaults to today") },
     async ({ date }) => {
-      const day = date ?? await todayFor(userId)
+      const timezone = await getUserTimezone(userId)
+      const day = date ?? localDateStr(timezone)
       const [logs, dayDrinks] = await Promise.all([
         prisma.foodLog.findMany({
-          where: { userId, loggedAt: { gte: startOfDay(day), lte: endOfDay(day) } },
+          where: { userId, loggedAt: localRange(timezone, day) },
           orderBy: { loggedAt: "asc" },
           select: {
             name: true, mealType: true, calories: true, proteinG: true, carbsG: true,
@@ -499,9 +510,9 @@ function buildMcpServer(userId: string): McpServer {
           },
         }),
         prisma.intakeLog.findMany({
-          where: { userId, loggedAt: { gte: startOfDay(day), lte: endOfDay(day) } },
-          select: { type: true, amountMl: true, note: true },
-        }).catch(() => [] as { type: string; amountMl: number; note: string | null }[]),
+          where: { userId, loggedAt: localRange(timezone, day) },
+          select: { id: true, type: true, amountMl: true, note: true },
+        }).catch(() => [] as { id: string; type: string; amountMl: number; note: string | null }[]),
       ])
       // Drinks carry calories too — meals alone made a wine evening read as
       // fasting. Kept as its own number so the meal list stays the meal list.
@@ -510,7 +521,7 @@ function buildMcpServer(userId: string): McpServer {
       return ok({
         date: day,
         meals: logs.map(l => ({
-          time: l.loggedAt.toISOString().slice(11, 16),
+          time: localTimeStr(timezone, l.loggedAt),
           name: l.name,
           meal_type: l.mealType,
           calories: l.calories,
@@ -581,12 +592,12 @@ function buildMcpServer(userId: string): McpServer {
     "Get focus sessions for a date range with total focused time",
     dateRange,
     async ({ startDate, endDate }) => {
+      const focusTz = await getUserTimezone(userId)
       const sessions = await prisma.focusSession.findMany({
-        where: { userId, endedAt: { gte: startOfDay(startDate), lte: endOfDay(endDate) } },
+        where: { userId, endedAt: localRange(focusTz, startDate, endDate) },
         orderBy: { endedAt: "desc" },
       })
       const totalMin = sessions.reduce((s, f) => s + f.durationMin, 0)
-      const focusTz = await getUserTimezone(userId)
       const focusDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: focusTz })
       const focusTimeFmt = new Intl.DateTimeFormat("en-GB", {
         timeZone: focusTz, hour: "2-digit", minute: "2-digit", hour12: false,
@@ -700,14 +711,21 @@ function buildMcpServer(userId: string): McpServer {
       const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
       const corrDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
 
-      const [healthLogs, moodByDay] = await Promise.all([
+      const [healthLogs, moodByDay, anyCheckIns] = await Promise.all([
         prisma.healthLog.findMany({
           where: { userId, date: { gte: since } },
           select: { date: true, readinessScore: true, sleepDuration: true, hrv: true, steps: true, restingHR: true },
         }),
         // Both mood tables, merged in lib/mood-series.
         loadMoodByDay(userId, moodDay(since), "9999-12-31"),
+        // A day with no check-in of any kind had no tracking, not a day away:
+        // it belongs on neither side, the engine's rule for places.
+        prisma.$queryRaw<CheckInRow[]>`
+          SELECT "checkedAt" FROM "CheckIn"
+          WHERE "userId" = ${userId} AND "checkedAt" >= ${since}
+        `.catch(() => [] as CheckInRow[]),
       ])
+      const covered = new Set(anyCheckIns.map(c => corrDayFmt.format(new Date(c.checkedAt))))
       const moodLogs = [...moodByDay.entries()].map(([day, mood]) => ({ day, mood }))
 
       function avgNums(nums: (number | null)[]): number | null {
@@ -733,9 +751,9 @@ function buildMcpServer(userId: string): McpServer {
         // under the previous day, against health rows keyed by the local one.
         const visitDates = new Set(checkIns.map(c => corrDayFmt.format(new Date(c.checkedAt))))
         const visitH    = healthLogs.filter(h =>  visitDates.has(h.date.toISOString().split("T")[0]))
-        const nonVisitH = healthLogs.filter(h => !visitDates.has(h.date.toISOString().split("T")[0]))
+        const nonVisitH = healthLogs.filter(h => covered.has(h.date.toISOString().split("T")[0]) && !visitDates.has(h.date.toISOString().split("T")[0]))
         const visitM    = moodLogs.filter(m =>  visitDates.has(m.day))
-        const nonVisitM = moodLogs.filter(m => !visitDates.has(m.day))
+        const nonVisitM = moodLogs.filter(m => covered.has(m.day) && !visitDates.has(m.day))
 
         const v = {
           readiness: avgNums(visitH.map(h => h.readinessScore)),
@@ -776,7 +794,10 @@ function buildMcpServer(userId: string): McpServer {
       }))
 
       results.sort((a, b) => b.visits_last_90d - a.visits_last_90d)
-      return ok({ places: results, disclaimer: "Correlation ≠ causation. Deltas compare visit days vs non-visit days over the last 90 days." })
+      return ok({
+        places: results,
+        disclaimer: "Correlation ≠ causation. Deltas compare visit days vs non-visit days over the last 90 days. Days with no location data are excluded from both sides rather than counted as days elsewhere.",
+      })
     },
   )
 
@@ -856,9 +877,9 @@ function buildMcpServer(userId: string): McpServer {
     "Get a full personal briefing for today or a specific date: health, habits, reminders, intake, focus, and mood all in one call. Use this when the user asks 'how am I doing today?' or wants a summary.",
     { date: z.string().optional().describe("YYYY-MM-DD, defaults to today") },
     async ({ date }) => {
-      const d = date ?? await todayFor(userId)
+      const timezone = await getUserTimezone(userId)
+      const d = date ?? localDateStr(timezone)
       const todayStart = startOfDay(d)
-      const todayEnd = endOfDay(d)
 
       const [healthLog, habits, reminders, intakeLogs, focusSessions, moodLog, checkin, ouraTags, journalNote] = await Promise.all([
         prisma.healthLog.findUnique({ where: { userId_date: { userId, date: todayStart } } }),
@@ -871,8 +892,8 @@ function buildMcpServer(userId: string): McpServer {
           orderBy: { dueDate: "asc" },
           take: 5,
         }),
-        prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: todayStart, lte: todayEnd } } }),
-        prisma.focusSession.findMany({ where: { userId, endedAt: { gte: todayStart, lte: todayEnd } } }),
+        prisma.intakeLog.findMany({ where: { userId, loggedAt: localRange(timezone, d) } }),
+        prisma.focusSession.findMany({ where: { userId, endedAt: localRange(timezone, d) } }),
         prisma.moodLog.findUnique({ where: { userId_date: { userId, date: todayStart } } }),
         prisma.morningCheckIn.findUnique({
           where: { userId_date: { userId, date: d } },
@@ -913,7 +934,7 @@ function buildMcpServer(userId: string): McpServer {
         mood: moodLog ? { score: moodLog.mood, label: moodLabels[moodLog.mood], note: moodLog.note } : null,
         morning_checkin: checkin ? { energy: checkin.energy, mood: checkin.mood, intention: checkin.intention } : null,
         oura_tags: ouraTags
-          .map(t => ({ time: t.timestamp.toISOString().slice(11, 16), tag: (t.tagName ?? t.text ?? "").trim() }))
+          .map(t => ({ time: localTimeStr(timezone, t.timestamp), tag: (t.tagName ?? t.text ?? "").trim() }))
           .filter(t => t.tag),
         journal: journalNote?.content ?? null,
         habits: { completed: habitsCompleted, total: habits.length, list: habits.map(h => ({ name: h.name, done: h.completions.length > 0 })) },

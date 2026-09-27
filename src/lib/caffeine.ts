@@ -45,12 +45,21 @@ export function activeFromDoses(
     (sum, d) => sum + d.caffeineMg * Math.pow(0.5, (now - d.loggedAt.getTime()) / 3600_000 / halfLifeH), 0))
 }
 
-/** Hours until the next 23:00 \u2014 the "will it bother my sleep" reference point. */
-export function hoursToBedtime(from = new Date()): number {
-  const bed = new Date(from)
-  bed.setHours(23, 0, 0, 0)
-  if (bed <= from) bed.setDate(bed.getDate() + 1)
-  return (bed.getTime() - from.getTime()) / 3600_000
+/**
+ * Hours until bedtime \u2014 the "will it bother my sleep" reference point. The
+ * user's own bedtime (minutes after midnight, from the ring) when known,
+ * 23:00 until then. Read off the device clock, so client-side only.
+ *
+ * A bedtime passed less than `graceH` ago is tonight's and answers 0. Rolling
+ * it straight to tomorrow made 23:30 read as 23.5 hours from bed, and the
+ * alcohol card said "gone before 23:00" with three beers still on board.
+ */
+export function hoursToBedtime(from = new Date(), bedtimeMin?: number | null, graceH = 4): number {
+  const bed = bedtimeMin ?? 23 * 60
+  let d = bed - (from.getHours() * 60 + from.getMinutes() + from.getSeconds() / 60)
+  if (d < 0 && -d <= graceH * 60) return 0
+  if (d < 0) d += 24 * 60
+  return d / 60
 }
 
 const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()

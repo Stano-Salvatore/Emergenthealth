@@ -98,6 +98,15 @@ export function zonedDateTime(timezone: string, input: string): Date | null {
   return new Date(naive - tzOffsetMinutes(timezone, new Date(first)) * 60000)
 }
 
+// The instant a schedule's bare clock time ("08:00", or the "8:00" some were
+// saved as) falls at on a given local day. `new Date(y, m, d, h, min)` on the
+// server reads it as UTC, which drew every Prague dose two hours late.
+export function zonedClock(timezone: string, dayISO: string, hhmm: string): Date | null {
+  const m = /^(\d{1,2}):(\d{2})/.exec(hhmm.trim())
+  if (!m) return null
+  return zonedDateTime(timezone, `${dayISO}T${m[1].padStart(2, "0")}:${m[2]}`)
+}
+
 // Shift a YYYY-MM-DD string by n days, staying in date-string space.
 export function addDaysISO(iso: string, n: number): string {
   const [y, m, d] = iso.split("-").map(Number)

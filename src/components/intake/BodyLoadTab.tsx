@@ -85,9 +85,12 @@ export function BodyLoadTab() {
   // caffeine, and a logged or deleted dose refreshes the circulating list too.
   const caf = useCaffeine(() => load(true))
 
-  const bedH = hoursToBedtime()
+  // The ring's median bedtime, the one the caffeine card above uses; 23:00
+  // until there are enough nights for one.
+  const bedH = hoursToBedtime(new Date(), caf.data.bedtimeMin)
+  const bedLabel = caf.data.bedtime ?? "23:00"
   const alcohol = substances.find(s => s.kind === "alcohol")
-  // What's still on board at 23:00 — the question that actually changes a decision
+  // What's still on board at bedtime — the question that actually changes a decision
   const atBedtime = substances.filter(s => {
     if (!s.clearsAt) return false
     return (new Date(s.clearsAt).getTime() - Date.now()) / 3_600_000 > bedH
@@ -116,7 +119,7 @@ export function BodyLoadTab() {
           clearanceGPerH={alcohol.clearanceGPerH}
           distributionKg={alcohol.distributionKg}
           bedH={bedH}
-          bedLabel="23:00"
+          bedLabel={bedLabel}
         />
       )}
 
@@ -154,7 +157,9 @@ export function BodyLoadTab() {
                     <span className="mr-1.5">{s.emoji}</span>{s.name}
                   </p>
                   <p className="text-sm font-black">
-                    {s.unit === "%" ? `${s.amount}%` : s.unit === "g" ? `${s.amount} drinks` : `${s.amount} mg`}
+                    {s.unit === "%"
+                      ? s.amount > 100 ? `≈${(s.amount / 100).toFixed(1)} doses` : `${s.amount}%`
+                      : s.unit === "g" ? `${s.amount} drinks` : `${s.amount} mg`}
                     <span className="text-[10px] font-medium text-muted-foreground ml-1">left</span>
                   </p>
                 </div>
@@ -230,7 +235,7 @@ export function BodyLoadTab() {
                   style={{ left: `${(bedH / 24) * 100}%` }}
                 >
                   <div className="w-px h-2 bg-muted-foreground/40" />
-                  <span className="text-[9px] text-muted-foreground/70 whitespace-nowrap">🌙 23:00</span>
+                  <span className="text-[9px] text-muted-foreground/70 whitespace-nowrap">🌙 {bedLabel}</span>
                 </div>
               )}
             </div>
@@ -244,7 +249,7 @@ export function BodyLoadTab() {
       {atBedtime.length > 0 && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3.5 py-2.5">
           <p className="text-xs text-amber-400">
-            🌙 Still with you at 23:00: {atBedtime.map(s => s.name).join(", ")}
+            🌙 Still with you at {bedLabel}: {atBedtime.map(s => s.name).join(", ")}
             {atBedtime.length > 1 && " — sedating substances stack, and so do their effects on sleep stages"}
           </p>
         </div>

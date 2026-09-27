@@ -98,9 +98,11 @@ export function AlcoholCurveCard({ gramsLeft, clearanceGPerH, distributionKg, be
         <p className={`text-xs mt-1.5 ${clearsBeforeBed ? "text-muted-foreground" : "text-amber-400"}`}>
           {clearsBeforeBed
             ? `Gone before ${bedLabel}`
-            : permilleAtBed != null
-              ? `≈${permilleAtBed.toFixed(2)}‰ still there at ${bedLabel}`
-              : `≈${Math.round(atBed)} g still there at ${bedLabel}`}
+            : bedH === 0
+              ? `Past your usual ${bedLabel} — ${permilleAtBed != null ? `≈${permilleAtBed.toFixed(2)}‰` : `≈${Math.round(atBed)} g`} on board now`
+              : permilleAtBed != null
+                ? `≈${permilleAtBed.toFixed(2)}‰ still there at ${bedLabel}`
+                : `≈${Math.round(atBed)} g still there at ${bedLabel}`}
           <span className="text-muted-foreground/70 font-normal">
             {" "}· clearing {clearanceGPerH.toFixed(1)} g an hour
           </span>

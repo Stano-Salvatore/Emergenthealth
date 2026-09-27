@@ -40,9 +40,19 @@ export function drinkCalories(type: string, amountMl: number, note?: string): nu
   return Math.round((PLAIN_KCAL_PER_100ML[t] ?? 0) * (amountMl / 100))
 }
 
-/** A day of intake rows, summed. Unknown types and empty rows cost nothing. */
+/**
+ * Drinks mirrored from a meal photo (id `food_<mealId>_<i>`, see /api/food)
+ * are already inside that meal's kcal; pricing them again counted a photographed
+ * beer twice.
+ */
+export const isMealMirroredDrink = (id?: string | null) => !!id && id.startsWith("food_")
+
+/** A day of intake rows, summed. Unknown types, empty rows and meal mirrors cost nothing. */
 export function drinkCaloriesTotal(
-  rows: { type: string; amountMl: number; note?: string | null }[],
+  rows: { id?: string | null; type: string; amountMl: number; note?: string | null }[],
 ): number {
-  return rows.reduce((s, r) => s + drinkCalories(r.type, r.amountMl, r.note ?? undefined), 0)
+  return rows.reduce(
+    (s, r) => isMealMirroredDrink(r.id) ? s : s + drinkCalories(r.type, r.amountMl, r.note ?? undefined),
+    0,
+  )
 }

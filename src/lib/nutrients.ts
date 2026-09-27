@@ -173,7 +173,7 @@ export interface DayCalories {
 
 export interface NutrientGap {
   nutrient: string
-  /** Average per day across the whole window, in the NRV's own unit. */
+  /** Average per logged day, in the NRV's own unit. */
   avgPerDay: number
   unit: "mg" | "ug"
   /** Average as a percentage of the reference value. */
@@ -234,8 +234,10 @@ export function assessCoverage(dayCalories: DayCalories[], windowDays: number): 
 
 /**
  * Nutrients running below the reference value, worst first. Averages are taken
- * over the whole window rather than over days-seen: a nutrient recorded once at
- * full NRV is not a day's intake repeated, it's one day and the rest at zero.
+ * over every day in `windowDays` rather than over days-seen: a nutrient
+ * recorded once at full NRV is not a day's intake repeated, it's one day and
+ * the rest at zero. Pass the logged days as the window (see
+ * nutrientGapsOverLoggedDays) — an unlogged day is not a day at zero.
  */
 export function nutrientGaps(micros: LoggedMicro[], windowDays: number): NutrientGap[] {
   const totals = new Map<string, { ug: number; days: Set<string> }>()
@@ -275,6 +277,22 @@ export function nutrientGaps(micros: LoggedMicro[], windowDays: number): Nutrien
   }
 
   return gaps.sort((a, b) => a.pctOfNrv - b.pctOfNrv)
+}
+
+/**
+ * nutrientGaps over the complete days that were actually logged. A day with
+ * no food logged is not a day of eating nothing, and averaging it in as zero
+ * flagged a vitamin C shortfall for someone whose every logged day met the
+ * reference. Today is left out too: it is still being eaten. A logged day
+ * that lacks a nutrient still counts as zero for it.
+ */
+export function nutrientGapsOverLoggedDays(
+  micros: LoggedMicro[],
+  dayCalories: DayCalories[],
+  today: string,
+): NutrientGap[] {
+  const logged = new Set(dayCalories.filter(d => d.calories > 0 && d.day !== today).map(d => d.day))
+  return nutrientGaps(micros.filter(m => logged.has(m.day)), logged.size)
 }
 
 export const NUTRIENT_CAVEAT =

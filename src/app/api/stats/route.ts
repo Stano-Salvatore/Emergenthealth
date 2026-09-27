@@ -2,6 +2,9 @@ import { auth } from "@/auth"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { prisma } from "@/lib/prisma"
 import { hydrationMl } from "@/lib/hydration"
+import { getGoals } from "@/lib/goals"
+import { localDateStr } from "@/lib/local-date"
+import { currentDayStreak } from "@/lib/xp"
 import { NextResponse } from "next/server"
 import { subDays, format } from "date-fns"
 
@@ -40,7 +43,7 @@ export async function GET() {
   const since30 = subDays(new Date(), 29)
   const since90 = subDays(new Date(), 89)
 
-  const [logs, focusSessions, intakeLogs] = await Promise.all([
+  const [logs, focusSessions, intakeLogs, timezone, goals] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: since90 } },
       orderBy: { date: "asc" },
@@ -60,7 +63,10 @@ export async function GET() {
       where: { userId, loggedAt: { gte: subDays(new Date(), 31) } },
       select: { amountMl: true, loggedAt: true, type: true },
     }).catch(() => [] as { amountMl: number; loggedAt: Date; type: string }[]),
+    getUserTimezone(userId),
+    getGoals(userId),
   ])
+  const today = localDateStr(timezone)
 
   const recent30 = logs.filter(l => l.date >= since30)
 
@@ -124,30 +130,25 @@ export async function GET() {
     // That wrote off coffee entirely while crediting a litre of beer as a
     // litre of water — the two errors the hydration module exists to settle.
     // It knows coffee is fluid and beer is 0.8 of its volume.
-    const d = format(new Date(w.loggedAt), "yyyy-MM-dd")
+    const d = localDateStr(timezone, new Date(w.loggedAt))
     waterByDay[d] = (waterByDay[d] ?? 0) + hydrationMl(w.type, w.amountMl)
   }
-  let waterStreak = 0
-  const wCursor = new Date()
-  while (waterStreak <= 30) {
-    const d = format(wCursor, "yyyy-MM-dd")
-    if ((waterByDay[d] ?? 0) >= 2000) { waterStreak++; wCursor.setDate(wCursor.getDate() - 1) }
-    else break
-  }
+  // Today is still in progress at 10:00, so it may extend a streak but never
+  // end one — counting from today read "0d" every morning.
+  const waterStreak = currentDayStreak(
+    Object.keys(waterByDay).filter(d => waterByDay[d] >= goals.waterMl).sort(), today,
+  )
 
   // ── Goal streaks ─────────────────────────────────────────────────────────────
-  const STEP_GOAL = 8000
-  const SLEEP_GOAL_MIN = 7 * 60
-  const descLogs = [...allLogs].sort((a, b) => b.date.getTime() - a.date.getTime())
-  let stepStreak = 0, sleepStreak = 0
-  for (const l of descLogs) {
-    if (l.steps != null && l.steps >= STEP_GOAL) stepStreak++
-    else break
-  }
-  for (const l of descLogs) {
-    if (l.sleepDuration != null && l.sleepDuration >= SLEEP_GOAL_MIN) sleepStreak++
-    else break
-  }
+  // Walked by calendar day, so a day with no row ends the run instead of being
+  // stepped over. HealthLog.date is UTC midnight of the date: the slice is exact.
+  const dayOf = (d: Date) => d.toISOString().slice(0, 10)
+  const stepStreak = currentDayStreak(
+    allLogs.filter(l => l.steps != null && l.steps >= goals.steps).map(l => dayOf(l.date)).sort(), today,
+  )
+  const sleepStreak = currentDayStreak(
+    allLogs.filter(l => l.sleepDuration != null && l.sleepDuration >= goals.sleepH * 60).map(l => dayOf(l.date)).sort(), today,
+  )
 
   // ── HRV 30-day trend ─────────────────────────────────────────────────────────
   const hrvSeries = recent30.filter(l => l.hrv != null).map(l => l.hrv!)
@@ -164,7 +165,7 @@ export async function GET() {
   // displayed — as 21:20. The spread was unaffected, being a constant offset,
   // so the page said "consistent" about a number that was two hours wrong.
   const clockFmt = new Intl.DateTimeFormat("en-GB", {
-    timeZone: await getUserTimezone(userId),
+    timeZone: timezone,
     hour12: false, hour: "2-digit", minute: "2-digit",
   })
   const bedtimes = recent30
@@ -213,6 +214,7 @@ export async function GET() {
     totalFocusMin30: focusSessions.reduce((a, s) => a + s.durationMin, 0),
     stepStreak,
     sleepStreak,
+    goals: { steps: goals.steps, sleepH: goals.sleepH, waterMl: goals.waterMl },
     hrvTrend,
     hrvAvg7: avgF(trend7.map(l => l.hrv)),
     sleepConsistency,

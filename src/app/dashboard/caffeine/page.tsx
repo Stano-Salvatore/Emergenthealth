@@ -50,17 +50,10 @@ export interface CaffeineData {
   lastCoffeeBy?: string | null
 }
 
-/** Hours from now until a clock time given as minutes after midnight (tomorrow if it has passed). */
-function hoursUntilClock(min: number): number {
-  const now = new Date()
-  let d = min - (now.getHours() * 60 + now.getMinutes())
-  if (d < 0) d += 24 * 60
-  return d / 60
-}
-
-function progressColor(mg: number): string {
-  if (mg < 200) return "bg-green-500"
-  if (mg <= 350) return "bg-amber-500"
+// Bands scale with the ceiling: at the default 400 they are the 200/350 cuts.
+function progressColor(mg: number, limit: number): string {
+  if (mg < limit * 0.5) return "bg-green-500"
+  if (mg <= limit * 0.875) return "bg-amber-500"
   return "bg-red-500"
 }
 
@@ -120,7 +113,7 @@ function ActiveNowCard({ activeMg, halfLifeH, personal, bedtime, bedtimeMin, las
   bedtime?: string | null; bedtimeMin?: number | null; lastCoffeeBy?: string | null
 }) {
   // Their own bedtime when the ring has seen enough nights; 23:00 until then.
-  const bedH = bedtimeMin != null ? hoursUntilClock(bedtimeMin) : hoursToBedtime()
+  const bedH = hoursToBedtime(new Date(), bedtimeMin)
   const bedLabel = bedtime ?? "23:00"
   const atBed = decayed(activeMg, bedH, halfLifeH)
   // When today's load falls under a sleep-irrelevant 30 mg, at whichever
@@ -200,8 +193,9 @@ function ActiveNowCard({ activeMg, halfLifeH, personal, bedtime, bedtimeMin, las
 
 /** The two status cards: what's active now (with decay curve) and today's total. */
 export function CaffeineStatusCards({ data }: { data: CaffeineData }) {
-  const pct = Math.min((data.totalMg / LIMIT_MG) * 100, 100)
-  const barColor = progressColor(data.totalMg)
+  const limit = data.limitMg > 0 ? data.limitMg : LIMIT_MG
+  const pct = Math.min((data.totalMg / limit) * 100, 100)
+  const barColor = progressColor(data.totalMg, limit)
 
   return (
     <>
@@ -214,7 +208,7 @@ export function CaffeineStatusCards({ data }: { data: CaffeineData }) {
         <CardContent className="pt-4 pb-4 space-y-2">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>Today&apos;s intake</span>
-            <span className="font-semibold text-foreground">{data.totalMg} / {LIMIT_MG} mg</span>
+            <span className="font-semibold text-foreground">{data.totalMg} / {limit} mg</span>
           </div>
           <div className="h-3 bg-secondary rounded-full overflow-hidden">
             <div
@@ -224,9 +218,9 @@ export function CaffeineStatusCards({ data }: { data: CaffeineData }) {
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground/60">
             <span>0</span>
-            <span>200 mg</span>
-            <span>350 mg</span>
-            <span>{LIMIT_MG} mg</span>
+            <span>{Math.round(limit * 0.5)} mg</span>
+            <span>{Math.round(limit * 0.875)} mg</span>
+            <span>{limit} mg</span>
           </div>
         </CardContent>
       </Card>

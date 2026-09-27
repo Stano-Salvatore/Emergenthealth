@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
 import { drinkCalories, drinkCaloriesTotal } from "../drink-calories"
-import { permilleFromGrams } from "../body-load"
+import { ethanolGrams, permilleFromGrams } from "../body-load"
 
 // Drinks carried no calories anywhere: a day of two beers and a juice read
 // as a lighter day than it was, in the one total the Overview ring holds
@@ -60,6 +60,50 @@ describe("permilleFromGrams", () => {
   })
   it("zero grams is zero, not NaN", () => {
     expect(permilleFromGrams(0, null, null)).toBe(0)
+  })
+})
+
+// A beer snapped with "Snap a meal or drink" is priced twice: once inside the
+// meal's own kcal (the photo analysis counts every item), and again when its
+// mirror row in the drinks tracker is costed. One 500ml beer read "≈428 kcal
+// (≈213 from drinks)" on the Overview. The mirror rows carry the meal's id as
+// `food_<mealId>_<i>`, which is how they are told apart.
+describe("drinks mirrored from a meal photo are not priced again", () => {
+  it("skips the mirror row and keeps the drink logged on its own", () => {
+    expect(drinkCaloriesTotal([
+      { id: "food_abc_0", type: "beer", amountMl: 500 },
+      { id: "cm123", type: "wine", amountMl: 100 },
+    ])).toBe(drinkCalories("wine", 100))
+  })
+
+  it("every surface that totals drink calories passes the row id through", () => {
+    const mcp = read("src/app/api/mcp/route.ts")
+    const block = mcp.slice(mcp.indexOf('"get_food_log"'), mcp.indexOf("drinkCaloriesTotal(dayDrinks)"))
+    expect(block).toMatch(/intakeLog\.findMany\([\s\S]*select:\s*\{\s*id:\s*true/)
+    expect(read("src/components/intake/OverviewTab.tsx")).toMatch(/logs:\s*\{\s*id:\s*string/)
+    expect(read("src/lib/claude.ts")).toMatch(/drinkCaloriesTotal\(todayIntake as \{\s*id:\s*string/)
+  })
+})
+
+// The Intake tab's quick-adds are "Beer 10°", "Beer 12°", "Beer 17°" — Czech
+// degrees Plato, the strength of the wort. The note was only ever read for a
+// "%", so all four were priced as 5% beer: a 17° (≈7%) came out a third light
+// in grams, ‰, clear-by time and kcal, and a 10° (≈4%) a fifth heavy.
+describe("a beer's degrees are read as its strength", () => {
+  it("10° is lighter than a plain beer and 17° is stronger", () => {
+    expect(ethanolGrams("beer", 500, "10°")).toBeCloseTo(500 * 0.042 * 0.789, 3)
+    expect(ethanolGrams("beer", 400, "17°")).toBeCloseTo(400 * 0.0714 * 0.789, 3)
+    expect(drinkCalories("beer", 400, "17°")).toBeGreaterThan(drinkCalories("beer", 400))
+    expect(drinkCalories("beer", 500, "10°")).toBeLessThan(drinkCalories("beer", 500))
+  })
+
+  it("a stated percentage still wins over the degrees", () => {
+    expect(ethanolGrams("beer", 500, "Beer 12° (4.8%)")).toBeCloseTo(500 * 0.048 * 0.789, 3)
+    expect(ethanolGrams("beer", 500, "12° special 6,5%")).toBeCloseTo(500 * 0.065 * 0.789, 3)
+  })
+
+  it("degrees on anything but beer are left alone", () => {
+    expect(ethanolGrams("wine", 150, "13°")).toBeCloseTo(ethanolGrams("wine", 150), 6)
   })
 })
 

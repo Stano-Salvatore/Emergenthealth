@@ -1191,12 +1191,17 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
 
     const since = zonedDayRange(rangeTz, sinceStr).start
     const until = zonedDayRange(rangeTz, untilStr).end
+    // since/until are instants, for loggedAt. A @db.Date column keeps only the
+    // UTC date of an instant, and local midnight in Prague is 22:00Z the day
+    // before — so they returned an extra day's rows before the range.
+    const sinceCol = new Date(sinceStr + "T00:00:00Z")
+    const untilCol = new Date(untilStr + "T00:00:00Z")
     const days = Math.round(
       (Date.parse(`${untilStr}T00:00:00Z`) - Date.parse(`${sinceStr}T00:00:00Z`)) / 86_400_000,
     ) + 1
     const [logs, tags, checkins, notes, moods, intake] = await Promise.all([
       prisma.healthLog.findMany({
-        where: { userId, date: { gte: since, lte: until } },
+        where: { userId, date: { gte: sinceCol, lte: untilCol } },
         orderBy: { date: "desc" },
         select: {
           date: true, sleepDuration: true, sleepScore: true, restingHR: true,
@@ -1221,11 +1226,11 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         WHERE "userId" = ${userId} AND "date" >= ${sinceStr} AND "date" <= ${untilStr}
       `.catch(() => []),
       prisma.dailyNote.findMany({
-        where: { userId, date: { gte: since, lte: until } },
+        where: { userId, date: { gte: sinceCol, lte: untilCol } },
         select: { date: true, content: true },
       }).catch(() => [] as { date: Date; content: string }[]),
       prisma.moodLog.findMany({
-        where: { userId, date: { gte: since, lte: until } },
+        where: { userId, date: { gte: sinceCol, lte: untilCol } },
         select: { date: true, mood: true },
       }).catch(() => [] as { date: Date; mood: number }[]),
       prisma.intakeLog.findMany({
@@ -2424,9 +2429,9 @@ export async function buildSystemPrompt(
   // Drinks carry calories too (lib/drink-calories) — without this line Emergy
   // totalled the meals and called it the day, and an evening of wine read as
   // fasting.
-  const drinkKcalToday = drinkCaloriesTotal(todayIntake as { type: string; amountMl: number; note?: string | null }[])
+  const drinkKcalToday = drinkCaloriesTotal(todayIntake as { id: string; type: string; amountMl: number; note?: string | null }[])
   const drinkKcalStr = drinkKcalToday > 0
-    ? ` Plus ≈${drinkKcalToday} kcal from drinks (wine/beer/juice — counted in the Overview ring, not in the meal list).`
+    ? ` Plus ≈${drinkKcalToday} kcal from drinks logged on their own (wine/beer/juice — counted in the Overview ring, not in the meal list). Drinks snapped in a meal photo are already in that meal's kcal.`
     : ""
   const foodLine = foodRows.length > 0
     ? `- Food today: ≈${foodRows.reduce((s, f) => s + f.calories, 0)} kcal — ${foodRows.map(f => `${f.name} (${f.mealType}, ${f.calories} kcal)`).join(", ")}${microsStr ? ` | vitamins/minerals from food: ${microsStr} (combine with the Oura supplements below when asked about vitamin coverage)` : ""}${drinkKcalStr}`

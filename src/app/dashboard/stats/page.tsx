@@ -23,6 +23,7 @@ interface StatsData {
   totalFocusMin30: number
   stepStreak: number
   sleepStreak: number
+  goals: { steps: number; sleepH: number; waterMl: number }
   hrvTrend: "improving" | "declining" | "stable"
   hrvAvg7: number | null
   sleepConsistency: "consistent" | "moderate" | "irregular" | null
@@ -88,7 +89,7 @@ export default function StatsPage() {
 
   const { dowStats, focusDowStats, trendData, bestSleepDay, bestStepsDay, bestReadinessDay, bestHrvDay,
     waterStreak, totalFocusMin30, stepStreak, sleepStreak, hrvTrend, hrvAvg7,
-    sleepConsistency, avgBedtime, bedtimeStdDevMin, dataPoints } = data
+    sleepConsistency, avgBedtime, bedtimeStdDevMin, dataPoints, goals } = data
 
   const maxSleep = Math.max(...dowStats.map(d => d.avgSleep ?? 0), 9)
   const maxSteps = Math.max(...dowStats.map(d => d.avgSteps ?? 0), 8000)
@@ -204,7 +205,7 @@ export default function StatsPage() {
             <p className="text-2xl mb-0.5">🦶</p>
             <p className="text-[10px] text-muted-foreground">Step goal streak</p>
             <p className="text-xl font-black mt-0.5">{stepStreak}d</p>
-            <p className="text-[10px] text-muted-foreground/70">8,000 steps/day</p>
+            <p className="text-[10px] text-muted-foreground/70">{goals.steps.toLocaleString("en-GB")} steps/day</p>
           </CardContent>
         </Card>
         <Card className={sleepStreak >= 3 ? "border-primary/20" : ""}>
@@ -212,7 +213,7 @@ export default function StatsPage() {
             <p className="text-2xl mb-0.5">🌙</p>
             <p className="text-[10px] text-muted-foreground">Sleep goal streak</p>
             <p className="text-xl font-black mt-0.5">{sleepStreak}d</p>
-            <p className="text-[10px] text-muted-foreground/70">7h+ per night</p>
+            <p className="text-[10px] text-muted-foreground/70">{goals.sleepH}h+ per night</p>
           </CardContent>
         </Card>
         <Card>

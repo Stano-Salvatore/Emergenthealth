@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import Anthropic from "@anthropic-ai/sdk"
-import { localDateStr } from "@/lib/local-date"
+import { addDaysISO, localDateStr, localTimeStr, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
@@ -80,8 +80,7 @@ export async function GET(req: NextRequest) {
         // brief all morning on exactly the nights the phone exists for.
         let sleepArrived = false
         if (!periodChanged && parsed.hadSleep === false) {
-          const dayStart = new Date(todayStr + "T00:00:00.000Z")
-          const dayEnd = new Date(todayStr + "T23:59:59.999Z")
+          const { start: dayStart, end: dayEnd } = zonedDayRange(timezone, todayStr)
           const [ring, phone] = await Promise.all([
             prisma.healthLog.findFirst({
               where: { userId, date: new Date(todayStr), sleepDuration: { not: null } },
@@ -118,11 +117,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "no_key" }, { status: 503 })
   }
 
-  // Gather user data
+  // Gather user data. todayStart/todayEnd are for the @db.Date columns only;
+  // timestamp columns take the user's own midnights, or the first two hours
+  // of a Prague day (and its late snack) belonged to the day before.
   const todayStart = new Date(todayStr + "T00:00:00.000Z")
   const todayEnd = new Date(todayStr + "T23:59:59.999Z")
-
-  const yesterdayStart = new Date(todayStart.getTime() - 24 * 3_600_000)
+  const { start: localStart, end: localEnd } = zonedDayRange(timezone, todayStr)
+  const yesterdayStart = zonedDayRange(timezone, addDaysISO(todayStr, -1)).start
 
   const [checkinRows, latestHealth, stepRows, walkSpans, phoneSleep, phoneUse, habitRows, intakeRows, foodRows, workoutRows, insightsRow, medTagRows] = await Promise.all([
     prisma.$queryRaw<{ energy: number; mood: number; intention: string | null }[]>`
@@ -153,7 +154,7 @@ export async function GET(req: NextRequest) {
     }).catch(() => [] as { date: Date; steps: number | null }[]),
 
     prisma.activitySpan.findMany({
-      where: { userId, start: { gte: new Date(todayStart.getTime() - 86_400_000) }, mode: "walk" },
+      where: { userId, start: { gte: yesterdayStart }, mode: "walk" },
       select: { start: true, end: true },
     }).catch(() => [] as { start: Date; end: Date }[]),
 
@@ -169,7 +170,7 @@ export async function GET(req: NextRequest) {
     // is a night anyone slept through — reporting those as sleep would be the
     // invention the line below rightly forbids.
     prisma.phoneSleepSegment.findMany({
-      where: { userId, status: 0, end: { gte: todayStart, lte: todayEnd } },
+      where: { userId, status: 0, end: { gte: localStart, lte: localEnd } },
       select: { start: true, end: true },
     }).catch(() => [] as { start: Date; end: Date }[]),
 
@@ -187,7 +188,7 @@ export async function GET(req: NextRequest) {
     `.catch(() => [] as { name: string }[]),
 
     prisma.intakeLog.findMany({
-      where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: todayStart, lte: todayEnd } },
+      where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: localStart, lte: localEnd } },
       select: { amountMl: true, type: true },
     }).catch(() => [] as { amountMl: number; type: string }[]),
 
@@ -195,7 +196,7 @@ export async function GET(req: NextRequest) {
     // what an afternoon or evening brief reads back over. Both days come
     // back and the period picks below.
     prisma.foodLog.findMany({
-      where: { userId, loggedAt: { gte: yesterdayStart, lte: todayEnd } },
+      where: { userId, loggedAt: { gte: yesterdayStart, lte: localEnd } },
       select: { calories: true, proteinG: true, loggedAt: true },
     }).catch(() => [] as { calories: number; proteinG: number | null; loggedAt: Date }[]),
 
@@ -273,10 +274,10 @@ export async function GET(req: NextRequest) {
     if (night && night.min >= PHONE_NIGHT_MIN_MINUTES) {
       phoneNightUsed = true
       const hrs = (night.min / 60).toFixed(1)
-      const from = night.start.toISOString().slice(11, 16)
-      const to = night.end.toISOString().slice(11, 16)
+      const from = localTimeStr(timezone, night.start)
+      const to = localTimeStr(timezone, night.end)
       lines.push(
-        `No ring data for last night, but the PHONE detected sleep: about ${hrs} hours (${from}–${to} UTC). ` +
+        `No ring data for last night, but the PHONE detected sleep: about ${hrs} hours (${from}–${to}). ` +
         `Call it what it is — the phone's estimate, not the ring's measurement — and do not quote stages, ` +
         `HRV or a sleep score from it, because it has none.`,
       )
@@ -327,8 +328,8 @@ export async function GET(req: NextRequest) {
   // few things that plausibly explains the night just finished. Later in the
   // day, today's eating so far is what the brief should be reading instead.
   const foodDay = period === "morning"
-    ? foodRows.filter(f => f.loggedAt < todayStart)
-    : foodRows.filter(f => f.loggedAt >= todayStart)
+    ? foodRows.filter(f => f.loggedAt < localStart)
+    : foodRows.filter(f => f.loggedAt >= localStart)
   if (foodDay.length > 0) {
     const kcal = foodDay.reduce((s, f) => s + f.calories, 0)
     const protein = Math.round(foodDay.reduce((s, f) => s + (f.proteinG ?? 0), 0))

@@ -12,14 +12,16 @@ import {
   ALCOHOL_TYPES,
   ethanolGrams, alcoholClearanceGPerHour, alcoholRemainingG, standardDrinks,
   permilleFromGrams, widmarkDistributionKg,
-  hoursUntilBelow, decayFraction, MED_FLOOR_FRACTION, CAFFEINE_FLOOR_MG,
+  hoursUntilBelow, decayFraction, stackedDoses, MED_FLOOR_FRACTION, CAFFEINE_FLOOR_MG,
   type ActiveSubstance,
 } from "@/lib/body-load"
 import { latestWeightKg } from "@/lib/weight-series"
 
 // Everything currently circulating, in one list. Each source is queried over
 // the window it can plausibly still matter in: caffeine and alcohol 24 h, meds
-// 72 h (Elicea's ~30 h half-life is still a third present after two days).
+// a week, past the ~130 h a dose of Elicea (~30 h half-life) takes to fall
+// under the floor. 72 h dropped it from the tab three days into a taper, with
+// a clinically relevant level still there.
 
 export async function GET() {
   const session = await auth()
@@ -28,7 +30,7 @@ export async function GET() {
 
   const now = new Date()
   const since24 = new Date(now.getTime() - 24 * 3_600_000)
-  const since72 = new Date(now.getTime() - 72 * 3_600_000)
+  const sinceMeds = new Date(now.getTime() - 168 * 3_600_000)
 
   const [caffeineDoses, drinks, medTags, profile, goals, weightRow] = await Promise.all([
     prisma.caffeineLog.findMany({
@@ -45,7 +47,7 @@ export async function GET() {
 
     prisma.$queryRaw<{ id: string; tagName: string | null; text: string | null; timestamp: Date; doseAmount: number | null; doseUnit: string | null }[]>`
       SELECT "id", "tagName", "text", "timestamp", "doseAmount", "doseUnit" FROM "OuraTag"
-      WHERE "userId" = ${userId} AND "timestamp" >= ${since72}
+      WHERE "userId" = ${userId} AND "timestamp" >= ${sinceMeds}
       ORDER BY "timestamp" ASC
     `.catch(() => [] as { id: string; tagName: string | null; text: string | null; timestamp: Date; doseAmount: number | null; doseUnit: string | null }[]),
 
@@ -118,36 +120,39 @@ export async function GET() {
   }
 
   // ── Meds and supplements with a known half-life ──
+  // Every dose of the same thing, summed: a daily medicine is the sum of the
+  // week's tablets still decaying, not the last one alone.
+  const medDoses = new Map<string, { halfLifeH: number; doses: typeof medTags }>()
   for (const t of medTags) {
     const label = ((t.tagName ?? t.text) ?? "").trim()
     if (!label || classifyOuraTag(label).kind !== "med") continue
     const info = supplementInfoFor(label)
     if (!info?.halfLifeH) continue // stored substances have no meaningful "still active"
-    const hours = (now.getTime() - t.timestamp.getTime()) / 3_600_000
-    const fraction = decayFraction(hours, info.halfLifeH)
-    if (fraction < MED_FLOOR_FRACTION) continue
-
     const name = normalizeSupplement(label) ?? cleanLabel(label)
-    const hoursLeft = hoursUntilBelow(fraction, MED_FLOOR_FRACTION, info.halfLifeH) ?? 0
-    const existing = substances.find(s => s.kind === "med" && s.name === name)
-    // Multiple doses of the same thing: show the most recent one
-    if (existing && new Date(existing.takenAt) >= t.timestamp) continue
-    const entry: ActiveSubstance = {
+    const group = medDoses.get(name) ?? { halfLifeH: info.halfLifeH, doses: [] }
+    group.doses.push(t)
+    medDoses.set(name, group)
+  }
+  for (const [name, { halfLifeH: medHalfLifeH, doses }] of medDoses) {
+    const total = stackedDoses(doses.map(d => d.timestamp), now, medHalfLifeH)
+    if (total < MED_FLOOR_FRACTION) continue
+    const latest = doses[doses.length - 1]
+    const hoursLeft = hoursUntilBelow(total, MED_FLOOR_FRACTION, medHalfLifeH) ?? 0
+    const counted = doses.filter(d => decayFraction((now.getTime() - d.timestamp.getTime()) / 3_600_000, medHalfLifeH) >= 0.01).length
+    substances.push({
       kind: "med",
       name,
       emoji: "💊",
-      amount: Math.round(fraction * 100),
+      amount: Math.round(total * 100),
       unit: "%",
-      fraction,
-      takenAt: t.timestamp.toISOString(),
+      fraction: total,
+      takenAt: latest.timestamp.toISOString(),
       clearsAt: new Date(now.getTime() + hoursLeft * 3_600_000).toISOString(),
-      detail: `half-life ${info.halfLifeH}h${info.caution ? "" : ""}`,
+      detail: `half-life ${medHalfLifeH}h${counted > 1 ? ` · ${counted} doses still adding up` : ""}`,
       // Only manual entries: an Oura tag deleted here returns on the next sync.
-      sourceId: t.id.startsWith("manual_") ? t.id : undefined,
-      doseLabel: formatDose(t.doseAmount, t.doseUnit),
-    }
-    if (existing) substances.splice(substances.indexOf(existing), 1, entry)
-    else substances.push(entry)
+      sourceId: latest.id.startsWith("manual_") ? latest.id : undefined,
+      doseLabel: formatDose(latest.doseAmount, latest.doseUnit),
+    })
   }
 
   // Most recently taken first — that's what the user is asking about

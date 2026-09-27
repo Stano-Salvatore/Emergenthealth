@@ -157,7 +157,7 @@ export default async function WeekPage() {
   // Intake
   const waterByDay: Record<string, number> = {}
   for (const w of thisWeekIntake) {
-    const d = format(new Date(w.loggedAt), "yyyy-MM-dd")
+    const d = localDateStr(timezone, new Date(w.loggedAt))
     waterByDay[d] = (waterByDay[d] ?? 0) + hydrationMl(w.type, w.amountMl)
   }
   const waterGoalDays = Object.values(waterByDay).filter(v => v >= WATER_GOAL).length

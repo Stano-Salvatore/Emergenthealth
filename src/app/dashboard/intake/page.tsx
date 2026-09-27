@@ -153,7 +153,7 @@ export default function IntakePage() {
   const [weekData, setWeekData] = useState<WeekDay[]>([])
   const [waterGoal, setWaterGoal] = useState(2000)
   const [caffeineMg, setCaffeineMg] = useState<number | null>(null)
-  const [lateCoffeeMg, setLateCoffeeMg] = useState<number | null>(null)
+  const [lateCoffee, setLateCoffee] = useState<{ mg: number; bedLabel: string } | null>(null)
   const isToday = date === localDateStr()
 
   // With the strip's scrollbar hidden, this is what keeps a deep-linked or
@@ -171,7 +171,7 @@ export default function IntakePage() {
       if (!res.ok) return null
       const d = await res.json()
       if (typeof d?.totalMg === "number") setCaffeineMg(d.totalMg)
-      return d as { totalMg: number; activeMg?: number; halfLifeH?: number }
+      return d as { totalMg: number; activeMg?: number; halfLifeH?: number; bedtime?: string | null; bedtimeMin?: number | null }
     } catch { return null }
   }, [])
   useEffect(() => { loadCaffeine() }, [loadCaffeine])
@@ -238,10 +238,11 @@ export default function IntakePage() {
     load()
     const caf = await loadCaffeine()
     // Gentle heads-up after a caffeinated drink: how much will still be
-    // circulating at 23:00? Informational only — the drink is already logged.
+    // circulating at their usual bedtime? Informational only — the drink is
+    // already logged.
     if (caf?.activeMg && estimateCaffeine(type, note ?? "", amountMl)) {
-      const atBed = decayed(caf.activeMg, hoursToBedtime(), caf.halfLifeH ?? 5)
-      setLateCoffeeMg(atBed > 50 ? atBed : null)
+      const atBed = decayed(caf.activeMg, hoursToBedtime(new Date(), caf.bedtimeMin), caf.halfLifeH ?? 5)
+      setLateCoffee(atBed > 50 ? { mg: atBed, bedLabel: caf.bedtime ?? "23:00" } : null)
     }
   }
 
@@ -383,13 +384,13 @@ export default function IntakePage() {
       {activeTab === "overview" ? <OverviewTab onGoTo={setActiveTab} /> : activeTab === "body" ? <BodyLoadTab /> : activeTab === "meds" ? <MedicationsPage /> : activeTab === "food" ? <FoodTab date={date} isToday={isToday} onSaved={() => { load(); loadCaffeine() }} /> : (<>
 
       {/* gentle late-caffeine heads-up */}
-      {lateCoffeeMg != null && (
+      {lateCoffee != null && (
         <div className="flex items-center gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5">
           <span className="text-base shrink-0">🌙</span>
           <p className="flex-1 text-xs text-amber-400">
-            Heads-up: ≈{lateCoffeeMg} mg of caffeine will still be active at 23:00 — it might affect your sleep.
+            Heads-up: ≈{lateCoffee.mg} mg of caffeine will still be active at {lateCoffee.bedLabel} — it might affect your sleep.
           </p>
-          <button onClick={() => setLateCoffeeMg(null)} aria-label="Dismiss"
+          <button onClick={() => setLateCoffee(null)} aria-label="Dismiss"
             className="p-1 rounded-md text-amber-400/60 hover:text-amber-400 transition-colors shrink-0">
             <X className="h-3.5 w-3.5" />
           </button>
