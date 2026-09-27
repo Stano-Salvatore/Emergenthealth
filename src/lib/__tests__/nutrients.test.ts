@@ -183,12 +183,16 @@ describe("nutrientGapsOverLoggedDays — unlogged days are left out, not zeroed"
   })
 
   it("today, still being eaten, is not averaged in", () => {
-    const loggedDays = [1, 2, 3, 4, 5, 6, 7, 8, 9, 14]
-    const vitC: LoggedMicro[] = loggedDays.map(d => ({
-      day: `2026-08-${String(d).padStart(2, "0")}`, name: "Vitamin C", amount: d === 14 ? 5 : 80, unit: "mg",
+    // Five complete days at 60 mg (75% of NRV) and a breakfast so far today
+    // with none. Counting today as a sixth day at zero would read 62.5%, a gap.
+    const complete = [1, 2, 3, 4, 5]
+    const vitC: LoggedMicro[] = complete.map(d => ({
+      day: `2026-08-${String(d).padStart(2, "0")}`, name: "Vitamin C", amount: 60, unit: "mg",
     }))
-    const gap = nutrientGapsOverLoggedDays(vitC, window(loggedDays), "2026-08-14")
-    expect(gap).toHaveLength(0)
+    expect(nutrientGapsOverLoggedDays(vitC, window([...complete, 14]), "2026-08-14")).toHaveLength(0)
+    // The same rows with today treated as complete do show the gap, so the
+    // exclusion is what keeps it away.
+    expect(nutrientGapsOverLoggedDays(vitC, window([...complete, 14]), "2026-08-15")).toHaveLength(1)
   })
 })
 

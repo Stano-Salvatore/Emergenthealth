@@ -28,6 +28,13 @@ describe("hoursToBedtime", () => {
     expect(hoursToBedtime(at(1, 0), 30)).toBe(0)
   })
 
+  it("including across midnight: 00:30 is past a 23:00 bedtime, not 22.5 h before the next", () => {
+    expect(hoursToBedtime(at(0, 30))).toBe(0)
+    expect(hoursToBedtime(at(2, 0), 23 * 60 + 30)).toBe(0)
+    // A late bedtime still lies ahead of an evening before midnight.
+    expect(hoursToBedtime(at(23, 0), 4 * 60 + 4)).toBeCloseTo(5 + 4 / 60, 6)
+  })
+
   it("is tomorrow's once the night is well over", () => {
     expect(hoursToBedtime(at(9, 0))).toBeCloseTo(14, 6)
     expect(hoursToBedtime(at(9, 0), 30)).toBeCloseTo(15.5, 6)

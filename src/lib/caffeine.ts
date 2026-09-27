@@ -56,9 +56,11 @@ export function activeFromDoses(
  */
 export function hoursToBedtime(from = new Date(), bedtimeMin?: number | null, graceH = 4): number {
   const bed = bedtimeMin ?? 23 * 60
-  let d = bed - (from.getHours() * 60 + from.getMinutes() + from.getSeconds() / 60)
-  if (d < 0 && -d <= graceH * 60) return 0
-  if (d < 0) d += 24 * 60
+  const nowMin = from.getHours() * 60 + from.getMinutes() + from.getSeconds() / 60
+  // Minutes to the next occurrence of the bedtime, in [0, 24 h). Taken modulo
+  // the day, so a 23:00 bedtime at 00:30 is 90 minutes past, not 22.5 h ahead.
+  const d = (((bed - nowMin) % 1440) + 1440) % 1440
+  if (d > 0 && 1440 - d <= graceH * 60) return 0
   return d / 60
 }
 
