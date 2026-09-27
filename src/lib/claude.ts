@@ -559,6 +559,7 @@ const TOOLS: Anthropic.Tool[] = [
         ref: { type: "string", description: "The ref from find_my_logs" },
         occurredAt: { type: "string", description: "New local time: YYYY-MM-DD or YYYY-MM-DDTHH:MM" },
         amount: { type: "number", description: "New amount — dose quantity, or millilitres for intake" },
+        doseUnit: { type: "string", enum: ["mg", "tablet"], description: "Doses only: 'mg' for an absolute amount, 'tablet' for a share of a tablet. Required when the dose was saved without an amount." },
         label: { type: "string", description: "New label, moments only" },
       },
       required: ["ref"],
@@ -795,7 +796,7 @@ async function deleteRef(userId: string, ref: { kind: RefKind; id: string }): Pr
 async function correctRef(
   userId: string,
   ref: { kind: RefKind; id: string },
-  change: { at: Date | null; amount: number | null; label: string | null },
+  change: { at: Date | null; amount: number | null; doseUnit?: DoseUnit | null; label: string | null },
 ): Promise<boolean> {
   try {
     if (ref.kind === "dose") {
@@ -812,7 +813,7 @@ async function correctRef(
       if (change.amount != null) {
         await prisma.$executeRaw`
           UPDATE "OuraTag" SET "doseAmount" = ${Math.min(100_000, change.amount)},
-            "doseUnit" = COALESCE("doseUnit", 'tablet')
+            "doseUnit" = COALESCE(${change.doseUnit ?? null}, "doseUnit")
           WHERE "id" = ${ref.id} AND "userId" = ${userId} AND "id" LIKE 'manual_%'
         `
       }
@@ -1837,7 +1838,23 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
     const label = String(input.label ?? "").trim()
     if (!at && amount == null && !label) return "Nothing to change — give a time, an amount or a label."
 
-    const ok = await correctRef(userId, parsed, { at, amount, label: label || null })
+    // A dose saved without an amount has no unit either, and 400 alone is
+    // magnesium milligrams or four hundred tablets; it used to become tablets.
+    const doseUnit: DoseUnit | null = input.doseUnit === "mg" ? "mg" : input.doseUnit === "tablet" ? "tablet" : null
+    if (parsed.kind === "dose" && amount != null && !doseUnit) {
+      let existing: string | null
+      try {
+        const rows = await prisma.$queryRaw<{ doseUnit: string | null }[]>`
+          SELECT "doseUnit" FROM "OuraTag" WHERE "id" = ${parsed.id} AND "userId" = ${userId}
+        `
+        existing = rows[0]?.doseUnit ?? null
+      } catch {
+        return "Couldn't read that dose, so nothing was changed — worth retrying."
+      }
+      if (!existing) return "That dose has no unit yet, so the amount alone could be mg or tablets. Pass doseUnit ('mg' or 'tablet'), asking the user if they didn't say. Nothing was changed."
+    }
+
+    const ok = await correctRef(userId, parsed, { at, amount, doseUnit, label: label || null })
     if (!ok) return "Couldn't change that — nothing was altered."
     const after = await describeRef(userId, parsed)
     return `Changed. Before: ${before}. Now: ${after}. Tell the user both, so they can see it and correct again if it's still wrong.`

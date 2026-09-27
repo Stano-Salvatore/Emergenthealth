@@ -285,11 +285,17 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
       // Mirror drink tags into IntakeLog so water/coffee/alcohol logged in the
       // Oura app show up everywhere intake does (Intake page, dashboard,
       // Emergy) from one source. Deterministic ids make the upsert idempotent.
+      //
+      // Those same ids made a misclassification permanent: an iron tag once
+      // read as spirits kept its alcohol row after the classifier learned
+      // better, because a non-drink skips the upsert. Non-drinks now clear
+      // any row their id owns.
+      const notDrinks: string[] = []
       for (const t of tagData) {
         const label = [t.tagName, t.comment].filter(Boolean).join(" ").trim()
         if (!label) continue
         const { kind, ml } = classifyOuraTag(label)
-        if (!INTAKE_KINDS.has(kind) || ml <= 0) continue
+        if (!INTAKE_KINDS.has(kind) || ml <= 0) { notDrinks.push(t.id); continue }
         await prisma.intakeLog.upsert({
           where: { id: `oura_${t.id}` },
           create: {
@@ -318,6 +324,10 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
             update: { compound: est.compound, caffeineMg: est.mg },
           }).catch(() => null)
         }
+      }
+      if (notDrinks.length > 0) {
+        await prisma.intakeLog.deleteMany({ where: { userId, id: { in: notDrinks.map(id => `oura_${id}`) } } }).catch(() => null)
+        await prisma.caffeineLog.deleteMany({ where: { userId, id: { in: notDrinks.map(id => `oura_caf_${id}`) } } }).catch(() => null)
       }
 
       tagsSynced = tagData.length

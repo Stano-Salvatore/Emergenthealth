@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { RefreshCw, Search, Pencil, CalendarDays, Tag, X } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
-import { formatDose, parseDose } from "@/lib/dose"
+import { formatDose, parseDose, parseDoseEdit } from "@/lib/dose"
 import { supplementInfoFor, fractionRemaining, PHARMA_DISCLAIMER } from "@/lib/supplement-info"
 import { MedScheduleCard } from "@/components/medications/MedScheduleCard"
 
@@ -148,15 +148,14 @@ function MedEntryControls({ entry, onChanged, compact = false }: {
   /** An empty value clears the dose back to unknown, which is honest — zero
    *  would claim they took nothing. */
   function saveDose(raw: string) {
-    const trimmed = raw.trim()
-    const parsed = trimmed ? Number(trimmed.replace(",", ".")) : null
-    if (trimmed && (!Number.isFinite(parsed) || (parsed ?? 0) <= 0)) {
-      setError("A dose needs a positive number.")
+    const read = parseDoseEdit(raw, entry.doseUnit)
+    if ("error" in read) {
+      setError(read.error)
       setEditingDose(false)
       return
     }
     void patch(
-      { doseAmount: parsed, doseUnit: parsed == null ? null : (entry.doseUnit ?? "tablet") },
+      { doseAmount: read.dose?.amount ?? null, doseUnit: read.dose?.unit ?? null },
       "Couldn't change the dose — try again.",
     )
   }
@@ -213,7 +212,7 @@ function MedEntryControls({ entry, onChanged, compact = false }: {
           inputMode="decimal"
           autoFocus
           defaultValue={entry.doseAmount != null ? String(entry.doseAmount) : ""}
-          placeholder={entry.doseUnit === "mg" ? "mg" : "tablets"}
+          placeholder={entry.doseUnit === "mg" ? "mg" : entry.doseUnit === "tablet" ? "tablets" : "400mg, ½"}
           aria-label="Dose amount"
           onBlur={ev => saveDose(ev.target.value)}
           onKeyDown={ev => {

@@ -4,10 +4,12 @@ import Anthropic from "@anthropic-ai/sdk"
 import { format } from "date-fns"
 import { addDaysISO, localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { activeOn } from "@/lib/med-schedule"
-import { fold } from "@/lib/supplement-normalize"
+import { adherenceOver, matchKey, type ScheduleLike } from "@/lib/med-schedule"
 import { formatDose, sumDoses, type ParsedDose } from "@/lib/dose"
-import type { InsightResult } from "@/lib/correlations"
+import { loadWeightSeries } from "@/lib/weight-series"
+import { RING_OFF_MAX_STEPS } from "@/lib/sleep-quality"
+import { convertLabValue, normalizeUnit } from "@/lib/lab-units"
+import { referenceChangeValue } from "@/lib/lab-variation"
 import { OPUS } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
 
@@ -28,10 +30,15 @@ export type MetricSummary = {
   label: string
   unit: string
   avg: number | null
+  /** Null when the previous period has too few readings to stand beside this one. */
   prevAvg: number | null
+  /** Days with a reading in the previous period, so a thin baseline says so. */
+  prevDays: number
   min: number | null
   max: number | null
   days: number      // days with a reading
+  /** Days left out as the device not being worn (steps under RING_OFF_MAX_STEPS). */
+  excludedDays?: number
   decimals: number
   higherIsBetter: boolean
 }
@@ -44,6 +51,7 @@ export type MedSummary = {
   note: string | null
   expectedDoses: number
   loggedDoses: number
+  /** The user-local day (YYYY-MM-DD) of the most recent recorded dose. */
   lastTaken: string | null
   /** Typical recorded amount, e.g. "12.5mg" or "½ tablet"; null when never stated. */
   typicalDose: string | null
@@ -65,8 +73,22 @@ export type LabSummary = {
   referenceMax: number | null
   date: string
   flag: "low" | "high" | "normal" | "unknown"
-  /** The reading before this one, so a clinician sees direction, not a dot. */
-  previous: { value: number; date: string } | null
+  /**
+   * The reading before this one, so a clinician sees direction, not a dot.
+   * Direction is judged in the latest reading's unit and against the marker's
+   * own biological variation: 200 mg/dL then 5.2 mmol/L is flat, not a 97%
+   * fall, and a 2% ferritin move is noise.
+   */
+  previous: {
+    value: number
+    unit: string
+    date: string
+    /** The previous value in the latest reading's unit; null when the units cannot be converted. */
+    valueInLatestUnit: number | null
+    /** Null when the two readings cannot be compared. */
+    direction: "up" | "down" | "flat" | null
+    unitMismatch: boolean
+  } | null
 }
 
 export type BloodPressureSummary = {
@@ -93,10 +115,19 @@ export type HealthReport = {
   symptoms: SymptomSummary[]
   labs: LabSummary[]
   bloodPressure: BloodPressureSummary | null
-  body: { weightKg: number | null; prevWeightKg: number | null; bodyFatPct: number | null; date: string | null }
+  body: { weightKg: number | null; prevWeightKg: number | null; bodyFatPct: number | null; bodyFatDate: string | null; date: string | null }
   /** Weight across the reporting period itself, from whichever source recorded it. */
-  weightTrend: { first: number; last: number; changeKg: number; readings: number } | null
-  patterns: { finding: string; confidence: "solid" | "tentative" }[]
+  weightTrend: { first: number; last: number; changeKg: number; readings: number; firstDate: string; lastDate: string } | null
+  patterns: {
+    finding: string
+    confidence: "solid" | "tentative"
+    /** Why the comparison may not be what it looks like, as the engine said it. */
+    confounded?: string
+    coverage?: string
+    days?: { with: number; without: number }
+  }[]
+  /** The day the associations were computed; they cover the 90 days before it, not the report period. */
+  patternsAsOf: string | null
   narrative: string
 }
 
@@ -142,7 +173,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   const prevFrom = new Date(prevFromStr + "T00:00:00Z")
   const prevTo = new Date(addDaysISO(fromStr, -1) + "T23:59:59Z")
 
-  const [user, logs, prevLogs, medSchedules, doseRows, symptomRows, labRows, bodyRows, insightRow, bpRows] = await Promise.all([
+  const [user, logs, prevLogs, medSchedules, doseRows, symptomRows, labRows, bodyRows, insightRow, bpRows, weightSeries] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { name: true, email: true } }).catch(() => null),
     prisma.healthLog.findMany({
       where: { userId, date: { gte: from, lte: to } },
@@ -188,11 +219,18 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
       WHERE "userId" = ${userId} AND "loggedAt" >= ${from} AND "loggedAt" <= ${to}
       ORDER BY "loggedAt" ASC
     `.catch(() => [] as { systolic: number; diastolic: number; pulse: number | null; loggedAt: Date }[]),
+
+    // Weight arrives through chat and the quick box (HealthLog.weight) far more
+    // often than through the Body page; reading only the latter showed a
+    // doctor a six-month-old figure. 365 days covers the longest period.
+    loadWeightSeries(userId, 365).catch(() => []),
   ])
 
   // ── Vitals ────────────────────────────────────────────────────────────────
   type Row = (typeof logs)[number]
-  const SPECS: { key: string; label: string; unit: string; decimals: number; higherIsBetter: boolean; pick: (l: Row) => number | null }[] = [
+  // partialToday: the metric accumulates through the day, so today's row is a
+  // morning's worth and would drag the mean and the minimum down.
+  const SPECS: { key: string; label: string; unit: string; decimals: number; higherIsBetter: boolean; partialToday?: boolean; pick: (l: Row) => number | null }[] = [
     { key: "sleep", label: "Sleep duration", unit: "h", decimals: 1, higherIsBetter: true, pick: l => l.sleepDuration != null ? l.sleepDuration / 60 : null },
     { key: "sleepScore", label: "Sleep score", unit: "/100", decimals: 0, higherIsBetter: true, pick: l => l.sleepScore },
     { key: "sleepEff", label: "Sleep efficiency", unit: "%", decimals: 0, higherIsBetter: true, pick: l => l.sleepEfficiency },
@@ -201,50 +239,71 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     { key: "readiness", label: "Readiness score", unit: "/100", decimals: 0, higherIsBetter: true, pick: l => l.readinessScore },
     { key: "spo2", label: "Blood oxygen (SpO₂)", unit: "%", decimals: 1, higherIsBetter: true, pick: l => (l.spo2 && l.spo2 > 0 ? l.spo2 : null) },
     { key: "breathing", label: "Breathing rate", unit: "/min", decimals: 1, higherIsBetter: false, pick: l => l.breathingRate },
-    { key: "steps", label: "Steps", unit: "/day", decimals: 0, higherIsBetter: true, pick: l => l.steps },
-    { key: "stress", label: "Elevated-stress time", unit: "min/day", decimals: 0, higherIsBetter: false, pick: l => l.stressHigh },
+    // A day under RING_OFF_MAX_STEPS is a ring in a drawer, not a person; it
+    // is left out and counted, never averaged in as a real day.
+    { key: "steps", label: "Steps", unit: "/day", decimals: 0, higherIsBetter: true, partialToday: true, pick: l => (l.steps != null && l.steps >= RING_OFF_MAX_STEPS ? l.steps : null) },
+    { key: "stress", label: "Elevated-stress time", unit: "min/day", decimals: 0, higherIsBetter: false, partialToday: true, pick: l => l.stressHigh },
   ]
 
+  // A previous-period mean over a handful of days beside a full one reads as a
+  // change the data cannot carry.
+  const prevFloor = Math.max(7, Math.ceil(days / 3))
   const metrics: MetricSummary[] = SPECS.map(s => {
-    const vals = logs.map(s.pick).filter((v): v is number => v != null)
+    const rows = s.partialToday ? logs.filter(l => l.date.toISOString().slice(0, 10) !== toStr) : logs
+    const vals = rows.map(s.pick).filter((v): v is number => v != null)
     const prevVals = prevLogs.map(s.pick as (l: (typeof prevLogs)[number]) => number | null).filter((v): v is number => v != null)
+    const excluded = s.key === "steps"
+      ? rows.filter(l => l.steps != null && l.steps < RING_OFF_MAX_STEPS).length
+      : 0
     return {
       key: s.key, label: s.label, unit: s.unit, decimals: s.decimals, higherIsBetter: s.higherIsBetter,
       avg: round(mean(vals), s.decimals),
-      prevAvg: round(mean(prevVals), s.decimals),
+      prevAvg: prevVals.length >= prevFloor ? round(mean(prevVals), s.decimals) : null,
+      prevDays: prevVals.length,
       min: vals.length ? round(Math.min(...vals), s.decimals) : null,
       max: vals.length ? round(Math.max(...vals), s.decimals) : null,
       days: vals.length,
+      ...(excluded > 0 ? { excludedDays: excluded } : {}),
     }
   }).filter(m => m.days > 0)
 
   // ── Coverage ──────────────────────────────────────────────────────────────
   const windowDays: string[] = []
   for (let i = 0; i < days; i++) windowDays.push(addDaysISO(fromStr, i))
-  const present = new Set(logs.map(l => l.date.toISOString().slice(0, 10)))
+  // Health Connect writes a row with phone steps every day the app is open,
+  // so a row alone is not a day the ring was worn. Steps are not counted for
+  // the same reason.
+  const wearableDay = (l: Row) =>
+    l.sleepDuration != null || l.sleepScore != null || l.sleepEfficiency != null ||
+    l.restingHR != null || l.hrv != null || l.readinessScore != null ||
+    (l.spo2 != null && l.spo2 > 0) || l.breathingRate != null || l.stressHigh != null
+  const present = new Set(logs.filter(wearableDay).map(l => l.date.toISOString().slice(0, 10)))
   const coverage = { daysWithWearable: present.size, longestGapDays: longestGap(windowDays, present) }
 
   // ── Medications ───────────────────────────────────────────────────────────
   // Adherence counts doses recorded in the app (manual entries and Oura tags)
   // against the schedule. It is a floor, not a measurement: a dose taken and
   // never logged is invisible here, which the report states in plain words.
+  //
+  // Matching and the per-time cap are the Medications page's own
+  // (matchKey/adherenceOver), so the report and the app never disagree, and
+  // today is left out because its later doses have not happened yet.
+  const doseList = doseRows
+    .map(r => ({ row: r, day: r.day, name: (r.tagName ?? r.text ?? "").trim() }))
+    .filter(d => d.name.length > 0)
+  const completeDays = windowDays.filter(d => d !== toStr)
+  const shaped: ScheduleLike[] = medSchedules.map(m => ({
+    id: m.id, name: m.name, times: m.times, daysOfWeek: m.daysOfWeek,
+    active: m.active, startDate: m.startDate, endDate: m.endDate,
+  }))
+  const adherence = new Map(adherenceOver(shaped, doseList, completeDays).map(a => [a.scheduleId, a]))
+
   const meds: MedSummary[] = medSchedules.map(m => {
-    let expected = 0
-    for (const day of windowDays) {
-      if (activeOn({
-        id: m.id, name: m.name, times: m.times, daysOfWeek: m.daysOfWeek,
-        active: m.active, startDate: m.startDate, endDate: m.endDate,
-      }, day)) expected += Math.max(1, m.times.length)
-    }
-    const needle = fold(m.name).split(/\s+/)[0] ?? ""
-    const hits = needle.length >= 3
-      ? doseRows.filter(d => {
-          const label = fold(`${d.tagName ?? ""} ${d.text ?? ""}`)
-          return label.includes(needle)
-        })
-      : []
+    const key = matchKey(m.name)
+    const hits = doseList.filter(d => matchKey(d.name) === key).map(d => d.row)
+    const adh = adherence.get(m.id)
     const lastTaken = hits.length
-      ? hits.reduce((a, b) => (a.timestamp > b.timestamp ? a : b)).timestamp.toISOString()
+      ? hits.reduce((a, b) => (a.timestamp > b.timestamp ? a : b)).day
       : null
     // The mean of what was actually recorded, in whichever unit was used.
     // Milligrams and tablet fractions are never mixed into one number.
@@ -261,7 +320,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
 
     return {
       name: m.name, dose: m.dose, times: m.times, daysOfWeek: m.daysOfWeek, note: m.note,
-      expectedDoses: expected, loggedDoses: hits.length, lastTaken, typicalDose,
+      expectedDoses: adh?.expected ?? 0, loggedDoses: adh?.taken ?? 0, lastTaken, typicalDose,
     }
   })
 
@@ -296,33 +355,71 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
       : l.referenceMax != null && l.value > l.referenceMax ? "high"
       : l.referenceMin != null || l.referenceMax != null ? "normal"
       : "unknown"
+    let previous: LabSummary["previous"] = null
+    if (prior) {
+      const conv = normalizeUnit(prior.unit) === normalizeUnit(l.unit)
+        ? prior.value
+        : convertLabValue(prior.value, prior.unit, l.unit, l.marker)
+      const pct = conv != null && conv !== 0 ? ((l.value - conv) / Math.abs(conv)) * 100 : null
+      const rcv = referenceChangeValue(l.marker)
+      const direction: "up" | "down" | "flat" | null =
+        conv == null ? null
+        : pct == null ? (l.value === conv ? "flat" : l.value > conv ? "up" : "down")
+        : rcv != null && Math.abs(pct) < rcv ? "flat"
+        : pct > 0 ? "up" : pct < 0 ? "down" : "flat"
+      previous = {
+        value: prior.value,
+        unit: prior.unit,
+        date: prior.date.toISOString().slice(0, 10),
+        valueInLatestUnit: conv == null ? null : Math.round(conv * 100) / 100,
+        direction,
+        unitMismatch: conv == null,
+      }
+    }
     labs.push({
       marker: l.marker, value: l.value, unit: l.unit,
       referenceMin: l.referenceMin, referenceMax: l.referenceMax,
       date: l.date.toISOString().slice(0, 10), flag,
-      previous: prior ? { value: prior.value, date: prior.date.toISOString().slice(0, 10) } : null,
+      previous,
     })
   }
   labs.sort((a, b) => (a.flag === "normal" || a.flag === "unknown" ? 1 : 0) - (b.flag === "normal" || b.flag === "unknown" ? 1 : 0))
 
   // ── Body ──────────────────────────────────────────────────────────────────
-  const latestBody = bodyRows[0] ?? null
-  const olderBody = bodyRows.find(b => b.weightKg != null && b !== latestBody) ?? null
+  // weightSeries is oldest first, one point per day. Body fat only ever comes
+  // from the Body page, so it carries its own date rather than borrowing the
+  // weigh-in's.
+  const latestWeigh = weightSeries.length ? weightSeries[weightSeries.length - 1] : null
+  const prevWeigh = weightSeries.length > 1 ? weightSeries[weightSeries.length - 2] : null
+  const fatRow = bodyRows.find(b => b.bodyFatPct != null) ?? null
   const body = {
-    weightKg: latestBody?.weightKg ?? null,
-    prevWeightKg: olderBody?.weightKg ?? null,
-    bodyFatPct: latestBody?.bodyFatPct ?? null,
-    date: latestBody ? latestBody.date.toISOString().slice(0, 10) : null,
+    weightKg: latestWeigh?.kg ?? null,
+    prevWeightKg: prevWeigh?.kg ?? null,
+    bodyFatPct: fatRow?.bodyFatPct ?? null,
+    bodyFatDate: fatRow ? fatRow.date.toISOString().slice(0, 10) : null,
+    date: latestWeigh?.date ?? null,
   }
 
   // ── Patterns: only what survived the statistics ────────────────────────────
+  // A confounded finding is never "solid": the engine has said the comparison
+  // may be measuring something else, and the doctor needs that sentence too.
   let patterns: HealthReport["patterns"] = []
+  let patternsAsOf: string | null = null
   try {
-    const insights = parseInsightsCache(insightRow?.value).insights as unknown as InsightResult[]
+    const { insights, at } = parseInsightsCache(insightRow?.value)
     patterns = insights
-      .filter(i => (i.tier === "strong" || i.tier === "suggestive") && !i.weekendDriven)
+      .filter(i => (i.tier === "strong" || i.tier === "suggestive") && !i.weekendDriven && typeof i.finding === "string")
       .slice(0, 6)
-      .map(i => ({ finding: i.finding, confidence: i.tier === "strong" ? "solid" as const : "tentative" as const }))
+      .map(i => ({
+        finding: i.finding as string,
+        confidence: i.tier === "strong" && !i.confounded ? "solid" as const : "tentative" as const,
+        ...(i.confounded ? { confounded: i.confounded } : {}),
+        ...(i.coverage ? { coverage: i.coverage } : {}),
+        ...(typeof i.highGroupN === "number" && typeof i.lowGroupN === "number"
+          ? { days: { with: i.highGroupN, without: i.lowGroupN } }
+          : {}),
+      }))
+    patternsAsOf = at != null ? reportDayFmt.format(new Date(at)) : null
   } catch { patterns = [] }
 
   // ── Blood pressure ────────────────────────────────────────────────────────
@@ -361,27 +458,26 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   }
 
   // ── Weight across the period ──────────────────────────────────────────────
-  // Either source counts: the Body page's measurements and the ring's own
-  // readings both land here, oldest first.
-  const weightPoints = [
-    ...bodyRows.filter(b => b.weightKg != null).map(b => ({ date: b.date.toISOString().slice(0, 10), kg: b.weightKg as number })),
-  ]
-    .filter(w => w.date >= fromStr && w.date <= toStr)
-    .sort((a, b) => a.date.localeCompare(b.date))
+  // Both tables count — HealthLog.weight (chat, the quick box, a Health
+  // Connect scale) and BodyMeasurement — through the one shared merge.
+  const weightPoints = weightSeries.filter(w => w.date >= fromStr && w.date <= toStr)
   const weightTrend = weightPoints.length >= 2
     ? {
         first: Math.round(weightPoints[0].kg * 10) / 10,
         last: Math.round(weightPoints[weightPoints.length - 1].kg * 10) / 10,
         changeKg: Math.round((weightPoints[weightPoints.length - 1].kg - weightPoints[0].kg) * 10) / 10,
         readings: weightPoints.length,
+        firstDate: weightPoints[0].date,
+        lastDate: weightPoints[weightPoints.length - 1].date,
       }
     : null
 
   // ── Narrative ─────────────────────────────────────────────────────────────
   const firstName = user?.name?.split(" ")[0] ?? "The patient"
   const metricLines = metrics.map(m => {
-    const trend = m.prevAvg != null ? ` (previous ${days} days: ${m.prevAvg}${m.unit})` : ""
-    return `- ${m.label}: mean ${m.avg}${m.unit}${trend}; range ${m.min}–${m.max}; ${m.days}/${days} days recorded`
+    const trend = m.prevAvg != null ? ` (previous ${days} days: ${m.prevAvg}${m.unit}, ${m.prevDays}/${days} days recorded)` : ""
+    const excluded = m.excludedDays ? `; ${m.excludedDays} further days under ${RING_OFF_MAX_STEPS} steps left out as the device not worn` : ""
+    return `- ${m.label}: mean ${m.avg}${m.unit}${trend}; range ${m.min}–${m.max}; ${m.days}/${days} days recorded${excluded}`
   })
   const medLines = meds.map(m =>
     `- ${m.name}${m.dose ? ` (${m.dose})` : ""}, scheduled ${m.times.length}×/day at ${m.times.join(", ") || "unspecified"}; ${m.loggedDoses} doses recorded in-app of ~${m.expectedDoses} scheduled${m.typicalDose ? `; typical recorded amount ${m.typicalDose}` : ""}`)
@@ -391,10 +487,10 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     ? `BLOOD PRESSURE (self-measured, ${bloodPressure.readings} readings): mean ${bloodPressure.avgSystolic}/${bloodPressure.avgDiastolic} mmHg, highest ${bloodPressure.maxSystolic}/${bloodPressure.maxDiastolic}, most recent ${bloodPressure.last.systolic}/${bloodPressure.last.diastolic} on ${bloodPressure.last.date}${bloodPressure.avgPulse != null ? `, mean pulse ${bloodPressure.avgPulse}` : ""}. Mean falls in the "${bloodPressure.band}" band by office thresholds; home readings typically run lower than office readings.`
     : "BLOOD PRESSURE: none recorded."
   const weightLine = weightTrend
-    ? `WEIGHT: ${weightTrend.first}kg to ${weightTrend.last}kg over the period (${weightTrend.changeKg >= 0 ? "+" : ""}${weightTrend.changeKg}kg across ${weightTrend.readings} measurements).`
+    ? `WEIGHT: ${weightTrend.first}kg on ${weightTrend.firstDate} to ${weightTrend.last}kg on ${weightTrend.lastDate} (${weightTrend.changeKg >= 0 ? "+" : ""}${weightTrend.changeKg}kg across ${weightTrend.readings} measurements).`
     : null
   const labLines = labs.slice(0, 12).map(l =>
-    `- ${l.marker}: ${l.value} ${l.unit} (${l.date})${l.referenceMin != null || l.referenceMax != null ? ` [ref ${l.referenceMin ?? "–"}–${l.referenceMax ?? "–"}]` : ""}${l.flag === "low" || l.flag === "high" ? ` — ${l.flag.toUpperCase()}` : ""}${l.previous ? `; previous ${l.previous.value} on ${l.previous.date}` : ""}`)
+    `- ${l.marker}: ${l.value} ${l.unit} (${l.date})${l.referenceMin != null || l.referenceMax != null ? ` [ref ${l.referenceMin ?? "–"}–${l.referenceMax ?? "–"}]` : ""}${l.flag === "low" || l.flag === "high" ? ` — ${l.flag.toUpperCase()}` : ""}${l.previous ? `; ${labPreviousText(l, l.previous)}` : ""}`)
 
   const context = [
     `Patient: ${firstName}. Reporting period: ${fromStr} to ${toStr} (${days} days).`,
@@ -415,10 +511,11 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     ...(labLines.length ? labLines : ["- none on file"]),
     "",
     weightLine,
-    body.weightKg != null ? `BODY: weight ${body.weightKg}kg${body.prevWeightKg != null ? ` (previous measurement ${body.prevWeightKg}kg)` : ""}${body.bodyFatPct != null ? `, body fat ${body.bodyFatPct}%` : ""}, recorded ${body.date}.` : "BODY: no measurements on file.",
+    body.weightKg != null ? `BODY: weight ${body.weightKg}kg${body.prevWeightKg != null ? ` (previous measurement ${body.prevWeightKg}kg)` : ""}, recorded ${body.date}${body.bodyFatPct != null ? `; body fat ${body.bodyFatPct}% recorded ${body.bodyFatDate}` : ""}.` : "BODY: no measurements on file.",
     "",
     patterns.length
-      ? `STATISTICAL ASSOCIATIONS found by the app in this person's own data (permutation-tested, false-discovery corrected; associations only, not causal):\n${patterns.map(p => `- [${p.confidence}] ${p.finding}`).join("\n")}`
+      ? `STATISTICAL ASSOCIATIONS found by the app in this person's own data, computed over the most recent 90 days${patternsAsOf ? `, as of ${patternsAsOf}` : ""} (independent of the reporting period; permutation-tested, false-discovery corrected; associations only, not causal):\n${patterns.map(p =>
+          `- [${p.confidence}] ${p.finding}${p.days ? ` (${p.days.with}+${p.days.without} days)` : ""}${p.coverage ? ` [coverage: ${p.coverage}]` : ""}${p.confounded ? ` [confounded: ${p.confounded}]` : ""}`).join("\n")}`
       : "STATISTICAL ASSOCIATIONS: none reached significance.",
   ].filter((l): l is string => l != null).join("\n")
 
@@ -456,8 +553,14 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     body,
     weightTrend,
     patterns,
+    patternsAsOf,
     narrative,
   }
+}
+
+function labPreviousText(l: LabSummary, p: NonNullable<LabSummary["previous"]>): string {
+  if (p.unitMismatch) return `previous ${p.value} ${p.unit} on ${p.date} (different unit, not comparable)`
+  return `previous ${p.valueInLatestUnit ?? p.value} ${l.unit} on ${p.date}${p.direction === "flat" ? " (within normal variation)" : ""}`
 }
 
 export function formatReportDate(iso: string): string {
