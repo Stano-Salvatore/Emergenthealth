@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback } from "react"
-import { Timer, X, Play, Square, ChevronDown, Clock, Trash2, ExternalLink } from "lucide-react"
+import { Timer, Play, Square, ChevronDown, Clock, Trash2, ExternalLink } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface TogglEntry {
@@ -44,7 +44,6 @@ function elapsed(startIso: string): number {
 }
 
 export function TogglPanel() {
-  const [open, setOpen] = useState(false)
   const [state, setState] = useState<TogglState | null>(null)
   // The counter itself is never read — it exists so the once-a-second setTick
   // re-renders the running timer. Underscored to say that out loud.
@@ -145,47 +144,10 @@ export function TogglPanel() {
 
   return (
     <>
-      {/* Floating toggle button */}
-      <button
-        onClick={() => setOpen(o => !o)}
-        className={cn(
-          // Clear of the bottom nav, which only exists below lg. At bottom-6
-          // the button sat half behind it and could not be tapped.
-          "fixed bottom-20 lg:bottom-6 right-4 lg:right-6 z-40 h-12 w-12 rounded-full shadow-lg flex items-center justify-center transition-all duration-200",
-          isRunning
-            ? "bg-red-500 hover:bg-red-600 shadow-red-500/40"
-            : "bg-primary hover:bg-primary/90 shadow-primary/40",
-          "shadow-xl"
-        )}
-        title="Toggl Timer"
-      >
-        {isRunning ? (
-          <div className="relative flex items-center justify-center">
-            <span className="absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-60 animate-ping" />
-            <Timer className="h-5 w-5 text-white relative" />
-          </div>
-        ) : (
-          <Timer className="h-5 w-5 text-white" />
-        )}
-      </button>
-
-      {/* Backdrop */}
-      {open && (
-        <div
-          className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm"
-          onClick={() => setOpen(false)}
-        />
-      )}
-
-      {/* Slide-in panel */}
-      <div
-        style={{ paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
-        className={cn(
-          "fixed top-0 right-0 z-50 h-screen w-80 flex flex-col border-l border-border shadow-2xl transition-transform duration-300 ease-out",
-          "bg-card",
-          open ? "translate-x-0" : "translate-x-full"
-        )}
-      >
+      {/* In place on its page. It was a floating button and a drawer, mounted
+          only here, under copy promising it on every screen — so on any other
+          page the bottom-right corner the user was sent to held nothing. */}
+      <div className="relative w-full max-w-md flex flex-col rounded-2xl border border-border bg-card">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2">
@@ -194,12 +156,14 @@ export function TogglPanel() {
             </div>
             <span className="font-semibold text-sm">Toggl Track</span>
           </div>
-          <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground transition-colors">
-            <X className="h-4 w-4" />
-          </button>
+          {isRunning && (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-red-400">
+              <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" /> Running
+            </span>
+          )}
         </div>
 
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div>
           {/* Not connected */}
           {state && !state.connected && (
             <div className="p-4 space-y-4">

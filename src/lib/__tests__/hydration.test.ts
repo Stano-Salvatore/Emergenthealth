@@ -1,5 +1,46 @@
 import { describe, it, expect } from "vitest"
-import { hydrationMl, sumHydration, hydrationBreakdown, HYDRATING_TYPES } from "@/lib/hydration"
+import { hydrationMl, sumHydration, hydrationBreakdown, resolveWaterGoal, HYDRATING_TYPES } from "@/lib/hydration"
+import { readFileSync } from "node:fs"
+
+const code = (f: string) =>
+  readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ")
+
+describe("one water total, one goal, on every screen", () => {
+  // Settings goal 3000 ml, no check-in, 1500 ml water plus 750 ml coffee:
+  // Home said "1.5L, 1500ml to go" (water only, Settings goal); the Log tab's
+  // card said 1500/2000 over a trend bar that was full (all fluid, hard-coded
+  // 2 L); the Overview tab and Emergy said 2250 of 3000. One day, three answers.
+  it("today's check-in answer wins, Settings otherwise", () => {
+    expect(resolveWaterGoal(2500, 3000)).toBe(2500)
+    expect(resolveWaterGoal(null, 3000)).toBe(3000)
+    expect(resolveWaterGoal(undefined, 3000)).toBe(3000)
+  })
+
+  it("an unreadable check-in value is no answer", () => {
+    expect(resolveWaterGoal(0, 3000)).toBe(3000)
+    expect(resolveWaterGoal(Number.NaN, 3000)).toBe(3000)
+  })
+
+  it("Home counts every drink, against the resolved goal", () => {
+    const home = code("src/app/dashboard/page.tsx")
+    expect(home, "water only").not.toMatch(/waterMl\s*=\s*sumIntake\("water"\)/)
+    expect(home).toMatch(/sumHydration\(todayIntake\)/)
+    expect(home).toMatch(/resolveWaterGoal\(/)
+  })
+
+  it("the Log tab's card uses the trend's rule and Settings' goal", () => {
+    const log = code("src/app/dashboard/intake/page.tsx")
+    expect(log).toMatch(/sumHydration\(logs\)/)
+    expect(log).toMatch(/\/api\/goals/)
+    expect(log).toMatch(/resolveWaterGoal\(/)
+    expect(log, "the card measured water alone").not.toMatch(/label="Water" value=\{waterTotal\}/)
+  })
+
+  it("the Overview tab and /api/today resolve it the same way", () => {
+    expect(code("src/components/intake/OverviewTab.tsx")).toMatch(/resolveWaterGoal\(/)
+    expect(code("src/app/api/today/route.ts")).toMatch(/resolveWaterGoal\(/)
+  })
+})
 
 describe("hydrationMl", () => {
   it("counts caffeinated drinks as fluid — the bug this fixes", () => {

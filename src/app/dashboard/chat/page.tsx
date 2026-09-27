@@ -16,15 +16,19 @@ import { ChatMarkdown } from "@/components/emergy/ChatMarkdown"
 import { SourceTrail, ThinkingLine, ToolActivity } from "@/components/emergy/SourceTrail"
 import type { SourceChip } from "@/lib/chat-sources"
 import { resyncNotifications } from "@/lib/native/notifications"
+import { freshConversation, replyLanded, todaysThread, type TurnToFind } from "@/lib/chat-thread"
 
 // An error we already have a human sentence for — shown to the user verbatim
-// instead of the generic fallback.
+// instead of the generic fallback. Thrown only where no server turn is left
+// running, so the note can honestly invite another try.
 class ChatError extends Error {}
 
 interface Message {
   id?: string
   role: "user" | "assistant"
   content: string
+  /** When it was sent — the server stamps turns that follow a long gap. */
+  createdAt?: string
   streaming?: boolean
   /** What he read to answer — only ever set from the server's own accounting. */
   sources?: SourceChip[]
@@ -32,6 +36,33 @@ interface Message {
   activeTool?: string
   /** His summarised reasoning so far this turn, while there is no text yet. */
   thought?: string
+  /** This screen's handle on a bubble it is streaming into; stored rows have none. */
+  localId?: string
+  /** The stream died but the server is still finishing the turn. */
+  pending?: boolean
+}
+
+/** A turn whose stream has not seen [DONE], as the catch-up poll needs it. */
+interface PendingTurn extends TurnToFind {
+  seq: number
+  localId: string
+  conversationId: string | null
+  startedAt: number
+}
+
+// Past the route's maxDuration, so a turn still running when the poll starts
+// has finished (or died) by the time it gives up.
+const CATCH_UP_ATTEMPTS = 52
+const CATCH_UP_EVERY_MS = 2_500
+
+const STILL_FINISHING = "_Still finishing this in the background — the reply will appear here._"
+// A request that never got a response may not have reached the server at all
+// (sent offline), so it cannot promise a reply is on its way.
+const MAYBE_NOT_SENT = "_Lost the connection — checking whether this reached me…_"
+const COULD_NOT_CONFIRM = "_Couldn't confirm it finished — check your log before resending._"
+
+function withNote(content: string, note: string): string {
+  return content ? `${content}\n\n${note}` : note
 }
 
 interface Conversation {
@@ -135,8 +166,12 @@ function MessageBubble({ msg, emergyState, onRetry }: { msg: Message; emergyStat
 
 /** Tools that change something, and so can change how Emergy is feeling. */
 const WRITES = /^(log_|create_|complete_|skip_|write_|correct_|delete_|remember$)/
-/** Tools that change what the phone should be ringing about. */
-const REMINDER_TOOLS = /^(create_reminder|complete_reminder|create_med_schedule|create_habit)$/
+/**
+ * Tools that change what the phone should be ringing about: reminders, habit
+ * alarms (a skipped or done habit stops ringing today), event alerts, the
+ * evening intention question, and med alarms (which count today's doses).
+ */
+const REMINDER_TOOLS = /^(create_reminder|complete_reminder|create_med_schedule|create_habit|skip_habit_today|complete_habit_today|create_event|log_morning_checkin|close_intention|log_dose|delete_log|correct_log)$/
 
 function safeChips(raw: string): SourceChip[] | undefined {
   try {
@@ -183,6 +218,16 @@ export default function ChatPage() {
   // dictation from it — but it needs to call the CURRENT sendMessage, which is
   // redeclared every render. A ref is the join: stable identity, live target.
   const sendRef = useRef<((text: string) => void) | null>(null)
+  // A turn whose stream never finished cleanly. The server keeps running it
+  // (see /api/chat — the turn is kept alive past the response), so when the
+  // app comes back to the foreground the transcript is the truth, not the
+  // half-streamed bubble this screen was left holding.
+  const pendingTurn = useRef<PendingTurn | null>(null)
+  // Bumped by every send. A poll or a stream belonging to an older turn
+  // checks it and keeps its hands off the screen and the composer.
+  const turnSeq = useRef(0)
+  // The turn a catch-up loop is already running for; one loop per turn.
+  const polling = useRef<number | null>(null)
 
   // This page had its own copy of the browser SpeechRecognition API, which does
   // not exist inside an Android WebView — so in the app the mic button hit
@@ -318,11 +363,8 @@ export default function ChatPage() {
       if (!r.ok) return
       const list: Conversation[] = await r.json()
       setConversations(list)
-      const newest = list[0]
-      if (!newest || newest.id === "legacy") return
-      if (new Date(newest.updatedAt).toDateString() === new Date().toDateString()) {
-        void openConversation(newest.id)
-      }
+      const today = todaysThread(list)
+      if (today) void openConversation(today)
     }).catch(() => {})
   // Once, for the URL the page was opened with. openConversation is redefined
   // every render and depending on it would reopen the thread on each one,
@@ -364,6 +406,71 @@ export default function ChatPage() {
     }
   }, [messages])
 
+  // "log the goulash", pocket the phone. Locking the screen kills this page's
+  // stream, but the server finishes the turn on its own — so poll the
+  // transcript until THIS turn's reply lands (the turn may still be running)
+  // and replace whatever half-streamed state was left behind. Runs only while
+  // the page is visible; the visibility listener below resumes it.
+  const catchUp = useCallback(async () => {
+    const turn = pendingTurn.current
+    if (!turn || polling.current === turn.seq) return
+    polling.current = turn.seq
+    const stale = () => pendingTurn.current !== turn || turnSeq.current !== turn.seq
+    try {
+      for (let attempt = 0; attempt < CATCH_UP_ATTEMPTS; attempt++) {
+        if (stale() || document.visibilityState !== "visible") return
+        try {
+          let id = turn.conversationId
+          if (!id) {
+            const r = await fetch("/api/chat/conversations")
+            id = r.ok ? freshConversation(await r.json(), turn.startedAt) : null
+          }
+          if (id) {
+            const res = await fetch(`/api/chat?conversation=${encodeURIComponent(id)}`)
+            if (res.ok) {
+              const rows: (Omit<Message, "sources"> & { sources?: string | null })[] = await res.json()
+              if (stale()) return
+              if (replyLanded(rows, turn)) {
+                pendingTurn.current = null
+                setConversationId(id)
+                setMessages(rows.map(row => ({
+                  ...row,
+                  sources: row.sources ? safeChips(row.sources) : undefined,
+                })))
+                setSending(false)
+                refreshConversations()
+                // The tools that ran are unknown from here; both are cheap.
+                void refreshEmergy()
+                void resyncNotifications().catch(() => {})
+                return
+              }
+            }
+          }
+        } catch { /* offline for a moment — the next attempt will see */ }
+        await new Promise(r => setTimeout(r, CATCH_UP_EVERY_MS))
+      }
+      if (stale()) return
+      // The turn stays pending, so the next foreground still looks for it —
+      // but the user gets the composer back, told not to resend blind.
+      setMessages(m => m.map(msg => msg.localId === turn.localId
+        ? { ...msg, content: msg.content.replace(STILL_FINISHING, COULD_NOT_CONFIRM).replace(MAYBE_NOT_SENT, COULD_NOT_CONFIRM), pending: false }
+        : msg))
+      setSending(false)
+    } finally {
+      if (polling.current === turn.seq) polling.current = null
+    }
+  }, [refreshConversations])
+
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible" && pendingTurn.current) void catchUp() }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      // A poll outliving the page must not write into the next one.
+      pendingTurn.current = null
+      document.removeEventListener("visibilitychange", onVisible)
+    }
+  }, [catchUp])
+
   // Tapping anywhere outside the panel (or pressing Escape) closes it — the X
   // was previously the only way out.
   useEffect(() => {
@@ -382,6 +489,9 @@ export default function ChatPage() {
 
   function newChat() {
     if (sending) return
+    // Moving on from a turn left unconfirmed: its reply stays in that
+    // thread's transcript, and must not be swapped onto this screen later.
+    pendingTurn.current = null
     setMessages([])
     setConversationId(null)
     setHistoryOpen(false)
@@ -390,6 +500,7 @@ export default function ChatPage() {
 
   async function openConversation(id: string) {
     if (sending) return
+    pendingTurn.current = null
     setHistoryOpen(false)
     const res = await fetch(`/api/chat?conversation=${encodeURIComponent(id)}`)
     if (!res.ok) return
@@ -418,15 +529,40 @@ export default function ChatPage() {
     const text = (overrideText ?? input).trim()
     if (!text || sending) return
 
-    const userMsg: Message = { role: "user", content: overrideText ?? text }
+    const userMsg: Message = { role: "user", content: overrideText ?? text, createdAt: new Date().toISOString() }
     setMessages((m) => [...m, userMsg])
     if (!overrideText) setInput("")
     setSending(true)
 
-    const history = messages.map((m) => ({ role: m.role, content: m.content }))
+    const history = messages.map((m) => ({ role: m.role, content: m.content, at: m.createdAt }))
 
-    const assistantMsg: Message = { role: "assistant", content: "", streaming: true }
+    const myTurn = ++turnSeq.current
+    const localId = `turn-${myTurn}`
+    const assistantMsg: Message = { role: "assistant", content: "", streaming: true, localId, createdAt: new Date().toISOString() }
     setMessages((m) => [...m, assistantMsg])
+    // Every update goes to this turn's own bubble. "Whichever bubble is last"
+    // was a different one once the catch-up swapped the transcript in, and
+    // the words of one answer streamed onto the end of another.
+    const patch = (fn: (msg: Message) => Message) =>
+      setMessages((m) => m.map((msg) => (msg.localId === localId ? fn(msg) : msg)))
+
+    // From here the server owns the turn; if this screen never sees [DONE]
+    // (locked phone, dropped connection), the catch-up poll reconciles from
+    // the transcript.
+    // A turn sent from the legacy bucket lands in a new conversation.
+    const threadId = conversationId === "legacy" ? null : conversationId
+    const turn: PendingTurn = {
+      seq: myTurn,
+      localId,
+      text,
+      conversationId: threadId,
+      newThread: !threadId,
+      userRowId: null,
+      seenBefore: messages.filter((m) => m.role === "user" && m.content.trim() === text).length,
+      startedAt: Date.now(),
+    }
+    pendingTurn.current = turn
+    let responded = false
 
     try {
       const res = await fetch("/api/chat", {
@@ -434,6 +570,7 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, history, conversationId }),
       })
+      responded = true
 
       // Error replies are plain JSON, not a stream. Without this check the
       // parser below finds no "data:" lines, falls out of the loop silently and
@@ -462,6 +599,7 @@ export default function ChatPage() {
       const decoder = new TextDecoder()
       let buffer = ""
       let received = false
+      let sawDone = false
       let wroteSomething = false
       // An alarm he set is a row on the server; the thing that actually rings
       // is a notification scheduled on THIS phone. Every other way of making a
@@ -484,11 +622,9 @@ export default function ChatPage() {
           if (!line.startsWith("data: ")) continue
           const data = line.slice(6)
           if (data === "[DONE]") {
-            setMessages((m) =>
-              m.map((msg, i) =>
-                i === m.length - 1 ? { ...msg, streaming: false, activeTool: undefined } : msg
-              )
-            )
+            sawDone = true
+            if (pendingTurn.current === turn) pendingTurn.current = null
+            patch((msg) => ({ ...msg, streaming: false, activeTool: undefined }))
             break
           }
           try {
@@ -497,44 +633,33 @@ export default function ChatPage() {
             // he just reached for, and — once he is done — what he read to
             // answer. Only the words are part of the message itself.
             if (parsed.conversationId) {
-              setConversationId(parsed.conversationId)
+              turn.conversationId = parsed.conversationId
+              if (typeof parsed.userMessageId === "string") turn.userRowId = parsed.userMessageId
+              if (turnSeq.current === myTurn) setConversationId(parsed.conversationId)
             } else if (parsed.type === "text" && parsed.text) {
               received = true
               spoken += parsed.text
-              setMessages((m) =>
-                m.map((msg, i) =>
-                  // Text resuming means the tool has come back: drop the
-                  // activity row rather than leaving it up beside live output.
-                  i === m.length - 1
-                    ? { ...msg, content: msg.content + parsed.text, activeTool: undefined, thought: undefined }
-                    : msg
-                )
-              )
+              // Text resuming means the tool has come back: drop the activity
+              // row rather than leaving it up beside live output.
+              patch((msg) => ({ ...msg, content: msg.content + parsed.text, activeTool: undefined, thought: undefined }))
             } else if (parsed.type === "thinking" && parsed.text) {
               // A tool that has returned is no longer the wait; the thought
               // is. Kept to a tail so a long reasoning block costs nothing.
-              setMessages((m) =>
-                m.map((msg, i) =>
-                  i === m.length - 1
-                    ? { ...msg, activeTool: undefined, thought: ((msg.thought ?? "") + parsed.text).slice(-600) }
-                    : msg
-                )
-              )
+              patch((msg) => ({ ...msg, activeTool: undefined, thought: ((msg.thought ?? "") + parsed.text).slice(-600) }))
             } else if (parsed.type === "tool") {
               if (WRITES.test(parsed.name)) wroteSomething = true
               if (REMINDER_TOOLS.test(parsed.name)) touchedReminders = true
-              setMessages((m) =>
-                m.map((msg, i) => (i === m.length - 1 ? { ...msg, activeTool: parsed.name } : msg))
-              )
+              patch((msg) => ({ ...msg, activeTool: parsed.name }))
             } else if (parsed.type === "sources") {
-              setMessages((m) =>
-                m.map((msg, i) => (i === m.length - 1 ? { ...msg, sources: parsed.chips } : msg))
-              )
+              patch((msg) => ({ ...msg, sources: parsed.chips }))
             }
           } catch {}
         }
       }
-      // A stream that ended without a single token would also leave a blank
+      // A stream that closed without [DONE] was cut, not finished — the
+      // server may still be writing the rest.
+      if (!sawDone) throw new Error("stream ended before [DONE]")
+      // A finished turn without a single token would also leave a blank
       // bubble — say something instead.
       if (!received) throw new ChatError("I went quiet there, sorry — ask me again?")
       // Only the finished reply is read aloud: speaking each token as it
@@ -548,20 +673,35 @@ export default function ChatPage() {
       // Put the new alarm on the phone's own schedule. No-op on the web.
       if (touchedReminders) void resyncNotifications().catch(() => {})
     } catch (err) {
-      const note = err instanceof ChatError
-        ? err.message
-        : "Sorry, something went wrong. Please try again."
-      setMessages((m) =>
-        m.map((msg, i) => {
-          if (i !== m.length - 1) return msg
-          // If the connection dropped mid-answer, keep what he already said
-          // and add the note rather than throwing the reply away.
-          const content = msg.content ? `${msg.content}\n\n_${note}_` : note
-          return { ...msg, content, streaming: false }
-        })
-      )
+      if (err instanceof ChatError) {
+        if (pendingTurn.current === turn) pendingTurn.current = null
+        // If the connection dropped mid-answer, keep what he already said
+        // and add the note rather than throwing the reply away.
+        patch((msg) => ({
+          ...msg,
+          content: msg.content ? `${msg.content}\n\n_${err.message}_` : err.message,
+          streaming: false,
+          activeTool: undefined,
+        }))
+      } else {
+        // The stream died, not the turn: the server finishes it regardless.
+        // "Something went wrong, try again" here invited a Retry that ran
+        // the tools a second time — two goulash rows, 1300 kcal.
+        if (pendingTurn.current?.seq !== myTurn) return
+        patch((msg) => ({
+          ...msg,
+          content: withNote(msg.content, responded ? STILL_FINISHING : MAYBE_NOT_SENT),
+          streaming: false,
+          activeTool: undefined,
+          thought: undefined,
+          pending: true,
+        }))
+        void catchUp()
+      }
     } finally {
-      setSending(false)
+      // The composer stays locked while the server may still be running this
+      // turn; the catch-up hands it back.
+      if (turnSeq.current === myTurn && pendingTurn.current?.seq !== myTurn) setSending(false)
     }
   }
 
@@ -749,8 +889,10 @@ export default function ChatPage() {
               msg={msg}
               emergyState={emergyState}
               // Only the newest reply can be retried — replaying an older one
-              // would silently throw away everything said after it.
-              onRetry={msg.role === "assistant" && i === messages.length - 1 ? () => retryFrom(i) : undefined}
+              // would silently throw away everything said after it. Nor one
+              // the server is still finishing: asking again would run its
+              // tools twice.
+              onRetry={msg.role === "assistant" && i === messages.length - 1 && !msg.pending ? () => retryFrom(i) : undefined}
             />
           ))
         )}

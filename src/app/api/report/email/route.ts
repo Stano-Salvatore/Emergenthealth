@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { buildHealthReport } from "@/lib/health-report"
 import { renderReportEmail, reportSubject } from "@/lib/health-report-email"
-import { EMAIL_FROM, describeMailFailure, logMailFailure } from "@/lib/email"
+import { EMAIL_FROM, describeMailFailure, logMailFailure, sendMail } from "@/lib/email"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await new Resend(process.env.RESEND_API_KEY).emails.send({
+    await sendMail(new Resend(process.env.RESEND_API_KEY), {
       from: EMAIL_FROM,
       to: user.email,
       subject: reportSubject(report),

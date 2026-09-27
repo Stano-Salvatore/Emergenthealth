@@ -24,7 +24,7 @@ const FILES = [
   "src/lib/claude.ts",
   "src/app/dashboard/page.tsx",
   "src/app/api/stats/route.ts",
-  "src/app/api/body-load/route.ts",
+  "src/lib/body-load-now.ts",
   "src/lib/quick-answer-run.ts",
 ]
 
@@ -70,8 +70,9 @@ describe("a dose is grams of ethanol, not millilitres", () => {
   it("reads the strength off the note when the log carries one", () => {
     // Real notes from this account: "Beer 4.8%", "Beer 12° (4.8%)".
     expect(ethanolGrams("beer", 500, "Beer 4.8%")).toBeCloseTo(500 * 0.048 * 0.789, 3)
-    // Degrees are Plato, not ABV — no percent sign, so the type's ABV stands.
-    expect(ethanolGrams("beer", 500, "13°")).toBeCloseTo(500 * 0.05 * 0.789, 3)
+    // Degrees on a beer are Plato, not ABV: 13° is read as ≈5.5%, not as 13%
+    // and not as the 5% every beer used to be.
+    expect(ethanolGrams("beer", 500, "13°")).toBeCloseTo(500 * 0.0546 * 0.789, 3)
   })
 
   it("separates the same volume of two different drinks", () => {

@@ -16,6 +16,7 @@ import { AlcoholCurveCard } from "./AlcoholCurveCard"
 // where the API builds these. Two declarations of one shape drift, and this
 // pair had: the server grew fields the client's copy did not know about.
 import type { ActiveSubstance } from "@/lib/body-load"
+import type { UnmodeledDose } from "@/lib/body-load-now"
 
 const KIND_COLOR: Record<ActiveSubstance["kind"], string> = {
   caffeine: "bg-amber-500",
@@ -47,6 +48,7 @@ function progress(s: ActiveSubstance): number {
 
 export function BodyLoadTab() {
   const [substances, setSubstances] = useState<ActiveSubstance[]>([])
+  const [unmodeled, setUnmodeled] = useState<UnmodeledDose[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -57,6 +59,7 @@ export function BodyLoadTab() {
       if (res.ok) {
         const d = await res.json()
         setSubstances(d.substances ?? [])
+        setUnmodeled(d.unmodeled ?? [])
       }
     } catch { /* keep what's on screen */ }
     finally { setLoading(false); setRefreshing(false) }
@@ -85,9 +88,12 @@ export function BodyLoadTab() {
   // caffeine, and a logged or deleted dose refreshes the circulating list too.
   const caf = useCaffeine(() => load(true))
 
-  const bedH = hoursToBedtime()
+  // The ring's median bedtime, the one the caffeine card above uses; 23:00
+  // until there are enough nights for one.
+  const bedH = hoursToBedtime(new Date(), caf.data.bedtimeMin)
+  const bedLabel = caf.data.bedtime ?? "23:00"
   const alcohol = substances.find(s => s.kind === "alcohol")
-  // What's still on board at 23:00 — the question that actually changes a decision
+  // What's still on board at bedtime — the question that actually changes a decision
   const atBedtime = substances.filter(s => {
     if (!s.clearsAt) return false
     return (new Date(s.clearsAt).getTime() - Date.now()) / 3_600_000 > bedH
@@ -116,14 +122,16 @@ export function BodyLoadTab() {
           clearanceGPerH={alcohol.clearanceGPerH}
           distributionKg={alcohol.distributionKg}
           bedH={bedH}
-          bedLabel="23:00"
+          bedLabel={bedLabel}
         />
       )}
 
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           {substances.length === 0
-            ? "Nothing measurable circulating right now."
+            ? unmodeled.length === 0
+              ? "Nothing measurable circulating right now."
+              : "Nothing the app can measure — but see below."
             : `${substances.length} substance${substances.length === 1 ? "" : "s"} still working through you.`}
         </p>
         <button
@@ -134,7 +142,25 @@ export function BodyLoadTab() {
         </button>
       </div>
 
-      {substances.length === 0 ? (
+      {/* A dose the app has no half-life for may well still be working. Left
+          out, the screen said "Clear right now" an hour after a sleeping pill. */}
+      {unmodeled.length > 0 && (
+        <Card className="border-dashed">
+          <CardContent className="pt-3 pb-3 space-y-1">
+            {unmodeled.map(u => (
+              <p key={u.name} className="text-sm">
+                <span className="mr-1.5">💊</span>{u.name}
+                <span className="text-xs text-muted-foreground">, taken {clock(u.takenAt)} ({agoLabel(u.takenAt)}), no half-life on file</span>
+              </p>
+            ))}
+            <p className="text-[10px] text-muted-foreground/60">
+              How much is left can&apos;t be worked out without one, so it isn&apos;t counted as gone.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {substances.length === 0 && unmodeled.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="pt-8 pb-8 text-center space-y-2">
             <p className="text-4xl">🫀</p>
@@ -144,7 +170,7 @@ export function BodyLoadTab() {
             </p>
           </CardContent>
         </Card>
-      ) : (
+      ) : substances.length > 0 && (
         <div className="space-y-2.5">
           {substances.map(s => (
             <Card key={`${s.kind}:${s.name}`} className="border-border">
@@ -154,7 +180,9 @@ export function BodyLoadTab() {
                     <span className="mr-1.5">{s.emoji}</span>{s.name}
                   </p>
                   <p className="text-sm font-black">
-                    {s.unit === "%" ? `${s.amount}%` : s.unit === "g" ? `${s.amount} drinks` : `${s.amount} mg`}
+                    {s.unit === "%"
+                      ? s.amount > 100 ? `≈${(s.amount / 100).toFixed(1)} doses` : `${s.amount}%`
+                      : s.unit === "g" ? `${s.amount} drinks` : `${s.amount} mg`}
                     <span className="text-[10px] font-medium text-muted-foreground ml-1">left</span>
                   </p>
                 </div>
@@ -230,7 +258,7 @@ export function BodyLoadTab() {
                   style={{ left: `${(bedH / 24) * 100}%` }}
                 >
                   <div className="w-px h-2 bg-muted-foreground/40" />
-                  <span className="text-[9px] text-muted-foreground/70 whitespace-nowrap">🌙 23:00</span>
+                  <span className="text-[9px] text-muted-foreground/70 whitespace-nowrap">🌙 {bedLabel}</span>
                 </div>
               )}
             </div>
@@ -244,7 +272,7 @@ export function BodyLoadTab() {
       {atBedtime.length > 0 && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-3.5 py-2.5">
           <p className="text-xs text-amber-400">
-            🌙 Still with you at 23:00: {atBedtime.map(s => s.name).join(", ")}
+            🌙 Still with you at {bedLabel}: {atBedtime.map(s => s.name).join(", ")}
             {atBedtime.length > 1 && " — sedating substances stack, and so do their effects on sleep stages"}
           </p>
         </div>

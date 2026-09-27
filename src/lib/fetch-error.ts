@@ -23,6 +23,17 @@ function knownOffline(): boolean {
 }
 
 /**
+ * A response arrived and was not a 2xx. fetch() resolves on those, so a
+ * handler that wants the catch to cover them throws this.
+ */
+export class HttpStatusError extends Error {
+  constructor(readonly status: number) {
+    super(`HTTP ${status}`)
+    this.name = "HttpStatusError"
+  }
+}
+
+/**
  * An honest one-liner for a failed request, ending in what to do next.
  *
  * `offline` is injectable so this is testable without a browser; leave it
@@ -31,6 +42,12 @@ function knownOffline(): boolean {
 export function describeFetchFailure(error: unknown, offline = knownOffline()): string {
   if (offline) {
     return "You're offline — this needs a connection."
+  }
+  if (error instanceof HttpStatusError) {
+    // The server answered, so the connection is not the story.
+    if (error.status === 401) return "You're signed out — sign in again, then try again."
+    if (error.status >= 500) return "The server errored, so it may not have saved. Try again in a minute."
+    return "The server refused that. Try again, or reload the page."
   }
   if (error instanceof TypeError) {
     // fetch itself rejected: DNS, TLS, a dropped connection, a blocked

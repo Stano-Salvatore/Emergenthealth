@@ -5,9 +5,10 @@ import { Card, CardContent } from "@/components/ui/card"
 import { RefreshCw, Search, Pencil, CalendarDays, Tag, X } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
-import { formatDose, parseDose } from "@/lib/dose"
+import { formatDose, parseDose, parseDoseEdit } from "@/lib/dose"
 import { supplementInfoFor, fractionRemaining, PHARMA_DISCLAIMER } from "@/lib/supplement-info"
 import { MedScheduleCard } from "@/components/medications/MedScheduleCard"
+import { resyncNotifications } from "@/lib/native/notifications"
 
 interface TagItem {
   id: string
@@ -148,15 +149,14 @@ function MedEntryControls({ entry, onChanged, compact = false }: {
   /** An empty value clears the dose back to unknown, which is honest — zero
    *  would claim they took nothing. */
   function saveDose(raw: string) {
-    const trimmed = raw.trim()
-    const parsed = trimmed ? Number(trimmed.replace(",", ".")) : null
-    if (trimmed && (!Number.isFinite(parsed) || (parsed ?? 0) <= 0)) {
-      setError("A dose needs a positive number.")
+    const read = parseDoseEdit(raw, entry.doseUnit)
+    if ("error" in read) {
+      setError(read.error)
       setEditingDose(false)
       return
     }
     void patch(
-      { doseAmount: parsed, doseUnit: parsed == null ? null : (entry.doseUnit ?? "tablet") },
+      { doseAmount: read.dose?.amount ?? null, doseUnit: read.dose?.unit ?? null },
       "Couldn't change the dose — try again.",
     )
   }
@@ -210,10 +210,12 @@ function MedEntryControls({ entry, onChanged, compact = false }: {
       {editingDose ? (
         <input
           type="text"
-          inputMode="decimal"
+          // A dose with no unit yet has to be typed with one ("400mg", "½"),
+          // which a phone's number pad cannot write.
+          inputMode={entry.doseUnit === "mg" || entry.doseUnit === "tablet" ? "decimal" : "text"}
           autoFocus
           defaultValue={entry.doseAmount != null ? String(entry.doseAmount) : ""}
-          placeholder={entry.doseUnit === "mg" ? "mg" : "tablets"}
+          placeholder={entry.doseUnit === "mg" ? "mg" : entry.doseUnit === "tablet" ? "tablets" : "400mg, ½"}
           aria-label="Dose amount"
           onBlur={ev => saveDose(ev.target.value)}
           onKeyDown={ev => {
@@ -409,6 +411,10 @@ export default function MedicationsPage() {
 
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Today's doses decide which of the phone's later dose alarms still ring,
+  // so an edited or deleted one has to reach them.
+  const doseChanged = () => { load(); resyncNotifications().catch(() => {}) }
+
   async function logDose(name: string) {
     const clean = name.trim()
     if (!clean) return
@@ -442,6 +448,7 @@ export default function MedicationsPage() {
         setDoseTime("")
         setDoseAmount("")
         await load()
+        resyncNotifications().catch(() => {})
       } else {
         setError("Couldn't log that dose — try again.")
       }
@@ -788,7 +795,7 @@ export default function MedicationsPage() {
               key={group.key}
               group={group}
               onRename={startRename}
-              onChanged={load}
+              onChanged={doseChanged}
             />
           ))}
           <p className="text-[10px] text-muted-foreground/50 px-1 pt-1">{PHARMA_DISCLAIMER}</p>
@@ -857,7 +864,7 @@ export default function MedicationsPage() {
                                 )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0 mt-0.5 flex-wrap justify-end">
-                                <MedEntryControls entry={item} onChanged={load} />
+                                <MedEntryControls entry={item} onChanged={doseChanged} />
                               </div>
                             </CardContent>
                           </Card>

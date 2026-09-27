@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
+import { isHomeOwner } from "@/lib/home-owner"
 
 export async function GET() {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  // Google Nest is per-user (the caller's own SDM grant); everything after it
+  // logs in with the owner's credentials from the environment.
+  const owner = isHomeOwner(session.user.email)
 
   const results: {
     sdm?: unknown; ewelink?: unknown; tuya?: unknown; ewpe?: unknown; rowenta?: unknown
@@ -21,7 +25,7 @@ export async function GET() {
   }
 
   // ── eWeLink / Sonoff RF Bridge ────────────────────────────────────────────
-  if (process.env.EWELINK_EMAIL) {
+  if (owner && process.env.EWELINK_EMAIL) {
     try {
       const { getDevices } = await import("@/lib/ewelink")
       results.ewelink = await getDevices()
@@ -31,7 +35,7 @@ export async function GET() {
   }
 
   // ── Tuya / Smart Life ─────────────────────────────────────────────────────
-  if (process.env.TUYA_CLIENT_ID) {
+  if (owner && process.env.TUYA_CLIENT_ID) {
     try {
       const { getTuyaDevices } = await import("@/lib/tuya")
       results.tuya = await getTuyaDevices()
@@ -41,7 +45,7 @@ export async function GET() {
   }
 
   // ── EWPE Smart / Sinclair AC ─────────────────────────────────────────────
-  if (process.env.EWPE_EMAIL || process.env.EWPE_API_URL) {
+  if (owner && (process.env.EWPE_EMAIL || process.env.EWPE_API_URL)) {
     try {
       const { getAcDevices } = await import("@/lib/ewpe-smart")
       const { devices, loginError } = await getAcDevices()
@@ -54,7 +58,7 @@ export async function GET() {
 
   // ── Rowenta Vacuum (via bridge) ──────────────────────────────────────────────
   const bridgeUrl = process.env.EWPE_API_URL?.replace(/\/apiv2\/?$/, "") || process.env.BRIDGE_URL
-  if (bridgeUrl) {
+  if (owner && bridgeUrl) {
     try {
       const res = await fetch(`${bridgeUrl}/vacuum/status`, {
         signal: AbortSignal.timeout(8000),
@@ -66,7 +70,8 @@ export async function GET() {
     }
   }
 
-  if (!process.env.SDM_PROJECT_ID && !process.env.EWELINK_EMAIL && !process.env.TUYA_CLIENT_ID && !process.env.EWPE_EMAIL && !process.env.EWPE_API_URL) {
+  const ownerIntegrations = !!(process.env.EWELINK_EMAIL || process.env.TUYA_CLIENT_ID || process.env.EWPE_EMAIL || process.env.EWPE_API_URL)
+  if (!process.env.SDM_PROJECT_ID && !(owner && ownerIntegrations)) {
     return NextResponse.json({ error: "No home integrations configured" }, { status: 503 })
   }
 
@@ -78,6 +83,11 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
   const body = await req.json()
+
+  const ownerOnly = body.type === "ewelink_rf" || body.type === "tuya" || body.type === "ewpe"
+  if (ownerOnly && !isHomeOwner(session.user.email)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 })
+  }
 
   if (body.type === "ewelink_rf") {
     const { transmitRf } = await import("@/lib/ewelink")

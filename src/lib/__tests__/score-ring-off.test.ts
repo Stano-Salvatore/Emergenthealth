@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 
 // The daily score died with the ring. On a ring-off night sleep, recovery and
 // steps all read absent, coverage fell under the floor, and the home screen's
@@ -68,5 +68,42 @@ describe("the score survives a ring-off night", () => {
     // A metric with no reading today produces no part at all — absent, not zero.
     const duration = out.components.find(c => c.key === "sleep")?.parts.find(p => p.label === "Duration")
     expect(duration).toBeUndefined()
+  })
+})
+
+describe("today's running totals wait for the day to end", () => {
+  // 09:00 in Bratislava with 1,200 steps so far against a 9,000 median: the
+  // loader handed the partial count to the scorer as if the day were over,
+  // and the home screen called every morning a Movement collapse.
+  const withSteps = (day: string, steps: number) => {
+    const rows: unknown[] = ringHistory().map((r, i) => ({
+      ...(r as object), steps: 9000 + [1500, -1500, 0][i % 3], activeMinutes: 40 + [10, -10, 0][i % 3],
+    }))
+    rows.push({
+      date: new Date(day + "T00:00:00Z"), sleepScore: 78, sleepDuration: 430, deepSleep: 60,
+      readinessScore: 72, hrv: 55, restingHR: 54, steps, activeMinutes: 5, stressHigh: null,
+    })
+    return rows
+  }
+
+  beforeEach(() => { db.nights = [] })
+  afterEach(() => { vi.useRealTimers() })
+
+  it("the user's current day is scored without steps and active minutes", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-09-25T07:00:00Z"))
+    db.health = withSteps(DAY, 1200)
+    const out = await loadDailyScore("u1")
+    expect(out.date).toBe(DAY)
+    expect(out.components.find(c => c.key === "activity")?.score).toBeNull()
+    expect(out.driver?.label).not.toBe("Movement")
+  })
+
+  it("a finished day asked for by date keeps them", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-09-27T07:00:00Z"))
+    db.health = withSteps(DAY, 1200)
+    const out = await loadDailyScore("u1", DAY)
+    expect(out.components.find(c => c.key === "activity")?.score).toBeLessThan(15)
   })
 })

@@ -33,6 +33,11 @@ export async function GET() {
   const timezone = await getUserTimezone(userId)
   const todayStr = localDateStr(timezone)
   const today = zonedDayRange(timezone, todayStr).start
+  // The @db.Date form of today. The driver keeps only the UTC date of the
+  // instant it is handed, and `today` above is local midnight — 22:00Z the
+  // evening before in Prague — so it matched yesterday's rows: "Sleep logged"
+  // ticked every morning before the ring had synced anything.
+  const todayCol = new Date(todayStr + "T00:00:00Z")
 
   // A weekly-target habit is "due" by the week's other days, so the
   // schedule needs the recent completions, not just today's.
@@ -62,11 +67,11 @@ export async function GET() {
     // "Log your mood" all day under a check-in quest that had just reported
     // "Energy & mood logged" — the same card contradicting itself.
     loadMoodByDay(userId, todayStr, todayStr),
-    prisma.healthLog.findFirst({ where: { userId, date: { gte: today } }, select: { id: true } }),
+    prisma.healthLog.findFirst({ where: { userId, date: { gte: todayCol } }, select: { id: true } }),
     // DailyNote.date is a Date column: passing the "YYYY-MM-DD" string threw
     // "premature end of input. Expected ISO-8601 DateTime" on every request,
     // so the journal quest never reported as done.
-    prisma.dailyNote.findFirst({ where: { userId, date: { gte: today } }, select: { id: true } }),
+    prisma.dailyNote.findFirst({ where: { userId, date: { gte: todayCol } }, select: { id: true } }),
     prisma.focusSession.findFirst({ where: { userId, type: "focus", startedAt: { gte: today } }, select: { id: true } }),
     // Both weight tables: the Body page's form writes BodyMeasurement, and
     // "Last logged never" was what a year of those looked like from here.

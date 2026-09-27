@@ -12,6 +12,7 @@ import {
 import { EmergyAvatar } from "./EmergyAvatar"
 import { ChatMarkdown } from "./ChatMarkdown"
 import { useEmergy } from "@/lib/emergy-store"
+import { todaysThread } from "@/lib/chat-thread"
 
 interface ChatMessage {
   id: string
@@ -39,6 +40,14 @@ export function EmergyPanel() {
   const [brief, setBrief] = useState<string | null>(null)
   const [briefLoading, setBriefLoading] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  // The thread this panel is talking in — today's, the same one the chat page
+  // resumes — so a follow-up reaches the model with what came before it.
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  // Bumped by every send, so a thread load that lands after the user has
+  // sent something — or while a reply is still streaming — does not replace
+  // what is on screen.
+  const sendCount = useRef(0)
+  const inFlight = useRef(false)
   const [input, setInput] = useState("")
   const [sending, setSending] = useState(false)
   const [listening, setListening] = useState(false)
@@ -94,15 +103,34 @@ export function EmergyPanel() {
     if (open) setShowBubble(false)
   }, [open])
 
+  // Opens on today's thread, like the chat page. The unscoped GET this used to
+  // make returned the oldest rows ever saved, from every conversation mixed.
   useEffect(() => {
     if (!open) return
+    const sentAtOpen = sendCount.current
+    let cancelled = false
+    void (async () => {
+      try {
+        const r = await fetch("/api/chat/conversations")
+        if (!r.ok) return
+        const id = todaysThread(await r.json())
+        let rows: ChatMessage[] = []
+        if (id) {
+          const res = await fetch(`/api/chat?conversation=${encodeURIComponent(id)}`)
+          if (!res.ok) return
+          const data = await res.json()
+          rows = Array.isArray(data) ? data.slice(-50) : []
+        }
+        if (cancelled || inFlight.current || sendCount.current !== sentAtOpen) return
+        setMessages(rows)
+        setConversationId(id)
+      } catch {}
+    })()
+    return () => { cancelled = true }
+  }, [open])
 
-    fetch("/api/chat")
-      .then(r => r.json())
-      .then((data: ChatMessage[]) => {
-        if (Array.isArray(data)) setMessages(data.slice(-50))
-      })
-      .catch(() => {})
+  useEffect(() => {
+    if (!open) return
 
     // The same brief the dashboard card and the Brief page show. This panel
     // used to call a second endpoint with its own prompt and no cache, so the
@@ -213,6 +241,8 @@ export function EmergyPanel() {
     if ((!text && !pendingImage) || sending) return
     setInput("")
     setSending(true)
+    sendCount.current++
+    inFlight.current = true
 
     const sentImage = pendingImage
     setPendingImage(null)
@@ -221,10 +251,17 @@ export function EmergyPanel() {
       role: "user",
       content: text || (sentImage ? "📷 Photo" : ""),
     }
+    // What came before this message in this thread, as the chat page sends
+    // it. The server keeps the last twenty turns.
+    const history = messages
+      .filter(m => m.content)
+      .map(({ role, content }) => ({ role, content }))
     setMessages(prev => [...prev, userMsg])
 
     const assistantMsg: ChatMessage = { id: (Date.now() + 1).toString(), role: "assistant", content: "" }
     setMessages(prev => [...prev, assistantMsg])
+    const showReply = (content: string) =>
+      setMessages(prev => prev.map(m => (m.id === assistantMsg.id ? { ...m, content } : m)))
 
     let fullText = ""
     try {
@@ -233,42 +270,64 @@ export function EmergyPanel() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: text,
+          history,
+          conversationId,
           ...(sentImage ? { images: [{ mediaType: sentImage.mediaType, base64: sentImage.base64 }] } : {}),
         }),
       })
-      // Returning here used to skip the reset below, leaving the composer
-      // disabled until the panel was reopened.
-      if (!res.body) throw new Error("no stream")
+      // Error replies are plain JSON, not a stream.
+      if (!res.ok || !res.body) {
+        showReply(res.status === 429
+          ? "_That's a lot of questions — give me a little while and ask again._"
+          : "_I couldn't reach my brain just now — please try again in a moment._")
+        return
+      }
 
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
+      // One event can arrive split across two chunks; the unfinished tail
+      // waits for the rest instead of being parsed (and dropped) on its own.
+      let buffer = ""
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-        const chunk = decoder.decode(value, { stream: true })
-        for (const line of chunk.split("\n")) {
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+        for (const line of lines) {
           if (!line.startsWith("data: ")) continue
           const data = line.slice(6)
           if (data === "[DONE]") break
           try {
             const parsed = JSON.parse(data)
-            if (parsed.text) {
+            // Only his words belong in the bubble. Thinking events carry
+            // `text` too — his reasoning, which this used to print and read
+            // aloud as though it were the reply.
+            if (parsed.conversationId) {
+              setConversationId(parsed.conversationId)
+            } else if (parsed.type === "text" && parsed.text) {
               fullText += parsed.text
-              setMessages(prev => prev.map(m =>
-                m.id === assistantMsg.id ? { ...m, content: fullText } : m
-              ))
+              showReply(fullText)
             }
           } catch {}
         }
       }
-    } catch {}
-
-    setSending(false)
-    // Only the finished reply is spoken — reading each token as it streams
-    // would stutter and restart on every chunk.
-    if (autoSpeak && fullText.trim()) void speakReply(fullText)
-    inputRef.current?.focus()
+      if (!fullText.trim()) showReply("_I went quiet there, sorry — ask me again?_")
+    } catch {
+      // The server finishes the turn without an audience, so the reply cut
+      // off here usually lands in the transcript anyway.
+      showReply(fullText
+        ? `${fullText}\n\n_Lost the connection — open Chat to see how it ended._`
+        : "_Lost the connection — open Chat to see if I answered before asking again._")
+    } finally {
+      inFlight.current = false
+      setSending(false)
+      // Only the finished reply is spoken — reading each token as it streams
+      // would stutter and restart on every chunk.
+      if (autoSpeak && fullText.trim()) void speakReply(fullText)
+      inputRef.current?.focus()
+    }
   }
 
   useEffect(() => () => {

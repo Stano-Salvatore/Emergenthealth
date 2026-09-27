@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { plausibleHeartRate, plausibleHrv, plausibleSpo2 } from "@/lib/vitals"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { phoneFieldsRespectingRing, PRECEDENCE_SELECT } from "@/lib/health-precedence"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -41,8 +42,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No data" }, { status: 400 })
   }
 
-  const upserts = days
-    .filter(d => d.date && /^\d{4}-\d{2}-\d{2}$/.test(d.date))
+  const valid = days.filter(d => d.date && /^\d{4}-\d{2}-\d{2}$/.test(d.date))
+
+  // The ring wins where it speaks (lib/health-precedence). This route is the
+  // hourly writer, and it used to replace 30 days of ring values each time.
+  const existingRows = await prisma.healthLog.findMany({
+    where: { userId, date: { in: valid.map(d => new Date(d.date + "T00:00:00.000Z")) } },
+    select: { date: true, ...PRECEDENCE_SELECT },
+  })
+  const existingByDay = new Map(existingRows.map(r => [r.date.toISOString().slice(0, 10), r]))
+
+  const upserts = valid
     .map(d => {
       const date = new Date(d.date + "T00:00:00.000Z")
       const fields = {
@@ -62,12 +72,13 @@ export async function POST(req: NextRequest) {
         ...(d.caloriesBurned != null   && { caloriesBurned: d.caloriesBurned }),
         ...(d.totalCalories != null    && { totalCalories: d.totalCalories }),
         ...(d.activeMinutes != null    && { activeMinutes: d.activeMinutes }),
-        syncedAt: new Date(),
       }
+      const allowed = phoneFieldsRespectingRing(existingByDay.get(d.date) ?? null, fields)
+      const syncedAt = new Date()
       return prisma.healthLog.upsert({
         where: { userId_date: { userId, date } },
-        create: { userId, date, ...fields },
-        update: fields,
+        create: { userId, date, ...fields, syncedAt },
+        update: { ...allowed, syncedAt },
       })
     })
 

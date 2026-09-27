@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { RefreshCw } from "lucide-react"
+import { syncRequest } from "@/lib/sync-status"
 
 /**
  * Run every server-side sync now, then reload the card.
@@ -28,7 +29,10 @@ export function SyncNowButton({ sources }: { sources: string[] }) {
       onClick={async () => {
         setSyncing(true)
         try {
-          await Promise.allSettled(sources.map(id => fetch(`/api/sync/${id}`, { method: "POST" })))
+          await Promise.allSettled(sources.map(id => {
+            const { url, init } = syncRequest(id)
+            return fetch(url, init)
+          }))
         } finally {
           setSyncing(false)
           // Refresh regardless: a sync that failed still recorded that it

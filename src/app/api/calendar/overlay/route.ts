@@ -5,6 +5,7 @@ import { activeOn } from "@/lib/med-schedule"
 import { isScheduledOn } from "@/lib/habit-schedule"
 import { loadEventOccurrences } from "@/lib/app-events"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { addDaysISO, localDateStr, zonedClock } from "@/lib/local-date"
 import { normalizeRepeat, occurrencesBetween } from "@/lib/recurrence"
 
 export const runtime = "nodejs"
@@ -52,23 +53,16 @@ const COLORS = {
   event: "#818cf8",
 }
 
-/** Local-time ISO for a YYYY-MM-DD day at HH:MM, so it lands where the user sees it. */
-function at(day: string, hhmm: string): string | null {
-  const [h, m] = hhmm.split(":").map(Number)
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return null
-  const [y, mo, d] = day.split("-").map(Number)
-  return new Date(y, mo - 1, d, h, m).toISOString()
+/** The instant a YYYY-MM-DD day at HH:MM falls at for the user, so it lands where they see it. */
+function at(day: string, hhmm: string, timezone: string): string | null {
+  return zonedClock(timezone, day, hhmm)?.toISOString() ?? null
 }
 
-function eachDay(from: Date, to: Date): string[] {
+function eachDay(from: Date, to: Date, timezone: string): string[] {
   const days: string[] = []
-  const cur = new Date(from.getFullYear(), from.getMonth(), from.getDate())
+  const last = localDateStr(timezone, to)
   // A month view is ~6 weeks; the cap stops a malformed range building a year.
-  while (cur <= to && days.length < 70) {
-    const pad = (n: number) => String(n).padStart(2, "0")
-    days.push(`${cur.getFullYear()}-${pad(cur.getMonth() + 1)}-${pad(cur.getDate())}`)
-    cur.setDate(cur.getDate() + 1)
-  }
+  for (let d = localDateStr(timezone, from); d <= last && days.length < 70; d = addDaysISO(d, 1)) days.push(d)
   return days
 }
 
@@ -119,7 +113,7 @@ export async function GET(req: NextRequest) {
   ])
 
   const items: OverlayItem[] = []
-  const days = eachDay(from, to)
+  const days = eachDay(from, to, timezone)
 
   // Doses and habit reminders are schedules, not records: they exist on every
   // day the schedule covers, which is why they're expanded per day here rather
@@ -131,7 +125,7 @@ export async function GET(req: NextRequest) {
         active: med.active, startDate: med.startDate, endDate: med.endDate,
       }, day)) continue
       med.times.forEach((time, i) => {
-        const start = at(day, time)
+        const start = at(day, time, timezone)
         if (!start) return
         items.push({
           id: `med-${med.id}-${day}-${i}`, title: `💊 ${med.name}`,
@@ -143,7 +137,7 @@ export async function GET(req: NextRequest) {
     }
     for (const habit of habits) {
       if (!isScheduledOn({ scheduleDays: habit.scheduleDays, timesPerWeek: habit.timesPerWeek }, day)) continue
-      const start = habit.reminderTime ? at(day, habit.reminderTime) : null
+      const start = habit.reminderTime ? at(day, habit.reminderTime, timezone) : null
       if (!start) continue
       items.push({
         id: `habit-${habit.id}-${day}`, title: `✅ ${habit.name}`,
@@ -164,7 +158,7 @@ export async function GET(req: NextRequest) {
     for (const day of reminderDays) {
       // Reminders store the date at UTC midnight and the time the user picked
       // separately — the same pairing the notification scheduler uses.
-      const start = at(day, r.reminderTime || "09:00") ?? new Date(day + "T00:00:00Z").toISOString()
+      const start = at(day, r.reminderTime || "09:00", timezone) ?? new Date(day + "T00:00:00Z").toISOString()
       items.push({
         id: `rem-${r.id}-${day}`, title: `🔔 ${r.title}`, description: r.description ?? null,
         location: null, start, end: null, isAllDay: !r.reminderTime,

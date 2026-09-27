@@ -9,6 +9,8 @@ import {
   requestPermissions,
   permissionsByType,
   syncToServer,
+  lastSyncOutcome,
+  type SyncOutcome,
 } from "@/lib/health-connect-service"
 
 type Status = "checking" | "unavailable" | "not_installed" | "ready" | "syncing" | "done" | "error"
@@ -23,6 +25,10 @@ export function HealthConnectManager({ lastSync }: { lastSync?: string | null })
   // with no records look identical — for a ring left off that is right, and
   // for a permission that can never be granted it is a silence that lasts.
   const [missing, setMissing] = useState<string[] | null>(null)
+  // The last run's own record — including the background sync's, which never
+  // touches this card's buttons. A failing sync used to look exactly like a
+  // quiet one from here.
+  const [outcome, setOutcome] = useState<SyncOutcome | null>(null)
 
   useEffect(() => {
     // `status` is the whole of what the availability answer is used for.
@@ -34,6 +40,7 @@ export function HealthConnectManager({ lastSync }: { lastSync?: string | null })
       )
       if (av === "Available") setMissing((await permissionsByType())?.missing ?? null)
     })
+    setOutcome(lastSyncOutcome())
   }, [])
 
   async function handleConnect() {
@@ -67,6 +74,8 @@ export function HealthConnectManager({ lastSync }: { lastSync?: string | null })
     } catch (e: unknown) {
       setStatus("error")
       setError(e instanceof Error ? e.message : "Sync failed. Please try again.")
+    } finally {
+      setOutcome(lastSyncOutcome())
     }
   }
 
@@ -148,6 +157,22 @@ export function HealthConnectManager({ lastSync }: { lastSync?: string | null })
 
         {lastSyncAt && status !== "done" && (
           <p className="text-xs text-muted-foreground">Last synced at {fmtTime(lastSyncAt)}</p>
+        )}
+
+        {/* The run's own record — the background sync writes it too, so a
+            broken sync no longer poses as a quiet week. */}
+        {outcome && !outcome.ok && (
+          <p className="text-[11px] text-amber-400/90 leading-relaxed border-l-2 border-amber-500/40 pl-2">
+            The last sync attempt failed at {fmtTime(new Date(outcome.at).toISOString())}
+            {outcome.error ? ` — ${outcome.error}` : ""}. Data here may be behind; Sync now retries it.
+          </p>
+        )}
+        {outcome && outcome.ok && (outcome.failedTypes?.length ?? 0) > 0 && (
+          <p className="text-[11px] text-amber-400/90 leading-relaxed border-l-2 border-amber-500/40 pl-2">
+            Last sync worked, but the phone refused to read:{" "}
+            <span className="font-medium">{outcome.failedTypes!.join(", ")}</span>. Those stay blank
+            in the charts — blank, not zero.
+          </p>
         )}
 
         {/* A type the phone refuses reads, downstream, exactly like a type with

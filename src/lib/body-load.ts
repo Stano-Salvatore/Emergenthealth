@@ -25,7 +25,10 @@ export interface ActiveSubstance {
   /** Remaining amount, already rounded for display. */
   amount: number
   unit: "mg" | "g" | "%"
-  /** Share of the original dose still present, 0-1 (first-order substances). */
+  /**
+   * Doses' worth still present (first-order substances): 0-1 for a single
+   * dose, above 1 when a regular medicine's doses stack.
+   */
   fraction?: number
   takenAt: string        // ISO
   /** When it drops under a "doesn't matter any more" threshold. */
@@ -90,9 +93,14 @@ export function isAlcohol(type: string | null | undefined): boolean {
 /** Grams of ethanol in a logged drink. Returns 0 for non-alcoholic types. */
 export function ethanolGrams(type: string, amountMl: number, note?: string): number {
   const abvFromNote = note?.match(/(\d{1,2}(?:[.,]\d)?)\s*%/)
+  // A beer's "12°" is degrees Plato (the wort's strength, how Czech beer is
+  // sold), not ABV. ≈0.42% ABV per degree: 10° ≈ 4.2%, 12° ≈ 5.0%, 17° ≈ 7.1%.
+  const plato = !abvFromNote && type === "beer" ? note?.match(/(\d{1,2}(?:[.,]\d)?)\s*°/) : null
   const abv = abvFromNote
     ? Math.min(0.6, parseFloat(abvFromNote[1].replace(",", ".")) / 100)
-    : ABV[type]
+    : plato
+      ? Math.min(0.15, 0.0042 * parseFloat(plato[1].replace(",", ".")))
+      : ABV[type]
   if (!abv || !(amountMl > 0)) return 0
   return amountMl * abv * ETHANOL_DENSITY
 }
@@ -195,6 +203,17 @@ export function hoursUntilBelow(amount: number, floor: number, halfLifeH: number
 export function decayFraction(hoursSince: number, halfLifeH: number): number {
   if (hoursSince < 0 || !(halfLifeH > 0)) return 1
   return Math.pow(0.5, hoursSince / halfLifeH)
+}
+
+/**
+ * Every dose of one first-order substance still decaying at `now`, summed, in
+ * doses' worth. A medicine taken daily with a 30 h half-life stacks to over
+ * two doses; the last dose alone understated it and cleared a day early. All
+ * doses share the half-life, so the sum decays as one: hoursUntilBelow on it
+ * is the real finishing time.
+ */
+export function stackedDoses(takenAt: Date[], now: Date, halfLifeH: number): number {
+  return takenAt.reduce((s, t) => s + decayFraction((now.getTime() - t.getTime()) / 3_600_000, halfLifeH), 0)
 }
 
 /** Substances below this share of their dose are dropped from the list. */

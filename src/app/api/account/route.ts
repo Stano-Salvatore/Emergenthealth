@@ -1,5 +1,6 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { deleteAccount } from "@/lib/account-deletion"
 import { NextResponse } from "next/server"
 
 export async function DELETE() {
@@ -7,20 +8,14 @@ export async function DELETE() {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  // Delete raw-SQL tables first (no Prisma schema)
-  const rawTables = [
-    "UserFeedback", "UserPreference", "WeatherLog", "MorningCheckIn",
-    "StravaToken", "GitHubProfile", "RescuetimeKey", "RescuetimeLog",
-    "LastfmKey", "LastfmLog", "CheckIn"
-  ]
-  for (const table of rawTables) {
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM "${table}" WHERE "userId" = $1`, userId
-    ).catch(() => {})
+  // All or nothing, and never reported as done when it wasn't: the person is
+  // signed out on success and cannot come back to check what was left behind.
+  try {
+    await deleteAccount(prisma, userId)
+  } catch (e) {
+    console.error("[account] delete failed:", e)
+    return NextResponse.json({ error: "Your account could not be deleted. Nothing was removed — please try again." }, { status: 500 })
   }
-
-  // Delete via Prisma (schema tables cascade)
-  await prisma.user.delete({ where: { id: userId } }).catch(() => {})
 
   return NextResponse.json({ ok: true })
 }

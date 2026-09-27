@@ -89,11 +89,15 @@ const MIN_TRANSITION_SPAN_MS = 60 * 1000
 /**
  * Pair ENTER/EXIT transition events into spans.
  *
- * Events may arrive out of order across drain batches, so they are sorted
- * first. An ENTER with no EXIT is closed by the next ENTER of a different
- * activity (the phone moved on to something else) or dropped at the cap —
- * never left open, because an open-ended claim about where someone was is
- * worse than no claim.
+ * Events may arrive out of order, so they are sorted first. Pairing sees only
+ * the batch it is given: an ENTER still open at drain time is carried by the
+ * client (see openTail) and sent again with the next batch, which is how a
+ * journey spanning two drains pairs at all.
+ *
+ * An ENTER with no EXIT is closed by the next ENTER of a different activity
+ * (the phone moved on to something else) or dropped at the cap — never left
+ * open, because an open-ended claim about where someone was is worse than no
+ * claim.
  */
 export function pairTransitions(events: TransitionEvent[]): ModeSpan[] {
   const sorted = [...events]
@@ -130,6 +134,33 @@ export function pairTransitions(events: TransitionEvent[]): ModeSpan[] {
   }
 
   return spans
+}
+
+/**
+ * The events from the last ENTER that nothing in this batch has closed,
+ * replaying pairTransitions' rules — or none, when every ENTER is closed or
+ * the open one is older than MAX_TRANSITION_SPAN_MS and could never pair.
+ *
+ * The client holds these back and sends them again with the next drain. A
+ * span already posted comes back with the same spanId, so the re-send is a
+ * no-op on the server.
+ */
+export function openTail(events: TransitionEvent[], nowMs: number): TransitionEvent[] {
+  const sorted = [...events]
+    .filter(e => Number.isFinite(e.at) && e.at > 0)
+    .sort((a, b) => a.at - b.at)
+  let openIdx = -1
+  let openType = -1
+  sorted.forEach((e, i) => {
+    if (e.transition === 0 && (openIdx === -1 || e.type !== openType)) {
+      openIdx = i
+      openType = e.type
+    } else if (e.transition === 1 && openIdx !== -1 && e.type === openType) {
+      openIdx = -1
+    }
+  })
+  if (openIdx === -1 || nowMs - sorted[openIdx].at > MAX_TRANSITION_SPAN_MS) return []
+  return sorted.slice(openIdx)
 }
 
 /** Deterministic row id, so re-importing or re-draining the same span is a no-op. */

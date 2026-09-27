@@ -11,6 +11,7 @@ import {
   type DayValue, type DriftReport, type Window,
 } from "@/lib/drift"
 import { hydrationMl } from "@/lib/hydration"
+import { isAlcohol } from "@/lib/body-load"
 
 /** The last 30 days against the 30 before — the chat's window. */
 export function rollingWindows(today: string): { recent: Window; prior: Window } {
@@ -139,7 +140,10 @@ export async function loadDriftReport(userId: string, timezone: string, windows:
     // month that had merely switched to tea.
     const ml = hydrationMl(i.type, i.amountMl)
     if (ml > 0) waterByDay.set(d, (waterByDay.get(d) ?? 0) + ml)
-    if (i.type === "coffee" || i.type === "alcohol" || i.type === "beer" || i.type === "wine") add(i.type === "beer" || i.type === "wine" ? "alcohol" : i.type, d)
+    // Every alcohol type is one factor. Spirits have their own button and were
+    // missing from a hand-written list here, so a month of shots never showed.
+    if (i.type === "coffee") add("coffee", d)
+    else if (isAlcohol(i.type)) add("alcohol", d)
   }
 
   const factors = judgeFactors({ daysByLabel, workoutDays: workouts.map(w => w.day), waterByDay }, prior, recent)

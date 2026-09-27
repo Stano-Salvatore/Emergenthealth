@@ -2,6 +2,7 @@ import { google } from "googleapis"
 import { prisma } from "@/lib/prisma"
 import { zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { mergeDayEvents } from "@/lib/day-events"
 
 async function buildCalendarClient(userId: string) {
   const account = await prisma.account.findFirst({
@@ -55,14 +56,6 @@ export interface CalendarEvent {
 // Events synced from the phone's Calendar Provider are stored in the DB and
 // merged into the same results Google events flow through, so they appear
 // everywhere (calendar page, Today, dashboard, Dr. Sophia context).
-
-function deviceKey(title: string, start: string | null): string {
-  // Match at minute granularity so a device-side mirror of a Google event
-  // dedupes against the Google copy.
-  const t = title.trim().toLowerCase()
-  const m = start ? start.slice(0, 16) : ""
-  return `${t}|${m}`
-}
 
 async function getDeviceEvents(
   userId: string,
@@ -118,16 +111,11 @@ async function getDeviceEvents(
 }
 
 // Merge Google + device events, dropping device events that duplicate a Google
-// one (same title + start minute), and sort chronologically.
+// one (same title + start minute), and sort chronologically. The two sources
+// spell the same instant with different offsets, so both the match and the
+// order go by instant — see lib/day-events.
 function mergeEvents(google: CalendarEvent[], device: CalendarEvent[]): CalendarEvent[] {
-  const seen = new Set(google.map((e) => deviceKey(e.title, e.start)))
-  const merged = [...google]
-  for (const e of device) {
-    if (seen.has(deviceKey(e.title, e.start))) continue
-    seen.add(deviceKey(e.title, e.start))
-    merged.push(e)
-  }
-  return merged.sort((a, b) => (a.start ?? "").localeCompare(b.start ?? ""))
+  return mergeDayEvents(google, device)
 }
 
 export async function getTodayEvents(userId: string): Promise<CalendarEvent[]> {
@@ -181,15 +169,11 @@ export async function getUpcomingEvents(userId: string, daysAhead = 14): Promise
   return (await getUpcomingEventsWithStatus(userId, daysAhead)).events
 }
 
-export async function getUpcomingEventsWithStatus(
+async function fetchGoogleUpcoming(
   userId: string,
-  daysAhead = 14,
-): Promise<{ events: CalendarEvent[]; google: GoogleCalendarStatus }> {
-  const now = new Date()
-  const future = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000)
-
-  let googleEvents: CalendarEvent[] = []
-  let google: GoogleCalendarStatus = "ok"
+  now: Date,
+  future: Date,
+): Promise<{ googleEvents: CalendarEvent[]; google: GoogleCalendarStatus }> {
   try {
     const calendar = await buildCalendarClient(userId)
     const response = await calendar.events.list({
@@ -201,7 +185,7 @@ export async function getUpcomingEventsWithStatus(
       maxResults: 50,
     })
 
-    googleEvents = (response.data.items ?? []).map((event) => ({
+    const googleEvents = (response.data.items ?? []).map((event) => ({
       id: event.id!,
       title: event.summary ?? "(No title)",
       description: event.description ?? null,
@@ -212,11 +196,71 @@ export async function getUpcomingEventsWithStatus(
       url: event.htmlLink ?? null,
       source: "google" as const,
     }))
+    return { googleEvents, google: "ok" }
   } catch (err) {
-    googleEvents = []
-    google = err instanceof Error && err.message === "No Google account linked" ? "unlinked" : "failed"
+    return {
+      googleEvents: [],
+      google: err instanceof Error && err.message === "No Google account linked" ? "unlinked" : "failed",
+    }
+  }
+}
+
+export async function getUpcomingEventsWithStatus(
+  userId: string,
+  daysAhead = 14,
+): Promise<{ events: CalendarEvent[]; google: GoogleCalendarStatus }> {
+  const now = new Date()
+  const future = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000)
+  const { googleEvents, google } = await fetchGoogleUpcoming(userId, now, future)
+  const deviceEvents = await getDeviceEvents(userId, now, future)
+  return { events: mergeEvents(googleEvents, deviceEvents), google }
+}
+
+/**
+ * The dashboard's calendar read. The native app is the live site in a
+ * WebView, so this function's latency IS part of opening the app — and a
+ * live Google round trip on every open put hundreds of milliseconds of
+ * someone else's servers on the critical path. The GOOGLE half is held for
+ * two minutes; a lunch moved on another device shows up a coffee-sip later,
+ * which is a fair trade for the dashboard painting now.
+ *
+ * Only the Google half. Device and app events are one cheap DB read and
+ * change from inside the app — cached, an event added a second ago would
+ * vanish for two minutes. And only a fetch that SUCCEEDED is cached: a
+ * lapsed grant must keep showing its banner, not a two-minute-old "ok".
+ */
+const GCAL_CACHE_KEY = "gcal_cache:upcoming"
+const GCAL_CACHE_TTL_MS = 2 * 60_000
+
+export async function getUpcomingEventsWithStatusCached(
+  userId: string,
+  daysAhead = 14,
+): Promise<{ events: CalendarEvent[]; google: GoogleCalendarStatus }> {
+  const now = new Date()
+  const future = new Date(now.getTime() + daysAhead * 24 * 60 * 60 * 1000)
+
+  const row = await prisma.userPreference.findUnique({
+    where: { userId_key: { userId, key: GCAL_CACHE_KEY } },
+    select: { value: true },
+  }).catch(() => null)
+  let cached: { at: number; googleEvents: CalendarEvent[] } | null = null
+  try { cached = row ? JSON.parse(row.value) : null } catch { cached = null }
+
+  if (cached && Array.isArray(cached.googleEvents) && Date.now() - cached.at < GCAL_CACHE_TTL_MS) {
+    const deviceEvents = await getDeviceEvents(userId, now, future)
+    return { events: mergeEvents(cached.googleEvents, deviceEvents), google: "ok" }
   }
 
+  const { googleEvents, google } = await fetchGoogleUpcoming(userId, now, future)
+  if (google === "ok") {
+    // Fire and forget — a failed cache write must not cost the dashboard.
+    const value = JSON.stringify({ at: Date.now(), googleEvents })
+    void prisma.userPreference.upsert({
+      where: { userId_key: { userId, key: GCAL_CACHE_KEY } },
+      create: { userId, key: GCAL_CACHE_KEY, value },
+      update: { value },
+    }).catch(() => {})
+  }
   const deviceEvents = await getDeviceEvents(userId, now, future)
   return { events: mergeEvents(googleEvents, deviceEvents), google }
 }

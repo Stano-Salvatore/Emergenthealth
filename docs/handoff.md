@@ -495,9 +495,14 @@ Roughly in order, most recent first:
   it and `driftQuestionTail` is the shared ending the push must still end
   on. And `lib/health-precedence.ts` closes the two-writers thread below:
   `HealthLog.ringAt` marks a row the ring has written, `oura-sync` sets it,
-  and `/api/sync/health` writes only the columns the ring left null while it
-  is set — `phoneFieldsRespectingRing` is pure and tested, and the guard
-  holds both writers to it.
+  and the phone writers take only the columns the ring left null while it
+  is set — `phoneFieldsRespectingRing` is pure and tested. (Until 3.7.0 the
+  rule sat on `/api/sync/health`, the manual Log Day form, while the hourly
+  writer, `/api/sync/health-connect`, overwrote 30 days of ring data every
+  run; the Sept audit found it five times over.) Both routes now read
+  `PRECEDENCE_SELECT` first, a night is one unit (once the ring holds any
+  night column no phone stage or bed time is taken), and the guard fails on
+  any `src/app/api/sync` route that writes HealthLog without the helper.
 
   Also in 3.4.0: `lib/figure-marks.ts` finds the figures in a sentence and
   tags each with its domain by unit (`h`, `ms`, `km`, `ml`, `/5`…) or by the
@@ -702,7 +707,8 @@ Roughly in order, most recent first:
   `NativeBridge` calls it on every foreground.) `/api/phone/sensors` takes all three buffers in one request
   and keys every row by what it is, so the handover and the deterministic id
   fail in opposite directions: one drops, the other doubles, and neither is
-  trusted alone.
+  trusted alone. Since 3.7.0 a failed POST no longer drops anything — the
+  drained batch is kept and owed to the next foreground.
 
   **Two things worth knowing before touching this:**
 
@@ -1107,6 +1113,45 @@ Roughly in order, most recent first:
 
 ## Open threads
 
+- **From the 26–27 Sept full audit (3.7.0).** 16 auditors, a skeptic on every
+  finding, 160 confirmed and ~138 fixed in 3.7.0. Left open, deliberately:
+  - **26 findings never verified** — the session limit killed their skeptics:
+    labs (marker canonicaliser merging HDL into Cholesterol, BUN→urea
+    conversion ~2.14× off, `<5`/`>90` results unrepresentable, CZ/SK
+    hyphenated spellings not collapsing), imports (Samsung import writes
+    average HR as restingHR and **still bypasses the ring rule**, Timeline
+    import duplicate check-ins across 500-point batches, visits >90 min never
+    becoming check-ins) and three medication items (a dose after local
+    midnight counting for the next day, Oura dose tags never removed, drink
+    tags listed as doses). Re-verify before fixing; the list with evidence is
+    worth regenerating rather than trusting from memory.
+  - **Needs an APK:** a package-bound nonce for the mobile sign-in bridge
+    (3.7.0 ships a server-side IP stopgap only); a try/catch rewrite in
+    `.ci/patch-kiwi-health.py` so the Health Connect plugin can reject on
+    IOException/RemoteException/rate limits (3.7.0 gates refused permissions
+    on the web side); the Sleep API's default request also delivering
+    SleepClassifyEvents every ~10 min.
+  - **One-off production SQL, not code:** account deletion now removes
+    everything, but rows orphaned by deletions BEFORE 3.7.0 remain in
+    BodyMeasurementLog, PushSubscription, TagAlias, GocardlessConnection,
+    SaltedgeConnection and TruelayerConnection (`DELETE … WHERE "userId" NOT
+    IN (SELECT id FROM "User")`). Needs the owner's hand on the database.
+  - **Ring precedence, second order:** on a ringAt row where the ring measured
+    no night, the phone's first fill of restingHR/hrv (a partial-day average)
+    is then held as if it were the ring's. Fixing it needs ring-only night
+    markers (timeInBed, awakeTime, sleepLatency) as the test, not column
+    values. The report still labels every vital "Oura ring".
+  - **Idempotency:** a "✓ Took it" whose POST landed but whose response was
+    lost is replayed from the outbox and logs a duplicate dose;
+    `/api/medications` POST takes no idempotency key.
+  - **Insights cache race:** a stale-triggered `after()` recompute can finish
+    after a concurrent `?refresh=1` and overwrite newer results;
+    `shareInFlight` dedupes per instance only.
+  - Features proposed and not built: backfill a meal/drink to an earlier
+    time; Emergy reading back food/BP/custom metrics; a symptom look-back;
+    Active sessions / sign out everywhere; as-needed meds in the doctor report.
+
+
 - ~~**From the September platform comparison, two steal-list items
   remain.**~~ Both closed: barcode scanning turned out to already exist
   (shipped in the 3.2 overhaul — Food tab → Scan, photo + BarcodeDetector
@@ -1116,11 +1161,15 @@ Roughly in order, most recent first:
   unbuilt: a live camera viewfinder for barcodes (needs the CAMERA
   permission — an APK) and manual barcode entry as a no-detector fallback.
 
-- **Chat replies persist before the stream closes (3.4.4), but a reply
-  aborted MID-stream is still lost** — if the function dies while tokens
-  are flowing, nothing was accumulated worth saving and the user message
-  sits answerless. Reproducing needs a killed deployment mid-turn; if it
-  shows up, checkpoint partial text every ~2s under the same message row.
+- **Chat replies persist before the stream closes (3.4.4), and since 3.6.7
+  a turn survives the CLIENT leaving** — the run is kept alive past the
+  response with `after()` (next/server), a dead stream only silences the
+  narration, the reply or the failure note always reaches the transcript,
+  and the chat screen polls the transcript back in on the next foreground
+  (`chat-survives-pocket.test.ts` pins all of it). What remains open is the
+  narrower case: the FUNCTION itself dying mid-generation (killed
+  deployment, hard timeout) still loses the partial text. If it shows up,
+  checkpoint partial text every ~2s under the same message row.
 
 - **`ArtistGenre` is read by the correlation engine and `lib/music-days.ts`
   only at lookup time; nothing refreshes it.** An artist first seen in a new
@@ -1139,10 +1188,11 @@ Roughly in order, most recent first:
 - ~~**Ambient light and screen events written, never read.**~~ Closed in
   3.4.2: `lib/phone-day.ts` (longest-quiet-gap bedtime proxy, evening
   median lux) feeds the brief and the `get_phone_day` MCP tool, and
-  `collected-data-is-read.test.ts` now lists both tables. Still open on
-  top of it: nothing CORRELATES these with sleep quality yet — "your worst
-  nights follow screen use past 1 am" needs the correlations engine to
-  take `phoneNightUse` as an input series.
+  `collected-data-is-read.test.ts` now lists both tables. The follow-on
+  closed in 3.6.6: `phoneNightSeries` (one query for the window,
+  absent-not-zero nights) feeds the correlation engine, which now runs
+  "Phone In Bed & Sleep" and "Phone In Bed & Morning Energy" on the user's
+  own median pickup count — `phone-nights-correlate.test.ts` pins the shape.
 
 - ~~**The Sleep API subscription is not re-registered after a reboot.**~~
   Closed in 3.6.1: `HeadBootReceiver` calls `resubscribe()` on both
@@ -1190,16 +1240,15 @@ Roughly in order, most recent first:
   swallows a per-type read error, the auto-sync swallows the POST failure
   entirely, and the status screen infers health from a timestamp written only
   on success.
-- **Two chat-cost levers that need a hand outside this repo.** Both are
-  measured and ready; neither can be finished from a session.
-  1. **`EMERGY_CHAT_EFFORT=medium` in production.** Opus 5 defaults to `high`
-     effort, and effort is spent on output tokens, which cost five times what
-     input does — so for a chat turn it is the biggest single lever there is,
-     bigger than the whole 11,000-token prefix. Chat is also the workload most
-     likely to hold quality a step down. One environment variable on Vercel,
-     then read a week of `[emergy] turn` lines: they now carry `usd`, so the
-     before-and-after is a subtraction rather than a study. Step back up if the
-     answers get thinner.
+- **Two chat-cost levers that needed a hand outside this repo.** Both settled.
+  1. ~~**`EMERGY_CHAT_EFFORT=medium` in production.**~~ Closed in 3.6.4, from
+     inside the repo after all: `chatEffort()` defaults to `medium` in code
+     (the deploy's env store was not writable from a session), with
+     `EMERGY_CHAT_EFFORT=high` restoring the old behaviour and `=default`
+     handing the choice to the model. The same release moved chat, meal
+     photos and the weekly review to the mid-tier model — one week of the
+     ledger showed chat at 92% of the bill — while lab documents and the
+     health report keep the top tier. `model-choice.test.ts` pins all of it.
   2. ~~**The 41 tool schemas behind the API's tool-search tool.**~~ Closed
      without building it. The account's cache hit rate is 85%, so those ~8,100
      prefix tokens are mostly already billed at a tenth; the discovery round

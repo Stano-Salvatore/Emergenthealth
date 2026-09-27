@@ -58,6 +58,9 @@ interface PlaceStop {
   checkedAt: string
 }
 
+/** Whether a write reached the table: a resolved fetch includes 401s and 500s. */
+const landed = (p: Promise<Response>): Promise<boolean> => p.then(r => r.ok, () => false)
+
 const STEP_LABEL: Record<StepKey, string> = { intention: "Intention", today: "Today", where: "Where", body: "Body", tomorrow: "Tomorrow" }
 
 function Progress({ step, keys }: { step: Step; keys: StepKey[] }) {
@@ -104,6 +107,10 @@ export function EveningCheckIn() {
   const [tomorrow, setTomorrow] = useState<string[]>([])
   const [draft, setDraft] = useState("")
   const [saving, setSaving] = useState(false)
+  const [failed, setFailed] = useState<string[]>([])
+  const [symptomError, setSymptomError] = useState<string | null>(null)
+  const [noteSaved, setNoteSaved] = useState(false)
+  const [remindersSet, setRemindersSet] = useState(0)
 
   // Yesterday's date until 05:00: an evening that runs past midnight is
   // still that evening, and everything below files under it.
@@ -146,33 +153,42 @@ export function EveningCheckIn() {
   const key: StepKey | "done" = step === "done" ? "done" : keys[Math.min(step, keys.length - 1)]
   const next = () => setStep(s => (s === "done" ? s : s + 1))
 
+  // The flow moves on at once — the answers are taps, not forms — so a write
+  // that fails is named on the last screen instead of being swallowed.
+  const noteFailed = useCallback((what: string) => {
+    setFailed(f => (f.includes(what) ? f : [...f, what]))
+  }, [])
+
   const pickOutcome = useCallback((value: string) => {
     setOutcomePicked(value)
-    void fetch("/api/morning-checkin", {
+    void landed(fetch("/api/morning-checkin", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ outcome: value, date: today }),
-    }).catch(() => {})
+    })).then(ok => { if (!ok) noteFailed("the intention answer") })
     setTimeout(() => { setStep(1); setOutcomePicked(null) }, 150)
-  }, [today])
+  }, [today, noteFailed])
 
   const pickMood = useCallback((value: number) => {
     setPicked(value)
     setMood(value)
-    void fetch("/api/mood", {
+    void landed(fetch("/api/mood", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mood: value, date: today }),
-    }).catch(() => {})
+    })).then(ok => { if (!ok) noteFailed("today's mood") })
     setTimeout(() => { setStep(s => (s === "done" ? s : s + 1)); setPicked(null) }, 150)
-  }, [today])
+  }, [today, noteFailed])
 
   async function logSymptom(name: string, severity: number) {
-    await fetch("/api/symptoms", {
+    setSymptomError(null)
+    const ok = await landed(fetch("/api/symptoms", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, severity }),
-    }).catch(() => {})
+    }))
+    // The picker stays open so the same tap can retry it.
+    if (!ok) { setSymptomError(`${name} wasn't saved — tap again.`); return }
     setLoggedSymptoms(s => [...s, name])
     setSymptom(null)
     setCustomSymptom("")
@@ -182,24 +198,32 @@ export function EveningCheckIn() {
     setSaving(true)
     try {
       if (note.trim()) {
-        await fetch("/api/daily-note", {
+        const ok = await landed(fetch("/api/daily-note", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content: note, date: today }),
-        }).catch(() => {})
+        }))
+        setNoteSaved(ok)
+        if (!ok) noteFailed("the journal line")
+      } else {
+        setNoteSaved(false)
       }
       // Tomorrow's list becomes real reminders with a real date, so they show
       // up on the Reminders page and the phone schedules them — a note to self
       // that only this screen remembers is the thing being replaced here.
       const due = tomorrowOf(new Date(`${today}T12:00:00`))
+      let set = 0
       for (const title of tomorrow) {
-        await fetch("/api/reminders", {
+        const ok = await landed(fetch("/api/reminders", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title, dueDate: due, reminderTime: "09:00" }),
-        }).catch(() => {})
+        }))
+        if (ok) set++
+        else noteFailed(`"${title}"`)
       }
-      if (tomorrow.length > 0) await resyncNotifications().catch(() => {})
+      setRemindersSet(set)
+      if (set > 0) await resyncNotifications().catch(() => {})
       if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([30, 20, 60])
       setStep("done")
     } finally {
@@ -316,6 +340,9 @@ export function EveningCheckIn() {
                 <p className="text-xs text-emerald-400 mb-3 text-center">
                   Logged: {loggedSymptoms.join(", ")}
                 </p>
+              )}
+              {symptomError && (
+                <p role="alert" className="text-xs text-destructive mb-3 text-center">{symptomError}</p>
               )}
 
               {symptom === null ? (
@@ -443,13 +470,18 @@ export function EveningCheckIn() {
               <h2 className="text-xl font-bold">That&apos;s today done</h2>
               <div className="text-sm text-muted-foreground space-y-1">
                 {loggedSymptoms.length > 0 && <p>{loggedSymptoms.length} symptom{loggedSymptoms.length > 1 ? "s" : ""} logged</p>}
-                {note.trim() && <p>Journal saved</p>}
-                {tomorrow.length > 0 && (
-                  <p>{tomorrow.length} reminder{tomorrow.length > 1 ? "s" : ""} set for tomorrow morning</p>
+                {noteSaved && <p>Journal saved</p>}
+                {remindersSet > 0 && (
+                  <p>{remindersSet} reminder{remindersSet > 1 ? "s" : ""} set for tomorrow morning</p>
+                )}
+                {failed.length > 0 && (
+                  <p role="alert" className="text-destructive">
+                    Didn&apos;t save: {failed.join(", ")} — try again.
+                  </p>
                 )}
               </div>
               <div className="flex gap-2 justify-center pt-1">
-                <Button variant="outline" size="sm" onClick={() => setStep(0)}>Go again</Button>
+                <Button variant="outline" size="sm" onClick={() => { setFailed([]); setStep(0) }}>Go again</Button>
                 <Link href="/dashboard"><Button size="sm">Home</Button></Link>
               </div>
             </div>

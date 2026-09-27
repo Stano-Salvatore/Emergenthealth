@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { addDaysISO } from "@/lib/local-date"
+import { isMeasuredNight } from "@/lib/sleep-quality"
 
 const OURA_API_BASE = "https://api.ouraring.com/v2/usercollection"
 
@@ -222,6 +223,7 @@ export async function getDailyActivity(userId: string, startDate: string, endDat
       : null,
     activityScore: (item.score as number) ?? null,
     sedentaryTimeSeconds: (item.sedentary_time as number) ?? null,
+    nonWearSeconds: (item.non_wear_time as number) ?? null,
   }))
 }
 
@@ -457,16 +459,49 @@ export async function getActivitySessions(userId: string, startDate: string, end
   const data = await makeOuraRequest("/workout", client.accessToken, userId, {
     ...inclusiveWindow(startDate, endDate),
   })
-  return trimToRange((data.data || []) as Record<string, unknown>[], startDate, endDate).map((item: Record<string, unknown>) => ({
+  return dedupeWorkouts(trimToRange((data.data || []) as Record<string, unknown>[], startDate, endDate).map(mapWorkout))
+}
+
+/**
+ * One Oura workout document, in this app's shape.
+ *
+ * It read `title` and `duration`, neither of which the workout document has:
+ * every session was "Workout" with no duration. The name is the user's
+ * `label`, else the `activity`; the length is end minus start.
+ */
+export function mapWorkout(item: Record<string, unknown>) {
+  const start = (item.start_datetime as string) ?? null
+  const end = (item.end_datetime as string) ?? null
+  const ms = start && end ? Date.parse(end) - Date.parse(start) : NaN
+  return {
     id: item.id,
-    name: (item.title as string) ?? "Workout",
-    activityType: item.activity,
-    start: item.start_datetime,
-    end: item.end_datetime,
-    durationMinutes: item.duration ? Math.round((item.duration as number) / 60) : null,
+    name: (item.label as string) || (item.activity as string) || "Workout",
+    activityType: (item.activity as string) ?? null,
+    source: (item.source as string) ?? null,
+    intensity: (item.intensity as string) ?? null,
+    start,
+    end,
+    durationMinutes: Number.isFinite(ms) && ms > 0 ? Math.round(ms / 60000) : null,
     calories: (item.calories as number) ?? null,
     distance: (item.distance as number) ?? null,
-  }))
+  }
+}
+
+/**
+ * Oura can file the same stretch more than once — detected, then confirmed or
+ * entered by hand — and a total of the day's workout calories counted that
+ * hour two or three times. Same activity over the same start and end is one
+ * workout; the one the user touched wins.
+ */
+export function dedupeWorkouts<T extends { activityType: string | null; start: string | null; end: string | null; source: string | null }>(rows: T[]): T[] {
+  const rank = (s: string | null) => (s === "manual" ? 0 : s === "confirmed" ? 1 : s === "workout_heart_rate" ? 2 : 3)
+  const best = new Map<string, T>()
+  for (const r of rows) {
+    const k = `${r.activityType}|${r.start}|${r.end}`
+    const cur = best.get(k)
+    if (!cur || rank(r.source) < rank(cur.source)) best.set(k, r)
+  }
+  return [...best.values()]
 }
 
 // ── Oura Tags (user-created annotations) ─────────────────────────────────────
@@ -499,12 +534,31 @@ export interface OuraTagEntry {
   uuid: string | null
 }
 
-export async function getOuraTags(userId: string, startDate: string, endDate: string): Promise<OuraTagEntry[]> {
+const MAX_TAG_PAGES = 20
+
+/**
+ * Every tag in the window, and whether that is all of them. `complete` is
+ * false when pages were left unread; the sync prunes tags missing from the
+ * answer, and must not take an unread page as a deletion.
+ */
+export async function getOuraTags(
+  userId: string, startDate: string, endDate: string,
+): Promise<{ tags: OuraTagEntry[]; complete: boolean }> {
   const client = await buildOuraClient(userId)
-  const data = await makeOuraRequest("/enhanced_tag", client.accessToken, userId, {
-    ...inclusiveWindow(startDate, endDate),
-  })
-  const mapped = (data.data ?? []).map((item: Record<string, unknown>) => {
+  const items: Record<string, unknown>[] = []
+  let next: string | undefined
+  let pages = 0
+  do {
+    const data = await makeOuraRequest("/enhanced_tag", client.accessToken, userId, {
+      ...inclusiveWindow(startDate, endDate),
+      ...(next ? { next_token: next } : {}),
+    })
+    items.push(...(data.data ?? []))
+    next = typeof data.next_token === "string" && data.next_token ? data.next_token : undefined
+    pages++
+  } while (next && pages < MAX_TAG_PAGES)
+
+  const mapped = items.map((item: Record<string, unknown>) => {
     // Try all text fields Oura might use for the per-entry description
     const commentText = (item.comment ?? item.note ?? item.text ?? item.label ?? item.title ?? null) as string | null
     const name = resolveTagName(item.custom_name, item.tag_type_code, commentText)
@@ -535,49 +589,19 @@ export async function getOuraTags(userId: string, startDate: string, endDate: st
   // Trimmed after mapping, not before: this endpoint calls the date
   // "start_day" rather than "day", so the generic filter would not have seen
   // it and would have passed the padding day straight through.
-  return mapped.filter((t: OuraTagEntry) => !t.day || (t.day >= startDate && t.day <= endDate))
-}
-
-// ── Legacy helpers (used by MCP route) ───────────────────────────────────────
-
-export async function getSteps(userId: string, startDate: string, endDate: string) {
-  const rows = await getDailyActivity(userId, startDate, endDate)
-  return rows.map((r: Awaited<ReturnType<typeof getDailyActivity>>[number]) => ({ date: r.date, steps: r.steps ?? 0 }))
-}
-
-export async function getCalories(userId: string, startDate: string, endDate: string) {
-  const rows = await getDailyActivity(userId, startDate, endDate)
-  return rows.map((r: Awaited<ReturnType<typeof getDailyActivity>>[number]) => ({ date: r.date, calories: r.activeCalories ?? 0 }))
-}
-
-export async function getHeartRate(userId: string, startDate: string, endDate: string) {
-  const rows = await getDailySleep(userId, startDate, endDate)
-  return rows.map((r: Awaited<ReturnType<typeof getDailySleep>>[number]) => ({ date: r.date, avgBpm: r.avgRestingHR, minBpm: null, maxBpm: null }))
-}
-
-export async function getSleep(userId: string, startDate: string, endDate: string) {
-  return getDailySleep(userId, startDate, endDate)
-}
-
-export async function getWeight(_userId: string, _startDate: string, _endDate: string) {
-  return []
-}
-
-export async function getDistance(userId: string, startDate: string, endDate: string) {
-  const rows = await getDailyActivity(userId, startDate, endDate)
-  return rows.map((r: Awaited<ReturnType<typeof getDailyActivity>>[number]) => ({ date: r.date, distanceMeters: r.distanceKm != null ? Math.round(r.distanceKm * 1000) : 0 }))
-}
-
-export async function getDailySummary(userId: string, date: string) {
-  const [activity, sleep] = await Promise.all([
-    getDailyActivity(userId, date, date),
-    getDailySleep(userId, date, date),
-  ])
   return {
-    date,
-    steps: activity[0]?.steps ?? 0,
-    caloriesBurned: activity[0]?.activeCalories ?? 0,
-    avgHeartRateBpm: sleep[0]?.avgRestingHR ?? null,
-    distanceMeters: activity[0]?.distanceKm != null ? Math.round(activity[0].distanceKm * 1000) : 0,
+    tags: mapped.filter((t: OuraTagEntry) => !t.day || (t.day >= startDate && t.day <= endDate)),
+    complete: next == null,
   }
+}
+
+// ── Sleep for the MCP connector ──────────────────────────────────────────────
+
+/**
+ * The nights, without the ring-off fragments. A nine-minute session with no
+ * HRV and no breathing rate is the ring coming off, not a night — the same
+ * rule the sync applies before anything is stored (lib/sleep-quality).
+ */
+export async function getSleep(userId: string, startDate: string, endDate: string) {
+  return (await getDailySleep(userId, startDate, endDate)).filter(isMeasuredNight)
 }

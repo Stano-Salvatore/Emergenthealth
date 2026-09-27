@@ -144,7 +144,7 @@ public class QuickLogWidget extends AppWidgetProvider {
             // Land on the screen this widget is about, not the dashboard.
             openIntent.putExtra("eh_dest", "/dashboard/intake");
             PendingIntent openPi = PendingIntent.getActivity(
-                context, 0, openIntent,
+                context, 920013, openIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
             views.setOnClickPendingIntent(R.id.btn_open_app, openPi);
         }

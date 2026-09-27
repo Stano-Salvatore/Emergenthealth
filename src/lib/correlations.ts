@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { subDays, format } from "date-fns"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { phoneNightSeries } from "@/lib/phone-day"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { supplementInfoFor } from "@/lib/supplement-info"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
@@ -103,6 +104,13 @@ type DayData = {
   weightKg?: number        // a weigh-in recorded on this day (BodyMeasurement)
   waistCm?: number
   breathingDisturbance?: number // Oura's sleep breathing disturbance index for the night ending this morning
+  /**
+   * Screen-ons and unlocks between 22:00 and the phone going down, for the
+   * night ENDING this morning (lib/phone-day). Absent — never zero — on
+   * nights without a qualifying quiet gap: a phone left in another room
+   * says nothing about phone use in bed.
+   */
+  nightPickups?: number
 }
 
 export type InsightResult = {
@@ -186,7 +194,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 20
+export const ENGINE_VERSION = 22
 
 /**
  * Both sides need this many days before a card is called confident.
@@ -295,8 +303,9 @@ const STANDARD_DRINK_G = 10
  * at one standard drink where the panel cuts at any, so the same account got
  * two answers to one question. One definition, shared with the panel.
  *
- * The cards that still cut at STANDARD_DRINK_G (blood pressure, the symptom
- * suspects, the combinations) keep their own gates for now.
+ * The blood-pressure card and the symptom suspects still cut at
+ * STANDARD_DRINK_G — a real drink rather than a sip — but they set silent
+ * days aside the same way: a day nothing was logged on is not a sober one.
  */
 const drankDay = (d: DayData): boolean | null => (d.logged ? (d.alcoholG ?? 0) > 0 : null)
 
@@ -446,8 +455,11 @@ function blockLength(n: number): number {
  * Days a family skipped (nulls) compress out of the sequence, so a "block"
  * is adjacent observations, not strictly adjacent dates; the approximation
  * is noted rather than hidden.
+ *
+ * `blockLen` overrides the run length for a caller that knows the scale of
+ * its own structure — an experiment knows how long its blocks are.
  */
-export function blockPermutationP(obs: { v: number; hi: boolean }[], seedKey: string): number {
+export function blockPermutationP(obs: { v: number; hi: boolean }[], seedKey: string, blockLen?: number): number {
   const n = obs.length
   const labels = obs.map(o => o.hi)
   const values = obs.map(o => o.v)
@@ -461,7 +473,7 @@ export function blockPermutationP(obs: { v: number; hi: boolean }[], seedKey: st
   }
   const observed = diffFor(labels)
 
-  const b = blockLength(n)
+  const b = Math.max(1, Math.round(blockLen ?? blockLength(n)))
   const nBlocks = Math.ceil(n / b)
   const idx = Array.from({ length: nBlocks }, (_, i) => i)
   const rng = seededRng(hashString(seedKey))
@@ -617,6 +629,19 @@ type GroupLabel = string | { chip: string; phrase: string }
 
 const chipOf = (l: GroupLabel) => (typeof l === "string" ? l : l.chip)
 const phraseOf = (l: GroupLabel) => (typeof l === "string" ? l : l.phrase)
+
+/**
+ * A finding sentence for each way the two printed averages can fall.
+ *
+ * Seventeen templates had two branches: the effect they expected, and
+ * "doesn't change / doesn't show up" for everything else — so busy days
+ * followed by energy 3.8 against 3.2 printed "Busy days don't change your
+ * next-day energy" under a green +18.8% Solid badge, and the brief quoted it
+ * as an established pattern. "No change" is only true when the two numbers
+ * print the same; `same` is the only place that sentence may go.
+ */
+const byDirection = (h: number, l: number, s: { higher: string; lower: string; same: string }): string =>
+  h > l ? s.higher : h < l ? s.lower : s.same
 
 /**
  * Compare two groups on a metric. Returns an insight if both groups have >= minN days.
@@ -813,7 +838,7 @@ export async function computeCorrelations(
 
   // Sources that used to live only in the /api/stats mini-engine (music, money,
   // focus) or nowhere at all (standalone mood logs, Strava, fasting).
-  const [moodRows, stravaRows, focusRows, lastfmRows, fastPref, symptomRows, customMetricRows, customLogRows, locPoints, travelSpans, rescueRows, bpRows, bodyRows, bodyLogRows] = await Promise.all([
+  const [moodRows, stravaRows, focusRows, lastfmRows, fastPref, symptomRows, customMetricRows, customLogRows, locPoints, travelSpans, rescueRows, bpRows, bodyRows, bodyLogRows, firstSymptom, firstFocus] = await Promise.all([
     prisma.moodLog.findMany({
       where: { userId, date: { gte: since60 } },
       select: { date: true, mood: true },
@@ -896,6 +921,17 @@ export async function computeCorrelations(
       orderBy: { loggedAt: "asc" },
       select: { loggedAt: true, waistCm: true },
     }).catch(() => [] as { loggedAt: Date; waistCm: number | null }[]),
+
+    // Where symptom and focus tracking BEGAN, ever — not the first row in the
+    // window. A headache every three weeks has a first in-window entry weeks
+    // after the window opens, and the tracked zero days before it are real.
+    // A failed lookup reads as "no row", and the first in-window row stands in.
+    Promise.resolve()
+      .then(() => prisma.symptomLog.findFirst({ where: { userId }, orderBy: { day: "asc" }, select: { day: true } }))
+      .catch(() => null),
+    Promise.resolve()
+      .then(() => prisma.focusSession.findFirst({ where: { userId, type: "focus" }, orderBy: { endedAt: "asc" }, select: { endedAt: true } }))
+      .catch(() => null),
   ])
 
   // Genres for the artists this user's days were topped by — the ArtistGenre
@@ -1032,6 +1068,13 @@ export async function computeCorrelations(
   }
   const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: tz })
   const localDay = (d: Date): string => dayFmt.format(d)
+
+  // Phone nights need the user's clock too (the 20:00→11:00 window is local),
+  // so they load here rather than in the first batch. Keyed by the MORNING —
+  // the same day the night's HealthLog row and check-in describe.
+  for (const night of await phoneNightSeries(userId, windowDays, tz).catch(() => [])) {
+    getOrCreate(night.morningISO).nightPickups = night.pickupsAfter22
+  }
 
   /**
    * Is `date` inside what this source can speak about?
@@ -1178,12 +1221,14 @@ export async function computeCorrelations(
 
   // Completed fasts (fasting page history — a JSON blob in UserPreference).
   // Attributed to the day the fast ended.
+  let fastingFrom: string | null = null
   try {
     const fastHistory = JSON.parse(fastPref?.value ?? "[]") as { endedAt?: string; durationH?: number }[]
     if (Array.isArray(fastHistory)) {
       for (const rec of fastHistory) {
         if (!rec?.endedAt || typeof rec.durationH !== "number") continue
         const dateStr = rec.endedAt.slice(0, 10)
+        if (fastingFrom == null || dateStr < fastingFrom) fastingFrom = dateStr
         if (dateStr < since60str) continue
         const d = getOrCreate(dateStr)
         if (d.fastH == null || rec.durationH > d.fastH) d.fastH = rec.durationH
@@ -1334,10 +1379,20 @@ export async function computeCorrelations(
   // written; a silent diary day is what `DayData.logged` is for; and the
   // weather column is filled nightly by its own cron for every day the user
   // existed, so it has no "before it was connected".
+  //
+  // Symptoms, focus sessions and fasts are diary features rather than
+  // connections, but they start the same way: on the day somebody first used
+  // them. Before that a symptom is not severity 0, a day is not a zero-minute
+  // focus day and nobody chose not to fast. A new medication started the same
+  // week as symptom logging otherwise reads as "nausea 1.5 on it, 0 without",
+  // which is the logging, not the drug.
   const SOURCE_FROM = {
     calendar: calendarFrom,
     workout: earliest(stravaRows.map(a => a.day)),
     screen: earliest((screenRows as { date: string }[]).map(r => r.date)),
+    symptoms: firstSymptom?.day ?? earliest(symptomRows.map(r => r.day)),
+    focus: firstFocus ? localDay(firstFocus.endedAt) : earliest(focusRows.map(f => localDay(f.endedAt))),
+    fasting: fastingFrom,
   } as const
   type SourceKey = keyof typeof SOURCE_FROM
   const sourceCovers = (src: SourceKey, date: string): boolean => coversFrom(SOURCE_FROM[src], date)
@@ -1588,10 +1643,11 @@ export async function computeCorrelations(
     series: alcoholBreathing,
     // A disturbance index: more of it is worse, so a rise must read as a loss.
     higherIsBetter: false,
-    findingTemplate: (h, l) =>
-      h > l
-        ? `Nights after a drink, breathing disturbances index at ${h} vs ${l} on sober nights`
-        : `Drinking doesn't show up in your sleep breathing — ${h} vs ${l}`,
+    findingTemplate: (h, l) => byDirection(h, l, {
+      higher: `Nights after a drink, breathing disturbances index at ${h} vs ${l} on sober nights`,
+      lower: `Nights after a drink, breathing disturbances index lower — ${h} vs ${l} on sober nights`,
+      same: `Drinking doesn't show up in your sleep breathing — ${h} vs ${l}`,
+    }),
   })
   if (ins_alcohol_breathing) { ins_alcohol_breathing.coverage = coverageNote("a drink"); insights.push(ins_alcohol_breathing) }
 
@@ -1663,21 +1719,26 @@ export async function computeCorrelations(
   })
   if (ins_active_readiness) insights.push(ins_active_readiness)
 
-  // 6d. High stress → same-day HRV
+  // 6d. High stress → next-morning HRV
+  // Oura's stress for day D is read from that day's heart rate and HRV, so it
+  // is measured AFTER the HRV on record D. Joined to it, a poor night that
+  // made the next day read as stressful was presented as stress lowering
+  // HRV — cause and effect the wrong way round.
   const stressHrv = new Split()
   for (const d of days) {
-    if (d.stressHighMin == null || d.hrv == null) continue
-    if (d.stressHighMin >= cuts.stress.at) stressHrv.add(true, d.hrv)
-    else stressHrv.add(false, d.hrv)
+    if (d.stressHighMin == null) continue
+    const hrv = tonight(d)?.hrv
+    if (hrv == null) continue
+    stressHrv.add(d.stressHighMin >= cuts.stress.at, hrv)
   }
   const ins_stress_hrv = compareGroups({
-    id: "stress_hrv", category: "recovery", emoji: "💓", title: "High Stress & HRV",
+    id: "stress_hrv", category: "recovery", emoji: "💓", title: "High Stress & Next-Morning HRV",
     highGroupLabel: stressLabel, lowGroupLabel: "calmer days",
     series: stressHrv, higherIsBetter: true,
     findingTemplate: (h, l) =>
       h < l
-        ? `On high-stress days, your HRV averages ${h}ms vs ${l}ms on calmer days`
-        : `High-stress days don't lower your HRV — ${h}ms vs ${l}ms`,
+        ? `After high-stress days, next-morning HRV averages ${h}ms vs ${l}ms after calmer days`
+        : `High-stress days don't lower your next-morning HRV — ${h}ms vs ${l}ms`,
   })
   if (ins_stress_hrv) insights.push(ins_stress_hrv)
 
@@ -1694,10 +1755,11 @@ export async function computeCorrelations(
     id: "caffeine_readiness", category: "recovery", emoji: "☕", title: "Caffeine & Next-Day Readiness",
     highGroupLabel: `${cafLabel} caffeine days`, lowGroupLabel: `${cafUnderLabel} days`,
     series: caffeineReadiness, higherIsBetter: true,
-    findingTemplate: (h, l) =>
-      h < l
-        ? `After ${cafLabel} caffeine, next-day readiness averages ${h} vs ${l} on lower-caffeine days`
-        : `Higher caffeine days don't change your readiness — ${h} vs ${l}`,
+    findingTemplate: (h, l) => byDirection(h, l, {
+      higher: `After ${cafLabel} caffeine, next-day readiness runs higher — ${h} vs ${l} on lower-caffeine days`,
+      lower: `After ${cafLabel} caffeine, next-day readiness averages ${h} vs ${l} on lower-caffeine days`,
+      same: `Higher caffeine days don't change your readiness — ${h} vs ${l}`,
+    }),
   })
   if (ins_caffeine_readiness) insights.push(ins_caffeine_readiness)
 
@@ -1759,10 +1821,11 @@ export async function computeCorrelations(
       highGroupLabel: "rainy days", lowGroupLabel: "dry days",
       // Mood is higher-is-better; the flag said otherwise and inverted the sign.
       series: rainMoodSplit, higherIsBetter: true,
-      findingTemplate: (h, l) =>
-        h < l
-          ? `After rainy days, morning mood averages ${h} vs ${l} after dry days`
-          : `Rainy days don't change your mood — ${h} vs ${l} on dry days`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        higher: `After rainy days, morning mood runs higher — ${h} vs ${l} after dry days`,
+        lower: `After rainy days, morning mood averages ${h} vs ${l} after dry days`,
+        same: `Rainy days don't change your mood — ${h} vs ${l} on dry days`,
+      }),
     })
     if (ins_rain_mood) insights.push(ins_rain_mood)
     const hotStepsSplit = new Split()
@@ -1815,30 +1878,33 @@ export async function computeCorrelations(
       id: "screen_energy", category: "screen", emoji: "🔌", title: "Screen Time & Next-Day Energy",
       highGroupLabel: `high screen days (${fmtH(screenMedian)}+)`, lowGroupLabel: "lower screen days",
       series: screenEnergy, higherIsBetter: true,
-      findingTemplate: (h, l) =>
-        h < l
-          ? `After high screen-time days, next-day energy averages ${h} vs ${l} after lighter days`
-          : `Screen time doesn't change your next-day energy — ${h} vs ${l}`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        higher: `After high screen-time days, next-day energy runs higher — ${h} vs ${l} after lighter days`,
+        lower: `After high screen-time days, next-day energy averages ${h} vs ${l} after lighter days`,
+        same: `Screen time doesn't change your next-day energy — ${h} vs ${l}`,
+      }),
     })
     if (ins_screen_energy) insights.push(ins_screen_energy)
     const ins_screen_mood = compareGroups({
       id: "screen_mood", category: "screen", emoji: "🙂", title: "Screen Time & Next-Day Mood",
       highGroupLabel: `high screen days (${fmtH(screenMedian)}+)`, lowGroupLabel: "lower screen days",
       series: screenMood, higherIsBetter: true,
-      findingTemplate: (h, l) =>
-        h < l
-          ? `After high screen-time days, next-day mood averages ${h} vs ${l} after lighter days`
-          : `Screen time doesn't change your next-day mood — ${h} vs ${l}`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        higher: `After high screen-time days, next-day mood runs higher — ${h} vs ${l} after lighter days`,
+        lower: `After high screen-time days, next-day mood averages ${h} vs ${l} after lighter days`,
+        same: `Screen time doesn't change your next-day mood — ${h} vs ${l}`,
+      }),
     })
     if (ins_screen_mood) insights.push(ins_screen_mood)
     const ins_screen_readiness = compareGroups({
       id: "screen_readiness", category: "screen", emoji: "🔋", title: "Screen Time & Next-Day Readiness",
       highGroupLabel: `high screen days (${fmtH(screenMedian)}+)`, lowGroupLabel: "lower screen days",
       series: screenReadiness, higherIsBetter: true,
-      findingTemplate: (h, l) =>
-        h < l
-          ? `After high screen-time days, next-day readiness averages ${h} vs ${l}`
-          : `Screen time doesn't change your next-day readiness — ${h} vs ${l}`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        higher: `After high screen-time days, next-day readiness runs higher — ${h} vs ${l}`,
+        lower: `After high screen-time days, next-day readiness averages ${h} vs ${l}`,
+        same: `Screen time doesn't change your next-day readiness — ${h} vs ${l}`,
+      }),
     })
     if (ins_screen_readiness) insights.push(ins_screen_readiness)
   }
@@ -1878,6 +1944,48 @@ export async function computeCorrelations(
     if (ins_wake_mood) insights.push(ins_wake_mood)
   }
 
+  // 10b. Phone in bed → the night it happened in, and the morning after.
+  // The phone has described its nights since 3.4.2 (pickups after 22:00,
+  // the quiet gap); this is the first time anything asks whether those
+  // pickups COST anything. Same-day join on both: the sleep score on record
+  // D and the check-in energy on morning D both describe the night the
+  // pickups happened in. The median split is the user's own — "many
+  // pickups" on a doomscroller and on an ascetic are different numbers.
+  const pickupVals = days.filter(d => d.nightPickups != null).map(d => d.nightPickups!)
+  if (pickupVals.length >= 10) {
+    const pickupMedian = Math.max(1, median(pickupVals))
+    const pickupSleepSplit = new Split()
+    const pickupEnergySplit = new Split()
+    for (const d of days) {
+      if (d.nightPickups == null) continue // absent night, not a quiet one
+      const busy = d.nightPickups >= pickupMedian && d.nightPickups > 0
+      if (d.sleepScore != null) pickupSleepSplit.add(busy, d.sleepScore)
+      if (d.energy != null) pickupEnergySplit.add(busy, d.energy)
+    }
+    const ins_pickups_sleep = compareGroups({
+      id: "phone_pickups_sleep", category: "screen", emoji: "📱", title: "Phone In Bed & Sleep",
+      highGroupLabel: `nights with ${pickupMedian}+ pickups after 22:00`, lowGroupLabel: "quieter evenings",
+      series: pickupSleepSplit, higherIsBetter: true,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        lower: `Nights you pick the phone up ${pickupMedian}+ times after 22:00 score ${h}; quieter evenings, ${l}`,
+        higher: `Nights with ${pickupMedian}+ late pickups actually score higher — ${h} vs ${l} on quieter evenings`,
+        same: `Evening phone pickups don't show up in your sleep score — ${h} vs ${l}`,
+      }),
+    })
+    if (ins_pickups_sleep) insights.push(ins_pickups_sleep)
+    const ins_pickups_energy = compareGroups({
+      id: "phone_pickups_energy", category: "screen", emoji: "🔋", title: "Phone In Bed & Morning Energy",
+      highGroupLabel: `nights with ${pickupMedian}+ pickups after 22:00`, lowGroupLabel: "quieter evenings",
+      series: pickupEnergySplit, higherIsBetter: true,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        lower: `Mornings after ${pickupMedian}+ late pickups, energy averages ${h} vs ${l} after quieter evenings`,
+        higher: `Mornings after ${pickupMedian}+ late pickups, energy is actually higher — ${h} vs ${l}`,
+        same: `Late pickups don't dent your morning energy — ${h} vs ${l}`,
+      }),
+    })
+    if (ins_pickups_energy) insights.push(ins_pickups_energy)
+  }
+
   // 11. Calendar load → sleep & next-day energy/mood (busy vs quiet days)
   const loadVals = days.filter(d => d.eventCount != null).map(d => d.eventCount!)
   if (loadVals.length >= 10) {
@@ -1908,20 +2016,22 @@ export async function computeCorrelations(
       id: "calendar_load_energy", category: "calendar", emoji: "🗓️", title: "Busy Days & Next-Day Energy",
       highGroupLabel: `busy days (${loadMedian}+ events)`, lowGroupLabel: "quieter days",
       series: busyEnergySplit, higherIsBetter: true,
-      findingTemplate: (h, l) =>
-        h < l
-          ? `After busy days, next-day energy averages ${h} vs ${l} after quieter ones`
-          : `Busy days don't change your next-day energy — ${h} vs ${l}`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        higher: `After busy days, next-day energy runs higher — ${h} vs ${l} after quieter ones`,
+        lower: `After busy days, next-day energy averages ${h} vs ${l} after quieter ones`,
+        same: `Busy days don't change your next-day energy — ${h} vs ${l}`,
+      }),
     })
     if (ins_load_energy) insights.push(ins_load_energy)
     const ins_load_mood = compareGroups({
       id: "calendar_load_mood", category: "calendar", emoji: "🗓️", title: "Busy Days & Next-Day Mood",
       highGroupLabel: `busy days (${loadMedian}+ events)`, lowGroupLabel: "quieter days",
       series: busyMoodSplit, higherIsBetter: true,
-      findingTemplate: (h, l) =>
-        h < l
-          ? `After busy days, next-day mood averages ${h} vs ${l} after quieter ones`
-          : `Busy days don't change your next-day mood — ${h} vs ${l}`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        higher: `After busy days, next-day mood runs higher — ${h} vs ${l} after quieter ones`,
+        lower: `After busy days, next-day mood averages ${h} vs ${l} after quieter ones`,
+        same: `Busy days don't change your next-day mood — ${h} vs ${l}`,
+      }),
     })
     if (ins_load_mood) insights.push(ins_load_mood)
   }
@@ -2010,10 +2120,11 @@ export async function computeCorrelations(
         id: "food_protein_energy", category: "food", emoji: "🥩", title: "Protein & Next-Day Energy",
         highGroupLabel: `${Math.round(proteinMedian)}g+ protein days`, lowGroupLabel: "lower-protein days",
         series: highProtEnergySplit,
-        findingTemplate: (h, l) =>
-          h > l
-            ? `After higher-protein days (${Math.round(proteinMedian)}g+), morning energy averages ${h} vs ${l}`
-            : `More protein doesn't move your morning energy — ${h} vs ${l}`,
+        findingTemplate: (h, l) => byDirection(h, l, {
+          higher: `After higher-protein days (${Math.round(proteinMedian)}g+), morning energy averages ${h} vs ${l}`,
+          lower: `After higher-protein days (${Math.round(proteinMedian)}g+), morning energy runs lower — ${h} vs ${l}`,
+          same: `More protein doesn't move your morning energy — ${h} vs ${l}`,
+        }),
       })
       if (ins_protein_energy) insights.push(ins_protein_energy)
     }
@@ -2056,20 +2167,22 @@ export async function computeCorrelations(
         id: "food_sugar_energy", category: "food", emoji: "🍬", title: "Sugar & Next-Day Energy",
         highGroupLabel: `${Math.round(sugarMedian)}g+ sugar days`, lowGroupLabel: "lower-sugar days",
         series: highSugarEnergySplit,
-        findingTemplate: (h, l) =>
-          h < l
-            ? `After higher-sugar days (${Math.round(sugarMedian)}g+), morning energy averages ${h} vs ${l}`
-            : `Sugar days don't change your next-day energy — ${h} vs ${l}`,
+        findingTemplate: (h, l) => byDirection(h, l, {
+          higher: `After higher-sugar days (${Math.round(sugarMedian)}g+), morning energy runs higher — ${h} vs ${l}`,
+          lower: `After higher-sugar days (${Math.round(sugarMedian)}g+), morning energy averages ${h} vs ${l}`,
+          same: `Sugar days don't change your next-day energy — ${h} vs ${l}`,
+        }),
       })
       if (ins_sugar_energy) insights.push(ins_sugar_energy)
       const ins_sugar_mood = compareGroups({
         id: "food_sugar_mood", category: "food", emoji: "🍭", title: "Sugar & Next-Day Mood",
         highGroupLabel: `${Math.round(sugarMedian)}g+ sugar days`, lowGroupLabel: "lower-sugar days",
         series: highSugarMoodSplit,
-        findingTemplate: (h, l) =>
-          h < l
-            ? `After higher-sugar days (${Math.round(sugarMedian)}g+), morning mood averages ${h} vs ${l}`
-            : `Sugar days don't change your next-day mood — ${h} vs ${l}`,
+        findingTemplate: (h, l) => byDirection(h, l, {
+          higher: `After higher-sugar days (${Math.round(sugarMedian)}g+), morning mood runs higher — ${h} vs ${l}`,
+          lower: `After higher-sugar days (${Math.round(sugarMedian)}g+), morning mood averages ${h} vs ${l}`,
+          same: `Sugar days don't change your next-day mood — ${h} vs ${l}`,
+        }),
       })
       if (ins_sugar_mood) insights.push(ins_sugar_mood)
     }
@@ -2091,20 +2204,22 @@ export async function computeCorrelations(
     id: "water_energy", category: "food", emoji: "💧", title: "Hydration & Next-Day Energy",
     highGroupLabel: `${waterLabel}+ water days`, lowGroupLabel: `under ${waterLabel} days`,
     series: hydratedEnergySplit,
-    findingTemplate: (h, l) =>
-      h > l
-        ? `After ${waterLabel}+ water days, morning energy averages ${h} vs ${l} after drier days`
-        : `Hitting ${waterLabel} doesn't move your morning energy — ${h} vs ${l}`,
+    findingTemplate: (h, l) => byDirection(h, l, {
+      higher: `After ${waterLabel}+ water days, morning energy averages ${h} vs ${l} after drier days`,
+      lower: `After ${waterLabel}+ water days, morning energy runs lower — ${h} vs ${l} after drier days`,
+      same: `Hitting ${waterLabel} doesn't move your morning energy — ${h} vs ${l}`,
+    }),
   })
   if (ins_water_energy) insights.push(ins_water_energy)
   const ins_water_readiness = compareGroups({
     id: "water_readiness", category: "food", emoji: "🚰", title: "Hydration & Next-Day Readiness",
     highGroupLabel: `${waterLabel}+ water days`, lowGroupLabel: `under ${waterLabel} days`,
     series: hydratedReadinessSplit,
-    findingTemplate: (h, l) =>
-      h > l
-        ? `After ${waterLabel}+ water days, next-day readiness averages ${h} vs ${l}`
-        : `Hydration doesn't show up in your readiness — ${h} vs ${l}`,
+    findingTemplate: (h, l) => byDirection(h, l, {
+      higher: `After ${waterLabel}+ water days, next-day readiness averages ${h} vs ${l}`,
+      lower: `After ${waterLabel}+ water days, next-day readiness runs lower — ${h} vs ${l}`,
+      same: `Hydration doesn't show up in your readiness — ${h} vs ${l}`,
+    }),
   })
   if (ins_water_readiness) insights.push(ins_water_readiness)
 
@@ -2282,7 +2397,8 @@ export async function computeCorrelations(
   // everything above: each symptom is the outcome, and the factors are the
   // suspects. A day with no entry for a symptom is a genuine zero, not missing
   // data — that's what makes "headache severity on drinking days vs sober days"
-  // a fair comparison rather than one computed only over days it hurt.
+  // a fair comparison rather than one computed only over days it hurt. But only
+  // from the day symptom logging began: before it, no entry is no tracking.
   const symptomDayCount = new Map<string, number>()
   for (const d of days) {
     for (const name of Object.keys(d.symptoms ?? {})) {
@@ -2314,7 +2430,7 @@ export async function computeCorrelations(
       short: string
       test: (d: DayData, prev?: DayData) => boolean | null
     }[] = [
-      { key: "alcohol", chip: "days after drinking", phrase: "the day after drinking", short: "drinking", test: (_d, prev) => prev ? (prev.alcoholG ?? 0) >= STANDARD_DRINK_G : null },
+      { key: "alcohol", chip: "days after drinking", phrase: "the day after drinking", short: "drinking", test: (_d, prev) => (prev?.logged ? (prev.alcoholG ?? 0) >= STANDARD_DRINK_G : null) },
       { key: "caffeine", chip: `${cafLabel} caffeine days`, phrase: `on ${cafLabel} caffeine days`, short: "caffeine", test: d => d.caffeineMg != null ? d.caffeineMg >= cuts.caffeine.at : null },
       { key: "short_sleep", chip: "days after a short night", phrase: "after a night under 7h", short: "short sleep", test: d => d.sleepDuration != null ? d.sleepDuration < 7 : null },
       { key: "poor_sleep", chip: "days after a poor night", phrase: "after a night scoring under 70", short: "a poor night", test: d => d.sleepScore != null ? d.sleepScore < 70 : null },
@@ -2346,10 +2462,11 @@ export async function computeCorrelations(
       for (const suspect of SUSPECTS) {
         const exposedSplit = new Split()
         for (const d of days) {
+          if (!sourceCovers("symptoms", d.date)) continue
+          const severity = d.symptoms?.[symptom] ?? 0
           const prev = byDate[prevDateStr(d.date)]
           const verdict = suspect.test(d, prev)
           if (verdict == null) continue // that factor wasn't recorded — not a zero
-          const severity = d.symptoms?.[symptom] ?? 0
           if (verdict) exposedSplit.add(true, severity); else exposedSplit.add(false, severity)
         }
         const ins_symptom = compareGroups({
@@ -2373,8 +2490,9 @@ export async function computeCorrelations(
       for (const supp of topSupps.slice(0, 3)) {
         const onDaysSplit = new Split()
         for (const d of days) {
-          const took = (d.supplements ?? []).includes(supp)
+          if (!sourceCovers("symptoms", d.date)) continue
           const severity = d.symptoms?.[symptom] ?? 0
+          const took = (d.supplements ?? []).includes(supp)
           if (took) onDaysSplit.add(true, severity); else onDaysSplit.add(false, severity)
         }
         const ins_symptom_med = compareGroups({
@@ -2594,38 +2712,39 @@ export async function computeCorrelations(
   // 19. UV — the one weather column nothing consumed
   const uvDays = days.filter(d => d.uvIndex != null)
   if (uvDays.length >= 10) {
+    // Readiness on record D was set by the night before the day's sun.
     const uvReadiness = new Split()
     for (const d of uvDays) {
-      if (d.readiness == null) continue
-      if (d.uvIndex! >= 5) uvReadiness.add(true, d.readiness)
-      else uvReadiness.add(false, d.readiness)
+      const r = tonight(d)?.readiness
+      if (r == null) continue
+      uvReadiness.add(d.uvIndex! >= 5, r)
     }
     const ins_uv_readiness = compareGroups({
-      id: "uv_readiness", category: "tags", emoji: "☀️", title: "Sunny Days & Readiness",
+      id: "uv_readiness", category: "tags", emoji: "☀️", title: "Sunny Days & Next-Day Readiness",
       highGroupLabel: "high-UV days (index 5+)", lowGroupLabel: "low-UV days",
       series: uvReadiness,
-      findingTemplate: (h, l) =>
-        h > l
-          ? `On sunny high-UV days, readiness averages ${h} vs ${l} on grey days`
-          : `Sunny days don't show up in your readiness — ${h} vs ${l}`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        higher: `After sunny high-UV days, next-day readiness averages ${h} vs ${l} after grey days`,
+        lower: `After sunny high-UV days, next-day readiness runs lower — ${h} vs ${l} after grey days`,
+        same: `Sunny days don't show up in next-day readiness — ${h} vs ${l}`,
+      }),
     })
     if (ins_uv_readiness) insights.push(ins_uv_readiness)
   }
 
   // 20. Focus sessions — do focus days feel better, and does sleep buy focus?
-  const focusDayCount = days.filter(d => (d.focusMin ?? 0) > 0).length
+  const focusDayCount = days.filter(d => sourceCovers("focus", d.date) && (d.focusMin ?? 0) > 0).length
   if (focusDayCount >= 5) {
     const focusMoodSplit = new Split()
     const goodSleepFocusSplit = new Split()
     for (const d of days) {
-      const focused = (d.focusMin ?? 0) > 0
+      if (!sourceCovers("focus", d.date)) continue
+      const focusMin = d.focusMin ?? 0
+      const focused = focusMin > 0
       if (d.mood != null) { if (focused) focusMoodSplit.add(true, d.mood); else focusMoodSplit.add(false, d.mood) }
-      // sleepDuration on day d is last night's sleep; no-session days are real
-      // 0-minute focus days for this question
-      if (d.sleepDuration != null) {
-        if (d.sleepDuration >= 7) goodSleepFocusSplit.add(true, d.focusMin ?? 0)
-        else goodSleepFocusSplit.add(false, d.focusMin ?? 0)
-      }
+      // sleepDuration on day d is last night's sleep; no-session days since
+      // focus tracking began are real 0-minute focus days for this question
+      if (d.sleepDuration != null) goodSleepFocusSplit.add(d.sleepDuration >= 7, focusMin)
     }
     const ins_focus_mood = compareGroups({
       id: "focus_mood", category: "focus", emoji: "🎯", title: "Focus Sessions & Mood",
@@ -2655,6 +2774,7 @@ export async function computeCorrelations(
     const fastedSleepSplit = new Split()
     const fastedEnergySplit = new Split()
     for (const d of days) {
+      if (!sourceCovers("fasting", d.date)) continue
       const fasted = (d.fastH ?? 0) >= 14
       const next = byDate[nextDateStr(d.date)]
       if (!next) continue
@@ -2693,12 +2813,21 @@ export async function computeCorrelations(
   // or a sober day. The REM card used to say REM was lower-is-better, which
   // inverted its sign, and counted a day as sober because it had logged
   // caffeine.
+  //
+  // Caffeine → time to fall asleep joins them. Latency has been stored on
+  // most nights for months, and "does coffee keep me lying there" is not
+  // answerable from the sleep score, which mixes latency in with six other
+  // things. It used to be an interaction whose moderator ("a heavy caffeine
+  // day") could only be true on days its predictor ("any caffeine") was, so
+  // one of its four cells was empty by construction and it never answered.
   const caffeineDeep = new Split()
+  const caffeineLatency = new Split()
   const alcoholRem = new Split()
   for (const d of days) {
     const next = tonight(d)
     if (!next) continue
     if (d.logged && next.deepSleepMin != null) caffeineDeep.add((d.caffeineMg ?? 0) >= cuts.caffeine.at, next.deepSleepMin)
+    if (d.logged && next.sleepLatencyMin != null) caffeineLatency.add((d.caffeineMg ?? 0) >= cuts.caffeine.at, next.sleepLatencyMin)
     const drank = drankDay(d)
     if (drank != null && next.remSleepMin != null) alcoholRem.add(drank, next.remSleepMin)
   }
@@ -2711,6 +2840,15 @@ export async function computeCorrelations(
       `With ${lab.high}, deep sleep averages ${Math.round(h)} min; with ${lab.low}, ${Math.round(l)} min`,
   })
   if (ins_caffeine_deep) { ins_caffeine_deep.coverage = coverageNote("caffeine"); insights.push(ins_caffeine_deep) }
+  const ins_caffeine_latency = compareGroups({
+    id: "caffeine_sleep_latency", category: "sleep", emoji: "⏳", title: "Caffeine & Time to Fall Asleep",
+    highGroupLabel: { chip: `${cafLabel} of caffeine`, phrase: `${cafLabel} of caffeine` },
+    lowGroupLabel: { chip: cafUnderLabel, phrase: "less" },
+    series: caffeineLatency, higherIsBetter: false,
+    findingTemplate: (h, l, lab) =>
+      `With ${lab.high}, time to fall asleep averages ${Math.round(h)} min; with ${lab.low}, ${Math.round(l)} min`,
+  })
+  if (ins_caffeine_latency) { ins_caffeine_latency.coverage = coverageNote("caffeine"); insights.push(ins_caffeine_latency) }
   const ins_alcohol_rem = compareGroups({
     id: "alcohol_rem_sleep", category: "sleep", emoji: "🌀", title: "Alcohol & REM Sleep",
     highGroupLabel: { chip: "days with a drink", phrase: "a drink" },
@@ -2811,10 +2949,11 @@ export async function computeCorrelations(
       id: "walking_sleep", category: "places", emoji: "🌆", title: "Walking & That Night's Sleep",
       highGroupLabel: `bigger walking days (${fmtWalk}+)`, lowGroupLabel: "less-walked days",
       series: walkSleep,
-      findingTemplate: (h, l) =>
-        h > l
-          ? `Nights after ${fmtWalk}+ of walking score ${h} vs ${l} after stiller days`
-          : `Walking more doesn't move your sleep score — ${h} vs ${l}`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        higher: `Nights after ${fmtWalk}+ of walking score ${h} vs ${l} after stiller days`,
+        lower: `Nights after ${fmtWalk}+ of walking score lower — ${h} vs ${l} after stiller days`,
+        same: `Walking more doesn't move your sleep score — ${h} vs ${l}`,
+      }),
     })
     if (ins_walk_sleep) insights.push(ins_walk_sleep)
   }
@@ -2856,10 +2995,11 @@ export async function computeCorrelations(
       id: "vehicle_sleep", category: "places", emoji: "🌃", title: "Time in Transit & That Night's Sleep",
       highGroupLabel: `heavier transit days (${fmtVehicle}+)`, lowGroupLabel: "lighter transit days",
       series: vehSleep,
-      findingTemplate: (h, l) =>
-        h < l
-          ? `Nights after ${fmtVehicle}+ in a vehicle score ${h} vs ${l} after lighter days`
-          : `Time in a vehicle doesn't move your sleep score — ${h} vs ${l}`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        higher: `Nights after ${fmtVehicle}+ in a vehicle score higher — ${h} vs ${l} after lighter days`,
+        lower: `Nights after ${fmtVehicle}+ in a vehicle score ${h} vs ${l} after lighter days`,
+        same: `Time in a vehicle doesn't move your sleep score — ${h} vs ${l}`,
+      }),
     })
     if (ins_veh_sleep) insights.push(ins_veh_sleep)
   }
@@ -2911,10 +3051,11 @@ export async function computeCorrelations(
       id: "work_distracting_mood", category: "work", emoji: "🕳️", title: "Distracting Hours & Mood",
       highGroupLabel: `${r1(distMedian)}h+ distracted days`, lowGroupLabel: "more focused days",
       series: distMood,
-      findingTemplate: (h, l) =>
-        h < l
-          ? `On ${r1(distMedian)}h+ distracted days, mood averages ${h} vs ${l} on more focused days`
-          : `Distracted days don't show up in your mood — ${h} vs ${l}`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        higher: `On ${r1(distMedian)}h+ distracted days, mood runs higher — ${h} vs ${l} on more focused days`,
+        lower: `On ${r1(distMedian)}h+ distracted days, mood averages ${h} vs ${l} on more focused days`,
+        same: `Distracted days don't show up in your mood — ${h} vs ${l}`,
+      }),
     })
     if (ins_dist_mood) insights.push(ins_dist_mood)
   }
@@ -2936,7 +3077,7 @@ export async function computeCorrelations(
       const sys = d.systolic!
       if (d.sleepDuration != null) { if (d.sleepDuration < 7) bpShortSleepSplit.add(true, sys); else bpShortSleepSplit.add(false, sys) }
       const prev = byDate[prevDateStr2(d.date)]
-      if (prev) { if ((prev.alcoholG ?? 0) >= STANDARD_DRINK_G) bpAfterDrinksSplit.add(true, sys); else bpAfterDrinksSplit.add(false, sys) }
+      if (prev?.logged) bpAfterDrinksSplit.add((prev.alcoholG ?? 0) >= STANDARD_DRINK_G, sys)
       if (d.caffeineMg != null) { if (d.caffeineMg >= cuts.caffeine.at) bpCaf.add(true, sys); else bpCaf.add(false, sys) }
     }
     const ins_bp_sleep = compareGroups({
@@ -3152,12 +3293,12 @@ export async function computeCorrelations(
   /** A gate has to clear this in the main battery before its aspects are run. */
   const SLEEP_GATE_P = 0.05
   /**
-   * Asked once. Caffeine → deep sleep and alcohol → REM are pre-registered in
-   * the main battery (family 22) and run whether or not the gate clears —
+   * Asked once. Caffeine → deep sleep, caffeine → time to fall asleep and
+   * alcohol → REM are pre-registered in the main battery (family 22) and run whether or not the gate clears —
    * a cause can move one component while the score holds still. Asking them
    * again behind the gate would be the duplicate the audit found.
    */
-  const PREREGISTERED_ASPECTS = new Set(["caffeine:deep", "alcohol:rem"])
+  const PREREGISTERED_ASPECTS = new Set(["caffeine:deep", "caffeine:latency", "alcohol:rem"])
 
   /**
    * Bedtimes this far apart make the two sides two different nights, whatever
@@ -3637,7 +3778,7 @@ export async function computeCorrelations(
       absenceCheck("workout", "a workout", "💪",
         d => sourceCovers("workout", d.date) && (d.workoutMin ?? 0) >= 20, d => d.energy, "morning energy")
       absenceCheck("focus", "a focus session", "🎯",
-        d => (d.focusMin ?? 0) >= 25, d => d.mood, "mood")
+        d => sourceCovers("focus", d.date) && (d.focusMin ?? 0) >= 25, d => d.mood, "mood")
 
       // Top tags by prior frequency — up to three, only if each is common
       // enough on its own to warrant a card.
@@ -3743,12 +3884,12 @@ export async function computeCorrelations(
        * Days this question can be asked of at all. Everything else is dropped
        * before the 2×2 is built rather than filed under "didn't do it".
        *
-       * The caffeine interactions need it: a predicate is a boolean, and a day
-       * with nothing logged answers `false` to "any caffeine day" in exactly
-       * the same voice as a day you drank water and no coffee. One of those is
-       * a control and the other is a day nobody wrote anything down.
+       * A predicate is a boolean, and a day with nothing logged answers
+       * `false` to "a drinking day" in exactly the same voice as a day you
+       * logged dinner and no drink. One of those is a control and the other
+       * is a day nobody wrote anything down.
        *
-       * Two more kinds of ineligibility go through here, found by auditing
+       * The kinds of ineligibility that go through here, found by auditing
        * what every predicate reads when its source is silent:
        *
        *   the diary was shut — the alcohol predictors below said
@@ -3757,24 +3898,36 @@ export async function computeCorrelations(
        *   the source was not connected yet — `sourceCovers`, for a workout
        *     moderator that read every pre-Strava day as a rest day, and a
        *     calendar predictor that read every pre-sync day as quiet
+       *   the field was never written — a night the ring missed is not a
+       *     7h+ night, and a day with no meal logged has no meal time
        */
       eligible?: (d: DayData) => boolean
-      /** The number being watched — measured on day D or D+1. */
+      /**
+       * The number being watched — measured on day D or D+1.
+       *
+       * Anything that happens DURING day D can only show up in the record
+       * dated D+1: that is the night after it, and the check-in dated D+1 is
+       * the morning after it. Seven of these read the record dated D — the
+       * night BEFORE the drink, the late meal or the busy calendar — so a bad
+       * night followed by a boozy evening came out as the evening's effect.
+       */
       outcome: {
         label: string
         nextDay: boolean
         accessor: (d: DayData) => number | null | undefined
         higherIsBetter: boolean
       }
-      /** The condition that might change the effect. Measured on the day of
-       *  the predictor unless otherwise noted. */
+      /** The condition that might change the effect, measured on day D. */
       moderator: {
         key: string
         onLabel: string
         offLabel: string
-        predicate: (d: DayData) => boolean
-        /** false = moderator measured on the predictor day (D); true = on the outcome day (D+1). */
-        onOutcomeDay?: boolean
+        /**
+         * null = this day cannot say. A drinking day with no meal logged has
+         * no dinner time; filing it under "when it was later" compared four
+         * real early dinners against eight days with no dinner data at all.
+         */
+        predicate: (d: DayData) => boolean | null
       }
     }
 
@@ -3787,7 +3940,7 @@ export async function computeCorrelations(
         predictor: { label: "drinking day", predicate: d => drankDay(d) === true },
         outcome: { label: "morning HRV", nextDay: true, accessor: d => d.hrv, higherIsBetter: true },
         moderator: { key: "workout", onLabel: "with a workout that day", offLabel: "without a workout",
-                     predicate: d => sourceCovers("workout", d.date) && (d.workoutMin ?? 0) >= 20 },
+                     predicate: d => (sourceCovers("workout", d.date) ? (d.workoutMin ?? 0) >= 20 : null) },
       },
       {
         id: "alcohol_sleep_by_early_dinner",
@@ -3795,57 +3948,36 @@ export async function computeCorrelations(
         emoji: "🌙",
         eligible: d => drankDay(d) != null,
         predictor: { label: "drinking day", predicate: d => drankDay(d) === true },
-        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        outcome: { label: "sleep score", nextDay: true, accessor: d => d.sleepScore, higherIsBetter: true },
         moderator: { key: "early_dinner", onLabel: "when dinner was before 8pm", offLabel: "when it was later",
-                     predicate: d => d.lastMealMin != null && d.lastMealMin < 20 * 60 },
+                     predicate: d => (d.lastMealMin == null ? null : d.lastMealMin < 20 * 60) },
       },
+      // The short night is the one that ended on morning D, so the workout
+      // that might rescue it is day D's, and the mood it rescues is the one
+      // checked in on morning D+1 — the first reading taken after the
+      // workout. The workout used to come from D+1, after the check-in it
+      // was credited with. A night with no ring record is not a 7h+ night.
       {
         id: "short_sleep_mood_by_next_workout",
         title: "Does a workout rescue your mood after a short night?",
         emoji: "💪",
+        eligible: d => d.sleepDuration != null,
         predictor: { label: "night under 7h", predicate: d => d.sleepDuration != null && d.sleepDuration < 7 },
         outcome: { label: "next-day mood", nextDay: true, accessor: d => d.mood, higherIsBetter: true },
         moderator: { key: "workout_next", onLabel: "when you worked out that day",
                      offLabel: "when you didn't",
-                     predicate: d => sourceCovers("workout", d.date) && (d.workoutMin ?? 0) >= 20, onOutcomeDay: true },
+                     predicate: d => (sourceCovers("workout", d.date) ? (d.workoutMin ?? 0) >= 20 : null) },
       },
       {
         id: "short_sleep_energy_by_next_workout",
         title: "Does a workout rescue your energy after a short night?",
         emoji: "🏃",
+        eligible: d => d.sleepDuration != null,
         predictor: { label: "night under 7h", predicate: d => d.sleepDuration != null && d.sleepDuration < 7 },
         outcome: { label: "next-day energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
         moderator: { key: "workout_next", onLabel: "when you worked out that day",
                      offLabel: "when you didn't",
-                     predicate: d => sourceCovers("workout", d.date) && (d.workoutMin ?? 0) >= 20, onOutcomeDay: true },
-      },
-      {
-        id: "caffeine_sleep_by_amount",
-        // A silent day is not a decaf day — see InteractionDef.eligible.
-        eligible: d => d.logged === true || d.caffeineMg != null,
-        title: "Does a heavy caffeine day sleep worse than a light one?",
-        emoji: "☕",
-        predictor: { label: "any caffeine day", predicate: d => (d.caffeineMg ?? 0) > 0 },
-        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
-        moderator: { key: "heavy_caffeine", onLabel: `on ${cafLabel} days`, offLabel: "on lighter days",
-                     predicate: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
-      },
-      // Latency and efficiency have been stored on 91% of nights for months and
-      // never read. These two are deliberately pre-registered rather than a
-      // sweep: every family costs false-discovery budget for all the others, so
-      // they are the two questions worth spending it on. "Does coffee keep me
-      // lying there" is not answerable from sleep score, which mixes latency in
-      // with six other things.
-      {
-        id: "caffeine_latency_by_amount",
-        // A silent day is not a decaf day — see InteractionDef.eligible.
-        eligible: d => d.logged === true || d.caffeineMg != null,
-        title: "Does a heavy caffeine day take longer to fall asleep after?",
-        emoji: "☕",
-        predictor: { label: "any caffeine day", predicate: d => (d.caffeineMg ?? 0) > 0 },
-        outcome: { label: "minutes to fall asleep", nextDay: false, accessor: d => d.sleepLatencyMin, higherIsBetter: false },
-        moderator: { key: "heavy_caffeine", onLabel: `on ${cafLabel} days`, offLabel: "on lighter days",
-                     predicate: d => (d.caffeineMg ?? 0) >= cuts.caffeine.at },
+                     predicate: d => (sourceCovers("workout", d.date) ? (d.workoutMin ?? 0) >= 20 : null) },
       },
       {
         id: "alcohol_efficiency_by_early_dinner",
@@ -3853,9 +3985,9 @@ export async function computeCorrelations(
         emoji: "🍷",
         eligible: d => drankDay(d) != null,
         predictor: { label: "drinking day", predicate: d => drankDay(d) === true },
-        outcome: { label: "sleep efficiency", nextDay: false, accessor: d => d.sleepEfficiency, higherIsBetter: true },
+        outcome: { label: "sleep efficiency", nextDay: true, accessor: d => d.sleepEfficiency, higherIsBetter: true },
         moderator: { key: "early_dinner", onLabel: "when dinner was before 8pm", offLabel: "when it was later",
-                     predicate: d => d.lastMealMin != null && d.lastMealMin < 20 * 60 },
+                     predicate: d => (d.lastMealMin == null ? null : d.lastMealMin < 20 * 60) },
       },
       {
         id: "long_calendar_sleep_by_workout",
@@ -3863,28 +3995,31 @@ export async function computeCorrelations(
         emoji: "📅",
         eligible: d => calendarCovers(d.date),
         predictor: { label: "busy day (5+ events)", predicate: d => (d.eventCount ?? 0) >= 5 },
-        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        outcome: { label: "sleep score", nextDay: true, accessor: d => d.sleepScore, higherIsBetter: true },
         moderator: { key: "workout", onLabel: "with a workout that day", offLabel: "without one",
-                     predicate: d => sourceCovers("workout", d.date) && (d.workoutMin ?? 0) >= 20 },
+                     predicate: d => (sourceCovers("workout", d.date) ? (d.workoutMin ?? 0) >= 20 : null) },
       },
       {
+        // The check-in dated D is the morning BEFORE the workout; the first
+        // energy reading after it is the next morning's. The moderator stays
+        // on D, where sleepDuration is the night before the workout.
         id: "workout_energy_by_sleep_prior",
         title: "Does a workout give you more energy when you slept well first?",
         emoji: "😴",
         eligible: d => sourceCovers("workout", d.date),
         predictor: { label: "workout day", predicate: d => (d.workoutMin ?? 0) >= 20 },
-        outcome: { label: "same-day energy", nextDay: false, accessor: d => d.energy, higherIsBetter: true },
+        outcome: { label: "next-morning energy", nextDay: true, accessor: d => d.energy, higherIsBetter: true },
         moderator: { key: "slept_well_prior", onLabel: "on well-rested days", offLabel: "on tired ones",
-                     predicate: d => (d.sleepDuration ?? 0) >= 7 },
+                     predicate: d => (d.sleepDuration == null ? null : d.sleepDuration >= 7) },
       },
       {
         id: "screen_sleep_by_late_use",
         title: "Does a regular wake time blunt what screen time does to sleep?",
         emoji: "📱",
         predictor: { label: "a heavy screen day", predicate: () => false /* set below */ },
-        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        outcome: { label: "sleep score", nextDay: true, accessor: d => d.sleepScore, higherIsBetter: true },
         moderator: { key: "regular_wake", onLabel: "on days with a regular wake time",
-                     offLabel: "on scattered ones", predicate: () => false /* set below */ },
+                     offLabel: "on scattered ones", predicate: () => null /* set below */ },
       },
       {
         id: "alcohol_energy_by_water",
@@ -3898,15 +4033,17 @@ export async function computeCorrelations(
                      predicate: d => (d.waterMl ?? 0) >= cuts.water.at },
       },
       {
+        // A day with no meal logged has no meal time, early or late.
         id: "late_meal_sleep_by_alcohol",
         title: "Do late meals cost more sleep when there was also a drink?",
         emoji: "🍽️",
+        eligible: d => d.lastMealMin != null,
         predictor: { label: "late-meal day (after 9pm)",
                      predicate: d => d.lastMealMin != null && d.lastMealMin >= 21 * 60 },
-        outcome: { label: "sleep score", nextDay: false, accessor: d => d.sleepScore, higherIsBetter: true },
+        outcome: { label: "sleep score", nextDay: true, accessor: d => d.sleepScore, higherIsBetter: true },
         moderator: { key: "alcohol", onLabel: "when alcohol was also involved",
                      offLabel: "on dry late-meal days",
-                     predicate: d => (d.alcoholG ?? 0) > 0 },
+                     predicate: drankDay },
       },
     ]
 
@@ -3922,8 +4059,8 @@ export async function computeCorrelations(
       if (def.id === "screen_sleep_by_late_use") {
         def.predictor.predicate = d => sourceCovers("screen", d.date) && (d.screenTimeMin ?? 0) >= screenP66
         def.eligible = d => sourceCovers("screen", d.date)
-        def.moderator.predicate = d => d.firstUnlockMin != null &&
-          Math.abs(d.firstUnlockMin - wakeMedian) <= 30
+        def.moderator.predicate = d => (d.firstUnlockMin == null ? null :
+          Math.abs(d.firstUnlockMin - wakeMedian) <= 30)
       }
     }
 
@@ -3942,16 +4079,16 @@ export async function computeCorrelations(
           const outcomeDay = def.outcome.nextDay ? dense[i + 1] : day
           const val = def.outcome.accessor(outcomeDay)
           if (val == null || !Number.isFinite(val)) continue
-          const modDay = def.moderator.onOutcomeDay ? outcomeDay : day
-          const mod = def.moderator.predicate(modDay)
+          const mod = def.moderator.predicate(day)
+          if (mod == null) continue
           ;(mod ? cells.on : cells.off).no.push(val)
           continue
         }
         const outcomeDay = def.outcome.nextDay ? dense[i + 1] : day
         const val = def.outcome.accessor(outcomeDay)
         if (val == null || !Number.isFinite(val)) continue
-        const modDay = def.moderator.onOutcomeDay ? outcomeDay : day
-        const mod = def.moderator.predicate(modDay)
+        const mod = def.moderator.predicate(day)
+        if (mod == null) continue
         ;(mod ? cells.on : cells.off).yes.push(val)
       }
 

@@ -30,6 +30,18 @@ describe("the brief asks the server only after the phone has been drained", () =
     ).toBe(true)
   })
 
+  it("a foreground re-ask waits for the drain that foreground starts", () => {
+    // The first foreground of a new morning writes that day's brief. Asked
+    // before the drain NativeBridge starts on the same event, it was written
+    // without last night's phone segments — the cold-open race again.
+    const src = stripped("src/components/dashboard/DailyBriefing.tsx")
+    const handler = src.slice(src.indexOf("const onVisible"), src.indexOf("addEventListener(\"visibilitychange\""))
+    const wait = handler.indexOf("await waitForPhoneDrain(")
+    const ask = handler.indexOf("loadBriefing(")
+    expect(wait, "the foreground re-ask does not wait for the phone drain").toBeGreaterThan(-1)
+    expect(wait < ask).toBe(true)
+  })
+
   it("NativeBridge drains through the helper that the brief waits on", () => {
     const bridge = stripped("src/components/NativeBridge.tsx")
     expect(
@@ -49,6 +61,20 @@ describe("the brief asks the server only after the phone has been drained", () =
       "The cache check regenerates a \"no sleep\" brief only when a ring row lands. A phone night that arrives " +
         "a second after the brief was generated is then ignored until the period changes.",
     ).toBeGreaterThan(-1)
+  })
+
+  it("a brief built on the phone's night is re-checked for the ring's", () => {
+    // 07:05: the phone's 6.1 h reached the server before the ring's night, so
+    // the brief said "the phone detected about 6.1 hours" and was cached as
+    // having sleep. At 07:06 the ring wrote 7.4 h — and every open until noon
+    // still served the phone's figure above a Sleep card showing the ring's.
+    // The ring wins, so a phone-based brief has to notice when it arrives.
+    const brief = stripped("src/app/api/briefing/route.ts")
+    const store = brief.slice(brief.lastIndexOf("JSON.stringify("))
+    expect(store, "the cache does not record which instrument the night came from").toMatch(/sleepSource/)
+    const check = brief.slice(0, brief.indexOf("staleButServable = "))
+    expect(check, "the cache check never asks about a phone-based brief").toMatch(/sleepSource\s*===\s*"phone"/)
+    expect(check).toMatch(/healthLog\.findFirst/)
   })
 
   it("the sensors route says what it received, so a night that never arrived can be told from one that did", () => {
@@ -122,6 +148,22 @@ describe("waitForPhoneDrain", () => {
     await vi.advanceTimersByTimeAsync(2999)
     expect(done).toBe(false)
     await vi.advanceTimersByTimeAsync(2)
+    expect(done).toBe(true)
+  })
+
+  it("after the first drain, still holds for one in flight", async () => {
+    phone.native = true
+    const { waitForPhoneDrain, drainPhone } = await load()
+    await drainPhone()
+    let release!: () => void
+    drains.sensors.mockReturnValue(new Promise(r => { release = () => r({ ambient: [], phoneEvents: [], sleep: [] }) }))
+    void drainPhone()
+    let done = false
+    void waitForPhoneDrain(5000).then(() => { done = true })
+    await vi.advanceTimersByTimeAsync(10)
+    expect(done, "resolved while the foreground's drain was still running").toBe(false)
+    release()
+    await vi.advanceTimersByTimeAsync(10)
     expect(done).toBe(true)
   })
 

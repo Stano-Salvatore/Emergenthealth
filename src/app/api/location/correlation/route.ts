@@ -77,12 +77,17 @@ const day = (d: Date) => new Date(d).toISOString().split("T")[0]
 // One place's correlation, given data already loaded for the whole account.
 // Health and mood history is identical for every place, so it is fetched once
 // by the caller rather than re-read per place.
+//
+// `covered` is every day with a check-in of any kind. A day without one is
+// not a day spent elsewhere — tracking was off — so it sits on neither side,
+// the rule the correlation engine applies to places.
 function correlatePlace(
   place: SavedPlaceRow,
   placeCheckIns: CheckInRow[],
   health: HealthRow[],
   moods: MoodByDay,
   localDay: (at: Date) => string,
+  covered: Set<string>,
 ): PlaceCorrelation {
   const visitDates = new Set(placeCheckIns.map(c => localDay(c.checkedAt)))
   const postVisitDates = new Set(Array.from(visitDates).map(d => nextDay(d)))
@@ -90,13 +95,13 @@ function correlatePlace(
   const healthByDate = new Map(health.map(h => [day(h.date), h]))
 
   const visitHealth    = health.filter(h =>  visitDates.has(day(h.date)))
-  const nonVisitHealth = health.filter(h => !visitDates.has(day(h.date)) && !postVisitDates.has(day(h.date)))
+  const nonVisitHealth = health.filter(h => covered.has(day(h.date)) && !visitDates.has(day(h.date)) && !postVisitDates.has(day(h.date)))
   const visitMoods     = [...moods].filter(([d]) =>  visitDates.has(d)).map(([, m]) => m)
-  const nonVisitMoods  = [...moods].filter(([d]) => !visitDates.has(d)).map(([, m]) => m)
+  const nonVisitMoods  = [...moods].filter(([d]) => covered.has(d) && !visitDates.has(d)).map(([, m]) => m)
 
   const nextDayHealth = Array.from(postVisitDates).map(d => healthByDate.get(d)).filter((h): h is HealthRow => h != null)
   const allDates = new Set(health.map(h => day(h.date)))
-  const nonVisitDates = Array.from(allDates).filter(d => !visitDates.has(d))
+  const nonVisitDates = Array.from(allDates).filter(d => covered.has(d) && !visitDates.has(d))
   const nonVisitNextDayHealth = nonVisitDates.map(d => healthByDate.get(nextDay(d))).filter((h): h is HealthRow => h != null)
 
   const hasNextDay = nextDayHealth.length >= 3
@@ -168,7 +173,7 @@ export async function GET(req: NextRequest) {
   const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
   const localDay = (at: Date) => dayFmt.format(at)
 
-  const [checkIns, healthLogs, moodByDay] = await Promise.all([
+  const [checkIns, healthLogs, moodByDay, anyCheckIns] = await Promise.all([
     prisma.$queryRaw<CheckInRow[]>`
       SELECT "checkedAt", "savedPlaceId" FROM "CheckIn"
       WHERE "userId" = ${userId}
@@ -183,7 +188,12 @@ export async function GET(req: NextRequest) {
     // Both mood tables. "How you feel at this place" read the standalone
     // log only, and a morning answered in the check-in never reached it.
     loadMoodByDay(userId, moodDay(since), "9999-12-31"),
+    prisma.$queryRaw<{ checkedAt: Date }[]>`
+      SELECT "checkedAt" FROM "CheckIn"
+      WHERE "userId" = ${userId} AND "checkedAt" >= ${since}
+    `.catch(() => [] as { checkedAt: Date }[]),
   ])
+  const covered = new Set(anyCheckIns.map(c => localDay(c.checkedAt)))
 
   const byPlace = new Map<string, CheckInRow[]>()
   for (const c of checkIns as CheckInRow[]) {
@@ -193,7 +203,7 @@ export async function GET(req: NextRequest) {
   }
 
   const results = places.map(place =>
-    correlatePlace(place, byPlace.get(place.id) ?? [], healthLogs as HealthRow[], moodByDay, localDay)
+    correlatePlace(place, byPlace.get(place.id) ?? [], healthLogs as HealthRow[], moodByDay, localDay, covered)
   )
 
   return NextResponse.json(single ? results[0] : results)

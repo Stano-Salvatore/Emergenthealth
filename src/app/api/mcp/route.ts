@@ -4,12 +4,15 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { z } from "zod"
 import { prisma } from "@/lib/prisma"
 import { recordDrink } from "@/lib/intake-write"
-import {
-  getSteps, getCalories, getHeartRate, getSleep,
-  getWeight, getDistance, getActivitySessions, getDailySummary,
-} from "@/lib/oura"
+import { getSleep, getActivitySessions } from "@/lib/oura"
 import { getStoredToken, getCurrentTimer, getTodayEntries, getProjects, startTimer, stopTimer } from "@/lib/toggl"
-import { getUserTimezone, userToday } from "@/lib/user-timezone"
+import { getUserTimezone, userDay, userToday } from "@/lib/user-timezone"
+import { addDaysISO, localDateStr, localTimeStr, zonedDayRange } from "@/lib/local-date"
+import { completeReminder } from "@/lib/reminders"
+import { parseHhMm, resolveReminderWhen } from "@/lib/reminder-when"
+import { loadWeightSeries } from "@/lib/weight-series"
+import { habitStreak, isDueOn, isScheduledOn, weekStart } from "@/lib/habit-schedule"
+import { getVacationWindow, makeIsFrozen } from "@/lib/streak"
 import { loadMoodByDay, moodDay } from "@/lib/mood-series"
 import { phoneDaySummary } from "@/lib/phone-day"
 import { musicRange } from "@/lib/music-days"
@@ -42,8 +45,19 @@ async function resolveUser(req: NextRequest): Promise<string | null> {
 // today" with yesterday's total between midnight and 02:00 is the whole point
 // of this being async.
 async function todayFor(userId: string) { return userToday(userId) }
-function startOfDay(dateStr: string) { return new Date(dateStr + "T00:00:00.000Z") }
-function endOfDay(dateStr: string) { return new Date(dateStr + "T23:59:59.999Z") }
+// For @db.Date columns only (HealthLog.date, HabitCompletion.date…), which
+// Prisma stores and compares at UTC midnight.
+function dateColumn(dateStr: string) { return new Date(dateStr + "T00:00:00.000Z") }
+function dateColumnEnd(dateStr: string) { return new Date(dateStr + "T23:59:59.999Z") }
+// For timestamp columns (loggedAt, endedAt, createdAt): the instants the
+// user's own days start and end. Bounding those with dateColumn cut the day at
+// UTC midnight — 02:00 in a Prague summer — so a drink at 00:40 landed on the
+// day before.
+async function localDays(userId: string, startDate: string, endDate: string = startDate) {
+  const tz = await getUserTimezone(userId)
+  return { tz, window: { gte: zonedDayRange(tz, startDate).start, lte: zonedDayRange(tz, endDate).end } }
+}
+const ymdOf = (dateColumnValue: Date) => dateColumnValue.toISOString().slice(0, 10)
 function fmtSec(s: number) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60)
   return h > 0 ? `${h}h ${m}m` : `${m}m`
@@ -59,36 +73,72 @@ function msg(text: string) {
 function buildMcpServer(userId: string): McpServer {
   const server = new McpServer({ name: "emergenthealth", version: "2.0.0" })
 
+  // A date the model sends is compared as a string ("2026-9-1" < "2026-09-…"),
+  // so an unpadded one matched nothing and came back as "no data".
+  const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
   const dateRange = {
-    startDate: z.string().describe("Start date YYYY-MM-DD"),
-    endDate: z.string().describe("End date YYYY-MM-DD"),
+    startDate: ymd.describe("Start date YYYY-MM-DD"),
+    endDate: ymd.describe("End date YYYY-MM-DD"),
   }
 
-  // ── OURA: Health metrics ───────────────────────────────────────────────────
+  // ── Health metrics ─────────────────────────────────────────────────────────
+  // Read from HealthLog, the day as the app stores it: the ring's figures where
+  // it recorded them, the phone's where it did not, and imported history. Asking
+  // Oura live missed all but the first, turned a day with no document into
+  // 0 steps, and threw for anyone without an Oura token.
 
-  server.tool("get_steps", "Daily step counts from Oura Ring", dateRange,
-    async ({ startDate, endDate }) => ok(await getSteps(userId, startDate, endDate)))
+  const dailyRows = (startDate: string, endDate: string) =>
+    prisma.healthLog.findMany({
+      where: { userId, date: { gte: dateColumn(startDate), lte: dateColumnEnd(endDate) } },
+      orderBy: { date: "asc" },
+      select: { date: true, steps: true, caloriesBurned: true, distanceKm: true, restingHR: true },
+    })
+  const meters = (km: number | null) => (km == null ? null : Math.round(km * 1000))
 
-  server.tool("get_sleep", "Sleep sessions from Oura Ring (duration, stages, HRV, efficiency)", dateRange,
+  server.tool("get_steps", "Daily step counts (ring, or the phone on days the ring wasn't worn). null = no reading that day, not zero steps", dateRange,
+    async ({ startDate, endDate }) =>
+      ok((await dailyRows(startDate, endDate)).map(r => ({ date: ymdOf(r.date), steps: r.steps }))))
+
+  server.tool("get_sleep", "Sleep sessions from Oura Ring (duration, stages, HRV, efficiency). Ring-off fragments are left out rather than reported as nights", dateRange,
     async ({ startDate, endDate }) => ok(await getSleep(userId, startDate, endDate)))
 
-  server.tool("get_heart_rate", "Daily resting heart rate from Oura Ring", dateRange,
-    async ({ startDate, endDate }) => ok(await getHeartRate(userId, startDate, endDate)))
+  server.tool("get_heart_rate", "Daily resting heart rate (bpm). null = no reading that day", dateRange,
+    async ({ startDate, endDate }) =>
+      ok((await dailyRows(startDate, endDate)).map(r => ({ date: ymdOf(r.date), restingHR: r.restingHR }))))
 
-  server.tool("get_calories", "Daily calories burned from Oura Ring", dateRange,
-    async ({ startDate, endDate }) => ok(await getCalories(userId, startDate, endDate)))
+  server.tool("get_calories", "Daily active calories burned. null = no reading that day, not zero", dateRange,
+    async ({ startDate, endDate }) =>
+      ok((await dailyRows(startDate, endDate)).map(r => ({ date: ymdOf(r.date), calories: r.caloriesBurned }))))
 
-  server.tool("get_distance", "Daily distance walked/run in meters from Oura Ring", dateRange,
-    async ({ startDate, endDate }) => ok(await getDistance(userId, startDate, endDate)))
+  server.tool("get_distance", "Daily distance walked/run in meters. null = no reading that day, not zero", dateRange,
+    async ({ startDate, endDate }) =>
+      ok((await dailyRows(startDate, endDate)).map(r => ({ date: ymdOf(r.date), distanceMeters: meters(r.distanceKm) }))))
 
-  server.tool("get_weight", "Body weight measurements from Oura Ring", dateRange,
-    async ({ startDate, endDate }) => ok(await getWeight(userId, startDate, endDate)))
+  server.tool("get_weight", "Body weight in kg per day, from the quick weight log and Body-page measurements (the measurement wins a day with both)", dateRange,
+    async ({ startDate, endDate }) => {
+      // loadWeightSeries counts back from now, so size its window to reach startDate.
+      const days = Math.max(1, Math.ceil((Date.now() - dateColumn(startDate).getTime()) / 86_400_000) + 1)
+      const points = (await loadWeightSeries(userId, days)).filter(p => p.date >= startDate && p.date <= endDate)
+      return points.length ? ok(points) : msg(`No weigh-ins between ${startDate} and ${endDate}.`)
+    })
 
-  server.tool("get_activity_sessions", "Workout sessions (type, duration, calories) from Oura Ring", dateRange,
+  server.tool("get_activity_sessions", "Workout sessions from Oura Ring (activity, label, source, intensity, start/end, duration, calories)", dateRange,
     async ({ startDate, endDate }) => ok(await getActivitySessions(userId, startDate, endDate)))
 
-  server.tool("get_daily_summary", "Full health snapshot for one day (steps, sleep, HR, distance)", { date: z.string().describe("YYYY-MM-DD") },
-    async ({ date }) => ok(await getDailySummary(userId, date)))
+  server.tool("get_daily_summary", "Health snapshot for one day (steps, active calories, distance, resting HR, sleep minutes, HRV). null = no reading, not zero", { date: ymd.describe("YYYY-MM-DD") },
+    async ({ date }) => {
+      const l = await prisma.healthLog.findUnique({ where: { userId_date: { userId, date: dateColumn(date) } } })
+      if (!l) return msg(`Nothing recorded for ${date}.`)
+      return ok({
+        date,
+        steps: l.steps,
+        caloriesBurned: l.caloriesBurned,
+        distanceMeters: meters(l.distanceKm),
+        restingHR: l.restingHR,
+        sleepMinutes: l.sleepDuration,
+        hrv: l.hrv,
+      })
+    })
 
   server.tool(
     "get_phone_day",
@@ -96,11 +146,22 @@ function buildMcpServer(userId: string): McpServer {
       "picked up (a bedtime clue, not sleep), pickups after 22:00, evening light level, any phone-detected " +
       "sleep, and how many light/pressure readings and screen events the day produced. This is the phone's " +
       "own instrument panel — use it on nights the ring was off, and always label it as the phone's estimate.",
-    { date: z.string().describe("YYYY-MM-DD (defaults to today)").optional() },
+    { date: ymd.describe("YYYY-MM-DD (defaults to today)").optional() },
     async ({ date }) => {
       const timezone = await getUserTimezone(userId)
       const day = date ?? await todayFor(userId)
-      return ok(await phoneDaySummary(userId, day, timezone))
+      const summary = await phoneDaySummary(userId, day, timezone)
+      // The night block is in local clock time; the detected-sleep instants
+      // are UTC ISO strings. Side by side, "00:05" out of an ISO string reads
+      // as a local bedtime, so each carries its local reading too.
+      return ok({
+        ...summary,
+        phoneDetectedSleep: summary.phoneDetectedSleep.map(n => ({
+          ...n,
+          startLocal: localTimeStr(timezone, new Date(n.start)),
+          endLocal: localTimeStr(timezone, new Date(n.end)),
+        })),
+      })
     })
 
   server.tool(
@@ -120,12 +181,13 @@ function buildMcpServer(userId: string): McpServer {
         select: { day: true, timestamp: true, tagName: true, text: true },
       }).catch(() => [])
       if (!tags.length) return msg(`No Oura tags between ${startDate} and ${endDate}. (Tags sync from the Oura app — the user logs coffee/meds there.)`)
+      const tz = await getUserTimezone(userId)
       const byDay: Record<string, { time: string; tag: string; note: string | null }[]> = {}
       for (const t of tags) {
         const label = (t.tagName ?? t.text ?? "").trim()
         if (!label) continue
         ;(byDay[t.day] ??= []).push({
-          time: t.timestamp.toISOString().slice(11, 16),
+          time: localTimeStr(tz, t.timestamp),
           tag: label,
           note: t.text && t.text !== label ? t.text : null,
         })
@@ -155,7 +217,7 @@ function buildMcpServer(userId: string): McpServer {
     dateRange,
     async ({ startDate, endDate }) => {
       const logs = await prisma.healthLog.findMany({
-        where: { userId, date: { gte: startOfDay(startDate), lte: endOfDay(endDate) } },
+        where: { userId, date: { gte: dateColumn(startDate), lte: dateColumnEnd(endDate) } },
         orderBy: { date: "asc" },
         // A hand-written list that stopped being updated: sleep latency sat in
         // the database for months unread, and the long-range Oura figures were
@@ -177,29 +239,41 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_habits",
-    "List all habits with today's completion status and current streak",
+    "List all habits with today's completion status, whether the schedule asks for it today, and the current streak (in days, or in weeks for an N-times-a-week habit)",
     {},
     async () => {
-      const todayDate = startOfDay(await todayFor(userId))
-      const habits = await prisma.habit.findMany({
-        where: { userId, isArchived: false },
-        include: {
-          completions: {
-            where: { date: { gte: todayDate } },
-            orderBy: { date: "desc" },
-            take: 1,
+      const today = await todayFor(userId)
+      // As far back as the Habits page reads, so the streak is the one it shows.
+      const since = dateColumn(addDaysISO(today, -731))
+      const [habits, vacation] = await Promise.all([
+        prisma.habit.findMany({
+          where: { userId, isArchived: false },
+          include: {
+            completions: { where: { date: { gte: since } }, select: { date: true } },
+            skips: { where: { date: { gte: since } }, select: { date: true } },
           },
-        },
-        orderBy: { createdAt: "asc" },
-      })
+          orderBy: { createdAt: "asc" },
+        }),
+        getVacationWindow(userId),
+      ])
+      const isFrozen = makeIsFrozen(vacation)
 
-      const result = habits.map(h => ({
-        id: h.id,
-        name: h.name,
-        color: h.color,
-        completed_today: h.completions.length > 0,
+      return ok(habits.map(h => {
+        const done = new Set(h.completions.map(c => ymdOf(c.date)))
+        const skipped = new Set(h.skips.map(s => ymdOf(s.date)))
+        const schedule = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
+        const { streak, unit } = habitStreak(schedule, done, skipped, today, isFrozen)
+        return {
+          id: h.id,
+          name: h.name,
+          color: h.color,
+          completed_today: done.has(today),
+          skipped_today: skipped.has(today),
+          due_today: isDueOn(schedule, today, done),
+          streak,
+          streak_unit: unit,
+        }
       }))
-      return ok(result)
     },
   )
 
@@ -213,7 +287,7 @@ function buildMcpServer(userId: string): McpServer {
       })
       if (!habits.length) return msg(`No habit found matching "${habit_name}". Use get_habits to see all habits.`)
       const habit = habits[0]
-      const todayDate = startOfDay(await todayFor(userId))
+      const todayDate = dateColumn(await todayFor(userId))
       await prisma.habitCompletion.upsert({
         where: { habitId_date: { habitId: habit.id, date: todayDate } },
         create: { habitId: habit.id, userId, date: todayDate },
@@ -225,23 +299,51 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_habit_completions",
-    "Get habit completion records for a date range",
+    "Get habit completion records for a date range, with the share of the days the habit was due that it was done (off-days of its schedule, skipped days and vacation days are not due; days after today are not counted)",
     dateRange,
     async ({ startDate, endDate }) => {
-      const habits = await prisma.habit.findMany({
-        where: { userId, isArchived: false },
-        include: {
-          completions: {
-            where: { date: { gte: startOfDay(startDate), lte: endOfDay(endDate) } },
-            orderBy: { date: "asc" },
+      const range = { gte: dateColumn(startDate), lte: dateColumnEnd(endDate) }
+      const [habits, tz, vacation] = await Promise.all([
+        prisma.habit.findMany({
+          where: { userId, isArchived: false },
+          include: {
+            completions: { where: { date: range }, orderBy: { date: "asc" } },
+            skips: { where: { date: range } },
           },
-        },
-      })
-      return ok(habits.map(h => ({
-        habit: h.name,
-        completions: h.completions.map(c => c.date.toISOString().slice(0, 10)),
-        rate: `${Math.round((h.completions.length / 7) * 100)}%`,
-      })))
+        }),
+        getUserTimezone(userId),
+        getVacationWindow(userId),
+      ])
+      const today = localDateStr(tz)
+      // Vacation freezes the streak on the Habits page; a rate that counted
+      // those days as missed would contradict it.
+      const isFrozen = makeIsFrozen(vacation)
+      return ok(habits.map(h => {
+        const done = h.completions.map(c => ymdOf(c.date))
+        const doneSet = new Set(done)
+        const skipped = new Set(h.skips.map(s => ymdOf(s.date)))
+        const schedule = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
+        const born = h.createdAt ? localDateStr(tz, h.createdAt) : null
+        // It divided by 7 whatever the range: 24 of 30 days read "343%".
+        let days = 0, due = 0, kept = 0
+        for (let d = startDate; d <= endDate && d <= today; d = addDaysISO(d, 1)) {
+          if (born && d < born) continue
+          // Today counts once it is done; until then it is still in progress.
+          if (d === today && !doneSet.has(d)) continue
+          if (skipped.has(d) || isFrozen(d)) continue
+          days++
+          if (!isScheduledOn(schedule, d)) continue
+          due++
+          if (doneSet.has(d)) kept++
+        }
+        const expected = schedule.timesPerWeek != null ? Math.round(schedule.timesPerWeek * days / 7) : due
+        const hits = schedule.timesPerWeek != null ? done.length : kept
+        return {
+          habit: h.name,
+          completions: done,
+          rate: expected > 0 ? `${Math.min(100, Math.round((hits / expected) * 100))}%` : null,
+        }
+      }))
     },
   )
 
@@ -250,11 +352,11 @@ function buildMcpServer(userId: string): McpServer {
   server.tool(
     "get_journal",
     "Read the journal/daily note for a specific date",
-    { date: z.string().describe("YYYY-MM-DD, or 'today'") },
+    { date: z.union([ymd, z.literal("today")]).describe("YYYY-MM-DD, or 'today'") },
     async ({ date }) => {
       const d = date === "today" ? await todayFor(userId) : date
       const note = await prisma.dailyNote.findUnique({
-        where: { userId_date: { userId, date: startOfDay(d) } },
+        where: { userId_date: { userId, date: dateColumn(d) } },
       })
       if (!note) return msg(`No journal entry for ${d}.`)
       return ok({ date: d, content: note.content })
@@ -267,7 +369,7 @@ function buildMcpServer(userId: string): McpServer {
     dateRange,
     async ({ startDate, endDate }) => {
       const notes = await prisma.dailyNote.findMany({
-        where: { userId, date: { gte: startOfDay(startDate), lte: endOfDay(endDate) } },
+        where: { userId, date: { gte: dateColumn(startDate), lte: dateColumnEnd(endDate) } },
         orderBy: { date: "asc" },
         select: { date: true, content: true },
       })
@@ -291,12 +393,13 @@ function buildMcpServer(userId: string): McpServer {
     },
     async ({ startDate, endDate, limit, before }) => {
       const beforeAt = before ? new Date(before) : null
+      const { window } = await localDays(userId, startDate, endDate)
       const rows = await prisma.chatMessage.findMany({
         where: {
           userId,
           createdAt: {
-            gte: startOfDay(startDate),
-            lte: beforeAt && !Number.isNaN(beforeAt.getTime()) && beforeAt < endOfDay(endDate) ? beforeAt : endOfDay(endDate),
+            gte: window.gte,
+            lte: beforeAt && !Number.isNaN(beforeAt.getTime()) && beforeAt < window.lte ? beforeAt : window.lte,
           },
         },
         orderBy: { createdAt: "desc" },
@@ -316,7 +419,7 @@ function buildMcpServer(userId: string): McpServer {
     "Write or update the journal/daily note for today. Replaces the existing entry.",
     { content: z.string().describe("The journal entry text to save") },
     async ({ content }) => {
-      const date = startOfDay(await todayFor(userId))
+      const date = dateColumn(await todayFor(userId))
       await prisma.dailyNote.upsert({
         where: { userId_date: { userId, date } },
         create: { userId, date, content },
@@ -330,20 +433,35 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_reminders",
-    "Get active (incomplete) reminders, optionally including completed ones",
-    { include_completed: z.boolean().optional().describe("Set true to include completed reminders") },
+    "Get active (incomplete) reminders, soonest first, optionally followed by the most recently completed ones",
+    { include_completed: z.boolean().optional().describe("Set true to also list the 20 most recently completed reminders") },
     async ({ include_completed }) => {
-      const reminders = await prisma.reminder.findMany({
-        where: { userId, ...(include_completed ? {} : { isCompleted: false }) },
-        orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
-        take: 30,
-      })
-      return ok(reminders.map(r => ({
+      // Two queries, not one over every row: a repeating reminder files a done
+      // copy each time it is ticked, and two months of those, oldest due date
+      // first, filled the whole page and pushed out every open reminder.
+      const [open, done] = await Promise.all([
+        prisma.reminder.findMany({
+          where: { userId, isCompleted: false },
+          orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
+          take: 30,
+        }),
+        include_completed
+          ? prisma.reminder.findMany({
+              where: { userId, isCompleted: true },
+              orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+              take: 20,
+            })
+          : Promise.resolve([]),
+      ])
+      return ok([...open, ...done].map(r => ({
         id: r.id,
         title: r.title,
         due: r.dueDate?.toISOString().slice(0, 10) ?? null,
+        reminder_time: r.reminderTime ?? null,
+        repeat: r.repeat ?? null,
         priority: r.priority,
         done: r.isCompleted,
+        completed_at: r.completedAt?.toISOString() ?? null,
       })))
     },
   )
@@ -353,22 +471,35 @@ function buildMcpServer(userId: string): McpServer {
     "Create a new reminder or task",
     {
       title: z.string().describe("What to remember"),
-      due_date: z.string().optional().describe("Optional due date in YYYY-MM-DD format"),
-      reminder_time: z.string().optional().describe("Optional time for notification in HH:MM (24h) format"),
+      due_date: ymd.optional().describe("Optional due date in YYYY-MM-DD format"),
+      reminder_time: z.string().optional().describe("Optional time for the notification, HH:MM (24h). With no due_date it rings at the next time that clock reading comes round"),
       priority: z.enum(["low", "normal", "high"]).optional().describe("Priority level, default is normal"),
     },
     async ({ title, due_date, reminder_time, priority }) => {
+      // The phone rings only a row with a date, and reads an unparseable time
+      // as 09:00 — so a time alone never rang and "6pm" rang at nine, while the
+      // reply said "Reminder created". Same rule as Emergy's own tool.
+      const tz = await getUserTimezone(userId)
+      const when = resolveReminderWhen({
+        time: reminder_time ?? null,
+        dueDate: due_date ?? null,
+        today: localDateStr(tz),
+        nowMinutes: parseHhMm(localTimeStr(tz)) ?? 0,
+      })
+      if (reminder_time && !when.reminderTime) {
+        return msg(`Couldn't read "${reminder_time}" as a time — nothing was saved. Use HH:MM (24h), like 18:30.`)
+      }
       const reminder = await prisma.reminder.create({
         data: {
           userId,
           title,
-          dueDate: due_date ? new Date(due_date) : null,
-          reminderTime: reminder_time ?? null,
+          dueDate: when.dueDate ? dateColumn(when.dueDate) : null,
+          reminderTime: when.reminderTime,
           priority: priority ?? "normal",
           tags: [],
         },
       })
-      return msg(`Reminder created: "${reminder.title}"${due_date ? ` (due ${due_date}${reminder_time ? ` at ${reminder_time}` : ""})` : ""}`)
+      return msg(`Reminder set: "${reminder.title}" (${when.label}).`)
     },
   )
 
@@ -377,15 +508,18 @@ function buildMcpServer(userId: string): McpServer {
     "Mark a reminder as done by matching its title",
     { title: z.string().describe("Title of the reminder to complete (partial match)") },
     async ({ title }) => {
-      const reminders = await prisma.reminder.findMany({
+      const reminder = await prisma.reminder.findFirst({
         where: { userId, isCompleted: false, title: { contains: title, mode: "insensitive" } },
+        orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
       })
-      if (!reminders.length) return msg(`No active reminder matching "${title}".`)
-      await prisma.reminder.update({
-        where: { id: reminders[0].id },
-        data: { isCompleted: true, completedAt: new Date() },
-      })
-      return msg(`✓ Marked "${reminders[0].title}" as done.`)
+      if (!reminder) return msg(`No active reminder matching "${title}".`)
+      // Through lib/reminders: flipping isCompleted here ended a repeating
+      // series outright, and the phone never rang it again.
+      const result = await completeReminder(userId, reminder.id)
+      if (!result.ok) return msg(`Couldn't mark "${reminder.title}" as done — nothing was changed.`)
+      return msg(result.rolledTo
+        ? `✓ Marked "${reminder.title}" as done. It repeats — the next one is ${result.rolledTo}.`
+        : `✓ Marked "${reminder.title}" as done.`)
     },
   )
 
@@ -399,13 +533,20 @@ function buildMcpServer(userId: string): McpServer {
       note: z.string().optional().describe("Optional note about the mood"),
     },
     async ({ mood, note }) => {
-      const date = startOfDay(await todayFor(userId))
+      const today = await todayFor(userId)
+      const date = dateColumn(today)
       await prisma.moodLog.upsert({
         where: { userId_date: { userId, date } },
         create: { userId, date, mood, note: note ?? null },
         update: { mood, note: note ?? null },
       })
       const labels = ["", "Awful", "Bad", "Okay", "Good", "Great"]
+      // The morning check-in wins its day (lib/mood-series): a different mood
+      // logged after it is stored and read nowhere, and has to be said so.
+      const effective = (await loadMoodByDay(userId, today, today).catch(() => null))?.get(today)
+      if (effective != null && effective !== mood) {
+        return msg(`Noted mood ${mood}/5${note ? ` (${note})` : ""}, but today's morning check-in said ${effective}/5 and the check-in stays the day's mood everywhere in the app.`)
+      }
       return msg(`Mood logged: ${mood}/5 — ${labels[mood]}${note ? ` (${note})` : ""}`)
     },
   )
@@ -420,7 +561,7 @@ function buildMcpServer(userId: string): McpServer {
       const [byDay, logs] = await Promise.all([
         loadMoodByDay(userId, startDate, endDate),
         prisma.moodLog.findMany({
-          where: { userId, date: { gte: startOfDay(startDate), lte: endOfDay(endDate) } },
+          where: { userId, date: { gte: dateColumn(startDate), lte: dateColumnEnd(endDate) } },
           select: { date: true, mood: true, note: true },
         }).catch(() => []),
       ])
@@ -446,7 +587,7 @@ function buildMcpServer(userId: string): McpServer {
     "Log water, coffee, tea, or alcohol intake",
     {
       type: z.enum(["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "other"]).describe("Type of drink"),
-      amount_ml: z.number().describe("Amount in millilitres, e.g. 250 for a glass, 500 for a bottle"),
+      amount_ml: z.number().int().min(1).max(5000).describe("Amount in millilitres, e.g. 250 for a glass, 500 for a bottle"),
       note: z.string().optional().describe("Optional note, e.g. the drink style (cold brew, 12°)"),
     },
     async ({ type, amount_ml, note }) => {
@@ -463,21 +604,24 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_intake_today",
-    "Get all intake logs for today (water, coffee, etc.)",
+    "Get all intake logs for today (water, coffee, etc.), with local clock times. hydration_ml counts every hydrating drink at its factor — the figure the app shows",
     {},
     async () => {
-      const todayStart = startOfDay(await todayFor(userId))
-      const todayEnd = endOfDay(await todayFor(userId))
+      const { timezone, start, end } = await userDay(userId)
       const logs = await prisma.intakeLog.findMany({
-        where: { userId, loggedAt: { gte: todayStart, lte: todayEnd } },
+        where: { userId, loggedAt: { gte: start, lte: end } },
         orderBy: { loggedAt: "asc" },
       })
       const totals: Record<string, number> = {}
       for (const l of logs) totals[l.type] = (totals[l.type] ?? 0) + l.amountMl
+      // Glasses counted rows typed "water" alone, so sparkling and tea were
+      // nothing here while the briefing and the app counted them.
+      const hydrationMl = sumHydration(logs)
       return ok({
-        entries: logs.map(l => ({ type: l.type, amount_ml: l.amountMl, note: l.note, time: l.loggedAt.toISOString().slice(11, 16) })),
+        entries: logs.map(l => ({ type: l.type, amount_ml: l.amountMl, note: l.note, time: localTimeStr(timezone, l.loggedAt) })),
         totals_ml: totals,
-        water_glasses: Math.round((totals.water ?? 0) / 250 * 10) / 10,
+        hydration_ml: hydrationMl,
+        water_glasses: Math.round(hydrationMl / 250 * 10) / 10,
       })
     },
   )
@@ -485,12 +629,13 @@ function buildMcpServer(userId: string): McpServer {
   server.tool(
     "get_food_log",
     "Get photo-analyzed meals and drinks from the Food tab for a day: per-meal calories/macros, each recognized item with its portion and whether its nutrition came from the USDA database (db) or was model-estimated (est), plus notable vitamins/minerals",
-    { date: z.string().optional().describe("Day as YYYY-MM-DD, defaults to today") },
+    { date: ymd.optional().describe("Day as YYYY-MM-DD, defaults to today") },
     async ({ date }) => {
       const day = date ?? await todayFor(userId)
+      const { tz, window } = await localDays(userId, day)
       const [logs, dayDrinks] = await Promise.all([
         prisma.foodLog.findMany({
-          where: { userId, loggedAt: { gte: startOfDay(day), lte: endOfDay(day) } },
+          where: { userId, loggedAt: window },
           orderBy: { loggedAt: "asc" },
           select: {
             name: true, mealType: true, calories: true, proteinG: true, carbsG: true,
@@ -499,9 +644,9 @@ function buildMcpServer(userId: string): McpServer {
           },
         }),
         prisma.intakeLog.findMany({
-          where: { userId, loggedAt: { gte: startOfDay(day), lte: endOfDay(day) } },
-          select: { type: true, amountMl: true, note: true },
-        }).catch(() => [] as { type: string; amountMl: number; note: string | null }[]),
+          where: { userId, loggedAt: window },
+          select: { id: true, type: true, amountMl: true, note: true },
+        }).catch(() => [] as { id: string; type: string; amountMl: number; note: string | null }[]),
       ])
       // Drinks carry calories too — meals alone made a wine evening read as
       // fasting. Kept as its own number so the meal list stays the meal list.
@@ -510,7 +655,7 @@ function buildMcpServer(userId: string): McpServer {
       return ok({
         date: day,
         meals: logs.map(l => ({
-          time: l.loggedAt.toISOString().slice(11, 16),
+          time: localTimeStr(tz, l.loggedAt),
           name: l.name,
           meal_type: l.mealType,
           calories: l.calories,
@@ -557,7 +702,7 @@ function buildMcpServer(userId: string): McpServer {
     "log_focus_session",
     "Log a completed focus or Pomodoro session",
     {
-      duration_min: z.number().describe("Duration of the session in minutes"),
+      duration_min: z.number().int().min(1).max(600).describe("Duration of the session in minutes"),
       label: z.string().optional().describe("What you focused on, e.g. 'coding', 'writing'"),
     },
     async ({ duration_min, label }) => {
@@ -581,12 +726,12 @@ function buildMcpServer(userId: string): McpServer {
     "Get focus sessions for a date range with total focused time",
     dateRange,
     async ({ startDate, endDate }) => {
+      const { tz: focusTz, window } = await localDays(userId, startDate, endDate)
       const sessions = await prisma.focusSession.findMany({
-        where: { userId, endedAt: { gte: startOfDay(startDate), lte: endOfDay(endDate) } },
+        where: { userId, endedAt: window },
         orderBy: { endedAt: "desc" },
       })
       const totalMin = sessions.reduce((s, f) => s + f.durationMin, 0)
-      const focusTz = await getUserTimezone(userId)
       const focusDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: focusTz })
       const focusTimeFmt = new Intl.DateTimeFormat("en-GB", {
         timeZone: focusTz, hour: "2-digit", minute: "2-digit", hour12: false,
@@ -685,7 +830,7 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_location_correlations",
-    "Get health metric correlations for saved places — shows how health metrics (readiness, sleep, HRV, mood, steps, resting HR) differ on days you visited each place vs days you didn't. Results include a confidence label based on visit count.",
+    "Get health metric correlations for saved places — how health metrics differ after visiting each place vs otherwise. Readiness, sleep, HRV and resting HR are the NIGHT AFTER a visit day (vs other nights); steps and mood are the visit day itself (vs other days). Results include a confidence label based on visit count.",
     {},
     async () => {
       type SavedPlaceRow = { id: string; name: string; emoji: string }
@@ -700,14 +845,21 @@ function buildMcpServer(userId: string): McpServer {
       const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
       const corrDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
 
-      const [healthLogs, moodByDay] = await Promise.all([
+      const [healthLogs, moodByDay, anyCheckIns] = await Promise.all([
         prisma.healthLog.findMany({
           where: { userId, date: { gte: since } },
           select: { date: true, readinessScore: true, sleepDuration: true, hrv: true, steps: true, restingHR: true },
         }),
         // Both mood tables, merged in lib/mood-series.
         loadMoodByDay(userId, moodDay(since), "9999-12-31"),
+        // A day with no check-in of any kind had no tracking, not a day away:
+        // it belongs on neither side, the engine's rule for places.
+        prisma.$queryRaw<CheckInRow[]>`
+          SELECT "checkedAt" FROM "CheckIn"
+          WHERE "userId" = ${userId} AND "checkedAt" >= ${since}
+        `.catch(() => [] as CheckInRow[]),
       ])
+      const covered = new Set(anyCheckIns.map(c => corrDayFmt.format(new Date(c.checkedAt))))
       const moodLogs = [...moodByDay.entries()].map(([day, mood]) => ({ day, mood }))
 
       function avgNums(nums: (number | null)[]): number | null {
@@ -732,25 +884,35 @@ function buildMcpServer(userId: string): McpServer {
         // checkedAt is an instant: slicing it in UTC files an evening visit
         // under the previous day, against health rows keyed by the local one.
         const visitDates = new Set(checkIns.map(c => corrDayFmt.format(new Date(c.checkedAt))))
-        const visitH    = healthLogs.filter(h =>  visitDates.has(h.date.toISOString().split("T")[0]))
-        const nonVisitH = healthLogs.filter(h => !visitDates.has(h.date.toISOString().split("T")[0]))
+        // A HealthLog row's night ends on the morning of its date, so the
+        // visit day's own row is the night BEFORE the visit. Night metrics are
+        // read from the next day's row, as the in-app Insights panel does;
+        // reading the visit day compared the wrong nights and put the
+        // post-visit ones in the baseline, reversing the sign.
+        const nightAfter = new Set([...visitDates].map(d => addDaysISO(d, 1)))
+        const visitH    = healthLogs.filter(h =>  visitDates.has(ymdOf(h.date)))
+        const nonVisitH = healthLogs.filter(h => covered.has(ymdOf(h.date)) && !visitDates.has(ymdOf(h.date)))
+        const nightH    = healthLogs.filter(h =>  nightAfter.has(ymdOf(h.date)))
+        // A night belongs to the day before it, so it is only "not after a
+        // visit" when that day had location data at all.
+        const nonNightH = healthLogs.filter(h => covered.has(addDaysISO(ymdOf(h.date), -1)) && !nightAfter.has(ymdOf(h.date)))
         const visitM    = moodLogs.filter(m =>  visitDates.has(m.day))
-        const nonVisitM = moodLogs.filter(m => !visitDates.has(m.day))
+        const nonVisitM = moodLogs.filter(m => covered.has(m.day) && !visitDates.has(m.day))
 
         const v = {
-          readiness: avgNums(visitH.map(h => h.readinessScore)),
-          sleep_h: avgNums(visitH.map(h => h.sleepDuration != null ? h.sleepDuration / 60 : null)),
-          hrv: avgNums(visitH.map(h => h.hrv)),
+          readiness: avgNums(nightH.map(h => h.readinessScore)),
+          sleep_h: avgNums(nightH.map(h => h.sleepDuration != null ? h.sleepDuration / 60 : null)),
+          hrv: avgNums(nightH.map(h => h.hrv)),
           steps: avgNums(visitH.map(h => h.steps)),
-          resting_hr: avgNums(visitH.map(h => h.restingHR)),
+          resting_hr: avgNums(nightH.map(h => h.restingHR)),
           mood: avgNums(visitM.map(m => m.mood)),
         }
         const nv = {
-          readiness: avgNums(nonVisitH.map(h => h.readinessScore)),
-          sleep_h: avgNums(nonVisitH.map(h => h.sleepDuration != null ? h.sleepDuration / 60 : null)),
-          hrv: avgNums(nonVisitH.map(h => h.hrv)),
+          readiness: avgNums(nonNightH.map(h => h.readinessScore)),
+          sleep_h: avgNums(nonNightH.map(h => h.sleepDuration != null ? h.sleepDuration / 60 : null)),
+          hrv: avgNums(nonNightH.map(h => h.hrv)),
           steps: avgNums(nonVisitH.map(h => h.steps)),
-          resting_hr: avgNums(nonVisitH.map(h => h.restingHR)),
+          resting_hr: avgNums(nonNightH.map(h => h.restingHR)),
           mood: avgNums(nonVisitM.map(m => m.mood)),
         }
 
@@ -776,7 +938,7 @@ function buildMcpServer(userId: string): McpServer {
       }))
 
       results.sort((a, b) => b.visits_last_90d - a.visits_last_90d)
-      return ok({ places: results, disclaimer: "Correlation ≠ causation. Deltas compare visit days vs non-visit days over the last 90 days." })
+      return ok({ places: results, disclaimer: "Correlation ≠ causation. Over the last 90 days: readiness, sleep, HRV and resting HR compare the night after a visit with other nights; steps and mood compare visit days with other days. Days with no location data are excluded from both sides rather than counted as days elsewhere." })
     },
   )
 
@@ -854,25 +1016,29 @@ function buildMcpServer(userId: string): McpServer {
   server.tool(
     "get_daily_briefing",
     "Get a full personal briefing for today or a specific date: health, habits, reminders, intake, focus, and mood all in one call. Use this when the user asks 'how am I doing today?' or wants a summary.",
-    { date: z.string().optional().describe("YYYY-MM-DD, defaults to today") },
+    { date: ymd.optional().describe("YYYY-MM-DD, defaults to today") },
     async ({ date }) => {
       const d = date ?? await todayFor(userId)
-      const todayStart = startOfDay(d)
-      const todayEnd = endOfDay(d)
+      const todayStart = dateColumn(d)
+      const { tz, window } = await localDays(userId, d)
 
       const [healthLog, habits, reminders, intakeLogs, focusSessions, moodLog, checkin, ouraTags, journalNote] = await Promise.all([
         prisma.healthLog.findUnique({ where: { userId_date: { userId, date: todayStart } } }),
         prisma.habit.findMany({
           where: { userId, isArchived: false },
-          include: { completions: { where: { date: todayStart }, take: 1 } },
+          // From the week's Monday, so an N-times-a-week habit can be judged.
+          include: {
+            completions: { where: { date: { gte: dateColumn(weekStart(d)), lte: todayStart } }, select: { date: true } },
+            skips: { where: { date: todayStart }, select: { date: true } },
+          },
         }),
         prisma.reminder.findMany({
           where: { userId, isCompleted: false, dueDate: { lte: new Date(d + "T23:59:59Z") } },
           orderBy: { dueDate: "asc" },
           take: 5,
         }),
-        prisma.intakeLog.findMany({ where: { userId, loggedAt: { gte: todayStart, lte: todayEnd } } }),
-        prisma.focusSession.findMany({ where: { userId, endedAt: { gte: todayStart, lte: todayEnd } } }),
+        prisma.intakeLog.findMany({ where: { userId, loggedAt: window } }),
+        prisma.focusSession.findMany({ where: { userId, endedAt: window } }),
         prisma.moodLog.findUnique({ where: { userId_date: { userId, date: todayStart } } }),
         prisma.morningCheckIn.findUnique({
           where: { userId_date: { userId, date: d } },
@@ -893,7 +1059,15 @@ function buildMcpServer(userId: string): McpServer {
       const waterMl = sumHydration(intakeLogs)
       const coffeeCups = intakeLogs.filter(l => l.type === "coffee").length
       const focusMin = focusSessions.reduce((s, f) => s + f.durationMin, 0)
-      const habitsCompleted = habits.filter(h => h.completions.length > 0).length
+      // Only the habits the schedule asked for that day, as /api/today counts
+      // them: a Mon/Wed/Fri habit on a Tuesday is not a habit left undone.
+      const habitList = habits.flatMap(h => {
+        const done = new Set(h.completions.map(c => ymdOf(c.date)))
+        const schedule = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
+        return isDueOn(schedule, d, done) || done.has(d)
+          ? [{ name: h.name, done: done.has(d), skipped: !done.has(d) && h.skips.length > 0 }]
+          : []
+      })
       const moodLabels = ["", "Awful", "Bad", "Okay", "Good", "Great"]
 
       return ok({
@@ -913,10 +1087,12 @@ function buildMcpServer(userId: string): McpServer {
         mood: moodLog ? { score: moodLog.mood, label: moodLabels[moodLog.mood], note: moodLog.note } : null,
         morning_checkin: checkin ? { energy: checkin.energy, mood: checkin.mood, intention: checkin.intention } : null,
         oura_tags: ouraTags
-          .map(t => ({ time: t.timestamp.toISOString().slice(11, 16), tag: (t.tagName ?? t.text ?? "").trim() }))
+          .map(tag => ({ time: localTimeStr(tz, tag.timestamp), tag: (tag.tagName ?? tag.text ?? "").trim() }))
           .filter(t => t.tag),
         journal: journalNote?.content ?? null,
-        habits: { completed: habitsCompleted, total: habits.length, list: habits.map(h => ({ name: h.name, done: h.completions.length > 0 })) },
+        // A skip is neither done nor missed; the app's tile counts it toward
+        // done/due, so it is reported rather than left to read as undone.
+        habits: { completed: habitList.filter(h => h.done).length, skipped: habitList.filter(h => h.skipped).length, total: habitList.length, list: habitList },
         intake: { water_ml: waterMl, water_glasses: Math.round(waterMl / 250 * 10) / 10, coffee_cups: coffeeCups },
         focus: { total_min: focusMin, sessions: focusSessions.length },
         upcoming_reminders: reminders.map(r => ({ title: r.title, due: r.dueDate?.toISOString().slice(0, 10) })),

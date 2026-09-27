@@ -3,7 +3,14 @@
 import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { resyncNotifications } from "@/lib/native/notifications"
 import { Plus, Trash2, Bell, BellOff, X } from "lucide-react"
+import { parseDose } from "@/lib/dose"
+
+function scheduledDose(dose: string | null): { doseAmount?: number; doseUnit?: string } {
+  const d = dose ? parseDose(dose) : null
+  return d ? { doseAmount: d.amount, doseUnit: d.unit } : {}
+}
 
 // The plan, and whether it happened. Ticking a dose off doesn't write a
 // "completed" flag anywhere — it logs a real dose through the same endpoint as
@@ -205,9 +212,14 @@ export function MedScheduleCard({ onDoseLogged }: { onDoseLogged?: () => void })
       await fetch("/api/medications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: s.name, minutesAgo: 0 }),
+        // The schedule says how much ("½ tablet", "25 mg"); ticking it off
+        // without that left every scheduled dose with no amount at all.
+        body: JSON.stringify({ name: s.name, minutesAgo: 0, ...scheduledDose(s.dose) }),
       })
       await load()
+      // Today's taken count moved, so the phone's later slot for this dose
+      // must come off before it rings.
+      resyncNotifications().catch(() => {})
       onDoseLogged?.()
     } finally {
       setBusy(null)
@@ -223,6 +235,7 @@ export function MedScheduleCard({ onDoseLogged }: { onDoseLogged?: () => void })
         body: JSON.stringify({ id: s.id, remind: !s.remind }),
       })
       await load()
+      resyncNotifications().catch(() => {})
     } finally {
       setBusy(null)
     }
@@ -234,6 +247,7 @@ export function MedScheduleCard({ onDoseLogged }: { onDoseLogged?: () => void })
     try {
       await fetch(`/api/med-schedule?id=${encodeURIComponent(s.id)}`, { method: "DELETE" })
       await load()
+      resyncNotifications().catch(() => {})
     } finally {
       setBusy(null)
     }
@@ -338,7 +352,7 @@ export function MedScheduleCard({ onDoseLogged }: { onDoseLogged?: () => void })
           )
         })}
 
-        {adding && <ScheduleForm onDone={() => { setAdding(false); load() }} onCancel={() => setAdding(false)} />}
+        {adding && <ScheduleForm onDone={() => { setAdding(false); load(); resyncNotifications().catch(() => {}) }} onCancel={() => setAdding(false)} />}
       </CardContent>
     </Card>
   )

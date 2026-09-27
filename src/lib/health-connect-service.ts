@@ -152,9 +152,9 @@ function avg(arr: number[]): number | undefined {
   return arr.reduce((a, b) => a + b, 0) / arr.length
 }
 
-export async function readLast30Days(): Promise<DayPayload[]> {
+export async function readLast30Days(): Promise<{ days: DayPayload[]; failedTypes: string[] }> {
   const hc = await getPlugin()
-  if (!hc) return []
+  if (!hc) return { days: [], failedTypes: [] }
 
   const endTime = new Date()
   const startTime = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
@@ -170,20 +170,44 @@ export async function readLast30Days(): Promise<DayPayload[]> {
   const hrvMap = new Map<string, number[]>()
   const spo2Map = new Map<string, number[]>()
 
+  // A refused type still reads as an empty list downstream — but its NAME is
+  // collected now, so the sync outcome can say which reads failed this run
+  // instead of a broken read posing as a quiet week.
+  //
+  // Refusals are learned from the permission check, never from a read: the
+  // plugin's readRecords has no reject path, so a SecurityException for an
+  // ungranted type is thrown inside its coroutine, never reaches the catch
+  // below, and kills the app (or leaves the promise hanging).
+  const perms = await permissionsByType()
+  const granted = new Set<string>(perms?.granted ?? [])
+  const failedTypes: string[] = [...(perms?.missing ?? [])]
   async function safeRead(type: string) {
+    if (!granted.has(type)) return []
     try {
       const { records } = await hc.readRecords({ type, timeRangeFilter })
       return records as any[] // eslint-disable-line @typescript-eslint/no-explicit-any
     } catch {
+      failedTypes.push(type)
       return []
     }
   }
 
-  // ── Steps (sum per day) ───────────────────────────────────────────────────
+  // Steps and calories: summed per app, then the largest single app's total
+  // kept. Two apps writing the same walk (Samsung Health's pedometer and the
+  // Oura app) both come back from readRecords — Health Connect de-duplicates
+  // only in aggregate() — so adding across apps counts the day twice.
+  const byOrigin = new Map<string, Map<string, number>>()
+  const addByOrigin = (kind: "steps" | "active" | "total", d: string, r: any, v: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const key = `${kind}|${d}`
+    const origin: string = r.metadata?.dataOrigin ?? "unknown"
+    let perApp = byOrigin.get(key)
+    if (!perApp) byOrigin.set(key, perApp = new Map())
+    perApp.set(origin, (perApp.get(origin) ?? 0) + v)
+  }
+
+  // ── Steps ─────────────────────────────────────────────────────────────────
   for (const r of await safeRead("Steps")) {
-    const d = dateStr(new Date(r.startTime))
-    const day = getDay(d)
-    day.steps = (day.steps ?? 0) + (r.count ?? 0)
+    addByOrigin("steps", dateStr(new Date(r.startTime)), r, r.count ?? 0)
   }
 
   // ── Sleep (longest session wins; stages summed) ───────────────────────────
@@ -250,20 +274,23 @@ export async function readLast30Days(): Promise<DayPayload[]> {
     if (kg != null) getDay(d).weight = Math.round(kg * 10) / 10
   }
 
-  // ── Active calories (sum per day) ─────────────────────────────────────────
+  // ── Active calories ───────────────────────────────────────────────────────
   for (const r of await safeRead("ActiveCaloriesBurned")) {
-    const d = dateStr(new Date(r.startTime))
-    const day = getDay(d)
-    const kcal = toKcal(r.energy)
-    day.caloriesBurned = (day.caloriesBurned ?? 0) + kcal
+    addByOrigin("active", dateStr(new Date(r.startTime)), r, toKcal(r.energy))
   }
 
-  // ── Total calories (sum per day) ──────────────────────────────────────────
+  // ── Total calories ────────────────────────────────────────────────────────
   for (const r of await safeRead("TotalCaloriesBurned")) {
-    const d = dateStr(new Date(r.startTime))
+    addByOrigin("total", dateStr(new Date(r.startTime)), r, toKcal(r.energy))
+  }
+
+  for (const [key, perApp] of byOrigin) {
+    const [kind, d] = key.split("|")
+    const best = Math.max(...perApp.values())
     const day = getDay(d)
-    const kcal = toKcal(r.energy)
-    day.totalCalories = (day.totalCalories ?? 0) + kcal
+    if (kind === "steps") day.steps = best
+    else if (kind === "active") day.caloriesBurned = best
+    else day.totalCalories = best
   }
 
   // Merge averaged metrics
@@ -277,7 +304,7 @@ export async function readLast30Days(): Promise<DayPayload[]> {
     const a = avg(vals); if (a != null) getDay(d).spo2 = Math.round(a * 10) / 10
   }
 
-  return [...dayMap.values()]
+  return { days: [...dayMap.values()], failedTypes }
 }
 
 function toKcal(energy: { unit: string; value: number } | null | undefined): number {
@@ -291,15 +318,63 @@ function toKcal(energy: { unit: string; value: number } | null | undefined): num
   }
 }
 
-export async function syncToServer(): Promise<{ synced: number }> {
-  const days = await readLast30Days()
-  if (days.length === 0) return { synced: 0 }
-  const res = await fetch("/api/sync/health-connect", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ days }),
-  })
-  if (!res.ok) throw new Error(`Sync failed: ${res.status}`)
-  const data = await res.json()
-  return { synced: data.synced ?? days.length }
+/**
+ * What the last sync run actually did. A failing sync used to look exactly
+ * like a quiet one — safeRead erased refused types, the auto-sync swallowed
+ * the POST failure, and Settings inferred health from a timestamp written
+ * only on success. Every run writes this record now, both endings, and the
+ * Settings card reads it back where someone can act on it.
+ */
+export interface SyncOutcome {
+  at: number
+  ok: boolean
+  synced?: number
+  /** Record types the phone refused THIS run — partial data, said out loud. */
+  failedTypes?: string[]
+  error?: string
+}
+
+export const SYNC_OUTCOME_KEY = "hc_last_sync_outcome"
+
+export function lastSyncOutcome(): SyncOutcome | null {
+  try {
+    const raw = localStorage.getItem(SYNC_OUTCOME_KEY)
+    const parsed = raw ? JSON.parse(raw) as SyncOutcome : null
+    return parsed && typeof parsed.at === "number" && typeof parsed.ok === "boolean" ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function recordOutcome(o: SyncOutcome) {
+  try { localStorage.setItem(SYNC_OUTCOME_KEY, JSON.stringify(o)) } catch { /* storage unavailable — the sync itself still ran */ }
+}
+
+export async function syncToServer(): Promise<{ synced: number; failedTypes: string[] }> {
+  let failedTypes: string[] = []
+  try {
+    const read = await readLast30Days()
+    failedTypes = read.failedTypes
+    const days = read.days
+    if (days.length === 0) {
+      recordOutcome({ at: Date.now(), ok: true, synced: 0, failedTypes })
+      return { synced: 0, failedTypes }
+    }
+    const res = await fetch("/api/sync/health-connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days }),
+    })
+    if (!res.ok) throw new Error(`Sync failed: ${res.status}`)
+    const data = await res.json()
+    const synced = data.synced ?? days.length
+    recordOutcome({ at: Date.now(), ok: true, synced, failedTypes })
+    return { synced, failedTypes }
+  } catch (err) {
+    recordOutcome({
+      at: Date.now(), ok: false, failedTypes,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    throw err
+  }
 }

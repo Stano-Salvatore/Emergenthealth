@@ -16,6 +16,9 @@ import {
 } from "lucide-react"
 import { getGoals } from "@/lib/goals"
 import { hydrationMl } from "@/lib/hydration"
+import { loadMoodSeries } from "@/lib/mood-series"
+import { weekTally } from "@/lib/habit-schedule"
+import { getVacationWindow, makeIsFrozen } from "@/lib/streak"
 import { sleepDebt } from "@/lib/sleep-rhythm"
 
 // The goals a user actually set, not three numbers chosen here. At 47 kg a
@@ -67,7 +70,7 @@ export default async function WeekPage() {
   const STEP_GOAL = goals.steps
   const WATER_GOAL = goals.waterMl
 
-  const [thisWeekLogs, prevWeekLogs, thisWeekHabits, thisWeekIntake, thisWeekFocus, moodLogs, checkinRows] = await Promise.all([
+  const [thisWeekLogs, prevWeekLogs, thisWeekHabits, thisWeekIntake, thisWeekFocus, moodSeries, checkinRows, vacation] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: weekStart, lte: today } },
       orderBy: { date: "asc" },
@@ -88,7 +91,8 @@ export default async function WeekPage() {
     prisma.habit.findMany({
       where: { userId, isArchived: false },
       include: {
-        completions: { where: { date: { gte: weekStart, lte: today } } },
+        completions: { where: { date: { gte: weekStart, lte: today } }, select: { date: true } },
+        skips: { where: { date: { gte: weekStart, lte: today } }, select: { date: true } },
       },
     }),
     // Every drink, not just the ones typed "water". lib/hydration exists
@@ -103,15 +107,15 @@ export default async function WeekPage() {
       where: { userId, type: "focus", endedAt: { gte: weekStartAt, lte: now } },
       select: { durationMin: true },
     }).catch(() => [] as { durationMin: number }[]),
-    prisma.moodLog.findMany({
-      where: { userId, date: { gte: weekStart, lte: today } },
-      orderBy: { date: "asc" },
-    }),
+    // Both tables, the check-in winning — see lib/mood-series. MoodLog alone
+    // left a week of check-in moods blank here.
+    loadMoodSeries(userId, weekStartStr, todayStr).catch(() => [] as { day: string; mood: number }[]),
     prisma.$queryRaw<{ date: string; energy: number; mood: number }[]>`
       SELECT "date", "energy", "mood" FROM "MorningCheckIn"
       WHERE "userId" = ${userId} AND "date" >= ${weekStartStr} AND "date" <= ${todayStr}
       ORDER BY "date" ASC
     `.catch(() => [] as { date: string; energy: number; mood: number }[]),
+    getVacationWindow(userId),
   ])
 
   // Aggregate
@@ -143,21 +147,35 @@ export default async function WeekPage() {
     activityScore: avg(prevWeekLogs.map(l => l.activityScore)),
   }
 
-  // Habits
-  const totalDays = Math.max(1, daysInWeek)
-  const habitsStats = thisWeekHabits.map(h => ({
-    name: h.name, color: h.color,
-    completions: h.completions.length,
-    pct: Math.round((h.completions.length / totalDays) * 100),
-  })).sort((a,b) => b.pct - a.pct)
-  const habitsCompletionRate = habitsStats.length > 0
-    ? Math.round(habitsStats.reduce((s,h) => s + h.pct, 0) / habitsStats.length)
+  // Days of the week so far, Monday to today. Not the ring rows: before the
+  // morning sync there are fewer of those than days lived, and every
+  // per-day figure divided by them went over 100%.
+  const elapsedDays = dowFromMonday + 1
+
+  // Habits, against what each one's schedule asked this week.
+  const isFrozen = makeIsFrozen(vacation)
+  const habitsStats = thisWeekHabits.map(h => {
+    // Date-only columns come back at UTC midnight, so the slice is the day.
+    const done = new Set(h.completions.map(c => c.date.toISOString().slice(0, 10)))
+    const skipped = new Set(h.skips.map(s => s.date.toISOString().slice(0, 10)))
+    const tally = weekTally(
+      { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek },
+      done, skipped, weekStartStr, todayStr, localDateStr(timezone, h.createdAt), isFrozen,
+    )
+    return {
+      name: h.name, color: h.color, target: h.timesPerWeek, ...tally,
+      pct: tally.due > 0 ? Math.round((tally.done / tally.due) * 100) : null,
+    }
+  }).sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1))
+  const asked = habitsStats.filter((h): h is typeof h & { pct: number } => h.pct != null)
+  const habitsCompletionRate = asked.length > 0
+    ? Math.round(asked.reduce((s, h) => s + h.pct, 0) / asked.length)
     : null
 
   // Intake
   const waterByDay: Record<string, number> = {}
   for (const w of thisWeekIntake) {
-    const d = format(new Date(w.loggedAt), "yyyy-MM-dd")
+    const d = localDateStr(timezone, w.loggedAt)
     waterByDay[d] = (waterByDay[d] ?? 0) + hydrationMl(w.type, w.amountMl)
   }
   const waterGoalDays = Object.values(waterByDay).filter(v => v >= WATER_GOAL).length
@@ -173,7 +191,8 @@ export default async function WeekPage() {
   const avgCheckinMood = checkinCount > 0 ? weekCheckins.reduce((s, c) => s + c.mood, 0) / checkinCount : null
 
   // Mood
-  const moodAvg = moodLogs.length ? moodLogs.reduce((s, m) => s + m.mood, 0) / moodLogs.length : null
+  const moodByDay = new Map(moodSeries.map(m => [m.day, m.mood]))
+  const moodAvg = moodSeries.length ? moodSeries.reduce((s, m) => s + m.mood, 0) / moodSeries.length : null
   const moodEmoji = (m: number | null) => {
     if (!m) return "—"
     if (m >= 4.5) return "😄"
@@ -273,7 +292,7 @@ export default async function WeekPage() {
               <tbody className="divide-y divide-border/50">
                 {thisWeekLogs.map(l => {
                   const dateStr = format(l.date, "yyyy-MM-dd")
-                  const mood = moodLogs.find(m => m.date.toISOString().startsWith(dateStr))?.mood ?? null
+                  const mood = moodByDay.get(dateStr) ?? null
                   return (
                     <tr key={dateStr} className="hover:bg-secondary/30">
                       <td className="py-2 font-medium whitespace-nowrap">{format(l.date, "EEE d")}</td>
@@ -352,10 +371,12 @@ export default async function WeekPage() {
                   <div key={h.name} className="flex items-center gap-2">
                     <div className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: h.color }} />
                     <span className="text-xs flex-1 truncate">{h.name}</span>
-                    <span className="text-xs text-muted-foreground shrink-0">{h.completions}/{totalDays}d</span>
-                    <span className={`text-[10px] shrink-0 font-medium ${h.pct >= 80 ? "text-green-400" : h.pct >= 50 ? "text-amber-400" : "text-red-400"}`}>
-                      {h.pct}%
-                    </span>
+                    <span className="text-xs text-muted-foreground shrink-0">{h.due > 0 ? `${h.done}/${h.due}` : h.target != null ? `${h.done}/${h.target} so far` : "not due yet"}</span>
+                    {h.pct != null && (
+                      <span className={`text-[10px] shrink-0 font-medium ${h.pct >= 80 ? "text-green-400" : h.pct >= 50 ? "text-amber-400" : "text-red-400"}`}>
+                        {h.pct}%
+                      </span>
+                    )}
                   </div>
                 ))}
               </>
@@ -380,9 +401,9 @@ export default async function WeekPage() {
             <div>
               <div className="flex justify-between text-xs mb-1 text-muted-foreground">
                 <span>Goal days ({(WATER_GOAL / 1000).toFixed(1)}L+)</span>
-                <span>{waterGoalDays}/{totalDays}</span>
+                <span>{waterGoalDays}/{elapsedDays}</span>
               </div>
-              <Progress value={totalDays > 0 ? (waterGoalDays/totalDays)*100 : 0} className="h-1.5" />
+              <Progress value={(waterGoalDays / elapsedDays) * 100} className="h-1.5" />
             </div>
             {totalWaterMl === 0 && (
               <p className="text-xs text-muted-foreground">Log water on the Intake page to track here</p>
@@ -407,9 +428,9 @@ export default async function WeekPage() {
             <div>
               <div className="flex justify-between text-xs mb-1 text-muted-foreground">
                 <span>Daily avg</span>
-                <span>{totalDays > 0 ? Math.round(totalFocusMin/totalDays) : 0}min/day</span>
+                <span>{Math.round(totalFocusMin / elapsedDays)}min/day</span>
               </div>
-              <Progress value={Math.min(100, (totalFocusMin / (totalDays * 90)) * 100)} className="h-1.5" />
+              <Progress value={Math.min(100, (totalFocusMin / (elapsedDays * 90)) * 100)} className="h-1.5" />
             </div>
             {totalFocusMin === 0 && (
               <p className="text-xs text-muted-foreground">Use the Focus timer to log sessions</p>
@@ -419,7 +440,7 @@ export default async function WeekPage() {
       </div>
 
       {/* mood for the week */}
-      {moodLogs.length > 0 && (
+      {moodSeries.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Mood this week</CardTitle>
@@ -432,13 +453,13 @@ export default async function WeekPage() {
                 <p className="text-[10px] text-muted-foreground">avg mood</p>
               </div>
               <div className="flex-1 flex items-end gap-2">
-                {moodLogs.map(m => {
+                {moodSeries.map(m => {
                   const MOOD_COLORS = ["","bg-red-500","bg-orange-500","bg-yellow-500","bg-green-500","bg-emerald-500"]
                   return (
-                    <div key={m.id} className="flex-1 flex flex-col items-center gap-1">
+                    <div key={m.day} className="flex-1 flex flex-col items-center gap-1">
                       <div className={`w-full rounded-sm ${MOOD_COLORS[m.mood]}`}
                         style={{ height: `${m.mood * 12}px` }} />
-                      <span className="text-[9px] text-muted-foreground">{format(m.date, "EEE")}</span>
+                      <span className="text-[9px] text-muted-foreground">{format(new Date(m.day + "T12:00:00Z"), "EEE")}</span>
                     </div>
                   )
                 })}

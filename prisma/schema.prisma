@@ -1443,7 +1443,8 @@ model PhoneEvent {
   id     String   @id
   userId String
   at     DateTime @db.Timestamptz
-  /// screen_on | screen_off | unlock | charge_on | charge_off
+  /// screen_on | screen_off | unlock | charge_on | charge_off, or host_on |
+  /// host_off: collection starting and stopping, never a touch (lib/phone-day)
   kind   String
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma"
-import { permutationP } from "@/lib/correlations"
+import { blockPermutationP } from "@/lib/correlations"
 import { addDaysISO, localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import {
@@ -92,6 +92,7 @@ export async function analyseExperiment(
   const adherence = new Map(days.map(d => [d.date, d.adhered]))
   const onVals: number[] = []
   const offVals: number[] = []
+  const obs: { v: number; hi: boolean }[] = []
   const perBlock = new Map<number, { on: boolean; vals: number[] }>()
   let droppedWashout = 0, droppedNonAdherent = 0, droppedNoData = 0
 
@@ -114,6 +115,7 @@ export async function analyseExperiment(
     if (v == null) { droppedNoData++; continue }
 
     if (day.on) onVals.push(v); else offVals.push(v)
+    obs.push({ v, hi: day.on })
     const slot = perBlock.get(day.block) ?? { on: day.on, vals: [] }
     slot.vals.push(v)
     perBlock.set(day.block, slot)
@@ -122,14 +124,27 @@ export async function analyseExperiment(
   const onAvg = mean(onVals)
   const offAvg = mean(offVals)
   const enough = onVals.length >= MIN_ANALYSABLE_PER_ARM && offVals.length >= MIN_ANALYSABLE_PER_ARM
-  const pValue = enough ? permutationP(onVals, offVals, `exp:${e.id}`) : null
+  // Shuffled in runs, not days: the days carry yesterday inside them, and a
+  // day shuffle called about a quarter of simulated null experiments "clear"
+  // (autocorrelation 0.6), a steady drift among them. The runs are one day
+  // shorter than an analysed arm on purpose. Exactly an arm long, they could
+  // only swap whole arms — six orders for four blocks when there is no
+  // washout — and nothing, however large, would get under p = 1/3.
+  const runLen = Math.max(2, e.blockDays - e.washoutDays - 1)
+  const pValue = enough ? blockPermutationP(obs, `exp:${e.id}`, runLen) : null
 
   const diff = onAvg != null && offAvg != null ? onAvg - offAvg : null
   const percent = diff != null && offAvg ? (diff / Math.abs(offAvg)) * 100 : null
 
+  // "Clear" also needs the effect to have had a chance to repeat. With one ON
+  // block and one OFF block, a change in the person between the two looks
+  // exactly like the effect — that is the whole reason the plan alternates.
+  const blocksOn = [...perBlock.values()].filter(b => b.on).length
+  const replicated = blocksOn >= 2 && perBlock.size - blocksOn >= 2
+
   let verdict: ExperimentAnalysis["verdict"] = "not-enough-data"
   if (enough && pValue != null) {
-    verdict = pValue <= 0.05 ? "clear" : pValue <= 0.15 ? "suggestive" : "no-effect"
+    verdict = pValue <= 0.05 && replicated ? "clear" : pValue <= 0.15 ? "suggestive" : "no-effect"
   }
 
   const betterOnOn = diff == null ? null : spec.higherIsBetter ? diff > 0 : diff < 0

@@ -12,6 +12,40 @@ import { addDaysISO } from "@/lib/local-date"
 import { isMeasuredNight } from "@/lib/sleep-quality"
 import type { EndpointOutcome } from "@/lib/sync-status"
 
+type OuraActivity = {
+  steps: number | null
+  activeCalories?: number | null
+  totalCalories?: number | null
+  distanceKm?: number | null
+  activeMinutes?: number | null
+  activityScore?: number | null
+  sedentaryTimeSeconds?: number | null
+  nonWearSeconds?: number | null
+}
+
+/**
+ * A day the ring spent on its charger. Oura still publishes it — as zeros,
+ * not as absence — and a worn day always has some steps. Twenty hours of
+ * non-wear is a day the ring did not see, whatever few steps it caught.
+ */
+export function isUnwornDay(a: OuraActivity | undefined): boolean {
+  if (!a) return false
+  return a.steps === 0 || (a.nonWearSeconds ?? 0) >= 20 * 3600
+}
+
+/** The HealthLog columns one Oura activity document writes. */
+function activityFields(a: OuraActivity | undefined) {
+  return {
+    ...(a?.steps              != null && { steps:                a.steps }),
+    ...(a?.activeCalories     != null && { caloriesBurned:       a.activeCalories }),
+    ...(a?.totalCalories      != null && { totalCalories:        a.totalCalories }),
+    ...(a?.distanceKm         != null && { distanceKm:           a.distanceKm }),
+    ...(a?.activeMinutes      != null && { activeMinutes:        a.activeMinutes }),
+    ...(a?.activityScore      != null && { activityScore:        a.activityScore }),
+    ...(a?.sedentaryTimeSeconds != null && { sedentaryTime:      Math.round(a.sedentaryTimeSeconds / 60) }),
+  }
+}
+
 export type OuraSyncResult =
   | { ok: true; synced: number; tagsSynced: number; tagsError?: string; endpoints: Record<string, EndpointOutcome> }
   | { ok: false; error: string; notConnected?: boolean }
@@ -118,7 +152,7 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
       ...Object.keys(resilience),
     ])
 
-    const upserts = Array.from(allDates).map(dateStr => {
+    const upserts = Array.from(allDates).map(async dateStr => {
       const date = new Date(dateStr + "T00:00:00.000Z")
       // A session the ring wasn't awake for isn't a night. Dropping it here
       // means the day reads as "not measured" — a dash — rather than as a
@@ -134,6 +168,7 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
       const ca = cardioAge[dateStr]
       const v = vo2[dateStr]
       const res = resilience[dateStr]
+      const unworn = isUnwornDay(a)
 
       // When Oura published a session for this day but it fails the test, the
       // values already stored came from that same fragment — so clearing them
@@ -165,15 +200,10 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         ...(s?.restlessPeriods    != null && { restlessPeriods:      s.restlessPeriods }),
         ...(s?.bedtimeStart       != null && { sleepStart:           new Date(s.bedtimeStart) }),
         ...(s?.bedtimeEnd         != null && { sleepEnd:             new Date(s.bedtimeEnd) }),
-        // Activity core
-        ...(a?.steps              != null && { steps:                a.steps }),
-        ...(a?.activeCalories     != null && { caloriesBurned:       a.activeCalories }),
-        ...(a?.totalCalories      != null && { totalCalories:        a.totalCalories }),
-        ...(a?.distanceKm         != null && { distanceKm:           a.distanceKm }),
-        ...(a?.activeMinutes      != null && { activeMinutes:        a.activeMinutes }),
-        // Activity extended
-        ...(a?.activityScore      != null && { activityScore:        a.activityScore }),
-        ...(a?.sedentaryTimeSeconds != null && { sedentaryTime:      Math.round(a.sedentaryTimeSeconds / 60) }),
+        // Activity. An unworn day's zeros are not a day of no movement: they
+        // were scored, flagged as low-steps anomalies and narrated, and the
+        // ring's 0 kept Health Connect from filling the day.
+        ...(!unworn && activityFields(a)),
         // Readiness
         ...(r?.score              != null && { readinessScore:       r.score }),
         ...(r?.skinTemp           != null && { skinTemp:             r.skinTemp }),
@@ -216,11 +246,24 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         ringAt: new Date(),
       }
 
-      return prisma.healthLog.upsert({
+      const written = await prisma.healthLog.upsert({
         where: { userId_date: { userId, date } },
         create: { userId, date, ...fields },
         update: fields,
       })
+      // Syncs before this one stored the unworn day's zeros. Cleared only where
+      // the column still holds exactly what the ring sent: a Health Connect
+      // fill since then is a real reading, and a blanket null would wipe it on
+      // every sync.
+      if (unworn) {
+        for (const [col, value] of Object.entries(activityFields(a))) {
+          await prisma.healthLog.updateMany({
+            where: { userId, date, [col]: value },
+            data: { [col]: null },
+          })
+        }
+      }
+      return written
     })
 
     const results = await Promise.all(upserts)
@@ -241,7 +284,7 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
     const storedScope = ouraToken.scope?.trim()
     const scopeLooksMissingTag = !!storedScope && !storedScope.split(/[\s,]+/).includes("tag")
     try {
-      const tagData = await getOuraTags(userId, startDate, endDate)
+      const { tags: tagData, complete: tagsComplete } = await getOuraTags(userId, startDate, endDate)
       for (const t of tagData) {
         // A tag with no resolvable date can't be stored (the column is NOT
         // NULL) and would abort the whole loop — skip it rather than lose the
@@ -285,11 +328,20 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
       // Mirror drink tags into IntakeLog so water/coffee/alcohol logged in the
       // Oura app show up everywhere intake does (Intake page, dashboard,
       // Emergy) from one source. Deterministic ids make the upsert idempotent.
+      //
+      // The Intake page sends the user to the Oura app to fix a ring tag, so a
+      // fix made there has to reach these rows: a tag relabelled away from a
+      // drink, or away from caffeine, takes its mirror with it.
+      const notIntake: string[] = []
+      const notCaffeine: string[] = []
       for (const t of tagData) {
+        if (!t.id) continue
         const label = [t.tagName, t.comment].filter(Boolean).join(" ").trim()
-        if (!label) continue
-        const { kind, ml } = classifyOuraTag(label)
-        if (!INTAKE_KINDS.has(kind) || ml <= 0) continue
+        const { kind, ml } = label ? classifyOuraTag(label) : { kind: null, ml: 0 }
+        if (!kind || !INTAKE_KINDS.has(kind) || ml <= 0) {
+          notIntake.push(t.id); notCaffeine.push(t.id)
+          continue
+        }
         await prisma.intakeLog.upsert({
           where: { id: `oura_${t.id}` },
           create: {
@@ -300,11 +352,12 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
             note: `${t.tagName || label} (Oura)`,
             loggedAt: new Date(t.timestamp),
           },
-          update: { type: kind, amountMl: ml },
+          update: { type: kind, amountMl: ml, note: `${t.tagName || label} (Oura)` },
         }).catch(() => null)
 
         // ring-logged coffee/tea/matcha auto-feeds the caffeine tracker too
         const est = estimateCaffeine(kind, label, ml)
+        if (!est) notCaffeine.push(t.id)
         if (est) {
           await prisma.caffeineLog.upsert({
             where: { id: `oura_caf_${t.id}` },
@@ -319,6 +372,25 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
           }).catch(() => null)
         }
       }
+
+      // A tag deleted in the Oura app is simply absent from the answer. Only
+      // a complete answer can say that, only ring tags (manual_ rows are the
+      // user's own doses), and not on the window's oldest day, where Oura may
+      // file a just-after-midnight tag under the day before.
+      let vanished: string[] = []
+      if (tagsComplete) {
+        const fetched = new Set(tagData.map(t => t.id))
+        const stored = await prisma.ouraTag.findMany({
+          where: { userId, id: { not: { startsWith: "manual_" } }, day: { gte: addDaysISO(startDate, 1), lte: endDate } },
+          select: { id: true },
+        })
+        vanished = stored.map(r => r.id).filter(id => !fetched.has(id))
+      }
+      const dropIntake = [...notIntake, ...vanished].map(id => `oura_${id}`)
+      const dropCaffeine = [...notCaffeine, ...vanished].map(id => `oura_caf_${id}`)
+      if (dropIntake.length) await prisma.intakeLog.deleteMany({ where: { userId, id: { in: dropIntake } } })
+      if (dropCaffeine.length) await prisma.caffeineLog.deleteMany({ where: { userId, id: { in: dropCaffeine } } })
+      if (vanished.length) await prisma.ouraTag.deleteMany({ where: { userId, id: { in: vanished } } })
 
       tagsSynced = tagData.length
     } catch (tagErr) {

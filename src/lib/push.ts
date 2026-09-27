@@ -66,14 +66,18 @@ export function configurePush(): boolean {
  * omit to load everyone.
  */
 export async function loadSubscriptionsByUser(userIds?: string[]): Promise<Map<string, Delivery>> {
+  // PushSubscription has no foreign key to User, so rows can outlive their
+  // account; the join keeps a deleted person from being pushed to.
   const [rows, tokens] = await Promise.all([
     userIds
       ? prisma.$queryRaw<PushSub[]>`
-          SELECT "userId", endpoint, p256dh, auth FROM "PushSubscription"
-          WHERE "userId" = ANY(${userIds}::text[])
+          SELECT ps."userId", ps.endpoint, ps.p256dh, ps.auth FROM "PushSubscription" ps
+          JOIN "User" u ON u.id = ps."userId"
+          WHERE ps."userId" = ANY(${userIds}::text[])
         `.catch(() => [] as PushSub[])
       : prisma.$queryRaw<PushSub[]>`
-          SELECT "userId", endpoint, p256dh, auth FROM "PushSubscription"
+          SELECT ps."userId", ps.endpoint, ps.p256dh, ps.auth FROM "PushSubscription" ps
+          JOIN "User" u ON u.id = ps."userId"
         `.catch(() => [] as PushSub[]),
     userIds
       ? prisma.$queryRaw<{ userId: string; token: string }[]>`

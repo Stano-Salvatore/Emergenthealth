@@ -26,7 +26,14 @@ const handler = (tool: string) => {
   return src.slice(open, next === -1 ? undefined : next)
 }
 
+// log_water and log_coffee were missed the first time round: they awaited
+// recordDrink, ignored its null, and said "Logged 500ml of water" over a Neon
+// blip that wrote nothing.
 const WRITERS = [
+  "log_water",
+  "log_coffee",
+  "log_drink",
+  "log_usual",
   "log_food",
   "log_mood",
   "log_weight",

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
+import { readFileSync } from "node:fs"
 import {
-  assessCoverage, nutrientGaps, normalizeNutrient, toMicrograms, NRV,
+  assessCoverage, nutrientGaps, nutrientGapsOverLoggedDays, normalizeNutrient, toMicrograms, NRV,
   type LoggedMicro, type DayCalories,
 } from "@/lib/nutrients"
 
@@ -149,5 +150,56 @@ describe("NRV table", () => {
     expect(NRV["Vitamin C"]).toEqual({ amount: 80, unit: "mg" })
     expect(NRV["Vitamin B12"]).toEqual({ amount: 2.5, unit: "ug" })
     expect(NRV["Iron"]).toEqual({ amount: 14, unit: "mg" })
+  })
+})
+
+// Logged on 9 of the last 14 days, every one of them carrying 80 mg of
+// vitamin C — the full reference value. Averaged over the fixed 14, that is
+// 720/14 ≈ 51 mg, 64% of the NRV, and the card reported a vitamin C shortfall
+// (and a lab marker to check) for someone whose every logged day met it. A
+// day with no food logged is not a day of eating nothing: absent is not zero.
+describe("nutrientGapsOverLoggedDays — unlogged days are left out, not zeroed", () => {
+  const window = (logged: number[], total = 14): DayCalories[] =>
+    Array.from({ length: total }, (_, i) => ({
+      day: `2026-08-${String(i + 1).padStart(2, "0")}`,
+      calories: logged.includes(i + 1) ? 2000 : 0,
+    }))
+
+  it("no shortfall when every logged day met the reference", () => {
+    const loggedDays = [1, 2, 3, 5, 6, 8, 9, 11, 12]
+    const vitC: LoggedMicro[] = loggedDays.map(d => ({
+      day: `2026-08-${String(d).padStart(2, "0")}`, name: "Vitamin C", amount: 80, unit: "mg",
+    }))
+    expect(nutrientGapsOverLoggedDays(vitC, window(loggedDays), "2026-08-14")).toHaveLength(0)
+  })
+
+  it("a logged day without the nutrient still counts against it", () => {
+    const loggedDays = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    const mg: LoggedMicro[] = loggedDays.slice(0, 5).map(d => ({
+      day: `2026-08-${String(d).padStart(2, "0")}`, name: "Magnesium", amount: 375, unit: "mg",
+    }))
+    const gap = nutrientGapsOverLoggedDays(mg, window(loggedDays), "2026-08-14").find(g => g.nutrient === "Magnesium")
+    expect(gap?.pctOfNrv).toBe(50)
+  })
+
+  it("today, still being eaten, is not averaged in", () => {
+    // Five complete days at 60 mg (75% of NRV) and a breakfast so far today
+    // with none. Counting today as a sixth day at zero would read 62.5%, a gap.
+    const complete = [1, 2, 3, 4, 5]
+    const vitC: LoggedMicro[] = complete.map(d => ({
+      day: `2026-08-${String(d).padStart(2, "0")}`, name: "Vitamin C", amount: 60, unit: "mg",
+    }))
+    expect(nutrientGapsOverLoggedDays(vitC, window([...complete, 14]), "2026-08-14")).toHaveLength(0)
+    // The same rows with today treated as complete do show the gap, so the
+    // exclusion is what keeps it away.
+    expect(nutrientGapsOverLoggedDays(vitC, window([...complete, 14]), "2026-08-15")).toHaveLength(1)
+  })
+})
+
+describe("the report the card reads uses the logged days", () => {
+  it("loadNutrientReport averages over logged days, not the fixed window", () => {
+    const src = readFileSync("src/lib/nutrient-gaps-load.ts", "utf8").replace(/^\s*\/\/.*$/gm, " ")
+    expect(src).toMatch(/nutrientGapsOverLoggedDays\(micros, dayCalories,/)
+    expect(src).not.toMatch(/nutrientGaps\(micros, WINDOW_DAYS\)/)
   })
 })

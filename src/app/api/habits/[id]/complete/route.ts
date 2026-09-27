@@ -50,9 +50,14 @@ export async function DELETE(
   if (Number.isNaN(dateObj.getTime())) return NextResponse.json({ error: "bad date" }, { status: 400 })
   dateObj.setUTCHours(0, 0, 0, 0)
 
-  await prisma.habitCompletion.deleteMany({
-    where: { habitId: id, userId: session.user.id, date: dateObj },
-  })
+  // Un-ticking settles nothing: Home shows a skipped habit as ticked, and
+  // clearing only the completion left the skip, so it came back ticked on
+  // reload. Done and skipped are exclusive, so for the Habits page, which
+  // sends this only for a completion, the skip delete finds nothing.
+  await prisma.$transaction([
+    prisma.habitCompletion.deleteMany({ where: { habitId: id, userId: session.user.id, date: dateObj } }),
+    prisma.habitSkip.deleteMany({ where: { habitId: id, userId: session.user.id, date: dateObj } }),
+  ])
 
   return NextResponse.json({ success: true })
 }

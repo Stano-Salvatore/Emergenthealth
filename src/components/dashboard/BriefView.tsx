@@ -6,6 +6,7 @@ import Link from "next/link"
 import { Card, CardContent } from "@/components/ui/card"
 import { Moon, Target, ChevronRight, Sun, Sunset, CloudSun, Gauge, CalendarDays, Sunrise, LayoutDashboard, ListChecks, HeartPulse } from "lucide-react"
 import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
+import { isUpcoming } from "@/lib/day-events"
 
 type Period = "morning" | "afternoon" | "evening"
 
@@ -79,15 +80,6 @@ function eventTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ""
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-}
-
-// An event still counts as ahead of you until it ends (or, with no end time,
-// until it starts).
-function isUpcoming(e: { start: string; end: string }, now: number): boolean {
-  if (e.start && !e.start.includes("T")) return true // all-day: runs all day
-  const ref = e.end && e.end.includes("T") ? e.end : e.start
-  const t = new Date(ref).getTime()
-  return Number.isNaN(t) ? false : t >= now
 }
 
 export function BriefView({ name }: { name: string }) {

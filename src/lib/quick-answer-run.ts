@@ -22,8 +22,14 @@ import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { localDateStr, zonedDayRange, addDaysISO } from "@/lib/local-date"
 import { hydrationMl } from "@/lib/hydration"
-import { activeFromDoses } from "@/lib/caffeine"
-import { ALCOHOL_TYPES, alcoholRemainingG, alcoholClearanceGPerHour, ethanolGrams } from "@/lib/body-load"
+import { activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
+import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
+// The body-load floor, not one of our own: below it "still circulating" is
+// arithmetic rather than a fact about the body, and the caffeine answer and the
+// body-load answer must not put different words on the same afternoon.
+import { ALCOHOL_TYPES, CAFFEINE_FLOOR_MG } from "@/lib/body-load"
+import { computeBodyLoad } from "@/lib/body-load-now"
+import { supplementInfoFor } from "@/lib/supplement-info"
 import { getGoals } from "@/lib/goals"
 import { formatDose } from "@/lib/dose"
 import { parseQuickAsk, type QuickAsk } from "@/lib/quick-answer"
@@ -54,13 +60,6 @@ function chips(manifest: SourceManifest): SourceChip[] {
 }
 
 const ml = (n: number) => (n >= 1000 ? `${Math.round(n / 100) / 10}L` : `${n}ml`)
-
-/**
- * Below this, "still circulating" is arithmetic rather than a fact about the
- * body: 1mg is a hundredth of an espresso. Shared by both answers that say it,
- * so the two can never put different words on the same afternoon.
- */
-const CAFFEINE_FLOOR_MG = 5
 
 /** "7h 12m" — the way a night is spoken, never 432 minutes. */
 function hm(minutes: number): string {
@@ -186,42 +185,63 @@ async function dosesToday(userId: string, tz: string): Promise<QuickAnswer> {
   }
 }
 
-async function bodyNow(userId: string, tz: string): Promise<QuickAnswer> {
-  const now = new Date()
-  // Yesterday too: a 23:00 beer is still being cleared at 02:00, and caffeine
-  // from late afternoon is still measurable at midnight.
-  const since = new Date(now.getTime() - 36 * 3_600_000)
-  const [caffeine, drinks, goals] = await Promise.all([
-    prisma.caffeineLog.findMany({
-      where: { userId, loggedAt: { gte: since } },
-      select: { caffeineMg: true, loggedAt: true },
-    }).catch(() => []),
-    prisma.intakeLog.findMany({
-      where: { userId, type: { in: [...ALCOHOL_TYPES] }, loggedAt: { gte: since } },
-      select: { type: true, amountMl: true, note: true, loggedAt: true },
-    }).catch(() => []),
-    getGoals(userId),
-  ])
+// "caffeine" has its own entry in the med table, but a caffeine question is
+// answered from CaffeineLog, which body load already reads.
+const CAFFEINE_INFO = supplementInfoFor("caffeine")
 
-  const activeMg = activeFromDoses(caffeine, now.getTime())
-  const alcohol = alcoholRemainingG(
-    drinks.map(d => ({ grams: ethanolGrams(d.type, d.amountMl, d.note ?? undefined), at: d.loggedAt })),
-    now,
-    alcoholClearanceGPerHour(goals.weightKg, goals.sex),
-  )
+/** The medicine or supplement a question names, when the app knows it by name. */
+function namedMedicine(message: string) {
+  // A bare "mg" is the magnesium rule in the supplement normaliser; inside a
+  // question it is the unit of a caffeine figure far more often than a pill.
+  const info = supplementInfoFor(message.replace(/\bmg\b/gi, " "))
+  return info && info !== CAFFEINE_INFO ? info : null
+}
+
+async function bodyNow(userId: string, tz: string, message: string): Promise<QuickAnswer | null> {
+  const load = await computeBodyLoad(userId)
+  // Meds reach 72 h back, so a bare clock time can be two days old: the day
+  // is named whenever it is not today.
+  const today = localDateStr(tz)
+  const clockFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz })
+  const dayFmt = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: tz })
+  const at = (iso: string) => {
+    const d = new Date(iso)
+    const day = localDateStr(tz, d)
+    const clock = clockFmt.format(d)
+    return day === today ? clock : day === addDaysISO(today, -1) ? `yesterday ${clock}` : `${dayFmt.format(d)} ${clock}`
+  }
+
+  // A named medicine this list does not hold is a question about a dose the
+  // app cannot see — older than its window, or never logged. "Nothing much"
+  // would read as "it has cleared", which nobody measured. Emergy can say so.
+  const named = namedMedicine(message)
+  if (named) {
+    const listed = [...load.substances.filter(s => s.kind === "med"), ...load.unmodeled]
+      .some(s => supplementInfoFor(s.name) === named)
+    if (!listed) return null
+  }
 
   const parts: string[] = []
-  if (activeMg >= CAFFEINE_FLOOR_MG) parts.push(`**${activeMg}mg** of caffeine still circulating`)
-  if (alcohol.remainingG > 0.5) {
-    const clears = alcohol.clearsAt
-      ? `, clear around ${new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz }).format(alcohol.clearsAt)}`
-      : ""
-    parts.push(`**${Math.round(alcohol.remainingG)}g** of alcohol left to clear${clears}`)
+  for (const s of load.substances) {
+    if (s.kind === "caffeine") parts.push(`**${s.amount}mg** of caffeine still circulating`)
+    else if (s.kind === "alcohol") {
+      const grams = Math.round(s.gramsLeft ?? 0)
+      parts.push(`**${grams}g** of alcohol left to clear${s.clearsAt ? `, clear around ${at(s.clearsAt)}` : ""}`)
+    } else parts.push(`**${s.name}** ~${s.amount}% still on board (taken ${at(s.takenAt)})`)
   }
-  if (parts.length === 0) return { reply: "Nothing much — no caffeine or alcohol still circulating.", sources: [] }
+  const unknown = load.unmodeled.map(u => `${u.name}, taken ${at(u.takenAt)}, no half-life on file`)
+
+  if (parts.length === 0 && unknown.length === 0) {
+    return { reply: "Nothing much — no caffeine, alcohol or logged medicine still circulating.", sources: [] }
+  }
+  const unknownLine = unknown.length > 0
+    ? `${parts.length > 0 ? " " : ""}How much is left of ${unknown.length === 1 ? "this one" : "these"} can't be worked out: ${list(unknown)}.`
+    : ""
+  const hasMeds = load.substances.some(s => s.kind === "med") || unknown.length > 0
+  const hasIntake = load.substances.some(s => s.kind !== "med")
   return {
-    reply: `${list(parts)}.`,
-    sources: chips({ intake: "36h" }),
+    reply: `${parts.length > 0 ? `${list(parts)}.` : ""}${unknownLine}`,
+    sources: chips({ ...(hasIntake ? { intake: "24h" } : {}), ...(hasMeds ? { meds: "72h" } : {}) }),
   }
 }
 
@@ -526,7 +546,7 @@ async function steps(userId: string, tz: string, window: "today" | "week"): Prom
 async function caffeineToday(userId: string, tz: string): Promise<QuickAnswer> {
   const { start, end } = zonedDayRange(tz, localDateStr(tz))
   const now = new Date()
-  const [logged, recent, goals] = await Promise.all([
+  const [logged, recent, goals, profile] = await Promise.all([
     prisma.caffeineLog.findMany({
       where: { userId, loggedAt: { gte: start, lte: end } },
       orderBy: { loggedAt: "asc" },
@@ -539,9 +559,11 @@ async function caffeineToday(userId: string, tz: string): Promise<QuickAnswer> {
       select: { caffeineMg: true, loggedAt: true },
     }).catch(() => []),
     getGoals(userId),
+    getPersonalCaffeineProfile(userId).catch(() => null),
   ])
 
-  const activeMg = activeFromDoses(recent, now.getTime())
+  // The user's own half-life, as the body-load card and Emergy use.
+  const activeMg = activeFromDoses(recent, now.getTime(), profile?.halfLifeH ?? HALF_LIFE_H)
   const circulating = activeMg >= CAFFEINE_FLOOR_MG
   if (logged.length === 0) {
     return circulating
@@ -822,7 +844,7 @@ export async function runQuickAnswer(userId: string, message: string): Promise<Q
     case "logged_today": return loggedToday(userId, tz)
     case "intake_total": return intakeTotal(userId, tz, ask.type, ask.label)
     case "doses_today": return dosesToday(userId, tz)
-    case "body_now": return bodyNow(userId, tz)
+    case "body_now": return bodyNow(userId, tz, message)
     case "sleep": return sleep(userId, tz, ask.window, ask.debt === true)
     case "sleep_rhythm": return sleepRhythm(userId, tz)
     case "briefing": return briefing(userId, tz)

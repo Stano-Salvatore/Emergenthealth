@@ -13,6 +13,14 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Plus } from "lucide-react"
+import { listPhrase } from "@/lib/sync-status"
+
+const FIELD_NAMES: Record<string, string> = {
+  sleepDuration: "sleep", deepSleep: "deep sleep", remSleep: "REM sleep", lightSleep: "light sleep",
+  steps: "steps", caloriesBurned: "calories", activeMinutes: "active minutes", restingHR: "resting HR",
+}
+
+const listFields = (cols: string[]) => listPhrase(cols.map(c => FIELD_NAMES[c] ?? c))
 
 interface HealthEntryFormProps {
   onSaved?: () => void
@@ -22,6 +30,7 @@ export function HealthEntryForm({ onSaved }: HealthEntryFormProps) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
   const [form, setForm] = useState({
     date: (() => { const _d = new Date(); return [_d.getFullYear(), String(_d.getMonth()+1).padStart(2,"0"), String(_d.getDate()).padStart(2,"0")].join("-") })(),
     sleepHours: "",
@@ -38,6 +47,7 @@ export function HealthEntryForm({ onSaved }: HealthEntryFormProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    setNotice(null)
     setLoading(true)
     try {
       const res = await fetch("/api/sync/health", {
@@ -55,9 +65,21 @@ export function HealthEntryForm({ onSaved }: HealthEntryFormProps) {
         }),
       })
       if (res.ok) {
-        setOpen(false)
+        const data = await res.json().catch(() => null) as { written?: string[]; kept?: string[] } | null
         onSaved?.()
         router.refresh()
+        // A field the ring already holds is refused by the route; closing the
+        // dialog would tell the user it saved.
+        const kept = data?.kept ?? []
+        if (kept.length === 0) {
+          setOpen(false)
+          return
+        }
+        const written = data?.written ?? []
+        setNotice(
+          (written.length ? `Saved ${listFields(written)}. ` : "Nothing saved. ") +
+          `The ring already recorded ${listFields(kept)} for this day, and its reading stands.`,
+        )
       }
     } finally {
       setLoading(false)
@@ -65,7 +87,7 @@ export function HealthEntryForm({ onSaved }: HealthEntryFormProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={o => { setOpen(o); if (!o) setNotice(null) }}>
       <DialogTrigger asChild>
         <Button size="sm" className="gap-1">
           <Plus className="h-4 w-4" /> Log Day
@@ -148,6 +170,7 @@ export function HealthEntryForm({ onSaved }: HealthEntryFormProps) {
               />
             </div>
           </div>
+          {notice && <p className="text-sm text-muted-foreground" role="status">{notice}</p>}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Saving..." : "Save"}
           </Button>

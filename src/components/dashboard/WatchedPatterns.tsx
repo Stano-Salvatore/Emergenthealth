@@ -24,7 +24,10 @@ export function WatchedPatterns() {
   const [byId, setById] = useState<Map<string, CorrelationItem & { periodLabel: string }>>(new Map())
   const [loaded, setLoaded] = useState(false)
 
+  // Three engine runs are not worth paying for a panel with nothing pinned.
+  const hasPinned = pinned.size > 0
   useEffect(() => {
+    if (!hasPinned) return
     let cancelled = false
     Promise.allSettled(
       PERIODS.map(p => fetch(`/api/insights/correlations?period=${p.key}`).then(r => r.json())),
@@ -43,7 +46,7 @@ export function WatchedPatterns() {
       setLoaded(true)
     })
     return () => { cancelled = true }
-  }, [])
+  }, [hasPinned])
 
   // Nothing pinned yet — show a gentle hint instead of an empty card.
   if (pinned.size === 0) {

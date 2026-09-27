@@ -993,6 +993,8 @@ export default function HabitsPage() {
         }
       }
     }
+    // Done today means today's alarm stands down; undone means it rings again.
+    resyncNotifications().catch(() => {})
   }
 
   // Deleting is permanent and takes the whole completion history with it, so it

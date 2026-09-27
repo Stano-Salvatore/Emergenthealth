@@ -119,7 +119,7 @@ export function NutrientGapsCard() {
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  ≈{g.avgPerDay} {unitLabel(g.unit)}/day across the window, from {g.daysSeen} days with a reading.
+                  ≈{g.avgPerDay} {unitLabel(g.unit)} per logged day, from {g.daysSeen} days with a reading.
                 </p>
                 {g.foods && (
                   <p className="text-[11px] text-muted-foreground/80">Rich sources: {g.foods}.</p>
