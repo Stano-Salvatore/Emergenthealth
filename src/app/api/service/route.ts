@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { userDay } from "@/lib/user-timezone"
+import { completeReminder } from "@/lib/reminders"
 
 // Service API — accepts Bearer CRON_SECRET for server-to-server operations.
 // Allows Claude Code (and other trusted callers) to act on behalf of a user
@@ -57,11 +58,11 @@ export async function POST(req: NextRequest) {
   if (action === "complete_reminder") {
     const { id } = body
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 })
-    await prisma.reminder.updateMany({
-      where: { id, userId: user.id },
-      data: { isCompleted: true, completedAt: new Date() },
-    })
-    return NextResponse.json({ ok: true })
+    // lib/reminders rolls a repeating reminder on; marking the row done here
+    // ended the series. An id that isn't this user's is a 404, not "ok".
+    const done = await completeReminder(user.id, id)
+    if (!done.ok) return NextResponse.json({ error: done.error }, { status: 404 })
+    return NextResponse.json({ ok: true, rolledTo: done.rolledTo })
   }
 
   // ── create_habit_completion ────────────────────────────────────────────────

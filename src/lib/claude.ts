@@ -1415,7 +1415,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
         (d.night.eveningMedianLux != null ? `, evening light median ${d.night.eveningMedianLux} lx` : "")
       : "no qualifying quiet stretch found (fewer than 3h between screen touches)"
     const sleep = d.phoneDetectedSleep.length
-      ? d.phoneDetectedSleep.map(n => `${n.label} (${n.start.slice(11, 16)}–${n.end.slice(11, 16)} UTC)`).join("; ")
+      ? d.phoneDetectedSleep.map(n => `${n.label} (${localTimeStr(pTz, new Date(n.start))}–${localTimeStr(pTz, new Date(n.end))} local)`).join("; ")
       : "none — the Sleep API delivered no segments for this day"
     return [
       `Phone sensors for ${d.date} (all of this is the phone's estimate, not a measurement):`,
