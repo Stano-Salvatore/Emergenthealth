@@ -79,6 +79,13 @@ describe("a dropped stream is not reported as a failed turn", () => {
     const everyMs = Number(page.match(/const CATCH_UP_EVERY_MS = ([\d_]+)/)?.[1]?.replace(/_/g, ""))
     expect(attempts * everyMs).toBeGreaterThanOrEqual(maxDuration * 1000)
   })
+  it("a request that never got a response does not promise a reply is coming", () => {
+    // Sent offline, the message may never have reached the server; "the
+    // reply will appear here" would be a promise nothing is keeping.
+    expect(catchBlock).toMatch(/responded \? STILL_FINISHING : MAYBE_NOT_SENT/)
+    const send = page.slice(page.indexOf("async function sendMessage"), page.indexOf("function handleKeyDown"))
+    expect(send).toMatch(/await fetch\("\/api\/chat", \{[\s\S]*?\}\)\s*responded = true/)
+  })
   it("giving up tells the user to check before resending", () => {
     expect(page).toMatch(/check your log before resending/)
   })

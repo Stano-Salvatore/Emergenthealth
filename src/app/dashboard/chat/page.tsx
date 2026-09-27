@@ -54,6 +54,9 @@ const CATCH_UP_ATTEMPTS = 52
 const CATCH_UP_EVERY_MS = 2_500
 
 const STILL_FINISHING = "_Still finishing this in the background — the reply will appear here._"
+// A request that never got a response may not have reached the server at all
+// (sent offline), so it cannot promise a reply is on its way.
+const MAYBE_NOT_SENT = "_Lost the connection — checking whether this reached me…_"
 const COULD_NOT_CONFIRM = "_Couldn't confirm it finished — check your log before resending._"
 
 function withNote(content: string, note: string): string {
@@ -448,7 +451,7 @@ export default function ChatPage() {
       // The turn stays pending, so the next foreground still looks for it —
       // but the user gets the composer back, told not to resend blind.
       setMessages(m => m.map(msg => msg.localId === turn.localId
-        ? { ...msg, content: msg.content.replace(STILL_FINISHING, COULD_NOT_CONFIRM), pending: false }
+        ? { ...msg, content: msg.content.replace(STILL_FINISHING, COULD_NOT_CONFIRM).replace(MAYBE_NOT_SENT, COULD_NOT_CONFIRM), pending: false }
         : msg))
       setSending(false)
     } finally {
@@ -557,6 +560,7 @@ export default function ChatPage() {
       startedAt: Date.now(),
     }
     pendingTurn.current = turn
+    let responded = false
 
     try {
       const res = await fetch("/api/chat", {
@@ -564,6 +568,7 @@ export default function ChatPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, history, conversationId }),
       })
+      responded = true
 
       // Error replies are plain JSON, not a stream. Without this check the
       // parser below finds no "data:" lines, falls out of the loop silently and
@@ -683,7 +688,7 @@ export default function ChatPage() {
         if (pendingTurn.current?.seq !== myTurn) return
         patch((msg) => ({
           ...msg,
-          content: withNote(msg.content, STILL_FINISHING),
+          content: withNote(msg.content, responded ? STILL_FINISHING : MAYBE_NOT_SENT),
           streaming: false,
           activeTool: undefined,
           thought: undefined,
