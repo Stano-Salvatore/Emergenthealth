@@ -42,6 +42,7 @@ import { VitalsCard } from "@/components/dashboard/VitalsCard"
 import { NotesWidget } from "@/components/dashboard/NotesWidget"
 import { ScreenTimeCard } from "@/components/dashboard/ScreenTimeCard"
 import { isFeatureEnabled } from "@/lib/features"
+import { isHomeOwner } from "@/lib/home-owner"
 import { getGoals } from "@/lib/goals"
 import { MobileToday } from "@/components/dashboard/MobileToday"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
@@ -850,7 +851,8 @@ export default async function DashboardPage() {
     notes: <NotesWidget />,
     screentime: isFeatureEnabled("screentime") ? <ScreenTimeCard /> : null,
     location: <LocationCard />,
-    ac: isFeatureEnabled("smarthome") ? <AcCard /> : null,
+    // The AC is the owner's device on the owner's credentials; /api/home serves it to no one else.
+    ac: isHomeOwner(session.user.email) ? <AcCard /> : null,
     quests: <DailyQuests />,
     quickstart: <QuickStart hasCheckin={hasCheckedInToday} hasHabits={habits.length > 0} />,
   }

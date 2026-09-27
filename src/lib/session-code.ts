@@ -12,6 +12,8 @@ export interface SessionCode {
   n: string
   /** Unix ms after which the code is dead even if the row outlives it. */
   x: number
+  /** Client address of the browser that finished sign-in. */
+  i?: string
 }
 
 export const SESSION_CODE_TTL_MS = 600_000 // 10 minutes
@@ -47,8 +49,20 @@ export function verifySessionCode(code: string): SessionCode | null {
     return null
   }
   if (typeof data?.t !== "string" || typeof data.n !== "string" || typeof data.x !== "number") return null
+  if (data.i !== undefined && typeof data.i !== "string") return null
   if (Date.now() > data.x) return null
   return data
+}
+
+/**
+ * Whoever starts a mobile sign-in chooses its auth_key, so knowing the key
+ * proves nothing: a stranger can mint one, send the owner the sign-in link,
+ * and wait. What they cannot share is the phone. The Custom Tab that finished
+ * Google sign-in and the WebView that redeems sit on one device and leave from
+ * one address; a redeem from anywhere else is refused.
+ */
+export function mayRedeemFrom(code: SessionCode, ip: string): boolean {
+  return typeof code.i === "string" && code.i === ip
 }
 
 /** A mobile auth key is a UUID the native app minted — nothing else is honoured. */

@@ -8,6 +8,7 @@ import { checkRateLimit } from "@/lib/rate-limit"
 
 const RP_ID = process.env.NEXT_PUBLIC_APP_URL?.replace(/^https?:\/\//, "").split(":")[0] ?? "localhost"
 const ORIGIN = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"
+const CHALLENGE_TTL_MS = 5 * 60_000
 
 // GET: generate challenge for a passkey login attempt
 export async function GET(req: NextRequest) {
@@ -20,15 +21,22 @@ export async function GET(req: NextRequest) {
     allowCredentials: [],
   })
 
-  // Store challenge keyed by a temp token
+  // Nobody is signed in yet, so the challenge cannot live in a per-user table:
+  // UserPreference's foreign key to User refused every insert.
   const tempToken = crypto.randomUUID()
-  await prisma.userPreference.create({
+  // A cancelled prompt never comes back to consume its challenge; stale ones
+  // are cleared here so they don't pile up. Housekeeping only, so it never
+  // stands in the way of the sign-in being asked for.
+  await prisma.verificationToken.deleteMany({
+    where: { identifier: { startsWith: "passkey-auth:" }, expires: { lt: new Date() } },
+  }).catch(e => console.error("[passkey/authenticate] expired challenge sweep failed:", e))
+  await prisma.verificationToken.create({
     data: {
-      userId: `passkey_auth_${tempToken}`,
-      key: "challenge",
-      value: options.challenge,
+      identifier: `passkey-auth:${tempToken}`,
+      token: options.challenge,
+      expires: new Date(Date.now() + CHALLENGE_TTL_MS),
     },
-  }).catch(() => {})
+  })
 
   return NextResponse.json({ ...options, tempToken })
 }
@@ -39,16 +47,21 @@ export async function POST(req: NextRequest) {
   const { allowed } = checkRateLimit(ip, "passkey-verify", 10, 60_000)
   if (!allowed) return NextResponse.json({ error: "Too many requests" }, { status: 429 })
 
-  const { response, tempToken } = await req.json()
+  const { response, tempToken } = await req.json().catch(() => ({}))
+  if (typeof tempToken !== "string" || typeof response?.id !== "string") {
+    return NextResponse.json({ error: "Bad request" }, { status: 400 })
+  }
 
-  const challengeRecord = await prisma.userPreference.findUnique({
-    where: { userId_key: { userId: `passkey_auth_${tempToken}`, key: "challenge" } },
+  const identifier = `passkey-auth:${tempToken}`
+  const challengeRecord = await prisma.verificationToken.findFirst({
+    where: { identifier, expires: { gt: new Date() } },
   })
   if (!challengeRecord) return NextResponse.json({ error: "Challenge expired" }, { status: 400 })
 
-  await prisma.userPreference.delete({
-    where: { userId_key: { userId: `passkey_auth_${tempToken}`, key: "challenge" } },
-  }).catch(() => {})
+  // Single use: of two concurrent answers to one challenge, only the one that
+  // removes the row goes on to verify.
+  const { count } = await prisma.verificationToken.deleteMany({ where: { identifier } })
+  if (count === 0) return NextResponse.json({ error: "Challenge expired" }, { status: 400 })
 
   const passkey = await prisma.passkey.findUnique({
     where: { credentialId: response.id },
@@ -59,7 +72,7 @@ export async function POST(req: NextRequest) {
   try {
     const verification = await verifyAuthenticationResponse({
       response,
-      expectedChallenge: challengeRecord.value,
+      expectedChallenge: challengeRecord.token,
       expectedOrigin: ORIGIN,
       expectedRPID: RP_ID,
       credential: {
@@ -90,16 +103,20 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    // Auth.js reads the __Secure- name on HTTPS; under the bare name the new
+    // session is invisible and /dashboard bounces back to /signin.
+    const secure = new URL(req.url).protocol === "https:"
     const res = NextResponse.json({ ok: true, redirectTo: "/dashboard" })
-    res.cookies.set("authjs.session-token", dbSession.sessionToken, {
+    res.cookies.set(secure ? "__Secure-authjs.session-token" : "authjs.session-token", dbSession.sessionToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure,
       sameSite: "lax",
       path: "/",
       expires: dbSession.expires,
     })
     return res
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 400 })
+    console.error("[passkey/authenticate] verification failed:", err)
+    return NextResponse.json({ error: "Verification failed" }, { status: 400 })
   }
 }

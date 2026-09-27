@@ -28,11 +28,14 @@ export async function GET(req: NextRequest) {
   // comparing it against a bound timestamp has no operator in Postgres — the
   // old Date parameter made this whole query error on every run, silently
   // returning nobody. The date-typed columns get an explicit ::date cast.
+  // Joined to User because PushSubscription has no foreign key to it: an
+  // orphaned row never checks in, so it would hold a LIMIT slot forever.
   const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   const inactiveUsers = await prisma.$queryRaw<{ userId: string }[]>`
     SELECT DISTINCT ps."userId"
     FROM "PushSubscription" ps
+    JOIN "User" u ON u.id = ps."userId"
     WHERE NOT EXISTS (
       SELECT 1 FROM "MorningCheckIn" mc
       WHERE mc."userId" = ps."userId" AND mc."date" >= ${threeDaysAgo}

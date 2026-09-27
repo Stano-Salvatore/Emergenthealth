@@ -11,19 +11,36 @@ import { prisma } from "@/lib/prisma"
 // keeping, sharing with a doctor, feeding to a script — none of which should
 // ever carry OAuth tokens or push keys.
 
-const EXCLUDED_TABLES = new Set([
+export const EXCLUDED_TABLES = new Set([
   "Account", "Session", "VerificationToken", "Passkey",
   "McpApiKey", "FitToken", "OuraToken", "StravaToken", "YnabToken",
   "TogglToken", "TruelayerToken", "LastfmKey", "RescuetimeKey",
   "GocardlessConnection", "SaltedgeConnection",
-  "PushSubscription", "NewsletterSubscriber",
+  "PushSubscription", "FcmToken", "NewsletterSubscriber",
 ])
 
 // Belt and braces for UserPreference: no key with a credential-shaped name
 // leaves with its value, even if one appears in the future.
 const SENSITIVE_PREF_KEY = /(token|secret|password|api_?key|credential)/i
 
-const SAFE_TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+// The same rule by column, for every table: a table that is not a credential
+// table can still hold one (GitHubProfile.accessToken went out in the monthly
+// email). Names ending in "Tokens" are usage counts, e.g. ModelTurn.inputTokens.
+const SENSITIVE_COLUMN = /(token|secret|password|api_?key|credential)/i
+const COUNT_COLUMN = /Tokens$/
+
+export function redactRow(table: string, row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...row }
+  for (const k of Object.keys(out)) {
+    if (SENSITIVE_COLUMN.test(k) && !COUNT_COLUMN.test(k) && out[k] != null) out[k] = "[redacted]"
+  }
+  if (table === "UserPreference" && SENSITIVE_PREF_KEY.test(String(out.key ?? ""))) {
+    out.value = "[redacted — credential-shaped key]"
+  }
+  return out
+}
+
+export const SAFE_TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 // Tables that grow without bound (continuous location tracking, chat).
 // Uncapped, a heavy user's export could balloon past memory and the
@@ -98,15 +115,7 @@ export async function buildExportBundle(userId: string): Promise<ExportBundle> {
     if (limit && rows.length === limit.cap) truncated[table_name] = limit.cap
     if (rows.length === 0) continue
 
-    if (table_name === "UserPreference") {
-      rows = rows.map(r =>
-        SENSITIVE_PREF_KEY.test(String(r.key ?? ""))
-          ? { ...r, value: "[redacted — credential-shaped key]" }
-          : r
-      )
-    }
-
-    tables[table_name] = rows
+    tables[table_name] = rows.map(r => redactRow(table_name, r))
     rowCount += rows.length
   }
 
@@ -116,7 +125,7 @@ export async function buildExportBundle(userId: string): Promise<ExportBundle> {
     version: 1,
     exportedAt,
     user: { name: user?.name ?? null, email: user?.email ?? null, memberSince: user?.createdAt ?? null },
-    note: "Complete account export. Credential tables (OAuth tokens, push keys, API keys) are deliberately excluded.",
+    note: "Complete account export. Credential tables (OAuth tokens, push keys, API keys) are deliberately excluded, and credential-shaped columns elsewhere read \"[redacted]\".",
     truncated, // table -> row cap, for the few unbounded-growth tables (newest rows kept); empty when nothing was cut
     counts: Object.fromEntries(Object.entries(tables).map(([k, v]) => [k, v.length])),
     tables,

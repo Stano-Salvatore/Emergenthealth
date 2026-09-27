@@ -16,6 +16,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   Callback: "Sign-in callback failed. Please try again.",
   InvalidState: "Sign-in expired or was interrupted. Please try again.",
   CredentialsSignin: "Invalid username or password.",
+  MobileOtherNetwork: "Sign-in finished on a different network from this app (for example Wi-Fi to mobile data). Please sign in again on one network.",
+  MobileTooManyAttempts: "Too many sign-in attempts from this network. Wait a few minutes and try again.",
   Default: "An error occurred during sign-in. Please try again.",
 }
 
