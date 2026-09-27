@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { execSync } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { readFileSync, readdirSync } from "node:fs"
+import { join } from "node:path"
 
 // A standing guard, not a unit test.
 //
@@ -283,6 +284,217 @@ describe("date-fns relative-day predicates stay out of server code", () => {
       "  const isTodayZ = (d: Date) => localDateStr(timezone, d) === localDateStr(timezone)",
       "",
       "If this really is correct, add it to RELATIVE_ALLOWED in this file with the reason.",
+    ].join("\n")).toEqual([])
+  })
+})
+
+// ─── Day windows: the right kind of midnight for the right kind of column ───
+//
+// There are two kinds of "day" column here, and each wants a different
+// midnight.
+//
+// A timestamp (IntakeLog.loggedAt, FoodLog.loggedAt, TimelineEvent.occurredAt,
+// ChatMessage.createdAt…) is an instant, so "the 27th" is the pair of instants
+// zonedDayRange(tz, "2026-09-27") gives. Filtering it with
+// `new Date(day + "T00:00:00Z")` … `"T23:59:59Z"` asks for the UTC day, which
+// for Prague runs 02:00–01:59 local: a kebab saved at 00:45 vanished from the
+// Food tab the moment it was saved, and turned up under the day before.
+//
+// A @db.Date column (HealthLog.date, DailyNote.date, MoodLog.date…) is the
+// opposite. The driver keeps only the UTC calendar date of whatever instant it
+// is handed, so the local-midnight instant 2026-09-25T22:00Z is read as "the
+// 25th": the quest card ticked "Sleep logged" every morning off yesterday's
+// row, before the ring had synced a thing.
+//
+// So: a timestamp filter must not be fed a UTC-midnight bound, and a date
+// filter must not be fed a zonedDayRange instant.
+
+const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+const TS_COLUMNS = "loggedAt|createdAt|startedAt|endedAt|occurredAt|trackedAt|takenAt|checkedAt|timestamp"
+
+function sourceFiles(dir: string): string[] {
+  const out: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name)
+    if (entry.isDirectory()) { if (entry.name !== "__tests__") out.push(...sourceFiles(p)) }
+    else if (/\.tsx?$/.test(entry.name)) out.push(p)
+  }
+  return out
+}
+
+function codeLines(file: string): string[] {
+  // Blank the comments but keep the line count, so hits carry true line numbers.
+  return readFileSync(file, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, " "))
+    .split("\n")
+    .map(l => l.replace(/(^|\s)\/\/.*$/, ""))
+}
+
+/** Identifiers a file binds to a UTC-midnight/UTC-end-of-day instant built from a day string. */
+function utcBoundNames(lines: string[]): Set<string> {
+  const names = new Set<string>()
+  for (const l of lines) {
+    const m = /(?:const|let)\s+(\w+)\s*=\s*new Date\([^;]*T(?:00:00:00|23:59:59)/.exec(l)
+    if (m) names.add(m[1])
+    const f = /function\s+(\w+)\s*\([^)]*\)[^{]*\{[^}]*new Date\([^}]*T(?:00:00:00|23:59:59)/.exec(l)
+    if (f) names.add(f[1] + "(")
+  }
+  const helpers = [...names].filter(n => n.endsWith("(")).map(escape)
+  if (helpers.length) {
+    const viaHelper = new RegExp(`(?:const|let)\\s+(\\w+)\\s*=\\s*(?:${helpers.join("|")})`)
+    for (const l of lines) {
+      const m = viaHelper.exec(l)
+      if (m) names.add(m[1])
+    }
+  }
+  return names
+}
+
+/** Identifiers a file binds to a zonedDayRange instant (a local midnight). */
+function zonedBoundNames(lines: string[]): Set<string> {
+  const names = new Set<string>()
+  for (const l of lines) {
+    const m = /(?:const|let)\s+(\w+)\s*=\s*zonedDayRange\([^;]*\)\.(?:start|end)\b/.exec(l)
+    if (m) names.add(m[1])
+    const d = /(?:const|let)\s*\{([^}]*)\}\s*=\s*zonedDayRange\(/.exec(l)
+    if (d) for (const part of d[1].split(",")) {
+      const alias = part.split(":").map(s => s.trim()).filter(Boolean).pop()
+      if (alias) names.add(alias)
+    }
+  }
+  return names
+}
+
+function dayWindowMisuses(file: string, lines = codeLines(file)): string[] {
+  const hits: string[] = []
+  const utc = [...utcBoundNames(lines)]
+  const zoned = [...zonedBoundNames(lines)]
+  const utcAlt = utc.map(n => n.endsWith("(") ? escape(n) : `${escape(n)}\\b`).join("|")
+  const zonedAlt = zoned.map(n => `${escape(n)}\\b`).join("|")
+  const inlineUtc = `new Date\\([^)]*T(?:00:00:00|23:59:59)`
+  const tsFilter = new RegExp(
+    `\\b(${TS_COLUMNS})\\s*:\\s*\\{[^}]*\\b(?:gte|gt|lte|lt)\\s*:\\s*(?:[^,}]*\\?\\s*[^,}]*:\\s*)?(${[inlineUtc, utcAlt].filter(Boolean).join("|")})`,
+  )
+  const dateFilter = zonedAlt
+    ? new RegExp(`\\bdate\\s*:\\s*(?:\\{[^}]*\\b(?:gte|gt|lte|lt|equals)\\s*:\\s*)?(${zonedAlt})`)
+    : null
+  const opensTsFilter = new RegExp(`\\b(${TS_COLUMNS})\\s*:\\s*\\{\\s*$`)
+  lines.forEach((line, i) => {
+    // A filter opened on one line and closed a few lines down is read whole.
+    const l = opensTsFilter.test(line) ? lines.slice(i, i + 5).join(" ") : line
+    if (tsFilter.test(l)) hits.push(`${file}:${i + 1}: timestamp column filtered by a UTC day: ${l.trim()}`)
+    if (dateFilter?.test(l)) hits.push(`${file}:${i + 1}: @db.Date column filtered by a local-midnight instant: ${l.trim()}`)
+  })
+  return hits
+}
+
+/** file entries that are correct despite matching, or knowingly left. Each needs a reason. */
+const WINDOW_ALLOWED: string[] = [
+  // Lower bound of a multi-month lookback; the hours at its far edge are
+  // irrelevant at that scale.
+  "src/lib/lab-trends-load.ts",
+  // Whole-month windows either side of a split. Known to be off by the UTC
+  // offset at each end; not yet fixed, and not a one-day view.
+  "src/lib/drift-load.ts",
+  // Week totals for the Sunday review. Known to be off by the UTC offset at
+  // each end of the week; not yet fixed.
+  "src/lib/weekly-review.ts",
+  // An experiment's focus minutes. Known: sessions ending in the first hours
+  // of the first day are missed and those just after the last day counted;
+  // not yet fixed.
+  "src/lib/experiments-analysis.ts",
+]
+
+describe("each kind of day column gets its own kind of midnight", () => {
+  it("catches the shapes it exists for", () => {
+    const bad = [
+      `const todayStart = startOfDay(await todayFor(userId))`,
+      `prisma.intakeLog.findMany({ where: { loggedAt: { gte: todayStart } } })`,
+      `prisma.chatMessage.findMany({ where: { createdAt: {`,
+      `  gte: startOfDay(a),`,
+      `} } })`,
+      `const start = new Date(date + "T00:00:00.000Z")`,
+      `const end = new Date(date + "T23:59:59.999Z")`,
+      `prisma.foodLog.findMany({ where: { userId, loggedAt: { gte: start, lte: end } } })`,
+      `prisma.x.findMany({ where: { occurredAt: { gte: new Date(d + "T00:00:00Z") } } })`,
+      `function startOfDay(s: string) { return new Date(s + "T00:00:00.000Z") }`,
+      `prisma.chatMessage.findMany({ where: { createdAt: { gte: startOfDay(a), lte: b ? b : endOfDay(a) } } })`,
+      `const today = zonedDayRange(tz, todayStr).start`,
+      `prisma.healthLog.findFirst({ where: { userId, date: { gte: today } } })`,
+    ]
+    expect(dayWindowMisuses("fixture.ts", bad).length).toBe(6)
+    const good = [
+      `const { start, end } = zonedDayRange(tz, date)`,
+      `const col = new Date(date + "T00:00:00Z")`,
+      `prisma.foodLog.findMany({ where: { loggedAt: { gte: start, lte: end } } })`,
+      `prisma.healthLog.findFirst({ where: { date: { gte: col } } })`,
+    ]
+    expect(dayWindowMisuses("fixture.ts", good)).toEqual([])
+  })
+
+  it("finds no occurrences in the code", () => {
+    const hits = sourceFiles("src")
+      .filter(f => !WINDOW_ALLOWED.some(a => f.startsWith(a)))
+      .flatMap(f => dayWindowMisuses(f))
+    expect(hits, [
+      "A day window is built with the wrong kind of midnight.",
+      "",
+      "  timestamp columns:  const { start, end } = zonedDayRange(tz, day)   // @/lib/local-date",
+      "  @db.Date columns:   new Date(day + \"T00:00:00Z\")  (or userDay().dateColumn)",
+      "",
+      "If this really is correct, add it to WINDOW_ALLOWED in this file with the reason.",
+    ].join("\n")).toEqual([])
+  })
+})
+
+// ─── The clock and the day, read off the server's own zone ──────────────────
+//
+// Three more coats on the same mistake, each found live:
+//
+//  • `x.toISOString().slice(11, 16)` is the UTC clock. Emergy was told a meal
+//    was eaten at "22:45" when it was 00:45, and the brief read a phone night
+//    back in UTC.
+//  • `new Date(y, m - 1, d, h, min)` in server code builds the instant in the
+//    server's zone, UTC — every dose and habit reminder on the calendar was
+//    drawn two hours late.
+//  • `format(new Date(row.loggedAt), "yyyy-MM-dd")` in server code is the UTC
+//    day, so a glass at 00:30 filled the day before's water goal.
+//
+// Client components may do the last two: there the process clock is the
+// user's own.
+
+const CLOCK_PATTERNS: { pattern: string; serverOnly: boolean }[] = [
+  { pattern: `\\.toISOString\\(\\)\\.slice\\(11`, serverOnly: false },
+  { pattern: `new Date\\(\\w+, ?\\w+ ?- ?1, ?\\w+, ?\\w+`, serverOnly: true },
+  { pattern: `format\\((new Date\\()?[\\w.]*\\.(${TIMESTAMP_FIELDS})\\)?, ?.yyyy-MM-dd.\\)`, serverOnly: true },
+]
+
+/** file entries that are correct despite matching. Each needs a reason. */
+const CLOCK_ALLOWED: string[] = [
+  // The fallback when the timezone cannot be read at all, documented there.
+  "src/lib/local-date.ts",
+]
+
+describe("clock times and days are read in the user's zone", () => {
+  it("finds no new occurrences", () => {
+    const isClientFile = (file: string) => /^\s*["']use client["']/.test(readFileSync(file, "utf8"))
+    const hits = sourceFiles("src")
+      .filter(f => !CLOCK_ALLOWED.some(a => f.startsWith(a)))
+      .flatMap(f => {
+        const lines = codeLines(f)
+        return CLOCK_PATTERNS
+          .filter(p => !p.serverOnly || !isClientFile(f))
+          .flatMap(p => lines.flatMap((l, i) => new RegExp(p.pattern).test(l) ? [`${f}:${i + 1}: ${l.trim()}`] : []))
+      })
+    expect(hits, [
+      "A clock time or a day is being read in the server's zone (UTC).",
+      "",
+      "  clock time:      localTimeStr(tz, at)        // @/lib/local-date",
+      "  HH:MM on a day:  zonedClock(tz, day, hhmm)",
+      "  day:             localDateStr(tz, at)",
+      "",
+      "If this really is correct, add it to CLOCK_ALLOWED in this file with the reason.",
     ].join("\n")).toEqual([])
   })
 })

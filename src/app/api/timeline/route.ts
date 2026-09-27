@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { userToday } from "@/lib/user-timezone"
+import { getUserTimezone } from "@/lib/user-timezone"
+import { localDateStr, zonedDayRange } from "@/lib/local-date"
 
 export async function GET(req: Request) {
   const session = await auth()
@@ -9,10 +10,14 @@ export async function GET(req: Request) {
   const userId = session.user.id
 
   const { searchParams } = new URL(req.url)
-  const dateStr = searchParams.get("date") ?? await userToday(userId)
+  const timezone = await getUserTimezone(userId)
+  const dateStr = searchParams.get("date") ?? localDateStr(timezone)
+  // Two kinds of day. The @db.Date columns (healthLog, moodLog,
+  // habitCompletion, dailyNote) are matched by UTC midnight of the date; the
+  // timestamp columns by the user's own midnights, or a moment saved at 01:00
+  // vanished from the day it was saved on and reappeared under the one before.
   const dateObj = new Date(dateStr + "T00:00:00.000Z")
-  const nextDay = new Date(dateStr + "T00:00:00.000Z")
-  nextDay.setDate(nextDay.getDate() + 1)
+  const { start: dayStart, end: dayEnd } = zonedDayRange(timezone, dateStr)
 
   const [healthLog, mood, habits, habitCompletions, intake, focusSessions, dailyNote, tags, checkinRows, customEvents, workouts] = await Promise.all([
     prisma.healthLog.findFirst({
@@ -37,12 +42,12 @@ export async function GET(req: Request) {
       select: { habitId: true },
     }),
     prisma.intakeLog.findMany({
-      where: { userId, loggedAt: { gte: dateObj, lt: nextDay } },
+      where: { userId, loggedAt: { gte: dayStart, lte: dayEnd } },
       select: { type: true, amountMl: true, loggedAt: true, note: true },
       orderBy: { loggedAt: "asc" },
     }).catch(() => []),
     prisma.focusSession.findMany({
-      where: { userId, startedAt: { gte: dateObj, lt: nextDay } },
+      where: { userId, startedAt: { gte: dayStart, lte: dayEnd } },
       select: { label: true, durationMin: true, startedAt: true, endedAt: true, type: true },
       orderBy: { startedAt: "asc" },
     }).catch(() => []),
@@ -60,7 +65,7 @@ export async function GET(req: Request) {
       LIMIT 1
     `.catch(() => []),
     prisma.timelineEvent.findMany({
-      where: { userId, occurredAt: { gte: dateObj, lt: nextDay } },
+      where: { userId, occurredAt: { gte: dayStart, lte: dayEnd } },
       select: { id: true, emoji: true, label: true, note: true, imageData: true, occurredAt: true },
       orderBy: { occurredAt: "asc" },
     }).catch(() => []),

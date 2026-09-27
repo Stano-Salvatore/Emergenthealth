@@ -460,7 +460,9 @@ describe("get_location_correlations reads the night after a visit", () => {
     db.$queryRaw.mockImplementation(async (...a: unknown[]) => {
       const sql = (a[0] as string[]).join("?")
       if (sql.includes(`"SavedPlace"`)) return [{ id: "gym", name: "Gym", emoji: "🏋" }]
-      if (sql.includes(`"CheckIn"`)) return visits.map(v => ({ checkedAt: new Date(v + "T18:00:00Z") }))
+      if (sql.includes(`"savedPlaceId"`)) return visits.map(v => ({ checkedAt: new Date(v + "T18:00:00Z") }))
+      // Every day was tracked (a morning at home), so every non-gym night is baseline.
+      if (sql.includes(`"CheckIn"`)) return Array.from({ length: 14 }, (_, i) => ({ checkedAt: new Date(`2026-09-${String(i + 1).padStart(2, "0")}T07:00:00Z`) }))
       return []
     })
     const nightsAfter = new Set(visits.map(v => `2026-09-${String(Number(v.slice(8)) + 1).padStart(2, "0")}`))

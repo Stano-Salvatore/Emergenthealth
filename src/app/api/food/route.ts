@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { userToday } from "@/lib/user-timezone"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { addDaysISO, zonedDayRange } from "@/lib/local-date"
 import { recordDrink, forgetDrinkCaffeine } from "@/lib/intake-write"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement } from "@/lib/supplement-normalize"
@@ -19,20 +20,22 @@ export async function GET(req: Request) {
   // read path defaulted to the server's UTC one, so between midnight and
   // the offset the page asked for yesterday and looked empty.
   const date = url.searchParams.get("date") ?? await userToday(userId)
+  // loggedAt is an instant, so the day's window is the user's midnights: a
+  // UTC window hid a meal saved at 00:45 from the day it was saved on.
+  const timezone = await getUserTimezone(userId)
 
   // ?days=7 returns daily calorie totals for the last N days (for trend charts)
   const days = parseInt(url.searchParams.get("days") ?? "0")
   if (days > 0 && days <= 30) {
-    const end = new Date(date + "T23:59:59.999Z")
-    const start = new Date(end.getTime() - (days - 1) * 86400000)
-    start.setUTCHours(0, 0, 0, 0)
+    const { end } = zonedDayRange(timezone, date)
+    const { start } = zonedDayRange(timezone, addDaysISO(date, -(days - 1)))
     const logs = await prisma.foodLog.findMany({
       where: { userId, loggedAt: { gte: start, lte: end } },
       select: { calories: true, loggedAt: true },
     })
     // loggedAt is a timestamp, so slicing its ISO string groups by UTC day —
     // a late-night meal counted toward the day before.
-    const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
+    const dayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: timezone })
     const byDay: Record<string, number> = {}
     for (const l of logs) {
       const day = dayFmt.format(l.loggedAt)
@@ -41,8 +44,7 @@ export async function GET(req: Request) {
     return NextResponse.json(byDay)
   }
 
-  const start = new Date(date + "T00:00:00.000Z")
-  const end = new Date(date + "T23:59:59.999Z")
+  const { start, end } = zonedDayRange(timezone, date)
   const [logs, ouraTags] = await Promise.all([
     prisma.foodLog.findMany({
       where: { userId, loggedAt: { gte: start, lte: end } },

@@ -49,7 +49,7 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
         fetch("/api/weight?days=90"),
       ])
       if (intakeRes.ok) {
-        const logs: { type: string; amountMl: number; note?: string | null }[] = await intakeRes.json()
+        const logs: { id: string; type: string; amountMl: number; note?: string | null }[] = await intakeRes.json()
         // Every hydrating drink at its factor (lib/hydration), the same total
         // the dashboard shows — this tab counted water and sparkling only, so
         // a day that ran on tea and coffee read as nearly dry here and fine there.
@@ -87,6 +87,12 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
   })
   // an explicit check-in / goals water target wins over the formula
   const waterGoal = typeof goals.waterMl === "number" && goals.waterMl > 0 ? Math.max(goals.waterMl, t.personalized ? t.waterMl : 0) : t.waterMl
+  // The Settings "Caffeine max" is always filled (400 by default), so the lower
+  // of it and the weight-based ceiling wins: the default never loosens the
+  // personal target, and a ceiling someone set themselves is never ignored.
+  const caffeineMax = typeof goals.coffeeMax === "number" && goals.coffeeMax > 0
+    ? Math.min(goals.coffeeMax, t.caffeineMaxMg)
+    : t.caffeineMaxMg
 
   const totals = food.reduce(
     (a, f) => ({
@@ -152,8 +158,8 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
       {/* caffeine */}
       <GoalRow
         emoji="☕" label="Caffeine" onClick={() => onGoTo("body")}
-        value={caffeine?.totalMg ?? 0} goal={t.caffeineMaxMg}
-        display={`${caffeine?.totalMg ?? 0} of max ${t.caffeineMaxMg} mg${caffeine?.activeMg ? ` · ≈${caffeine.activeMg} mg active now` : ""}`}
+        value={caffeine?.totalMg ?? 0} goal={caffeineMax}
+        display={`${caffeine?.totalMg ?? 0} of max ${caffeineMax} mg${caffeine?.activeMg ? ` · ≈${caffeine.activeMg} mg active now` : ""}`}
         color="bg-amber-500" overIsBad
       />
 

@@ -10,7 +10,7 @@
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
 import {
-  assessCoverage, nutrientGaps, LAB_MARKER_FOR,
+  assessCoverage, nutrientGapsOverLoggedDays, LAB_MARKER_FOR,
   type CoverageVerdict, type DayCalories, type LoggedMicro, type NutrientGap,
 } from "@/lib/nutrients"
 
@@ -76,7 +76,7 @@ export async function loadNutrientReport(userId: string): Promise<NutrientReport
   // nothing to reveal with a "show anyway" toggle here, only noise.
   if (!coverage.ok) return { coverage, gaps: [], windowDays: WINDOW_DAYS }
 
-  const gaps = nutrientGaps(micros, WINDOW_DAYS)
+  const gaps = nutrientGapsOverLoggedDays(micros, dayCalories, dayOf(new Date()))
   if (gaps.length === 0) return { coverage, gaps: [], windowDays: WINDOW_DAYS }
 
   // Most recent lab reading for any marker that measures one of these

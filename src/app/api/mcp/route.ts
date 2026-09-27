@@ -645,8 +645,8 @@ function buildMcpServer(userId: string): McpServer {
         }),
         prisma.intakeLog.findMany({
           where: { userId, loggedAt: window },
-          select: { type: true, amountMl: true, note: true },
-        }).catch(() => [] as { type: string; amountMl: number; note: string | null }[]),
+          select: { id: true, type: true, amountMl: true, note: true },
+        }).catch(() => [] as { id: string; type: string; amountMl: number; note: string | null }[]),
       ])
       // Drinks carry calories too — meals alone made a wine evening read as
       // fasting. Kept as its own number so the meal list stays the meal list.
@@ -845,14 +845,21 @@ function buildMcpServer(userId: string): McpServer {
       const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
       const corrDayFmt = new Intl.DateTimeFormat("en-CA", { timeZone: await getUserTimezone(userId) })
 
-      const [healthLogs, moodByDay] = await Promise.all([
+      const [healthLogs, moodByDay, anyCheckIns] = await Promise.all([
         prisma.healthLog.findMany({
           where: { userId, date: { gte: since } },
           select: { date: true, readinessScore: true, sleepDuration: true, hrv: true, steps: true, restingHR: true },
         }),
         // Both mood tables, merged in lib/mood-series.
         loadMoodByDay(userId, moodDay(since), "9999-12-31"),
+        // A day with no check-in of any kind had no tracking, not a day away:
+        // it belongs on neither side, the engine's rule for places.
+        prisma.$queryRaw<CheckInRow[]>`
+          SELECT "checkedAt" FROM "CheckIn"
+          WHERE "userId" = ${userId} AND "checkedAt" >= ${since}
+        `.catch(() => [] as CheckInRow[]),
       ])
+      const covered = new Set(anyCheckIns.map(c => corrDayFmt.format(new Date(c.checkedAt))))
       const moodLogs = [...moodByDay.entries()].map(([day, mood]) => ({ day, mood }))
 
       function avgNums(nums: (number | null)[]): number | null {
@@ -884,11 +891,13 @@ function buildMcpServer(userId: string): McpServer {
         // post-visit ones in the baseline, reversing the sign.
         const nightAfter = new Set([...visitDates].map(d => addDaysISO(d, 1)))
         const visitH    = healthLogs.filter(h =>  visitDates.has(ymdOf(h.date)))
-        const nonVisitH = healthLogs.filter(h => !visitDates.has(ymdOf(h.date)))
+        const nonVisitH = healthLogs.filter(h => covered.has(ymdOf(h.date)) && !visitDates.has(ymdOf(h.date)))
         const nightH    = healthLogs.filter(h =>  nightAfter.has(ymdOf(h.date)))
-        const nonNightH = healthLogs.filter(h => !nightAfter.has(ymdOf(h.date)))
+        // A night belongs to the day before it, so it is only "not after a
+        // visit" when that day had location data at all.
+        const nonNightH = healthLogs.filter(h => covered.has(addDaysISO(ymdOf(h.date), -1)) && !nightAfter.has(ymdOf(h.date)))
         const visitM    = moodLogs.filter(m =>  visitDates.has(m.day))
-        const nonVisitM = moodLogs.filter(m => !visitDates.has(m.day))
+        const nonVisitM = moodLogs.filter(m => covered.has(m.day) && !visitDates.has(m.day))
 
         const v = {
           readiness: avgNums(nightH.map(h => h.readinessScore)),
@@ -929,7 +938,7 @@ function buildMcpServer(userId: string): McpServer {
       }))
 
       results.sort((a, b) => b.visits_last_90d - a.visits_last_90d)
-      return ok({ places: results, disclaimer: "Correlation ≠ causation. Over the last 90 days: readiness, sleep, HRV and resting HR compare the night after a visit with other nights; steps and mood compare visit days with other days." })
+      return ok({ places: results, disclaimer: "Correlation ≠ causation. Over the last 90 days: readiness, sleep, HRV and resting HR compare the night after a visit with other nights; steps and mood compare visit days with other days. Days with no location data are excluded from both sides rather than counted as days elsewhere." })
     },
   )
 
