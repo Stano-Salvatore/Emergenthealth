@@ -223,6 +223,7 @@ export async function getDailyActivity(userId: string, startDate: string, endDat
       : null,
     activityScore: (item.score as number) ?? null,
     sedentaryTimeSeconds: (item.sedentary_time as number) ?? null,
+    nonWearSeconds: (item.non_wear_time as number) ?? null,
   }))
 }
 
@@ -533,12 +534,31 @@ export interface OuraTagEntry {
   uuid: string | null
 }
 
-export async function getOuraTags(userId: string, startDate: string, endDate: string): Promise<OuraTagEntry[]> {
+const MAX_TAG_PAGES = 20
+
+/**
+ * Every tag in the window, and whether that is all of them. `complete` is
+ * false when pages were left unread; the sync prunes tags missing from the
+ * answer, and must not take an unread page as a deletion.
+ */
+export async function getOuraTags(
+  userId: string, startDate: string, endDate: string,
+): Promise<{ tags: OuraTagEntry[]; complete: boolean }> {
   const client = await buildOuraClient(userId)
-  const data = await makeOuraRequest("/enhanced_tag", client.accessToken, userId, {
-    ...inclusiveWindow(startDate, endDate),
-  })
-  const mapped = (data.data ?? []).map((item: Record<string, unknown>) => {
+  const items: Record<string, unknown>[] = []
+  let next: string | undefined
+  let pages = 0
+  do {
+    const data = await makeOuraRequest("/enhanced_tag", client.accessToken, userId, {
+      ...inclusiveWindow(startDate, endDate),
+      ...(next ? { next_token: next } : {}),
+    })
+    items.push(...(data.data ?? []))
+    next = typeof data.next_token === "string" && data.next_token ? data.next_token : undefined
+    pages++
+  } while (next && pages < MAX_TAG_PAGES)
+
+  const mapped = items.map((item: Record<string, unknown>) => {
     // Try all text fields Oura might use for the per-entry description
     const commentText = (item.comment ?? item.note ?? item.text ?? item.label ?? item.title ?? null) as string | null
     const name = resolveTagName(item.custom_name, item.tag_type_code, commentText)
@@ -569,7 +589,10 @@ export async function getOuraTags(userId: string, startDate: string, endDate: st
   // Trimmed after mapping, not before: this endpoint calls the date
   // "start_day" rather than "day", so the generic filter would not have seen
   // it and would have passed the padding day straight through.
-  return mapped.filter((t: OuraTagEntry) => !t.day || (t.day >= startDate && t.day <= endDate))
+  return {
+    tags: mapped.filter((t: OuraTagEntry) => !t.day || (t.day >= startDate && t.day <= endDate)),
+    complete: next == null,
+  }
 }
 
 // ── Sleep for the MCP connector ──────────────────────────────────────────────

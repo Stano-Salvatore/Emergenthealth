@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { phoneFieldsRespectingRing } from "@/lib/health-precedence"
+import { phoneFieldsRespectingRing, PRECEDENCE_SELECT } from "@/lib/health-precedence"
 
 export const maxDuration = 60 // Health Connect batches
 
@@ -49,16 +49,18 @@ export async function POST(req: NextRequest) {
     restingHR: restingHR != null ? Number(restingHR) : undefined,
   }
 
-  // The ring wins where it speaks. This route used to overwrite whatever the
-  // ring had written for the day, hourly — see lib/health-precedence.
+  // The ring wins where it speaks (lib/health-precedence) — even over a typed
+  // value, because the next Oura sync would put the ring's back within the
+  // hour and the correction would have been a save that did not last.
   const existing = await prisma.healthLog.findUnique({
     where: { userId_date: { userId: session.user.id, date: dateObj } },
-    select: {
-      ringAt: true, sleepDuration: true, deepSleep: true, remSleep: true, lightSleep: true,
-      steps: true, caloriesBurned: true, activeMinutes: true, restingHR: true,
-    },
+    select: PRECEDENCE_SELECT,
   }).catch(() => null)
   const allowed = phoneFieldsRespectingRing(existing, incoming)
+  // The form reports these, so it never closes as if a refused field saved.
+  const sent = (Object.keys(incoming) as (keyof typeof incoming)[]).filter(k => incoming[k] !== undefined)
+  const written = sent.filter(k => k in allowed)
+  const kept = sent.filter(k => !(k in allowed))
 
   const log = await prisma.healthLog.upsert({
     where: { userId_date: { userId: session.user.id, date: dateObj } },
@@ -75,7 +77,7 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  return NextResponse.json({ success: true, log })
+  return NextResponse.json({ success: true, log, written, kept })
 }
 
 export async function GET(req: NextRequest) {
