@@ -15,7 +15,7 @@ import { isAuthKey, mayRedeemFrom, verifySessionCode } from "@/lib/session-code"
 export async function GET(request: Request) {
   const ip = clientIp(request)
   const { allowed } = checkRateLimit(ip, "mobile_set_cookie", 20, 10 * 60 * 1000)
-  if (!allowed) return new Response("Too many sign-in attempts. Try again in a few minutes.", { status: 429 })
+  if (!allowed) return Response.redirect(new URL("/signin?error=MobileTooManyAttempts", request.url))
 
   const key = new URL(request.url).searchParams.get("key")
   if (!isAuthKey(key)) {
@@ -39,12 +39,11 @@ export async function GET(request: Request) {
   }
 
   // Refused without consuming the row: a stranger holding the key must not be
-  // able to burn the real phone's redeem either.
+  // able to burn the real phone's redeem either. Sent to /signin rather than
+  // answered in plain text: this runs inside the app's WebView, which has no
+  // address bar, and a phone that changed network mid-sign-in needs a way on.
   if (!mayRedeemFrom(data, ip)) {
-    return new Response(
-      "This sign-in was finished on a different network from the one asking for it. Start again from the app.",
-      { status: 403, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } },
-    )
+    return Response.redirect(new URL("/signin?error=MobileOtherNetwork", request.url))
   }
 
   // One redemption per key; a concurrent redeem that lost the race finds nothing to delete.

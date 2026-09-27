@@ -24,6 +24,12 @@ export async function GET(req: NextRequest) {
   // Nobody is signed in yet, so the challenge cannot live in a per-user table:
   // UserPreference's foreign key to User refused every insert.
   const tempToken = crypto.randomUUID()
+  // A cancelled prompt never comes back to consume its challenge; stale ones
+  // are cleared here so they don't pile up. Housekeeping only, so it never
+  // stands in the way of the sign-in being asked for.
+  await prisma.verificationToken.deleteMany({
+    where: { identifier: { startsWith: "passkey-auth:" }, expires: { lt: new Date() } },
+  }).catch(e => console.error("[passkey/authenticate] expired challenge sweep failed:", e))
   await prisma.verificationToken.create({
     data: {
       identifier: `passkey-auth:${tempToken}`,

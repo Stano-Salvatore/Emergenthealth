@@ -30,7 +30,7 @@ describe("passkey sign-in", () => {
 
   it("only honours an unexpired challenge, and only once", () => {
     expect(src).toMatch(/expires:\s*\{\s*gt:\s*new Date\(\)\s*\}/)
-    expect(src).toMatch(/verificationToken\.deleteMany\(/)
+    expect(src).toMatch(/const \{ count \} = await prisma\.verificationToken\.deleteMany\(\{ where: \{ identifier \} \}\)\s*if \(count === 0\) return/)
   })
 
   it("names the session cookie the way Auth.js reads it on HTTPS", () => {

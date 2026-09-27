@@ -98,3 +98,14 @@ describe("loadSubscriptionsByUser", () => {
     for (const sql of reads) expect(sql).toMatch(/JOIN "User" u ON u\.id = ps\."userId"/)
   })
 })
+
+// The re-engagement cron picks its 200 "inactive" users straight from
+// PushSubscription before it loads their devices. An orphan never checks in,
+// so without the join it is always inactive and permanently takes a slot.
+describe("re-engagement candidate query", () => {
+  const src = readFileSync("src/app/api/cron/re-engagement/route.ts", "utf8")
+
+  it("only considers subscriptions whose user still exists", () => {
+    expect(src).toMatch(/FROM "PushSubscription" ps\s+JOIN "User" u ON u\.id = ps\."userId"/)
+  })
+})

@@ -86,7 +86,9 @@ describe("the mobile sign-in routes", () => {
     expect(check).toBeGreaterThan(-1)
     expect(check).toBeLessThan(src.lastIndexOf("deleteMany"))
     expect(check).toBeLessThan(src.indexOf("Set-Cookie"))
-    expect(src).toMatch(/status:\s*403/)
+    // Refused to /signin with a reason, never a Set-Cookie: the WebView has no address bar to escape a dead end.
+    expect(src).toMatch(/if \(!mayRedeemFrom\(data, ip\)\) \{\s*return Response\.redirect\(new URL\("\/signin\?error=MobileOtherNetwork"/)
+    expect(readFileSync("src/app/signin/page.tsx", "utf8")).toMatch(/MobileOtherNetwork:\s*"/)
   })
 
   it("poll and set-cookie are limited per address", () => {
