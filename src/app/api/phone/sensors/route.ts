@@ -26,7 +26,7 @@ const MAX_ROWS = 4000
 const FUTURE_SLACK_MS = 60_000
 const OLDEST_MS = 90 * 24 * 60 * 60 * 1000
 
-const KINDS = new Set(["screen_on", "screen_off", "unlock", "charge_on", "charge_off"])
+const KINDS = new Set(["screen_on", "screen_off", "unlock", "charge_on", "charge_off", "host_on", "host_off"])
 
 /**
  * Physically possible readings only.

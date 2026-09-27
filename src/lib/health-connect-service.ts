@@ -173,8 +173,16 @@ export async function readLast30Days(): Promise<{ days: DayPayload[]; failedType
   // A refused type still reads as an empty list downstream — but its NAME is
   // collected now, so the sync outcome can say which reads failed this run
   // instead of a broken read posing as a quiet week.
-  const failedTypes: string[] = []
+  //
+  // Refusals are learned from the permission check, never from a read: the
+  // plugin's readRecords has no reject path, so a SecurityException for an
+  // ungranted type is thrown inside its coroutine, never reaches the catch
+  // below, and kills the app (or leaves the promise hanging).
+  const perms = await permissionsByType()
+  const granted = new Set<string>(perms?.granted ?? [])
+  const failedTypes: string[] = [...(perms?.missing ?? [])]
   async function safeRead(type: string) {
+    if (!granted.has(type)) return []
     try {
       const { records } = await hc.readRecords({ type, timeRangeFilter })
       return records as any[] // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -184,11 +192,22 @@ export async function readLast30Days(): Promise<{ days: DayPayload[]; failedType
     }
   }
 
-  // ── Steps (sum per day) ───────────────────────────────────────────────────
+  // Steps and calories: summed per app, then the largest single app's total
+  // kept. Two apps writing the same walk (Samsung Health's pedometer and the
+  // Oura app) both come back from readRecords — Health Connect de-duplicates
+  // only in aggregate() — so adding across apps counts the day twice.
+  const byOrigin = new Map<string, Map<string, number>>()
+  const addByOrigin = (kind: "steps" | "active" | "total", d: string, r: any, v: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const key = `${kind}|${d}`
+    const origin: string = r.metadata?.dataOrigin ?? "unknown"
+    let perApp = byOrigin.get(key)
+    if (!perApp) byOrigin.set(key, perApp = new Map())
+    perApp.set(origin, (perApp.get(origin) ?? 0) + v)
+  }
+
+  // ── Steps ─────────────────────────────────────────────────────────────────
   for (const r of await safeRead("Steps")) {
-    const d = dateStr(new Date(r.startTime))
-    const day = getDay(d)
-    day.steps = (day.steps ?? 0) + (r.count ?? 0)
+    addByOrigin("steps", dateStr(new Date(r.startTime)), r, r.count ?? 0)
   }
 
   // ── Sleep (longest session wins; stages summed) ───────────────────────────
@@ -255,20 +274,23 @@ export async function readLast30Days(): Promise<{ days: DayPayload[]; failedType
     if (kg != null) getDay(d).weight = Math.round(kg * 10) / 10
   }
 
-  // ── Active calories (sum per day) ─────────────────────────────────────────
+  // ── Active calories ───────────────────────────────────────────────────────
   for (const r of await safeRead("ActiveCaloriesBurned")) {
-    const d = dateStr(new Date(r.startTime))
-    const day = getDay(d)
-    const kcal = toKcal(r.energy)
-    day.caloriesBurned = (day.caloriesBurned ?? 0) + kcal
+    addByOrigin("active", dateStr(new Date(r.startTime)), r, toKcal(r.energy))
   }
 
-  // ── Total calories (sum per day) ──────────────────────────────────────────
+  // ── Total calories ────────────────────────────────────────────────────────
   for (const r of await safeRead("TotalCaloriesBurned")) {
-    const d = dateStr(new Date(r.startTime))
+    addByOrigin("total", dateStr(new Date(r.startTime)), r, toKcal(r.energy))
+  }
+
+  for (const [key, perApp] of byOrigin) {
+    const [kind, d] = key.split("|")
+    const best = Math.max(...perApp.values())
     const day = getDay(d)
-    const kcal = toKcal(r.energy)
-    day.totalCalories = (day.totalCalories ?? 0) + kcal
+    if (kind === "steps") day.steps = best
+    else if (kind === "active") day.caloriesBurned = best
+    else day.totalCalories = best
   }
 
   // Merge averaged metrics

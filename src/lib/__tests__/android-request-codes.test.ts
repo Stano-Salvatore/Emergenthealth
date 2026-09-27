@@ -84,4 +84,32 @@ describe("Android PendingIntent request codes", () => {
         "Give the newer of the two its own code from the 9200xx block.",
     ).toEqual([])
   })
+
+  it("the widgets' open-the-app intents are not one PendingIntent", () => {
+    // Four widgets opened the app with the launch intent and request code 0,
+    // each carrying its own screen in an extra. Extras do not tell
+    // PendingIntents apart, so all four were ONE, and FLAG_UPDATE_CURRENT
+    // gave it whichever widget refreshed last: tap "open" on Habits and land
+    // on Reminders. The codes that are not 9200xx literals escape the check
+    // above, so this one looks at every getActivity over a launch intent.
+    const owners = new Map<string, Set<string>>()
+    for (const file of nativeFiles()) {
+      const src = code(file)
+      if (!src.includes("getLaunchIntentForPackage")) continue
+      for (const m of src.matchAll(/PendingIntent\.getActivity\(\s*\w+\s*,\s*(\d+)\s*,/g)) {
+        if (!owners.has(m[1])) owners.set(m[1], new Set())
+        owners.get(m[1])!.add(file)
+      }
+    }
+    const shared = [...owners.entries()]
+      .filter(([, files]) => files.size > 1)
+      .map(([found, files]) => `${found} in ${[...files].sort().join(" and ")}`)
+
+    expect(
+      shared,
+      `Launch-intent PendingIntents share a request code: ${shared.join("; ")}. Their extras do not make ` +
+        "them different PendingIntents, so each widget opens whichever screen was set last. Give each its " +
+        "own code from the 9200xx block.",
+    ).toEqual([])
+  })
 })

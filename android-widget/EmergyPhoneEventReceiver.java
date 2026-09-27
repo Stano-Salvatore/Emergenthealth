@@ -53,41 +53,68 @@ public class EmergyPhoneEventReceiver extends BroadcastReceiver {
     private static final String UNLOCK = "unlock";
     private static final String CHARGE_ON = "charge_on";
     private static final String CHARGE_OFF = "charge_off";
+    /**
+     * Collection starting and stopping — not touches. Without them, the
+     * silence of a dead host reads server-side as a phone lying still all
+     * night: a 21:04 "bedtime" with no pickups.
+     */
+    private static final String HOST_ON = "host_on";
+    private static final String HOST_OFF = "host_off";
+
+    /**
+     * The one registration in this process. Each service used to register
+     * its own, so with both running every broadcast was stored twice and the
+     * night's pickups doubled.
+     */
+    private static EmergyPhoneEventReceiver shared;
+    /** Services hosting it. Static, so a killed process starts again from 0 and its restart says HOST_ON. */
+    private static int hosts;
 
     /**
      * Register for what the manifest cannot carry.
      *
-     * Called by each foreground service as it starts. Registering the same
-     * receiver twice on one context throws nothing but leaks a registration,
-     * so each caller keeps its own instance and unregisters it in onDestroy.
+     * Called by each foreground service as it starts; the first one registers
+     * and the rest share it. Every caller hands back what it got in onDestroy.
      */
-    static EmergyPhoneEventReceiver register(Context ctx) {
-        EmergyPhoneEventReceiver receiver = new EmergyPhoneEventReceiver();
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(Intent.ACTION_SCREEN_ON);
-        filter.addAction(Intent.ACTION_SCREEN_OFF);
-        filter.addAction(Intent.ACTION_USER_PRESENT);
-        filter.addAction(Intent.ACTION_POWER_CONNECTED);
-        filter.addAction(Intent.ACTION_POWER_DISCONNECTED);
-        try {
-            // NOT_EXPORTED spelled out, exactly as EmergyWakeService does for
-            // its power receiver: from Android 14 a runtime receiver must say,
-            // and this app's targetSdk floor is 35. Plain registerReceiver()
-            // throws there — and because the caller ignores the failure, it
-            // would have collected nothing while looking entirely fine.
-            androidx.core.content.ContextCompat.registerReceiver(
-                ctx, receiver, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
-            return receiver;
-        } catch (Exception ignored) {
-            // Nothing else in the service depends on this having worked.
-            return null;
+    static synchronized EmergyPhoneEventReceiver register(Context ctx) {
+        if (shared == null) {
+            Context app = ctx.getApplicationContext();
+            EmergyPhoneEventReceiver receiver = new EmergyPhoneEventReceiver();
+            IntentFilter filter = new IntentFilter();
+            filter.addAction(Intent.ACTION_SCREEN_ON);
+            filter.addAction(Intent.ACTION_SCREEN_OFF);
+            filter.addAction(Intent.ACTION_USER_PRESENT);
+            filter.addAction(Intent.ACTION_POWER_CONNECTED);
+            filter.addAction(Intent.ACTION_POWER_DISCONNECTED);
+            try {
+                // NOT_EXPORTED spelled out, exactly as EmergyWakeService does for
+                // its power receiver: from Android 14 a runtime receiver must say,
+                // and this app's targetSdk floor is 35. Plain registerReceiver()
+                // throws there — and because the caller ignores the failure, it
+                // would have collected nothing while looking entirely fine.
+                androidx.core.content.ContextCompat.registerReceiver(
+                    app, receiver, filter, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);
+            } catch (Exception ignored) {
+                // Nothing else in the service depends on this having worked.
+                return null;
+            }
+            shared = receiver;
+            hosts = 0;
+            store(app, HOST_ON, System.currentTimeMillis());
         }
+        hosts++;
+        return shared;
     }
 
-    /** Let go of one registered by {@link #register}. Safe with null. */
-    static void unregister(Context ctx, EmergyPhoneEventReceiver receiver) {
-        if (receiver == null) return;
-        try { ctx.unregisterReceiver(receiver); } catch (Exception ignored) { }
+    /** Let go of one handed out by {@link #register}. Safe with null. */
+    static synchronized void unregister(Context ctx, EmergyPhoneEventReceiver receiver) {
+        if (receiver == null || receiver != shared) return;
+        if (--hosts > 0) return;
+        Context app = ctx.getApplicationContext();
+        try { app.unregisterReceiver(shared); } catch (Exception ignored) { }
+        shared = null;
+        hosts = 0;
+        store(app, HOST_OFF, System.currentTimeMillis());
     }
 
     static int queuedCount(Context ctx) {

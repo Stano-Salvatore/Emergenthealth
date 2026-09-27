@@ -68,7 +68,7 @@ public class HabitsWidget extends AppWidgetProvider {
                 // Land on the screen this widget is about, not the dashboard.
                 open.putExtra("eh_dest", "/dashboard/habits");
                 views.setOnClickPendingIntent(R.id.btn_habits_open, PendingIntent.getActivity(
-                    context, 0, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
+                    context, 920011, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE));
             }
 
             String countText = "—";

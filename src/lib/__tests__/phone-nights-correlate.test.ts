@@ -26,7 +26,11 @@ describe("phoneNightSeries", () => {
     expect(body.match(/prisma\.phoneEvent\.findMany/g)?.length).toBe(1)
   })
   it("a night without a qualifying gap is absent, not zero", () => {
-    expect(body).toMatch(/MIN_NIGHT_GAP_MINUTES/)
+    // The gap rule lives in observedNight, shared with phoneNightUse, and a
+    // night it rejects must be skipped rather than pushed as a zero.
+    const judge = src.slice(src.indexOf("export function observedNight"))
+    expect(judge.slice(0, judge.indexOf("\nexport", 1))).toMatch(/MIN_NIGHT_GAP_MINUTES/)
+    expect(body).toMatch(/observedNight\(/)
     expect(body).toMatch(/continue/)
   })
 })

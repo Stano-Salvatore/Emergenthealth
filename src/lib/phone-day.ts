@@ -29,7 +29,7 @@ export interface PhoneNightUse {
   pickedUpAt: Date | null
   /** Minutes of the gap. */
   quietMinutes: number | null
-  /** Screen-ons and unlocks between 22:00 and the phone going down. */
+  /** Unlocks between 22:00 and the phone going down. */
   pickupsAfter22: number
   /** Median lux over the evening (20:00–midnight before the night), null when unsampled. */
   eveningLux: number | null
@@ -76,18 +76,11 @@ export async function phoneNightUse(
   const luxes = ambient.map(a => a.lux).filter((v): v is number => v !== null).sort((a, b) => a - b)
   const eveningLux = luxes.length ? luxes[Math.floor(luxes.length / 2)] : null
 
-  // The longest gap between consecutive events is the night. One event or
-  // none means the phone was quiet the whole window — which is a phone left
-  // in another room, not a bedtime worth reporting.
-  const best = longestQuietGap(events)
-  if (!best || best.minutes < MIN_NIGHT_GAP_MINUTES) {
-    return { ...EMPTY, eveningLux }
-  }
+  const night = observedNight(events, tenPm)
+  if (!night) return { ...EMPTY, eveningLux }
 
+  const { gap: best, pickupsAfter22 } = night
   const down = best.start
-  const pickupsAfter22 = events.filter(
-    e => (e.kind === "screen_on" || e.kind === "unlock") && e.at >= tenPm && e.at < down,
-  ).length
 
   return {
     phoneDownAt: down,
@@ -112,7 +105,9 @@ export async function phoneDaySummary(userId: string, dayISO: string, timezone: 
   const [use, nights, eventCount, ambientAgg] = await Promise.all([
     phoneNightUse(userId, dayISO, timezone),
     phoneNights(userId, start, end, timezone),
-    prisma.phoneEvent.count({ where: { userId, at: { gte: start, lte: end } } }).catch(() => 0),
+    prisma.phoneEvent.count({
+      where: { userId, at: { gte: start, lte: end }, kind: { notIn: [...COLLECTION_MARKERS] } },
+    }).catch(() => 0),
     prisma.ambientSample.aggregate({
       where: { userId, at: { gte: start, lte: end } },
       _count: { _all: true }, _min: { lux: true }, _max: { lux: true }, _avg: { pressureHpa: true },
@@ -152,17 +147,59 @@ function longestQuietGap(events: { at: Date }[]): { start: Date; end: Date; minu
 }
 
 /**
- * "HH:MM" local phone-down times for the last `nights` nights, one query.
- *
- * Feeds the bedtime suggestion when the ring's record is too thin. Each
- * night is judged in its own 20:00–11:00 window by the same longest-gap
- * rule as phoneNightUse, so the two can never name different bedtimes.
+ * Written by the phone when its event receiver starts and stops collecting —
+ * not touches. Between a stop and the next start nothing is recorded, and
+ * that silence looks exactly like a phone lying still.
  */
+const COLLECTION_MARKERS = new Set(["host_on", "host_off"])
+
+/** Two receivers can store one broadcast a few milliseconds apart. */
+const SAME_BROADCAST_MS = 2000
+
+/**
+ * Unlocks in [from, before), one per pickup. Only unlocks: the screen also
+ * lights for every notification, and a real pickup stores a screen_on as
+ * well as the unlock. Events must be in time order.
+ */
+function countPickups(events: { at: Date; kind: string }[], from: Date, before: Date): number {
+  let n = 0
+  let last = -Infinity
+  for (const e of events) {
+    if (e.kind !== "unlock" || e.at < from || e.at >= before) continue
+    const t = e.at.getTime()
+    if (t - last > SAME_BROADCAST_MS) n++
+    last = t
+  }
+  return n
+}
+
+/**
+ * The one judgement of a night, for every reader: the longest quiet gap
+ * between touches, if it is long enough, and the pickups after 22:00 before
+ * it — or null when there is no night to report.
+ *
+ * Null too when collection stopped or restarted between 22:00 (or the phone
+ * going down, if earlier) and the morning pickup: that quiet, and the
+ * pickup count, were never observed. An absent night, not a zero.
+ */
+export function observedNight(
+  win: { at: Date; kind: string }[], tenPm: Date,
+): { gap: { start: Date; end: Date; minutes: number }; pickupsAfter22: number } | null {
+  const touches = win.filter(e => !COLLECTION_MARKERS.has(e.kind))
+  // One touch or none means the phone was quiet the whole window — a phone
+  // left in another room, not a bedtime worth reporting.
+  const gap = longestQuietGap(touches)
+  if (!gap || gap.minutes < MIN_NIGHT_GAP_MINUTES) return null
+  const from = gap.start < tenPm ? gap.start : tenPm
+  if (win.some(e => COLLECTION_MARKERS.has(e.kind) && e.at >= from && e.at <= gap.end)) return null
+  return { gap, pickupsAfter22: countPickups(touches, tenPm, gap.start) }
+}
+
 /** One night as the correlation engine wants it: keyed by the MORNING. */
 export interface PhoneNightRow {
   /** The day the night ended — the same day its HealthLog row describes. */
   morningISO: string
-  /** Screen-ons and unlocks between 22:00 and the phone going down. */
+  /** Unlocks between 22:00 and the phone going down. */
   pickupsAfter22: number
   quietMinutes: number
 }
@@ -198,16 +235,20 @@ export async function phoneNightSeries(
     const morning = zonedDateTime(timezone, `${morningISO}T11:00`)
     if (!evening || !tenPm || !morning) continue
     const win = events.filter(e => e.at >= evening && e.at <= morning)
-    const gap = longestQuietGap(win)
-    if (!gap || gap.minutes < MIN_NIGHT_GAP_MINUTES) continue
-    const pickupsAfter22 = win.filter(
-      e => (e.kind === "screen_on" || e.kind === "unlock") && e.at >= tenPm && e.at < gap.start,
-    ).length
-    out.push({ morningISO, pickupsAfter22, quietMinutes: Math.round(gap.minutes) })
+    const night = observedNight(win, tenPm)
+    if (!night) continue
+    out.push({ morningISO, pickupsAfter22: night.pickupsAfter22, quietMinutes: Math.round(night.gap.minutes) })
   }
   return out
 }
 
+/**
+ * "HH:MM" local phone-down times for the last `nights` nights, one query.
+ *
+ * Feeds the bedtime suggestion when the ring's record is too thin. Each
+ * night is judged in its own 20:00–11:00 window by the same rule as
+ * phoneNightUse, so the two can never name different bedtimes.
+ */
 export async function phoneDownTimes(userId: string, nights: number, timezone: string): Promise<string[]> {
   const today = new Date()
   const todayISO = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(today)
@@ -217,18 +258,20 @@ export async function phoneDownTimes(userId: string, nights: number, timezone: s
   const events = await prisma.phoneEvent.findMany({
     where: { userId, at: { gte: firstEvening, lte: lastMorning } },
     orderBy: { at: "asc" },
-    select: { at: true },
-  }).catch(() => [] as { at: Date }[])
+    select: { at: true, kind: true },
+  }).catch(() => [] as { at: Date; kind: string }[])
   if (events.length < 2) return []
 
   const out: string[] = []
   for (let d = nights; d >= 1; d--) {
-    const evening = zonedDateTime(timezone, `${addDaysISO(todayISO, -d)}T20:00`)
+    const prevISO = addDaysISO(todayISO, -d)
+    const evening = zonedDateTime(timezone, `${prevISO}T20:00`)
+    const tenPm = zonedDateTime(timezone, `${prevISO}T22:00`)
     const morning = zonedDateTime(timezone, `${addDaysISO(todayISO, -(d - 1))}T11:00`)
-    if (!evening || !morning) continue
+    if (!evening || !tenPm || !morning) continue
     const win = events.filter(e => e.at >= evening && e.at <= morning)
-    const gap = longestQuietGap(win)
-    if (gap && gap.minutes >= MIN_NIGHT_GAP_MINUTES) out.push(localTimeStr(timezone, gap.start))
+    const night = observedNight(win, tenPm)
+    if (night) out.push(localTimeStr(timezone, night.gap.start))
   }
   return out
 }
