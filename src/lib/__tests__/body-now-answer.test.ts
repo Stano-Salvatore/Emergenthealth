@@ -72,8 +72,18 @@ describe("what is still in my body — the scripted answer", () => {
     expect(a!.reply).not.toMatch(/Nothing much/)
     expect(a!.reply).toMatch(/Atarax/)
     expect(a!.reply).toMatch(/71%/)
-    expect(a!.reply).toMatch(/22:00/)
+    // Last night's dose, not tonight's: meds reach 72 h back, so a bare clock
+    // time could be two days old.
+    expect(a!.reply).toMatch(/taken yesterday 22:00/)
     expect(a!.sources.map(s => s.key)).toContain("meds")
+  })
+
+  it("names the weekday of a dose older than yesterday", async () => {
+    // Thu 24 Sept 22:10 Bratislava; asked Sun 27 Sept 08:00 — still in the 72 h window.
+    db.tags = [tag("Stilnox", "2026-09-24T20:10:00Z")]
+    vi.setSystemTime(new Date("2026-09-27T06:00:00Z"))
+    const a = await runQuickAnswer("u1", "what's in my system right now?")
+    expect(a!.reply).toMatch(/Stilnox, taken Thu 22:10/)
   })
 
   it("names a medicine it has no half-life for rather than calling the body clear", async () => {

@@ -147,7 +147,7 @@ export function BodyLoadTab() {
             {unmodeled.map(u => (
               <p key={u.name} className="text-sm">
                 <span className="mr-1.5">💊</span>{u.name}
-                <span className="text-xs text-muted-foreground">, taken {clock(u.takenAt)}, no half-life on file</span>
+                <span className="text-xs text-muted-foreground">, taken {clock(u.takenAt)} ({agoLabel(u.takenAt)}), no half-life on file</span>
               </p>
             ))}
             <p className="text-[10px] text-muted-foreground/60">

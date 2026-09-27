@@ -58,8 +58,10 @@ export function stampTurnGaps(
 
   let current = ""
   if (prev != null && apart(prev, now.getTime())) {
-    const hours = Math.round((now.getTime() - prev) / 3_600_000)
-    current = `[now ${stamp(now.getTime())} — ${hours}h since the last message] `
+    // A change of day can come minutes after the last turn; "0h" would say none.
+    const mins = Math.round((now.getTime() - prev) / 60_000)
+    const since = mins < 60 ? `${mins}m` : `${Math.round(mins / 60)}h`
+    current = `[now ${stamp(now.getTime())} — ${since} since the last message] `
   }
   return { history, current }
 }

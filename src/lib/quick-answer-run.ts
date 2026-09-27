@@ -199,8 +199,17 @@ function namedMedicine(message: string) {
 
 async function bodyNow(userId: string, tz: string, message: string): Promise<QuickAnswer | null> {
   const load = await computeBodyLoad(userId)
-  const at = (iso: string) =>
-    new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz }).format(new Date(iso))
+  // Meds reach 72 h back, so a bare clock time can be two days old: the day
+  // is named whenever it is not today.
+  const today = localDateStr(tz)
+  const clockFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz })
+  const dayFmt = new Intl.DateTimeFormat("en-GB", { weekday: "short", timeZone: tz })
+  const at = (iso: string) => {
+    const d = new Date(iso)
+    const day = localDateStr(tz, d)
+    const clock = clockFmt.format(d)
+    return day === today ? clock : day === addDaysISO(today, -1) ? `yesterday ${clock}` : `${dayFmt.format(d)} ${clock}`
+  }
 
   // A named medicine this list does not hold is a question about a dose the
   // app cannot see — older than its window, or never logged. "Nothing much"

@@ -51,6 +51,14 @@ describe("stampTurnGaps", () => {
     expect(current).toBe("")
   })
 
+  it("says minutes, not 0h, when the day changed a moment ago", () => {
+    // 23:55 → 00:05 Bratislava: a new day, ten minutes on.
+    const { current } = stampTurnGaps([
+      { role: "user", content: "q", at: at("2026-09-26T21:55:00Z") },
+    ], new Date("2026-09-26T22:05:00Z"), TZ)
+    expect(current).toMatch(/— 10m since the last message\] $/)
+  })
+
   it("stamps nothing it has no time for", () => {
     const { history, current } = stampTurnGaps([u("q"), a("a")], now, TZ)
     expect(history).toEqual([u("q"), a("a")])
