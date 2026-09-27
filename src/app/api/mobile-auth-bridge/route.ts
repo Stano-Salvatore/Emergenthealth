@@ -1,5 +1,6 @@
 import { cookies } from "next/headers"
 import { prisma } from "@/lib/prisma"
+import { clientIp } from "@/lib/rate-limit"
 import { isAuthKey, MOBILE_AUTH_COOKIE, SESSION_CODE_TTL_MS, signSessionCode } from "@/lib/session-code"
 
 // Lands in Chrome right after Google OAuth completes. Chrome holds the fresh
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
 
   const cookieName = secureCookie ? "__Secure-authjs.session-token" : "authjs.session-token"
   const expiresAt = Date.now() + SESSION_CODE_TTL_MS
-  const code = signSessionCode({ t: sessionCookie.value, n: cookieName, x: expiresAt })
+  const code = signSessionCode({ t: sessionCookie.value, n: cookieName, x: expiresAt, i: clientIp(request) })
 
   // delete+create rather than upsert: repeated sign-in attempts under one key
   // must replace, and the composite key makes upsert awkward.

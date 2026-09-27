@@ -215,7 +215,9 @@ export default async function SettingsPage({
                 ? "The authorisation code expired or was already used. Please try connecting again."
                 : ouraError === "db_error"
                   ? "Tokens were received but could not be saved. Run the OuraToken SQL migration in Neon, then try again."
-                  : `Error: ${ouraError}. Please try again.`}
+                  : ouraError === "session_mismatch"
+                    ? "That connection was started from a different Emergenthealth account than the one signed in here, so nothing was saved. Start it again from this account."
+                    : `Error: ${ouraError}. Please try again.`}
             </p>
           </CardContent>
         </Card>
@@ -239,7 +241,9 @@ export default async function SettingsPage({
                 ? "The authorisation code expired or was already used. Please try connecting again."
                 : stravaError === "db_error"
                   ? "Tokens were received but could not be saved. Please try again."
-                  : `Error: ${stravaError}. Please try again.`}
+                  : stravaError === "session_mismatch"
+                    ? "That connection was started from a different Emergenthealth account than the one signed in here, so nothing was saved. Start it again from this account."
+                    : `Error: ${stravaError}. Please try again.`}
             </p>
           </CardContent>
         </Card>

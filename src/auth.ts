@@ -3,6 +3,7 @@ import Google from "next-auth/providers/google"
 import { PrismaAdapter } from "@auth/prisma-adapter"
 import { cookies } from "next/headers"
 import { prisma } from "@/lib/prisma"
+import { resolveAuthRedirect, sameOriginUrl } from "@/lib/auth-redirect"
 import { isAuthKey, MOBILE_AUTH_COOKIE } from "@/lib/session-code"
 import type { NextAuthConfig } from "next-auth"
 
@@ -83,14 +84,12 @@ export const authConfig: NextAuthConfig = {
       // After successful sign-in, redirect Chrome to the bridge if a mobile flow is pending.
       // Skips sign-in-page redirects (the user isn't authenticated yet in that case).
       const isSignInPage = url.includes("/signin")
-      const isLocalUrl = url.startsWith("/") || url.startsWith(baseUrl)
+      const isLocalUrl = sameOriginUrl(url, baseUrl) !== null
       if (isLocalUrl && !isSignInPage) {
         const mobileRedirect = await checkMobilePendingRedirect(baseUrl)
         if (mobileRedirect) return mobileRedirect
       }
-      if (url.startsWith("/")) return `${baseUrl}${url}`
-      if (url.startsWith(baseUrl)) return url
-      return baseUrl
+      return resolveAuthRedirect(url, baseUrl)
     },
   },
   events: {
