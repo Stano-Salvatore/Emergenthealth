@@ -180,6 +180,15 @@ export function nightQuestion(a: Anomaly): string | null {
     : `${a.summary} (${night}). Did you do anything differently yesterday? Worth knowing what worked.`
 }
 
+/**
+ * Whether a message is one of nightQuestion's — so a reply to it can be kept
+ * off the quick-log path, which would file "two beers" at now rather than on
+ * the night being asked about. Matches after sayAsEmergy's whitespace collapse.
+ */
+export function isNightQuestion(text: string): boolean {
+  return /\(night to [^)]+\)\. Did (?:something happen|you do anything differently) yesterday/.test(text)
+}
+
 // ── Illness onset ─────────────────────────────────────────────────────────────
 //
 // Skin temperature, breathing rate and resting heart rate up, HRV down, on

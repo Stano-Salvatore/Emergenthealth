@@ -6,6 +6,7 @@ import { runQuickLog } from "@/lib/quick-log-run"
 import { runQuickAnswer } from "@/lib/quick-answer-run"
 import { describeChatFailure, logChatFailure } from "@/lib/chat-error"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { isNightQuestion } from "@/lib/anomalies"
 
 export const maxDuration = 120 // Opus with up to eight tool turns; the default limit cut long replies off mid-tool
 
@@ -76,7 +77,14 @@ export async function POST(req: NextRequest) {
   }
   const convId = conversation.id
 
-  await prisma.chatMessage.create({ data: { userId, conversationId: convId, role: "user", content: storedContent } })
+  // The last thing Emergy said here, read before this message lands.
+  const lastAssistant = await prisma.chatMessage.findFirst({
+    where: { conversationId: convId, role: "assistant" },
+    orderBy: { createdAt: "desc" },
+    select: { content: true },
+  }).catch(() => null)
+
+  const userRow = await prisma.chatMessage.create({ data: { userId, conversationId: convId, role: "user", content: storedContent } })
 
   // "log me 300ml water" was a fifth of everything ever said here, and every
   // one of them went through the model to write one row. Those messages are
@@ -84,7 +92,15 @@ export async function POST(req: NextRequest) {
   // nothing. Anything the parser is not certain of returns null and goes to
   // Emergy exactly as before, so this can only ever be the fast case, never a
   // different answer. A photo is never a quick log.
-  if (message && attachments.length === 0) {
+  //
+  // Nor is an answer to "(night to Fri 26 Sep). Did something happen
+  // yesterday?": "had 0.5l of wine" belongs to that night, and the quick path
+  // would file it at now — today's totals, this morning's blood alcohol, and
+  // tonight's sleep in the correlations. Only the model reads the question
+  // and backdates. Once he has replied, the question is no longer the last
+  // thing said and quick logs work again.
+  const answeringNightQuestion = !!lastAssistant && isNightQuestion(lastAssistant.content)
+  if (message && attachments.length === 0 && !answeringNightQuestion) {
     const quick = await runQuickLog(userId, message).catch(() => null)
       // The other half of the same idea: a question whose answer is a lookup
       // rather than a judgement. "How was my sleep this week?" was asked seven
@@ -103,7 +119,7 @@ export async function POST(req: NextRequest) {
       // The same event shape the model's turns stream, so the client's
       // after-a-write refreshes (Emergy's mood, the intake ring) still fire.
       const events = [
-        { conversationId: convId },
+        { conversationId: convId, userMessageId: userRow.id },
         ...("tools" in quick ? quick.tools.map(name => ({ type: "tool", name })) : []),
         { type: "text", text: quick.reply },
         ...(chips.length > 0 ? [{ type: "sources", chips }] : []),
@@ -137,8 +153,10 @@ export async function POST(req: NextRequest) {
       }
 
       const work = (async () => {
-        // Tell the client which conversation this turn landed in before any text
-        send({ conversationId: convId })
+        // Tell the client which conversation this turn landed in before any
+        // text, and which stored row is its question: a screen that loses the
+        // stream finds the reply by what follows that row, not by what sits last.
+        send({ conversationId: convId, userMessageId: userRow.id })
         let full = ""
         let chips: unknown[] = []
         try {
@@ -219,11 +237,14 @@ export async function GET(req: NextRequest) {
       ? { userId, conversationId }
       : { userId }
 
+  // The newest rows, handed back oldest-first. Ascending with a take kept the
+  // FIRST rows ever saved: the unscoped read opened the desktop panel on
+  // months-old chats, and a thread past 200 messages hid its latest turns.
   const messages = await prisma.chatMessage.findMany({
     where,
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
     take: conversationId ? 200 : 100,
   })
 
-  return NextResponse.json(messages)
+  return NextResponse.json(messages.reverse())
 }
