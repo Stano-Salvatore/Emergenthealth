@@ -1,5 +1,67 @@
 # Changelog
 
+## 3.7.0 — The audit
+
+A full sweep: 16 auditors across every subsystem, production logs and the
+owner's live data, a skeptic trying to refute every finding. 160 findings
+survived; this release fixes about 138 of them, each behind a test that
+failed first. **One part needs the new APK** (the home-screen widgets'
+shared "open app" shortcut, and the phone-sensor pipeline fixes ride along
+with it); everything else is live on merge.
+
+**Your data stops being overwritten or misread**
+- The hourly Health Connect sync no longer overwrites the ring's numbers —
+  "the ring wins" had been wired into the manual form instead of the real
+  sync. Days the ring wasn't worn are no longer stored as 0 steps and scored.
+- Drinks deleted or relabelled in the Oura app now leave the intake log;
+  "Ferrum" and "Centrum" are no longer logged as rum; vitamin D in IU is no
+  longer stored as milligrams; "half of Atarax 25mg" records half.
+- Health Connect steps are no longer summed across apps that both count
+  them; night "pickups" were counted 2–4× and are now counted once.
+
+**Numbers that tell the truth**
+- The daily score no longer drops every morning (it compared this morning's
+  partial steps with full-day averages). The Brief page's "How you slept"
+  is last night, not the night before. Stress shows in the right unit.
+- The vitals card uses the same spread as the anomaly scan, and no longer
+  says "all in your usual band" over empty rows.
+- Habit numbers agree across Home, the Week page, the weekly review, the
+  15:00 push and Emergy: counted against each habit's schedule, skips and
+  vacation — no more "0-day streak" every morning or "3/7" for a perfect
+  Mon/Wed/Fri week. Week percentages no longer go over 100%.
+- One water total and one water goal everywhere; one caffeine ceiling; a
+  meal-photo drink is no longer counted twice in the day's calories.
+- Insight cards compare a day with the night AFTER it (interaction cards
+  had it the other way), days before symptom tracking began are no longer
+  "severity 0", untracked days stay out of both sides of a comparison, and
+  experiment verdicts use the same permutation test as the rest of the
+  engine (the old one called ~1 in 4 do-nothing experiments "clear").
+
+**Nothing says "done" when it wasn't**
+- Chat water/coffee logging, check-ins, habit taps, the Log tab's quick
+  adds and the MCP key manager now report a failed save instead of a tick.
+- Phone alarms are no longer wiped when a re-sync fetch fails; a
+  "✓ Took it" tapped offline is kept and sent later; medication schedule
+  changes re-sync the phone's alarms; dose alarms skip doses already taken.
+- Emails report a provider rejection instead of success; failed crons log.
+
+**Emergy and the connector**
+- Emergy sees message timestamps, the right habit streaks, every drink type
+  over a date range, the day's drink totals, and medicines still in the
+  body. The desktop Emergy panel keeps context and no longer shows its
+  reasoning as the reply. A pocketed turn no longer offers a Retry that
+  would run its tools twice.
+- The MCP connector reads the app's own records (weight, sleep, activity)
+  in local time and local days, completes repeating reminders correctly,
+  and validates the reminders it creates.
+
+**Security**
+- Smart-home control is owner-only; the mobile sign-in bridge gets a
+  server-side stopgap against phishing; account deletion removes all data
+  and push subscriptions; the backup export no longer contains the GitHub
+  token; the Auth.js open redirect and the unchecked OAuth-callback state
+  are closed; passkey sign-in can actually succeed.
+
 ## 3.6.7 — Send it and pocket the phone
 
 - **A chat turn no longer needs an audience.** "log xy", lock the screen:

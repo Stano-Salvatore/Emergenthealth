@@ -495,9 +495,14 @@ Roughly in order, most recent first:
   it and `driftQuestionTail` is the shared ending the push must still end
   on. And `lib/health-precedence.ts` closes the two-writers thread below:
   `HealthLog.ringAt` marks a row the ring has written, `oura-sync` sets it,
-  and `/api/sync/health` writes only the columns the ring left null while it
-  is set — `phoneFieldsRespectingRing` is pure and tested, and the guard
-  holds both writers to it.
+  and the phone writers take only the columns the ring left null while it
+  is set — `phoneFieldsRespectingRing` is pure and tested. (Until 3.7.0 the
+  rule sat on `/api/sync/health`, the manual Log Day form, while the hourly
+  writer, `/api/sync/health-connect`, overwrote 30 days of ring data every
+  run; the Sept audit found it five times over.) Both routes now read
+  `PRECEDENCE_SELECT` first, a night is one unit (once the ring holds any
+  night column no phone stage or bed time is taken), and the guard fails on
+  any `src/app/api/sync` route that writes HealthLog without the helper.
 
   Also in 3.4.0: `lib/figure-marks.ts` finds the figures in a sentence and
   tags each with its domain by unit (`h`, `ms`, `km`, `ml`, `/5`…) or by the
@@ -702,7 +707,8 @@ Roughly in order, most recent first:
   `NativeBridge` calls it on every foreground.) `/api/phone/sensors` takes all three buffers in one request
   and keys every row by what it is, so the handover and the deterministic id
   fail in opposite directions: one drops, the other doubles, and neither is
-  trusted alone.
+  trusted alone. Since 3.7.0 a failed POST no longer drops anything — the
+  drained batch is kept and owed to the next foreground.
 
   **Two things worth knowing before touching this:**
 
@@ -1106,6 +1112,45 @@ Roughly in order, most recent first:
   is not a substitute for the line an owner needs.
 
 ## Open threads
+
+- **From the 26–27 Sept full audit (3.7.0).** 16 auditors, a skeptic on every
+  finding, 160 confirmed and ~138 fixed in 3.7.0. Left open, deliberately:
+  - **26 findings never verified** — the session limit killed their skeptics:
+    labs (marker canonicaliser merging HDL into Cholesterol, BUN→urea
+    conversion ~2.14× off, `<5`/`>90` results unrepresentable, CZ/SK
+    hyphenated spellings not collapsing), imports (Samsung import writes
+    average HR as restingHR and **still bypasses the ring rule**, Timeline
+    import duplicate check-ins across 500-point batches, visits >90 min never
+    becoming check-ins) and three medication items (a dose after local
+    midnight counting for the next day, Oura dose tags never removed, drink
+    tags listed as doses). Re-verify before fixing; the list with evidence is
+    worth regenerating rather than trusting from memory.
+  - **Needs an APK:** a package-bound nonce for the mobile sign-in bridge
+    (3.7.0 ships a server-side IP stopgap only); a try/catch rewrite in
+    `.ci/patch-kiwi-health.py` so the Health Connect plugin can reject on
+    IOException/RemoteException/rate limits (3.7.0 gates refused permissions
+    on the web side); the Sleep API's default request also delivering
+    SleepClassifyEvents every ~10 min.
+  - **One-off production SQL, not code:** account deletion now removes
+    everything, but rows orphaned by deletions BEFORE 3.7.0 remain in
+    BodyMeasurementLog, PushSubscription, TagAlias, GocardlessConnection,
+    SaltedgeConnection and TruelayerConnection (`DELETE … WHERE "userId" NOT
+    IN (SELECT id FROM "User")`). Needs the owner's hand on the database.
+  - **Ring precedence, second order:** on a ringAt row where the ring measured
+    no night, the phone's first fill of restingHR/hrv (a partial-day average)
+    is then held as if it were the ring's. Fixing it needs ring-only night
+    markers (timeInBed, awakeTime, sleepLatency) as the test, not column
+    values. The report still labels every vital "Oura ring".
+  - **Idempotency:** a "✓ Took it" whose POST landed but whose response was
+    lost is replayed from the outbox and logs a duplicate dose;
+    `/api/medications` POST takes no idempotency key.
+  - **Insights cache race:** a stale-triggered `after()` recompute can finish
+    after a concurrent `?refresh=1` and overwrite newer results;
+    `shareInFlight` dedupes per instance only.
+  - Features proposed and not built: backfill a meal/drink to an earlier
+    time; Emergy reading back food/BP/custom metrics; a symptom look-back;
+    Active sessions / sign out everywhere; as-needed meds in the doctor report.
+
 
 - ~~**From the September platform comparison, two steal-list items
   remain.**~~ Both closed: barcode scanning turned out to already exist
