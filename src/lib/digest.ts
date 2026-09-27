@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma"
 import { Resend } from "resend"
-import { EMAIL_FROM } from "@/lib/email"
+import { EMAIL_FROM, sendMail } from "@/lib/email"
 
 function avg(arr: (number | null | undefined)[]): number | null {
   const vals = arr.filter((x): x is number => x != null)
@@ -178,13 +178,10 @@ export async function sendDigestForUser(userId: string, email: string): Promise<
     throw new Error("Email isn't set up on the server yet (RESEND_API_KEY is missing). Add it in Vercel → Settings → Environment Variables.")
   }
 
-  const resend = new Resend(process.env.RESEND_API_KEY)
-  const { error } = await resend.emails.send({
+  await sendMail(new Resend(process.env.RESEND_API_KEY), {
     from: EMAIL_FROM,
     to: email,
     subject: "Your weekly health digest 📊",
     html,
   })
-
-  if (error) throw new Error(error.message ?? "Failed to send email")
 }

@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils"
 import { formatDose, parseDose } from "@/lib/dose"
 import { supplementInfoFor, fractionRemaining, PHARMA_DISCLAIMER } from "@/lib/supplement-info"
 import { MedScheduleCard } from "@/components/medications/MedScheduleCard"
+import { resyncNotifications } from "@/lib/native/notifications"
 
 interface TagItem {
   id: string
@@ -409,6 +410,10 @@ export default function MedicationsPage() {
 
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Today's doses decide which of the phone's later dose alarms still ring,
+  // so an edited or deleted one has to reach them.
+  const doseChanged = () => { load(); resyncNotifications().catch(() => {}) }
+
   async function logDose(name: string) {
     const clean = name.trim()
     if (!clean) return
@@ -442,6 +447,7 @@ export default function MedicationsPage() {
         setDoseTime("")
         setDoseAmount("")
         await load()
+        resyncNotifications().catch(() => {})
       } else {
         setError("Couldn't log that dose — try again.")
       }
@@ -788,7 +794,7 @@ export default function MedicationsPage() {
               key={group.key}
               group={group}
               onRename={startRename}
-              onChanged={load}
+              onChanged={doseChanged}
             />
           ))}
           <p className="text-[10px] text-muted-foreground/50 px-1 pt-1">{PHARMA_DISCLAIMER}</p>
@@ -857,7 +863,7 @@ export default function MedicationsPage() {
                                 )}
                               </div>
                               <div className="flex items-center gap-2 shrink-0 mt-0.5 flex-wrap justify-end">
-                                <MedEntryControls entry={item} onChanged={load} />
+                                <MedEntryControls entry={item} onChanged={doseChanged} />
                               </div>
                             </CardContent>
                           </Card>

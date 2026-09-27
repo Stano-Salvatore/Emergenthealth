@@ -67,7 +67,8 @@ export async function GET(req: NextRequest) {
     let latestDate: string | null
     try {
       ({ anomalies, latestDate } = await scanUserAnomalies(userId))
-    } catch {
+    } catch (e) {
+      console.error("[cron/anomaly-watch] failed for", userId, e instanceof Error ? e.message : e)
       continue
     }
     if (!latestDate) continue

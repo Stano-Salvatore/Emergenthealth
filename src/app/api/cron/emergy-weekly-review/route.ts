@@ -8,7 +8,8 @@ import { localDateStr, localTimeStr } from "@/lib/local-date"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 import { generateWeeklyReview, saveWeeklyReview, type WeeklyReview } from "@/lib/weekly-review"
 import { isReviewWindow, parseSchedule } from "@/lib/weekly-review-schedule"
-import { EMAIL_FROM, logMailFailure } from "@/lib/email"
+import { EMAIL_FROM, logMailFailure, sendMail } from "@/lib/email"
+import { logChatFailure } from "@/lib/chat-error"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -149,8 +150,12 @@ export async function GET(req: NextRequest) {
     let review: WeeklyReview | null
     try {
       review = await generateWeeklyReview(user.id, timezone)
-    } catch {
-      continue // transient failure — the next tick inside the window retries
+    } catch (e) {
+      // The next tick inside the window retries. Logged, because a failure
+      // that outlasts the window (a spent API balance) otherwise looks exactly
+      // like a week with nothing to review.
+      console.error("[cron/weekly-review] failed for", user.id, logChatFailure(e))
+      continue
     }
 
     // Record before delivering: a user with an empty week shouldn't be
@@ -176,7 +181,7 @@ export async function GET(req: NextRequest) {
 
     if (resend && user.email) {
       try {
-        await resend.emails.send({
+        await sendMail(resend, {
           from: EMAIL_FROM,
           to: user.email,
           subject: `🌱 Your week, by Emergy — week of ${review.weekOf}`,

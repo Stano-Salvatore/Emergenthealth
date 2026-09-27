@@ -4,7 +4,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { buildExportBundle } from "@/lib/export"
-import { EMAIL_FROM, describeMailFailure, logMailFailure } from "@/lib/email"
+import { EMAIL_FROM, describeMailFailure, logMailFailure, sendMail } from "@/lib/email"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -67,7 +67,7 @@ export async function POST() {
   const sizeMb = (bundle.bytes / 1024 / 1024).toFixed(1)
 
   try {
-    await new Resend(process.env.RESEND_API_KEY).emails.send({
+    await sendMail(new Resend(process.env.RESEND_API_KEY), {
       from: EMAIL_FROM,
       to: user.email,
       subject: `💾 Your Emergenthealth backup — ${bundle.filename.replace("emergenthealth-export-", "").replace(".json", "")}`,

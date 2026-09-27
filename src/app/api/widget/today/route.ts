@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { widgetKeyUser } from "@/lib/widget-key"
 import { localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 
@@ -14,21 +15,13 @@ export const dynamic = "force-dynamic"
 // widget prints a dash — an absent reading is not a zero, and this is the one
 // surface where a fabricated number would be believed without question.
 
-async function resolveUserByApiKey(apiKey: string): Promise<string | null> {
-  const rows = await prisma.$queryRaw<{ userId: string }[]>`
-    SELECT "userId" FROM "UserPreference"
-    WHERE "key" = 'widget_api_key' AND "value" = ${apiKey}
-    LIMIT 1
-  `.catch(() => [] as { userId: string }[])
-  return rows[0]?.userId ?? null
-}
-
 export async function GET(req: NextRequest) {
   const apiKey = req.headers.get("x-widget-key") ?? new URL(req.url).searchParams.get("key") ?? ""
   if (!apiKey) return NextResponse.json({ error: "Missing API key" }, { status: 401 })
 
-  const userId = await resolveUserByApiKey(apiKey)
-  if (!userId) return NextResponse.json({ error: "Invalid API key" }, { status: 401 })
+  const who = await widgetKeyUser(apiKey)
+  if (!who.ok) return NextResponse.json({ error: who.error }, { status: who.status })
+  const userId = who.userId
 
   const tz = await getUserTimezone(userId)
   const todayStr = localDateStr(tz)

@@ -4,6 +4,8 @@
 // Resend account's owner. Seven routes had it pasted in, so every other user's
 // digest, review and export "sent" and then failed silently at the provider.
 // Set EMAIL_FROM to a sender on a domain verified in Resend.
+import type { CreateEmailOptions, Resend } from "resend"
+
 export const EMAIL_FROM = process.env.EMAIL_FROM?.trim() || "Emergenthealth <onboarding@resend.dev>"
 
 /**
@@ -14,6 +16,20 @@ export const EMAIL_FROM = process.env.EMAIL_FROM?.trim() || "Emergenthealth <onb
  * Everyone else's mail is rejected at the provider with a 403.
  */
 export const EMAIL_SENDER_CONFIGURED = Boolean(process.env.EMAIL_FROM?.trim())
+
+/**
+ * Send, and throw if the provider refused.
+ *
+ * `resend.emails.send` never throws for a refusal — a revoked key, a spent
+ * quota, an unverified sender all resolve `{ data: null, error }`. Awaited
+ * inside a try/catch, that reads as success: the backup button said "sent"
+ * and the monthly cron counted an email nobody received. The status code goes
+ * into the message so `describeMailFailure` can tell a 429 from a 413.
+ */
+export async function sendMail(resend: Resend, payload: CreateEmailOptions): Promise<void> {
+  const { error } = await resend.emails.send(payload)
+  if (error) throw new Error(`${error.statusCode ?? ""} ${error.name}: ${error.message}`.trim())
+}
 
 /**
  * Why a send failed, in words the person who asked for it can act on.

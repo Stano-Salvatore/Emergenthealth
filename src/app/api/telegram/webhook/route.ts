@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse, after } from "next/server"
 import { headerSecretMatches } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { streamChatResponse } from "@/lib/claude"
@@ -9,7 +9,9 @@ import {
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-export const maxDuration = 60 // Emergy's replies are Opus calls
+// Emergy's replies are Opus calls with tool turns, run in after() — which
+// gets this same budget.
+export const maxDuration = 300
 
 // Telegram posts every message here, and this URL is public — anyone who
 // guesses it can POST, and anyone who finds the bot can message it. Three
@@ -23,8 +25,32 @@ export const maxDuration = 60 // Emergy's replies are Opus calls
 //   3. Every reply always returns 200. Telegram retries non-2xx, so an error
 //      surfaced as a status code becomes the same failing message delivered
 //      over and over.
+//
+// The same retry is why Emergy's turn runs after the 200 has gone. Run
+// before it, a turn that outlived the function was killed with a 504, and
+// Telegram redelivered the message: its write tools ran again, logging the
+// same beers twice, and again on every retry.
 
 const MAX_INCOMING_CHARS = 4000
+
+/**
+ * Take this update for processing, once. False when it, or a later one, has
+ * already been taken — a redelivery. Telegram's update_ids only increase, so
+ * the last one seen per user is the whole record. A failed claim lets the
+ * message through: a rare duplicate beats a message silently dropped.
+ */
+async function claimUpdate(userId: string, updateId: unknown): Promise<boolean> {
+  if (typeof updateId !== "number" || !Number.isSafeInteger(updateId)) return true
+  const value = String(updateId)
+  const claimed = await prisma.$executeRaw`
+    INSERT INTO "UserPreference" ("userId", "key", "value") VALUES (${userId}, 'telegram_last_update', ${value})
+    ON CONFLICT ("userId", "key") DO UPDATE SET "value" = EXCLUDED."value"
+    WHERE CASE WHEN "UserPreference"."value" ~ '^[0-9]{1,18}$'
+      THEN "UserPreference"."value"::bigint < EXCLUDED."value"::bigint
+      ELSE true END
+  `.catch(() => 1)
+  return claimed > 0
+}
 
 /**
  * Telegram's own thread, kept apart from the web conversations because they
@@ -56,6 +82,7 @@ export async function POST(req: NextRequest) {
   }
 
   const update = await req.json().catch(() => null) as {
+    update_id?: number
     message?: { chat?: { id?: number }; text?: string }
   } | null
 
@@ -104,45 +131,50 @@ export async function POST(req: NextRequest) {
 
   const incoming = text.slice(0, MAX_INCOMING_CHARS)
 
-  try {
-    // Telegram keeps its own thread. Without it every message would arrive
-    // with no memory of the last one, so "make that 300 instead" would mean
-    // nothing — and a companion that forgets the previous sentence is not one.
-    //
-    // Kept separate from the web conversations rather than mixed in: they are
-    // different conversations, and interleaving them would confuse both.
-    const conversationId = await telegramConversationId(userId)
-    const priorRows = await prisma.chatMessage.findMany({
-      where: { userId, conversationId },
-      orderBy: { createdAt: "desc" },
-      take: 20,
-      select: { role: true, content: true },
-    }).catch(() => [] as { role: string; content: string }[])
-    const history = priorRows
-      .reverse()
-      .map(m => ({ role: m.role === "assistant" ? "assistant" as const : "user" as const, content: m.content }))
+  if (!(await claimUpdate(userId, update?.update_id))) return NextResponse.json({ ok: true })
 
-    let reply = ""
-    for await (const chunk of streamChatResponse(userId, incoming, history)) {
-      reply += chunk
+  after(async () => {
+    try {
+      // Telegram keeps its own thread. Without it every message would arrive
+      // with no memory of the last one, so "make that 300 instead" would mean
+      // nothing — and a companion that forgets the previous sentence is not one.
+      //
+      // Kept separate from the web conversations rather than mixed in: they are
+      // different conversations, and interleaving them would confuse both.
+      const conversationId = await telegramConversationId(userId)
+      const priorRows = await prisma.chatMessage.findMany({
+        where: { userId, conversationId },
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        select: { role: true, content: true },
+      }).catch(() => [] as { role: string; content: string }[])
+      const history = priorRows
+        .reverse()
+        .map(m => ({ role: m.role === "assistant" ? "assistant" as const : "user" as const, content: m.content }))
+
+      let reply = ""
+      for await (const chunk of streamChatResponse(userId, incoming, history)) {
+        reply += chunk
+      }
+      reply = reply.trim() || "…I didn't manage a reply to that. Try again?"
+
+      await sendTelegramMessage(chat, reply)
+
+      // Stored after sending: a reply the user never received should not be in
+      // the history as though they had read it.
+      if (conversationId) {
+        await prisma.chatMessage.createMany({
+          data: [
+            { userId, conversationId, role: "user", content: incoming },
+            { userId, conversationId, role: "assistant", content: reply },
+          ],
+        }).catch(() => null)
+      }
+    } catch (error) {
+      console.error("[telegram] turn failed", error instanceof Error ? error.message : error)
+      await sendTelegramMessage(chat, "Something went wrong on my side — try again in a moment 🌱")
     }
-    reply = reply.trim() || "…I didn't manage a reply to that. Try again?"
-
-    await sendTelegramMessage(chat, reply)
-
-    // Stored after sending: a reply the user never received should not be in
-    // the history as though they had read it.
-    if (conversationId) {
-      await prisma.chatMessage.createMany({
-        data: [
-          { userId, conversationId, role: "user", content: incoming },
-          { userId, conversationId, role: "assistant", content: reply },
-        ],
-      }).catch(() => null)
-    }
-  } catch {
-    await sendTelegramMessage(chat, "Something went wrong on my side — try again in a moment 🌱")
-  }
+  })
 
   return NextResponse.json({ ok: true })
 }

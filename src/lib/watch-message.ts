@@ -1,4 +1,30 @@
 export type Change = { finding: string; reason: string }
+
+/** One insight's baseline in insights_watch_state. */
+export type WatchEntry = { delta: number; confident: boolean; tier?: string; graduated?: boolean }
+
+type Observed = { delta: number; confident: boolean; tier: string }
+
+/**
+ * The baseline to store for today's reading.
+ *
+ * `graduated` is sticky: once a card has been Solid it stays marked through
+ * a wobble below the cutoff, so one slipping to suggestive and back is not
+ * announced as a new solid pattern each time. Only falling all the way to
+ * noise clears it, and then a real return is news again. A baseline stored
+ * before the flag existed counts as graduated if it was already Solid.
+ */
+export function watchStateFor(ins: Observed, prev: WatchEntry | undefined): WatchEntry {
+  const graduated = ins.tier === "strong" ? true
+    : ins.tier === "noise" ? false
+    : prev?.graduated ?? prev?.tier === "strong"
+  return { delta: ins.delta, confident: ins.confident, tier: ins.tier, graduated }
+}
+
+/** Whether today's reading is a first climb to Solid worth announcing. Never on first sight. */
+export function graduatedNow(ins: Observed, prev: WatchEntry | undefined): boolean {
+  return prev?.tier != null && prev.tier !== "strong" && !prev.graduated && ins.tier === "strong"
+}
 /**
  * One event, two surfaces, two sentences — because only one of them can be
  * tapped.

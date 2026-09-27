@@ -103,6 +103,9 @@ export async function GET() {
       startDate: s.startDate,
       endDate: s.endDate,
       runsToday,
+      // The phone's dose alarms skip today's first `takenToday` slots; without
+      // it a dose taken early still rang at its scheduled time.
+      takenToday,
       today: runsToday ? dosesForDay(shape, takenToday, nowMinutes) : [],
       adherence: adherence.get(s.id) ?? null,
     }

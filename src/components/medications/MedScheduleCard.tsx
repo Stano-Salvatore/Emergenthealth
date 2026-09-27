@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { resyncNotifications } from "@/lib/native/notifications"
 import { Plus, Trash2, Bell, BellOff, X } from "lucide-react"
 
 // The plan, and whether it happened. Ticking a dose off doesn't write a
@@ -208,6 +209,9 @@ export function MedScheduleCard({ onDoseLogged }: { onDoseLogged?: () => void })
         body: JSON.stringify({ name: s.name, minutesAgo: 0 }),
       })
       await load()
+      // Today's taken count moved, so the phone's later slot for this dose
+      // must come off before it rings.
+      resyncNotifications().catch(() => {})
       onDoseLogged?.()
     } finally {
       setBusy(null)
@@ -223,6 +227,7 @@ export function MedScheduleCard({ onDoseLogged }: { onDoseLogged?: () => void })
         body: JSON.stringify({ id: s.id, remind: !s.remind }),
       })
       await load()
+      resyncNotifications().catch(() => {})
     } finally {
       setBusy(null)
     }
@@ -234,6 +239,7 @@ export function MedScheduleCard({ onDoseLogged }: { onDoseLogged?: () => void })
     try {
       await fetch(`/api/med-schedule?id=${encodeURIComponent(s.id)}`, { method: "DELETE" })
       await load()
+      resyncNotifications().catch(() => {})
     } finally {
       setBusy(null)
     }
@@ -338,7 +344,7 @@ export function MedScheduleCard({ onDoseLogged }: { onDoseLogged?: () => void })
           )
         })}
 
-        {adding && <ScheduleForm onDone={() => { setAdding(false); load() }} onCancel={() => setAdding(false)} />}
+        {adding && <ScheduleForm onDone={() => { setAdding(false); load(); resyncNotifications().catch(() => {}) }} onCancel={() => setAdding(false)} />}
       </CardContent>
     </Card>
   )
