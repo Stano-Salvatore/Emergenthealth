@@ -363,7 +363,10 @@ export default function InsightsPage() {
           <div className="flex items-center gap-2">
             {data?.computedAt && (
               <span className="text-[10px] text-muted-foreground/60">
-                computed {new Date(data.computedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })}
+                {/* A run from yesterday is served while today's is computed, so the day has to show. */}
+                computed {new Date(data.computedAt).toDateString() === new Date().toDateString()
+                  ? new Date(data.computedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
+                  : new Date(data.computedAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false })}
               </span>
             )}
             {weakCount > 0 && (
