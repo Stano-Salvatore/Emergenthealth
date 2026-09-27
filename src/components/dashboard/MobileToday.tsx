@@ -45,6 +45,10 @@ interface MobileTodayProps {
   nextEvents: TodayEventItem[]
   pillars: Pillar[]
   pillarValues: string[]
+  /** Which scale the score and bars are on: the personal baseline, or the goals fallback. */
+  scale: "usual" | "goals"
+  /** What moved the personal score, when one component did. */
+  driver?: string | null
   week: WeekDayStat[]
   sleepMin: number | null
   sleepScore: number | null
@@ -193,7 +197,9 @@ export function MobileToday(p: MobileTodayProps) {
   const now = new Date()
   const timed = p.events
     .filter(e => e.start && !e.isAllDay)
-    .sort((a, b) => (a.start! < b.start! ? -1 : 1))
+    // By instant: Google's "09:00+02:00" and the phone's "08:00Z" sort the
+    // wrong way round as text.
+    .sort((a, b) => Date.parse(a.start!) - Date.parse(b.start!))
   const allDay = p.events.filter(e => e.isAllDay)
   const sleepH = p.sleepMin != null ? (p.sleepMin / 60).toFixed(1) : null
   const latest = p.week[p.week.length - 1]
@@ -223,9 +229,19 @@ export function MobileToday(p: MobileTodayProps) {
                 <Link href="/dashboard/settings#data-connections" className="text-primary underline underline-offset-2">Settings → Data connections</Link>,
                 or log a day on the <Link href="/dashboard/health" className="text-primary underline underline-offset-2">Health page</Link>.
               </p>
-            ) : p.pillars.map((pl, i) => (
-              <PillarBar key={pl.label} {...pl} value={p.pillarValues[i] ?? ""} color={PILLAR_COLORS[i % PILLAR_COLORS.length]} />
-            ))}
+            ) : (<>
+              {p.pillars.map((pl, i) => (
+                <PillarBar key={pl.label} {...pl} value={p.pillarValues[i] ?? ""} color={PILLAR_COLORS[i % PILLAR_COLORS.length]} />
+              ))}
+              {/* Two scales share this gauge — the day against your own
+                  usual once there is enough history, against your goals
+                  before that — and a number that switches scale silently
+                  reads as a day that changed. */}
+              <p className="text-[10px] text-muted-foreground leading-snug">
+                {p.scale === "usual" ? "Vs your usual — 50 is a typical day" : "Vs your goals"}
+                {p.driver ? ` · ${p.driver}` : ""}
+              </p>
+            </>)}
           </div>
         </div>
         {stale && (

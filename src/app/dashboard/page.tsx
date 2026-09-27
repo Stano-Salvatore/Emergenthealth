@@ -2,10 +2,12 @@ import { Suspense } from "react"
 import { auth } from "@/auth"
 import { scoreHex, scoreText } from "@/lib/score-color"
 import { loadDailyScore } from "@/lib/daily-score-load"
-import { scoreGrade as gradeDaily } from "@/lib/daily-score"
+import { scoreGrade as gradeDaily, dailyPillars } from "@/lib/daily-score"
 import type { FocusSession, IntakeLog } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { habitStreak, isDueOn } from "@/lib/habit-schedule"
+import { getVacationWindow, makeIsFrozen } from "@/lib/streak"
+import { resolveWaterGoal, sumHydration } from "@/lib/hydration"
 import { addDaysISO, localDateStr, localTimeStr, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { isAlcohol } from "@/lib/body-load"
@@ -193,7 +195,10 @@ export default async function DashboardPage() {
   const { start: todayStart, end: todayEnd } = zonedDayRange(timezone)
 
   const today = new Date(todayStr + "T00:00:00")
-  const weekAgo = new Date(todayStart.getTime() - 7 * 24 * 60 * 60 * 1000)
+  // A streak is walked over its whole history, not the last week of it: with
+  // eight days loaded, a daily habit forty days running showed 🔥8 here and 40
+  // on the Habits page. 366 matches computeStreak's own one-year cap.
+  const habitHistoryFrom = new Date(addDaysISO(todayStr, -366) + "T00:00:00Z")
 
   // Single parallel batch — goals, check-in, and all dashboard data in one
   // round-trip group instead of three sequential awaits.
@@ -203,12 +208,13 @@ export default async function DashboardPage() {
     checkinStreakRows,
     healthLogs, habits, reminders, calendar, appEvents, gmailData, todayIntake, todayFocus, todayOuraTags,
     latestWeightKg, daily, reminderCountAll,
+    vacationWindow,
   ] = await Promise.all([
     getGoals(userId),
-    prisma.$queryRaw<{id: string}[]>`
-      SELECT "id" FROM "MorningCheckIn" WHERE "userId" = ${userId}
+    prisma.$queryRaw<{id: string; waterGoalMl: number | null}[]>`
+      SELECT "id", "waterGoalMl" FROM "MorningCheckIn" WHERE "userId" = ${userId}
       AND "date" = ${todayStr} LIMIT 1
-    `.catch(() => [] as {id: string}[]),
+    `.catch(() => [] as {id: string; waterGoalMl: number | null}[]),
     prisma.$queryRaw<{date: string}[]>`
       SELECT "date" FROM "MorningCheckIn" WHERE "userId" = ${userId}
       AND "date" <= ${todayStr}
@@ -230,8 +236,8 @@ export default async function DashboardPage() {
     prisma.habit.findMany({
       where: { userId, isArchived: false },
       include: {
-        completions: { where: { date: { gte: weekAgo } }, orderBy: { date: "desc" } },
-        skips: { where: { date: { gte: weekAgo } }, select: { date: true } },
+        completions: { where: { date: { gte: habitHistoryFrom } }, select: { date: true } },
+        skips: { where: { date: { gte: habitHistoryFrom } }, select: { date: true } },
       },
     }),
     prisma.reminder.findMany({
@@ -265,12 +271,13 @@ export default async function DashboardPage() {
     latestWeighIn(userId).then(w => w?.kg ?? null).catch(() => null),
     loadDailyScore(userId).catch(() => null),
     prisma.reminder.count({ where: { userId } }).catch(() => 0),
+    getVacationWindow(userId),
   ])
 
   // ── goals + check-in (parsed from the batch above)
   const STEP_GOAL = userGoals.steps
   const SLEEP_GOAL_H = userGoals.sleepH
-  const WATER_GOAL_ML = userGoals.waterMl
+  const WATER_GOAL_ML = resolveWaterGoal(todayCheckin[0]?.waterGoalMl, userGoals.waterMl)
   const FOCUS_GOAL_MIN = userGoals.focusMin
   const hasCheckedInToday = todayCheckin.length > 0
   // Compute consecutive check-in streak
@@ -293,7 +300,10 @@ export default async function DashboardPage() {
   // here (that would double-count).
   const sumIntake = (type: string) =>
     todayIntake.filter(l => l.type === type).reduce((a, l) => a + l.amountMl, 0)
-  const waterMl = sumIntake("water")
+  // Every drink at its hydration factor, the rule the Log tab's trend, the
+  // Overview tab and the brief all use. Water alone left Home 750 ml behind
+  // them on a day with coffee in it.
+  const waterMl = sumHydration(todayIntake)
   const coffeeMl = sumIntake("coffee")
   // Beer, wine and spirits are alcohol; "alcohol" is the generic button
   // nobody taps when a specific one is on the same screen.
@@ -326,6 +336,7 @@ export default async function DashboardPage() {
   // ── habits
   // Only what today asks for: an off-day habit is neither done nor missing
   // and a skipped one is settled, so neither drags the ratio down.
+  const isFrozen = makeIsFrozen(vacationWindow)
   const habitsWithStreaks = habits.flatMap(h => {
     // c.date is a date-only column, so Prisma hands it back at UTC midnight and
     // slicing the ISO string is exact. The walk stays in string space for the
@@ -334,7 +345,7 @@ export default async function DashboardPage() {
     const skipDates = new Set(h.skips.map(s => s.date.toISOString().split("T")[0]))
     const schedule = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
     if (!isDueOn(schedule, todayStr, dates) && !dates.has(todayStr)) return []
-    const { streak } = habitStreak(schedule, dates, skipDates, todayStr)
+    const { streak } = habitStreak(schedule, dates, skipDates, todayStr, isFrozen)
     return [{ ...h, streak, completedToday: dates.has(todayStr) || skipDates.has(todayStr) }]
   })
   const doneToday = habitsWithStreaks.filter(h => h.completedToday).length
@@ -395,7 +406,7 @@ export default async function DashboardPage() {
     sleepMin: latestHealth?.sleepDuration ?? null,
     steps: latestHealth?.steps ?? null,
     readiness: latestHealth?.readinessScore ?? null,
-    habitsRatio: habits.length > 0 ? doneToday / habits.length : 0,
+    habitsRatio: habitsWithStreaks.length > 0 ? doneToday / habitsWithStreaks.length : 0,
     sleepGoalH: SLEEP_GOAL_H,
     stepGoal: STEP_GOAL,
   })
@@ -409,6 +420,9 @@ export default async function DashboardPage() {
   // The gauge stroke follows the same scale as the words beside it: the
   // personal one while the daily score exists, the goal one for the fallback.
   const gaugeHex = daily?.score != null ? gradeDaily(daily.score).hex : scoreHex(absoluteScore)
+  // And so do the bars beside it: the daily score's own components, not the
+  // goal pillars, which sat nearly full beside a half gauge.
+  const usualPillars = daily?.score != null ? dailyPillars(daily.components) : null
   // "All clear" is only true of a list someone has used. A user who has never
   // written a reminder was shown a green tick for an empty table.
   const reminderTotal = reminders.length > 0 ? reminders.length : reminderCountAll
@@ -508,13 +522,15 @@ export default async function DashboardPage() {
           id: e.id, title: e.title, start: e.start, isAllDay: e.isAllDay,
           color: e.color ?? null, location: e.location ?? null,
         }))}
-        pillars={scorePillars}
-        pillarValues={[
+        pillars={usualPillars ?? scorePillars}
+        pillarValues={usualPillars ? usualPillars.map(p => p.value) : [
           latestHealth?.sleepDuration != null ? `${(latestHealth.sleepDuration / 60).toFixed(1)}h` : "–",
           latestHealth?.steps != null ? `${(latestHealth.steps / 1000).toFixed(1)}k` : "–",
           latestHealth?.readinessScore != null ? `${latestHealth.readinessScore}` : "–",
           `${doneToday}/${habitsWithStreaks.length}`,
         ]}
+        scale={usualPillars ? "usual" : "goals"}
+        driver={scoreDriver}
         week={[...healthLogs].reverse().map(l => ({
           date: l.date.toISOString().slice(0, 10),
           sleepMin: l.sleepDuration,
@@ -723,7 +739,7 @@ export default async function DashboardPage() {
     ),
 
     habits: (
-      <QuickHabits habits={habitsWithStreaks.slice(0, 6).map(h => ({ id: h.id, name: h.name, color: h.color, completedToday: h.completedToday, streak: h.streak }))} />
+      <QuickHabits habits={habitsWithStreaks.map(h => ({ id: h.id, name: h.name, color: h.color, completedToday: h.completedToday, streak: h.streak }))} />
     ),
 
     reminders: (
@@ -834,8 +850,8 @@ export default async function DashboardPage() {
             progress={Math.min(100, (focusMinToday / FOCUS_GOAL_MIN) * 100)} />
         </Link>
         <Link href="/dashboard/habits">
-          <StatTile label="Habits today" value={`${doneToday}/${habits.length}`} icon={<CheckSquare className="h-4 w-4 text-amber-400"/>}
-            progress={habits.length > 0 ? (doneToday/habits.length)*100 : 0} />
+          <StatTile label="Habits today" value={`${doneToday}/${habitsWithStreaks.length}`} icon={<CheckSquare className="h-4 w-4 text-amber-400"/>}
+            progress={habitsWithStreaks.length > 0 ? (doneToday/habitsWithStreaks.length)*100 : 0} />
         </Link>
         {todayMedTags.length > 0 ? (
           <Link href="/dashboard/intake?tab=meds">

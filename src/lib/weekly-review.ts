@@ -5,11 +5,12 @@ import { format } from "date-fns"
 import { buildSystemPrompt } from "@/lib/claude"
 import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
 import { HYDRATING_TYPES, sumHydration } from "@/lib/hydration"
-import { isScheduledOn, scheduleLabel } from "@/lib/habit-schedule"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { SONNET } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
 import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
+import { weekTally } from "@/lib/habit-schedule"
+import { getVacationWindow, makeIsFrozen } from "@/lib/streak"
 
 // The weekly review used to be three different things: a Sunday email with
 // bare averages, a dashboard button that asked Haiku for 200 generic words,
@@ -63,28 +64,6 @@ export function stepsLine(thisWeek: (number | null)[], prevWeek: (number | null)
 }
 
 /**
- * Each habit against the days its schedule asked for it — a Mon/Wed/Fri habit
- * done all three times was "3/7 days" (43%). A weekly-target habit is
- * measured against its target. One not yet due this week has no rate at all
- * rather than 0%.
- */
-export function habitWeekRows(
-  habits: { name: string; scheduleDays: number[]; timesPerWeek: number | null; completions: { date: Date }[] }[],
-  weekStartStr: string,
-  daysThisWeek: number,
-): { name: string; completed: number; due: number; pct: number | null; line: string }[] {
-  return habits.map(h => {
-    const sched = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
-    const due = sched.timesPerWeek != null
-      ? sched.timesPerWeek
-      : Array.from({ length: daysThisWeek }, (_, i) => addDaysISO(weekStartStr, i)).filter(d => isScheduledOn(sched, d)).length
-    const completed = h.completions.length
-    const pct = due > 0 ? Math.min(100, Math.round((completed / due) * 100)) : null
-    return { name: h.name, completed, due, pct, line: `${h.name} (${scheduleLabel(sched) ?? "daily"}): ${completed}/${due}` }
-  })
-}
-
-/**
  * Build the week's numbers and have Emergy write the review. Returns null
  * when generation isn't possible (no API key) or there is nothing to review
  * (no health data or check-ins all week).
@@ -112,7 +91,7 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
   const weekStartAt = zonedDayRange(tz, weekStartStr).start
   const weekEndAt = zonedDayRange(tz, todayStr).end
 
-  const [thisWeekLogs, prevWeekLogs, habits, focusSessions, moodLogs, waterLogs, checkinRows, stravaRows] = await Promise.all([
+  const [thisWeekLogs, prevWeekLogs, habits, focusSessions, moodLogs, waterLogs, checkinRows, stravaRows, vacation] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: weekStart, lte: today } },
       orderBy: { date: "asc" },
@@ -124,7 +103,10 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
     }),
     prisma.habit.findMany({
       where: { userId, isArchived: false },
-      include: { completions: { where: { date: { gte: weekStart, lte: today } } } },
+      include: {
+        completions: { where: { date: { gte: weekStart, lte: today } }, select: { date: true } },
+        skips: { where: { date: { gte: weekStart, lte: today } }, select: { date: true } },
+      },
     }),
     prisma.focusSession.findMany({
       where: { userId, type: "focus", endedAt: { gte: weekStartAt, lte: weekEndAt } },
@@ -147,6 +129,7 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
       where: { userId, day: { gte: weekStartStr } },
       select: { name: true, type: true, distanceM: true, movingTimeSec: true },
     }).catch(() => [] as { name: string | null; type: string; distanceM: number | null; movingTimeSec: number }[]),
+    getVacationWindow(userId),
   ])
 
   // The nights the ring missed but the phone estimated. Their own line and
@@ -172,10 +155,24 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
   const totalSteps = thisWeekLogs.reduce((s, l) => s + (l.steps ?? 0), 0)
   const avgStress = avg(thisWeekLogs.map(l => l.stressHigh))
 
-  const habitRows = habitWeekRows(habits, weekStartStr, daysThisWeek)
-  const rated = habitRows.flatMap(h => (h.pct != null ? [h.pct] : []))
-  const habitRate = rated.length > 0
-    ? Math.round(rated.reduce((s, pct) => s + pct, 0) / rated.length)
+  // Against what each schedule asked, not seven: a Mon/Wed/Fri habit kept
+  // perfectly went to Emergy as "Gym: 3/7 days", and he called it a slip.
+  const isFrozen = makeIsFrozen(vacation)
+  const habitRows = habits.map(h => {
+    const { done, due } = weekTally(
+      { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek },
+      new Set(h.completions.map(c => c.date.toISOString().slice(0, 10))),
+      new Set(h.skips.map(s => s.date.toISOString().slice(0, 10))),
+      weekStartStr, todayStr, localDateStr(tz, h.createdAt), isFrozen,
+    )
+    return {
+      name: h.name, done, due, target: h.timesPerWeek,
+      pct: due > 0 ? Math.round((done / due) * 100) : null,
+    }
+  })
+  const asked = habitRows.filter((h): h is typeof h & { pct: number } => h.pct != null)
+  const habitRate = asked.length > 0
+    ? Math.round(asked.reduce((s, h) => s + h.pct, 0) / asked.length)
     : null
 
   const totalFocusMin = focusSessions.reduce((s, f) => s + f.durationMin, 0)
@@ -202,7 +199,13 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
     `Fluids (all drinks): ${totalFluidL}L logged`,
     avgMood != null ? `Mood: avg ${avgMood}/5` : null,
     `Morning check-ins: ${checkinRows.length}/${daysThisWeek}${avgCheckinEnergy != null ? `, avg energy ${avgCheckinEnergy}/5` : ""}`,
-    habitRows.length > 0 ? `Habits (done/due this week):\n${habitRows.map(h => `  - ${h.line}`).join("\n")}` : null,
+    habitRows.length > 0 ? `Habits (done / asked for by its schedule; skipped and vacation days excluded):\n${habitRows.map(h =>
+      `  - ${h.name}: ${
+        h.target != null
+          ? h.due === 0 ? `${h.done} of ${h.target} this week so far, still within reach` : `${h.done}/${h.target} of its weekly target`
+          : h.due === 0 ? "nothing due yet" : `${h.done}/${h.due} due days`
+      }`,
+    ).join("\n")}` : null,
     intentions.length > 0 ? `Intentions they set this week: ${intentions.slice(0, 7).join(" · ")}` : null,
   ].filter((l): l is string => l != null)
 

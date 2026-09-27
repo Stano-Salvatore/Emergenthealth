@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Loader2, Ruler } from "lucide-react"
 import { computeTargets } from "@/lib/targets"
 import { todayLocalISO } from "@/lib/local-date"
-import { sumHydration } from "@/lib/hydration"
+import { resolveWaterGoal, sumHydration } from "@/lib/hydration"
 import { drinkCaloriesTotal } from "@/lib/drink-calories"
 
 interface Micronutrient { name: string; amount: number; unit: string; dailyPct: number }
@@ -28,6 +28,7 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
   const [supplements, setSupplements] = useState<string[]>([])
   const [goals, setGoals] = useState<Goals>({})
   const [latestWeight, setLatestWeight] = useState<number | null>(null)
+  const [checkinWaterMl, setCheckinWaterMl] = useState<number | null>(null)
 
   // personalize form
   const [showPersonalize, setShowPersonalize] = useState(false)
@@ -41,13 +42,18 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
     setLoading(true)
     const today = todayLocalISO()
     try {
-      const [intakeRes, cafRes, foodRes, goalsRes, weightRes] = await Promise.all([
+      const [intakeRes, cafRes, foodRes, goalsRes, weightRes, checkinRes] = await Promise.all([
         fetch(`/api/intake?date=${today}`),
         fetch("/api/caffeine"),
         fetch(`/api/food?date=${today}`),
         fetch("/api/goals"),
         fetch("/api/weight?days=90"),
+        fetch(`/api/morning-checkin?date=${today}`),
       ])
+      if (checkinRes.ok) {
+        const d = await checkinRes.json().catch(() => null)
+        setCheckinWaterMl(typeof d?.checkin?.waterGoalMl === "number" ? d.checkin.waterGoalMl : null)
+      }
       if (intakeRes.ok) {
         const logs: { id: string; type: string; amountMl: number; note?: string | null }[] = await intakeRes.json()
         // Every hydrating drink at its factor (lib/hydration), the same total
@@ -85,8 +91,14 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
     weightKg, heightCm, birthYear, sex,
     weightGoal: goalMode ? { mode: goalMode, paceKgWk: typeof goals.weightPaceKgWk === "number" ? goals.weightPaceKgWk : null } : null,
   })
-  // an explicit check-in / goals water target wins over the formula
-  const waterGoal = typeof goals.waterMl === "number" && goals.waterMl > 0 ? Math.max(goals.waterMl, t.personalized ? t.waterMl : 0) : t.waterMl
+  // One rule with Home, the Log tab and the brief: today's check-in answer,
+  // else Settings. The formula stands in only when Settings has no number.
+  // Taking the larger of Settings and the formula here gave this tab a goal
+  // no other screen measured against.
+  const waterGoal = resolveWaterGoal(
+    checkinWaterMl,
+    typeof goals.waterMl === "number" && goals.waterMl > 0 ? goals.waterMl : t.waterMl,
+  )
   // The Settings "Caffeine max" is always filled (400 by default), so the lower
   // of it and the weight-based ceiling wins: the default never loosens the
   // personal target, and a ceiling someone set themselves is never ignored.
@@ -218,7 +230,7 @@ export function OverviewTab({ onGoTo }: { onGoTo: (tab: string) => void }) {
         <div className="flex items-center justify-between gap-2">
           <p className="text-[11px] text-muted-foreground">
             {t.personalized
-              ? <>Targets scaled to your {weightKg} kg{heightCm ? ` · ${heightCm} cm (BMI ${t.bmi})` : ""} — water 35 ml/kg, caffeine 5.7 mg/kg (max 400), protein {t.goalAdjustmentKcal !== 0 ? "1.6" : "1.2"} g/kg, ≈{t.calories} kcal {t.goalAdjustmentKcal !== 0 ? `for your ${goalMode === "lose" ? "weight-loss" : "weight-gain"} goal (${t.goalAdjustmentKcal > 0 ? "+" : ""}${t.goalAdjustmentKcal} vs maintenance)` : t.calorieBasis === "bmr" ? "maintenance (Mifflin-St Jeor × light activity)" : "rough maintenance — add birth year & sex for a real BMR"}.</>
+              ? <>Targets scaled to your {weightKg} kg{heightCm ? ` · ${heightCm} cm (BMI ${t.bmi})` : ""} — caffeine 5.7 mg/kg (max 400), protein {t.goalAdjustmentKcal !== 0 ? "1.6" : "1.2"} g/kg, ≈{t.calories} kcal {t.goalAdjustmentKcal !== 0 ? `for your ${goalMode === "lose" ? "weight-loss" : "weight-gain"} goal (${t.goalAdjustmentKcal > 0 ? "+" : ""}${t.goalAdjustmentKcal} vs maintenance)` : t.calorieBasis === "bmr" ? "maintenance (Mifflin-St Jeor × light activity)" : "rough maintenance — add birth year & sex for a real BMR"}.</>
               : <>Standard targets. Add your height &amp; weight and they scale to your body.</>}
           </p>
           <Button size="sm" variant="ghost" className="gap-1.5 shrink-0 h-7 text-xs" onClick={() => {

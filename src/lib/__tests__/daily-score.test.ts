@@ -1,5 +1,30 @@
 import { describe, it, expect } from "vitest"
-import { computeDailyScore, relativeScore, scoreGrade, MIN_BASIS_DAYS, type ScoreDay } from "@/lib/daily-score"
+import { computeDailyScore, relativeScore, scoreGrade, dailyPillars, MIN_BASIS_DAYS, type ScoreDay } from "@/lib/daily-score"
+
+describe("dailyPillars — the phone gauge's bars", () => {
+  // The gauge showed the "vs your usual" score (50 = a typical day) beside
+  // four bars on the absolute goal scale: Sleep 25/25, Steps 25/25, Habits
+  // 25/25, all nearly full next to a half-empty gauge, and nothing saying why.
+  // The bars now come from the same components the score was built from.
+  it("draws one bar per scored component, on the score's own 0–100 scale", () => {
+    const bars = dailyPillars([
+      { key: "sleep", label: "Sleep", emoji: "🌙", weight: 30, score: 62, parts: [] },
+      { key: "recovery", label: "Recovery", emoji: "❤️", weight: 30, score: 41, parts: [] },
+    ])
+    expect(bars).toEqual([
+      { label: "Sleep", pts: 62, max: 100, value: "62" },
+      { label: "Recovery", pts: 41, max: 100, value: "41" },
+    ])
+  })
+
+  it("leaves out a component with nothing to score rather than drawing it at zero", () => {
+    const bars = dailyPillars([
+      { key: "sleep", label: "Sleep", emoji: "🌙", weight: 30, score: 55, parts: [] },
+      { key: "mind", label: "Mind", emoji: "🧠", weight: 20, score: null, parts: [] },
+    ])
+    expect(bars.map(b => b.label)).toEqual(["Sleep"])
+  })
+})
 
 /** A typical fortnight: everything steady, with a small three-phase wobble. */
 function typicalHistory(days = 20, over: Partial<ScoreDay> = {}): ScoreDay[] {

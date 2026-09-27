@@ -2,6 +2,7 @@ import { google } from "googleapis"
 import { prisma } from "@/lib/prisma"
 import { zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { mergeDayEvents } from "@/lib/day-events"
 
 async function buildCalendarClient(userId: string) {
   const account = await prisma.account.findFirst({
@@ -55,14 +56,6 @@ export interface CalendarEvent {
 // Events synced from the phone's Calendar Provider are stored in the DB and
 // merged into the same results Google events flow through, so they appear
 // everywhere (calendar page, Today, dashboard, Dr. Sophia context).
-
-function deviceKey(title: string, start: string | null): string {
-  // Match at minute granularity so a device-side mirror of a Google event
-  // dedupes against the Google copy.
-  const t = title.trim().toLowerCase()
-  const m = start ? start.slice(0, 16) : ""
-  return `${t}|${m}`
-}
 
 async function getDeviceEvents(
   userId: string,
@@ -118,16 +111,11 @@ async function getDeviceEvents(
 }
 
 // Merge Google + device events, dropping device events that duplicate a Google
-// one (same title + start minute), and sort chronologically.
+// one (same title + start minute), and sort chronologically. The two sources
+// spell the same instant with different offsets, so both the match and the
+// order go by instant — see lib/day-events.
 function mergeEvents(google: CalendarEvent[], device: CalendarEvent[]): CalendarEvent[] {
-  const seen = new Set(google.map((e) => deviceKey(e.title, e.start)))
-  const merged = [...google]
-  for (const e of device) {
-    if (seen.has(deviceKey(e.title, e.start))) continue
-    seen.add(deviceKey(e.title, e.start))
-    merged.push(e)
-  }
-  return merged.sort((a, b) => (a.start ?? "").localeCompare(b.start ?? ""))
+  return mergeDayEvents(google, device)
 }
 
 export async function getTodayEvents(userId: string): Promise<CalendarEvent[]> {

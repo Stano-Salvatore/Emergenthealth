@@ -15,11 +15,29 @@ export interface DayEvent {
 }
 
 /**
- * Minute granularity, title-insensitive: the same rule the Google/device merge
- * uses, so an app event mirrored into the phone's calendar counts once.
+ * Minute granularity, title-insensitive, so a copy mirrored into the phone's
+ * calendar counts once. The minute is of the instant, not of the text: Google
+ * sends "…T09:00:00+02:00" and the phone's copy of the same event is stored as
+ * "…T07:00:00.000Z", and comparing their first sixteen characters listed every
+ * mirrored event twice.
  */
-function keyOf(e: DayEvent): string {
-  return `${e.title.trim().toLowerCase()}|${(e.start ?? "").slice(0, 16)}`
+export function eventKey(e: DayEvent): string {
+  const t = e.title.trim().toLowerCase()
+  if (!e.start) return `${t}|`
+  if (e.isAllDay || !e.start.includes("T")) return `${t}|${e.start.slice(0, 10)}`
+  const ms = Date.parse(e.start)
+  return `${t}|${Number.isNaN(ms) ? e.start.slice(0, 16) : Math.floor(ms / 60_000)}`
+}
+
+/**
+ * Still ahead of you at `now`: until it ends, or with no end time, until it
+ * starts. An all-day entry runs all day.
+ */
+export function isUpcoming(e: { start: string; end?: string | null }, now: number): boolean {
+  if (e.start && !e.start.includes("T")) return true
+  const ref = e.end && e.end.includes("T") ? e.end : e.start
+  const t = new Date(ref).getTime()
+  return Number.isNaN(t) ? false : t >= now
 }
 
 /**
@@ -40,10 +58,10 @@ export function eventInstant(e: DayEvent): number {
  * list is cut to the first few.
  */
 export function mergeDayEvents<A extends DayEvent, B extends DayEvent>(calendar: A[], app: B[]): (A | B)[] {
-  const seen = new Set(calendar.map(keyOf))
+  const seen = new Set(calendar.map(eventKey))
   const out: (A | B)[] = [...calendar]
   for (const e of app) {
-    const k = keyOf(e)
+    const k = eventKey(e)
     if (seen.has(k)) continue
     seen.add(k)
     out.push(e)

@@ -10,6 +10,7 @@ import { DailyTags } from "@/components/dashboard/DailyTags"
 import { EveningCheckIn } from "@/components/checkin/EveningCheckIn"
 import { checkInModeFor, type CheckInMode } from "@/lib/checkin-mode"
 import { cn } from "@/lib/utils"
+import { describeFetchFailure, HttpStatusError } from "@/lib/fetch-error"
 
 type CheckIn = {
   energy: number
@@ -109,7 +110,8 @@ export default function CheckInPage() {
   // and Emergy already reads — a second, check-in-only note would split the
   // day's writing across two places and be invisible to both.
   const [note, setNote] = useState("")
-  const [noteStatus, setNoteStatus] = useState<"idle" | "saving" | "saved">("idle")
+  const [noteStatus, setNoteStatus] = useState<"idle" | "saving" | "saved" | "failed">("idle")
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
     const today = new Date()
@@ -145,15 +147,16 @@ export default function CheckInPage() {
       String(today.getDate()).padStart(2, "0"),
     ].join("-")
     try {
-      await fetch("/api/daily-note", {
+      const res = await fetch("/api/daily-note", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: note, date: localDate }),
       })
+      if (!res.ok) throw new HttpStatusError(res.status)
       setNoteStatus("saved")
       setTimeout(() => setNoteStatus("idle"), 2000)
     } catch {
-      setNoteStatus("idle")
+      setNoteStatus("failed")
     }
   }
 
@@ -175,6 +178,10 @@ export default function CheckInPage() {
         date: localDate,
       }),
     })
+    // Everything below tells the user the check-in exists. A 401 or a cold
+    // 500 used to celebrate anyway, and the day's mood and energy were then
+    // missing from the score and the correlations with nothing ever said.
+    if (!res.ok) throw new HttpStatusError(res.status)
     const data = await res.json().catch(() => ({}))
     if (data.streak) setStreak(data.streak)
     // Keep the summary in step with what was just saved — otherwise an edit
@@ -189,6 +196,18 @@ export default function CheckInPage() {
     // Haptic feedback: short buzz on completion
     if (typeof navigator !== "undefined" && navigator.vibrate) {
       navigator.vibrate([30, 20, 60, 20, 100])
+    }
+  }
+
+  // The wizard stays on the water step when the save fails, so another tap
+  // retries it.
+  async function saveAndFinish(waterMl: number) {
+    setSaveError(null)
+    try {
+      await save(waterMl)
+      setStep("done")
+    } catch (e) {
+      setSaveError(describeFetchFailure(e))
     }
   }
 
@@ -368,10 +387,9 @@ export default function CheckInPage() {
                 {WATER_OPTIONS.map(ml => (
                   <button
                     key={ml}
-                    onClick={async () => {
+                    onClick={() => {
                       setWaterGoalMl(ml)
-                      await save(ml)
-                      setStep("done")
+                      void saveAndFinish(ml)
                     }}
                     className={`flex flex-col items-center justify-center rounded-xl border py-4 min-h-[72px] text-lg font-bold transition-all active:scale-95 ${
                       waterGoalMl === ml
@@ -387,11 +405,16 @@ export default function CheckInPage() {
               {/* The only step with no way past it without choosing — finish
                   with whatever goal is already set (2L default). */}
               <button
-                onClick={async () => { await save(waterGoalMl); setStep("done") }}
+                onClick={() => void saveAndFinish(waterGoalMl)}
                 className="mt-4 w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
                 Skip — keep {waterGoalMl >= 1000 ? `${waterGoalMl / 1000}L` : `${waterGoalMl}ml`}
               </button>
+              {saveError && (
+                <p role="alert" className="mt-3 text-sm text-destructive text-center">
+                  Not saved. {saveError}
+                </p>
+              )}
             </CardContent>
           </Card>
         )}
@@ -445,7 +468,10 @@ export default function CheckInPage() {
                   />
                   <div className="flex items-center justify-between mt-1.5">
                     <span className="text-[11px] text-muted-foreground">
-                      {noteStatus === "saving" ? "Saving…" : noteStatus === "saved" ? "✓ Saved to journal" : ""}
+                      {noteStatus === "saving" ? "Saving…"
+                        : noteStatus === "saved" ? "✓ Saved to journal"
+                        : noteStatus === "failed" ? <span className="text-destructive">Not saved — try again</span>
+                        : ""}
                     </span>
                     <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={saveNote} disabled={noteStatus === "saving"}>
                       Save note

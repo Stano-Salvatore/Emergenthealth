@@ -39,6 +39,21 @@ export const SYNC_SOURCES = [
 export type SyncSourceId = (typeof SYNC_SOURCES)[number]["id"]
 
 /**
+ * The request that runs one source's sync. Last.fm and RescueTime each have a
+ * single route with the sync behind an action, not one under /api/sync — a
+ * POST there is a 404 that looks, from the status row, like a quiet sync.
+ */
+export function syncRequest(id: string): { url: string; init: RequestInit } {
+  if (id === "lastfm" || id === "rescuetime") {
+    return {
+      url: `/api/${id}`,
+      init: { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sync" }) },
+    }
+  }
+  return { url: `/api/sync/${id}`, init: { method: "POST" } }
+}
+
+/**
  * How one endpoint of a multi-endpoint source went.
  *
  * A blank column has four possible causes and only one of them is a bug: we

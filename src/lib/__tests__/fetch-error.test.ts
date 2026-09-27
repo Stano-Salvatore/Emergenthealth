@@ -1,6 +1,24 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
-import { describeFetchFailure } from "@/lib/fetch-error"
+import { describeFetchFailure, HttpStatusError } from "@/lib/fetch-error"
+
+describe("a response that came back and said no", () => {
+  // fetch resolves on a 401 or a 500. Screens that never looked at res.ok
+  // celebrated a save the server had refused; the ones that check now need a
+  // sentence for it that isn't about the network.
+  it("names a signed-out session as that", () => {
+    const said = describeFetchFailure(new HttpStatusError(401), false)
+    expect(said).toMatch(/signed out/i)
+    expect(said).not.toMatch(/connection/i)
+  })
+
+  it("names a server error as that, and ends in what to do", () => {
+    const said = describeFetchFailure(new HttpStatusError(500), false)
+    expect(said).toMatch(/server/i)
+    expect(said).toMatch(/try again/i)
+    expect(said).not.toMatch(/connection/i)
+  })
+})
 
 // Eleven handlers across six screens said "Network error" for anything that
 // threw, with the error itself discarded unread — `catch {`, no binding. None

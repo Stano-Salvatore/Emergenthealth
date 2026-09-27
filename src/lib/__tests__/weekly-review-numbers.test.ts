@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 
-import { stepsLine, habitWeekRows } from "@/lib/weekly-review"
+import { stepsLine } from "@/lib/weekly-review"
 
 // The weekly review hands the model numbers already aggregated, and the model
 // believes them. Three of those numbers were wrong in the direction that
@@ -23,47 +23,6 @@ describe("steps are a daily average over the days that were tracked", () => {
 
   it("says there is no data rather than a zero", () => {
     expect(stepsLine([null, null], [])).toMatch(/no data/)
-  })
-})
-
-describe("a habit's rate is against the days it was due", () => {
-  const week = "2026-09-21" // a Monday
-  const done = (...days: string[]) => days.map(d => ({ date: new Date(d + "T00:00:00Z") }))
-
-  it("a Mon/Wed/Fri habit done all three times is 3/3, not 3/7", () => {
-    const [row] = habitWeekRows(
-      [{ name: "Gym", scheduleDays: [1, 3, 5], timesPerWeek: null, completions: done("2026-09-21", "2026-09-23", "2026-09-25") }],
-      week, 7,
-    )
-    expect(row.due).toBe(3)
-    expect(row.pct).toBe(100)
-    expect(row.line).toMatch(/Gym \(Mon · Wed · Fri\): 3\/3/)
-  })
-
-  it("a 3x-a-week habit is measured against three", () => {
-    const [row] = habitWeekRows(
-      [{ name: "Run", scheduleDays: [], timesPerWeek: 3, completions: done("2026-09-22", "2026-09-24") }],
-      week, 7,
-    )
-    expect(row.due).toBe(3)
-    expect(row.pct).toBe(67)
-  })
-
-  it("a daily habit is still out of the days so far", () => {
-    const [row] = habitWeekRows(
-      [{ name: "Read", scheduleDays: [], timesPerWeek: null, completions: done("2026-09-21") }],
-      week, 3,
-    )
-    expect(row.due).toBe(3)
-    expect(row.line).toMatch(/Read \(daily\): 1\/3/)
-  })
-
-  it("a habit not yet due this week has no rate rather than 0%", () => {
-    const [row] = habitWeekRows(
-      [{ name: "Sauna", scheduleDays: [0], timesPerWeek: null, completions: [] }],
-      week, 3,
-    )
-    expect(row.pct).toBeNull()
   })
 })
 

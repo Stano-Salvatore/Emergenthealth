@@ -76,5 +76,16 @@ export function hydrationBreakdown(logs: DrinkLike[]): { total: number; water: n
   return { total: water + other, water, other }
 }
 
+/**
+ * The day's water goal: the answer given in today's check-in, else the one in
+ * Settings. One rule, so Home, the Log tab, the Overview tab and the brief
+ * stop measuring the same day against three different targets.
+ */
+export function resolveWaterGoal(checkinGoalMl: number | null | undefined, settingsGoalMl: number): number {
+  return typeof checkinGoalMl === "number" && Number.isFinite(checkinGoalMl) && checkinGoalMl > 0
+    ? checkinGoalMl
+    : settingsGoalMl
+}
+
 /** SQL fragment listing the types worth selecting — excludes the zero-factor ones. */
 export const HYDRATING_TYPES = Object.keys(HYDRATION_FACTOR).filter(t => !NON_HYDRATING.has(t))

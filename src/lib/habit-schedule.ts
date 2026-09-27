@@ -183,6 +183,55 @@ export function streakAtRiskTonight(
   return streak >= 1 && dayOfWeek(todayStr) === 0 && weekCount(completionDays, todayStr) === (h.timesPerWeek ?? 0) - 1
 }
 
+/**
+ * How a habit did from `fromDay` (the week's Monday) to `todayStr`: days done
+ * against days the schedule asked for.
+ *
+ * Today is still in progress: done, it counts on both sides; not yet done, on
+ * neither. A skipped day, a vacation day and a day before the habit existed
+ * were never asked, so they drop out. A day done off-schedule counts, as it
+ * does on Home. `due` of 0 means nothing was asked yet — the caller shows
+ * that as absent, not as 0%.
+ *
+ * A weekly-target habit has no particular days to miss, so it is judged only
+ * once its week is settled: target met, or out of reach in the days left
+ * (today included). Until then `due` is 0 — "1 of 3" on a Wednesday is on
+ * track, and scoring it 33% painted every such habit red each Monday. A week
+ * the habit didn't exist for from its Monday, or with a skip or a vacation
+ * day in it, is never failed, as habitStreak bridges it.
+ */
+export function weekTally(
+  h: HabitSchedule,
+  completionDays: Set<string>,
+  skipDays: Set<string>,
+  fromDay: string,
+  todayStr: string,
+  createdDay?: string | null,
+  isFrozen: (day: string) => boolean = () => false,
+): { done: number; due: number } {
+  let done = 0
+  if (h.timesPerWeek != null) {
+    const target = h.timesPerWeek
+    let bridged = createdDay != null && createdDay > fromDay
+    for (let d = fromDay; d <= todayStr; d = addDaysISO(d, 1)) {
+      if (completionDays.has(d)) done++
+      else if (skipDays.has(d) || isFrozen(d)) bridged = true
+    }
+    done = Math.min(done, target)
+    const daysLeft = 7 - ((dayOfWeek(todayStr) + 6) % 7)
+    const missed = !bridged && target - done > daysLeft
+    return { done, due: done >= target || missed ? target : 0 }
+  }
+  let due = 0
+  const start = createdDay && createdDay > fromDay ? createdDay : fromDay
+  for (let d = start; d <= todayStr; d = addDaysISO(d, 1)) {
+    if (completionDays.has(d)) { done++; due++; continue }
+    if (d === todayStr || skipDays.has(d) || isFrozen(d) || !isScheduledOn(h, d)) continue
+    due++
+  }
+  return { done, due }
+}
+
 /** Human line for the card: "Mon · Wed · Fri", "3× a week", or null for daily. */
 export function scheduleLabel(h: HabitSchedule): string | null {
   if (h.timesPerWeek != null) return `${h.timesPerWeek}× a week`
