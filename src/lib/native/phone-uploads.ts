@@ -63,12 +63,13 @@ export function drainPhone(): Promise<void> {
 
 /**
  * Resolves once the phone's buffers have reached the server, or after
- * `timeoutMs`, whichever is first. Immediate on the web and after the first
- * completed drain of this page load; otherwise waits for the drain in
- * flight, or for one to start.
+ * `timeoutMs`, whichever is first. Immediate on the web. Waits for a drain
+ * in flight; with none in flight, immediate after the first completed drain
+ * of this page load, and otherwise waits for one to start.
  */
 export function waitForPhoneDrain(timeoutMs = DRAIN_WAIT_MS): Promise<void> {
-  if (!Capacitor.isNativePlatform() || drainedOnce) return Promise.resolve()
+  if (!Capacitor.isNativePlatform()) return Promise.resolve()
+  if (!inFlight && drainedOnce) return Promise.resolve()
   const drained = inFlight ?? new Promise<void>(resolve => { waiters.push(resolve) })
   const deadline = new Promise<void>(resolve => { setTimeout(resolve, timeoutMs) })
   return Promise.race([drained, deadline])

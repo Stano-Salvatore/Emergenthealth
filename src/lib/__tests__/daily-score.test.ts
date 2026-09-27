@@ -111,6 +111,58 @@ describe("computeDailyScore", () => {
   })
 })
 
+describe("a day still in progress", () => {
+  // Steps, active minutes and high-stress time are running totals until the
+  // day ends. Scored against full-day medians, 09:00's 1,200 steps read as a
+  // collapse: every morning came out "Below your usual — Movement pulled it
+  // down", and climbed back to ordinary by evening without anything changing.
+  // Stress runs the other way: near zero at 09:00, so it lifted Mind.
+  const withStress = () =>
+    typicalHistory().map((d, i) => ({ ...d, stressHigh: 60 + [1, -1, 0][i % 3] * 20 }))
+  const morning: ScoreDay = { ...typicalDay, steps: 1200, activeMinutes: 5, stressHigh: 0, mood: 3 }
+
+  it("leaves the running totals out of today's score rather than scoring a partial day", () => {
+    const r = computeDailyScore(morning, withStress(), { dayInProgress: true })
+    expect(r.components.find(c => c.key === "activity")!.score).toBeNull()
+    expect(r.score).toBeGreaterThanOrEqual(45)
+    expect(r.score).toBeLessThanOrEqual(55)
+    expect(r.driver).toBeNull()
+  })
+
+  it("does not let this morning's near-zero stress count either", () => {
+    const r = computeDailyScore(morning, withStress(), { dayInProgress: true })
+    const mind = r.components.find(c => c.key === "mind")!
+    expect(mind.parts.map(p => p.label)).not.toContain("High stress")
+  })
+
+  it("a held-back Movement is not reported as missing input", () => {
+    // Sleep, recovery and mind all present: nothing is missing, so the card
+    // must not say "80% of the usual inputs were available today".
+    const hist = withStress().map((d, i) => ({ ...d, mood: 3 + [1, -1, 0][i % 3] }))
+    const r = computeDailyScore(morning, hist, { dayInProgress: true })
+    expect(r.coverage).toBe(1)
+    expect(r.dayInProgress).toBe(true)
+  })
+
+  it("a finished day is still scored on its totals", () => {
+    const r = computeDailyScore(morning, withStress())
+    expect(r.components.find(c => c.key === "activity")!.score).toBeLessThan(15)
+  })
+})
+
+describe("stress is shown in the unit it is stored in", () => {
+  // HealthLog.stressHigh is minutes (oura.ts divides Oura's seconds by 60
+  // before it is written), and the scorer divided by 60 again: 90 minutes
+  // read "High stress: 2m · usually 1m".
+  it("90 minutes reads as 90m", () => {
+    const hist = typicalHistory().map((d, i) => ({ ...d, stressHigh: 60 + [1, -1, 0][i % 3] * 20 }))
+    const r = computeDailyScore({ ...typicalDay, stressHigh: 90 }, hist)
+    const part = r.components.find(c => c.key === "mind")!.parts.find(p => p.label === "High stress")!
+    expect(part.value).toBe("90m")
+    expect(part.baseline).toBe("60m")
+  })
+})
+
 describe("scoreGrade", () => {
   it("calls the midpoint normal rather than a failure", () => {
     expect(scoreGrade(50).label).toBe("About your usual")

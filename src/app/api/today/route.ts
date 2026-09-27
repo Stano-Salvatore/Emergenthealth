@@ -54,14 +54,19 @@ export async function GET() {
   const latestHealth = await prisma.healthLog.findFirst({
     where: { userId },
     orderBy: { date: "desc" },
-    select: { sleepDuration: true, sleepScore: true, readinessScore: true },
+    select: { date: true, sleepDuration: true, sleepScore: true, readinessScore: true },
   }).catch(() => null)
 
-  const sleepHours = latestHealth?.sleepDuration != null ? latestHealth.sleepDuration / 60 : null
+  // The newest row is last night only when it is dated today, the day the
+  // night ended. Before the morning's sync it is the night before last, and
+  // the popup showed that undated as "How you slept" — under Emergy saying
+  // there was no sleep data yet. Same rule as /api/briefing's sleepIsToday.
+  const lastNight = latestHealth && isoDay(latestHealth.date) === todayStr ? latestHealth : null
+  const sleepHours = lastNight?.sleepDuration != null ? lastNight.sleepDuration / 60 : null
   const sleep = {
     hours: sleepHours ? Math.round(sleepHours * 10) / 10 : null,
-    sleepScore: latestHealth?.sleepScore ?? null,
-    readiness: latestHealth?.readinessScore ?? null,
+    sleepScore: lastNight?.sleepScore ?? null,
+    readiness: lastNight?.readinessScore ?? null,
     adequate: sleepHours != null ? sleepHours >= 7 : null,
   }
 

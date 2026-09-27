@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import Anthropic from "@anthropic-ai/sdk"
-import { localDateStr } from "@/lib/local-date"
+import { addDaysISO, localDateStr, localTimeStr, zonedDayRange } from "@/lib/local-date"
+import { parseInsightsCache, insightForModel } from "@/lib/insights-cache"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
@@ -52,7 +53,12 @@ export async function GET(req: NextRequest) {
   // A cached brief that merely wants a refresh (period crossed, sleep landed)
   // is still worth serving when generation is impossible — see the no-key
   // gate below the cache check.
-  let staleButServable: { briefing: string; generatedAt: string } | null = null
+  let staleButServable: { briefing: string; generatedAt: string; period?: string } | null = null
+
+  // The instants the user's day runs between, for timestamp columns. A UTC
+  // midnight here dropped the water logged at 00:40 in Prague from "Water so
+  // far" while the dashboard's tile, on zonedDayRange, counted it.
+  const { start: todayStart, end: todayEnd } = zonedDayRange(timezone, todayStr)
 
   // Check cache unless force-refresh
   if (!force) {
@@ -63,7 +69,10 @@ export async function GET(req: NextRequest) {
         LIMIT 1
       `
       if (cached.length > 0) {
-        const parsed = JSON.parse(cached[0].value) as { briefing: string; generatedAt: string; hadSleep?: boolean; period?: string }
+        const parsed = JSON.parse(cached[0].value) as {
+          briefing: string; generatedAt: string; hadSleep?: boolean
+          sleepSource?: "ring" | "phone" | null; hadCheckin?: boolean; period?: string
+        }
         // The cache is per-day but the framing is per-period: a morning brief
         // served at 19:00 would still be planning a day that already happened.
         // Crossing into a new period regenerates — at most three briefs a day.
@@ -78,29 +87,51 @@ export async function GET(req: NextRequest) {
         // on foreground and can land a second after a cold open's brief was
         // generated; checking only the ring's row here kept that sleepless
         // brief all morning on exactly the nights the phone exists for.
-        let sleepArrived = false
-        if (!periodChanged && parsed.hadSleep === false) {
-          const dayStart = new Date(todayStr + "T00:00:00.000Z")
-          const dayEnd = new Date(todayStr + "T23:59:59.999Z")
-          const [ring, phone] = await Promise.all([
-            prisma.healthLog.findFirst({
-              where: { userId, date: new Date(todayStr), sleepDuration: { not: null } },
-              select: { id: true },
-            }).catch(() => null),
-            prisma.phoneSleepSegment.findFirst({
-              where: { userId, status: 0, end: { gte: dayStart, lte: dayEnd } },
-              select: { start: true, end: true },
-              orderBy: { end: "desc" },
-            }).catch(() => null),
+        //
+        // A brief built on the phone's night waits for the ring's, too: the
+        // ring wins, and at 07:06 its 7.4 h landed a minute after a brief had
+        // quoted the phone's 6.1 h — which was then served until noon above a
+        // Sleep card showing the ring's figure. The next brief is cached as
+        // "ring", so this regenerates once and not on every request.
+        //
+        // And the check-in: a brief written at 07:02 never mentioned the
+        // energy 2/5 and the intention given at 07:10, though reading them is
+        // what a morning brief is for.
+        const wasSleepless = parsed.hadSleep === false
+        const wasPhone = parsed.sleepSource === "phone"
+        const lackedCheckin = parsed.hadCheckin === false
+        let newInput = false
+        if (!periodChanged && (wasSleepless || wasPhone || lackedCheckin)) {
+          const [ring, phone, checkin] = await Promise.all([
+            wasSleepless || wasPhone
+              ? prisma.healthLog.findFirst({
+                where: { userId, date: new Date(todayStr), sleepDuration: { not: null } },
+                select: { id: true },
+              }).catch(() => null)
+              : null,
+            wasSleepless
+              ? prisma.phoneSleepSegment.findFirst({
+                where: { userId, status: 0, end: { gte: todayStart, lte: todayEnd } },
+                select: { start: true, end: true },
+                orderBy: { end: "desc" },
+              }).catch(() => null)
+              : null,
+            lackedCheckin
+              ? prisma.$queryRaw<{ one: number }[]>`
+                SELECT 1 AS "one" FROM "MorningCheckIn"
+                WHERE "userId" = ${userId} AND "date" = ${todayStr}
+                LIMIT 1
+              `.catch(() => [] as { one: number }[])
+              : [],
           ])
           const phoneNight = phone != null
             && phone.end.getTime() - phone.start.getTime() >= PHONE_NIGHT_MIN_MINUTES * 60_000
-          sleepArrived = ring != null || phoneNight
+          newInput = ring != null || phoneNight || checkin.length > 0
         }
-        if (!periodChanged && !sleepArrived) {
+        if (!periodChanged && !newInput) {
           return NextResponse.json({ briefing: parsed.briefing, generatedAt: parsed.generatedAt, cached: true })
         }
-        staleButServable = { briefing: parsed.briefing, generatedAt: parsed.generatedAt }
+        staleButServable = { briefing: parsed.briefing, generatedAt: parsed.generatedAt, period: parsed.period }
       }
     } catch {
       // fall through to generate
@@ -113,16 +144,21 @@ export async function GET(req: NextRequest) {
   // still better served stale than erased by an error.
   if (!process.env.ANTHROPIC_API_KEY) {
     if (staleButServable) {
-      return NextResponse.json({ ...staleButServable, cached: true })
+      return NextResponse.json({ ...staleButServable, cached: true, stale: true })
     }
     return NextResponse.json({ error: "no_key" }, { status: 503 })
   }
 
   // Gather user data
-  const todayStart = new Date(todayStr + "T00:00:00.000Z")
-  const todayEnd = new Date(todayStr + "T23:59:59.999Z")
+  const yesterdayStr = addDaysISO(todayStr, -1)
+  const yesterdayStart = zonedDayRange(timezone, yesterdayStr).start
+  // HealthLog.date is a @db.Date, stored at UTC midnight of the local date.
+  const yesterdayCol = new Date(yesterdayStr + "T00:00:00Z")
 
-  const yesterdayStart = new Date(todayStart.getTime() - 24 * 3_600_000)
+  // The day the brief's movement line is about, matching the steps beside
+  // it: yesterday's in the morning, today's so far after that.
+  const walkDay = period === "morning" ? yesterdayStr : todayStr
+  const walkRange = zonedDayRange(timezone, walkDay)
 
   const [checkinRows, latestHealth, stepRows, walkSpans, phoneSleep, phoneUse, habitRows, intakeRows, foodRows, workoutRows, insightsRow, medTagRows] = await Promise.all([
     prisma.$queryRaw<{ energy: number; mood: number; intention: string | null }[]>`
@@ -149,14 +185,17 @@ export async function GET(req: NextRequest) {
     // as "you have not moved in a month". It said exactly that to somebody who
     // had walked 12,000 steps around Prague the day before.
     prisma.healthLog.findMany({
-      where: { userId, date: { gte: new Date(todayStart.getTime() - 86_400_000) } },
+      where: { userId, date: { gte: yesterdayCol } },
       orderBy: { date: "desc" },
       select: { date: true, steps: true },
       take: 2,
     }).catch(() => [] as { date: Date; steps: number | null }[]),
 
+    // Every walk that overlaps the movement line's day, clipped to it below.
+    // "Since yesterday's midnight" added yesterday's 70 minutes to today's 60
+    // beside "steps so far today".
     prisma.activitySpan.findMany({
-      where: { userId, start: { gte: new Date(todayStart.getTime() - 86_400_000) }, mode: "walk" },
+      where: { userId, start: { lte: walkRange.end }, end: { gte: walkRange.start }, mode: "walk" },
       select: { start: true, end: true },
     }).catch(() => [] as { start: Date; end: Date }[]),
 
@@ -185,8 +224,7 @@ export async function GET(req: NextRequest) {
       FROM "HabitCompletion" hc
       JOIN "Habit" h ON h."id" = hc."habitId"
       WHERE hc."userId" = ${userId}
-        AND hc."date" >= ${todayStart}
-        AND hc."date" <= ${todayEnd}
+        AND hc."date" = ${todayStr}::date
     `.catch(() => [] as { name: string }[]),
 
     prisma.intakeLog.findMany({
@@ -203,7 +241,7 @@ export async function GET(req: NextRequest) {
     }).catch(() => [] as { calories: number; proteinG: number | null; loggedAt: Date }[]),
 
     prisma.stravaActivity.findMany({
-      where: { userId, day: { in: [todayStr, localDateStr(timezone, yesterdayStart)] } },
+      where: { userId, day: { in: [todayStr, yesterdayStr] } },
       select: { type: true, movingTimeSec: true, day: true },
     }).catch(() => [] as { type: string; movingTimeSec: number; day: string }[]),
 
@@ -276,10 +314,12 @@ export async function GET(req: NextRequest) {
     if (night && night.min >= PHONE_NIGHT_MIN_MINUTES) {
       phoneNightUsed = true
       const hrs = (night.min / 60).toFixed(1)
-      const from = night.start.toISOString().slice(11, 16)
-      const to = night.end.toISOString().slice(11, 16)
+      // Local clock times: handed UTC, the model repeated "you slept from
+      // 21:10" to someone in Prague who went to bed at 23:10.
+      const from = localTimeStr(timezone, night.start)
+      const to = localTimeStr(timezone, night.end)
       lines.push(
-        `No ring data for last night, but the PHONE detected sleep: about ${hrs} hours (${from}–${to} UTC). ` +
+        `No ring data for last night, but the PHONE detected sleep: about ${hrs} hours (${from}–${to} local). ` +
         `Call it what it is — the phone's estimate, not the ring's measurement — and do not quote stages, ` +
         `HRV or a sleep score from it, because it has none.`,
       )
@@ -355,15 +395,16 @@ export async function GET(req: NextRequest) {
   // otherwise — but a brief that mentions neither, and then says "no
   // sessions in four weeks", is telling somebody who walked all day that
   // they have been still.
-  const stepsFor = (offsetDays: number): number | null => {
-    const want = new Date(todayStart.getTime() - offsetDays * 86_400_000).toISOString().slice(0, 10)
-    const row = stepRows.find(r => r.date.toISOString().slice(0, 10) === want)
+  const stepsFor = (day: string): number | null => {
+    const row = stepRows.find(r => r.date.toISOString().slice(0, 10) === day)
     return row?.steps ?? null
   }
-  const stepsToday = stepsFor(0)
-  const stepsYesterday = stepsFor(1)
+  const stepsToday = stepsFor(todayStr)
+  const stepsYesterday = stepsFor(yesterdayStr)
   const walkMin = Math.round(
-    walkSpans.reduce((m, w) => m + Math.max(0, (w.end.getTime() - w.start.getTime()) / 60_000), 0),
+    walkSpans.reduce((m, w) => m + Math.max(0,
+      (Math.min(w.end.getTime(), walkRange.end.getTime()) - Math.max(w.start.getTime(), walkRange.start.getTime())) / 60_000,
+    ), 0),
   )
 
   const movement: string[] = []
@@ -372,7 +413,9 @@ export async function GET(req: NextRequest) {
   } else if (stepsToday != null) {
     movement.push(`${stepsToday.toLocaleString("en-GB")} steps so far today`)
   }
-  if (walkMin >= 10) movement.push(`${walkMin} min the phone recognised as walking`)
+  if (walkMin >= 10) {
+    movement.push(`${walkMin} min the phone recognised as walking ${period === "morning" ? "yesterday" : "so far today"}`)
+  }
   if (movement.length > 0) {
     lines.push(`Movement: ${movement.join(", ")}. This is not a logged workout, and it is still moving — do not call a day like this inactive.`)
   }
@@ -383,7 +426,7 @@ export async function GET(req: NextRequest) {
     loadSessionsForUser(userId, todayStr),
     getGoals(userId),
     prisma.healthLog.findMany({
-      where: { userId, date: { gte: new Date(todayStart.getTime() - 30 * 86_400_000) }, readinessScore: { not: null } },
+      where: { userId, date: { gte: new Date(addDaysISO(todayStr, -30) + "T00:00:00Z") }, readinessScore: { not: null } },
       select: { date: true, readinessScore: true },
     }).catch(() => [] as { date: Date; readinessScore: number | null }[]),
   ])
@@ -429,16 +472,15 @@ export async function GET(req: NextRequest) {
 
   // The strongest thing the correlation engine currently believes, so the
   // brief can connect this morning to a pattern rather than just narrate it.
-  try {
-    const cached = insightsRow ? JSON.parse(insightsRow.value) : null
-    const solid = (cached?.payload?.insights ?? [])
-      .filter((i: { tier?: string }) => i.tier === "strong")
-      .slice(0, 2)
-      .map((i: { finding: string }) => i.finding)
-    if (solid.length > 0) {
-      lines.push(`Established patterns for this user: ${solid.join(" | ")}.`)
-    }
-  } catch { /* no insights yet */ }
+  // Each with its caveats, or a card the Insights page marks as bedtime or
+  // weekends in disguise reaches the model as a plain fact.
+  const solid = parseInsightsCache(insightsRow?.value).insights
+    .filter(i => i.tier === "strong" && (i.finding ?? i.title))
+    .slice(0, 2)
+    .map(i => insightForModel(i))
+  if (solid.length > 0) {
+    lines.push(`Established patterns for this user (a "caveat:" stays with its pattern — never state that pattern as settled): ${solid.join(" | ")}.`)
+  }
 
   // Anything genuinely unusual for this person today. Population norms are
   // useless here — the point is the deviation from their own median.
@@ -523,7 +565,10 @@ export async function GET(req: NextRequest) {
 
   // Store in cache
   try {
-    const cacheValue = JSON.stringify({ briefing, generatedAt, hadSleep: sleepIsToday || phoneNightUsed, period })
+    const sleepSource = sleepIsToday ? "ring" : phoneNightUsed ? "phone" : null
+    const cacheValue = JSON.stringify({
+      briefing, generatedAt, hadSleep: sleepSource !== null, sleepSource, hadCheckin: checkin != null, period,
+    })
     await prisma.$executeRaw`
       INSERT INTO "UserPreference" ("userId","key","value") VALUES (${userId},${cacheKey},${cacheValue})
       ON CONFLICT ("userId","key") DO UPDATE SET "value"=${cacheValue}

@@ -10,7 +10,7 @@ import { waitForPhoneDrain } from "@/lib/native/phone-uploads"
 
 type BriefingState =
   | { status: "loading" }
-  | { status: "loaded"; briefing: string; generatedAt: string }
+  | { status: "loaded"; briefing: string; generatedAt: string; staleFrom: string | null }
   | { status: "empty" }
   | { status: "unavailable" }
 
@@ -30,12 +30,16 @@ async function loadBriefing(force: boolean): Promise<BriefingState> {
   try {
     const res = await fetch(force ? "/api/briefing?force=1" : "/api/briefing")
     if (!res.ok) return { status: "unavailable" }
-    const data = await res.json() as { briefing?: string; generatedAt?: string }
+    const data = await res.json() as { briefing?: string; generatedAt?: string; stale?: boolean; period?: string }
     if (!data.briefing) return { status: "empty" }
     return {
       status: "loaded",
       briefing: data.briefing,
       generatedAt: data.generatedAt ?? new Date().toISOString(),
+      // The server serves an out-of-date brief rather than nothing when it
+      // cannot write a new one. At 19:00 that was the morning's "the day is
+      // ahead…" under a plain timestamp, reading as current.
+      staleFrom: data.stale ? (data.period ?? "") : null,
     }
   } catch {
     return { status: "unavailable" }
@@ -70,7 +74,30 @@ export function DailyBriefing() {
       const next = await loadBriefing(false)
       if (!cancelled) setState(next)
     })()
-    return () => { cancelled = true }
+
+    // Coming back to the app is when a check-in or the ring's night has
+    // usually just landed. The server regenerates once when either arrives
+    // and otherwise answers from its cache, so asking again is cheap; a
+    // failed ask keeps the brief already on screen.
+    //
+    // The first foreground of a new day writes that day's brief, so it waits
+    // for the drain NativeBridge starts on the same event. This listener was
+    // added first and runs first: the timeout lets NativeBridge's run, and
+    // the wait then holds for the drain it began.
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return
+      void (async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+        await waitForPhoneDrain()
+        const next = await loadBriefing(false)
+        if (!cancelled && next.status === "loaded") setState(next)
+      })()
+    }
+    document.addEventListener("visibilitychange", onVisible)
+    return () => {
+      cancelled = true
+      document.removeEventListener("visibilitychange", onVisible)
+    }
   }, [])
 
   async function handleRefresh() {
@@ -129,7 +156,7 @@ export function DailyBriefing() {
     )
   }
 
-  const { briefing, generatedAt } = state
+  const { briefing, generatedAt, staleFrom } = state
 
   return (
     <div className="flex items-end gap-2.5">
@@ -144,7 +171,11 @@ export function DailyBriefing() {
         <div className="text-sm leading-relaxed text-foreground/90"><ChatMarkdown text={briefing} /></div>
         <div className="mt-2 flex items-center justify-between gap-2">
           <p className="text-[10px] text-muted-foreground/60">
-            Emergy · {generatedLabel(generatedAt)}
+            Emergy · {staleFrom == null
+              ? generatedLabel(generatedAt)
+              : staleFrom
+                ? `from this ${staleFrom}, couldn't refresh`
+                : `${generatedLabel(generatedAt)}, couldn't refresh`}
           </p>
           <button
             onClick={handleRefresh}

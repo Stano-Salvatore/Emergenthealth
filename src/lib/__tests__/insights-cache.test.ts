@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
-import { parseInsightsCache, insightsCacheState, shareInFlight } from "@/lib/insights-cache"
+import { parseInsightsCache, insightsCacheState, shareInFlight, insightForModel } from "@/lib/insights-cache"
 
 // Two readers of insights_cache:overall in the SAME file disagreed about its
 // shape: the chat context read `payload.insights` (correct — the envelope the
@@ -123,3 +123,39 @@ describe("one engine run per user and period at a time", () => {
 
 const stripped = (f: string) =>
   readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+
+describe("a card's caveats travel with it to the model", () => {
+  // The Insights page shows "Weekend pattern?", the confound sentence and the
+  // coverage note under a Solid card. The brief and Emergy's system prompt
+  // took only `finding`, so a card flagged "nights with caffeine after 16:00
+  // typically began 150 minutes later, so some of this gap is bedtime"
+  // reached the model as a plain established fact, and the morning brief told
+  // the user coffee costs them 12 points of sleep.
+  const stripped = (f: string) =>
+    readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+  const confounded = "Bedtime does not hold still here. Nights with caffeine after 16:00 typically began 150 minutes later, so some of this gap is bedtime."
+
+  it("keeps the confound, the weekend flag and the coverage note", () => {
+    const line = insightForModel({
+      finding: "After caffeine past 16:00, sleep score averages 70 vs 82",
+      weekendDriven: true, confounded, coverage: "Rests on 32 logged days of 90.",
+    })
+    expect(line).toContain("After caffeine past 16:00, sleep score averages 70 vs 82")
+    expect(line).toMatch(/weekend/i)
+    expect(line).toContain(confounded)
+    expect(line).toContain("Rests on 32 logged days of 90.")
+  })
+
+  it("adds nothing to a card with no caveats", () => {
+    expect(insightForModel({ finding: "More steps, deeper sleep" })).toBe("More steps, deeper sleep")
+  })
+
+  it("the brief and the system prompt both go through it, and the brief through the parser", () => {
+    const brief = stripped("src/app/api/briefing/route.ts")
+    expect(brief).toMatch(/parseInsightsCache\(/)
+    expect(brief).toMatch(/insightForModel\(/)
+    expect(/payload\??\.insights/.test(brief), "the brief still hand-parses the insights cache").toBe(false)
+    const chat = stripped("src/lib/claude.ts")
+    expect(chat.match(/insightForModel\(/g)?.length ?? 0, "the system prompt and the patterns tool must both use it").toBeGreaterThanOrEqual(2)
+  })
+})

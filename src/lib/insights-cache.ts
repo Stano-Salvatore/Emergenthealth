@@ -22,6 +22,22 @@ export interface CachedInsight {
   [key: string]: unknown
 }
 
+/**
+ * One card as a line for a model to read, with the caveats the Insights page
+ * shows under it. A card flagged as weekend-driven, confounded or thinly
+ * covered is still a card, and it still reaches the model — but handed over
+ * as `finding` alone it arrived as a plain established fact, and the brief
+ * repeated it as one while the page beneath said otherwise.
+ */
+export function insightForModel(i: CachedInsight): string {
+  const text = i.finding ?? i.title ?? ""
+  const caveats: string[] = []
+  if (i.weekendDriven) caveats.push("mostly weekends — the effect fades or flips on weekdays alone")
+  if (i.confounded) caveats.push(i.confounded)
+  if (i.coverage) caveats.push(i.coverage)
+  return caveats.length > 0 ? `${text} (caveat: ${caveats.join("; ")})` : text
+}
+
 export function parseInsightsCache(raw: string | null | undefined): { insights: CachedInsight[]; at: number | null } {
   if (!raw) return { insights: [], at: null }
   try {
