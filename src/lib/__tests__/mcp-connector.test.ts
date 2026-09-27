@@ -36,6 +36,8 @@ const db = vi.hoisted(() => {
   }
 })
 vi.mock("@/lib/prisma", () => ({ prisma: db }))
+const phoneDay = vi.hoisted(() => ({ phoneDaySummary: vi.fn(async (..._a: unknown[]): Promise<unknown> => null) }))
+vi.mock("@/lib/phone-day", () => phoneDay)
 
 import { NextRequest } from "next/server"
 import { POST } from "@/app/api/mcp/route"
@@ -196,6 +198,13 @@ describe("dates and amounts from the model are validated", () => {
     expect(db.morningCheckIn.findMany).not.toHaveBeenCalled()
   })
 
+  it("get_journal takes 'today' or a padded date, and refuses the rest", async () => {
+    expect((await call("get_journal", { date: "2026-9-1" })).isError).toBe(true)
+    expect(db.dailyNote.findUnique).not.toHaveBeenCalled()
+    await call("get_journal", { date: "today" })
+    expect(iso(arg(db.dailyNote.findUnique).where.userId_date.date)).toBe("2026-09-27T00:00:00.000Z")
+  })
+
   it("a zero or negative drink is refused", async () => {
     expect((await call("log_intake", { type: "water", amount_ml: 0 })).isError).toBe(true)
     expect((await call("log_intake", { type: "water", amount_ml: -250 })).isError).toBe(true)
@@ -264,6 +273,17 @@ describe("timestamp columns are windowed by the user's day, and times are local"
     expect((r.json as Record<string, { time: string }[]>)["2026-09-27"][0].time).toBe("06:00")
   })
 
+  it("get_phone_day: the phone-detected night carries its local clock time", async () => {
+    // The night block beside it is local ("23:40"); a bare UTC ISO string
+    // there read as a 00:05 bedtime for a night that began at 02:05.
+    phoneDay.phoneDaySummary.mockResolvedValue({
+      date: "2026-09-27", night: { phoneDownAt: "23:40" },
+      phoneDetectedSleep: [{ day: "2026-09-27", minutes: 276, label: "4h 36m", start: "2026-09-27T00:05:00.000Z", end: "2026-09-27T04:41:00.000Z" }],
+    })
+    const r = await call("get_phone_day", { date: "2026-09-27" })
+    expect((r.json as { phoneDetectedSleep: object[] }).phoneDetectedSleep[0]).toMatchObject({ startLocal: "02:05", endLocal: "06:41" })
+  })
+
   it("get_daily_briefing: local-day windows for drinks and focus, local tag times", async () => {
     db.ouraTag.findMany.mockResolvedValue([
       { timestamp: new Date("2026-09-27T19:00:00Z"), tagName: "Melatonin", text: null },
@@ -322,13 +342,38 @@ describe("habit tools respect the range and the schedule", () => {
   it("the briefing counts only habits due that day", async () => {
     // On a Tuesday a Mon/Wed/Fri habit was counted as not done: "2/5 habits".
     db.habit.findMany.mockResolvedValue([
-      { id: "a", name: "Walk", scheduleDays: [], timesPerWeek: null, completions: [day("2026-09-22")] },
-      { id: "b", name: "Gym", scheduleDays: [1, 3, 5], timesPerWeek: null, completions: [day("2026-09-21")] },
+      { id: "a", name: "Walk", scheduleDays: [], timesPerWeek: null, completions: [day("2026-09-22")], skips: [] },
+      { id: "b", name: "Gym", scheduleDays: [1, 3, 5], timesPerWeek: null, completions: [day("2026-09-21")], skips: [] },
     ])
     const r = await call("get_daily_briefing", { date: "2026-09-22" })
     const habits = (r.json as { habits: { completed: number; total: number; list: { name: string }[] } }).habits
     expect(habits).toMatchObject({ completed: 1, total: 1 })
     expect(habits.list.map(h => h.name)).toEqual(["Walk"])
+  })
+
+  it("the briefing reports a skipped habit as skipped, not as left undone", async () => {
+    // The app's tile counts a skip toward done/due; "1 of 2 done" with no
+    // mention of the skip read as a missed habit.
+    db.habit.findMany.mockResolvedValue([
+      { id: "a", name: "Walk", scheduleDays: [], timesPerWeek: null, completions: [day("2026-09-22")], skips: [] },
+      { id: "b", name: "Run", scheduleDays: [], timesPerWeek: null, completions: [], skips: [day("2026-09-22")] },
+    ])
+    const r = await call("get_daily_briefing", { date: "2026-09-22" })
+    const habits = (r.json as { habits: { completed: number; skipped: number; total: number; list: { name: string; skipped: boolean }[] } }).habits
+    expect(habits).toMatchObject({ completed: 1, skipped: 1, total: 2 })
+    expect(habits.list.find(h => h.name === "Run")?.skipped).toBe(true)
+  })
+
+  it("vacation days are not counted as missed in the completion rate", async () => {
+    // The streak on the Habits page freezes over vacation; the rate read
+    // those days as misses and halved.
+    db.$queryRaw.mockResolvedValue([{ value: JSON.stringify({ active: true, from: "2026-09-21", until: "2026-09-23" }) }])
+    db.habit.findMany.mockResolvedValue([{
+      id: "h", name: "Walk", scheduleDays: [], timesPerWeek: null, skips: [],
+      completions: ["2026-09-24", "2026-09-25", "2026-09-26"].map(day),
+    }])
+    const r = await call("get_habit_completions", { startDate: "2026-09-21", endDate: "2026-09-26" })
+    expect((r.json as { rate: string }[])[0].rate).toBe("100%")
   })
 })
 

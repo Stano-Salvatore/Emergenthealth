@@ -150,7 +150,18 @@ function buildMcpServer(userId: string): McpServer {
     async ({ date }) => {
       const timezone = await getUserTimezone(userId)
       const day = date ?? await todayFor(userId)
-      return ok(await phoneDaySummary(userId, day, timezone))
+      const summary = await phoneDaySummary(userId, day, timezone)
+      // The night block is in local clock time; the detected-sleep instants
+      // are UTC ISO strings. Side by side, "00:05" out of an ISO string reads
+      // as a local bedtime, so each carries its local reading too.
+      return ok({
+        ...summary,
+        phoneDetectedSleep: summary.phoneDetectedSleep.map(n => ({
+          ...n,
+          startLocal: localTimeStr(timezone, new Date(n.start)),
+          endLocal: localTimeStr(timezone, new Date(n.end)),
+        })),
+      })
     })
 
   server.tool(
@@ -288,11 +299,11 @@ function buildMcpServer(userId: string): McpServer {
 
   server.tool(
     "get_habit_completions",
-    "Get habit completion records for a date range, with the share of the days the habit was due that it was done (off-days of its schedule and skipped days are not due; days after today are not counted)",
+    "Get habit completion records for a date range, with the share of the days the habit was due that it was done (off-days of its schedule, skipped days and vacation days are not due; days after today are not counted)",
     dateRange,
     async ({ startDate, endDate }) => {
       const range = { gte: dateColumn(startDate), lte: dateColumnEnd(endDate) }
-      const [habits, tz] = await Promise.all([
+      const [habits, tz, vacation] = await Promise.all([
         prisma.habit.findMany({
           where: { userId, isArchived: false },
           include: {
@@ -301,8 +312,12 @@ function buildMcpServer(userId: string): McpServer {
           },
         }),
         getUserTimezone(userId),
+        getVacationWindow(userId),
       ])
       const today = localDateStr(tz)
+      // Vacation freezes the streak on the Habits page; a rate that counted
+      // those days as missed would contradict it.
+      const isFrozen = makeIsFrozen(vacation)
       return ok(habits.map(h => {
         const done = h.completions.map(c => ymdOf(c.date))
         const doneSet = new Set(done)
@@ -315,8 +330,9 @@ function buildMcpServer(userId: string): McpServer {
           if (born && d < born) continue
           // Today counts once it is done; until then it is still in progress.
           if (d === today && !doneSet.has(d)) continue
+          if (skipped.has(d) || isFrozen(d)) continue
           days++
-          if (skipped.has(d) || !isScheduledOn(schedule, d)) continue
+          if (!isScheduledOn(schedule, d)) continue
           due++
           if (doneSet.has(d)) kept++
         }
@@ -336,7 +352,7 @@ function buildMcpServer(userId: string): McpServer {
   server.tool(
     "get_journal",
     "Read the journal/daily note for a specific date",
-    { date: z.string().describe("YYYY-MM-DD, or 'today'") },
+    { date: z.union([ymd, z.literal("today")]).describe("YYYY-MM-DD, or 'today'") },
     async ({ date }) => {
       const d = date === "today" ? await todayFor(userId) : date
       const note = await prisma.dailyNote.findUnique({
@@ -995,7 +1011,10 @@ function buildMcpServer(userId: string): McpServer {
         prisma.habit.findMany({
           where: { userId, isArchived: false },
           // From the week's Monday, so an N-times-a-week habit can be judged.
-          include: { completions: { where: { date: { gte: dateColumn(weekStart(d)), lte: todayStart } }, select: { date: true } } },
+          include: {
+            completions: { where: { date: { gte: dateColumn(weekStart(d)), lte: todayStart } }, select: { date: true } },
+            skips: { where: { date: todayStart }, select: { date: true } },
+          },
         }),
         prisma.reminder.findMany({
           where: { userId, isCompleted: false, dueDate: { lte: new Date(d + "T23:59:59Z") } },
@@ -1029,7 +1048,9 @@ function buildMcpServer(userId: string): McpServer {
       const habitList = habits.flatMap(h => {
         const done = new Set(h.completions.map(c => ymdOf(c.date)))
         const schedule = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
-        return isDueOn(schedule, d, done) || done.has(d) ? [{ name: h.name, done: done.has(d) }] : []
+        return isDueOn(schedule, d, done) || done.has(d)
+          ? [{ name: h.name, done: done.has(d), skipped: !done.has(d) && h.skips.length > 0 }]
+          : []
       })
       const moodLabels = ["", "Awful", "Bad", "Okay", "Good", "Great"]
 
@@ -1053,7 +1074,9 @@ function buildMcpServer(userId: string): McpServer {
           .map(tag => ({ time: localTimeStr(tz, tag.timestamp), tag: (tag.tagName ?? tag.text ?? "").trim() }))
           .filter(t => t.tag),
         journal: journalNote?.content ?? null,
-        habits: { completed: habitList.filter(h => h.done).length, total: habitList.length, list: habitList },
+        // A skip is neither done nor missed; the app's tile counts it toward
+        // done/due, so it is reported rather than left to read as undone.
+        habits: { completed: habitList.filter(h => h.done).length, skipped: habitList.filter(h => h.skipped).length, total: habitList.length, list: habitList },
         intake: { water_ml: waterMl, water_glasses: Math.round(waterMl / 250 * 10) / 10, coffee_cups: coffeeCups },
         focus: { total_min: focusMin, sessions: focusSessions.length },
         upcoming_reminders: reminders.map(r => ({ title: r.title, due: r.dueDate?.toISOString().slice(0, 10) })),
