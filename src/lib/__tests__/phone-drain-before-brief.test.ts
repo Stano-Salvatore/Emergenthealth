@@ -51,6 +51,20 @@ describe("the brief asks the server only after the phone has been drained", () =
     ).toBeGreaterThan(-1)
   })
 
+  it("a brief built on the phone's night is re-checked for the ring's", () => {
+    // 07:05: the phone's 6.1 h reached the server before the ring's night, so
+    // the brief said "the phone detected about 6.1 hours" and was cached as
+    // having sleep. At 07:06 the ring wrote 7.4 h — and every open until noon
+    // still served the phone's figure above a Sleep card showing the ring's.
+    // The ring wins, so a phone-based brief has to notice when it arrives.
+    const brief = stripped("src/app/api/briefing/route.ts")
+    const store = brief.slice(brief.lastIndexOf("JSON.stringify("))
+    expect(store, "the cache does not record which instrument the night came from").toMatch(/sleepSource/)
+    const check = brief.slice(0, brief.indexOf("staleButServable = "))
+    expect(check, "the cache check never asks about a phone-based brief").toMatch(/sleepSource\s*===\s*"phone"/)
+    expect(check).toMatch(/healthLog\.findFirst/)
+  })
+
   it("the sensors route says what it received, so a night that never arrived can be told from one that did", () => {
     const route = stripped("src/app/api/phone/sensors/route.ts")
     expect(route).toMatch(/console\.(log|info)\(\s*`\[phone-sensors\]/)

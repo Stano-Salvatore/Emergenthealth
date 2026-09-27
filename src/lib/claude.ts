@@ -23,7 +23,7 @@ import { addDaysISO, localDateStr, localTimeStr, zonedDateTime, zonedDayRange } 
 import { getUserTimezone, userDay } from "@/lib/user-timezone"
 import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
 import { phoneDaySummary } from "@/lib/phone-day"
-import { parseInsightsCache } from "@/lib/insights-cache"
+import { parseInsightsCache, insightForModel } from "@/lib/insights-cache"
 import { musicRange } from "@/lib/music-days"
 import { dailyTagsKey, mergeTags, resolveTagDate, MAX_TAGS_PER_DAY } from "@/lib/daily-tags"
 import { resolveReminderWhen, parseHhMm } from "@/lib/reminder-when"
@@ -2144,7 +2144,7 @@ async function executeTool(name: string, input: Record<string, string>, userId: 
       } catch { /* a malformed diff must not hide the patterns */ }
 
       const shown = list.filter(i => i.tier !== "noise").slice(0, 20)
-      return changesStr + shown.map(i => `- [${i.tier}${i.weekendDriven ? ", weekend-driven" : ""}] ${i.title}: ${i.finding} (${i.highGroupN}+${i.lowGroupN} days, ${Number(i.delta) > 0 ? "+" : ""}${i.delta}%)${i.coverage ? ` [coverage: ${i.coverage}]` : ""}${i.confounded ? ` [confounded: ${i.confounded}]` : ""}`).join("\n")
+      return changesStr + shown.map(i => `- [${i.tier}] ${i.title}: ${insightForModel(i)} (${i.highGroupN}+${i.lowGroupN} days, ${Number(i.delta) > 0 ? "+" : ""}${i.delta}%)`).join("\n")
         + "\n'strong' survived false-discovery correction; 'suggestive' did not — soften it. All association, not cause."
     }
 
@@ -2671,7 +2671,7 @@ export async function buildSystemPrompt(
     ].slice(0, 10)
     if (ranked.length > 0) {
       patternsStr = ranked
-        .map(i => `- [${i.tier === "strong" ? "solid" : "tentative"}] ${i.finding ?? i.title}`)
+        .map(i => `- [${i.tier === "strong" ? "solid" : "tentative"}] ${insightForModel(i)}`)
         .join("\n")
     }
   } catch {

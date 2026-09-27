@@ -20,6 +20,8 @@ export interface ScanResult {
   days: number
   /** Date of the most recent reading, or null when there is none. */
   latestDate: string | null
+  /** The night the vitals panel describes: the newest one with any vital on it. */
+  vitalsDate: string | null
   /** True when the newest data is too old to judge. */
   stale: boolean
 }
@@ -53,7 +55,7 @@ export async function scanUserAnomalies(
   })
 
   if (logs.length === 0) {
-    return { anomalies: [], vitals: [], days: 0, latestDate: null, stale: false }
+    return { anomalies: [], vitals: [], days: 0, latestDate: null, vitalsDate: null, stale: false }
   }
 
   // Each metric gets its own series with its own gaps closed up: a day where
@@ -92,7 +94,20 @@ export async function scanUserAnomalies(
   // can't act on it.
   const anomalies = stale ? [] : detectAll(series)
 
-  return { anomalies, days: logs.length, latestDate, stale, vitals: stale ? [] : vitalsPanel(series, latestDate) }
+  // The panel's night comes from the vital series themselves. The newest row
+  // of any kind is often a steps-only row an activity sync wrote this morning,
+  // before the ring sent last night or on a night it spent on the charger —
+  // and five dashes read off that row were headed "all in your usual band".
+  const vitalsDate = VITAL_DEFS
+    .map(d => series[d.key]?.at(-1)?.date)
+    .filter((d): d is string => d != null)
+    .sort()
+    .at(-1) ?? null
+
+  return {
+    anomalies, days: logs.length, latestDate, stale, vitalsDate,
+    vitals: stale ? [] : vitalsPanel(series, vitalsDate),
+  }
 }
 
 // ── The vitals panel ────────────────────────────────────────────────────────
@@ -100,7 +115,12 @@ export async function scanUserAnomalies(
 // The scanner above reports only the OUTLIERS. A card needs the normal
 // readings too: "all five inside your usual band" is information, not the
 // absence of it. Same series, same robust statistics, no new thresholds —
-// flagged means the same two-sigma spike the anomaly scan would call.
+// flagged means the same two-sigma spike the anomaly scan would call. That
+// holds only while the baseline is built the same way: from the nights BEFORE
+// the one being judged, with mad() already scaled to a standard deviation.
+// Including the night itself and scaling twice made the card's band about
+// half again as wide as the scan's, so it showed green under a brief that had
+// just called the same HRV unusual.
 
 const VITAL_DEFS: { key: string; label: string; unit: string; decimals: number }[] = [
   { key: "restingHR", label: "Resting heart rate", unit: " bpm", decimals: 0 },
@@ -127,10 +147,10 @@ export function vitalsPanel(series: Record<string, DayValue[]>, latestDate: stri
   const out: Vital[] = []
   for (const def of VITAL_DEFS) {
     const s = series[def.key] ?? []
-    if (s.length < MIN_HISTORY_DAYS) continue
-    const values = s.map(d => d.value)
-    const med = median(values)
-    const sigma = 1.4826 * mad(values, med)
+    const past = s.filter(d => d.date !== latestDate).map(d => d.value)
+    if (past.length < MIN_HISTORY_DAYS) continue
+    const med = median(past)
+    const sigma = mad(past, med)
     const latest = s.find(d => d.date === latestDate)?.value ?? null
     const round = (v: number) => Math.round(v * 10 ** def.decimals) / 10 ** def.decimals
     const z = latest != null && sigma > 0 ? (latest - med) / sigma : null

@@ -89,5 +89,6 @@ export async function loadDailyScore(
     }
   }
 
-  return { ...computeDailyScore(today, history), date, sleepSource }
+  const dayInProgress = date === localDateStr(tz)
+  return { ...computeDailyScore(today, history, { dayInProgress }), date, sleepSource }
 }

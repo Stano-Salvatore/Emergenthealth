@@ -39,7 +39,7 @@ export interface ScoreDay {
   mood?: number | null
   /** 1-5. */
   energy?: number | null
-  /** Seconds of high stress. */
+  /** Minutes of high stress. */
   stressHigh?: number | null
 }
 
@@ -92,7 +92,7 @@ export const COMPONENTS: ComponentDef[] = [
     metrics: [
       { key: "mood", label: "Mood", higherIsBetter: true, format: v => `${round1(v)}/5` },
       { key: "energy", label: "Energy", higherIsBetter: true, format: v => `${round1(v)}/5` },
-      { key: "stressHigh", label: "High stress", higherIsBetter: false, format: v => `${Math.round(v / 60)}m` },
+      { key: "stressHigh", label: "High stress", higherIsBetter: false, format: v => `${Math.round(v)}m` },
     ],
   },
 ]
@@ -152,11 +152,22 @@ export function relativeScore(
 }
 
 /**
+ * Metrics that keep adding up until the day ends. Against full-day medians a
+ * partial day is a collapse every morning (steps) or a calm every morning
+ * (stress, where lower is better) — "a partial day is reported, never
+ * averaged" — so they are left out while the day being scored is still going.
+ */
+export const RUNNING_TOTALS: ReadonlySet<MetricKey> = new Set<MetricKey>(["steps", "activeMinutes", "stressHigh"])
+
+/**
  * `today` is the day being scored; `history` is the days before it (any order,
  * today excluded). Both are plain metric bags — anything absent is absent, and
- * absence never costs points.
+ * absence never costs points. `dayInProgress` is true when `today` is the
+ * user's current local day.
  */
-export function computeDailyScore(today: ScoreDay, history: ScoreDay[]): DailyScore {
+export function computeDailyScore(
+  today: ScoreDay, history: ScoreDay[], opts: { dayInProgress?: boolean } = {},
+): DailyScore {
   const components: ScoredComponent[] = []
   let weighted = 0
   let weightUsed = 0
@@ -166,6 +177,7 @@ export function computeDailyScore(today: ScoreDay, history: ScoreDay[]): DailySc
     const scores: number[] = []
 
     for (const m of def.metrics) {
+      if (opts.dayInProgress && RUNNING_TOTALS.has(m.key)) continue
       const value = today[m.key]
       if (value == null) continue
       const series = history.map(d => d[m.key]).filter((v): v is number => v != null)
