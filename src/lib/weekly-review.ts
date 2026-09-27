@@ -8,6 +8,7 @@ import { getUserTimezone } from "@/lib/user-timezone"
 import { SONNET } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
 import { phoneNights, hoursLabel } from "@/lib/phone-sleep"
+import { weekTally } from "@/lib/habit-schedule"
 
 // The weekly review used to be three different things: a Sunday email with
 // bare averages, a dashboard button that asked Haiku for 200 generic words,
@@ -79,7 +80,10 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
     }),
     prisma.habit.findMany({
       where: { userId, isArchived: false },
-      include: { completions: { where: { date: { gte: weekStart, lte: today } } } },
+      include: {
+        completions: { where: { date: { gte: weekStart, lte: today } }, select: { date: true } },
+        skips: { where: { date: { gte: weekStart, lte: today } }, select: { date: true } },
+      },
     }),
     prisma.focusSession.findMany({
       where: { userId, type: "focus", endedAt: { gte: weekStart, lte: today } },
@@ -126,13 +130,23 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
   const prevTotalSteps = prevWeekLogs.reduce((s, l) => s + (l.steps ?? 0), 0)
   const avgStress = avg(thisWeekLogs.map(l => l.stressHigh))
 
-  const habitRows = habits.map(h => ({
-    name: h.name,
-    completed: h.completions.length,
-    pct: Math.round((h.completions.length / daysThisWeek) * 100),
-  }))
-  const habitRate = habitRows.length > 0
-    ? Math.round(habitRows.reduce((s, h) => s + h.pct, 0) / habitRows.length)
+  // Against what each schedule asked, not seven: a Mon/Wed/Fri habit kept
+  // perfectly went to Emergy as "Gym: 3/7 days", and he called it a slip.
+  const habitRows = habits.map(h => {
+    const { done, due } = weekTally(
+      { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek },
+      new Set(h.completions.map(c => c.date.toISOString().slice(0, 10))),
+      new Set(h.skips.map(s => s.date.toISOString().slice(0, 10))),
+      weekStartStr, todayStr, localDateStr(tz, h.createdAt),
+    )
+    return {
+      name: h.name, done, due, weekly: h.timesPerWeek != null,
+      pct: due > 0 ? Math.round((done / due) * 100) : null,
+    }
+  })
+  const asked = habitRows.filter((h): h is typeof h & { pct: number } => h.pct != null)
+  const habitRate = asked.length > 0
+    ? Math.round(asked.reduce((s, h) => s + h.pct, 0) / asked.length)
     : null
 
   const totalFocusMin = focusSessions.reduce((s, f) => s + f.durationMin, 0)
@@ -159,7 +173,9 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
     `Water: ${totalWaterL}L logged`,
     avgMood != null ? `Mood: avg ${avgMood}/5` : null,
     `Morning check-ins: ${checkinRows.length}/${daysThisWeek}${avgCheckinEnergy != null ? `, avg energy ${avgCheckinEnergy}/5` : ""}`,
-    habitRows.length > 0 ? `Habits:\n${habitRows.map(h => `  - ${h.name}: ${h.completed}/${daysThisWeek} days`).join("\n")}` : null,
+    habitRows.length > 0 ? `Habits (done / asked for by its schedule; skipped days excluded):\n${habitRows.map(h =>
+      `  - ${h.name}: ${h.due === 0 ? "nothing due yet" : h.weekly ? `${h.done}/${h.due} of its weekly target` : `${h.done}/${h.due} due days`}`,
+    ).join("\n")}` : null,
     intentions.length > 0 ? `Intentions they set this week: ${intentions.slice(0, 7).join(" · ")}` : null,
   ].filter((l): l is string => l != null)
 

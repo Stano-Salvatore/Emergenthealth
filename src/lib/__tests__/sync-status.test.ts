@@ -1,6 +1,35 @@
 import { describe, it, expect } from "vitest"
-import { readFileSync } from "node:fs"
-import { agoLabel, isOverdue, parseSyncStatus, SYNC_OVERDUE_HOURS } from "@/lib/sync-status"
+import { readFileSync, existsSync } from "node:fs"
+import { agoLabel, isOverdue, parseSyncStatus, syncRequest, SYNC_SOURCES, SYNC_OVERDUE_HOURS } from "@/lib/sync-status"
+
+describe("Sync now reaches every server source", () => {
+  // The Settings button posted to /api/sync/<id> for every server source, and
+  // Last.fm and RescueTime have no route there: two 404s, swallowed by
+  // allSettled, under rows still saying "synced 5h ago".
+  it("each server source's request goes to a route that exists and handles POST", () => {
+    for (const s of SYNC_SOURCES.filter(x => x.driver === "server")) {
+      const { url } = syncRequest(s.id)
+      const route = `src/app${url}/route.ts`
+      expect(existsSync(route), `${s.id} → ${url} has no route`).toBe(true)
+      expect(readFileSync(route, "utf8"), `${route} has no POST`).toMatch(/export async function POST\b/)
+    }
+  })
+
+  it("the one-route integrations are asked to sync, not to save", () => {
+    for (const id of ["lastfm", "rescuetime"]) {
+      const { url, init } = syncRequest(id)
+      expect(url).toBe(`/api/${id}`)
+      expect(JSON.parse(String(init.body))).toEqual({ action: "sync" })
+      expect(readFileSync(`src/app/api/${id}/route.ts`, "utf8")).toMatch(/action === "sync"/)
+    }
+  })
+
+  it("and the button uses it", () => {
+    const btn = readFileSync("src/components/settings/SyncNowButton.tsx", "utf8")
+    expect(btn).toMatch(/syncRequest\(/)
+    expect(btn).not.toContain("/api/sync/${id}")
+  })
+})
 
 describe("parseSyncStatus", () => {
   it("treats anything unreadable as nothing recorded", () => {

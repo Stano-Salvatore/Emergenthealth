@@ -8,7 +8,7 @@ import { getUserTimezone } from "@/lib/user-timezone"
 import { loadEventOccurrences } from "@/lib/app-events"
 import { mergeDayEvents } from "@/lib/day-events"
 import { getGoals } from "@/lib/goals"
-import { HYDRATING_TYPES, sumHydration } from "@/lib/hydration"
+import { HYDRATING_TYPES, resolveWaterGoal, sumHydration } from "@/lib/hydration"
 import { isDueOn } from "@/lib/habit-schedule"
 import { readSyncStatus } from "@/lib/sync-status-store"
 
@@ -105,7 +105,7 @@ export async function GET() {
   let targets: Targets | null = null
   try {
     const since = new Date(todayRange.start.getTime() - 60 * 86_400_000)
-    const [goals, todayLog, drinks, habits, status] = await Promise.all([
+    const [goals, todayLog, drinks, habits, status, checkinGoal] = await Promise.all([
       getGoals(userId),
       prisma.healthLog.findFirst({ where: { userId, date: new Date(todayStr + "T00:00:00Z") }, select: { steps: true } }).catch(() => null),
       prisma.intakeLog.findMany({
@@ -120,6 +120,9 @@ export async function GET() {
         },
       }).catch(() => []),
       readSyncStatus(userId).catch(() => ({} as Awaited<ReturnType<typeof readSyncStatus>>)),
+      prisma.$queryRaw<{ waterGoalMl: number | null }[]>`
+        SELECT "waterGoalMl" FROM "MorningCheckIn" WHERE "userId" = ${userId} AND "date" = ${todayStr} LIMIT 1
+      `.then(r => r[0]?.waterGoalMl ?? null).catch(() => null),
     ])
     let due = 0, done = 0
     for (const h of habits) {
@@ -136,7 +139,7 @@ export async function GET() {
       .sort()
     targets = {
       steps: { value: todayLog?.steps ?? null, goal: goals.steps },
-      hydrationMl: { value: sumHydration(drinks), goal: goals.waterMl },
+      hydrationMl: { value: sumHydration(drinks), goal: resolveWaterGoal(checkinGoal, goals.waterMl) },
       habits: { done, due },
       lastSyncedAt: syncs.length ? syncs[syncs.length - 1] : null,
     }

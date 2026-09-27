@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { weatherEmoji } from "@/lib/weather-codes"
 import { scoreText, sleepVerdictText } from "@/lib/score-color"
+import { isUpcoming } from "@/lib/day-events"
 
 interface TodayData {
   calendar: { id: string; title: string; start: string; end: string }[]
@@ -18,6 +19,7 @@ interface TodayData {
 export function TodayStrip() {
   const [data, setData] = useState<TodayData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [renderedAt] = useState(() => Date.now())
 
   useEffect(() => {
     fetch("/api/today")
@@ -35,8 +37,9 @@ export function TodayStrip() {
   const sleepColor = sleepVerdictText(data.sleep.adequate, data.sleep.hours)
   const readinessColor = scoreText(data.sleep.readiness, "text-muted-foreground")
 
-  // Next upcoming event (first timed event still ahead, else first all-day)
-  const nextEvent = data.calendar[0]
+  // The day's list, oldest first, includes what has already finished: taking
+  // its head left the 09:00 standup as "next" at 21:00.
+  const nextEvent = data.calendar.find(e => isUpcoming(e, renderedAt))
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl bg-background/50 backdrop-blur border border-border/50 px-4 py-2.5">
@@ -77,7 +80,11 @@ export function TodayStrip() {
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="text-sm leading-none">📅</span>
           <span className="text-xs text-muted-foreground shrink-0 tabular-nums">
-            {nextEvent.start.includes("T") ? nextEvent.start.slice(11, 16) : "All day"}
+            {/* Phone events arrive in UTC and Google's with an offset, so the
+                characters after the T are not the local time of either. */}
+            {nextEvent.start.includes("T")
+              ? new Date(nextEvent.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+              : "All day"}
           </span>
           <span className="text-xs truncate">{nextEvent.title}</span>
         </div>

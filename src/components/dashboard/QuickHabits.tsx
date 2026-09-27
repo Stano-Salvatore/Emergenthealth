@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Flame, ChevronRight } from "lucide-react"
@@ -19,28 +20,33 @@ export function QuickHabits({ habits }: { habits: Habit[] }) {
     () => new Set(habits.filter(h => h.completedToday).map(h => h.id))
   )
   const [pending, setPending] = useState<Set<string>>(new Set())
+  const router = useRouter()
 
   async function toggle(id: string) {
     if (pending.has(id)) return
     const isDone = completed.has(id)
+    const willBeAllDone = !isDone && completed.size + 1 === total
     setCompleted(prev => {
       const next = new Set(prev)
       if (isDone) next.delete(id)
       else next.add(id)
-      // Celebrate when last habit is completed
-      if (!isDone && "vibrate" in navigator) {
-        const willBeAllDone = next.size === total
-        navigator.vibrate(willBeAllDone ? [30, 20, 60, 20, 100] : [30, 20, 60])
-      }
       return next
     })
     setPending(prev => new Set(prev).add(id))
     try {
-      await fetch(`/api/habits/${id}/complete`, {
+      // fetch resolves on a 401 or a 500, so the tick stays only on a 2xx —
+      // otherwise it was undone on reload, after the "all done" buzz.
+      const res = await fetch(`/api/habits/${id}/complete`, {
         method: isDone ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       })
+      if (!res.ok) throw new Error(`habit ${isDone ? "untick" : "tick"} failed: ${res.status}`)
+      if (!isDone && "vibrate" in navigator) {
+        navigator.vibrate(willBeAllDone ? [30, 20, 60, 20, 100] : [30, 20, 60])
+      }
+      // The score, the habit tile and the phone row are server-rendered.
+      router.refresh()
     } catch {
       setCompleted(prev => {
         const next = new Set(prev)

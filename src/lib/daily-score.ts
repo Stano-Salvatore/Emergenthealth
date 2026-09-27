@@ -241,3 +241,15 @@ export function scoreGrade(s: number): { label: string; color: string; hex: stri
   if (s >= 26) return { label: "Below your usual", color: "text-amber-400", hex: "#fbbf24", emoji: "🌥️" }
   return { label: "Well below your usual", color: "text-rose-400", hex: "#fb7185", emoji: "⚠️" }
 }
+
+/**
+ * The bars that belong beside this score: one per component that could be
+ * scored, on the same 0–100 "vs your usual" scale. Bars on the absolute goal
+ * scale sat nearly full beside a half gauge with nothing to say why. A
+ * component with no data today is left out, not drawn empty.
+ */
+export function dailyPillars(components: ScoredComponent[]): { label: string; pts: number; max: number; value: string }[] {
+  return components.flatMap(c =>
+    c.score == null ? [] : [{ label: c.label, pts: c.score, max: 100, value: String(c.score) }],
+  )
+}

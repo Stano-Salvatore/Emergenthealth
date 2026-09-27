@@ -64,6 +64,9 @@ describe("every reader sees both tables", () => {
     "src/lib/drift-load.ts",
     "src/lib/weekly-review.ts",
     "src/lib/claude.ts",
+    // Passed the walk below only because it also read MorningCheckIn — for
+    // energy. Its mood column and card read MoodLog alone.
+    "src/app/dashboard/week/page.tsx",
   ]
 
   it("reads mood through the shared merge", () => {

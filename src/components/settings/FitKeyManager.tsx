@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Copy, Plus, Trash2, Check } from "lucide-react"
 import { copyText } from "@/lib/utils"
+import { describeFetchFailure, HttpStatusError } from "@/lib/fetch-error"
 
 type KeyRow = {
   id: string
@@ -21,27 +22,51 @@ export function FitKeyManager({ initialKeys }: { initialKeys: KeyRow[] }) {
   const [newName, setNewName] = useState("My device")
   const [creating, setCreating] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function createKey() {
     setCreating(true)
-    const res = await fetch("/api/mcp/key", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName || "My device" }),
-    })
-    const data = await res.json()
-    setNewToken(data.token)
-    setKeys((prev) => [
-      { id: data.id, name: data.name, tokenPreview: `${data.token.slice(0, 8)}...${data.token.slice(-4)}`, createdAt: data.createdAt },
-      ...prev,
-    ])
-    setCreating(false)
+    setError(null)
+    try {
+      const res = await fetch("/api/mcp/key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName || "My device" }),
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok || typeof data?.token !== "string") {
+        setError(`No key created. ${describeFetchFailure(new HttpStatusError(res.ok ? 500 : res.status))}`)
+        return
+      }
+      const token: string = data.token
+      setNewToken(token)
+      setKeys((prev) => [
+        { id: data.id, name: data.name, tokenPreview: `${token.slice(0, 8)}...${token.slice(-4)}`, createdAt: data.createdAt },
+        ...prev,
+      ])
+    } catch (e) {
+      setError(`No key created. ${describeFetchFailure(e)}`)
+    } finally {
+      setCreating(false)
+    }
   }
 
+  // A key is revoked because it may have leaked, so the row leaves the list
+  // only once the server has deleted it. On a 500 it used to vanish while the
+  // Bearer token kept working against /api/mcp.
   async function revokeKey(id: string) {
-    await fetch(`/api/mcp/key?id=${id}`, { method: "DELETE" })
-    setKeys((prev) => prev.filter((k) => k.id !== id))
-    if (newToken) setNewToken(null)
+    setError(null)
+    try {
+      const res = await fetch(`/api/mcp/key?id=${encodeURIComponent(id)}`, { method: "DELETE" })
+      if (!res.ok) {
+        setError(`Not revoked — the key still works. ${describeFetchFailure(new HttpStatusError(res.status))}`)
+        return
+      }
+      setKeys((prev) => prev.filter((k) => k.id !== id))
+      if (newToken) setNewToken(null)
+    } catch (e) {
+      setError(`Not revoked — the key still works. ${describeFetchFailure(e)}`)
+    }
   }
 
   async function copyToken() {
@@ -76,6 +101,7 @@ export function FitKeyManager({ initialKeys }: { initialKeys: KeyRow[] }) {
             {creating ? "Creating…" : "New key"}
           </Button>
         </div>
+        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
 
         {/* Newly created token — shown once */}
         {newToken && (

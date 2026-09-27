@@ -10,6 +10,8 @@ import { Droplets, Coffee, Wine, Trash2, Plus, ChevronLeft, ChevronRight, Pencil
 import { cn } from "@/lib/utils"
 import { ALCOHOL_TYPES } from "@/lib/body-load"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
+import { describeFetchFailure, HttpStatusError } from "@/lib/fetch-error"
+import { resolveWaterGoal, sumHydration } from "@/lib/hydration"
 import MedicationsPage from "@/app/dashboard/medications/page"
 import { FoodTab } from "@/components/intake/FoodTab"
 import { OverviewTab } from "@/components/intake/OverviewTab"
@@ -106,6 +108,9 @@ const SUMMARY_COLS: Record<number, string> = {
   9: "sm:grid-cols-5",
 }
 
+/** Settings' own default (lib/goals), for the moment before /api/goals answers. */
+const DEFAULT_WATER_GOAL_ML = 2000
+
 interface WeekDay {
   date: string
   waterMl: number
@@ -149,9 +154,10 @@ export default function IntakePage() {
   const [logs, setLogs] = useState<IntakeLog[]>([])
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState<string | null>(null)
+  const [addError, setAddError] = useState<string | null>(null)
   const [date, setDate] = useState(() => localDateStr())
   const [weekData, setWeekData] = useState<WeekDay[]>([])
-  const [waterGoal, setWaterGoal] = useState(2000)
+  const [waterGoal, setWaterGoal] = useState(DEFAULT_WATER_GOAL_ML)
   const [caffeineMg, setCaffeineMg] = useState<number | null>(null)
   const [lateCoffeeMg, setLateCoffeeMg] = useState<number | null>(null)
   const isToday = date === localDateStr()
@@ -176,15 +182,18 @@ export default function IntakePage() {
   }, [])
   useEffect(() => { loadCaffeine() }, [loadCaffeine])
 
-  // Load check-in water goal for today
+  // The day's goal by the rule Home and the Overview tab use: today's
+  // check-in answer, else Settings. This used to start from a hard-coded 2 L
+  // and never read Settings at all.
   useEffect(() => {
     const today = localDateStr()
-    fetch(`/api/morning-checkin?date=${today}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data?.checkin?.waterGoalMl) setWaterGoal(data.checkin.waterGoalMl)
-      })
-      .catch(() => {})
+    Promise.all([
+      fetch("/api/goals").then(r => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`/api/morning-checkin?date=${today}`).then(r => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([goals, checkin]) => {
+      const settings = typeof goals?.waterMl === "number" && goals.waterMl > 0 ? goals.waterMl : DEFAULT_WATER_GOAL_ML
+      setWaterGoal(resolveWaterGoal(checkin?.checkin?.waterGoalMl, settings))
+    })
   }, [])
 
   // Oura drinks are mirrored into IntakeLog by the sync, so this one request
@@ -226,16 +235,29 @@ export default function IntakePage() {
     loadWeek()
   }, [])
 
-  async function addEntry(type: string, amountMl: number, note?: string) {
+  // A rejected fetch used to skip setAdding(null) and leave every chip greyed
+  // out until the page was left; a 500 buzzed "done" and reloaded the list
+  // without the drink. Either way nothing said so.
+  async function addEntry(type: string, amountMl: number, note?: string): Promise<boolean> {
     if ("vibrate" in navigator) navigator.vibrate(20)
     setAdding(`${type}-${amountMl}-${note ?? ""}`)
-    await fetch("/api/intake", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type, amountMl, ...(note ? { note } : {}) }),
-    })
-    setAdding(null)
+    setAddError(null)
+    let ok = false
+    try {
+      const res = await fetch("/api/intake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, amountMl, ...(note ? { note } : {}) }),
+      })
+      ok = res.ok
+      if (!ok) setAddError(`Not saved. ${describeFetchFailure(new HttpStatusError(res.status))}`)
+    } catch (e) {
+      setAddError(`Not saved. ${describeFetchFailure(e)}`)
+    } finally {
+      setAdding(null)
+    }
     load()
+    if (!ok) return false
     const caf = await loadCaffeine()
     // Gentle heads-up after a caffeinated drink: how much will still be
     // circulating at 23:00? Informational only — the drink is already logged.
@@ -243,6 +265,7 @@ export default function IntakePage() {
       const atBed = decayed(caf.activeMg, hoursToBedtime(), caf.halfLifeH ?? 5)
       setLateCoffeeMg(atBed > 50 ? atBed : null)
     }
+    return true
   }
 
   // Custom entry: any type, any ml, optional strength (13° / 5.5%) for alcohol
@@ -255,17 +278,24 @@ export default function IntakePage() {
     const ml = parseInt(customMl)
     if (!Number.isFinite(ml) || ml <= 0) return
     const strength = STRENGTH_TYPES.has(customType) ? customStrength.trim() : ""
-    await addEntry(customType, ml, strength || undefined)
-    setCustomMl("")
-    setCustomStrength("")
+    if (await addEntry(customType, ml, strength || undefined)) {
+      setCustomMl("")
+      setCustomStrength("")
+    }
   }
 
   async function deleteEntry(id: string) {
-    await fetch("/api/intake", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    })
+    setAddError(null)
+    try {
+      const res = await fetch("/api/intake", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      })
+      if (!res.ok) setAddError(`Not deleted. ${describeFetchFailure(new HttpStatusError(res.status))}`)
+    } catch (e) {
+      setAddError(`Not deleted. ${describeFetchFailure(e)}`)
+    }
     load()
     loadCaffeine()
   }
@@ -288,15 +318,20 @@ export default function IntakePage() {
     const ml = parseInt(editMl)
     if (!editingId || !Number.isFinite(ml) || ml <= 0) return
     setSavingEdit(true)
+    setAddError(null)
     try {
-      await fetch("/api/intake", {
+      const res = await fetch("/api/intake", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: editingId, type: editType, amountMl: ml, note: editNote.trim() || null }),
       })
+      // The editor stays open on a failure, holding what was typed.
+      if (!res.ok) { setAddError(`Not saved. ${describeFetchFailure(new HttpStatusError(res.status))}`); return }
       setEditingId(null)
       load()
       loadCaffeine()
+    } catch (e) {
+      setAddError(`Not saved. ${describeFetchFailure(e)}`)
     } finally { setSavingEdit(false) }
   }
 
@@ -314,6 +349,7 @@ export default function IntakePage() {
   }, {} as Record<string, number>)
 
   const waterTotal     = totals.water ?? 0
+  const fluidTotal     = sumHydration(logs)
   const sparklingTotal = totals.sparkling ?? 0
   const coffeeTotal    = totals.coffee ?? 0
   const teaTotal       = totals.tea ?? 0
@@ -401,7 +437,10 @@ export default function IntakePage() {
           can see in the source, so the old built-up `sm:grid-cols-${n}` left
           5- and 6-column layouts with no CSS at all. */}
       <div className={cn("grid gap-3 grid-cols-2", SUMMARY_COLS[cardCount])}>
-        <SummaryCard label="Water" value={waterTotal} goal={waterGoal} color="text-blue-400" barColor="bg-blue-500" emoji="💧" />
+        {/* All fluid, the rule the trend below, Home and the Overview tab use;
+            water alone read 1500/2000 over a trend bar already full. */}
+        <SummaryCard label="Water" value={fluidTotal} goal={waterGoal} color="text-blue-400" barColor="bg-blue-500" emoji="💧"
+          sub={fluidTotal !== waterTotal ? `of which water ${waterTotal}ml` : undefined} />
         <SummaryCard label="Coffee" value={coffeeTotal} goal={400} color="text-amber-500" barColor="bg-amber-600" emoji="☕"
           sub={isToday && caffeineMg != null && caffeineMg > 0 ? `≈${caffeineMg} mg caffeine` : undefined} />
         {sparklingTotal > 0 && <SummaryCard label="Sparkling" value={sparklingTotal} color="text-cyan-400" barColor="bg-cyan-500" emoji="🫧" />}
@@ -444,6 +483,8 @@ export default function IntakePage() {
           </div>
         </div>
       )}
+
+      {addError && <p role="alert" className="text-xs text-destructive">{addError}</p>}
 
       {/* quick add buttons */}
       {isToday && (

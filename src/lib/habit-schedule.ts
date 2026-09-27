@@ -134,6 +134,40 @@ export function habitStreak(
   return { streak, unit: "weeks" }
 }
 
+/**
+ * How a habit did from `fromDay` to `todayStr` (inclusive, inside one Mon–Sun
+ * week): days done against days the schedule asked for.
+ *
+ * Today is still in progress: done, it counts on both sides; not yet done, on
+ * neither. A skipped day is settled and a day before the habit existed was
+ * never asked, so both drop out. A day done off-schedule counts, as it does
+ * on Home. A weekly-target habit is measured against its target, since it has
+ * no particular days to miss. `due` of 0 means nothing was asked yet — the
+ * caller shows that as absent, not as 0%.
+ */
+export function weekTally(
+  h: HabitSchedule,
+  completionDays: Set<string>,
+  skipDays: Set<string>,
+  fromDay: string,
+  todayStr: string,
+  createdDay?: string | null,
+): { done: number; due: number } {
+  let done = 0
+  if (h.timesPerWeek != null) {
+    for (let d = fromDay; d <= todayStr; d = addDaysISO(d, 1)) if (completionDays.has(d)) done++
+    return { done: Math.min(done, h.timesPerWeek), due: h.timesPerWeek }
+  }
+  let due = 0
+  const start = createdDay && createdDay > fromDay ? createdDay : fromDay
+  for (let d = start; d <= todayStr; d = addDaysISO(d, 1)) {
+    if (completionDays.has(d)) { done++; due++; continue }
+    if (d === todayStr || skipDays.has(d) || !isScheduledOn(h, d)) continue
+    due++
+  }
+  return { done, due }
+}
+
 /** Human line for the card: "Mon · Wed · Fri", "3× a week", or null for daily. */
 export function scheduleLabel(h: HabitSchedule): string | null {
   if (h.timesPerWeek != null) return `${h.timesPerWeek}× a week`

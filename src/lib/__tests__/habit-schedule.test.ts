@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { normalizeSchedule, isScheduledOn, isDueOn, habitStreak, scheduleLabel, weekStart } from "@/lib/habit-schedule"
+import { normalizeSchedule, isScheduledOn, isDueOn, habitStreak, scheduleLabel, weekStart, weekTally } from "@/lib/habit-schedule"
 
 // 2026-09-09 is a Wednesday; the week runs Mon 7 → Sun 13.
 const MWF = { scheduleDays: [1, 3, 5], timesPerWeek: null }
@@ -67,5 +67,53 @@ describe("scheduleLabel", () => {
     expect(scheduleLabel({ scheduleDays: [0, 6], timesPerWeek: null })).toBe("Weekends")
     expect(scheduleLabel(MWF)).toBe("Mon · Wed · Fri")
     expect(scheduleLabel(THRICE)).toBe("3× a week")
+  })
+})
+
+describe("weekTally — the Weekly Review's done/due", () => {
+  // The Week page divided completions by the number of ring rows so far, not
+  // by the days the habit was due. On a Wednesday morning before the sync,
+  // with rows for Mon and Tue only, a daily habit done Mon–Wed read "3/2d ·
+  // 150%", and a Mon/Wed/Fri gym habit done 3 of 3 read 43% in red — which the
+  // Sunday prompt then handed Emergy as "Gym: 3/7 days", a slip.
+  const none = new Set<string>()
+
+  it("never goes over 100%: today counts once done, and never before", () => {
+    const done = new Set(["2026-09-07", "2026-09-08", "2026-09-09"])
+    expect(weekTally(DAILY, done, none, "2026-09-07", "2026-09-09")).toEqual({ done: 3, due: 3 })
+    // Wednesday not ticked yet: the day is still in progress, not a miss.
+    const twoDone = new Set(["2026-09-07", "2026-09-08"])
+    expect(weekTally(DAILY, twoDone, none, "2026-09-07", "2026-09-09")).toEqual({ done: 2, due: 2 })
+  })
+
+  it("measures a weekday habit against its own days, not seven", () => {
+    // Sunday the 13th: Mon, Wed, Fri all done — a perfect week.
+    const done = new Set(["2026-09-07", "2026-09-09", "2026-09-11"])
+    expect(weekTally(MWF, done, none, "2026-09-07", "2026-09-13")).toEqual({ done: 3, due: 3 })
+    // Friday missed is a miss.
+    const two = new Set(["2026-09-07", "2026-09-09"])
+    expect(weekTally(MWF, two, none, "2026-09-07", "2026-09-13")).toEqual({ done: 2, due: 3 })
+  })
+
+  it("a skipped day is settled — neither done nor due", () => {
+    const done = new Set(["2026-09-07"])
+    const skipped = new Set(["2026-09-09"])
+    expect(weekTally(MWF, done, skipped, "2026-09-07", "2026-09-10")).toEqual({ done: 1, due: 1 })
+  })
+
+  it("a weekly-target habit is measured against its target", () => {
+    const done = new Set(["2026-09-07", "2026-09-09", "2026-09-10", "2026-09-11"])
+    expect(weekTally(THRICE, done, none, "2026-09-07", "2026-09-13")).toEqual({ done: 3, due: 3 })
+    expect(weekTally(THRICE, new Set(["2026-09-08"]), none, "2026-09-07", "2026-09-09")).toEqual({ done: 1, due: 3 })
+  })
+
+  it("a habit created mid-week isn't charged for the days before it existed", () => {
+    const done = new Set(["2026-09-10"])
+    expect(weekTally(DAILY, done, none, "2026-09-07", "2026-09-11", "2026-09-10")).toEqual({ done: 1, due: 1 })
+  })
+
+  it("nothing asked yet is nothing, not zero percent", () => {
+    // A Mon/Wed/Fri habit on a Tuesday morning after a Monday skip.
+    expect(weekTally(MWF, none, new Set(["2026-09-07"]), "2026-09-07", "2026-09-08")).toEqual({ done: 0, due: 0 })
   })
 })
