@@ -3,7 +3,9 @@ import { loadMoodSeries } from "@/lib/mood-series"
 import Anthropic from "@anthropic-ai/sdk"
 import { format } from "date-fns"
 import { buildSystemPrompt } from "@/lib/claude"
-import { addDaysISO, localDateStr } from "@/lib/local-date"
+import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
+import { HYDRATING_TYPES, sumHydration } from "@/lib/hydration"
+import { isScheduledOn, scheduleLabel } from "@/lib/habit-schedule"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { SONNET } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
@@ -43,6 +45,45 @@ function avg(arr: (number | null | undefined)[]): number | null {
   return vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : null
 }
 
+const steps = (n: number) => Math.round(n).toLocaleString("en-US")
+
+/**
+ * Steps as a daily average over the days that have a count. A total summed
+ * untracked days in as zeros: four tracked days at 10k read "40,000 (last
+ * week 63,000)" and the review said he moved a third less while his daily
+ * average went up.
+ */
+export function stepsLine(thisWeek: (number | null)[], prevWeek: (number | null)[]): string {
+  const now = thisWeek.filter((v): v is number => v != null)
+  const prev = prevWeek.filter((v): v is number => v != null)
+  const mean = (v: number[]) => v.reduce((a, b) => a + b, 0) / v.length
+  if (now.length === 0) return "Steps: no data"
+  const last = prev.length > 0 ? ` (last week ${steps(mean(prev))}/day over ${prev.length} days)` : ""
+  return `Steps: avg ${steps(mean(now))}/day over ${now.length} tracked days${last}`
+}
+
+/**
+ * Each habit against the days its schedule asked for it — a Mon/Wed/Fri habit
+ * done all three times was "3/7 days" (43%). A weekly-target habit is
+ * measured against its target. One not yet due this week has no rate at all
+ * rather than 0%.
+ */
+export function habitWeekRows(
+  habits: { name: string; scheduleDays: number[]; timesPerWeek: number | null; completions: { date: Date }[] }[],
+  weekStartStr: string,
+  daysThisWeek: number,
+): { name: string; completed: number; due: number; pct: number | null; line: string }[] {
+  return habits.map(h => {
+    const sched = { scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }
+    const due = sched.timesPerWeek != null
+      ? sched.timesPerWeek
+      : Array.from({ length: daysThisWeek }, (_, i) => addDaysISO(weekStartStr, i)).filter(d => isScheduledOn(sched, d)).length
+    const completed = h.completions.length
+    const pct = due > 0 ? Math.min(100, Math.round((completed / due) * 100)) : null
+    return { name: h.name, completed, due, pct, line: `${h.name} (${scheduleLabel(sched) ?? "daily"}): ${completed}/${due}` }
+  })
+}
+
 /**
  * Build the week's numbers and have Emergy write the review. Returns null
  * when generation isn't possible (no API key) or there is nothing to review
@@ -66,6 +107,10 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
   const today = new Date(todayStr + "T23:59:59Z")
   const prevWeekStart = new Date(prevWeekStartStr + "T00:00:00Z")
   const prevWeekEnd = new Date(addDaysISO(weekStartStr, -1) + "T23:59:59Z")
+  // Timestamp columns are different: the week runs from the user's own
+  // Monday midnight, not UTC's, or a Sunday-night drink lands in next week.
+  const weekStartAt = zonedDayRange(tz, weekStartStr).start
+  const weekEndAt = zonedDayRange(tz, todayStr).end
 
   const [thisWeekLogs, prevWeekLogs, habits, focusSessions, moodLogs, waterLogs, checkinRows, stravaRows] = await Promise.all([
     prisma.healthLog.findMany({
@@ -82,15 +127,17 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
       include: { completions: { where: { date: { gte: weekStart, lte: today } } } },
     }),
     prisma.focusSession.findMany({
-      where: { userId, type: "focus", endedAt: { gte: weekStart, lte: today } },
+      where: { userId, type: "focus", endedAt: { gte: weekStartAt, lte: weekEndAt } },
       select: { durationMin: true },
     }).catch(() => [] as { durationMin: number }[]),
     // Both tables, check-in first — see lib/mood-series.
     loadMoodSeries(userId, weekStartStr, todayStr).catch(() => [] as { day: string; mood: number }[]),
+    // Every hydrating drink: a week of tea and sparkling water read "Water:
+    // 0.3L logged" when the rows were filtered on type "water".
     prisma.intakeLog.findMany({
-      where: { userId, type: "water", loggedAt: { gte: weekStart, lte: today } },
-      select: { amountMl: true },
-    }).catch(() => [] as { amountMl: number }[]),
+      where: { userId, type: { in: HYDRATING_TYPES }, loggedAt: { gte: weekStartAt, lte: weekEndAt } },
+      select: { amountMl: true, type: true },
+    }).catch(() => [] as { amountMl: number; type: string }[]),
     prisma.$queryRaw<{ date: string; energy: number; mood: number; intention: string | null }[]>`
       SELECT "date", "energy", "mood", "intention" FROM "MorningCheckIn"
       WHERE "userId" = ${userId} AND "date" >= ${weekStartStr} AND "date" <= ${todayStr}
@@ -106,7 +153,7 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
   // their own count: a motion guess averaged in with ring nights would move
   // "avg sleep" with a number that is not a measurement.
   const ringNightDays = new Set(thisWeekLogs.filter(l => l.sleepDuration != null).map(l => l.date.toISOString().slice(0, 10)))
-  const phoneOnly = (await phoneNights(userId, weekStart, new Date(), tz)).filter(n => !ringNightDays.has(n.day))
+  const phoneOnly = (await phoneNights(userId, weekStartAt, new Date(), tz)).filter(n => !ringNightDays.has(n.day))
 
   // Nothing tracked all week — a review would be fiction.
   if (thisWeekLogs.length === 0 && checkinRows.length === 0 && phoneOnly.length === 0) return null
@@ -123,21 +170,17 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
   const avgReadiness = avg(thisWeekLogs.map(l => l.readinessScore))
   const prevAvgReadiness = avg(prevWeekLogs.map(l => l.readinessScore))
   const totalSteps = thisWeekLogs.reduce((s, l) => s + (l.steps ?? 0), 0)
-  const prevTotalSteps = prevWeekLogs.reduce((s, l) => s + (l.steps ?? 0), 0)
   const avgStress = avg(thisWeekLogs.map(l => l.stressHigh))
 
-  const habitRows = habits.map(h => ({
-    name: h.name,
-    completed: h.completions.length,
-    pct: Math.round((h.completions.length / daysThisWeek) * 100),
-  }))
-  const habitRate = habitRows.length > 0
-    ? Math.round(habitRows.reduce((s, h) => s + h.pct, 0) / habitRows.length)
+  const habitRows = habitWeekRows(habits, weekStartStr, daysThisWeek)
+  const rated = habitRows.flatMap(h => (h.pct != null ? [h.pct] : []))
+  const habitRate = rated.length > 0
+    ? Math.round(rated.reduce((s, pct) => s + pct, 0) / rated.length)
     : null
 
   const totalFocusMin = focusSessions.reduce((s, f) => s + f.durationMin, 0)
   const avgMood = avg(moodLogs.map(m => m.mood))
-  const totalWaterL = (waterLogs.reduce((s, i) => s + i.amountMl, 0) / 1000).toFixed(1)
+  const totalFluidL = (sumHydration(waterLogs) / 1000).toFixed(1)
   const avgCheckinEnergy = avg(checkinRows.map(c => c.energy))
   const intentions = checkinRows.map(c => c.intention).filter((s): s is string => !!s?.trim())
   const workoutKm = stravaRows.reduce((s, w) => s + (w.distanceM ?? 0) / 1000, 0)
@@ -152,14 +195,14 @@ export async function generateWeeklyReview(userId: string, timezone?: string): P
       : null,
     `HRV: avg ${avgHrv ?? "no data"}ms${prevAvgHrv != null ? ` (last week ${prevAvgHrv}ms)` : ""}`,
     `Readiness: avg ${avgReadiness ?? "no data"}${prevAvgReadiness != null ? ` (last week ${prevAvgReadiness})` : ""}`,
-    `Steps: ${totalSteps.toLocaleString()} total${prevTotalSteps > 0 ? ` (last week ${prevTotalSteps.toLocaleString()})` : ""}`,
+    stepsLine(thisWeekLogs.map(l => l.steps), prevWeekLogs.map(l => l.steps)),
     avgStress != null ? `Daytime stress: avg ${avgStress}min elevated/day` : null,
     `Deep work: ${totalFocusMin}min across ${focusSessions.length} sessions`,
     stravaRows.length > 0 ? `Workouts: ${stravaRows.length}${workoutKm > 0 ? `, ${workoutKm.toFixed(1)}km` : ""}` : null,
-    `Water: ${totalWaterL}L logged`,
+    `Fluids (all drinks): ${totalFluidL}L logged`,
     avgMood != null ? `Mood: avg ${avgMood}/5` : null,
     `Morning check-ins: ${checkinRows.length}/${daysThisWeek}${avgCheckinEnergy != null ? `, avg energy ${avgCheckinEnergy}/5` : ""}`,
-    habitRows.length > 0 ? `Habits:\n${habitRows.map(h => `  - ${h.name}: ${h.completed}/${daysThisWeek} days`).join("\n")}` : null,
+    habitRows.length > 0 ? `Habits (done/due this week):\n${habitRows.map(h => `  - ${h.line}`).join("\n")}` : null,
     intentions.length > 0 ? `Intentions they set this week: ${intentions.slice(0, 7).join(" · ")}` : null,
   ].filter((l): l is string => l != null)
 

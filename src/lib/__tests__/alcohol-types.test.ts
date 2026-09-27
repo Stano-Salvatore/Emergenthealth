@@ -24,7 +24,7 @@ const FILES = [
   "src/lib/claude.ts",
   "src/app/dashboard/page.tsx",
   "src/app/api/stats/route.ts",
-  "src/app/api/body-load/route.ts",
+  "src/lib/body-load-now.ts",
   "src/lib/quick-answer-run.ts",
 ]
 

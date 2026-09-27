@@ -194,7 +194,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 21
+export const ENGINE_VERSION = 22
 
 /**
  * Both sides need this many days before a card is called confident.
@@ -1966,20 +1966,22 @@ export async function computeCorrelations(
       id: "phone_pickups_sleep", category: "screen", emoji: "📱", title: "Phone In Bed & Sleep",
       highGroupLabel: `nights with ${pickupMedian}+ pickups after 22:00`, lowGroupLabel: "quieter evenings",
       series: pickupSleepSplit, higherIsBetter: true,
-      findingTemplate: (h, l) =>
-        h < l
-          ? `Nights you pick the phone up ${pickupMedian}+ times after 22:00 score ${h}; quieter evenings, ${l}`
-          : `Evening phone pickups don't show up in your sleep score — ${h} vs ${l}`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        lower: `Nights you pick the phone up ${pickupMedian}+ times after 22:00 score ${h}; quieter evenings, ${l}`,
+        higher: `Nights with ${pickupMedian}+ late pickups actually score higher — ${h} vs ${l} on quieter evenings`,
+        same: `Evening phone pickups don't show up in your sleep score — ${h} vs ${l}`,
+      }),
     })
     if (ins_pickups_sleep) insights.push(ins_pickups_sleep)
     const ins_pickups_energy = compareGroups({
       id: "phone_pickups_energy", category: "screen", emoji: "🔋", title: "Phone In Bed & Morning Energy",
       highGroupLabel: `nights with ${pickupMedian}+ pickups after 22:00`, lowGroupLabel: "quieter evenings",
       series: pickupEnergySplit, higherIsBetter: true,
-      findingTemplate: (h, l) =>
-        h < l
-          ? `Mornings after ${pickupMedian}+ late pickups, energy averages ${h} vs ${l} after quieter evenings`
-          : `Late pickups don't dent your morning energy — ${h} vs ${l}`,
+      findingTemplate: (h, l) => byDirection(h, l, {
+        lower: `Mornings after ${pickupMedian}+ late pickups, energy averages ${h} vs ${l} after quieter evenings`,
+        higher: `Mornings after ${pickupMedian}+ late pickups, energy is actually higher — ${h} vs ${l}`,
+        same: `Late pickups don't dent your morning energy — ${h} vs ${l}`,
+      }),
     })
     if (ins_pickups_energy) insights.push(ins_pickups_energy)
   }

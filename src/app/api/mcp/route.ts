@@ -533,13 +533,20 @@ function buildMcpServer(userId: string): McpServer {
       note: z.string().optional().describe("Optional note about the mood"),
     },
     async ({ mood, note }) => {
-      const date = dateColumn(await todayFor(userId))
+      const today = await todayFor(userId)
+      const date = dateColumn(today)
       await prisma.moodLog.upsert({
         where: { userId_date: { userId, date } },
         create: { userId, date, mood, note: note ?? null },
         update: { mood, note: note ?? null },
       })
       const labels = ["", "Awful", "Bad", "Okay", "Good", "Great"]
+      // The morning check-in wins its day (lib/mood-series): a different mood
+      // logged after it is stored and read nowhere, and has to be said so.
+      const effective = (await loadMoodByDay(userId, today, today).catch(() => null))?.get(today)
+      if (effective != null && effective !== mood) {
+        return msg(`Noted mood ${mood}/5${note ? ` (${note})` : ""}, but today's morning check-in said ${effective}/5 and the check-in stays the day's mood everywhere in the app.`)
+      }
       return msg(`Mood logged: ${mood}/5 — ${labels[mood]}${note ? ` (${note})` : ""}`)
     },
   )

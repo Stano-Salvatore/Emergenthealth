@@ -26,14 +26,38 @@ const walk = (dir: string): string[] =>
 
 const OWN = ["src/lib/hydration.ts"]
 
+// Not a fluid reading: which chat tool a parsed drink is reported as.
+const NOT_A_READ = ["src/lib/quick-log-run.ts"]
+
 describe("every hydration total counts every hydrating drink", () => {
-  it("no reader compares a row's type to \"water\" without going through lib/hydration", () => {
+  // The first version of this guard let any file that imported lib/hydration
+  // compare to "water" as it liked. claude.ts imported it for one sum and
+  // filtered `type === "water"` for another, so Emergy was told "Water: 0ml"
+  // on a day of sparkling water and tea while the Overview tile said 1.5L.
+  // Importing the helper is not using it.
+  it("no reader compares a row's type to \"water\"", () => {
     const idiom = /\.type === ["']water["']/
     const readers = walk("src").filter(f => idiom.test(code(f)))
     for (const f of readers) {
+      if (OWN.some(o => f.endsWith(o)) || NOT_A_READ.some(o => f.endsWith(o))) continue
+      expect.fail(`${f} sums fluid from rows typed "water" alone — tea, coffee and mate count for nothing there. Use lib/hydration.`)
+    }
+  })
+
+  // The same bug written as a query: the weekly review and the email digest
+  // selected `where: { type: "water" }` and reported a week of tea as 0.3L.
+  // Writing `type: "water"` is logging a drink and stays free; inside a
+  // `where:` it is a read.
+  it("no query selects rows typed \"water\" alone", () => {
+    const literal = /type:\s*["']water["']\s*[,}]/g
+    for (const f of walk("src")) {
       if (OWN.some(o => f.endsWith(o))) continue
-      expect(code(f), `${f} sums fluid from rows typed "water" alone — tea, coffee and mate count for nothing there`)
-        .toMatch(/from "@\/lib\/hydration"/)
+      const src = code(f)
+      for (const m of src.matchAll(literal)) {
+        const before = src.slice(Math.max(0, m.index - 200), m.index)
+        const inWhere = /where:\s*\{[^;]*$/.test(before) && !/data:\s*\{[^;]*$/.test(before)
+        expect(inWhere, `${f} queries rows typed "water" — use HYDRATING_TYPES and sumHydration`).toBe(false)
+      }
     }
   })
 })

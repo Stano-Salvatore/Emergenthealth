@@ -27,6 +27,8 @@ interface Message {
   id?: string
   role: "user" | "assistant"
   content: string
+  /** When it was sent — the server stamps turns that follow a long gap. */
+  createdAt?: string
   streaming?: boolean
   /** What he read to answer — only ever set from the server's own accounting. */
   sources?: SourceChip[]
@@ -527,16 +529,16 @@ export default function ChatPage() {
     const text = (overrideText ?? input).trim()
     if (!text || sending) return
 
-    const userMsg: Message = { role: "user", content: overrideText ?? text }
+    const userMsg: Message = { role: "user", content: overrideText ?? text, createdAt: new Date().toISOString() }
     setMessages((m) => [...m, userMsg])
     if (!overrideText) setInput("")
     setSending(true)
 
-    const history = messages.map((m) => ({ role: m.role, content: m.content }))
+    const history = messages.map((m) => ({ role: m.role, content: m.content, at: m.createdAt }))
 
     const myTurn = ++turnSeq.current
     const localId = `turn-${myTurn}`
-    const assistantMsg: Message = { role: "assistant", content: "", streaming: true, localId }
+    const assistantMsg: Message = { role: "assistant", content: "", streaming: true, localId, createdAt: new Date().toISOString() }
     setMessages((m) => [...m, assistantMsg])
     // Every update goes to this turn's own bubble. "Whichever bubble is last"
     // was a different one once the catch-up swapped the transcript in, and

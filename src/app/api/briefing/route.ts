@@ -131,8 +131,11 @@ export async function GET(req: NextRequest) {
       LIMIT 1
     `.catch(() => [] as { energy: number; mood: number; intention: string | null }[]),
 
+    // The newest night, not the newest row: Health Connect writes today's row
+    // with steps and no sleep, and the fallback below then named today as
+    // "the newest recorded night". Everything that reads this needs a night.
     prisma.healthLog.findFirst({
-      where: { userId },
+      where: { userId, sleepDuration: { not: null } },
       orderBy: { date: "desc" },
       select: { sleepDuration: true, readinessScore: true, date: true },
     }).catch(() => null),

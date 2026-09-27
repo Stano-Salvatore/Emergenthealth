@@ -158,11 +158,11 @@ export async function POST(req: NextRequest) {
         where: { userId, conversationId },
         orderBy: { createdAt: "desc" },
         take: 20,
-        select: { role: true, content: true },
-      }).catch(() => [] as { role: string; content: string }[])
+        select: { role: true, content: true, createdAt: true },
+      }).catch(() => [] as { role: string; content: string; createdAt: Date }[])
       const history = priorRows
         .reverse()
-        .map(m => ({ role: m.role === "assistant" ? "assistant" as const : "user" as const, content: m.content }))
+        .map(m => ({ role: m.role === "assistant" ? "assistant" as const : "user" as const, content: m.content, at: m.createdAt }))
 
       let reply = ""
       for await (const chunk of streamChatResponse(userId, incoming, history)) {

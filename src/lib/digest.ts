@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { Resend } from "resend"
 import { EMAIL_FROM, sendMail } from "@/lib/email"
+import { HYDRATING_TYPES, sumHydration } from "@/lib/hydration"
 
 function avg(arr: (number | null | undefined)[]): number | null {
   const vals = arr.filter((x): x is number => x != null)
@@ -132,8 +133,8 @@ export async function sendDigestForUser(userId: string, email: string): Promise<
       select: { date: true, sleepDuration: true, steps: true, hrv: true, readinessScore: true },
     }),
     prisma.intakeLog.findMany({
-      where: { userId, loggedAt: { gte: since }, type: "water" },
-      select: { amountMl: true },
+      where: { userId, loggedAt: { gte: since }, type: { in: HYDRATING_TYPES } },
+      select: { amountMl: true, type: true },
     }),
     prisma.habitCompletion.findMany({
       where: { userId, date: { gte: since } },
@@ -146,7 +147,8 @@ export async function sendDigestForUser(userId: string, email: string): Promise<
   const avgSteps = avg(healthLogs.map(l => l.steps))
   const avgHrv = avg(healthLogs.map(l => l.hrv))
   const avgReadiness = avg(healthLogs.map(l => l.readinessScore))
-  const totalWaterMl = intakeLogs.reduce((s, l) => s + l.amountMl, 0)
+  // Every hydrating drink, as the app's water tile counts it (lib/hydration).
+  const totalWaterMl = sumHydration(intakeLogs)
   const habitsCompleted = habitCompletions.length
 
   const bestDay = healthLogs
