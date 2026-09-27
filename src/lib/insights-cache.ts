@@ -36,3 +36,47 @@ export function parseInsightsCache(raw: string | null | undefined): { insights: 
     return { insights: [], at: null }
   }
 }
+
+/** Younger than this, a cached run is served as it is. */
+const FRESH_MS = 6 * 60 * 60 * 1000
+/**
+ * Older than fresh but younger than this, a run is served at once and a new
+ * one computed after the response. The watch cron writes the overall run once
+ * a day in the late afternoon UTC, so it is about fourteen hours old by the
+ * next morning's first open — which a plain six-hour TTL always found
+ * expired, and made wait on the full engine.
+ */
+const STALE_MS = 36 * 60 * 60 * 1000
+
+export type InsightsCacheState = "fresh" | "stale" | "unusable"
+
+/**
+ * Whether a cache envelope may be shown. A run from another engine version is
+ * never shown, however new: it would hide families that were just added, and
+ * carry labels for cuts the engine no longer applies.
+ */
+export function insightsCacheState(
+  envelope: { at?: unknown; v?: unknown } | null | undefined,
+  now: number,
+  engineVersion: number,
+): InsightsCacheState {
+  if (!envelope || envelope.v !== engineVersion || typeof envelope.at !== "number") return "unusable"
+  const age = now - envelope.at
+  if (age < FRESH_MS) return "fresh"
+  return age < STALE_MS ? "stale" : "unusable"
+}
+
+const inFlight = new Map<string, Promise<unknown>>()
+
+/**
+ * Join a computation already running under `key` rather than start a second.
+ * Per server instance only — enough for the case that mattered, the Insights
+ * page and its Watched panel asking for the same period in the same second.
+ */
+export function shareInFlight<T>(key: string, run: () => Promise<T>): Promise<T> {
+  const running = inFlight.get(key)
+  if (running) return running as Promise<T>
+  const p = run().finally(() => inFlight.delete(key))
+  inFlight.set(key, p)
+  return p
+}

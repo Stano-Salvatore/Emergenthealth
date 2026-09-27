@@ -15,7 +15,15 @@ import { readFileSync } from "node:fs"
 const SRC = readFileSync("src/lib/correlations.ts", "utf8")
 
 /** Fields whose absence means "not connected yet", not "none that day". */
-const COERCIONS = ["workoutMin ?? 0", "screenTimeMin ?? 0", "eventCount ?? 0"]
+//
+// Symptoms, focus minutes and fasts joined the list when the same bug turned
+// up in them: every day before the first symptom was ever logged counted as
+// severity 0, so a medication started the same week as symptom logging came
+// out as the cause of every symptom logged since.
+const COERCIONS = [
+  "workoutMin ?? 0", "screenTimeMin ?? 0", "eventCount ?? 0",
+  "symptoms?.[symptom] ?? 0", "focusMin ?? 0", "fastH ?? 0",
+]
 
 /**
  * Assembly lines, where `?? 0` is an accumulator rather than a claim about
@@ -24,6 +32,7 @@ const COERCIONS = ["workoutMin ?? 0", "screenTimeMin ?? 0", "eventCount ?? 0"]
 const ALLOWED = [
   "d.eventCount = (d.eventCount ?? 0) + 1",
   "d.workoutMin = (d.workoutMin ?? 0) + Math.round(a.movingTimeSec / 60)",
+  "d.focusMin = (d.focusMin ?? 0) + f.durationMin",
 ]
 
 /**

@@ -85,7 +85,7 @@ function Analysis({ a, name }: { a: ExperimentAnalysis; name: string }) {
 
           <p className="text-[11px] text-muted-foreground leading-snug">
             {a.verdict === "clear" && (
-              <>An effect this size came up in only {Math.round((a.pValue ?? 0) * 100)}% of random shufflings of these same days — worth believing, for you.</>
+              <>An effect this size came up in only {Math.round((a.pValue ?? 0) * 100)}% of random shufflings of these days, moved a few at a time — worth believing, for you.</>
             )}
             {a.verdict === "suggestive" && (
               <>Leaning that way, but chance alone produces a gap this big {Math.round((a.pValue ?? 0) * 100)}% of the time. Another round would settle it.</>
