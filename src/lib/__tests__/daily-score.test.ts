@@ -135,6 +135,15 @@ describe("a day still in progress", () => {
     expect(mind.parts.map(p => p.label)).not.toContain("High stress")
   })
 
+  it("a held-back Movement is not reported as missing input", () => {
+    // Sleep, recovery and mind all present: nothing is missing, so the card
+    // must not say "80% of the usual inputs were available today".
+    const hist = withStress().map((d, i) => ({ ...d, mood: 3 + [1, -1, 0][i % 3] }))
+    const r = computeDailyScore(morning, hist, { dayInProgress: true })
+    expect(r.coverage).toBe(1)
+    expect(r.dayInProgress).toBe(true)
+  })
+
   it("a finished day is still scored on its totals", () => {
     const r = computeDailyScore(morning, withStress())
     expect(r.components.find(c => c.key === "activity")!.score).toBeLessThan(15)

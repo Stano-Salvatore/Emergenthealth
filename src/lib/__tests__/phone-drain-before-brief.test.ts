@@ -30,6 +30,18 @@ describe("the brief asks the server only after the phone has been drained", () =
     ).toBe(true)
   })
 
+  it("a foreground re-ask waits for the drain that foreground starts", () => {
+    // The first foreground of a new morning writes that day's brief. Asked
+    // before the drain NativeBridge starts on the same event, it was written
+    // without last night's phone segments — the cold-open race again.
+    const src = stripped("src/components/dashboard/DailyBriefing.tsx")
+    const handler = src.slice(src.indexOf("const onVisible"), src.indexOf("addEventListener(\"visibilitychange\""))
+    const wait = handler.indexOf("await waitForPhoneDrain(")
+    const ask = handler.indexOf("loadBriefing(")
+    expect(wait, "the foreground re-ask does not wait for the phone drain").toBeGreaterThan(-1)
+    expect(wait < ask).toBe(true)
+  })
+
   it("NativeBridge drains through the helper that the brief waits on", () => {
     const bridge = stripped("src/components/NativeBridge.tsx")
     expect(
@@ -136,6 +148,22 @@ describe("waitForPhoneDrain", () => {
     await vi.advanceTimersByTimeAsync(2999)
     expect(done).toBe(false)
     await vi.advanceTimersByTimeAsync(2)
+    expect(done).toBe(true)
+  })
+
+  it("after the first drain, still holds for one in flight", async () => {
+    phone.native = true
+    const { waitForPhoneDrain, drainPhone } = await load()
+    await drainPhone()
+    let release!: () => void
+    drains.sensors.mockReturnValue(new Promise(r => { release = () => r({ ambient: [], phoneEvents: [], sleep: [] }) }))
+    void drainPhone()
+    let done = false
+    void waitForPhoneDrain(5000).then(() => { done = true })
+    await vi.advanceTimersByTimeAsync(10)
+    expect(done, "resolved while the foreground's drain was still running").toBe(false)
+    release()
+    await vi.advanceTimersByTimeAsync(10)
     expect(done).toBe(true)
   })
 

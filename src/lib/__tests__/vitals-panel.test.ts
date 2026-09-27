@@ -77,6 +77,19 @@ describe("the card and the anomaly scan judge a night the same way", () => {
     expect(card.z).toBe(Math.round(anomaly!.z * 10) / 10)
     expect(card.baseline).toBe(anomaly!.baseline)
   })
+
+  it("a wobble under the scan's relevance floor stays green on the card too", () => {
+    // Resting HR steady at 54-55: 56.5 is past two sigma but only 2 bpm off,
+    // under the scan's 3 bpm floor. The scan and the brief say nothing, so an
+    // amber dot here would be the card disagreeing with them the other way.
+    const values = [54, 55, 54, 55, 54, 55, 54, 55, 54, 55, 54, 55, 54, 55, 56.5]
+    const restingHR = days("restingHR", values)
+    const spec = TRACKED_METRICS.find(m => m.key === "restingHR")!
+    expect(detectAnomaly(spec, restingHR)).toBeNull()
+    const card = vitalsPanel({ restingHR }, "2026-09-15").find(v => v.key === "restingHR")!
+    expect(Math.abs(card.z!)).toBeGreaterThanOrEqual(2)
+    expect(card.flagged).toBe(false)
+  })
 })
 
 const db = vi.hoisted(() => ({ rows: [] as unknown[] }))
@@ -103,6 +116,25 @@ describe("the panel's night is the newest night with vitals, not the newest row"
     expect(scan.vitalsDate).toBe("2026-09-26")
     expect(scan.vitals.find(v => v.key === "hrv")?.value).not.toBeNull()
   })
+
+  it("a ring night too old to be last night is not shown as the panel, though steps keep syncing", async () => {
+    // The ring in a drawer since the 13th while the phone writes steps every
+    // day: the rows are fresh, so `stale` alone passed a two-week-old night
+    // to the card as its bands.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-09-27T06:00:00Z"))
+    const rows: unknown[] = []
+    for (let d = 1; d <= 27; d++) {
+      const date = new Date(`2026-09-${String(d).padStart(2, "0")}T00:00:00Z`)
+      rows.push(d <= 13 ? { date, hrv: 50 + (d % 3), restingHR: 54 + (d % 2), steps: 8000 } : { date, steps: 8000 })
+    }
+    db.rows = rows
+    const scan = await scanUserAnomalies("u1")
+    expect(scan.stale).toBe(false)
+    expect(scan.vitalsDate).toBe("2026-09-13")
+    expect(scan.vitalsStale).toBe(true)
+    expect(scan.vitals).toEqual([])
+  })
 })
 
 describe("the card counts only what was measured", () => {
@@ -113,6 +145,10 @@ describe("the card counts only what was measured", () => {
   it("does not count a vital with no reading as inside the usual band", () => {
     expect(card, "the header counts vitals with no reading as 'in your usual band'")
       .toMatch(/\.filter\(\s*v\s*=>\s*v\.value\s*!=\s*null\s*\)/)
+  })
+
+  it("a stale ring night gets the quiet line, named by that night's date", () => {
+    expect(card).toMatch(/scan\.stale \|\| scan\.vitalsStale/)
   })
 
   it("dates a night that is not last night instead of calling it last night", () => {

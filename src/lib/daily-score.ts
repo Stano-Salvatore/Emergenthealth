@@ -128,6 +128,8 @@ export interface DailyScore {
   driver: { label: string; emoji: string; score: number; direction: "up" | "down" } | null
   /** Present only when `score` is null: why. */
   reason?: string
+  /** True when the running totals were held back because the day is not over. */
+  dayInProgress?: boolean
 }
 
 const clamp = (v: number) => Math.max(0, Math.min(100, v))
@@ -201,12 +203,17 @@ export function computeDailyScore(
     }
   }
 
-  const totalWeight = COMPONENTS.reduce((a, c) => a + c.weight, 0)
+  // A component made only of running totals is held back, not missing: it
+  // leaves the denominator too, or the card reports "60% of the usual inputs
+  // were available" on a morning whose steps synced fine.
+  const held = (c: ComponentDef) => opts.dayInProgress === true && c.metrics.every(m => RUNNING_TOTALS.has(m.key))
+  const totalWeight = COMPONENTS.reduce((a, c) => a + (held(c) ? 0 : c.weight), 0)
   const coverage = weightUsed / totalWeight
+  const inProgress = opts.dayInProgress ? { dayInProgress: true } : {}
 
   if (weightUsed === 0) {
     return {
-      score: null, components, coverage, basis: history.length, driver: null,
+      score: null, components, coverage, basis: history.length, driver: null, ...inProgress,
       reason: history.length < MIN_BASIS_DAYS
         ? `Needs about ${MIN_BASIS_DAYS} days of history before a "usual" exists to compare against`
         : "Nothing synced for today yet",
@@ -214,7 +221,7 @@ export function computeDailyScore(
   }
   if (coverage < MIN_COVERAGE) {
     return {
-      score: null, components, coverage, basis: history.length, driver: null,
+      score: null, components, coverage, basis: history.length, driver: null, ...inProgress,
       reason: "Too little of today has data to stand behind a single number",
     }
   }
@@ -235,7 +242,7 @@ export function computeDailyScore(
     }
     : null
 
-  return { score, components, coverage, basis: history.length, driver }
+  return { score, components, coverage, basis: history.length, driver, ...inProgress }
 }
 
 /**

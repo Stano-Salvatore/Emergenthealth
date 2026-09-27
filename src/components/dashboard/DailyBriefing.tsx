@@ -79,11 +79,19 @@ export function DailyBriefing() {
     // usually just landed. The server regenerates once when either arrives
     // and otherwise answers from its cache, so asking again is cheap; a
     // failed ask keeps the brief already on screen.
+    //
+    // The first foreground of a new day writes that day's brief, so it waits
+    // for the drain NativeBridge starts on the same event. This listener was
+    // added first and runs first: the timeout lets NativeBridge's run, and
+    // the wait then holds for the drain it began.
     const onVisible = () => {
       if (document.visibilityState !== "visible") return
-      void loadBriefing(false).then(next => {
+      void (async () => {
+        await new Promise(resolve => setTimeout(resolve, 0))
+        await waitForPhoneDrain()
+        const next = await loadBriefing(false)
         if (!cancelled && next.status === "loaded") setState(next)
-      })
+      })()
     }
     document.addEventListener("visibilitychange", onVisible)
     return () => {

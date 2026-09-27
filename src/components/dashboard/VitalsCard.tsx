@@ -23,13 +23,13 @@ export async function VitalsCard({ userId }: { userId: string }) {
     return null
   }
 
-  if (scan.stale) {
+  if (scan.stale || scan.vitalsStale) {
     return (
       <Card>
         <CardHeader className="pb-2"><CardTitle className="text-sm">Last night&apos;s vitals</CardTitle></CardHeader>
         <CardContent className="pt-0">
           <p className="text-sm text-muted-foreground">
-            The ring has been quiet since {scan.latestDate ?? "a while ago"} — nothing recent enough to call &quot;last night&quot;.
+            The ring has been quiet since {(scan.vitalsStale ? scan.vitalsDate : scan.latestDate) ?? "a while ago"} — nothing recent enough to call &quot;last night&quot;.
           </p>
         </CardContent>
       </Card>

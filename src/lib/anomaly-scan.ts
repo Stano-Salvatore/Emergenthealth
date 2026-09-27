@@ -3,7 +3,7 @@
 // testable without a database.
 
 import { prisma } from "@/lib/prisma"
-import { detectAll, MIN_HISTORY_DAYS, type Anomaly, type DayValue } from "@/lib/anomalies"
+import { detectAll, MIN_HISTORY_DAYS, TRACKED_METRICS, type Anomaly, type DayValue } from "@/lib/anomalies"
 import { median, mad } from "@/lib/anomalies"
 
 /** Long enough for a robust baseline, short enough that it tracks the current you. */
@@ -24,6 +24,12 @@ export interface ScanResult {
   vitalsDate: string | null
   /** True when the newest data is too old to judge. */
   stale: boolean
+  /**
+   * True when the newest night with vitals is too old to judge, though other
+   * rows are recent: steps keep syncing from the phone while the ring sits in
+   * a drawer, and `stale` alone would pass a two-week-old night to the card.
+   */
+  vitalsStale: boolean
 }
 
 function iso(d: Date): string {
@@ -55,7 +61,7 @@ export async function scanUserAnomalies(
   })
 
   if (logs.length === 0) {
-    return { anomalies: [], vitals: [], days: 0, latestDate: null, vitalsDate: null, stale: false }
+    return { anomalies: [], vitals: [], days: 0, latestDate: null, vitalsDate: null, stale: false, vitalsStale: false }
   }
 
   // Each metric gets its own series with its own gaps closed up: a day where
@@ -104,9 +110,13 @@ export async function scanUserAnomalies(
     .sort()
     .at(-1) ?? null
 
+  // The same staleness rule as the rows as a whole, applied to that night.
+  const vitalsStale = vitalsDate != null
+    && Math.floor((Date.now() - Date.parse(vitalsDate + "T00:00:00Z")) / 86400000) > MAX_STALENESS_DAYS
+
   return {
-    anomalies, days: logs.length, latestDate, stale, vitalsDate,
-    vitals: stale ? [] : vitalsPanel(series, vitalsDate),
+    anomalies, days: logs.length, latestDate, stale, vitalsDate, vitalsStale,
+    vitals: stale || vitalsStale ? [] : vitalsPanel(series, vitalsDate),
   }
 }
 
@@ -117,10 +127,13 @@ export async function scanUserAnomalies(
 // absence of it. Same series, same robust statistics, no new thresholds —
 // flagged means the same two-sigma spike the anomaly scan would call. That
 // holds only while the baseline is built the same way: from the nights BEFORE
-// the one being judged, with mad() already scaled to a standard deviation.
-// Including the night itself and scaling twice made the card's band about
-// half again as wide as the scan's, so it showed green under a brief that had
-// just called the same HRV unusual.
+// the one being judged, with mad() already scaled to a standard deviation,
+// and past the same minAbsShift relevance floor. Including the night itself
+// and scaling twice made the card's band about half again as wide as the
+// scan's, so it showed green under a brief that had just called the same HRV
+// unusual; dropping the floor turns a 1.5 bpm wobble in a metronomic resting
+// HR amber while the scan and the brief say nothing. Blood oxygen has no
+// scan spec, so the panel judges it on z alone.
 
 const VITAL_DEFS: { key: string; label: string; unit: string; decimals: number }[] = [
   { key: "restingHR", label: "Resting heart rate", unit: " bpm", decimals: 0 },
@@ -142,6 +155,8 @@ export interface Vital {
   flagged: boolean
 }
 
+const floorFor = (key: string): number => TRACKED_METRICS.find(m => m.key === key)?.minAbsShift ?? 0
+
 export function vitalsPanel(series: Record<string, DayValue[]>, latestDate: string | null): Vital[] {
   if (!latestDate) return []
   const out: Vital[] = []
@@ -159,7 +174,7 @@ export function vitalsPanel(series: Record<string, DayValue[]>, latestDate: stri
       value: latest != null ? round(latest) : null,
       baseline: round(med),
       z: z != null ? Math.round(z * 10) / 10 : null,
-      flagged: z != null && Math.abs(z) >= 2,
+      flagged: latest != null && z != null && Math.abs(z) >= 2 && Math.abs(latest - med) >= floorFor(def.key),
     })
   }
   return out
