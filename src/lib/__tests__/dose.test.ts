@@ -46,6 +46,9 @@ describe("parseDose", () => {
     expect(parseDose("Atarax x2")).toEqual({ amount: 2, unit: "tablet" })
     expect(parseDose("Atarax 2x")).toEqual({ amount: 2, unit: "tablet" })
     expect(parseDose("Atarax ½")).toEqual({ amount: 0.5, unit: "tablet" })
+    // A drug whose name begins like a time unit is not a length of time.
+    expect(parseDose("½ Minirin")).toEqual({ amount: 0.5, unit: "tablet" })
+    expect(parseDose("Atarax ½ hodiny pred spaním")).toBeNull()
   })
 
   it("says nothing rather than guessing when the label has no dose", () => {
@@ -93,6 +96,9 @@ describe("no dose surface defaults an amount to tablets", () => {
     const page = code("src/app/dashboard/medications/page.tsx")
     expect(page).toMatch(/parseDoseEdit\(/)
     expect(page).not.toMatch(/doseUnit \?\? "tablet"/)
+    // parseDoseEdit asks for "400mg" or "½" on a dose with no unit; a number
+    // pad cannot type either, so that box must open a text keyboard.
+    expect(page).toMatch(/inputMode=\{entry\.doseUnit[^}]*"text"\}/)
   })
 
   it("Emergy's correct_log takes a unit instead of assuming one", () => {

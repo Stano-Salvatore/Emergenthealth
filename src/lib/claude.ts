@@ -813,7 +813,7 @@ async function correctRef(
       if (change.amount != null) {
         await prisma.$executeRaw`
           UPDATE "OuraTag" SET "doseAmount" = ${Math.min(100_000, change.amount)},
-            "doseUnit" = COALESCE(${change.doseUnit ?? null}, "doseUnit")
+            "doseUnit" = COALESCE(${change.doseUnit ?? null}::text, "doseUnit")
           WHERE "id" = ${ref.id} AND "userId" = ${userId} AND "id" LIKE 'manual_%'
         `
       }

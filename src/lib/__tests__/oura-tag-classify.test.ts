@@ -20,10 +20,23 @@ describe("classifyOuraTag", () => {
     expect(classifyOuraTag(label).kind).toBe("med")
   })
 
-  it("a substance the canon knows is never a drink, whatever it contains", () => {
+  it("a substance the canon knows is never alcohol, whatever it contains", () => {
     // "shot" and "mineral" were bare substrings too.
     expect(classifyOuraTag("Zinc shot").kind).toBe("med")
     expect(classifyOuraTag("Calcium mineral complex").kind).toBe("med")
+    expect(classifyOuraTag("Iron shots of ginger").kind).toBe("med")
+    expect(classifyOuraTag("Vitamin C cider vinegar").kind).toBe("med")
+  })
+
+  it.each([
+    ["Collagen coffee", "coffee"],
+    ["Coffee + collagen", "coffee"],
+    ["Matcha with ashwagandha", "matcha"],
+    ["Magnesium water", "water"],
+  ])("a drink with a supplement in it is still the drink: %s", (label, kind) => {
+    // The sync deletes the intake and caffeine rows of any tag that is not a
+    // drink, so calling these supplements would erase real coffee.
+    expect(classifyOuraTag(label).kind).toBe(kind)
   })
 
   it.each([

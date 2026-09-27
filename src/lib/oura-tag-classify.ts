@@ -49,14 +49,17 @@ const DEFAULTS: [RegExp, OuraTagKind, number][] = [
   [/\balcohol\b/, "alcohol", 330],
 ]
 
+const ALCOHOLIC: ReadonlySet<OuraTagKind> = new Set(["beer", "wine", "spirits", "alcohol"])
+
 export function classifyOuraTag(rawLabel: string): { kind: OuraTagKind; ml: number } {
-  // A substance the supplement canon knows is never a drink, whatever else
-  // its label happens to contain.
-  if (normalizeSupplement(rawLabel)) return { kind: "med", ml: 0 }
   const label = fold(rawLabel.trim())
   const explicitMl = label.match(ML_RE)?.[1]
   for (const [re, kind, defMl] of DEFAULTS) {
     if (re.test(label)) {
+      // A substance the supplement canon knows is never alcohol, whatever its
+      // label happens to contain. It can still be a drink: "collagen coffee"
+      // is a coffee and keeps its intake and caffeine rows.
+      if (ALCOHOLIC.has(kind) && normalizeSupplement(rawLabel)) return { kind: "med", ml: 0 }
       return { kind, ml: explicitMl ? parseInt(explicitMl) : defMl }
     }
   }

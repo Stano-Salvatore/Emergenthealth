@@ -43,8 +43,11 @@ const MULTIPLIER = /\b(?:x\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*x)\b/i
 /** How often, not how many: "2x daily" is a schedule, never two tablets. */
 const FREQUENCY = /\b(?:\d+\s*x|x\s*\d+)\s*(?:daily|a day|per day|\/\s*day|a week|weekly|denne|za\s*den|tyzdenne)\b/gi
 
-/** When, not how much: "½ hour before bed", "1/2h", "half an hour". */
-const TIME_SHARE = /(?:\d\s*\/\s*\d|[½¼¾⅓⅔]|\b(?:half|quarter)(?:\s+(?:of\s+)?an)?)\s*(?:hours?|hrs?|h|min\w*|hod\w*)\b/gi
+/**
+ * When, not how much: "½ hour before bed", "1/2h", "half an hour". The units
+ * are spelled out so a drug named Min… or Hod… keeps its "½".
+ */
+const TIME_SHARE = /(?:\d\s*\/\s*\d|[½¼¾⅓⅔]|\b(?:half|quarter)(?:\s+(?:of\s+)?an)?)\s*(?:hours?|hrs?|h|mins?|minutes?|minut[aey]?|minút|hod(?:in[aeuy]?|ín|ky))\b/gi
 
 const num = (s: string) => Number(s.replace(",", "."))
 

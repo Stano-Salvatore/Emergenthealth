@@ -4,7 +4,7 @@ import Anthropic from "@anthropic-ai/sdk"
 import { format } from "date-fns"
 import { addDaysISO, localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { adherenceOver, matchKey, type ScheduleLike } from "@/lib/med-schedule"
+import { adherenceOver, matchKey, sortedTimes, type ScheduleLike } from "@/lib/med-schedule"
 import { formatDose, sumDoses, type ParsedDose } from "@/lib/dose"
 import { loadWeightSeries } from "@/lib/weight-series"
 import { RING_OFF_MAX_STEPS } from "@/lib/sleep-quality"
@@ -298,10 +298,13 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   }))
   const adherence = new Map(adherenceOver(shaped, doseList, completeDays).map(a => [a.scheduleId, a]))
 
-  const meds: MedSummary[] = medSchedules.map(m => {
+  const meds: MedSummary[] = medSchedules.map((m, i) => {
     const key = matchKey(m.name)
     const hits = doseList.filter(d => matchKey(d.name) === key).map(d => d.row)
     const adh = adherence.get(m.id)
+    // An as-needed schedule has no times, so adherenceOver expects nothing and
+    // counts nothing; its recorded doses are still what the doctor needs.
+    const asNeeded = sortedTimes(shaped[i]).length === 0
     const lastTaken = hits.length
       ? hits.reduce((a, b) => (a.timestamp > b.timestamp ? a : b)).day
       : null
@@ -320,7 +323,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
 
     return {
       name: m.name, dose: m.dose, times: m.times, daysOfWeek: m.daysOfWeek, note: m.note,
-      expectedDoses: adh?.expected ?? 0, loggedDoses: adh?.taken ?? 0, lastTaken, typicalDose,
+      expectedDoses: adh?.expected ?? 0, loggedDoses: asNeeded ? hits.length : adh?.taken ?? 0, lastTaken, typicalDose,
     }
   })
 
@@ -389,8 +392,13 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   // weightSeries is oldest first, one point per day. Body fat only ever comes
   // from the Body page, so it carries its own date rather than borrowing the
   // weigh-in's.
-  const latestWeigh = weightSeries.length ? weightSeries[weightSeries.length - 1] : null
-  const prevWeigh = weightSeries.length > 1 ? weightSeries[weightSeries.length - 2] : null
+  // The series reaches back a year; a Body-page weight older than that is
+  // still the latest one on file and is shown with its date, as before.
+  const oldBodyWeighs = weightSeries.length ? [] : bodyRows
+    .filter(b => b.weightKg != null)
+    .map(b => ({ date: b.date.toISOString().slice(0, 10), kg: b.weightKg as number }))
+  const latestWeigh = weightSeries.length ? weightSeries[weightSeries.length - 1] : oldBodyWeighs[0] ?? null
+  const prevWeigh = weightSeries.length > 1 ? weightSeries[weightSeries.length - 2] : oldBodyWeighs[1] ?? null
   const fatRow = bodyRows.find(b => b.bodyFatPct != null) ?? null
   const body = {
     weightKg: latestWeigh?.kg ?? null,

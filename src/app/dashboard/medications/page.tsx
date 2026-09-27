@@ -209,7 +209,9 @@ function MedEntryControls({ entry, onChanged, compact = false }: {
       {editingDose ? (
         <input
           type="text"
-          inputMode="decimal"
+          // A dose with no unit yet has to be typed with one ("400mg", "½"),
+          // which a phone's number pad cannot write.
+          inputMode={entry.doseUnit === "mg" || entry.doseUnit === "tablet" ? "decimal" : "text"}
           autoFocus
           defaultValue={entry.doseAmount != null ? String(entry.doseAmount) : ""}
           placeholder={entry.doseUnit === "mg" ? "mg" : entry.doseUnit === "tablet" ? "tablets" : "400mg, ½"}

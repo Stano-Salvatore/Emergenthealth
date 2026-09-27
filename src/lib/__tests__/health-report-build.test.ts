@@ -110,6 +110,16 @@ describe("weight", () => {
     expect(r.weightTrend?.firstDate).toBe(daysBack(20))
     expect(r.weightTrend?.lastDate).toBe(daysBack(1))
   })
+
+  it("still shows a Body-page weight older than a year, with its date", async () => {
+    db.body = [
+      { date: day("2025-02-01"), weightKg: 82.5, bodyFatPct: 21 },
+      { date: day("2024-11-01"), weightKg: 84.0, bodyFatPct: null },
+    ]
+    const r = await buildHealthReport("u1", 30)
+    expect(r.body).toMatchObject({ weightKg: 82.5, prevWeightKg: 84, date: "2025-02-01", bodyFatPct: 21 })
+    expect(r.weightTrend).toBeNull()
+  })
 })
 
 describe("medications", () => {
@@ -151,6 +161,17 @@ describe("medications", () => {
     expect(by("Magnesium").loggedDoses).toBe(5)
     expect(by("Iron").loggedDoses).toBe(0)
     for (const m of r.meds) expect(m.loggedDoses).toBeLessThanOrEqual(m.expectedDoses)
+  })
+
+  it("still counts the recorded doses of an as-needed medication", async () => {
+    // No times means adherenceOver expects nothing and counts nothing; the
+    // doctor still needs to see how often it was reached for.
+    db.schedules = [schedule("prn", "Atarax", [])]
+    for (const n of [1, 3, 4, 9]) db.doses.push(dose(daysBack(n), "Atarax ½"))
+    db.doses.push(dose(daysBack(3), "Atarax"))
+    const r = await buildHealthReport("u1", 30)
+    expect(r.meds[0].expectedDoses).toBe(0)
+    expect(r.meds[0].loggedDoses).toBe(5)
   })
 
   it("does not count today, whose evening dose has not happened yet", async () => {
