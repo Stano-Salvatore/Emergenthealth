@@ -87,7 +87,11 @@ function Analysis({ a, name }: { a: ExperimentAnalysis; name: string }) {
             {a.verdict === "clear" && (
               <>An effect this size came up in only {Math.round((a.pValue ?? 0) * 100)}% of random shufflings of these days, moved a few at a time — worth believing, for you.</>
             )}
-            {a.verdict === "suggestive" && (
+            {/* p ≤ 0.05 without "clear" means one ON stretch and one OFF so far: the gap is real, what caused it is not settled. */}
+            {a.verdict === "suggestive" && (a.pValue ?? 1) <= 0.05 && (
+              <>A gap this big is rare by chance, but so far it has been seen only one stretch each way — a change in you between the two would look exactly the same. Another round would settle it.</>
+            )}
+            {a.verdict === "suggestive" && (a.pValue ?? 1) > 0.05 && (
               <>Leaning that way, but chance alone produces a gap this big {Math.round((a.pValue ?? 0) * 100)}% of the time. Another round would settle it.</>
             )}
             {a.verdict === "no-effect" && (
