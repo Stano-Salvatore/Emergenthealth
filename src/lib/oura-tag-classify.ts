@@ -1,6 +1,11 @@
 // Shared classifier for Oura tags (the user's manual annotations in the Oura
 // app): drinks are mirrored into IntakeLog by the Oura sync; anything that
 // isn't a drink is treated as a likely supplement/medication for display.
+//
+// Drink words are matched as words: a bare "rum" made Ferrum and Centrum 40 ml
+// of spirits, mirrored into the alcohol log every morning.
+
+import { normalizeSupplement } from "@/lib/supplement-normalize"
 
 export type OuraTagKind =
   | "water" | "sparkling" | "coffee" | "tea" | "matcha"
@@ -31,24 +36,30 @@ const DEFAULTS: [RegExp, OuraTagKind, number][] = [
   [/americano/, "coffee", 200],
   [/cold.?brew/, "coffee", 300],
   [/batch.?brew|v60|aeropress|pour.?over|filter coffee/, "coffee", 250],
-  [/coffee|kava/, "coffee", 200],
-  [/sparkling|perliv|mineral|bublink/, "sparkling", 330],
+  [/coffee|\bkava\b/, "coffee", 200],
+  [/sparkling|perliv|mineralka|mineral(?:na)?\s*(?:water|voda)|bublink/, "sparkling", 330],
   [/\bwater\b|voda/, "water", 300],
   // Tea is a real intake type on the page, so it is classified here rather
   // than being lumped in with untracked drinks below.
   [/\btea\b|caj\b/, "tea", 250],
   [/beer|pivo/, "beer", 500],
   [/wine|vino/, "wine", 150],
-  [/vodka|rum|\bgin\b|whisky|whiskey|spirit|borovicka|slivovica|shot/, "spirits", 40],
+  [/vodka|tequila|\brum\b|\bgin\b|whisky|whiskey|\bspirits?\b|borovicka|slivovica|\bshots? of\b/, "spirits", 40],
   [/cocktail|cider/, "alcohol", 330],
   [/\balcohol\b/, "alcohol", 330],
 ]
+
+const ALCOHOLIC: ReadonlySet<OuraTagKind> = new Set(["beer", "wine", "spirits", "alcohol"])
 
 export function classifyOuraTag(rawLabel: string): { kind: OuraTagKind; ml: number } {
   const label = fold(rawLabel.trim())
   const explicitMl = label.match(ML_RE)?.[1]
   for (const [re, kind, defMl] of DEFAULTS) {
     if (re.test(label)) {
+      // A substance the supplement canon knows is never alcohol, whatever its
+      // label happens to contain. It can still be a drink: "collagen coffee"
+      // is a coffee and keeps its intake and caffeine rows.
+      if (ALCOHOLIC.has(kind) && normalizeSupplement(rawLabel)) return { kind: "med", ml: 0 }
       return { kind, ml: explicitMl ? parseInt(explicitMl) : defMl }
     }
   }

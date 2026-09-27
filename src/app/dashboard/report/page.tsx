@@ -259,9 +259,18 @@ export default function ReportPage() {
                       <td className={TD}>{m.label}</td>
                       <td className={`${TD} font-semibold`}>{m.avg}{m.unit}</td>
                       <td className={TD}>{m.min}–{m.max}</td>
-                      <td className={TD}>{m.prevAvg != null ? `${m.prevAvg}${m.unit}` : "—"}</td>
+                      <td className={TD}>
+                        {m.prevAvg != null ? `${m.prevAvg}${m.unit} (${m.prevDays} d)` : m.prevDays > 0 ? `too few (${m.prevDays} d)` : "—"}
+                      </td>
                       <td className={TD}><Delta now={m.avg} prev={m.prevAvg} decimals={m.decimals} higherIsBetter={m.higherIsBetter} /></td>
-                      <td className={TD}>{m.days}</td>
+                      <td className={TD}>
+                        {m.days}
+                        {m.excludedDays ? (
+                          <span className="block text-[11px] text-muted-foreground print:text-black/60">
+                            {m.excludedDays} more left out as the device not worn
+                          </span>
+                        ) : null}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -292,7 +301,7 @@ export default function ReportPage() {
                       <td className={TD}>{m.typicalDose ?? "—"}</td>
                       <td className={TD}>{m.times.length ? m.times.join(", ") : "—"}{m.daysOfWeek.length > 0 && m.daysOfWeek.length < 7 ? " (some days)" : ""}</td>
                       <td className={TD}>{m.loggedDoses} of ~{m.expectedDoses}</td>
-                      <td className={TD}>{m.lastTaken ? new Date(m.lastTaken).toLocaleDateString() : "—"}</td>
+                      <td className={TD}>{m.lastTaken ? fmtDay(m.lastTaken) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -371,8 +380,9 @@ export default function ReportPage() {
             <Section title="Weight">
               <p>
                 {report.weightTrend.first}kg → <strong>{report.weightTrend.last}kg</strong>{" "}
-                ({report.weightTrend.changeKg >= 0 ? "+" : ""}{report.weightTrend.changeKg}kg over{" "}
-                {report.periodDays} days, {report.weightTrend.readings} measurements).
+                ({report.weightTrend.changeKg >= 0 ? "+" : ""}{report.weightTrend.changeKg}kg between{" "}
+                {fmtDay(report.weightTrend.firstDate)} and {fmtDay(report.weightTrend.lastDate)},{" "}
+                {report.weightTrend.readings} measurements).
               </p>
             </Section>
           )}
@@ -401,13 +411,21 @@ export default function ReportPage() {
                       </td>
                       <td className={TD}>
                         {l.previous ? (
-                          <>
-                            {l.previous.value}
-                            {" "}
-                            <span className="text-muted-foreground print:text-black/60">
-                              {l.value > l.previous.value ? "↑" : l.value < l.previous.value ? "↓" : "="}
-                            </span>
-                          </>
+                          l.previous.unitMismatch ? (
+                            <>
+                              {l.previous.value} {l.previous.unit}{" "}
+                              <span className="text-muted-foreground print:text-black/60">different unit</span>
+                            </>
+                          ) : (
+                            <>
+                              {l.previous.valueInLatestUnit ?? l.previous.value}
+                              {l.previous.unit !== l.unit && <> {l.unit}</>}
+                              {" "}
+                              <span className="text-muted-foreground print:text-black/60">
+                                {l.previous.direction === "up" ? "↑" : l.previous.direction === "down" ? "↓" : "≈"}
+                              </span>
+                            </>
+                          )
                         ) : "—"}
                       </td>
                       <td className={TD}>
@@ -429,8 +447,10 @@ export default function ReportPage() {
               <p>
                 Weight {report.body.weightKg}kg
                 {report.body.prevWeightKg != null && <> (previous measurement {report.body.prevWeightKg}kg)</>}
-                {report.body.bodyFatPct != null && <> · body fat {report.body.bodyFatPct}%</>}
-                {report.body.date && <> · recorded {fmtDay(report.body.date)}</>}.
+                {report.body.date && <> · recorded {fmtDay(report.body.date)}</>}
+                {report.body.bodyFatPct != null && (
+                  <> · body fat {report.body.bodyFatPct}%{report.body.bodyFatDate && <> ({fmtDay(report.body.bodyFatDate)})</>}</>
+                )}.
               </p>
             </Section>
           )}
@@ -439,12 +459,22 @@ export default function ReportPage() {
             <Section title="Observed associations">
               <p className="text-[11px] text-muted-foreground print:text-black/60 mb-1.5">
                 Found by the app in this person&apos;s own data using a permutation test with
-                false-discovery correction. Associations only — not evidence of cause.
+                false-discovery correction. Associations only — not evidence of cause. Computed over
+                the 90 days before {report.patternsAsOf ? fmtDay(report.patternsAsOf) : "the last analysis"},
+                not this report&apos;s period.
               </p>
               <ul className="list-disc pl-4 space-y-0.5">
                 {report.patterns.map((p, i) => (
                   <li key={i}>
-                    {p.finding} <span className="text-muted-foreground print:text-black/60">({p.confidence})</span>
+                    {p.finding} <span className="text-muted-foreground print:text-black/60">
+                      ({p.confidence}{p.days ? `; ${p.days.with} days with, ${p.days.without} without` : ""})
+                    </span>
+                    {p.coverage && (
+                      <span className="block text-[11px] text-muted-foreground print:text-black/60">{p.coverage}</span>
+                    )}
+                    {p.confounded && (
+                      <span className="block text-[11px] text-muted-foreground print:text-black/60">{p.confounded}</span>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -46,28 +46,29 @@ export function renderReportEmail(report: HealthReport): string {
       <td ${TD}>${esc(m.label)}</td>
       <td ${TD}><strong>${num(m.avg, m.decimals)}</strong> ${esc(m.unit)}</td>
       <td ${TD}>${num(m.min, m.decimals)}–${num(m.max, m.decimals)}</td>
-      <td ${TD}>${m.days}</td>
+      <td ${TD}>${m.days}${m.excludedDays ? `<br><span style="color:#777;font-size:11px">${m.excludedDays} more left out as the device not worn</span>` : ""}</td>
     </tr>`).join("")}
   </table>
   <p style="font-size:10px;color:#888;margin:6px 0 0">Averages cover only the days with a reading; the Days column is that count, not the period length.</p>` : ""
 
   const meds = r.meds.length ? `<table style="width:100%;border-collapse:collapse">
-    <tr><th ${TH}>Medication</th><th ${TH}>Dose</th><th ${TH}>Schedule</th><th ${TH}>Taken</th></tr>
+    <tr><th ${TH}>Medication</th><th ${TH}>Dose</th><th ${TH}>Schedule</th><th ${TH}>Logged in app</th></tr>
     ${r.meds.map(m => `<tr>
       <td ${TD}><strong>${esc(m.name)}</strong>${m.note ? `<br><span style="color:#777;font-size:11px">${esc(m.note)}</span>` : ""}</td>
       <td ${TD}>${esc(m.typicalDose ?? m.dose ?? "—")}</td>
       <td ${TD}>${esc(m.times.join(", ") || "as needed")}</td>
       <td ${TD}>${m.loggedDoses}${m.expectedDoses > 0 ? ` / ${m.expectedDoses}` : ""}${m.lastTaken ? `<br><span style="color:#777;font-size:11px">last ${esc(fmtDay(m.lastTaken))}</span>` : ""}</td>
     </tr>`).join("")}
-  </table>` : ""
+  </table>
+  <p style="font-size:10px;color:#888;margin:6px 0 0">Counts only doses recorded in the app, so it is a lower bound on what was taken.</p>` : ""
 
   const symptoms = r.symptoms.length ? `<table style="width:100%;border-collapse:collapse">
     <tr><th ${TH}>Symptom</th><th ${TH}>Episodes</th><th ${TH}>Avg severity</th><th ${TH}>Worst</th><th ${TH}>Last</th></tr>
     ${r.symptoms.map(s => `<tr>
       <td ${TD}>${esc(s.name)}</td>
       <td ${TD}>${s.occurrences}</td>
-      <td ${TD}>${s.avgSeverity.toFixed(1)}</td>
-      <td ${TD}>${s.worstSeverity}</td>
+      <td ${TD}>${s.avgSeverity.toFixed(1)}/5</td>
+      <td ${TD}>${s.worstSeverity}/5</td>
       <td ${TD}>${esc(fmtDay(s.lastSeen))}</td>
     </tr>`).join("")}
   </table>` : ""
@@ -87,10 +88,12 @@ export function renderReportEmail(report: HealthReport): string {
     <tr><th ${TH}>Marker</th><th ${TH}>Result</th><th ${TH}>Previous</th><th ${TH}>Reference</th><th ${TH}>Date</th></tr>
     ${r.labs.map(l => {
       const colour = l.flag === "high" ? "#b45309" : l.flag === "low" ? "#1d4ed8" : "#111"
-      const arrow = l.previous == null ? "—"
-        : l.value > l.previous.value ? `↑ ${l.previous.value}`
-        : l.value < l.previous.value ? `↓ ${l.previous.value}`
-        : `= ${l.previous.value}`
+      // The arrow is the builder's verdict in the latest unit, never a raw
+      // comparison: 200 mg/dL beside 5.2 mmol/L is flat, not a fall.
+      const p = l.previous
+      const arrow = p == null ? "—"
+        : p.unitMismatch ? `${p.value} ${p.unit} (different unit)`
+        : `${p.direction === "up" ? "↑" : p.direction === "down" ? "↓" : "≈"} ${p.valueInLatestUnit ?? p.value}${p.unit !== l.unit ? ` ${l.unit}` : ""}${p.direction === "flat" ? " (within normal variation)" : ""}`
       return `<tr>
         <td ${TD}>${esc(l.marker)}</td>
         <td ${TD}><strong style="color:${colour}">${l.value} ${esc(l.unit)}</strong></td>
@@ -101,17 +104,28 @@ export function renderReportEmail(report: HealthReport): string {
     }).join("")}
   </table>` : ""
 
+  const bodyFat = r.body.bodyFatPct != null
+    ? ` · body fat ${r.body.bodyFatPct.toFixed(1)}%${r.body.bodyFatDate ? ` (${esc(fmtDay(r.body.bodyFatDate))})` : ""}`
+    : ""
   const weight = r.weightTrend ? `<p style="font-size:12px;color:#111;margin:0">
     ${r.weightTrend.first.toFixed(1)} kg → <strong>${r.weightTrend.last.toFixed(1)} kg</strong>
-    (${r.weightTrend.changeKg > 0 ? "+" : ""}${r.weightTrend.changeKg.toFixed(1)} kg over ${r.weightTrend.readings} weigh-ins)
-    ${r.body.bodyFatPct != null ? ` · body fat ${r.body.bodyFatPct.toFixed(1)}%` : ""}
+    (${r.weightTrend.changeKg > 0 ? "+" : ""}${r.weightTrend.changeKg.toFixed(1)} kg between ${esc(fmtDay(r.weightTrend.firstDate))} and ${esc(fmtDay(r.weightTrend.lastDate))}, ${r.weightTrend.readings} weigh-ins)
+    ${bodyFat}
+  </p>`
+    // Fewer than two weigh-ins in the period still leaves a latest one, and a
+    // doctor is better served by it, dated, than by no weight at all.
+    : r.body.weightKg != null ? `<p style="font-size:12px;color:#111;margin:0">
+    Latest <strong>${r.body.weightKg.toFixed(1)} kg</strong>${r.body.date ? `, recorded ${esc(fmtDay(r.body.date))}` : ""}
+    ${r.body.prevWeightKg != null ? ` (previous ${r.body.prevWeightKg.toFixed(1)} kg)` : ""}${bodyFat}
   </p>` : ""
 
   const patterns = r.patterns.length ? `<ul style="margin:0;padding-left:18px">
     ${r.patterns.map(p => `<li style="font-size:12px;color:#111;margin-bottom:4px">${esc(p.finding)}
-      <span style="color:#777;font-size:10px;text-transform:uppercase;letter-spacing:0.06em"> · ${p.confidence}</span></li>`).join("")}
+      <span style="color:#777;font-size:10px;text-transform:uppercase;letter-spacing:0.06em"> · ${p.confidence}</span>${p.days ? `<span style="color:#777;font-size:11px"> · ${p.days.with} days with, ${p.days.without} without</span>` : ""}
+      ${p.coverage ? `<br><span style="color:#777;font-size:11px">${esc(p.coverage)}</span>` : ""}
+      ${p.confounded ? `<br><span style="color:#777;font-size:11px">${esc(p.confounded)}</span>` : ""}</li>`).join("")}
   </ul>
-  <p style="font-size:10px;color:#888;margin:6px 0 0">Self-tracked associations from a single person's data, corrected for multiple comparisons. Associations, not causes.</p>` : ""
+  <p style="font-size:10px;color:#888;margin:6px 0 0">Self-tracked associations from a single person's data, computed over the 90 days before ${r.patternsAsOf ? esc(fmtDay(r.patternsAsOf)) : "the last analysis"} rather than this report's period, and corrected for multiple comparisons. Associations, not causes.</p>` : ""
 
   const narrative = r.narrative
     ? r.narrative.split(/\n\s*\n/).map(p =>
@@ -130,6 +144,14 @@ export function renderReportEmail(report: HealthReport): string {
         wearable data on ${r.coverage.daysWithWearable} of them${r.coverage.longestGapDays > 1 ? ` · longest gap ${r.coverage.longestGapDays} days` : ""}
       </p>
     </div>
+
+    <p style="font-size:11px;line-height:1.5;color:#555;border:1px solid #ddd;padding:8px 10px;margin:14px 0 0">
+      <strong>About this report.</strong> Self-tracked data from a personal health app, not a medical
+      device or diagnostic tool. Vitals come from a consumer wearable (Oura ring); medications,
+      symptoms and laboratory values were entered by the patient. Medication adherence counts only
+      doses recorded in the app and is a lower bound. Nothing here is a diagnosis or a treatment
+      recommendation.
+    </p>
 
     ${section("Summary", narrative)}
     ${section("Vitals and daily metrics", metrics)}

@@ -270,6 +270,9 @@ function parseItem(raw: string, ctx: QuickLogContext, previous: QuickItem | null
   let mg: number | null = null
   const mgM = MG.exec(text)
   if (mgM) {
+    // IU is not a mass and no DoseUnit holds it; stored as mg it was 40,000×
+    // the dose of vitamin D. Kept in MG so the amount never leaks into the name.
+    if (mgM[2] === "iu") return null
     mg = toMg(num(mgM[1]), mgM[2])
     text = text.replace(MG, " ")
   }
@@ -325,6 +328,9 @@ function parseItem(raw: string, ctx: QuickLogContext, previous: QuickItem | null
   if (!substance) return null
   if (mg != null && (mg <= 0 || mg > 5000)) return null
   if (tablets != null && (tablets <= 0 || tablets > 4)) return null
+  // "half of atarax 25mg": the text cannot say whether 25 is the tablet or the
+  // dose, so Emergy asks rather than this parser picking one.
+  if (mg != null && tablets != null && tablets !== 1) return null
   const dose = mg != null ? { amount: Math.round(mg * 1000) / 1000, unit: "mg" as const }
     : tablets != null ? { amount: tablets, unit: "tablet" as const }
     : null

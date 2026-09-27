@@ -4,6 +4,12 @@ import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { Plus, Trash2, Bell, BellOff, X } from "lucide-react"
+import { parseDose } from "@/lib/dose"
+
+function scheduledDose(dose: string | null): { doseAmount?: number; doseUnit?: string } {
+  const d = dose ? parseDose(dose) : null
+  return d ? { doseAmount: d.amount, doseUnit: d.unit } : {}
+}
 
 // The plan, and whether it happened. Ticking a dose off doesn't write a
 // "completed" flag anywhere — it logs a real dose through the same endpoint as
@@ -205,7 +211,9 @@ export function MedScheduleCard({ onDoseLogged }: { onDoseLogged?: () => void })
       await fetch("/api/medications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: s.name, minutesAgo: 0 }),
+        // The schedule says how much ("½ tablet", "25 mg"); ticking it off
+        // without that left every scheduled dose with no amount at all.
+        body: JSON.stringify({ name: s.name, minutesAgo: 0, ...scheduledDose(s.dose) }),
       })
       await load()
       onDoseLogged?.()

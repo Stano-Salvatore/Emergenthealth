@@ -40,6 +40,15 @@ const MG = /(\d+(?:[.,]\d+)?)\s*(mg|mcg|µg|ug|g)\b/i
 const TABLET_COUNT = /(\d+(?:[.,]\d+)?)\s*(?:tablet\w*|tbl|tabs?|caps?|pills?)\b/i
 const MULTIPLIER = /\b(?:x\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*x)\b/i
 
+/** How often, not how many: "2x daily" is a schedule, never two tablets. */
+const FREQUENCY = /\b(?:\d+\s*x|x\s*\d+)\s*(?:daily|a day|per day|\/\s*day|a week|weekly|denne|za\s*den|tyzdenne)\b/gi
+
+/**
+ * When, not how much: "½ hour before bed", "1/2h", "half an hour". The units
+ * are spelled out so a drug named Min… or Hod… keeps its "½".
+ */
+const TIME_SHARE = /(?:\d\s*\/\s*\d|[½¼¾⅓⅔]|\b(?:half|quarter)(?:\s+(?:of\s+)?an)?)\s*(?:hours?|hrs?|h|mins?|minutes?|minut[aey]?|minút|hod(?:in[aeuy]?|ín|ky))\b/gi
+
 const num = (s: string) => Number(s.replace(",", "."))
 
 /**
@@ -49,13 +58,16 @@ const num = (s: string) => Number(s.replace(",", "."))
  */
 export function parseDose(rawLabel: string): ParsedDose | null {
   if (!rawLabel) return null
-  const label = rawLabel.trim()
+  const label = rawLabel.trim().replace(FREQUENCY, " ").replace(TIME_SHARE, " ")
 
-  // Absolute amounts win: they say strictly more than a fraction does.
+  const share = tabletShare(label)
   const mg = label.match(MG)
   if (mg) {
     const value = num(mg[1])
     if (Number.isFinite(value) && value > 0) {
+      // "Atarax 25mg half" — 25 is the tablet or the dose, and the label
+      // cannot say which. Unknown beats a doubled dose in a medical record.
+      if (share && share.amount !== 1) return null
       const unit = mg[2].toLowerCase()
       const amount =
         unit === "g" ? value * 1000 :
@@ -64,7 +76,31 @@ export function parseDose(rawLabel: string): ParsedDose | null {
       return { amount: Math.round(amount * 1000) / 1000, unit: "mg" }
     }
   }
+  return share
+}
 
+/**
+ * What the dose box on a logged entry means. A number with its unit says it
+ * all; a bare number keeps the unit the entry already has, and on an entry
+ * with none it cannot tell 400 mg from 400 tablets and asks.
+ */
+export function parseDoseEdit(
+  raw: string,
+  existingUnit: string | null | undefined,
+): { dose: ParsedDose | null } | { error: string } {
+  const trimmed = raw.trim()
+  if (!trimmed) return { dose: null }
+  if (/^\d+(?:[.,]\d+)?$/.test(trimmed)) {
+    const value = num(trimmed)
+    if (!(value > 0)) return { error: "A dose needs a positive number." }
+    if (existingUnit === "mg" || existingUnit === "tablet") return { dose: { amount: value, unit: existingUnit } }
+    return { error: `Say which: ${trimmed}mg, or ${trimmed} tablet${value === 1 ? "" : "s"}.` }
+  }
+  const dose = parseDose(trimmed)
+  return dose ? { dose } : { error: "A dose needs a positive number, like 12.5mg or ½." }
+}
+
+function tabletShare(label: string): ParsedDose | null {
   const tablets = label.match(TABLET_COUNT)
   if (tablets) {
     const value = num(tablets[1])

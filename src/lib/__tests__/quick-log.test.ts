@@ -286,6 +286,34 @@ describe("parseQuickLog — his, not ours", () => {
     expect(parseQuickLog("log elicaa", { ...ctx, knownSubstances: ["Elicea", "Elicia"] })).toBeNull()
   })
 
+  // IU is not a mass and no dose unit holds it. "vitamin d 2000 IU" was
+  // stored as 2000 mg — forty thousand times the dose — and said back as
+  // "Logged Vitamin D 2000mg."
+  it.each([
+    "log vitamin d 2000 IU",
+    "log 1000 IU vitamin d",
+    "log vitamin d 2000iu",
+  ])("will not store international units as milligrams: %s", message => {
+    expect(parse(message)).toBeNull()
+  })
+
+  // A strength beside a share says what the tablet holds, not what was taken:
+  // "half of atarax 25mg" is 12.5 mg, and recording 25 would look plausible
+  // enough that nobody would ever catch it.
+  it.each([
+    "log half of atarax 25mg",
+    "log 2 tablets of atarax 25mg",
+    "log atarax 25mg half",
+  ])("will not pick between a tablet's strength and a share of it: %s", message => {
+    expect(parse(message)).toBeNull()
+  })
+
+  it("still reads one tablet of a stated strength as that strength", () => {
+    expect(parse("log 1 tablet of atarax 25mg")?.items).toEqual([
+      { kind: "dose", name: "Atarax", dose: { amount: 25, unit: "mg" }, minutesAgo: 0 },
+    ])
+  })
+
   it("will not drop a place it does not know", () => {
     expect(parse("log 300ml water at the office")).toBeNull()
   })
