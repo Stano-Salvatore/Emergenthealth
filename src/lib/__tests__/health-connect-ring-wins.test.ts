@@ -43,6 +43,8 @@ const ringNight = {
   sleepStart: new Date("2026-09-25T23:44:00Z"), sleepEnd: new Date("2026-09-26T07:27:00Z"),
   steps: 9800, caloriesBurned: 420, totalCalories: 2400, activeMinutes: 55,
   restingHR: 52, hrv: 48, spo2: 97.2,
+  // The ring's activity document: only oura-sync writes these.
+  activityScore: 81, sedentaryTime: 510,
 }
 
 beforeEach(() => { db.rows = []; db.upserts = [] })
@@ -73,6 +75,17 @@ describe("/api/sync/health-connect", () => {
     db.rows = [{ ...ringNight, steps: null, hrv: null }]
     await healthConnect(req({ days: [phoneDay] }))
     expect(upsertFor("2026-09-26").update).toMatchObject({ steps: 6200, hrv: 39 })
+  })
+
+  it("keeps raising the phone's own steps on a day the ring sat on its charger", async () => {
+    // oura-sync stores no activity for an unworn day but still sets ringAt.
+    // The 6,200 here is the phone's 09:00 count from the previous hourly sync;
+    // holding it as if the ring had said it would freeze the day there.
+    db.rows = [{ ...ringNight, steps: 1400, caloriesBurned: 90, activityScore: null, sedentaryTime: null }]
+    await healthConnect(req({ days: [phoneDay] }))
+    const { update } = upsertFor("2026-09-26")
+    expect(update).toMatchObject({ steps: 6200, caloriesBurned: 300 })
+    expect(update, "the ring's night still stands").not.toHaveProperty("sleepDuration")
   })
 
   it("writes everything on a day the ring never touched", async () => {

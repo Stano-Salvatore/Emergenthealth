@@ -30,7 +30,7 @@ describe("phoneFieldsRespectingRing", () => {
     // These used to fall outside the rule, so the hourly sync replaced the
     // ring's night HRV with a day average of phone samples.
     const ring = {
-      ringAt: new Date(), hrv: 48, spo2: 97.1, totalCalories: 2310,
+      ringAt: new Date(), hrv: 48, spo2: 97.1, totalCalories: 2310, sedentaryTime: 480,
       sleepDuration: 410, sleepStart: new Date("2026-09-25T23:10:00Z"), sleepEnd: new Date("2026-09-26T06:40:00Z"),
     }
     const phone = {
@@ -49,9 +49,18 @@ describe("phoneFieldsRespectingRing", () => {
   })
 
   it("fills a whole night the ring did not measure", () => {
-    const ring = { ringAt: new Date(), sleepDuration: null, deepSleep: null, steps: 9800 }
+    const ring = { ringAt: new Date(), sleepDuration: null, deepSleep: null, steps: 9800, sedentaryTime: 510 }
     expect(phoneFieldsRespectingRing(ring, { sleepDuration: 465, deepSleep: 70, steps: 6200 }))
       .toEqual({ sleepDuration: 465, deepSleep: 70 })
+  })
+
+  it("holds the day's activity only when the ring's activity document is on the row", () => {
+    // An unworn day: oura-sync set ringAt but stored no activity, so the
+    // steps there are the phone's earlier count and the phone may raise them.
+    const unworn = { ringAt: new Date(), steps: 1400, activeMinutes: 5, activityScore: null, sedentaryTime: null }
+    expect(phoneFieldsRespectingRing(unworn, { steps: 6200, activeMinutes: 31 })).toEqual({ steps: 6200, activeMinutes: 31 })
+    const worn = { ...unworn, steps: 9800, sedentaryTime: 510 }
+    expect(phoneFieldsRespectingRing(worn, { steps: 6200, activeMinutes: 31 })).toEqual({})
   })
 
   it("never turns \"not sent\" into null", () => {
