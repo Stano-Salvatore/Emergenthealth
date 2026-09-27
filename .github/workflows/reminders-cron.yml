@@ -7,15 +7,18 @@ name: Reminder delivery
 # delivered at all.
 #
 # GitHub Actions minutes are free and unmetered on public repositories, so this
-# runs every 10 minutes. The endpoint keeps a per-day record of what it has
-# already sent, so extra runs never duplicate a notification.
+# asks for every 10 minutes — but GitHub treats a schedule as a suggestion, and
+# runs have been observed 2–5 hours apart. Nothing may assume the ten minutes:
+# habit-reminders catches up across a 330-minute window, and emergy-push fires
+# anywhere in a 15:00–21:00 window. The endpoints keep a per-day record of what
+# they have already sent, so extra runs never duplicate a notification.
 #
 # Setup: add a repository secret CRON_SECRET (Settings → Secrets and
 # variables → Actions) matching the CRON_SECRET env var in Vercel.
 
 on:
   schedule:
-    - cron: "*/10 * * * *" # GitHub may delay a few minutes; the catch-up window absorbs it
+    - cron: "*/10 * * * *" # GitHub may delay by hours; the catch-up windows absorb it
   workflow_dispatch: {}
 
 # A late run should not stack up behind an in-flight one.
@@ -58,9 +61,9 @@ jobs:
           # wind-down-nudge and emergy-weekly-review are window-gated inside the
           # route (local evening hours; Sunday only for the review) and keep the
           # same per-day sent record, so the 10-minute tick is safe for them too.
-          # emergy-push fires during each user's own 15:00 hour (it used to be
-          # 15:00 UTC for everyone) and marks the day sent, so it needs this
-          # tick to notice every timezone.
+          # emergy-push fires on the first tick after 15:00 in each user's own
+          # afternoon (it used to be 15:00 UTC for everyone) and marks the day
+          # sent, so it needs this tick to notice every timezone.
           for endpoint in habit-reminders med-reminders morning-reminder noon-reminder evening-reminder wind-down-nudge quiet-source monthly-drift experiment-nudge emergy-weekly-review emergy-push monthly-export re-engagement place-checkins; do
             code=$(curl -sS --max-time 120 -o /tmp/out.txt -w "%{http_code}" \
               -H "Authorization: Bearer ${CRON_SECRET}" \

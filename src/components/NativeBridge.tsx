@@ -10,7 +10,7 @@
  */
 
 import { useEffect } from "react"
-import { registerNotificationActionHandler, resyncNotifications } from "@/lib/native/notifications"
+import { drainActionOutbox, registerNotificationActionHandler, resyncNotifications } from "@/lib/native/notifications"
 import { syncScreenTime } from "@/lib/native/screen-time"
 import { registerNativePush, reviveHead, takePendingSay } from "@/lib/native/bubble"
 import { takePendingWake } from "@/lib/native/wake-word"
@@ -29,13 +29,15 @@ export function NativeBridge() {
 
       try {
         // Reschedule reminders + daily nudges as native notifications (no-ops on web)
-        await resyncNotifications()
+        const scheduled = await resyncNotifications()
         // Pull today's screen time from the device and persist it (no-ops on web)
         await syncScreenTime()
         // Register for native push. Cheap, idempotent, and the token changes
         // on reinstall — so it is re-sent rather than assumed still good.
         await registerNativePush()
-        localStorage.setItem(LS_KEY, String(Date.now()))
+        // A rebuild that could not load (no signal, expired session) is
+        // retried on the next foreground, not half an hour later.
+        if (scheduled !== null) localStorage.setItem(LS_KEY, String(Date.now()))
       } catch {
         // Non-critical — ignore
       }
@@ -93,6 +95,8 @@ export function NativeBridge() {
     // meanwhile, this is where he comes back.
     reviveHead().catch(() => {})
     drainPhone()
+    // Notification button taps that could not be saved when pressed.
+    drainActionOutbox().catch(() => {})
 
     sync()
     const onVisible = () => {
@@ -101,9 +105,15 @@ export function NativeBridge() {
       collectPendingWake().catch(() => {})
       reviveHead().catch(() => {})
       drainPhone()
+      if (document.visibilityState === "visible") drainActionOutbox().catch(() => {})
     }
+    const onOnline = () => { drainActionOutbox().catch(() => {}) }
     document.addEventListener("visibilitychange", onVisible)
-    return () => document.removeEventListener("visibilitychange", onVisible)
+    window.addEventListener("online", onOnline)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible)
+      window.removeEventListener("online", onOnline)
+    }
   }, [])
 
   return null

@@ -4,8 +4,9 @@ import { prisma } from "@/lib/prisma"
 import { localCoversNow, parseCoverage } from "@/lib/local-notifications"
 import { readSentLog, writeSentLog } from "@/lib/sent-log"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
-import { localDateStr, localTimeStr } from "@/lib/local-date"
-import { isScheduledOn } from "@/lib/habit-schedule"
+import { addDaysISO, localDateStr, localTimeStr } from "@/lib/local-date"
+import { isScheduledOn, streakAtRiskTonight } from "@/lib/habit-schedule"
+import { getVacationWindow, makeIsFrozen } from "@/lib/streak"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -16,7 +17,15 @@ export const dynamic = "force-dynamic"
 // due within this window fires on the next run — which also survives the
 // scheduler being a few minutes late — while a window (rather than "anything
 // earlier today") stops the whole day's backlog arriving at once.
-const CATCHUP_MINUTES = 150
+//
+// Sized to the scheduler as it behaves, not as it is configured: the
+// "every 10 minutes" GitHub workflow has been seen running 2–5 hours apart,
+// and a reminder that falls due inside a gap wider than this is never sent.
+// Late beats never.
+const CATCHUP_MINUTES = 330
+
+// Enough history for the streak check to see a run worth warning about.
+const STREAK_LOOKBACK_DAYS = 60
 
 function minutesBefore(hhmm: string, minutes: number): string {
   const [h, m] = hhmm.split(":").map(Number)
@@ -87,7 +96,7 @@ export async function GET(req: NextRequest) {
     `.catch(() => [] as { id: string; name: string; reminderTime: string; scheduleDays: number[]; timesPerWeek: number | null }[]))
       // An off-day is not a missed day: a Mon/Wed/Fri habit stays quiet on Tuesday.
       .filter(h => isScheduledOn({ scheduleDays: h.scheduleDays ?? [], timesPerWeek: h.timesPerWeek ?? null }, localDate))
-      .filter(h => !alreadySent.has(`habit:${h.id}`))
+      .filter(h => !alreadySent.has(`habit:${h.id}:${h.reminderTime}`))
 
     // Reminders due today or overdue, same window, not yet ticked off
     const reminderAlerts = phoneCovers ? [] : (await prisma.$queryRaw<{ id: string; title: string; reminderTime: string }[]>`
@@ -100,36 +109,37 @@ export async function GET(req: NextRequest) {
         AND "reminderTime" >= ${windowStart}
         AND "dueDate"::date <= ${localDate}::date
     `.catch(() => [] as { id: string; title: string; reminderTime: string }[]))
-      .filter(r => !alreadySent.has(`reminder:${r.id}`))
+      .filter(r => !alreadySent.has(`reminder:${r.id}:${r.reminderTime}`))
 
     // Streak protection: from 21:00 local, warn about habits with streaks at risk
     let streakProtectionNotif: { title: string; body: string; url: string; tag: string; requireInteraction: boolean } | null = null
     if (localTime >= "21:00" && localTime < "23:30" && !alreadySent.has("streak")) {
-      // The recent-completions threshold lives in WHERE, not HAVING: HAVING
-      // without GROUP BY makes this an aggregate query, at which point
-      // selecting bare h.id is invalid PostgreSQL — the query errored on
-      // every run and the catch below quietly turned that into "no habits at
-      // risk", so this warning never fired for anyone.
-      const atRiskHabits = await prisma.$queryRaw<{ id: string; name: string }[]>`
-        SELECT h.id, h.name
-        FROM "Habit" h
-        WHERE h."userId" = ${userId}
-          AND h."isArchived" = false
-          AND NOT EXISTS (
-            SELECT 1 FROM "HabitCompletion" hc
-            WHERE hc."habitId" = h.id AND hc."date"::date = ${localDate}::date
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM "HabitSkip" hs
-            WHERE hs."habitId" = h.id AND hs."date"::date = ${localDate}::date
-          )
-          AND (h."scheduleDays" = '{}' OR ${new Date(localDate + "T12:00:00Z").getUTCDay()} = ANY(h."scheduleDays"))
-          AND (SELECT COUNT(*) FROM "HabitCompletion" hc2
-               WHERE hc2."habitId" = h.id
-                 AND hc2."date"::date >= (CURRENT_DATE - INTERVAL '30 days')
-                 AND hc2."date"::date < CURRENT_DATE) > 2
-        LIMIT 3
-      `.catch(() => [] as { id: string; name: string }[])
+      // The same streak the Habits page shows, not a count of recent
+      // completions: that called a habit last done three weeks ago "at risk"
+      // every night, and a weekly habit whose week was already won too.
+      const since = new Date(addDaysISO(localDate, -STREAK_LOOKBACK_DAYS) + "T00:00:00Z")
+      const [habits, vacation] = await Promise.all([
+        prisma.habit.findMany({
+          where: { userId, isArchived: false },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true, name: true, scheduleDays: true, timesPerWeek: true,
+            completions: { where: { date: { gte: since } }, select: { date: true } },
+            skips: { where: { date: { gte: since } }, select: { date: true } },
+          },
+        }).catch(() => []),
+        getVacationWindow(userId),
+      ])
+      const isFrozen = makeIsFrozen(vacation)
+      // Date-only columns: the ISO date is the day each row was filed under.
+      const day = (d: Date) => d.toISOString().slice(0, 10)
+      const atRiskHabits = habits.filter(h => streakAtRiskTonight(
+        { scheduleDays: h.scheduleDays ?? [], timesPerWeek: h.timesPerWeek ?? null },
+        new Set(h.completions.map(c => day(c.date))),
+        new Set(h.skips.map(s => day(s.date))),
+        localDate,
+        isFrozen,
+      )).slice(0, 3)
 
       if (atRiskHabits.length > 0) {
         streakProtectionNotif = {
@@ -175,9 +185,11 @@ export async function GET(req: NextRequest) {
 
     // Mark everything from this pass as delivered. Recorded even if every push
     // failed: a dead subscription would otherwise retry on every run all day.
+    // The time is part of the key, so one snoozed or re-timed after it pushed
+    // is sent again at its new time rather than counted as already sent.
     if (streakProtectionNotif) alreadySent.add("streak")
-    for (const h of habitReminders)  alreadySent.add(`habit:${h.id}`)
-    for (const r of reminderAlerts)  alreadySent.add(`reminder:${r.id}`)
+    for (const h of habitReminders)  alreadySent.add(`habit:${h.id}:${h.reminderTime}`)
+    for (const r of reminderAlerts)  alreadySent.add(`reminder:${r.id}:${r.reminderTime}`)
     await writeSentLog(userId, SENT_KEY, localDate, alreadySent)
   }
 

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { configurePush, loadSubscriptionsByUser, sendToUser, type Delivery } from "@/lib/push"
 import { sayAsEmergy } from "@/lib/emergy-say"
 import { computeCorrelations, ENGINE_VERSION } from "@/lib/correlations"
-import { EMAIL_FROM, logMailFailure } from "@/lib/email"
+import { EMAIL_FROM, logMailFailure, sendMail } from "@/lib/email"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -21,8 +21,8 @@ export const maxDuration = 300 // the engine runs once per subscribed user, in o
 const WINDOW_DAYS = 90 // watch against the most-evidenced "overall" window
 const BIG_CHANGE = 10  // percentage-point shift that counts as "changed"
 
-type WatchState = Record<string, { delta: number; confident: boolean; tier?: string }>
-import { watchBodies, type Change } from "@/lib/watch-message"
+type WatchState = Record<string, WatchEntry>
+import { graduatedNow, watchBodies, watchStateFor, type Change, type WatchEntry } from "@/lib/watch-message"
 
 
 // A pattern only "graduates" once: from anything weaker to Solid, meaning it
@@ -109,7 +109,8 @@ export async function GET(req: NextRequest) {
     let totalDays = 0
     try {
       ({ insights, totalDays } = await computeCorrelations(userId, WINDOW_DAYS))
-    } catch {
+    } catch (e) {
+      console.error("[cron/correlation-watch] failed for", userId, e instanceof Error ? e.message : e)
       continue
     }
 
@@ -138,24 +139,21 @@ export async function GET(req: NextRequest) {
     // baseline covers the whole board; only a move up to Solid is announced,
     // and never on the first run for an insight (no baseline = no news).
     const graduated = insights
-      .filter(ins => {
-        const prevTier = prevState[ins.id]?.tier
-        return prevTier != null && prevTier !== "strong" && ins.tier === "strong"
-      })
+      .filter(ins => graduatedNow(ins, prevState[ins.id]))
       .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
       .slice(0, GRADUATION_LIMIT)
     for (const ins of graduated) {
       changes.push({ finding: ins.finding, reason: "is now a solid pattern" })
     }
     for (const ins of insights) {
-      nextState[ins.id] = { delta: ins.delta, confident: ins.confident, tier: ins.tier }
+      nextState[ins.id] = watchStateFor(ins, prevState[ins.id])
     }
 
     for (const id of pinned) {
       const ins = byId.get(id)
       if (!ins) continue // not enough data this window
-      const cur = { delta: ins.delta, confident: ins.confident, tier: ins.tier }
       const prev = prevState[id]
+      const cur = watchStateFor(ins, prev)
       nextState[id] = cur
 
       if (!prev) continue // first observation — set baseline, don't alert
@@ -215,7 +213,7 @@ export async function GET(req: NextRequest) {
     const u = userById.get(userId)
     if (resend && u?.email) {
       try {
-        await resend.emails.send({
+        await sendMail(resend, {
           from: EMAIL_FROM,
           to: u.email,
           subject: `📊 ${changes.length} pattern${changes.length === 1 ? "" : "s"} changed`,

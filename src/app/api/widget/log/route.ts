@@ -1,18 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { widgetKeyUser } from "@/lib/widget-key"
 import { recordDrink } from "@/lib/intake-write"
 
 const ALLOWED_TYPES = ["water", "coffee", "beer", "wine"] as const
 type AllowedType = (typeof ALLOWED_TYPES)[number]
-
-async function resolveUserByApiKey(apiKey: string): Promise<string | null> {
-  const rows = await prisma.$queryRaw<{ userId: string }[]>`
-    SELECT "userId" FROM "UserPreference"
-    WHERE "key" = 'widget_api_key' AND "value" = ${apiKey}
-    LIMIT 1
-  `.catch(() => [] as { userId: string }[])
-  return rows[0]?.userId ?? null
-}
 
 export async function POST(req: NextRequest) {
   const apiKey =
@@ -24,10 +16,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing API key" }, { status: 401 })
   }
 
-  const userId = await resolveUserByApiKey(apiKey)
-  if (!userId) {
-    return NextResponse.json({ error: "Invalid API key" }, { status: 401 })
-  }
+  const who = await widgetKeyUser(apiKey)
+  if (!who.ok) return NextResponse.json({ error: who.error }, { status: who.status })
+  const userId = who.userId
 
   let body: { type?: unknown; amountMl?: unknown; usual?: unknown }
   try {

@@ -474,9 +474,15 @@ export async function syncNotifications(
       // only the one it currently sits on — if the current one is ticked, the
       // resync after that lays the next down; if it isn't, the next still
       // rings rather than waiting on the missed one.
+      //
+      // Counted from today, not from the due date: the limit caps occurrences
+      // found, so one left unticked for a week or more spent all of them on
+      // days already gone and never rang again. The due date stays the
+      // anchor, which is what keeps a weekly one on its weekday.
       const repeat = normalizeRepeat(r.repeat)
+      const today = localDateOn(0)
       const days = repeat
-        ? occurrencesBetween(dueDay, repeat, dueDay, localDateOn(HABIT_WINDOW_DAYS), { until: r.repeatUntil?.slice(0, 10) ?? null, limit: HABIT_WINDOW_DAYS + 1 })
+        ? occurrencesBetween(dueDay, repeat, dueDay > today ? dueDay : today, localDateOn(HABIT_WINDOW_DAYS), { until: r.repeatUntil?.slice(0, 10) ?? null, limit: HABIT_WINDOW_DAYS + 1 })
         : [dueDay]
       days.forEach((day, i) => {
         const [y, mo, d] = day.split("-").map(Number)
@@ -828,21 +834,46 @@ export async function registerNotificationActionHandler(): Promise<void> {
           return
         }
 
-        const json = { "Content-Type": "application/json" }
+        let action: NotificationAction | null = null
+        let label = ""
         if (actionId === "done" && extra.kind === "habit" && extra.id) {
           // The phone's date, not the server's — same rule as the habits page.
-          await fetch(`/api/habits/${extra.id}/complete`, {
-            method: "POST", headers: json, body: JSON.stringify({ date: localDateOn(0) }),
-          })
+          action = { url: `/api/habits/${extra.id}/complete`, method: "POST", body: JSON.stringify({ date: localDateOn(0) }) }
+          label = String(notif?.body ?? "").replace(/^Don't forget:\s*/, "")
         } else if (actionId === "done" && extra.kind === "reminder" && extra.id) {
-          await fetch(`/api/reminders/${extra.id}`, {
-            method: "PATCH", headers: json, body: JSON.stringify({ isCompleted: true }),
-          })
+          action = { url: `/api/reminders/${extra.id}`, method: "PATCH", body: JSON.stringify({ isCompleted: true }) }
+          label = String(notif?.title ?? "")
         } else if (actionId === "taken" && extra.kind === "med" && extra.name) {
-          await fetch("/api/medications", {
-            method: "POST", headers: json, body: JSON.stringify({ name: extra.name }),
-          })
+          // The moment of the tap, so a replay hours later still files the
+          // dose at the time it was taken.
+          action = { url: "/api/medications", method: "POST", body: JSON.stringify({ name: extra.name, takenAt: new Date().toISOString() }) }
+          label = String(extra.name)
         } else {
+          return
+        }
+
+        const res = await sendAction(action)
+        if (!res?.ok) {
+          const what = label.trim() || "That"
+          // A refusal no retry changes (the habit was deleted since) is not
+          // queued, and the notice must not promise that it will go through.
+          const retryable = !refusedForGood(res)
+          if (retryable) {
+            const all = readOutbox()
+            all.push({ ...action, label: what, at: Date.now() })
+            writeOutbox(all)
+          }
+          await ln.schedule({
+            notifications: fromEmergy([{
+              id: SNOOZE_ID_BASE + Math.floor(Math.random() * SNOOZE_ID_SPAN),
+              title: retryable ? "Couldn't log that yet" : "Couldn't log that",
+              body: retryable
+                ? `${what} isn't saved — it goes through next time the app can reach the server.`
+                : `${what} isn't saved — open the app to log it.`,
+              schedule: { at: new Date(Date.now() + 1000), allowWhileIdle: true },
+              extra: { kind: "notice", url: KIND_DESTINATIONS[String(extra.kind)] },
+            }]),
+          }).catch(() => {})
           return
         }
 
@@ -1089,30 +1120,54 @@ export async function runNotificationSelfTest(): Promise<SelfTestStep[]> {
   return steps
 }
 
-async function json<T>(url: string, fallback: T): Promise<T> {
+/** The parsed body, or null when the request failed — never a stand-in for it. */
+async function json<T>(url: string): Promise<T | null> {
   try {
     const res = await fetch(url)
-    if (!res.ok) return fallback
+    if (!res.ok) return null
     return (await res.json()) as T
   } catch {
-    return fallback
+    return null
   }
 }
 
-/** Fetch everything schedulable and (re)schedule from scratch. */
-export async function resyncNotifications(): Promise<number> {
+/**
+ * Fetch everything schedulable and (re)schedule from scratch.
+ *
+ * Null when any of it failed to load, and then nothing on the phone is
+ * touched. The rebuild cancels every pending alarm first, so a failed fetch
+ * read as an empty list used to wipe tonight's doses and the week's habit
+ * reminders whenever the app was opened without signal or with an expired
+ * session — and still told the server the phone had them covered.
+ */
+export async function resyncNotifications(): Promise<number | null> {
+  if (!getPlugin()) return 0
   try {
     const eventsTo = new Date(Date.now() + HABIT_WINDOW_DAYS * 86_400_000).toISOString()
     const [reminders, habits, medPayload, events, morning, noon, evening, checkin] = await Promise.all([
-      json<Reminder[]>("/api/reminders", []),
-      json<HabitReminder[]>("/api/habits", []),
-      json<{ items?: MedReminder[] }>("/api/med-schedule", {}),
-      json<EventAlert[]>(`/api/events?to=${encodeURIComponent(eventsTo)}`, []),
-      json<{ hour?: number }>("/api/preferences/reminder-time", {}),
-      json<{ enabled?: boolean }>("/api/preferences/noon-reminder", {}),
-      json<{ enabled?: boolean }>("/api/preferences/evening-reminder", {}),
-      json<{ checkin?: { intention?: string | null; intentionOutcome?: string | null } | null }>("/api/morning-checkin", {}),
+      json<Reminder[]>("/api/reminders"),
+      json<HabitReminder[]>("/api/habits"),
+      json<{ items?: MedReminder[] }>("/api/med-schedule"),
+      json<EventAlert[]>(`/api/events?to=${encodeURIComponent(eventsTo)}`),
+      json<{ hour?: number }>("/api/preferences/reminder-time"),
+      json<{ enabled?: boolean }>("/api/preferences/noon-reminder"),
+      json<{ enabled?: boolean }>("/api/preferences/evening-reminder"),
+      json<{ checkin?: { intention?: string | null; intentionOutcome?: string | null } | null }>("/api/morning-checkin"),
     ])
+    // The prefs count as much as the lists: falling back to the defaults
+    // switches back on a nudge the user turned off. The check-in only adds
+    // tonight's one-shot, so the rebuild goes ahead without it.
+    if (!reminders || !habits || !medPayload || !events || !morning || !noon || !evening) {
+      // Switching the daily nudges off is decided on the phone and needs
+      // nothing from the server, so it takes effect even when the rest can't
+      // be rebuilt; the settings switch otherwise said off while they rang.
+      if (!nudgesEnabled()) {
+        const ln = getPlugin()
+        const ids = [...buildNudges({ morningHour: 0, noon: true, evening: true }).map(n => n.id), INTENTION_NUDGE_ID]
+        await bridge<unknown>(() => ln.cancel({ notifications: ids.map(id => ({ id })) }), null)
+      }
+      return null
+    }
     const openIntention = checkin?.checkin?.intention?.trim() && !checkin.checkin.intentionOutcome
       ? checkin.checkin.intention.trim()
       : null
@@ -1120,11 +1175,11 @@ export async function resyncNotifications(): Promise<number> {
     const count = await syncNotifications(
       Array.isArray(reminders) ? reminders : [],
       Array.isArray(habits) ? habits : [],
-      Array.isArray(medPayload?.items) ? medPayload.items : [],
+      Array.isArray(medPayload.items) ? medPayload.items : [],
       {
-        morningHour: typeof morning?.hour === "number" ? morning.hour : DEFAULT_NUDGE_PREFS.morningHour,
-        noon: noon?.enabled !== false,
-        evening: evening?.enabled !== false,
+        morningHour: typeof morning.hour === "number" ? morning.hour : DEFAULT_NUDGE_PREFS.morningHour,
+        noon: noon.enabled !== false,
+        evening: evening.enabled !== false,
       },
       Array.isArray(events) ? events : [],
       openIntention,
@@ -1144,6 +1199,77 @@ export async function resyncNotifications(): Promise<number> {
 
     return count
   } catch {
-    return 0
+    return null
+  }
+}
+
+// Notification button taps that could not reach the server. The tap happens
+// with the app shut, often with no signal, and the notification is gone the
+// moment it is pressed — so a failed "✓ Took it" left no dose, no retry and
+// no word, and tomorrow's page showed a dose missed that was taken.
+const OUTBOX_KEY = "notif_action_outbox"
+const OUTBOX_MAX = 50
+// /api/medications refuses a takenAt more than a week back, so an older
+// replay could only be refused.
+const OUTBOX_MAX_AGE_MS = 6 * 86_400_000
+
+type NotificationAction = { url: string; method: string; body: string }
+type QueuedAction = NotificationAction & { label: string; at: number }
+
+function readOutbox(): QueuedAction[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(OUTBOX_KEY) ?? "[]")
+    return Array.isArray(raw)
+      ? raw.filter(e => e && typeof e.url === "string" && typeof e.method === "string" && typeof e.at === "number")
+      : []
+  } catch {
+    return []
+  }
+}
+
+function writeOutbox(list: QueuedAction[]): void {
+  try {
+    const kept = list.filter(e => Date.now() - e.at < OUTBOX_MAX_AGE_MS).slice(-OUTBOX_MAX)
+    if (kept.length > 0) localStorage.setItem(OUTBOX_KEY, JSON.stringify(kept))
+    else localStorage.removeItem(OUTBOX_KEY)
+  } catch { /* storage unavailable — nothing more can be kept */ }
+}
+
+function sendAction(a: NotificationAction): Promise<Response | null> {
+  return fetch(a.url, { method: a.method, headers: { "Content-Type": "application/json" }, body: a.body })
+    .catch(() => null)
+}
+
+/** A 4xx that time cannot fix; an expired session, a timeout or a rate limit can be. */
+function refusedForGood(res: Response | null): boolean {
+  return res != null && res.status >= 400 && res.status < 500 && ![401, 408, 429].includes(res.status)
+}
+
+let drainingOutbox = false
+
+/**
+ * Replay the button taps that failed, then rebuild the alarms if any landed.
+ * Kept: anything that failed for a reason time can fix (offline, a server
+ * error, an expired session). Dropped: a refusal no retry changes, such as a
+ * habit deleted since.
+ */
+export async function drainActionOutbox(): Promise<void> {
+  if (drainingOutbox) return
+  const queued = readOutbox()
+  if (queued.length === 0) return
+  drainingOutbox = true
+  try {
+    const keep: QueuedAction[] = []
+    let landed = false
+    for (const a of queued) {
+      const res = await sendAction(a)
+      if (res?.ok) { landed = true; continue }
+      if (!refusedForGood(res)) keep.push(a)
+    }
+    const addedMeanwhile = readOutbox().filter(e => !queued.some(q => q.at === e.at && q.url === e.url && q.body === e.body))
+    writeOutbox([...keep, ...addedMeanwhile])
+    if (landed) await resyncNotifications()
+  } finally {
+    drainingOutbox = false
   }
 }

@@ -134,6 +134,55 @@ export function habitStreak(
   return { streak, unit: "weeks" }
 }
 
+/**
+ * Today's habits as the Today card counts them: the ones the schedule asks
+ * for (plus any done anyway), with a skip counting as dealt with. Counting
+ * every habit owned instead told someone with three Mon/Wed/Fri habits that
+ * Tuesday was a failure.
+ */
+export function habitsTallyToday(
+  habits: { schedule: HabitSchedule; completionDays: Set<string>; skipDays: Set<string> }[],
+  todayStr: string,
+): { due: number; done: number } {
+  let due = 0
+  let done = 0
+  for (const h of habits) {
+    const doneToday = h.completionDays.has(todayStr)
+    if (!doneToday && !isDueOn(h.schedule, todayStr, h.completionDays)) continue
+    due++
+    if (doneToday || h.skipDays.has(todayStr)) done++
+  }
+  return { due, done }
+}
+
+/**
+ * Whether tonight is when a streak gets lost: the habit is due today, not
+ * done, skipped or frozen, and there is a run behind it worth warning about.
+ *
+ * A one-day run is not yet a streak. A weekly-target habit can only lose its
+ * streak on the week's last day, and only while one more completion would
+ * still meet the target — a week already won, or already out of reach, is
+ * nothing to warn about.
+ */
+export function streakAtRiskTonight(
+  h: HabitSchedule,
+  completionDays: Set<string>,
+  skipDays: Set<string>,
+  todayStr: string,
+  isFrozen: (day: string) => boolean = () => false,
+): boolean {
+  if (completionDays.has(todayStr) || skipDays.has(todayStr) || isFrozen(todayStr)) return false
+  if (!isDueOn(h, todayStr, completionDays)) return false
+  const { streak, unit } = habitStreak(h, completionDays, skipDays, todayStr, isFrozen)
+  if (unit === "days") return streak >= 2
+  const start = weekStart(todayStr)
+  for (let i = 0; i < 7; i++) {
+    const d = addDaysISO(start, i)
+    if (skipDays.has(d) || isFrozen(d)) return false // a bridged week holds the streak
+  }
+  return streak >= 1 && dayOfWeek(todayStr) === 0 && weekCount(completionDays, todayStr) === (h.timesPerWeek ?? 0) - 1
+}
+
 /** Human line for the card: "Mon · Wed · Fri", "3× a week", or null for daily. */
 export function scheduleLabel(h: HabitSchedule): string | null {
   if (h.timesPerWeek != null) return `${h.timesPerWeek}× a week`

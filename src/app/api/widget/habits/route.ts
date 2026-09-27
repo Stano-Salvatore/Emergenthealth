@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { widgetKeyUser } from "@/lib/widget-key"
 import { userDay } from "@/lib/user-timezone"
 import { habitStreak, isDueOn } from "@/lib/habit-schedule"
 
 // Home-screen Habits widget API. Auth mirrors /api/widget/status: an x-widget-key
 // header (or ?key=) resolved to a user via the widget_api_key UserPreference row.
-
-async function resolveUserByApiKey(apiKey: string): Promise<string | null> {
-  const rows = await prisma.$queryRaw<{ userId: string }[]>`
-    SELECT "userId" FROM "UserPreference"
-    WHERE "key" = 'widget_api_key' AND "value" = ${apiKey}
-    LIMIT 1
-  `.catch(() => [] as { userId: string }[])
-  return rows[0]?.userId ?? null
-}
 
 function keyFrom(req: NextRequest): string {
   return req.headers.get("x-widget-key") ?? new URL(req.url).searchParams.get("key") ?? ""
@@ -30,8 +22,9 @@ function isoDay(d: Date): string {
 export async function GET(req: NextRequest) {
   const apiKey = keyFrom(req)
   if (!apiKey) return NextResponse.json({ error: "Missing API key" }, { status: 401 })
-  const userId = await resolveUserByApiKey(apiKey)
-  if (!userId) return NextResponse.json({ error: "Invalid API key" }, { status: 401 })
+  const who = await widgetKeyUser(apiKey)
+  if (!who.ok) return NextResponse.json({ error: who.error }, { status: who.status })
+  const userId = who.userId
 
   const { today: todayStr, dateColumn: today } = await userDay(userId)
   const since = new Date(today.getTime() - 60 * 24 * 60 * 60 * 1000)
@@ -69,8 +62,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const apiKey = keyFrom(req)
   if (!apiKey) return NextResponse.json({ error: "Missing API key" }, { status: 401 })
-  const userId = await resolveUserByApiKey(apiKey)
-  if (!userId) return NextResponse.json({ error: "Invalid API key" }, { status: 401 })
+  const who = await widgetKeyUser(apiKey)
+  if (!who.ok) return NextResponse.json({ error: who.error }, { status: who.status })
+  const userId = who.userId
 
   let body: { habitId?: unknown; done?: unknown }
   try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }) }
