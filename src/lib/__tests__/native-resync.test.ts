@@ -138,6 +138,15 @@ describe("resyncNotifications refuses to rebuild from a failed load", () => {
     expect(ln.scheduled.some(n => n.id === 910002)).toBe(false)
   })
 
+  it("still stops the daily nudges the user just switched off, even when the rest cannot load", async () => {
+    store.set("notif_nudges", "off")
+    ln.pending = [{ id: 910001 }, { id: 910002 }, { id: 1_000_123 }]
+    for (const k of Object.keys(routes)) routes[k] = () => { throw new TypeError("Failed to fetch") }
+    expect(await resyncNotifications()).toBeNull()
+    expect(ln.cancelled).toEqual(expect.arrayContaining([910001, 910002, 910003, 910004]))
+    expect(ln.cancelled, "a dose alarm went with the nudges").not.toContain(1_000_123)
+  })
+
   it("still rebuilds when only the optional check-in fails", async () => {
     routes["/api/morning-checkin"] = () => new Response("", { status: 500 })
     expect(await resyncNotifications()).toBeGreaterThan(0)
@@ -206,6 +215,14 @@ describe("a notification action that could not be saved is kept, said, and retri
     routes["/api/medications"] = () => new Response("{}", { status: 401 })
     await tapTookIt()
     expect(JSON.parse(store.get("notif_action_outbox") ?? "[]")).toHaveLength(1)
+  })
+
+  it("does not queue, or promise a retry for, a refusal no retry can change", async () => {
+    routes["/api/medications"] = () => new Response("{}", { status: 400 })
+    await tapTookIt()
+    expect(store.get("notif_action_outbox")).toBeUndefined()
+    const said = ln.scheduled.find(n => /couldn.t log/i.test(n.title))
+    expect(said?.body).not.toMatch(/goes through/)
   })
 
   it("replays the queue once the network is back, then clears it", async () => {

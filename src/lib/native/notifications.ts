@@ -855,14 +855,21 @@ export async function registerNotificationActionHandler(): Promise<void> {
         const res = await sendAction(action)
         if (!res?.ok) {
           const what = label.trim() || "That"
-          const all = readOutbox()
-          all.push({ ...action, label: what, at: Date.now() })
-          writeOutbox(all)
+          // A refusal no retry changes (the habit was deleted since) is not
+          // queued, and the notice must not promise that it will go through.
+          const retryable = !refusedForGood(res)
+          if (retryable) {
+            const all = readOutbox()
+            all.push({ ...action, label: what, at: Date.now() })
+            writeOutbox(all)
+          }
           await ln.schedule({
             notifications: fromEmergy([{
               id: SNOOZE_ID_BASE + Math.floor(Math.random() * SNOOZE_ID_SPAN),
-              title: "Couldn't log that yet",
-              body: `${what} isn't saved — it goes through next time the app can reach the server.`,
+              title: retryable ? "Couldn't log that yet" : "Couldn't log that",
+              body: retryable
+                ? `${what} isn't saved — it goes through next time the app can reach the server.`
+                : `${what} isn't saved — open the app to log it.`,
               schedule: { at: new Date(Date.now() + 1000), allowWhileIdle: true },
               extra: { kind: "notice", url: KIND_DESTINATIONS[String(extra.kind)] },
             }]),
@@ -1150,7 +1157,17 @@ export async function resyncNotifications(): Promise<number | null> {
     // The prefs count as much as the lists: falling back to the defaults
     // switches back on a nudge the user turned off. The check-in only adds
     // tonight's one-shot, so the rebuild goes ahead without it.
-    if (!reminders || !habits || !medPayload || !events || !morning || !noon || !evening) return null
+    if (!reminders || !habits || !medPayload || !events || !morning || !noon || !evening) {
+      // Switching the daily nudges off is decided on the phone and needs
+      // nothing from the server, so it takes effect even when the rest can't
+      // be rebuilt; the settings switch otherwise said off while they rang.
+      if (!nudgesEnabled()) {
+        const ln = getPlugin()
+        const ids = [...buildNudges({ morningHour: 0, noon: true, evening: true }).map(n => n.id), INTENTION_NUDGE_ID]
+        await bridge<unknown>(() => ln.cancel({ notifications: ids.map(id => ({ id })) }), null)
+      }
+      return null
+    }
     const openIntention = checkin?.checkin?.intention?.trim() && !checkin.checkin.intentionOutcome
       ? checkin.checkin.intention.trim()
       : null
@@ -1223,6 +1240,11 @@ function sendAction(a: NotificationAction): Promise<Response | null> {
     .catch(() => null)
 }
 
+/** A 4xx that time cannot fix; an expired session, a timeout or a rate limit can be. */
+function refusedForGood(res: Response | null): boolean {
+  return res != null && res.status >= 400 && res.status < 500 && ![401, 408, 429].includes(res.status)
+}
+
 let drainingOutbox = false
 
 /**
@@ -1242,8 +1264,7 @@ export async function drainActionOutbox(): Promise<void> {
     for (const a of queued) {
       const res = await sendAction(a)
       if (res?.ok) { landed = true; continue }
-      const permanent = res != null && res.status >= 400 && res.status < 500 && ![401, 408, 429].includes(res.status)
-      if (!permanent) keep.push(a)
+      if (!refusedForGood(res)) keep.push(a)
     }
     const addedMeanwhile = readOutbox().filter(e => !queued.some(q => q.at === e.at && q.url === e.url && q.body === e.body))
     writeOutbox([...keep, ...addedMeanwhile])

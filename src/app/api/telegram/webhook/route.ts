@@ -33,22 +33,34 @@ export const maxDuration = 300
 
 const MAX_INCOMING_CHARS = 4000
 
+// How long a claimed update_id is remembered. Telegram stops redelivering an
+// update after 24 hours; the margin covers a clock or retry-schedule surprise.
+const UPDATE_MEMORY_MS = 2 * 86_400_000
+
 /**
- * Take this update for processing, once. False when it, or a later one, has
- * already been taken — a redelivery. Telegram's update_ids only increase, so
- * the last one seen per user is the whole record. A failed claim lets the
+ * Take this update for processing, once. False when it has already been
+ * taken — a redelivery.
+ *
+ * Each update_id is claimed on its own, not as "the highest seen": Telegram
+ * delivers over several connections at once, so a burst (three forwarded
+ * messages) can land out of order, and a high-water mark would drop the
+ * earlier ones as redeliveries without a word. A failed claim lets the
  * message through: a rare duplicate beats a message silently dropped.
  */
 async function claimUpdate(userId: string, updateId: unknown): Promise<boolean> {
   if (typeof updateId !== "number" || !Number.isSafeInteger(updateId)) return true
-  const value = String(updateId)
+  const now = Date.now()
   const claimed = await prisma.$executeRaw`
-    INSERT INTO "UserPreference" ("userId", "key", "value") VALUES (${userId}, 'telegram_last_update', ${value})
-    ON CONFLICT ("userId", "key") DO UPDATE SET "value" = EXCLUDED."value"
-    WHERE CASE WHEN "UserPreference"."value" ~ '^[0-9]{1,18}$'
-      THEN "UserPreference"."value"::bigint < EXCLUDED."value"::bigint
-      ELSE true END
+    INSERT INTO "UserPreference" ("userId", "key", "value")
+    VALUES (${userId}, ${`telegram_update:${updateId}`}, ${String(now)})
+    ON CONFLICT ("userId", "key") DO NOTHING
   `.catch(() => 1)
+  // Claims older than any redelivery are only clutter.
+  await prisma.$executeRaw`
+    DELETE FROM "UserPreference"
+    WHERE "userId" = ${userId} AND "key" LIKE 'telegram_update:%'
+      AND CASE WHEN "value" ~ '^[0-9]{1,15}$' THEN "value"::bigint < ${String(now - UPDATE_MEMORY_MS)}::bigint ELSE true END
+  `.catch(() => 0)
   return claimed > 0
 }
 

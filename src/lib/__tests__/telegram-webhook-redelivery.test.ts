@@ -27,6 +27,15 @@ describe("the Telegram webhook", () => {
 
   it("claims each update_id once, so a redelivered update is not run again", () => {
     expect(src).toMatch(/update_id/)
-    expect(src).toMatch(/telegram_last_update/)
+    expect(src).toMatch(/telegram_update:\$\{updateId\}/)
+    expect(src).toMatch(/ON CONFLICT \("userId", "key"\) DO NOTHING/)
+  })
+
+  it("claims ids one by one, not as a high-water mark that drops out-of-order updates", () => {
+    // Telegram delivers over parallel connections; three forwarded messages
+    // can arrive 102, 101, 103. A "larger than the last one" claim would
+    // silently drop 101.
+    expect(src).not.toMatch(/telegram_last_update/)
+    expect(src).not.toMatch(/::bigint\s*<\s*EXCLUDED/)
   })
 })
