@@ -28,6 +28,12 @@ describe("isHomeOwner", () => {
     expect(isHomeOwner("owner@example.com")).toBe(true)
   })
 
+  it("ignores case and stray spaces — Google returns the address its own way", () => {
+    process.env.FEEDBACK_NOTIFY_EMAIL = " Owner@Example.com "
+    process.env.NEXT_PUBLIC_ENABLED_FEATURES = "smarthome"
+    expect(isHomeOwner("owner@example.com")).toBe(true)
+  })
+
   it("is nobody else", () => {
     process.env.FEEDBACK_NOTIFY_EMAIL = "owner@example.com"
     process.env.NEXT_PUBLIC_ENABLED_FEATURES = "smarthome"

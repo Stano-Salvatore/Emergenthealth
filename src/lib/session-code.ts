@@ -62,7 +62,32 @@ export function verifySessionCode(code: string): SessionCode | null {
  * one address; a redeem from anywhere else is refused.
  */
 export function mayRedeemFrom(code: SessionCode, ip: string): boolean {
-  return typeof code.i === "string" && code.i === ip
+  if (typeof code.i !== "string") return false
+  const a = parseIp(code.i)
+  const b = parseIp(ip)
+  if (!a || !b) return false
+  // Custom Tab and WebView can leave over different families; there is no
+  // honest comparison across them, and refusing locked the owner out.
+  if (a.v6 !== b.v6) return true
+  return a.network === b.network
+}
+
+/**
+ * The part of an address that stays put for one phone on one network: the
+ * whole IPv4 address, or the /64 of an IPv6 one (Android rotates privacy
+ * addresses inside it).
+ */
+function parseIp(raw: string): { v6: boolean; network: string } | null {
+  const ip = raw.trim().replace(/^::ffff:(?=\d+\.)/i, "")
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return { v6: false, network: ip }
+  if (!ip.includes(":")) return null
+  const [head, tail = ""] = ip.toLowerCase().split("::")
+  const left = head ? head.split(":") : []
+  const right = tail ? tail.split(":") : []
+  if (!ip.includes("::") && left.length !== 8) return null
+  const groups = [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right]
+  if (groups.length !== 8 || groups.some(g => !/^[0-9a-f]{1,4}$/.test(g))) return null
+  return { v6: true, network: groups.slice(0, 4).map(g => parseInt(g, 16).toString(16)).join(":") }
 }
 
 /** A mobile auth key is a UUID the native app minted — nothing else is honoured. */

@@ -61,6 +61,24 @@ describe("redeeming a session code", () => {
     expect(mayRedeemFrom(fresh("203.0.113.7"), "198.51.100.9")).toBe(false)
   })
 
+  // One phone is not always one address. Android gives each connection a
+  // rotating IPv6 privacy address inside the same /64, and the Custom Tab and
+  // the WebView can leave over different families — an exact match locked the
+  // owner out of signing in on their own phone.
+  it("is honoured from another address in the same IPv6 /64", () => {
+    expect(mayRedeemFrom(fresh("2a02:8308:a001:4c00:1d3e:9b2:77a1:c3"), "2a02:8308:a001:4c00:8f0:41aa:e2:19")).toBe(true)
+    expect(mayRedeemFrom(fresh("2a02:8308:a001:4c00::1"), "2a02:8308:a001:4c01::1")).toBe(false)
+  })
+
+  it("is honoured when the two requests left over different families", () => {
+    expect(mayRedeemFrom(fresh("2a02:8308:a001:4c00::1"), "203.0.113.7")).toBe(true)
+    expect(mayRedeemFrom(fresh("203.0.113.7"), "2a02:8308:a001:4c00::1")).toBe(true)
+  })
+
+  it("is refused when either address is unknown", () => {
+    expect(mayRedeemFrom(fresh("unknown"), "unknown")).toBe(false)
+  })
+
   it("is refused when the code names no address at all", () => {
     expect(mayRedeemFrom(fresh(), "203.0.113.7")).toBe(false)
   })

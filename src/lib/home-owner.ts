@@ -5,6 +5,6 @@ import { isFeatureEnabled } from "@/lib/features"
 // not per-user connections. Only the owner may reach them, and only while
 // smart home is switched on for this deployment.
 export function isHomeOwner(email: string | null | undefined): boolean {
-  const owner = process.env.FEEDBACK_NOTIFY_EMAIL ?? process.env.OWNER_EMAIL
-  return isFeatureEnabled("smarthome") && !!owner && !!email && email === owner
+  const owner = (process.env.FEEDBACK_NOTIFY_EMAIL ?? process.env.OWNER_EMAIL)?.trim().toLowerCase()
+  return isFeatureEnabled("smarthome") && !!owner && !!email && email.trim().toLowerCase() === owner
 }
