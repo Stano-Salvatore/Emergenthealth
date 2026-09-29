@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.7.1 — A litre is not wilting
+
+- Emergy's afternoon water push no longer screams "I AM WILTING" at a
+  litre by five o'clock. Anything under a fixed 1500 ml used to get the
+  capitals, whatever the time and whatever your goal. It now reads your
+  intake against your own water goal and the time of day. On pace: nothing.
+  Somewhat behind: a quiet line with how many ml you're off. The capitals
+  are kept for a day that has barely started drinking.
+
 ## 3.7.0 — The audit
 
 A full sweep: 16 auditors across every subsystem, production logs and the
