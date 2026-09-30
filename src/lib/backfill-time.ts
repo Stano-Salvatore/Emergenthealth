@@ -1,4 +1,4 @@
-import { zonedClock } from "@/lib/local-date"
+import { addDaysISO, zonedClock } from "@/lib/local-date"
 
 // Logging something at the time it happened, not the time it was remembered.
 //
@@ -26,14 +26,32 @@ export function backfillAt(raw: unknown, now = new Date()): { at: Date } | { err
 }
 
 /**
- * The instant a picked "HH:MM" on the viewed day means, in the zone of the
- * clock the person read the time off — the device's. undefined = now.
+ * When something happened, as picked on screen: null = now, `ago` = minutes
+ * before the moment of saving, `at` = "HH:MM" on the viewed day.
+ *
+ * "1h ago" is kept as an offset, not turned into a clock time when tapped: at
+ * 00:30 an hour ago is 23:30 YESTERDAY, which a time on today's date cannot
+ * say, and a page left open all afternoon must still mean an hour before the
+ * tap.
  */
+export type WhenChoice = null | { ago: number } | { at: string }
+
 export function atFromChoice(
   date: string,
-  hhmm: string | null,
+  when: WhenChoice,
   timezone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+  now = new Date(),
 ): string | undefined {
-  if (!hhmm) return undefined
-  return zonedClock(timezone, date, hhmm)?.toISOString()
+  if (!when) return undefined
+  if ("ago" in when) return new Date(now.getTime() - when.ago * 60_000).toISOString()
+  return zonedClock(timezone, date, when.at)?.toISOString()
+}
+
+/**
+ * Whether a day on screen can still take a back-filled entry. One day inside
+ * the server's window, so an evening default on the oldest day offered never
+ * lands just past it.
+ */
+export function canBackfillDay(date: string, today: string): boolean {
+  return date >= addDaysISO(today, -(BACKFILL_MAX_DAYS - 1)) && date <= today
 }

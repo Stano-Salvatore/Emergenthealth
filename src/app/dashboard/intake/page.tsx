@@ -17,7 +17,7 @@ import { FoodTab } from "@/components/intake/FoodTab"
 import { OverviewTab } from "@/components/intake/OverviewTab"
 import { BodyLoadTab } from "@/components/intake/BodyLoadTab"
 import { WhenRow, PAST_DAY_DEFAULT } from "@/components/intake/WhenRow"
-import { atFromChoice } from "@/lib/backfill-time"
+import { atFromChoice, canBackfillDay, BACKFILL_MAX_DAYS, type WhenChoice } from "@/lib/backfill-time"
 
 interface IntakeLog {
   id: string
@@ -181,7 +181,7 @@ export default function IntakePage() {
   const isToday = date === localDateStr()
   // When the next quick add happened. Reset with the day: a time picked for
   // yesterday means nothing today.
-  const [when, setWhen] = useState<string | null>(null)
+  const [when, setWhen] = useState<WhenChoice>(null)
   const [whenFor, setWhenFor] = useState(date)
   if (whenFor !== date) {
     setWhenFor(date)
@@ -519,8 +519,14 @@ export default function IntakePage() {
 
       {addError && <p role="alert" className="text-xs text-destructive">{addError}</p>}
 
+      {!canBackfillDay(date, localDateStr()) && (
+        <p className="text-xs text-muted-foreground">
+          Drinks can be added up to {BACKFILL_MAX_DAYS - 1} days back — this day is further than that.
+        </p>
+      )}
+
       {/* quick add buttons */}
-      {(
+      {canBackfillDay(date, localDateStr()) && (
         <div className="space-y-3">
           <WhenRow isToday={isToday} value={isToday ? when : (when ?? PAST_DAY_DEFAULT)} onChange={setWhen} />
           {QUICK_GROUPS.map(group => (

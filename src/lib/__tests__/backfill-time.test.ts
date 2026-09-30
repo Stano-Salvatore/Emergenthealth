@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
-import { backfillAt, atFromChoice, BACKFILL_MAX_DAYS } from "@/lib/backfill-time"
+import { backfillAt, atFromChoice, canBackfillDay, BACKFILL_MAX_DAYS } from "@/lib/backfill-time"
 
 // A lunch remembered at 22:00 was stamped 22:00, and a coffee drunk at 08:00
 // but logged at 14:00 put six extra hours of caffeine into body load and the
@@ -39,8 +39,35 @@ describe("atFromChoice — what the screen sends", () => {
 
   it("reads a picked time on the viewed day in the device's own clock", () => {
     // 13:05 on a Bratislava phone in September is 11:05 UTC.
-    expect(atFromChoice("2026-09-29", "13:05", "Europe/Bratislava")).toBe("2026-09-29T11:05:00.000Z")
-    expect(atFromChoice("2026-09-29", "13:05", "UTC")).toBe("2026-09-29T13:05:00.000Z")
+    expect(atFromChoice("2026-09-29", { at: "13:05" }, "Europe/Bratislava")).toBe("2026-09-29T11:05:00.000Z")
+    expect(atFromChoice("2026-09-29", { at: "13:05" }, "UTC")).toBe("2026-09-29T13:05:00.000Z")
+  })
+
+  it("measures '1h ago' from the moment of saving, not from when the page opened", () => {
+    const saved = new Date("2026-09-30T16:00:00Z")
+    expect(atFromChoice("2026-09-30", { ago: 60 }, "Europe/Bratislava", saved)).toBe("2026-09-30T15:00:00.000Z")
+  })
+
+  it("lets '1h ago' just after midnight reach back into last night", () => {
+    // 00:30 in Bratislava: an hour ago is 23:30 the day before, not 23:30 tonight.
+    const saved = new Date("2026-09-29T22:30:00Z")
+    const iso = atFromChoice("2026-09-30", { ago: 60 }, "Europe/Bratislava", saved)!
+    expect(iso).toBe("2026-09-29T21:30:00.000Z")
+    expect(backfillAt(iso, saved)).toEqual({ at: new Date(iso) })
+  })
+})
+
+describe("the screens only offer what the server accepts", () => {
+  it("knows which past days can still be filled in", () => {
+    expect(canBackfillDay("2026-09-30", "2026-09-30")).toBe(true)
+    expect(canBackfillDay("2026-09-24", "2026-09-30")).toBe(true)
+    expect(canBackfillDay("2026-09-23", "2026-09-30")).toBe(false)
+  })
+
+  it("the Log and Food tabs hide their adds on a day too old to accept them", () => {
+    const strip = (p: string) => readFileSync(p, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+    expect(strip("src/app/dashboard/intake/page.tsx")).toMatch(/canBackfillDay\(/)
+    expect(strip("src/components/intake/FoodTab.tsx")).toMatch(/canBackfillDay\(/)
   })
 })
 

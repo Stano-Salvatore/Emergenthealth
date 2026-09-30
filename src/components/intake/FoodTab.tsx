@@ -17,7 +17,8 @@ import { matchSavedPlace, type PlaceLike } from "@/lib/places"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 import { NutrientGapsCard } from "@/components/intake/NutrientGapsCard"
 import { WhenRow, PAST_DAY_DEFAULT } from "@/components/intake/WhenRow"
-import { atFromChoice } from "@/lib/backfill-time"
+import { atFromChoice, canBackfillDay, type WhenChoice } from "@/lib/backfill-time"
+import { todayLocalISO } from "@/lib/local-date"
 
 interface FoodItem {
   kind?: "food" | "drink"
@@ -132,7 +133,7 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   // When the meal was eaten: null = now (today only). A past day always has a time.
-  const [when, setWhen] = useState<string | null>(null)
+  const [when, setWhen] = useState<WhenChoice>(null)
   const [whenFor, setWhenFor] = useState(date)
   if (whenFor !== date) {
     setWhenFor(date)
@@ -504,7 +505,7 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
       )}
 
       {/* capture / manual entry */}
-      {!draft && (
+      {!draft && canBackfillDay(date, todayLocalISO()) && (
         <div className="flex flex-wrap gap-2">
           <Button onClick={snapMeal} disabled={analyzing} className="gap-2">
             {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
