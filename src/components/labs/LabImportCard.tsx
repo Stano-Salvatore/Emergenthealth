@@ -22,7 +22,14 @@ interface Row {
   referenceMin: number | null
   referenceMax: number | null
   flag: "low" | "high" | "normal" | null
-  checks: string[]
+  qualifier: "<" | ">" | null
+  checks: { kind: "name" | "range" | "limit"; text: string }[]
+}
+
+/** A range box: empty is "no bound", not zero. */
+const bound = (s: string): number | null => {
+  const n = s.trim() === "" ? NaN : Number(s)
+  return Number.isFinite(n) ? n : null
 }
 
 interface Parsed {
@@ -105,7 +112,9 @@ export function LabImportCard({ onSaved }: { onSaved: () => void }) {
       }
       setParsed(data)
       setRows(data.results ?? [])
-      setKeep((data.results ?? []).map(() => true))
+      // A "< 5" can only be stored as an exact 5, so it is left for the user
+      // to opt into rather than saved by default.
+      setKeep((data.results ?? []).map((r: Row) => !r.qualifier))
       setDate(data.date ?? todayLocalISO())
     } catch {
       setError("Couldn't read that file.")
@@ -117,6 +126,11 @@ export function LabImportCard({ onSaved }: { onSaved: () => void }) {
 
   function editRow(i: number, patch: Partial<Row>) {
     setRows(prev => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  }
+
+  /** A range the user has corrected no longer carries the warning about it. */
+  function editRange(i: number, patch: Pick<Partial<Row>, "referenceMin" | "referenceMax">) {
+    setRows(prev => prev.map((r, j) => (j === i ? { ...r, ...patch, checks: r.checks.filter(c => c.kind !== "range") } : r)))
   }
 
   async function save() {
@@ -136,7 +150,10 @@ export function LabImportCard({ onSaved }: { onSaved: () => void }) {
             unit: r.unit,
             referenceMin: r.referenceMin,
             referenceMax: r.referenceMax,
-            notes: parsed?.lab ? `Imported from ${parsed.lab}` : "Imported from a document",
+            notes: [
+              r.qualifier ? `Printed as ${r.qualifier}${r.value} (a limit, not an exact value).` : null,
+              parsed?.lab ? `Imported from ${parsed.lab}` : "Imported from a document",
+            ].filter(Boolean).join(" "),
           })),
         }),
       })
@@ -231,9 +248,10 @@ export function LabImportCard({ onSaved }: { onSaved: () => void }) {
                       <p className="text-[10px] text-muted-foreground truncate">printed as “{r.rawMarker}”</p>
                     )}
                     {(r.checks ?? []).map(c => (
-                      <p key={c} className="text-[10px] text-amber-400 leading-snug">{c}</p>
+                      <p key={c.text} className="text-[10px] text-amber-400 leading-snug">{c.text}</p>
                     ))}
                   </div>
+                  {r.qualifier && <span className="text-xs text-amber-400 shrink-0">{r.qualifier}</span>}
                   <Input
                     type="number"
                     step="any"
@@ -246,12 +264,28 @@ export function LabImportCard({ onSaved }: { onSaved: () => void }) {
                     onChange={e => editRow(i, { unit: e.target.value })}
                     className="h-6 w-20 text-xs"
                   />
-                  <span className="w-24 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums">
-                    {r.referenceMin != null || r.referenceMax != null
-                      ? `${r.referenceMin ?? "–"}–${r.referenceMax ?? "–"}`
-                      : "no range"}
-                    {r.flag === "high" && <span className="text-rose-400"> ↑</span>}
-                    {r.flag === "low" && <span className="text-amber-400"> ↓</span>}
+                  <span className="flex w-28 shrink-0 items-center justify-end gap-0.5 text-[10px] text-muted-foreground tabular-nums">
+                    <Input
+                      type="number"
+                      step="any"
+                      aria-label="Reference min"
+                      placeholder="min"
+                      value={r.referenceMin ?? ""}
+                      onChange={e => editRange(i, { referenceMin: bound(e.target.value) })}
+                      className="h-6 w-12 px-1 text-[10px] tabular-nums"
+                    />
+                    –
+                    <Input
+                      type="number"
+                      step="any"
+                      aria-label="Reference max"
+                      placeholder="max"
+                      value={r.referenceMax ?? ""}
+                      onChange={e => editRange(i, { referenceMax: bound(e.target.value) })}
+                      className="h-6 w-12 px-1 text-[10px] tabular-nums"
+                    />
+                    {r.flag === "high" && <span className="text-rose-400">↑</span>}
+                    {r.flag === "low" && <span className="text-amber-400">↓</span>}
                   </span>
                 </div>
               ))}
