@@ -141,13 +141,111 @@ export function detectDwells(points: Point[], places: SavedPlace[]): DetectedVis
 }
 
 /**
+ * Google's own visits, as stays at the user's saved places.
+ *
+ * A visit is already a dwell, so it goes straight to recordVisits rather than
+ * through detectDwells: the importer can only render one as two points, arrival
+ * and departure, and anything longer than MAX_GAP_MIN between them is two
+ * zero-length runs to the detector. Every evening at home, every Sunday at the
+ * parents', vanished while a forty-minute coffee came through.
+ */
+export function visitsAtPlaces(
+  visits: { lat: number; lng: number; start: string; end: string }[],
+  places: SavedPlace[],
+): DetectedVisit[] {
+  const out: DetectedVisit[] = []
+  for (const v of visits) {
+    const start = Date.parse(v.start), end = Date.parse(v.end)
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue
+    if ((end - start) / 60_000 < MIN_DWELL_MIN) continue
+    const lat = Number(v.lat), lng = Number(v.lng)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+    const match = matchSavedPlace(lat, lng, places)
+    if (!match) continue
+    out.push({
+      placeId: match.place.id, name: match.place.name, emoji: match.place.emoji,
+      start: new Date(start), end: new Date(end), points: 0,
+    })
+  }
+  return out
+}
+
+/** Record Google's visits as check-ins at whichever saved places they fall in. */
+export async function recordTimelineVisits(
+  userId: string,
+  visits: { lat: number; lng: number; start: string; end: string }[],
+): Promise<{ created: number; detected: number }> {
+  const places = await prisma.savedPlace.findMany({
+    where: { userId },
+    select: { id: true, name: true, emoji: true, lat: true, lng: true, radiusM: true },
+  })
+  if (places.length === 0) return { created: 0, detected: 0 }
+  const stays = visitsAtPlaces(visits, places)
+  const { created } = await recordVisits(userId, stays)
+  return { created, detected: stays.length }
+}
+
+/** One back-fill pass per this many days of history. */
+const BACKFILL_CHUNK_DAYS = 30
+
+/**
+ * The windows a back-fill walks, newest first.
+ *
+ * Newest first because the run lives inside one request's time limit and the
+ * recent months are the ones anyone looks at. Each window is padded by a full
+ * DETECTION_LOOKBACK_MIN on BOTH sides: walking backwards, a stay across a seam
+ * is otherwise seen cut short by the older window, and a cut-short view whose
+ * dedupe window misses the check-in already written writes a second one.
+ * Padding both sides means both windows see it whole.
+ */
+export function backfillWindows(earliest: Date, now: Date): { from: Date; to: Date }[] {
+  const pad = DETECTION_LOOKBACK_MIN * 60_000
+  const step = BACKFILL_CHUNK_DAYS * 86_400_000
+  const out: { from: Date; to: Date }[] = []
+  for (let end = now.getTime(); end > earliest.getTime(); end -= step) {
+    out.push({ from: new Date(end - step - pad), to: new Date(end + pad) })
+  }
+  return out
+}
+
+/**
+ * Check-ins for one place across everything already stored.
+ *
+ * Detection otherwise only ever looks at the last day, so a place saved after
+ * years of history were imported read as never visited until each day was
+ * opened by hand. Only this place is detected: the others are already done,
+ * and recordVisits makes a re-run a no-op, so saving twice is harmless.
+ */
+export async function backfillPlaceVisits(userId: string, placeId: string, now: Date = new Date()): Promise<{ created: number }> {
+  const first = await prisma.locationPoint.findFirst({
+    where: { userId },
+    orderBy: { trackedAt: "asc" },
+    select: { trackedAt: true },
+  })
+  if (!first) return { created: 0 }
+  let created = 0
+  for (const w of backfillWindows(first.trackedAt, now)) {
+    created += (await recordPlaceVisits(userId, w.from, w.to, placeId)).created
+  }
+  return { created }
+}
+
+/**
  * Detect and record visits in a window. Returns how many check-ins were
  * created; re-running over the same window creates nothing new, so this is
  * safe on a schedule and safe to re-run after an import.
+ *
+ * `placeId` limits detection to one place. Points elsewhere still end its
+ * runs: they match nothing in the list, which flushes the dwell in progress.
  */
-export async function recordPlaceVisits(userId: string, from: Date, to: Date): Promise<{ created: number; detected: number }> {
+export async function recordPlaceVisits(
+  userId: string,
+  from: Date,
+  to: Date,
+  placeId?: string,
+): Promise<{ created: number; detected: number }> {
   const places = await prisma.savedPlace.findMany({
-    where: { userId },
+    where: placeId ? { userId, id: placeId } : { userId },
     select: { id: true, name: true, emoji: true, lat: true, lng: true, radiusM: true },
   })
   if (places.length === 0) return { created: 0, detected: 0 }

@@ -13,7 +13,7 @@ import { ScreenTimeManager } from "@/components/settings/ScreenTimeManager"
 import { NotificationNudges } from "@/components/settings/NotificationNudges"
 import { MorningBriefToggle } from "@/components/settings/MorningBriefToggle"
 import { SamsungHealthImporter } from "@/components/settings/SamsungHealthImporter"
-import { TimelineImporter } from "@/components/settings/TimelineImporter"
+import { TimelineImport } from "@/components/location/TimelineImport"
 import { SeedDemoButton } from "@/components/settings/SeedDemoButton"
 import { GoalsEditor } from "@/components/settings/GoalsEditor"
 import { EmergyMemory } from "@/components/settings/EmergyMemory"
@@ -427,8 +427,9 @@ export default async function SettingsPage({
       <SettingsSection title="Import & export" emoji="💾">
       {/* Samsung Health — one-time CSV import for historical data */}
       <SamsungHealthImporter />
-      {/* Google Timeline — location visit history for health correlations */}
-      <TimelineImporter />
+      {/* Google Timeline — the same importer as the Location page: GPS points,
+          travel modes, and visits to saved places as check-ins */}
+      <TimelineImport />
 
       <Card>
         <CardContent className="pt-4 pb-4">

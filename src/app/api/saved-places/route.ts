@@ -1,6 +1,11 @@
-import { NextRequest, NextResponse } from "next/server"
+import { NextRequest, NextResponse, after } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { backfillPlaceVisits } from "@/lib/place-visits"
+
+// The back-fill below runs in after(), which gets this route's time limit:
+// a month of stored points per pass, newest first.
+export const maxDuration = 60
 
 export async function GET() {
   const session = await auth()
@@ -23,10 +28,11 @@ export async function POST(req: NextRequest) {
 
   if (!name?.trim()) return NextResponse.json({ error: "name required" }, { status: 400 })
   if (lat == null || lng == null) return NextResponse.json({ error: "lat and lng required" }, { status: 400 })
+  const userId = session.user.id
 
   const place = await prisma.savedPlace.create({
     data: {
-      userId: session.user.id,
+      userId,
       name: name.trim(),
       emoji: emoji ?? "📍",
       address: address ?? null,
@@ -35,6 +41,11 @@ export async function POST(req: NextRequest) {
       radiusM: radiusM ? Math.min(2000, Math.max(20, parseInt(radiusM))) : 100,
     },
   })
+
+  // The history already stored — an import, months of background tracking —
+  // holds this place's visits too, and live detection only looks at the last
+  // day. Without this a new place reads as never visited.
+  after(() => backfillPlaceVisits(userId, place.id).then(() => undefined, () => undefined))
 
   return NextResponse.json(place)
 }
@@ -69,6 +80,10 @@ export async function PATCH(req: NextRequest) {
   if (Object.keys(data).length === 0) return NextResponse.json({ error: "nothing to update" }, { status: 400 })
 
   const place = await prisma.savedPlace.update({ where: { id: existing.id }, data })
+  // A wider radius takes in stays the old one missed.
+  if (typeof data.radiusM === "number" && data.radiusM > existing.radiusM) {
+    after(() => backfillPlaceVisits(existing.userId, existing.id).then(() => undefined, () => undefined))
+  }
   return NextResponse.json(place)
 }
 
