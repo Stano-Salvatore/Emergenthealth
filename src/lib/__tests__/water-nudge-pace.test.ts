@@ -42,3 +42,11 @@ describe("the emergy-push cron", () => {
     expect(src).toMatch(/resolveWaterGoal\(/)
   })
 })
+
+describe("the emergy-push cron's reads", () => {
+  it("loads goals with the other inputs, not one user at a time in the send loop", () => {
+    const src = readFileSync("src/app/api/cron/emergy-push/route.ts", "utf8")
+    const loop = src.slice(src.indexOf("await Promise.allSettled(due.map("))
+    expect(loop).not.toMatch(/await getGoals\(/)
+  })
+})

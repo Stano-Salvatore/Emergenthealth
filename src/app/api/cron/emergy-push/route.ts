@@ -4,7 +4,7 @@ import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import { sayAsEmergy } from "@/lib/emergy-say"
 import { prisma } from "@/lib/prisma"
 import { hydrationMl, HYDRATING_TYPES, resolveWaterGoal, waterNudgeLevel, expectedWaterByNow } from "@/lib/hydration"
-import { getGoals } from "@/lib/goals"
+import { DEFAULT_GOALS, getGoals } from "@/lib/goals"
 import { localDateStr, localTimeStr, zonedDayRange } from "@/lib/local-date"
 import { habitsTallyToday, weekStart } from "@/lib/habit-schedule"
 
@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
   const earliestStart = new Date(Math.min(...due.map(d => d.dayStart.getTime())))
   const earliestDay = due.map(d => d.today).sort()[0]
 
-  const [intakes, habits, completions, skips, checkins] = await Promise.all([
+  const [intakes, habits, completions, skips, checkins, goalsByUser] = await Promise.all([
     prisma.intakeLog.findMany({
       where: { userId: { in: dueIds }, type: { in: HYDRATING_TYPES }, loggedAt: { gte: earliestStart } },
       select: { userId: true, amountMl: true, type: true, loggedAt: true },
@@ -115,6 +115,8 @@ export async function GET(req: NextRequest) {
       where: { userId: { in: dueIds }, date: { in: [...new Set(due.map(d => d.today))] } },
       select: { userId: true, date: true, waterGoalMl: true },
     }).catch(() => [] as { userId: string; date: string; waterGoalMl: number | null }[]),
+    // Read alongside everything else, not one user at a time inside the send loop.
+    Promise.all(dueIds.map(async id => [id, (await getGoals(id)).waterMl] as const)).then(e => new Map(e)),
   ])
 
   // Date-only columns: the ISO date IS the day each row was filed under.
@@ -147,7 +149,7 @@ export async function GET(req: NextRequest) {
     )
     const habitPct = totalHabits > 0 ? (doneHabits / totalHabits) * 100 : 100
     const checkinGoal = checkins.find(c => c.userId === userId && c.date === today)?.waterGoalMl
-    const waterGoal = resolveWaterGoal(checkinGoal, (await getGoals(userId)).waterMl)
+    const waterGoal = resolveWaterGoal(checkinGoal, goalsByUser.get(userId) ?? DEFAULT_GOALS.waterMl)
     const waterLevel = waterNudgeLevel(water, waterGoal, time)
 
     let message: string | null = null
