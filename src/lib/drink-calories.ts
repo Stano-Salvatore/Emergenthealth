@@ -12,6 +12,7 @@
 // up as tracking.
 
 import { ethanolGrams, isAlcohol } from "./body-load"
+import { drinkProfile } from "./drink-catalog"
 
 export const ETHANOL_KCAL_PER_G = 7
 
@@ -37,7 +38,11 @@ export function drinkCalories(type: string, amountMl: number, note?: string): nu
     const carb = (CARB_KCAL_PER_100ML[t] ?? 0) * (amountMl / 100)
     return Math.round(ethanolGrams(t, amountMl, note) * ETHANOL_KCAL_PER_G + carb)
   }
-  return Math.round((PLAIN_KCAL_PER_100ML[t] ?? 0) * (amountMl / 100))
+  // The drink's own figure over its type's: a latte's milk, a syrup in water,
+  // a Coke Zero's nothing.
+  const named = drinkProfile(note)
+  const per100 = named?.kcalPer100ml ?? PLAIN_KCAL_PER_100ML[t] ?? 0
+  return Math.round(per100 * (amountMl / 100))
 }
 
 /**

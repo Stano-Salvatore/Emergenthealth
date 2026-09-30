@@ -62,3 +62,48 @@ describe("the medication table", () => {
     expect(h("Claritin")).toBe(8)
   })
 })
+
+describe("the medication table, second batch", () => {
+  it("tells citalopram from escitalopram", () => {
+    expect(h("citalopram")).toBe(35)
+    expect(h("escitalopram")).toBe(30)
+    expect(h("Cipralex")).toBe(30)
+  })
+
+  it("covers the other antidepressants and mood medicines", () => {
+    expect(h("Seroxat")).toBe(21)      // paroxetine
+    expect(h("Prozac")).toBe(96)       // fluoxetine
+    expect(h("Efectin")).toBe(11)      // venlafaxine
+    expect(h("Lamictal")).toBe(29)     // lamotrigine
+    expect(h("Abilify")).toBe(75)      // aripiprazole
+  })
+
+  it("covers ADHD medicines", () => {
+    expect(h("Ritalin")).toBe(3)
+    expect(h("Elvanse")).toBe(11)
+    expect(h("Strattera")).toBe(5)
+  })
+
+  it("covers heart, cholesterol and blood-thinning medicines", () => {
+    expect(h("Amlodipin")).toBe(40)
+    expect(h("Atoris")).toBe(14)       // atorvastatin
+    expect(h("Eliquis")).toBe(12)
+    expect(h("Xarelto")).toBe(9)
+    expect(supplementInfoFor("Xarelto")?.caution).toMatch(/ibuprofen|NSAID/i)
+  })
+
+  it("covers colds, stomach and everyday odds and ends", () => {
+    expect(h("dextromethorphan")).toBe(3)
+    expect(supplementInfoFor("dextromethorphan")?.caution).toMatch(/serotonin/i)
+    expect(h("Degan")).toBe(5)         // metoclopramide
+    expect(h("Mydocalm")).toBe(2.5)    // tolperisone
+    expect(h("Medrol")).toBe(2.5)      // methylprednisolone
+    expect(h("Fenistil")).toBe(6)      // dimetindene
+    expect(h("nicotine gum")).toBe(2)
+    expect(h("Zyn")).toBe(2)
+  })
+
+  it("keeps a generic SSRI word on the no-half-life fallback", () => {
+    expect(supplementInfoFor("SSRI")?.halfLifeH).toBeUndefined()
+  })
+})

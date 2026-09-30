@@ -16,6 +16,8 @@
 // for planning sleep and understanding patterns — explicitly not a
 // breathalyzer, and never a basis for deciding whether to drive.
 
+import { drinkProfile } from "./drink-catalog"
+
 export type LoadKind = "caffeine" | "alcohol" | "med"
 
 export interface ActiveSubstance {
@@ -96,11 +98,15 @@ export function ethanolGrams(type: string, amountMl: number, note?: string): num
   // A beer's "12°" is degrees Plato (the wort's strength, how Czech beer is
   // sold), not ABV. ≈0.42% ABV per degree: 10° ≈ 4.2%, 12° ≈ 5.0%, 17° ≈ 7.1%.
   const plato = !abvFromNote && type === "beer" ? note?.match(/(\d{1,2}(?:[.,]\d)?)\s*°/) : null
+  if (!(type in ABV)) return 0
+  // A named drink's usual strength sits between a stated one and the type
+  // average: a radler is not a 5% beer, and an alcohol-free one is not beer.
+  const namedAbv = drinkProfile(note)?.abv
   const abv = abvFromNote
     ? Math.min(0.6, parseFloat(abvFromNote[1].replace(",", ".")) / 100)
     : plato
       ? Math.min(0.15, 0.0042 * parseFloat(plato[1].replace(",", ".")))
-      : ABV[type]
+      : namedAbv !== undefined ? namedAbv : ABV[type]
   if (!abv || !(amountMl > 0)) return 0
   return amountMl * abv * ETHANOL_DENSITY
 }

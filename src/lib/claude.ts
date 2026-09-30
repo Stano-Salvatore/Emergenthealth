@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client"
 import { isRefKind, issueConfirmToken, makeRef, parseRef, verifyConfirmToken, type RefKind } from "@/lib/log-refs"
 import { getEventsInRange } from "@/lib/google-calendar"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { resolveDrinkType } from "@/lib/drink-catalog"
 import { activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
@@ -1003,7 +1004,7 @@ export async function executeTool(name: string, input: Record<string, string>, u
 
   if (name === "log_drink") {
     const label = String(input.name ?? "").trim().slice(0, 120) || "Drink"
-    const type = normalizeDrinkType(String(input.drinkType ?? "other"))
+    const type = resolveDrinkType(normalizeDrinkType(String(input.drinkType ?? "other")), label)
     const amountMl = clampInt(input.amountMl, 1, 5000, 250)
 
     // The model's caffeine figure is an estimate, not a measurement, so it gets

@@ -20,6 +20,41 @@
 
   Correlation cards recompute so the new half-lives are used.
 
+- **…and a second batch of medicines** (now about 90 in total):
+  - **Antidepressants and mood medicines:** citalopram (kept apart from
+    escitalopram), paroxetine, fluoxetine, venlafaxine, lamotrigine,
+    lithium, valproate, aripiprazole, olanzapine
+  - **ADHD:** Ritalin/Concerta, Elvanse, Strattera
+  - **Heart and blood:** amlodipine, telmisartan, atorvastatin,
+    rosuvastatin, Eliquis, Xarelto, warfarin — the blood thinners warn
+    against ibuprofen
+  - **Colds and stomach:** dextromethorphan (with a serotonin warning next
+    to Elicea), ACC, ambroxol, Degan, ondansetron
+  - **Steroids and muscle relaxants:** Medrol, prednisone, Mydocalm
+  - **Everything else:** Fenistil, nicotine (gum, pouches, vape),
+    sildenafil, tadalafil, finasteride, oxycodone, and the antibiotics
+    doxycycline, ciprofloxacin, clarithromycin and cefuroxime
+- **Drinks, by name.** One shared list of named drinks, used by the Oura
+  sync, the caffeine estimate, the calorie count, the alcohol curve and
+  Emergy's drink logging:
+  - **Oura tags that were ignored now count:** Kofola, cola, energy drinks,
+    Club-Mate and yerba mate, juice and smoothies, milk, kefir, hot
+    chocolate and kombucha. Before, they never reached the intake log.
+  - **Caffeine by drink:** Kofola ≈15 mg/100 ml, cola 10, energy drinks 32,
+    Club-Mate 20; green tea has less than black tea; herbal and fruit teas
+    have none; decaf is nearly none.
+  - **Calories by drink:** the milk in a latte, cappuccino, flat white or
+    mocha; syrup in water; juice, smoothies and kefir. Zero and light sodas
+    cost nothing.
+  - **Alcohol by strength:** alcohol-free beer ("nealko", Birell, 0.0)
+    counts no alcohol, even when Emergy files it as beer. Radler counts at
+    radler strength, prosecco and liqueurs at their own; Tatratea,
+    Becherovka and fernet are spirits. A strength written in the label
+    still wins.
+  - **Log page:** a new *Other drinks* row (juice, Kofola, cola, energy
+    drink, syrup water, milk, yerba mate, alcohol-free beer), and custom
+    entries can now be mate, juice, soft drink or milk.
+
 - Emergy's afternoon water push no longer screams "I AM WILTING" at a
   litre by five o'clock. Anything under a fixed 1500 ml used to get the
   capitals, whatever the time and whatever your goal. It now reads your

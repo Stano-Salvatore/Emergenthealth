@@ -54,6 +54,20 @@ const QUICK_GROUPS: { title: string; items: QuickItem[] }[] = [
     ],
   },
   {
+    title: "Other drinks",
+    items: [
+      // note names the drink, so its caffeine and calories are read from it
+      { type: "juice", label: "Juice 250ml",   amount: 250, icon: "🧃", note: "Juice" },
+      { type: "soda",  label: "Kofola 500ml",  amount: 500, icon: "🥤", note: "Kofola" },
+      { type: "soda",  label: "Cola 330ml",    amount: 330, icon: "🥤", note: "Cola" },
+      { type: "soda",  label: "Energy drink",  amount: 250, icon: "⚡", note: "Energy drink" },
+      { type: "water", label: "Syrup water",   amount: 500, icon: "🍹", note: "Syrup water" },
+      { type: "milk",  label: "Milk 250ml",    amount: 250, icon: "🥛", note: "Milk" },
+      { type: "mate",  label: "Yerba mate",    amount: 500, icon: "🧉", note: "Yerba mate" },
+      { type: "soda",  label: "Alcohol-free beer", amount: 500, icon: "🍺", note: "Nealko pivo" },
+    ],
+  },
+  {
     title: "Alcohol",
     items: [
       { type: "beer",    label: "Beer 330ml",   amount: 330, icon: "🍺" },
@@ -76,6 +90,7 @@ const TYPE_META: Record<string, { label: string; color: string; goal?: number; i
   coffee:    { label: "Coffee",    color: "bg-amber-700",  goal: 400,  icon: <Coffee className="h-4 w-4 text-amber-600" /> },
   tea:       { label: "Tea",       color: "bg-green-600",              icon: <span className="text-sm">🍵</span> },
   matcha:    { label: "Matcha",    color: "bg-emerald-500",            icon: <span className="text-sm">🍃</span> },
+  mate:      { label: "Mate",      color: "bg-lime-600",               icon: <span className="text-sm">🧉</span> },
   alcohol:   { label: "Alcohol",   color: "bg-yellow-600",             icon: <Wine className="h-4 w-4 text-yellow-500" /> },
   beer:      { label: "Beer",      color: "bg-yellow-500",             icon: <span className="text-sm">🍺</span> },
   wine:      { label: "Wine",      color: "bg-rose-700",               icon: <span className="text-sm">🍷</span> },
@@ -88,11 +103,12 @@ const TYPE_META: Record<string, { label: string; color: string; goal?: number; i
 }
 
 // Types the custom-entry form offers, and which of them ask for a strength.
-const CUSTOM_TYPES = ["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "other"] as const
+const CUSTOM_TYPES = ["water", "sparkling", "coffee", "tea", "matcha", "mate", "juice", "soda", "milk", "beer", "wine", "spirits", "alcohol", "other"] as const
 /** Only an alcoholic drink has a strength worth asking for — see isAlcohol. */
 const STRENGTH_TYPES = new Set<string>(ALCOHOL_TYPES)
 const CUSTOM_EMOJI: Record<string, string> = {
   water: "💧", sparkling: "🫧", coffee: "☕", tea: "🍵", matcha: "🍃",
+  mate: "🧉", juice: "🧃", soda: "🥤", milk: "🥛",
   beer: "🍺", wine: "🍷", spirits: "🥃", alcohol: "🍾", other: "🥤",
 }
 
