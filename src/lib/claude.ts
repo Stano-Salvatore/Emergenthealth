@@ -56,6 +56,7 @@ import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { analyseExperiment } from "@/lib/experiments-analysis"
 import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
 import { loadLabTrends } from "@/lib/lab-trends-load"
+import { saveLabRows } from "@/lib/lab-save"
 import { loadNutrientReport } from "@/lib/nutrient-gaps-load"
 import { getGoals, saveGoals } from "@/lib/goals"
 import { completeReminder } from "@/lib/reminders"
@@ -616,7 +617,7 @@ const TOOLS: Anthropic.Tool[] = [
           items: {
             type: "object",
             properties: {
-              marker: { type: "string", description: "As printed, e.g. 'Ferritin', 'Vitamin D', 'HbA1c'" },
+              marker: { type: "string", description: "As printed, e.g. 'Ferritin', 'Vitamín D', 'Cholesterol HDL' — the app files it under its canonical name" },
               value: { type: "number" },
               unit: { type: "string", description: "As printed, e.g. 'ug/L', 'nmol/L', '%'" },
               referenceMin: { type: "number", description: "Lower end of the printed reference range, if any" },
@@ -2198,17 +2199,7 @@ export async function executeTool(name: string, input: Record<string, string>, u
       .filter(r => r.marker && r.value !== null && r.unit)
       .slice(0, 100)
     if (rows.length === 0) return "None of those rows had a marker, a number and a unit — read them back to the user and try again."
-    const when = new Date(date + "T00:00:00.000Z")
-    const existing = await prisma.labResult.findMany({
-      where: { userId, date: when, marker: { in: rows.map(r => r.marker) } },
-      select: { marker: true, value: true },
-    })
-    const seen = new Set(existing.map(e => `${e.marker}|${e.value}`))
-    const fresh = rows.filter(r => !seen.has(`${r.marker}|${r.value}`))
-    if (fresh.length > 0) {
-      await prisma.labResult.createMany({ data: fresh.map(r => ({ ...r, value: r.value as number, userId, date: when })) })
-    }
-    const skipped = rows.length - fresh.length
+    const { saved: fresh, skipped } = await saveLabRows(userId, date, rows.map(r => ({ ...r, value: r.value as number })))
     return `Recorded ${fresh.length} lab result${fresh.length === 1 ? "" : "s"} for ${date}${skipped ? ` (${skipped} already on file, skipped)` : ""}: ${fresh.map(r => `${r.marker} ${r.value} ${r.unit}`).join(", ") || "nothing new"}. They show under Body → Labs. Read them back so a misread digit can be caught.`
   }
 

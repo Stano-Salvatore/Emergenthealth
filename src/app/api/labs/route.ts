@@ -1,6 +1,8 @@
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
+import { canonicalMarker } from "@/lib/lab-markers"
+import { saveLabRows } from "@/lib/lab-save"
 
 export async function GET() {
   const session = await auth()
@@ -37,8 +39,6 @@ export async function POST(req: Request) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return NextResponse.json({ error: "date (YYYY-MM-DD) required" }, { status: 400 })
     }
-    const when = new Date(date + "T00:00:00.000Z")
-
     type Row = { marker?: unknown; value?: unknown; unit?: unknown; referenceMin?: unknown; referenceMax?: unknown; notes?: unknown }
     const rows = (body.results as Row[])
       .map(r => ({
@@ -54,31 +54,20 @@ export async function POST(req: Request) {
 
     if (rows.length === 0) return NextResponse.json({ error: "no usable rows" }, { status: 400 })
 
-    const existing = await prisma.labResult.findMany({
-      where: { userId, date: when, marker: { in: rows.map(r => r.marker) } },
-      select: { marker: true, value: true },
-    })
-    const seen = new Set(existing.map(e => `${e.marker}|${e.value}`))
-    const fresh = rows.filter(r => !seen.has(`${r.marker}|${r.value}`))
-
-    if (fresh.length > 0) {
-      await prisma.labResult.createMany({
-        data: fresh.map(r => ({ ...r, value: r.value as number, userId, date: when })),
-      })
-    }
-
-    return NextResponse.json({ ok: true, saved: fresh.length, skipped: rows.length - fresh.length }, { status: 201 })
+    const { saved, skipped } = await saveLabRows(userId, date, rows.map(r => ({ ...r, value: r.value as number })))
+    return NextResponse.json({ ok: true, saved: saved.length, skipped }, { status: 201 })
   }
 
   const { marker, value, unit, referenceMin, referenceMax, date, notes } = body
-  if (!marker || typeof value !== "number" || !unit || !date) {
+  const canonical = typeof marker === "string" ? canonicalMarker(marker).slice(0, 80) : ""
+  if (!canonical || typeof value !== "number" || !unit || !date) {
     return NextResponse.json({ error: "marker, value, unit, date required" }, { status: 400 })
   }
 
   const result = await prisma.labResult.create({
     data: {
       userId,
-      marker,
+      marker: canonical,
       value,
       unit,
       referenceMin: referenceMin ?? null,
