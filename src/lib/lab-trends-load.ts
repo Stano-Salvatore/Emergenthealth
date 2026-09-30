@@ -63,12 +63,13 @@ const asMs = (day: string) => Date.parse(day + "T00:00:00Z")
  * Without this the day rows would be read from the earliest draw minus a
  * year, which for someone with a few years of lab history means thousands of
  * rows that nothing then looks at. `readings` arrives sorted ascending, so
- * the last two entries per marker are the two the trend compares.
+ * the last two distinct dates per marker are the two the trend compares.
  */
 function behaviourFloor(readings: LabReading[]): string | null {
   const lastTwo = new Map<string, string[]>()
   for (const r of readings) {
     const dates = lastTwo.get(r.marker) ?? []
+    if (dates[dates.length - 1] === r.date) continue
     dates.push(r.date)
     if (dates.length > 2) dates.shift()
     lastTwo.set(r.marker, dates)

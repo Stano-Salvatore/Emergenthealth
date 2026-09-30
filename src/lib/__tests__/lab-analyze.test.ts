@@ -42,6 +42,19 @@ describe("normalizeReport", () => {
     expect(junk.results[0].flag).toBeNull()
   })
 
+  it("says so when two differently printed rows land on the same marker", () => {
+    const r = normalizeReport(report({
+      results: [
+        row({ marker: "Cholesterol celkový", value: 5.2 }),
+        row({ marker: "Total cholesterol", value: 4.9 }),
+        row({ marker: "HDL cholesterol", value: 1.4 }),
+      ],
+    }))
+    expect(r.results[0].checks.join(" ")).toMatch(/also reads as Cholesterol/)
+    expect(r.results[1].checks.join(" ")).toMatch(/also reads as Cholesterol/)
+    expect(r.results[2].checks).toEqual([])
+  })
+
   it("refuses a date that isn't a date", () => {
     expect(normalizeReport(report({ date: "August 2026" })).date).toBeNull()
     expect(normalizeReport(report({ date: "2026-08-01" })).date).toBe("2026-08-01")

@@ -25,6 +25,8 @@ export interface ParsedLabRow {
   referenceMax: number | null
   /** The lab's own out-of-range mark, when the report carries one. */
   flag: "low" | "high" | "normal" | null
+  /** Reasons to look at this row against the page before saving it. */
+  checks: string[]
 }
 
 export interface ParsedLabReport {
@@ -167,7 +169,23 @@ export function normalizeReport(parsed: ParsedLabReport): ParsedLabReport {
       referenceMin: min,
       referenceMax: max,
       flag: r.flag === "low" || r.flag === "high" || r.flag === "normal" ? r.flag : null,
+      checks: [],
     })
+  }
+
+  // Two printed names on one report that land on one marker are usually two
+  // different tests the name map can't tell apart. Saved together they become
+  // one series with two values on one day.
+  const printedAs = new Map<string, Set<string>>()
+  for (const r of results) {
+    const names = printedAs.get(r.marker) ?? new Set<string>()
+    names.add(r.rawMarker)
+    printedAs.set(r.marker, names)
+  }
+  for (const r of results) {
+    if ((printedAs.get(r.marker)?.size ?? 0) > 1) {
+      r.checks.push(`Another row on this report also reads as ${r.marker} — keep only the one that is.`)
+    }
   }
 
   return {

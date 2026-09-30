@@ -100,6 +100,26 @@ describe("computeLabTrends", () => {
     expect(t.summary).toContain("converted to mmol/l")
   })
 
+  it("never measures a change between two results drawn on the same day", () => {
+    // Two rows filed under one marker on one date are two tests, or one test
+    // entered twice — neither is a change over time.
+    const [t] = computeLabTrends([
+      reading({ marker: "Cholesterol", value: 5.2, unit: "mmol/l", referenceMin: null, referenceMax: 5.0, date: "2026-08-01" }),
+      reading({ marker: "Cholesterol", value: 1.4, unit: "mmol/l", referenceMin: 1.0, referenceMax: null, date: "2026-08-01" }),
+    ])
+    expect(t.changePct).toBeNull()
+    expect(t.summary).not.toMatch(/down from|up from|%/)
+
+    // With an earlier draw on file, that is what the latest is compared with.
+    const [u] = computeLabTrends([
+      reading({ marker: "Cholesterol", value: 5.0, unit: "mmol/l", referenceMin: null, referenceMax: null, date: "2026-02-01" }),
+      reading({ marker: "Cholesterol", value: 5.2, unit: "mmol/l", referenceMin: null, referenceMax: null, date: "2026-08-01" }),
+      reading({ marker: "Cholesterol", value: 5.1, unit: "mmol/l", referenceMin: null, referenceMax: null, date: "2026-08-01" }),
+    ])
+    expect(u.previous!.date).toBe("2026-02-01")
+    expect(u.intervalDays).toBeGreaterThan(0)
+  })
+
   it("still refuses when the units genuinely can't be reconciled", () => {
     const [t] = computeLabTrends([
       reading({ marker: "NT-proBNP", value: 120, unit: "pg/mL", date: "2026-03-01" }),

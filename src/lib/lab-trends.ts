@@ -358,7 +358,9 @@ export function computeLabTrends(
   for (const [marker, list] of byMarker) {
     const sorted = [...list].sort((a, b) => a.date.localeCompare(b.date))
     const latest = sorted[sorted.length - 1]
-    const previous = sorted.length > 1 ? sorted[sorted.length - 2] : null
+    // The latest draw from an earlier day. Two results on one date are two
+    // tests under one name, or one entered twice — never a change over time.
+    const previous = sorted.findLast(r => r.date < latest.date) ?? null
 
     // Units are stored exactly as the lab printed them, so two readings can
     // legitimately disagree. Reconcile them where the conversion is defined,

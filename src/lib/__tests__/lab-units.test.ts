@@ -49,6 +49,16 @@ describe("convertLabValue — reproduces the published factors", () => {
     close(convertLabValue(1.0, "mg/dL", "µmol/L", "Bilirubin")!, 17.1)
   })
 
+  it("urea mg/dL → mmol/L (×0.1665, urea 60.06 g/mol)", () => {
+    close(convertLabValue(30, "mg/dL", "mmol/L", "Urea")!, 4.995)
+  })
+
+  it("BUN mg/dL → mmol/L urea (×0.357, the two nitrogens of one urea: 28.014 g/mol)", () => {
+    // 14 mg/dL BUN is 5.0 mmol/L of urea. Read with urea's own molar mass it
+    // came out as 2.3 — a 2.14x error that turned "unchanged" into "+114%".
+    close(convertLabValue(14, "mg/dL", "mmol/L", "BUN")!, 4.998)
+  })
+
   it("round-trips back to where it started", () => {
     const there = convertLabValue(200, "mg/dL", "mmol/L", "Cholesterol")!
     close(convertLabValue(there, "mmol/L", "mg/dL", "Cholesterol")!, 200)

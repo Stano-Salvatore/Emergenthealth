@@ -22,6 +22,7 @@ interface Row {
   referenceMin: number | null
   referenceMax: number | null
   flag: "low" | "high" | "normal" | null
+  checks: string[]
 }
 
 interface Parsed {
@@ -229,6 +230,9 @@ export function LabImportCard({ onSaved }: { onSaved: () => void }) {
                     {r.rawMarker && r.rawMarker !== r.marker && (
                       <p className="text-[10px] text-muted-foreground truncate">printed as “{r.rawMarker}”</p>
                     )}
+                    {(r.checks ?? []).map(c => (
+                      <p key={c} className="text-[10px] text-amber-400 leading-snug">{c}</p>
+                    ))}
                   </div>
                   <Input
                     type="number"

@@ -79,7 +79,9 @@ const UNITS: Record<string, UnitDef> = {
  *
  * LDL and HDL take cholesterol's mass because that is what is being measured.
  * Triglycerides use triolein, the convention labs report against. Phosphate is
- * reported as elemental phosphorus.
+ * reported as elemental phosphorus. BUN weighs only the nitrogen: one urea
+ * carries two N (2 × 14.007), so mg/dL BUN × 0.357 is mmol/L of urea, where
+ * mg/dL urea × 0.1665 is.
  */
 const MOLAR_MASS: Record<string, number> = {
   "Cholesterol": 386.65,
@@ -89,6 +91,7 @@ const MOLAR_MASS: Record<string, number> = {
   "Glucose": 180.156,
   "Creatinine": 113.12,
   "Urea": 60.06,
+  "BUN": 28.014,
   "Uric acid": 168.11,
   "Calcium": 40.078,
   "Magnesium": 24.305,
