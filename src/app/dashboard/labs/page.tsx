@@ -11,6 +11,7 @@ import { LabImportCard } from "@/components/labs/LabImportCard"
 import { LabTrendsCard } from "@/components/labs/LabTrendsCard"
 import { canonicalMarker, CANONICAL_MARKERS } from "@/lib/lab-markers"
 import { convertLabValue, normalizeUnit } from "@/lib/lab-units"
+import { implausibleJump, suggestedUnit } from "@/lib/lab-entry"
 
 interface LabResult {
   id: string
@@ -28,25 +29,6 @@ const COMMON_MARKERS = [
   "Triglycerides", "Glucose", "Creatinine", "ALT", "AST", "B12", "Folate",
   "Iron", "CRP",
 ]
-
-const UNIT_DEFAULTS: Record<string, string> = {
-  "Vitamin D": "ng/mL",
-  "TSH": "mIU/L",
-  "Ferritin": "ng/mL",
-  "HbA1c": "%",
-  "Cholesterol": "mg/dL",
-  "LDL": "mg/dL",
-  "HDL": "mg/dL",
-  "Triglycerides": "mg/dL",
-  "Glucose": "mg/dL",
-  "Creatinine": "mg/dL",
-  "ALT": "U/L",
-  "AST": "U/L",
-  "B12": "pg/mL",
-  "Folate": "ng/mL",
-  "Iron": "µg/dL",
-  "CRP": "mg/L",
-}
 
 function statusColor(value: number, min: number | null, max: number | null) {
   if (min == null && max == null) return "text-foreground"
@@ -205,7 +187,8 @@ export default function LabsPage() {
 
   function handleMarkerChange(v: string) {
     setMarker(v)
-    if (UNIT_DEFAULTS[v]) setUnit(UNIT_DEFAULTS[v])
+    const suggested = suggestedUnit(v, grouped)
+    if (suggested) setUnit(suggested)
     if (v.length > 0) {
       // Suggest across everything the importer knows how to name, so a typed
       // entry lands on the same marker as an imported one rather than starting
@@ -219,7 +202,7 @@ export default function LabsPage() {
 
   function pickSuggestion(m: string) {
     setMarker(m)
-    setUnit(UNIT_DEFAULTS[m] ?? "")
+    setUnit(suggestedUnit(m, grouped) ?? "")
     setSuggestions([])
   }
 
@@ -268,6 +251,7 @@ export default function LabsPage() {
   }
 
   const markerList = Object.keys(grouped)
+  const jump = marker && value ? implausibleJump(marker, parseFloat(value), unit, grouped) : null
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
@@ -356,6 +340,13 @@ export default function LabsPage() {
               className="bg-background/50"
             />
           </div>
+
+          {jump && (
+            <p className="text-xs text-amber-400">
+              That is about {Math.round(jump.factor)}× the last {canonicalMarker(marker)} ({jump.previous.value} {jump.previous.unit} on{" "}
+              {format(new Date(jump.previous.date), "MMM d, yyyy")}) — check the unit before saving.
+            </p>
+          )}
 
           <Button
             onClick={handleAdd}
