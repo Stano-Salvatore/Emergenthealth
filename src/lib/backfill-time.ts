@@ -1,3 +1,5 @@
+import { zonedClock } from "@/lib/local-date"
+
 // Logging something at the time it happened, not the time it was remembered.
 //
 // loggedAt drives caffeine decay, the bedtime cutoff, body load, meal timing
@@ -24,12 +26,14 @@ export function backfillAt(raw: unknown, now = new Date()): { at: Date } | { err
 }
 
 /**
- * The instant a picked "HH:MM" on the viewed day means, in the device's own
- * clock — the clock the person read the time off. undefined = now.
+ * The instant a picked "HH:MM" on the viewed day means, in the zone of the
+ * clock the person read the time off — the device's. undefined = now.
  */
-export function atFromChoice(date: string, hhmm: string | null): string | undefined {
+export function atFromChoice(
+  date: string,
+  hhmm: string | null,
+  timezone = Intl.DateTimeFormat().resolvedOptions().timeZone,
+): string | undefined {
   if (!hhmm) return undefined
-  const [y, m, d] = date.split("-").map(Number)
-  const [h, min] = hhmm.split(":").map(Number)
-  return new Date(y, m - 1, d, h, min).toISOString()
+  return zonedClock(timezone, date, hhmm)?.toISOString()
 }

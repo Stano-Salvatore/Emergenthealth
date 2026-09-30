@@ -38,9 +38,9 @@ describe("atFromChoice — what the screen sends", () => {
   })
 
   it("reads a picked time on the viewed day in the device's own clock", () => {
-    const iso = atFromChoice("2026-09-29", "13:05")!
-    const d = new Date(iso)
-    expect([d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes()]).toEqual([2026, 9, 29, 13, 5])
+    // 13:05 on a Bratislava phone in September is 11:05 UTC.
+    expect(atFromChoice("2026-09-29", "13:05", "Europe/Bratislava")).toBe("2026-09-29T11:05:00.000Z")
+    expect(atFromChoice("2026-09-29", "13:05", "UTC")).toBe("2026-09-29T13:05:00.000Z")
   })
 })
 
