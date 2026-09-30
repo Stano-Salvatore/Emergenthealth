@@ -1,6 +1,90 @@
 # Changelog
 
-## 3.7.1 — A litre is not wilting
+## 3.8.0 — Drinks by name, and the rest of the audit
+
+Web-only: everything here is live on merge, no new APK.
+
+**New**
+- **Log a drink or meal at the time it happened**, up to a week back. The
+  Log and Food tabs have a *When* row: now, 1h or 3h ago, or a picked time.
+  On a past day it defaults to 20:00, and you can now add to past days at
+  all. The drink's caffeine is filed at that time too, so body load and the
+  bedtime cutoff read the real hour. A back-filled meal carries no location.
+- **Symptom look-back.** Tap a symptom and it shows what was different in
+  the ~36 hours before it, compared with your own last 45 days: a short
+  night, drinks, late caffeine, a pressure drop, an unusual dose. Anything
+  the app didn't measure is left out rather than called zero. From the
+  third episode, it notes which factors keep showing up, as an observation.
+- **Emergy reads your logs back.** "What did I eat on Tuesday?", "my blood
+  pressure last week", "how's my stress tracker this month?" now get real
+  answers, and Emergy can find, fix or delete a wrong meal, blood-pressure
+  reading, tracker value or symptom (with the same confirm step as
+  before). Fixing a meal's calories scales its macros with it.
+- **Where you're signed in.** Settings lists your signed-in devices and can
+  sign out one, or all of them except the one you're holding.
+- **Doctor report: as-needed and stopped medicines.** Medicines taken with
+  no schedule (Frontin ½, a one-off painkiller, supplements) get their own
+  *Other doses logged* table. A schedule you stopped still appears, marked
+  stopped, when it had doses in the period.
+
+**Fixed (the 26 audit findings that had never been checked)**
+
+Each one was re-checked against today's code first: 21 were real and are
+fixed, 3 had already been fixed, and 2 need a database change (below).
+- **Samsung import:**
+  - It now respects the ring: it fills only gaps and never overwrites a
+    ring night or a weight you typed.
+  - It no longer stores the day's average heart rate as resting HR, or
+    zero sleep scores as readings.
+  - An import that writes nothing no longer shows a green tick.
+  - Mood rows are counted only when they were actually written.
+- **Google Timeline:**
+  - A stay longer than 90 minutes becomes a check-in.
+  - A stay crossing an upload batch no longer gets two check-ins.
+  - Dates show in your own time zone.
+  - Saving a new place back-fills its visits from stored history.
+  - The Settings importer is now the same one the Location page uses. The
+    old one wrote data nothing read.
+- **Medications:**
+  - A dose after midnight (Atarax at 00:30) now counts for the evening it
+    belonged to.
+  - A dose logged both in Oura and in the app counts once.
+  - A tag re-timed in the Oura app moves here too.
+  - "What did I take today" and the brief no longer list drinks as doses.
+- **Lab results:**
+  - "Cholesterol HDL" is no longer merged into total cholesterol, and the
+    same goes for free testosterone, direct bilirubin, CA 19-9 and urine
+    creatinine.
+  - BUN is no longer converted as urea, which was 2.14× off.
+  - "LDL-cholesterol" and "Gama-GT" collapse onto LDL and GGT.
+  - Small values keep their digits (0.45 µkat/l no longer shows as 0.5).
+  - The same unit written differently now converts: mU/l and µU/ml,
+    mEq/L, HbA1c % and mmol/mol.
+  - Every save path canonicalises marker names.
+  - Add Result pre-fills your last unit, not US units, and warns about a
+    ×5 jump.
+  - An earlier value is never shown without its unit.
+  - Imports question a range that looks copied from the wrong unit column,
+    and keep a printed "<5" or ">90" as a limit rather than an exact value.
+- **Lab trends** no longer read the months before you logged drinks or
+  workouts as sober or sedentary days.
+- **Lab import** refuses files the platform can't deliver, instead of
+  failing mid-upload, and gets 5 minutes to read.
+- **YouTube Music import** uploads in whole-day slices within the platform
+  limits.
+- Emergy's blood-pressure log and the visit counter no longer report writes
+  that failed.
+
+**Still open**
+- **Needs a database change:** storing a lab's own H/L flag and a "<"/">"
+  qualifier as real columns (today the qualifier is kept in the note).
+- **One-off data fixes:**
+  - Old lab rows keep their old marker names until they are re-canonicalised.
+  - Resting HR values an earlier Samsung import wrote from average heart
+    rate are still stored.
+
+### Also in this release (first shipped as 3.7.1)
+
 
 - **More medicines, with half-lives.** Stilnox (zolpidem) was missing from
   the medicine table, so a dose logged at 22:28 got no half-life and never
