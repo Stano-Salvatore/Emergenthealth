@@ -285,6 +285,9 @@ export default function IntakePage() {
     }
     load()
     if (!ok) return false
+    // A picked time is for this one drink: left set, the next tap would be
+    // filed an hour back without anyone asking for it.
+    if (isToday) setWhen(null)
     // The bedtime warning is about a drink had just now, not one filed back.
     if (at) return true
     const caf = await loadCaffeine()
