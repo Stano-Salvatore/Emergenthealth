@@ -63,7 +63,7 @@ export interface Anomaly {
 
 /** Minimum history before a baseline means anything. */
 export const MIN_HISTORY_DAYS = 14
-const Z_THRESHOLD = 2
+export const Z_THRESHOLD = 2
 const RUN_Z_THRESHOLD = 1
 const MIN_RUN = 3
 
