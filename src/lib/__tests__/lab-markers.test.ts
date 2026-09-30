@@ -115,3 +115,12 @@ describe("canonicalMarker — BUN is not urea", () => {
     expect(canonicalMarker("Urea")).toBe("Urea")
   })
 })
+
+describe("a B- that is part of the name is not a sample prefix", () => {
+  it("keeps B-12 as vitamin B12 whatever follows it", async () => {
+    const { canonicalMarker } = await import("@/lib/lab-markers")
+    expect(canonicalMarker("B-12 v sére")).toBe("Vitamin B12")
+    expect(canonicalMarker("B-12 (serum)")).toBe("Vitamin B12")
+    expect(canonicalMarker("B-Glukóza")).toBe(canonicalMarker("Glukóza"))
+  })
+})
