@@ -10,6 +10,7 @@ import { format } from "date-fns"
 import { LabImportCard } from "@/components/labs/LabImportCard"
 import { LabTrendsCard } from "@/components/labs/LabTrendsCard"
 import { canonicalMarker, CANONICAL_MARKERS } from "@/lib/lab-markers"
+import { convertLabValue, normalizeUnit } from "@/lib/lab-units"
 
 interface LabResult {
   id: string
@@ -60,9 +61,19 @@ function statusColor(value: number, min: number | null, max: number | null) {
   return "text-red-400"
 }
 
-function Sparkline({ entries }: { entries: LabResult[] }) {
-  if (entries.length < 2) return null
-  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date))
+function Sparkline({ marker, entries }: { marker: string; entries: LabResult[] }) {
+  const byDate = [...entries].sort((a, b) => a.date.localeCompare(b.date))
+  const unit = byDate[byDate.length - 1]?.unit ?? ""
+  // Every point in the latest reading's unit: 30 ng/mL then 60 nmol/l is a
+  // 20% fall, not a doubling. A point that can't be converted is left out
+  // rather than drawn at a number from another scale.
+  const sorted = byDate
+    .map(e => {
+      const v = normalizeUnit(e.unit) === normalizeUnit(unit) ? e.value : convertLabValue(e.value, e.unit, unit, marker)
+      return v == null ? null : { ...e, value: v }
+    })
+    .filter((e): e is LabResult => e != null)
+  if (sorted.length < 2) return null
   const values = sorted.map(e => e.value)
   const minVal = Math.min(...values)
   const maxVal = Math.max(...values)
@@ -133,7 +144,7 @@ function MarkerCard({
       </CardHeader>
       {entries.length >= 2 && (
         <CardContent className="pt-0 pb-3 px-4">
-          <Sparkline entries={entries} />
+          <Sparkline marker={marker} entries={entries} />
         </CardContent>
       )}
       {expanded && (

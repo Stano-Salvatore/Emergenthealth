@@ -9,6 +9,7 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrendingUp, TrendingDown } from "lucide-react"
 import { fmtDrift } from "@/lib/drift"
+import { previousReading } from "@/lib/lab-trends"
 
 interface Shift {
   label: string; unit: string
@@ -20,7 +21,8 @@ interface MonthAvg { month: string; sleepH: number | null; steps: number | null;
 interface LabTrend {
   marker: string; unit: string
   latest: { value: number; date: string }
-  previous: { value: number; date: string } | null
+  previous: { value: number; unit: string; date: string } | null
+  converted: { previousAs: number } | null
   status: string; changePct: number | null; direction: "up" | "down" | "flat" | null
 }
 interface LongViewData {
@@ -130,8 +132,8 @@ export function LongView() {
                 <li key={l.marker} className="text-sm">
                   {l.marker}: <span className="font-semibold tabular-nums">{l.latest.value} {l.unit}</span>
                   {l.previous && (
-                    <span className="text-muted-foreground"> vs {l.previous.value} on {l.previous.date}
-                      {l.changePct != null ? ` (${l.changePct > 0 ? "+" : ""}${l.changePct}%)` : ""}</span>
+                    <span className="text-muted-foreground"> vs {previousReading(l)} on {l.previous.date}
+                      {l.changePct != null ? ` (${l.changePct > 0 ? "+" : ""}${Math.round(l.changePct)}%)` : ""}</span>
                   )}
                 </li>
               ))}

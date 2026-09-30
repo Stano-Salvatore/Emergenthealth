@@ -56,6 +56,7 @@ import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { analyseExperiment } from "@/lib/experiments-analysis"
 import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
 import { loadLabTrends } from "@/lib/lab-trends-load"
+import { previousReading } from "@/lib/lab-trends"
 import { saveLabRows } from "@/lib/lab-save"
 import { loadNutrientReport } from "@/lib/nutrient-gaps-load"
 import { getGoals, saveGoals } from "@/lib/goals"
@@ -2401,7 +2402,7 @@ export async function executeTool(name: string, input: Record<string, string>, u
     if (kind === "labs") {
       const labs = await loadLabTrends(userId)
       if (labs.markerCount === 0) return "No lab results on file."
-      const list = labs.trends.slice(0, 25).map(t => `- ${t.marker}: ${t.latest.value} ${t.unit} on ${t.latest.date} [${t.status}]${t.previous ? ` (was ${t.previous.value} on ${t.previous.date}${t.changePct != null ? `, ${t.changePct > 0 ? "+" : ""}${t.changePct.toFixed(0)}%` : ""}${t.significant ? ", beyond normal variation" : ""})` : ""}${t.crossed ? ` — crossed ${t.crossed}` : ""}${t.summary ? ` — ${t.summary}` : ""}`)
+      const list = labs.trends.slice(0, 25).map(t => `- ${t.marker}: ${t.latest.value} ${t.unit} on ${t.latest.date} [${t.status}]${t.previous ? ` (was ${previousReading(t)} on ${t.previous.date}${t.changePct != null ? `, ${t.changePct > 0 ? "+" : ""}${t.changePct.toFixed(0)}%` : ""}${t.significant ? ", beyond normal variation" : ""})` : ""}${t.crossed ? ` — crossed ${t.crossed}` : ""}${t.summary ? ` — ${t.summary}` : ""}`)
       return `${labs.markerCount} markers on file. Notable: ${labs.notable.length}.\n${list.join("\n")}\nRead these back; never interpret a value beyond the printed range or say what to do about it — that is the doctor's.`
     }
 

@@ -427,6 +427,20 @@ export function computeLabTrends(
 }
 
 /**
+ * The earlier reading as a reader should see it beside the latest: in the
+ * latest unit when it was converted for the comparison, otherwise in its own
+ * unit. A bare number next to a changePct computed on the converted value
+ * reads "60 nmol/l vs 30 (-20%)" — a rise and a fall at once.
+ */
+export function previousReading(
+  t: { unit: string; previous: { value: number; unit: string } | null; converted: { previousAs: number } | null },
+): string | null {
+  if (!t.previous) return null
+  if (t.converted) return `${labFigure(t.converted.previousAs)} ${t.unit}`.trim()
+  return `${t.previous.value} ${t.previous.unit}`.trim()
+}
+
+/**
  * The markers worth putting in front of someone: outside the printed range,
  * newly crossed it, or moved further than the marker naturally moves.
  */

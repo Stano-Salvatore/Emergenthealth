@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { computeLabTrends, notableTrends, rangeStatus, type DayFacts, type DayTags, type LabReading } from "@/lib/lab-trends"
+import { readFileSync } from "node:fs"
+import { computeLabTrends, notableTrends, previousReading, rangeStatus, type DayFacts, type DayTags, type LabReading } from "@/lib/lab-trends"
 
 const reading = (over: Partial<LabReading> = {}): LabReading => ({
   marker: "Vitamin D", value: 42, unit: "ng/mL", date: "2026-03-01",
@@ -354,5 +355,52 @@ describe("interval behaviours", () => {
     expect(t.behaviours[0].key).toBe("alcohol")
     expect(t.behaviours.map(b => Math.abs(b.changePct)))
       .toEqual([...t.behaviours.map(b => Math.abs(b.changePct))].sort((a, b) => b - a))
+  })
+})
+
+// "60 nmol/l vs 30 (-20%)" contradicts itself: the 30 was ng/mL, 74.9 nmol/l,
+// and the change beside it was computed on the converted value.
+describe("previousReading", () => {
+  it("gives the earlier value in the latest unit when it was converted", () => {
+    const [t] = computeLabTrends([
+      reading({ value: 30, unit: "ng/mL", date: "2026-03-01" }),
+      reading({ value: 60, unit: "nmol/l", date: "2026-08-01" }),
+    ])
+    expect(previousReading(t)).toBe("74.9 nmol/l")
+    expect(t.changePct!).toBeLessThan(0)
+  })
+
+  it("keeps the earlier value's own unit when the two can't be reconciled", () => {
+    const [t] = computeLabTrends([
+      reading({ marker: "NT-proBNP", value: 120, unit: "pg/mL", date: "2026-03-01" }),
+      reading({ marker: "NT-proBNP", value: 14, unit: "pmol/L", date: "2026-08-01" }),
+    ])
+    expect(previousReading(t)).toBe("120 pg/mL")
+  })
+
+  it("is null for a first reading", () => {
+    const [t] = computeLabTrends([reading()])
+    expect(previousReading(t)).toBeNull()
+  })
+})
+
+describe("nothing shows an earlier lab value without its unit", () => {
+  const stripped = (f: string) =>
+    readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+
+  it("the long view and Emergy's labs answer go through previousReading", () => {
+    const longView = stripped("src/components/stats/LongView.tsx")
+    expect(longView).toMatch(/previousReading\(/)
+    expect(longView).not.toMatch(/previous\.value/)
+    const chat = stripped("src/lib/claude.ts")
+    const labs = chat.slice(chat.indexOf('kind === "labs"'), chat.indexOf('kind === "nutrients"'))
+    expect(labs).toMatch(/previousReading\(/)
+    expect(labs).not.toMatch(/previous\.value/)
+  })
+
+  it("the labs-page sparkline plots every point in the latest reading's unit", () => {
+    const page = stripped("src/app/dashboard/labs/page.tsx")
+    const spark = page.slice(page.indexOf("function Sparkline"), page.indexOf("function MarkerCard"))
+    expect(spark).toMatch(/convertLabValue\(/)
   })
 })
