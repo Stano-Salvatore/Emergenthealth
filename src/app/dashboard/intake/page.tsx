@@ -16,6 +16,8 @@ import MedicationsPage from "@/app/dashboard/medications/page"
 import { FoodTab } from "@/components/intake/FoodTab"
 import { OverviewTab } from "@/components/intake/OverviewTab"
 import { BodyLoadTab } from "@/components/intake/BodyLoadTab"
+import { WhenRow, PAST_DAY_DEFAULT } from "@/components/intake/WhenRow"
+import { atFromChoice } from "@/lib/backfill-time"
 
 interface IntakeLog {
   id: string
@@ -177,6 +179,14 @@ export default function IntakePage() {
   const [caffeineMg, setCaffeineMg] = useState<number | null>(null)
   const [lateCoffee, setLateCoffee] = useState<{ mg: number; bedLabel: string } | null>(null)
   const isToday = date === localDateStr()
+  // When the next quick add happened. Reset with the day: a time picked for
+  // yesterday means nothing today.
+  const [when, setWhen] = useState<string | null>(null)
+  const [whenFor, setWhenFor] = useState(date)
+  if (whenFor !== date) {
+    setWhenFor(date)
+    setWhen(isToday ? null : PAST_DAY_DEFAULT)
+  }
 
   // With the strip's scrollbar hidden, this is what keeps a deep-linked or
   // just-tapped tab visible instead of parked off the right edge.
@@ -256,6 +266,7 @@ export default function IntakePage() {
   // without the drink. Either way nothing said so.
   async function addEntry(type: string, amountMl: number, note?: string): Promise<boolean> {
     if ("vibrate" in navigator) navigator.vibrate(20)
+    const at = atFromChoice(date, isToday ? when : (when ?? PAST_DAY_DEFAULT))
     setAdding(`${type}-${amountMl}-${note ?? ""}`)
     setAddError(null)
     let ok = false
@@ -263,7 +274,7 @@ export default function IntakePage() {
       const res = await fetch("/api/intake", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, amountMl, ...(note ? { note } : {}) }),
+        body: JSON.stringify({ type, amountMl, ...(note ? { note } : {}), ...(at ? { at } : {}) }),
       })
       ok = res.ok
       if (!ok) setAddError(`Not saved. ${describeFetchFailure(new HttpStatusError(res.status))}`)
@@ -274,6 +285,8 @@ export default function IntakePage() {
     }
     load()
     if (!ok) return false
+    // The bedtime warning is about a drink had just now, not one filed back.
+    if (at) return true
     const caf = await loadCaffeine()
     // Gentle heads-up after a caffeinated drink: how much will still be
     // circulating at their usual bedtime? Informational only — the drink is
@@ -504,8 +517,9 @@ export default function IntakePage() {
       {addError && <p role="alert" className="text-xs text-destructive">{addError}</p>}
 
       {/* quick add buttons */}
-      {isToday && (
+      {(
         <div className="space-y-3">
+          <WhenRow isToday={isToday} value={isToday ? when : (when ?? PAST_DAY_DEFAULT)} onChange={setWhen} />
           {QUICK_GROUPS.map(group => (
             <div key={group.title}>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{group.title}</p>
@@ -601,7 +615,7 @@ export default function IntakePage() {
             <CardContent className="py-10 text-center">
               <Droplets className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">No entries for {dateLabel.toLowerCase()}</p>
-              {isToday && <p className="text-xs text-muted-foreground mt-1">Use quick add above to log your intake</p>}
+              <p className="text-xs text-muted-foreground mt-1">Use quick add above to log your intake</p>
             </CardContent>
           </Card>
         ) : (

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { addDaysISO, localDateStr, zonedDayRange } from "@/lib/local-date"
 import { recordDrink, resyncDrinkCaffeine, forgetDrinkCaffeine } from "@/lib/intake-write"
+import { backfillAt } from "@/lib/backfill-time"
 import { NextResponse } from "next/server"
 import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
 
@@ -52,22 +53,24 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const { type, amountMl, note } = await req.json()
+  const { type, amountMl, note, at: rawAt } = await req.json()
   if (!type || !amountMl || typeof amountMl !== "number") {
     return NextResponse.json({ error: "type and amountMl required" }, { status: 400 })
   }
+  const when = backfillAt(rawAt)
+  if (when && "error" in when) return NextResponse.json({ error: when.error }, { status: 400 })
 
   // recordDrink writes both rows — the drink and, for anything caffeinated,
   // its caffeine entry at the same instant under the shared `intake_<id>`, so
   // deleting the drink removes its caffeine. This route used to keep its own
   // copy of that and swallow the mirror's failure.
-  const written = await recordDrink({ userId, type, amountMl, note })
+  const written = await recordDrink({ userId, type, amountMl, note, at: when?.at })
   if (!written) return NextResponse.json({ error: "Could not save that drink" }, { status: 500 })
 
   return NextResponse.json(written.log, { status: 201 })
 }
 
-const EDIT_TYPES = new Set(["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "juice", "soda", "milk", "other"])
+const EDIT_TYPES = new Set(["water", "sparkling", "coffee", "tea", "matcha", "mate", "beer", "wine", "spirits", "alcohol", "juice", "soda", "milk", "other"])
 
 export async function PATCH(req: Request) {
   const session = await auth()

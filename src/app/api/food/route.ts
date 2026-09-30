@@ -9,6 +9,7 @@ import { normalizeSupplement } from "@/lib/supplement-normalize"
 import { extractMirrorableDrinks } from "@/lib/drink-mirror"
 import { NextResponse } from "next/server"
 import type { Prisma } from "@prisma/client"
+import { backfillAt } from "@/lib/backfill-time"
 
 export async function GET(req: Request) {
   const session = await auth()
@@ -89,9 +90,17 @@ export async function POST(req: Request) {
   }
   const MEAL_TYPES = new Set(["breakfast", "lunch", "dinner", "snack", "other"])
 
+  const picked = backfillAt(body?.at)
+  if (picked && "error" in picked) return NextResponse.json({ error: picked.error }, { status: 400 })
+  const when = picked?.at ?? new Date()
+  // The phone's position is where it is NOW — for a meal filed hours back it
+  // would pin the lunch to wherever the evening happened.
+  const backfilled = !!picked
+
   const log = await prisma.foodLog.create({
     data: {
       userId,
+      loggedAt: when,
       name,
       mealType: MEAL_TYPES.has(body?.mealType) ? body.mealType : "other",
       calories: Math.round(calories),
@@ -105,9 +114,9 @@ export async function POST(req: Request) {
       photo: typeof body?.photo === "string" && body.photo.startsWith("data:image/") && body.photo.length < 100_000
         ? body.photo
         : null,
-      lat: Number.isFinite(Number(body?.lat)) && Math.abs(Number(body.lat)) <= 90 ? Number(body.lat) : null,
-      lng: Number.isFinite(Number(body?.lng)) && Math.abs(Number(body.lng)) <= 180 ? Number(body.lng) : null,
-      place: typeof body?.place === "string" && body.place.trim() ? body.place.trim().slice(0, 120) : null,
+      lat: backfilled ? null : Number.isFinite(Number(body?.lat)) && Math.abs(Number(body.lat)) <= 90 ? Number(body.lat) : null,
+      lng: backfilled ? null : Number.isFinite(Number(body?.lng)) && Math.abs(Number(body.lng)) <= 180 ? Number(body.lng) : null,
+      place: backfilled ? null : typeof body?.place === "string" && body.place.trim() ? body.place.trim().slice(0, 120) : null,
     },
   })
 
@@ -122,7 +131,7 @@ export async function POST(req: Request) {
     // it; recordDrink writes the caffeine entry under `intake_<that id>`.
     const written = await recordDrink({
       id: `food_${log.id}_${i}`,
-      userId, type: d.type, amountMl: d.volumeMl, note: d.name || null,
+      userId, type: d.type, amountMl: d.volumeMl, note: d.name || null, at: when,
     })
     if (written) mirroredDrinks++
   }
