@@ -2,6 +2,24 @@
 
 ## 3.7.1 — A litre is not wilting
 
+- **More medicines, with half-lives.** Stilnox (zolpidem) was missing from
+  the medicine table, so a dose logged at 22:28 got no half-life and never
+  appeared in *In my body*. It's there now, however the tag spells it
+  ("Stillnox" too), along with about thirty others, each with a half-life,
+  timing advice and cautions:
+  - **Sleep and anxiety:** zopiclone, clonazepam, diazepam, bromazepam
+    (Lexaurin), lorazepam, oxazepam, trazodone, quetiapine, pregabalin,
+    gabapentin
+  - **Antidepressants:** sertraline, bupropion, vortioxetine, duloxetine
+  - **Pain:** metamizole (Novalgin/Algifen), diclofenac, ketoprofen,
+    nimesulide (Aulin), tramadol (with the serotonin warning next to
+    Elicea), codeine, sumatriptan
+  - **Allergy:** desloratadine, levocetirizine, bilastine, fexofenadine
+  - **Everyday prescriptions:** propranolol, bisoprolol, levothyroxine,
+    metformin, loperamide, famotidine, amoxicillin, azithromycin
+
+  Correlation cards recompute so the new half-lives are used.
+
 - Emergy's afternoon water push no longer screams "I AM WILTING" at a
   litre by five o'clock. Anything under a fixed 1500 ml used to get the
   capitals, whatever the time and whatever your goal. It now reads your

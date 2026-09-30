@@ -20,7 +20,7 @@ describe("supplementInfoFor", () => {
   it("keeps brand-specific entries ahead of the generic SSRI fallback", () => {
     // Elicea must not fall through to the generic entry, which has no half-life
     expect(supplementInfoFor("Elicea")?.halfLifeH).toBe(30)
-    expect(supplementInfoFor("Sertralin")?.halfLifeH).toBeUndefined()
+    expect(supplementInfoFor("Venlafaxin")?.halfLifeH).toBeUndefined()
   })
 
   it("still resolves supplements through the normalizer", () => {
