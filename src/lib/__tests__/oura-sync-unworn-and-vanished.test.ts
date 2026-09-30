@@ -22,7 +22,8 @@ const db = vi.hoisted(() => ({
   upserts: [] as { where: unknown; create: Record<string, unknown>; update: Record<string, unknown> }[],
   healthUpdateMany: [] as { where: Record<string, unknown>; data: Record<string, unknown> }[],
   intakeUpserts: [] as { where: { id: string }; update: Record<string, unknown> }[],
-  caffeineUpserts: [] as { where: { id: string } }[],
+  caffeineUpserts: [] as { where: { id: string }; update: Record<string, unknown> }[],
+  rawSql: [] as string[],
   intakeDeletes: [] as string[],
   caffeineDeletes: [] as string[],
   tagDeletes: [] as string[],
@@ -56,12 +57,12 @@ vi.mock("@/lib/prisma", () => ({
       },
     },
     caffeineLog: {
-      upsert: async (args: { where: { id: string } }) => { db.caffeineUpserts.push(args); return {} },
+      upsert: async (args: { where: { id: string }; update: Record<string, unknown> }) => { db.caffeineUpserts.push(args); return {} },
       deleteMany: async ({ where }: { where: { id?: { in?: string[] } } }) => {
         db.caffeineDeletes.push(...idsIn(where)); return { count: 0 }
       },
     },
-    $executeRaw: async () => 1,
+    $executeRaw: async (strings: TemplateStringsArray) => { db.rawSql.push(strings.join("?")); return 1 },
     $queryRaw: async () => [],
   },
 }))
@@ -98,7 +99,7 @@ const rowFor = (date: string) =>
 beforeEach(() => {
   db.activity = []; db.tags = []; db.tagsComplete = true; db.storedTags = []
   db.upserts = []; db.healthUpdateMany = []; db.intakeUpserts = []; db.caffeineUpserts = []
-  db.intakeDeletes = []; db.caffeineDeletes = []; db.tagDeletes = []; db.tagFindWhere = null
+  db.intakeDeletes = []; db.caffeineDeletes = []; db.tagDeletes = []; db.tagFindWhere = null; db.rawSql = []
 })
 
 describe("a day the ring was not worn", () => {
@@ -197,5 +198,24 @@ describe("a drink tag gone from the Oura app leaves the app too", () => {
     expect(db.caffeineUpserts.map(u => u.where.id)).toContain("oura_caf_t3")
     expect(db.caffeineDeletes).not.toContain("oura_caf_t3")
     expect(db.intakeDeletes).not.toContain("oura_t3")
+  })
+})
+
+// A tag whose time is corrected in the Oura app kept its first time here for
+// good: the upsert refreshed the name and nothing else. Atarax moved from
+// 21:30 to 00:30 still counted for the wrong night and decayed from the wrong
+// hour; a coffee moved from 21:30 to 09:30 still spoiled the night.
+describe("a tag re-timed in the Oura app", () => {
+  it("moves its row, and its intake and caffeine copies, to the new time", async () => {
+    db.tags = [{ ...tag("t4", "Coffee"), timestamp: "2026-09-25T07:30:00Z" }]
+    db.storedTags = [{ id: "t4", day: "2026-09-25" }]
+    await syncOuraForUser("u1")
+    const upsert = db.rawSql.find(s => s.includes(`INSERT INTO "OuraTag"`))!
+    const onConflict = upsert.slice(upsert.indexOf("ON CONFLICT"))
+    expect(onConflict).toMatch(/"timestamp"\s*=\s*EXCLUDED\."timestamp"/)
+    expect(onConflict).toMatch(/"day"\s*=\s*EXCLUDED\."day"/)
+    const at = new Date("2026-09-25T07:30:00Z")
+    expect(db.intakeUpserts.find(u => u.where.id === "oura_t4")?.update).toMatchObject({ loggedAt: at })
+    expect(db.caffeineUpserts.find(u => u.where.id === "oura_caf_t4")?.update).toMatchObject({ loggedAt: at })
   })
 })
