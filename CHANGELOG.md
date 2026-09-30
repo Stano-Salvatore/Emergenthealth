@@ -75,6 +75,18 @@ fixed, 3 had already been fixed, and 2 need a database change (below).
 - Emergy's blood-pressure log and the visit counter no longer report writes
   that failed.
 
+**Caught by the pre-merge review**
+- "1h ago" just after midnight no longer lands in the future, and it counts
+  from the moment you tap Save, not from when the page opened.
+- Days too old to accept an entry no longer offer one.
+- "Stoptussin sirup", "cough syrup" and "Milk thistle" stay medicines
+  rather than becoming drinks.
+- "B-12 v sére" stays vitamin B12.
+- Moving a meal's time with Emergy moves its coffee and caffeine too.
+- YouTube Music import stops rather than splitting a day when your time
+  zone can't be read.
+- A café's usual drink can be yerba mate.
+
 **Still open**
 - **Needs a database change:** storing a lab's own H/L flag and a "<"/">"
   qualifier as real columns (today the qualifier is kept in the note).
