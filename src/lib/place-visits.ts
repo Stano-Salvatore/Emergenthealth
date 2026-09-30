@@ -308,7 +308,7 @@ export async function recordVisits(
       continue
     }
 
-    await prisma.checkIn.create({
+    const made = await prisma.checkIn.create({
       data: {
         userId,
         place: v.name,
@@ -318,7 +318,12 @@ export async function recordVisits(
         isAuto: true,
         savedPlaceId: v.placeId,
       },
-    }).catch(() => null)
+    }).catch((e: unknown) => {
+      // "N visits logged" is read as N rows written; a failed one is not one.
+      console.error("[place-visits] check-in write failed:", v.placeId, e)
+      return null
+    })
+    if (!made) continue
     created++
     touched.set(v.placeId, { id: v.placeId, name: v.name, emoji: v.emoji, isNew: true })
   }

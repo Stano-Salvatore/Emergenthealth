@@ -2173,9 +2173,10 @@ export async function executeTool(name: string, input: Record<string, string>, u
     const pulse = input.pulse != null && String(input.pulse) !== "" ? clampInt(input.pulse, 25, 220, 0) || null : null
     const { at, minutesAgo } = loggedAtFrom(input)
     const notes = typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 200) : null
-    await prisma.bloodPressureLog.create({
+    const savedBp = await prisma.bloodPressureLog.create({
       data: { id: randomUUID(), userId, systolic, diastolic, pulse, loggedAt: at, notes },
-    })
+    }).catch(writeFailed("blood pressure"))
+    if (!savedBp) return `Couldn't save ${systolic}/${diastolic} — the log didn't write. Worth retrying.`
     return `Logged blood pressure ${systolic}/${diastolic}${pulse ? `, pulse ${pulse}` : ""}${agoSuffix(minutesAgo)}. It shows under Body → Blood pressure.`
   }
 
