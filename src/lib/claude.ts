@@ -18,7 +18,7 @@ import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, hydrationBreakdown, sumHydration, HYDRATION_FACTOR } from "@/lib/hydration"
 import { drinkCalories, drinkCaloriesTotal } from "@/lib/drink-calories"
 import { isAlcohol, ethanolGrams } from "@/lib/body-load"
-import { forgetDrinkCaffeine, recordDrink } from "@/lib/intake-write"
+import { caffeineIdFor, forgetDrinkCaffeine, recordDrink } from "@/lib/intake-write"
 import { recordDose } from "@/lib/dose-write"
 import type { DoseUnit } from "@/lib/dose"
 import {
@@ -927,6 +927,18 @@ async function correctRef(
           ...(change.label ? { name: change.label.slice(0, 120) } : {}),
         },
       })
+      if (count > 0 && change.at) {
+        // A photographed meal's coffee is its own drink row with its own
+        // caffeine; left behind, the bedtime cutoff still counts it at the old hour.
+        await prisma.intakeLog.updateMany({
+          where: { userId, id: { startsWith: `food_${ref.id}_` } },
+          data: { loggedAt: change.at },
+        }).catch((e: unknown) => console.error("[chat-tools] drink re-time failed for meal", ref.id, e))
+        await prisma.caffeineLog.updateMany({
+          where: { userId, id: { startsWith: caffeineIdFor(`food_${ref.id}_`) } },
+          data: { loggedAt: change.at },
+        }).catch((e: unknown) => console.error("[chat-tools] caffeine re-time failed for meal", ref.id, e))
+      }
       return count > 0
     }
     if (ref.kind === "bp") {

@@ -115,3 +115,13 @@ describe("find / correct / delete reach the logs Emergy writes", () => {
     expect(schema("correct_log")).toContain("diastolic")
   })
 })
+
+describe("moving a meal's time", () => {
+  it("moves the drinks it mirrored and their caffeine with it", () => {
+    const src = readFileSync("src/lib/claude.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+    const block = src.slice(src.indexOf("async function correctRef"))
+    const food = block.slice(block.indexOf('ref.kind === "food"'), block.indexOf('ref.kind === "bp"'))
+    expect(food).toMatch(/intakeLog\.updateMany\(\{[\s\S]*?startsWith: `food_\$\{ref\.id\}_`[\s\S]*?loggedAt/)
+    expect(food).toMatch(/caffeineLog\.updateMany\(\{[\s\S]*?caffeineIdFor\(`food_\$\{ref\.id\}_`\)/)
+  })
+})
