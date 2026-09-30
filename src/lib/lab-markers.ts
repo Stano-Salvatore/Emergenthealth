@@ -102,7 +102,7 @@ function tidy(raw: string): string {
   return raw
     .replace(/\(.*?\)/g, " ")           // "(serum)", "(calculated)"
     .trim()
-    .replace(/^(f?s|p|b)[-–_]\s*(?!\d)/i, "") // sample prefixes: "S-", "P-", "B-", Czech "S_" — not the B of "B-12"
+    .replace(/^(?:(?:f?s|p)[-–_]\s*|b[-–_]\s*(?!\d))/i, "") // sample prefixes: "S-", "P-", "B-", Czech "S_" — not the B of "B-12"
     .replace(/[,;:]+$/g, "")
     .replace(/\s+/g, " ")
     .trim()

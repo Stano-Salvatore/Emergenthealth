@@ -119,6 +119,11 @@ describe("medicines that name a drink stay medicines", () => {
     expect(classifyOuraTag(label).kind).toBe("med")
   })
 
+  it("an energy drink tagged with its caffeine is still a drink", () => {
+    expect(classifyOuraTag("Red Bull 80 mg").kind).toBe("soda")
+    expect(classifyOuraTag("Monster 160mg").kind).toBe("soda")
+  })
+
   it("syrup in water is still a drink with calories", () => {
     expect(drinkCalories("water", 500, "Sirup s vodou")).toBe(125)
     expect(drinkCalories("water", 500, "Syrup water")).toBe(125)

@@ -123,4 +123,9 @@ describe("a B- that is part of the name is not a sample prefix", () => {
     expect(canonicalMarker("B-12 (serum)")).toBe("Vitamin B12")
     expect(canonicalMarker("B-Glukóza")).toBe(canonicalMarker("Glukóza"))
   })
+
+  it("still strips a serum prefix before a name that starts with a digit", async () => {
+    const { canonicalMarker } = await import("@/lib/lab-markers")
+    expect(canonicalMarker("S-25-OH vitamín D")).toBe(canonicalMarker("25-OH vitamín D"))
+  })
 })
