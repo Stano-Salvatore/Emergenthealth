@@ -296,12 +296,41 @@ export default function ReportPage() {
                 <tbody>
                   {report.meds.map(m => (
                     <tr key={m.name} className="border-t border-border/50 print:border-black/10">
-                      <td className={TD}>{m.name}</td>
+                      <td className={TD}>{m.name}{m.stopped && <span className="text-amber-500 text-xs"> (stopped)</span>}</td>
                       <td className={TD}>{m.dose ?? "—"}</td>
                       <td className={TD}>{m.typicalDose ?? "—"}</td>
                       <td className={TD}>{m.times.length ? m.times.join(", ") : "—"}{m.daysOfWeek.length > 0 && m.daysOfWeek.length < 7 ? " (some days)" : ""}</td>
-                      <td className={TD}>{m.loggedDoses} of ~{m.expectedDoses}</td>
+                      <td className={TD}>{m.stopped || m.expectedDoses === 0 ? m.loggedDoses : `${m.loggedDoses} of ~${m.expectedDoses}`}</td>
                       <td className={TD}>{m.lastTaken ? fmtDay(m.lastTaken) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </TableScroll>
+            </Section>
+          )}
+
+          {report.otherDoses?.length > 0 && (
+            <Section title="Other doses logged">
+              <TableScroll>
+              <table className={TABLE}>
+                <thead>
+                  <tr>
+                    <th className={TH}>Taken</th>
+                    <th className={TH}>Doses</th>
+                    <th className={TH}>Days</th>
+                    <th className={TH}>Typical</th>
+                    <th className={TH}>Last recorded</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {report.otherDoses.map(o => (
+                    <tr key={o.name} className="border-t border-border/50 print:border-black/10">
+                      <td className={TD}>{o.name}</td>
+                      <td className={TD}>{o.count}</td>
+                      <td className={TD}>{o.days}</td>
+                      <td className={TD}>{o.typicalDose ?? "—"}</td>
+                      <td className={TD}>{fmtDay(o.lastTaken)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -54,13 +54,25 @@ export function renderReportEmail(report: HealthReport): string {
   const meds = r.meds.length ? `<table style="width:100%;border-collapse:collapse">
     <tr><th ${TH}>Medication</th><th ${TH}>Dose</th><th ${TH}>Schedule</th><th ${TH}>Logged in app</th></tr>
     ${r.meds.map(m => `<tr>
-      <td ${TD}><strong>${esc(m.name)}</strong>${m.note ? `<br><span style="color:#777;font-size:11px">${esc(m.note)}</span>` : ""}</td>
+      <td ${TD}><strong>${esc(m.name)}</strong>${m.stopped ? ` <span style="color:#a15c00;font-size:11px">(stopped)</span>` : ""}${m.note ? `<br><span style="color:#777;font-size:11px">${esc(m.note)}</span>` : ""}</td>
       <td ${TD}>${esc(m.typicalDose ?? m.dose ?? "—")}</td>
       <td ${TD}>${esc(m.times.join(", ") || "as needed")}</td>
       <td ${TD}>${m.loggedDoses}${m.expectedDoses > 0 ? ` / ${m.expectedDoses}` : ""}${m.lastTaken ? `<br><span style="color:#777;font-size:11px">last ${esc(fmtDay(m.lastTaken))}</span>` : ""}</td>
     </tr>`).join("")}
   </table>
   <p style="font-size:10px;color:#888;margin:6px 0 0">Counts only doses recorded in the app, so it is a lower bound on what was taken.</p>` : ""
+
+  const otherDoses = r.otherDoses.length ? `<table style="width:100%;border-collapse:collapse">
+    <tr><th ${TH}>Taken</th><th ${TH}>Doses</th><th ${TH}>Days</th><th ${TH}>Typical</th><th ${TH}>Last</th></tr>
+    ${r.otherDoses.map(o => `<tr>
+      <td ${TD}><strong>${esc(o.name)}</strong></td>
+      <td ${TD}>${o.count}</td>
+      <td ${TD}>${o.days}</td>
+      <td ${TD}>${esc(o.typicalDose ?? "—")}</td>
+      <td ${TD}>${esc(fmtDay(o.lastTaken))}</td>
+    </tr>`).join("")}
+  </table>
+  <p style="font-size:10px;color:#888;margin:6px 0 0">Medicines and supplements recorded with no schedule — as-needed use, one-offs — as the patient logged them.</p>` : ""
 
   const symptoms = r.symptoms.length ? `<table style="width:100%;border-collapse:collapse">
     <tr><th ${TH}>Symptom</th><th ${TH}>Episodes</th><th ${TH}>Avg severity</th><th ${TH}>Worst</th><th ${TH}>Last</th></tr>
@@ -157,6 +169,7 @@ export function renderReportEmail(report: HealthReport): string {
     ${section("Vitals and daily metrics", metrics)}
     ${section("Blood pressure", bp)}
     ${section("Medications", meds)}
+    ${section("Other doses logged", otherDoses)}
     ${section("Symptoms", symptoms)}
     ${section("Laboratory results", labs)}
     ${section("Weight", weight)}
