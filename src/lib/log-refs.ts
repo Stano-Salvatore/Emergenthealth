@@ -19,7 +19,7 @@ import { createHmac, timingSafeEqual } from "crypto"
 // wrong, the delete lands on the row that was described.
 
 /** Kinds of record Emergy may remove or correct. Anything absent is untouchable. */
-export const REF_KINDS = ["dose", "intake", "moment"] as const
+export const REF_KINDS = ["dose", "intake", "moment", "food", "bp", "metric", "symptom"] as const
 export type RefKind = (typeof REF_KINDS)[number]
 
 export function isRefKind(v: string): v is RefKind {
