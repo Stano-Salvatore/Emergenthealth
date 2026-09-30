@@ -2,16 +2,16 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { analyzeLabDocument, LAB_IMPORT_DISCLAIMER } from "@/lib/lab-analyze"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { LAB_IMPORT_MAX_CHARS, LAB_IMPORT_TOO_LARGE } from "@/lib/lab-import-limit"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+// Opus at high effort over a multi-page report; a kill mid-generation is
+// billed and never recorded.
+export const maxDuration = 300
 
 // Reads the document and hands the rows back. It deliberately writes nothing:
 // a transcription the user hasn't checked has no business in a health record,
 // so saving is a second, explicit step through /api/labs.
-
-/** ~7 MB of base64. Enough for a phone photo or a multi-page PDF. */
-const MAX_CHARS = 9_500_000
 
 export async function POST(req: Request) {
   const session = await auth()
@@ -25,8 +25,8 @@ export async function POST(req: Request) {
   if (typeof document !== "string" || !document.startsWith("data:")) {
     return NextResponse.json({ error: "document (data URL) required" }, { status: 400 })
   }
-  if (document.length > MAX_CHARS) {
-    return NextResponse.json({ error: "That file is too large — try a photo of each page instead." }, { status: 413 })
+  if (document.length > LAB_IMPORT_MAX_CHARS) {
+    return NextResponse.json({ error: LAB_IMPORT_TOO_LARGE }, { status: 413 })
   }
 
   try {

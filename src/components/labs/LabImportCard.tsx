@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { FileUp, X } from "lucide-react"
 import { todayLocalISO } from "@/lib/local-date"
+import { LAB_IMPORT_MAX_CHARS, LAB_IMPORT_TOO_LARGE } from "@/lib/lab-import-limit"
 
 // Photograph the printout or drop in the lab's PDF. Nothing is saved until
 // every row has been seen next to the original and confirmed — a transcription
@@ -81,14 +82,24 @@ export function LabImportCard({ onSaved }: { onSaved: () => void }) {
     setParsed(null)
     try {
       const document = await toDataUrl(file)
+      if (document.length > LAB_IMPORT_MAX_CHARS) {
+        setError(LAB_IMPORT_TOO_LARGE)
+        return
+      }
       const res = await fetch("/api/labs/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ document }),
       })
-      const data = await res.json()
+      // The platform's own 413 and 504 are plain text, not the route's JSON.
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(data.error ?? "Couldn't read that file.")
+        setError(
+          data.error ??
+            (res.status === 413 ? LAB_IMPORT_TOO_LARGE
+              : res.status === 504 ? "Reading that report took too long — try fewer pages at a time."
+                : "Couldn't read that file."),
+        )
         return
       }
       setParsed(data)
