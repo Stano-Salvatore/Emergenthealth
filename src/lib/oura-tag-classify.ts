@@ -73,7 +73,9 @@ export function classifyOuraTag(rawLabel: string): { kind: OuraTagKind; ml: numb
   }
   // Named drinks the rules above don't know — Kofola, Red Bull, kefir,
   // radler. A supplement the canon knows stays a supplement ("Electrolytes").
-  if (profile && !normalizeSupplement(rawLabel)) return withMl(profile.type as OuraTagKind, profile.ml)
+  // A stated dose ("400 mg", "1 tbl") marks a medicine however it's taken.
+  const dosed = /\d\s*(mg|mcg|µg|ug)\b|\btbl\b|tablet|kapsul|capsul/.test(label)
+  if (profile && !dosed && !normalizeSupplement(rawLabel)) return withMl(profile.type as OuraTagKind, profile.ml)
   // Other drinks: not tracked as intake, but also not medication
   if (/juice|smoothie|shake|soda|dzus/.test(label)) {
     return { kind: "other", ml: 0 }

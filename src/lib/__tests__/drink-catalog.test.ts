@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest"
+import { readFileSync } from "node:fs"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { estimateCaffeine } from "@/lib/caffeine"
 import { drinkCalories } from "@/lib/drink-calories"
@@ -110,5 +111,21 @@ describe("Emergy's drink type", () => {
   it("otherwise keeps what the model said", () => {
     expect(resolveDrinkType("coffee", "Latte")).toBe("coffee")
     expect(resolveDrinkType("beer", "Pilsner Urquell")).toBe("beer")
+  })
+})
+
+describe("medicines that name a drink stay medicines", () => {
+  it.each(["Stoptussin sirup", "cough syrup", "Milk thistle", "Magnesium 400 mg drink", "Paralen sirup 5 ml"])("%s", label => {
+    expect(classifyOuraTag(label).kind).toBe("med")
+  })
+
+  it("syrup in water is still a drink with calories", () => {
+    expect(drinkCalories("water", 500, "Sirup s vodou")).toBe(125)
+    expect(drinkCalories("water", 500, "Syrup water")).toBe(125)
+  })
+
+  it("a café's usual can be yerba mate", () => {
+    const src = readFileSync("src/app/api/saved-places/route.ts", "utf8")
+    expect(src).toMatch(/USUAL_TYPES = new Set\(\[[^\]]*"mate"/)
   })
 })

@@ -59,7 +59,8 @@ const DRINKS: [RegExp, DrinkProfile][] = [
   [/tonic/, { type: "soda", ml: 250, kcalPer100ml: 35 }],
   [/sprite|fanta|7.?up|mirinda|lemonad|limonad|vinea|\bsoda\b/, { type: "soda", ml: 330, kcalPer100ml: 40 }],
   [/isoton|iontak|powerade|gatorade/, { type: "soda", ml: 500, kcalPer100ml: 24 }],
-  [/sirup|syrup|malinovk/, { type: "water", ml: 500, kcalPer100ml: 25 }],
+  // Syrup IN WATER — "Stoptussin sirup" and "cough syrup" are medicines.
+  [/(sirup|syrup)\b.*\b(vod|water)|(vod|water)\w*\b.*\b(sirup|syrup)|malinovk/, { type: "water", ml: 500, kcalPer100ml: 25 }],
 
   // ── Juice ──
   [/coconut water|kokosov\w* voda/, { type: "juice", ml: 330, kcalPer100ml: 19 }],
@@ -70,7 +71,7 @@ const DRINKS: [RegExp, DrinkProfile][] = [
   [/hot chocolate|horuca cokolada|\bkakao\b|cocoa/, { type: "milk", ml: 250, kcalPer100ml: 75, caffeineMgPerMl: 0.03, compound: "cocoa" }],
   [/kefir|acidko|zakysank|ayran|buttermilk|\bcmar\b|lassi/, { type: "milk", ml: 250, kcalPer100ml: 55 }],
   [/oat milk|ovsen\w* mliek|almond milk|mandlov\w* mliek|soy milk|sojov\w* mliek|rice milk|ryzov\w* mliek/, { type: "milk", ml: 250, kcalPer100ml: 40 }],
-  [/\bmilk\b|\bmlieko\b|\bmleko\b/, { type: "milk", ml: 250, kcalPer100ml: 60 }],
+  [/\bmilk\b(?! thistle)|\bmlieko\b|\bmleko\b/, { type: "milk", ml: 250, kcalPer100ml: 60 }],
 
   // ── Alcohol with a strength its type average gets wrong ──
   [/radler|shandy/, { type: "beer", ml: 500, abv: 0.025 }],

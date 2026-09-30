@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(place)
 }
 
-const USUAL_TYPES = new Set(["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "juice", "soda", "milk", "other"])
+const USUAL_TYPES = new Set(["water", "sparkling", "coffee", "tea", "matcha", "mate", "beer", "wine", "spirits", "alcohol", "juice", "soda", "milk", "other"])
 
 export async function PATCH(req: NextRequest) {
   const session = await auth()
