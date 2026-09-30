@@ -120,6 +120,34 @@ describe("computeLabTrends", () => {
     expect(u.intervalDays).toBeGreaterThan(0)
   })
 
+  it("keeps the digits that matter for small values", () => {
+    // µkat/l liver enzymes live below 1; one decimal made 0.45 → 0.95 read as
+    // "0.5 to 1", and a PSA of 0.04 read as 0.
+    const [ggt] = computeLabTrends([
+      reading({ marker: "GGT", value: 0.45, unit: "ukat/l", referenceMin: 0.14, referenceMax: 0.84, date: "2026-03-01" }),
+      reading({ marker: "GGT", value: 0.95, unit: "ukat/l", referenceMin: 0.14, referenceMax: 0.84, date: "2026-08-01" }),
+    ])
+    expect(ggt.summary).toContain("from 0.45 ukat/l to 0.95 ukat/l")
+
+    const [alt] = computeLabTrends([
+      reading({ marker: "ALT", value: 0.84, unit: "ukat/l", referenceMin: 0.1, referenceMax: 0.83, date: "2026-08-01" }),
+    ])
+    expect(alt.summary).toContain("0.84 ukat/l")
+
+    const [psa] = computeLabTrends([
+      reading({ marker: "PSA", value: 0.04, unit: "ng/ml", referenceMin: null, referenceMax: 4, date: "2026-08-01" }),
+    ])
+    expect(psa.summary).toContain("0.04 ng/ml")
+
+    // A converted earlier value gets the same care: 27 U/L is 0.45 µkat/l.
+    const [conv] = computeLabTrends([
+      reading({ marker: "GGT", value: 27, unit: "U/L", referenceMin: null, referenceMax: null, date: "2026-03-01" }),
+      reading({ marker: "GGT", value: 0.95, unit: "ukat/l", referenceMin: null, referenceMax: null, date: "2026-08-01" }),
+    ])
+    expect(conv.summary).toContain("from 0.45 ukat/l")
+    expect(conv.converted!.previousAs).toBe(0.45)
+  })
+
   it("still refuses when the units genuinely can't be reconciled", () => {
     const [t] = computeLabTrends([
       reading({ marker: "NT-proBNP", value: 120, unit: "pg/mL", date: "2026-03-01" }),

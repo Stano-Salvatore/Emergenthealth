@@ -204,6 +204,12 @@ function intervalHabits(tags: DayTags[], from: string, to: string): IntervalHabi
 }
 
 const r1 = (n: number) => Math.round(n * 10) / 10
+/**
+ * A computed lab value, to three significant figures. A fixed decimal count
+ * fits no marker range: µkat/l enzymes and PSA live below 1, where one
+ * decimal turns 0.45 into 0.5 and 0.04 into 0.
+ */
+export const labFigure = (n: number) => (Math.abs(n) >= 100 ? Math.round(n) : Number(n.toPrecision(3)))
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 
 // ── Everyday numbers through the interval ────────────────────────────────────
@@ -270,7 +276,8 @@ function intervalBehaviours(facts: DayFacts[], from: string, to: string): Interv
 
 function buildSummary(t: Omit<MarkerTrend, "summary">): string {
   const u = t.unit ? ` ${t.unit}` : ""
-  const now = `${r1(t.latest.value)}${u}`
+  // A stored value is what the lab printed, digits and all.
+  const now = `${t.latest.value}${u}`
 
   if (!t.previous) {
     const where =
@@ -285,8 +292,8 @@ function buildSummary(t: Omit<MarkerTrend, "summary">): string {
     return `${t.marker} ${now}, but the previous result was reported in ${t.previous.unit} and the two units can't be reconciled for this marker — so no change is shown.`
   }
 
-  const wasValue = t.converted ? t.converted.previousAs : t.previous.value
-  const was = `${r1(wasValue)}${u}`
+  const wasValue = t.converted ? labFigure(t.converted.previousAs) : t.previous.value
+  const was = `${wasValue}${u}`
   const months = t.intervalDays != null ? Math.round(t.intervalDays / 30) : null
   const gap = months != null && months >= 1 ? ` over ${months} month${months === 1 ? "" : "s"}` : ""
 
@@ -378,7 +385,7 @@ export function computeLabTrends(
           unitMismatch = true
         } else {
           previousValue = asLatest
-          converted = { from: previous.unit, to: latest.unit, previousAs: Math.round(asLatest * 1000) / 1000 }
+          converted = { from: previous.unit, to: latest.unit, previousAs: Number(asLatest.toPrecision(4)) }
         }
       }
     }
