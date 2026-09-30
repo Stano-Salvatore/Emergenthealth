@@ -50,6 +50,7 @@ import { AppUpdateCard } from "@/components/settings/AppUpdateCard"
 import { InviteCard } from "@/components/settings/InviteCard"
 import { SettingsSection } from "@/components/settings/SettingsSection"
 import { SignOutCard } from "@/components/settings/SignOutCard"
+import { SessionsCard } from "@/components/settings/SessionsCard"
 import { SecretUrl } from "@/components/settings/SecretUrl"
 import { APP_VERSION } from "@/lib/version"
 import { getUserPlan } from "@/lib/plan"
@@ -298,6 +299,9 @@ export default async function SettingsPage({
 
       {/* Passkeys / biometric login */}
       <PasskeyManager />
+
+      {/* Signed-in devices */}
+      <SessionsCard />
 
       {/* Help & Support */}
       <HelpCard />
