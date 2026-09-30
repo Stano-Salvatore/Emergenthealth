@@ -53,7 +53,11 @@ export function YtMusicImport({ onImported }: { onImported: () => void }) {
       // platform's 4.5 MB request limit.
       const tzPref = await fetch("/api/preferences/timezone")
         .then(r => (r.ok ? r.json() : null)).catch(() => null) as { timezone?: string | null } | null
-      const slices = slicePlaysByDay(plays, tzPref?.timezone?.trim() || "UTC")
+      // A guessed zone could cut a day in two across uploads, and the server
+      // never overwrites a day it already has — half of it would be lost.
+      if (!tzPref) throw new Error("Couldn't read your time zone to split the upload by day. Nothing was imported — try again.")
+      // No stored zone is UTC on the server too (getUserTimezone).
+      const slices = slicePlaysByDay(plays, tzPref.timezone?.trim() || "UTC")
 
       const total: ImportResult = { days: 0, skippedDays: 0, enrichedDays: 0, tracks: 0, from: null, to: null }
       for (let i = 0; i < slices.length; i++) {

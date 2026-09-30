@@ -109,3 +109,11 @@ describe("the importer uploads in slices", () => {
     expect(src).not.toMatch(/JSON\.stringify\(\{\s*plays\s*\}\)/)
   })
 })
+
+describe("slicing needs the server's own day", () => {
+  it("stops rather than guessing UTC when the time zone can't be read", () => {
+    const src = readFileSync("src/components/lastfm/YtMusicImport.tsx", "utf8")
+    expect(src).not.toMatch(/\.catch\(\(\) => null\) as \{ timezone\?: string \| null \} \| null\s*\n\s*const slices/)
+    expect(src).toMatch(/if \(!tzPref\)/)
+  })
+})
