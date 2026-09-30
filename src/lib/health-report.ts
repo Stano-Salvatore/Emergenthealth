@@ -4,7 +4,7 @@ import Anthropic from "@anthropic-ai/sdk"
 import { format } from "date-fns"
 import { addDaysISO, localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { adherenceOver, matchKey, sortedTimes, type ScheduleLike } from "@/lib/med-schedule"
+import { adherenceOver, matchKey, sortedTimes, toDose, type DoseRow, type ScheduleLike } from "@/lib/med-schedule"
 import { formatDose, sumDoses, type ParsedDose } from "@/lib/dose"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { supplementInfoFor } from "@/lib/supplement-info"
@@ -210,10 +210,10 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     // Stopped schedules too: one paused last week still had a week of doses.
     prisma.medSchedule.findMany({ where: { userId } }).catch(() => []),
     // Doses actually recorded — Oura tags and manual logs share this table.
-    prisma.$queryRaw<{ id: string; tagName: string | null; text: string | null; day: string; timestamp: Date; doseAmount: number | null; doseUnit: string | null }[]>`
+    prisma.$queryRaw<(DoseRow & { doseAmount: number | null; doseUnit: string | null })[]>`
       SELECT "id", "tagName", "text", "day", "timestamp", "doseAmount", "doseUnit" FROM "OuraTag"
       WHERE "userId" = ${userId} AND "day" >= ${fromStr} AND "day" <= ${toStr}
-    `.catch(() => [] as { id: string; tagName: string | null; text: string | null; day: string; timestamp: Date; doseAmount: number | null; doseUnit: string | null }[]),
+    `.catch(() => [] as (DoseRow & { doseAmount: number | null; doseUnit: string | null })[]),
     prisma.symptomLog.findMany({
       where: { userId, day: { gte: fromStr, lte: toStr } },
       select: { name: true, severity: true, day: true },
@@ -306,9 +306,10 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   // Matching and the per-time cap are the Medications page's own
   // (matchKey/adherenceOver), so the report and the app never disagree, and
   // today is left out because its later doses have not happened yet.
-  const doseList = doseRows
-    .map(r => ({ row: r, day: r.day, name: (r.tagName ?? r.text ?? "").trim() }))
-    .filter(d => d.name.length > 0)
+  const doseList = doseRows.flatMap(r => {
+    const d = toDose(r, tz)
+    return d ? [{ ...d, row: r }] : []
+  })
   const completeDays = windowDays.filter(d => d !== toStr)
   const shaped: ScheduleLike[] = medSchedules.map(m => ({
     id: m.id, name: m.name, times: m.times, daysOfWeek: m.daysOfWeek,
@@ -316,11 +317,11 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   }))
   const adherence = new Map(adherenceOver(shaped, doseList, completeDays).map(a => [a.scheduleId, a]))
 
-  type DoseRow = (typeof doseRows)[number]
-  const lastOf = (hits: DoseRow[]) => hits.reduce((a, b) => (a.timestamp > b.timestamp ? a : b)).day
+  type DoseRec = (typeof doseRows)[number]
+  const lastOf = (hits: DoseRec[]) => hits.reduce((a, b) => (a.timestamp > b.timestamp ? a : b)).day
   // The mean of what was actually recorded, in whichever unit was used.
   // Milligrams and tablet fractions are never mixed into one number.
-  const typicalOf = (hits: DoseRow[]): string | null => {
+  const typicalOf = (hits: DoseRec[]): string | null => {
     const doses: ParsedDose[] = hits
       .filter(h => h.doseAmount != null && (h.doseUnit === "mg" || h.doseUnit === "tablet"))
       .map(h => ({ amount: h.doseAmount as number, unit: h.doseUnit as ParsedDose["unit"] }))
@@ -356,7 +357,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   // and not a drink, and either the app knows the substance or it was logged
   // in the app as a dose — a free-text Oura tag like "Sauna" is neither.
   const scheduledKeys = new Set(medSchedules.map(m => matchKey(m.name)))
-  const others = new Map<string, { labels: Map<string, number>; hits: DoseRow[] }>()
+  const others = new Map<string, { labels: Map<string, number>; hits: DoseRec[] }>()
   for (const d of doseList) {
     if (classifyOuraTag(d.name).kind !== "med") continue
     const known = supplementInfoFor(d.name) != null || normalizeSupplement(d.name) != null

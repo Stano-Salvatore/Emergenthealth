@@ -7,6 +7,7 @@
 // it are the same action.
 
 import { normalizeSupplement, cleanLabel, fold } from "@/lib/supplement-normalize"
+import { addDaysISO, localDateStr, localTimeStr } from "@/lib/local-date"
 
 export interface ScheduleLike {
   id: string
@@ -25,6 +26,82 @@ export interface DoseLike {
   day: string
   /** Whatever label the dose was logged under. */
   name: string
+  /** When it was taken, epoch ms. Without it a dose is only its day. */
+  at?: number
+  /** Local minutes past midnight on `day`. */
+  minutes?: number
+  /** Logged in the app rather than tagged on the ring. */
+  manual?: boolean
+}
+
+/** A row of the dose log, as the readers select it. */
+export interface DoseRow {
+  id: string
+  day: string
+  timestamp: Date
+  tagName: string | null
+  text: string | null
+}
+
+export function toDose(r: DoseRow, tz: string): DoseLike | null {
+  const name = (r.tagName ?? r.text ?? "").trim()
+  if (!name) return null
+  const at = r.timestamp.getTime()
+  // The clock only means something on the day the row is filed under.
+  const onDay = localDateStr(tz, r.timestamp) === r.day
+  const mins = onDay ? minutesOfDay(localTimeStr(tz, r.timestamp)) : Number.MAX_SAFE_INTEGER
+  return {
+    day: r.day,
+    name,
+    at,
+    minutes: mins === Number.MAX_SAFE_INTEGER ? undefined : mins,
+    manual: r.id.startsWith("manual_"),
+  }
+}
+
+// The evening a late dose belongs to lasts until 05:00, as it does for the
+// evening check-in (lib/checkin-mode).
+const NIGHT_ENDS_MIN = 5 * 60
+
+// One pill tagged on the ring and ticked off in the app arrives as two rows,
+// minutes apart; two taps in the app are two doses, and so are two ring tags.
+const SAME_DOSE_MS = 45 * 60_000
+
+/**
+ * How many of this schedule's doses each local day holds. A dose in the small
+ * hours that sits nearer the previous day's last time than today's first
+ * fills that day's slot while it is still open: Atarax due at 22:00 and taken
+ * at 00:30 is last night's, and tonight's is still owed. A morning medicine is
+ * never nearer yesterday, so it stays on the day it was taken.
+ */
+export function dosesByDay(s: ScheduleLike, doses: DoseLike[]): Map<string, number> {
+  const key = matchKey(s.name)
+  const mine = doses
+    .filter(d => matchKey(d.name) === key)
+    .sort((a, b) => a.day.localeCompare(b.day) || (a.at ?? 0) - (b.at ?? 0))
+
+  const kept: DoseLike[] = []
+  const paired = new Set<DoseLike>()
+  for (const d of mine) {
+    const twin = d.at != null && kept.find(k =>
+      !paired.has(k) && k.at != null && k.manual !== d.manual && Math.abs(k.at - d.at!) <= SAME_DOSE_MS)
+    if (twin) { paired.add(twin); continue }
+    kept.push(d)
+  }
+
+  const slots = sortedTimes(s).map(minutesOfDay)
+  const counts = new Map<string, number>()
+  for (const d of kept) {
+    let day = d.day
+    if (slots.length > 0 && d.minutes != null && d.minutes < NIGHT_ENDS_MIN) {
+      const prev = addDaysISO(d.day, -1)
+      const sinceLast = 1440 - slots[slots.length - 1] + d.minutes
+      const untilFirst = Math.abs(slots[0] - d.minutes)
+      if (sinceLast < untilFirst && activeOn(s, prev) && (counts.get(prev) ?? 0) < slots.length) day = prev
+    }
+    counts.set(day, (counts.get(day) ?? 0) + 1)
+  }
+  return counts
 }
 
 /**
@@ -124,21 +201,15 @@ export function adherenceOver(
   doses: DoseLike[],
   days: string[],
 ): Adherence[] {
-  const countByDayKey = new Map<string, number>()
-  for (const d of doses) {
-    const k = `${d.day}|${matchKey(d.name)}`
-    countByDayKey.set(k, (countByDayKey.get(k) ?? 0) + 1)
-  }
-
   return schedules.map(s => {
-    const key = matchKey(s.name)
+    const byDay = dosesByDay(s, doses)
     let expected = 0
     let taken = 0
     const missedDays: string[] = []
     for (const day of days) {
       if (!activeOn(s, day)) continue
       const want = sortedTimes(s).length
-      const got = Math.min(countByDayKey.get(`${day}|${key}`) ?? 0, want)
+      const got = Math.min(byDay.get(day) ?? 0, want)
       expected += want
       taken += got
       if (got < want) missedDays.push(day)

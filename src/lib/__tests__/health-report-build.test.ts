@@ -90,8 +90,9 @@ afterEach(() => {
 const schedule = (id: string, name: string, times = ["08:00"]) => ({
   id, name, times, daysOfWeek: [], active: true, startDate: null, endDate: null, dose: null, note: null,
 })
+let doseSeq = 0
 const dose = (dayStr: string, tagName: string | null, text: string | null = null, at?: string) => ({
-  tagName, text, day: dayStr, timestamp: new Date(at ?? dayStr + "T06:00:00Z"), doseAmount: null, doseUnit: null,
+  id: `manual_${++doseSeq}`, tagName, text, day: dayStr, timestamp: new Date(at ?? dayStr + "T06:00:00Z"), doseAmount: null, doseUnit: null,
 })
 
 describe("weight", () => {
@@ -200,7 +201,9 @@ describe("medicines outside a schedule", () => {
   })
 
   it("leaves drinks and non-medicine tags out of it", async () => {
-    db.doses.push(dose(daysBack(1), "Coldbrew 300ml"), dose(daysBack(2), "Water 250ml"), dose(daysBack(2), "Sauna"))
+    // Ring tags, as these always are: a "Sauna" typed in the Oura app is not a dose.
+    const ring = (d: ReturnType<typeof dose>) => ({ ...d, id: d.id.replace("manual_", "oura_") })
+    db.doses.push(ring(dose(daysBack(1), "Coldbrew 300ml")), ring(dose(daysBack(2), "Water 250ml")), ring(dose(daysBack(2), "Sauna")))
     const r = await buildHealthReport("u1", 30)
     expect(r.otherDoses).toEqual([])
   })
