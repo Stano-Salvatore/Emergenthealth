@@ -2,7 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server"
 import { headerSecretMatches } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { streamChatResponse } from "@/lib/claude"
-import { claimEmergyTurn, quotaReply } from "@/lib/emergy-quota"
+import { claimEmergyTurn, quotaReply, refundEmergyTurn } from "@/lib/emergy-quota"
 import { checkRateLimit } from "@/lib/rate-limit"
 import {
   getUserIdForChat, redeemLinkCode, sendTelegramMessage, telegramConfigured,
@@ -193,6 +193,8 @@ export async function POST(req: NextRequest) {
       }
     } catch (error) {
       console.error("[telegram] turn failed", error instanceof Error ? error.message : error)
+      // Not a message they got, so not one they spend.
+      await refundEmergyTurn(userId)
       await sendTelegramMessage(chat, "Something went wrong on my side — try again in a moment 🌱")
     }
   })

@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.13.1 — What's left of the day's Emergy messages
+
+Web-only, no new APK. No schema change.
+
+**New**
+- **The chat shows what's left today** above the message box: "3 of 10
+  Emergy messages left today · quick logs are free". It turns amber at
+  none left. It updates with each reply, and quick logs and lookups leave
+  it alone. The owner sees nothing, having no limit.
+
+**Fixed**
+- **A reply that fails no longer uses up a message.** If the model errors,
+  the turn is given back, in the app's chat and on Telegram.
+
 ## 3.13.0 — A daily allowance for Emergy
 
 Web-only, no new APK. No schema change.

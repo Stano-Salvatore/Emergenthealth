@@ -210,6 +210,10 @@ export default function ChatPage() {
   // panel and Settings, so the three cannot disagree about whether it is on.
   const [autoSpeak, setAutoSpeak] = useState(false)
   const [speaking, setSpeaking] = useState(false)
+  // Today's Emergy allowance — messages the model answers, out of the daily
+  // limit. null is "nothing to show": the owner, who has no limit, or a count
+  // that couldn't be read, which is not the same as none left.
+  const [allowance, setAllowance] = useState<{ limit: number; remaining: number } | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const historyRef = useRef<HTMLDivElement>(null)
@@ -289,6 +293,13 @@ export default function ChatPage() {
   }, [])
 
   useEffect(() => { setAutoSpeak(getAutoSpeak()) }, [])
+
+  useEffect(() => {
+    fetch("/api/chat/allowance")
+      .then(r => (r.ok ? r.json() : null))
+      .then((d: { allowance?: { limit: number; remaining: number } | null } | null) => setAllowance(d?.allowance ?? null))
+      .catch(() => {})
+  }, [])
 
   // Nothing should still be talking after this page is gone.
   useEffect(() => () => stopSpeaking(), [])
@@ -652,6 +663,8 @@ export default function ChatPage() {
               patch((msg) => ({ ...msg, activeTool: parsed.name }))
             } else if (parsed.type === "sources") {
               patch((msg) => ({ ...msg, sources: parsed.chips }))
+            } else if (parsed.type === "allowance" && typeof parsed.remaining === "number") {
+              setAllowance(a => (a ? { ...a, remaining: parsed.remaining } : a))
             }
           } catch {}
         }
@@ -921,6 +934,16 @@ export default function ChatPage() {
         </button>
       )}
 
+      {/* Above the composer for the reason the error line is: below it, the
+          bottom nav and the floating Emergy button sit on top of it. */}
+      {allowance && (
+        <p className={`mt-3 text-xs text-center ${allowance.remaining === 0 ? "text-amber-400" : "text-muted-foreground"}`}>
+          {allowance.remaining === 0
+            ? "No Emergy messages left today — quick logs and lookups still work"
+            : `${allowance.remaining} of ${allowance.limit} Emergy messages left today · quick logs are free`}
+        </p>
+      )}
+
       <div className="mt-4 flex gap-2 items-end">
         <Textarea
           ref={textareaRef}
@@ -957,6 +980,7 @@ export default function ChatPage() {
       <p className="text-xs text-muted-foreground text-center mt-2">
         {listening ? "Listening… speak now" : "Enter to send · Shift+Enter for new line · 🎤 for voice"}
       </p>
+
     </div>
   )
 }
