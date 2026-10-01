@@ -5,7 +5,7 @@ import { Bell, BellOff, Send, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { resyncNotifications } from "@/lib/native/notifications"
-import { isNativeShell } from "@/lib/native/shell"
+import { iosNeedsHomeScreen, subscribeWebPush, webPushSupported } from "@/lib/web-push"
 import { useClientValue, useLocalSetting } from "@/lib/use-client-value"
 
 function formatHour(h: number) {
@@ -19,13 +19,11 @@ function formatHour(h: number) {
 // navigator.serviceWorker.ready never settles without one — this card would sit
 // on its loading state for the life of the session. The shell schedules its
 // notifications on the device instead (Phone Notifications).
-function pushSupported(): boolean {
-  return typeof window !== "undefined" && "serviceWorker" in navigator
-    && "PushManager" in window && !isNativeShell()
-}
+const pushSupported = webPushSupported
 
 export function PushNotifications() {
   const supported = useClientValue(pushSupported, false)
+  const needsHomeScreen = useClientValue(() => iosNeedsHomeScreen(), false)
   const [permission, setPermission] = useLocalSetting<NotificationPermission>(
     () => (typeof Notification === "undefined" ? "default" : Notification.permission),
     "default",
@@ -61,35 +59,10 @@ export function PushNotifications() {
 
   async function subscribe() {
     setLoading(true)
-    try {
-      const reg = await navigator.serviceWorker.ready
-      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-      if (!vapidKey) {
-        alert("Push notifications are not configured yet.")
-        setLoading(false)
-        return
-      }
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey).buffer as ArrayBuffer,
-      })
-      setPermission(Notification.permission)
-      const res = await fetch("/api/push/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscription: sub.toJSON() }),
-      })
-      if (!res.ok) {
-        await sub.unsubscribe()
-        console.error("Failed to save subscription", await res.text())
-        setLoading(false)
-        return
-      }
-      setSubscribed(true)
-    } catch (err) {
-      console.error(err)
-      setPermission(Notification.permission)
-    }
+    const result = await subscribeWebPush()
+    if (result === "unconfigured") alert("Push notifications are not configured yet.")
+    if (result === "subscribed") setSubscribed(true)
+    if (typeof Notification !== "undefined") setPermission(Notification.permission)
     setLoading(false)
   }
 
@@ -169,7 +142,11 @@ export function PushNotifications() {
     setTimeout(() => setHourSaved(false), 2000)
   }
 
-  if (!supported) return null
+  if (!supported) {
+    // An iPhone in a Safari tab has no web push at all; an empty space here
+    // left nobody any way to find out the Home Screen is the way in.
+    return needsHomeScreen ? <HomeScreenHint /> : null
+  }
 
   return (
     <Card>
@@ -291,13 +268,19 @@ export function PushNotifications() {
   )
 }
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/")
-  const rawData = atob(base64)
-  const outputArray = new Uint8Array(rawData.length)
-  for (let i = 0; i < rawData.length; i++) {
-    outputArray[i] = rawData.charCodeAt(i)
-  }
-  return outputArray
+export function HomeScreenHint() {
+  return (
+    <Card>
+      <CardContent className="pt-4 pb-4 space-y-2">
+        <div className="flex items-center gap-2">
+          <Bell className="h-4 w-4 text-primary" />
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Push Notifications</p>
+        </div>
+        <p className="text-sm">On iPhone, notifications work once the app is on your Home Screen.</p>
+        <p className="text-xs text-muted-foreground">
+          In Safari tap Share, then Add to Home Screen, and open Emergenthealth from there. This card then shows an Enable button.
+        </p>
+      </CardContent>
+    </Card>
+  )
 }

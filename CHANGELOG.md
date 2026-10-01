@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.9.1 — Ready for an iPhone
+
+Web-only, no new APK.
+
+**Fixed**
+- **iPhone notifications had no way in.** iOS only gives web push to an app
+  opened from the Home Screen. In a Safari tab the notifications card simply
+  wasn't there. It now says how to get them: Share, then Add to Home Screen.
+  Onboarding says the same instead of a button that could only fail.
+- **Onboarding's "Enable notifications" now registers the phone.** It used
+  to ask for permission, say "Notifications enabled!" and register nothing,
+  so no push arrived until Enable was also found in Settings. Settings,
+  Emergy's panel and onboarding now share one subscribe path.
+- **The calendar's toolbar ran 66px off a phone screen.** The view switcher
+  now scrolls sideways inside itself, as it was meant to.
+- The smoke test's sideways-scroll check now looks inside the page's own
+  scroll area. Pages scroll there rather than in the window, which is why
+  the calendar passed it.
+
 ## 3.9.0 — Body strain, lab limits, a tidy, and blood oxygen watched
 
 Web-only, no new APK. The two new lab columns are added (never renamed or

@@ -6,6 +6,8 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Bell, BellOff } from "lucide-react"
+import { iosNeedsHomeScreen, subscribeWebPush } from "@/lib/web-push"
+import { useClientValue } from "@/lib/use-client-value"
 
 const TOTAL_STEPS = 6
 
@@ -116,6 +118,7 @@ export default function OnboardingPage() {
   const [customGoal, setCustomGoal] = useState("")
   const [finishing, setFinishing] = useState(false)
   const [notifStatus, setNotifStatus] = useState<"idle" | "enabling" | "granted" | "denied">("idle")
+  const needsHomeScreen = useClientValue(() => iosNeedsHomeScreen(), false)
 
   function toggleCategory(id: string) {
     setSelectedCategories((prev) => {
@@ -328,18 +331,27 @@ export default function OnboardingPage() {
               </div>
             ) : null}
             <div className="flex flex-col gap-3">
-              {notifStatus !== "granted" && notifStatus !== "denied" && (
+              {needsHomeScreen && notifStatus === "idle" && (
+                <p className="text-sm text-muted-foreground rounded-xl border border-border bg-card/50 px-4 py-3">
+                  On iPhone, notifications work once the app is on your Home Screen: in Safari tap Share, then Add to Home Screen. You can turn them on in Settings from there.
+                </p>
+              )}
+              {!needsHomeScreen && notifStatus !== "granted" && notifStatus !== "denied" && (
                 <Button
                   className="w-full"
                   size="lg"
                   disabled={notifStatus === "enabling"}
                   onClick={async () => {
                     setNotifStatus("enabling")
-                    try {
-                      const perm = await Notification.requestPermission()
+                    // The phone is registered here, not just asked — a
+                    // permission with no subscription behind it receives nothing.
+                    const result = await subscribeWebPush()
+                    if (result === "unsupported") {
+                      // The Android shell schedules on the device; only the permission is ours to ask.
+                      const perm = typeof Notification === "undefined" ? "denied" : await Notification.requestPermission().catch(() => "denied" as const)
                       setNotifStatus(perm === "granted" ? "granted" : "denied")
-                    } catch {
-                      setNotifStatus("denied")
+                    } else {
+                      setNotifStatus(result === "subscribed" ? "granted" : "denied")
                     }
                   }}
                 >
