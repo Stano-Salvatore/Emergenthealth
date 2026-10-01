@@ -1,6 +1,5 @@
 import { auth } from "@/auth"
 import { NextResponse } from "next/server"
-import { getGpxTrackForDate, listGpxDates } from "@/lib/google-drive"
 import { downsamplePoints } from "@/lib/gpx"
 import { prisma } from "@/lib/prisma"
 import { getUserTimezone } from "@/lib/user-timezone"
@@ -133,10 +132,9 @@ export async function GET(req: Request) {
   const timezone = await getUserTimezone(session.user.id)
 
   if (searchParams.get("list") === "1") {
-    // GPX days from Drive plus days with stored points (OwnTracks live
-    // tracking or a Timeline import) — without the latter, imported history
-    // existed but nothing on the page revealed which days had it.
-    const gpxDates = await listGpxDates(session.user.id)
+    // Every day with stored points (the app's live tracking or a Timeline
+    // import) — without it, imported history existed but nothing on the page
+    // revealed which days had it.
     // trackedAt is `timestamp WITHOUT time zone` holding UTC (Prisma's default
     // mapping; only the six fields marked @db.Timestamptz differ). One
     // AT TIME ZONE therefore READS it as local and shifts it the wrong way:
@@ -157,7 +155,7 @@ export async function GET(req: Request) {
     // to know the real extent of the data to bound anything.
     //
     // One string per tracked day: a decade of daily tracking is under 40 KB.
-    const merged = [...new Set([...gpxDates, ...pointDays.map(r => r.day)])]
+    const merged = [...new Set(pointDays.map(r => r.day))]
       .sort()
       .reverse()
     return NextResponse.json(merged)
@@ -176,29 +174,19 @@ export async function GET(req: Request) {
   })
   const ownTracksPoints = ownTracksRows.map(r => ({ lat: r.lat, lon: r.lng, time: r.trackedAt, accuracyM: r.accuracyM }))
 
-  const track = await getGpxTrackForDate(session.user.id, date)
+  if (ownTracksPoints.length < 2) return NextResponse.json(null)
 
-  if (!track && ownTracksPoints.length < 2) return NextResponse.json(null)
-
-  // Merge GPX + OwnTracks, deduplicate by proximity
-  const gpxPoints = track ? downsamplePoints(track.points, 400).map(p => ({ lat: p.lat, lon: p.lon })) : []
-  const otDownsampled = downsamplePoints(
+  const points = downsamplePoints(
     ownTracksPoints.map(p => ({ lat: p.lat, lon: p.lon, time: p.time, ele: null })),
     400,
   ).map(p => ({ lat: p.lat, lon: p.lon }))
 
-  // Prefer GPX if available, supplement with OwnTracks outside GPX time range
-  const points = gpxPoints.length >= 2 ? gpxPoints : otDownsampled
-
   // The merged track WITH its times kept. A dwell is a duration, so points
   // stripped of when they happened cannot be judged at all — which is why the
   // rule this replaces could only ever ask "was I ever within the radius".
-  const allForTagging = [
-    ...(track?.points ?? [])
-      .filter(p => p.time)
-      .map(p => ({ lat: p.lat, lng: p.lon, accuracyM: null, trackedAt: new Date(p.time as unknown as Date) })),
-    ...ownTracksRows.map(r => ({ lat: r.lat, lng: r.lng, accuracyM: r.accuracyM, trackedAt: r.trackedAt })),
-  ].sort((a, b) => a.trackedAt.getTime() - b.trackedAt.getTime())
+  const allForTagging = ownTracksRows
+    .map(r => ({ lat: r.lat, lng: r.lng, accuracyM: r.accuracyM, trackedAt: r.trackedAt }))
+    .sort((a, b) => a.trackedAt.getTime() - b.trackedAt.getTime())
   // Fetched once and shared: the auto check-ins and the journey's stay names
   // are asking the same question of the same handful of rows.
   const savedPlaces = await prisma.savedPlace.findMany({
@@ -211,14 +199,7 @@ export async function GET(req: Request) {
   // Where the day was actually spent. Computed on the FULL timestamped series,
   // never the downsampled one: dropping every second fix leaves the shape
   // intact and the durations wrong, and a stop is nothing but a duration.
-  // Chosen on whether the GPX actually carries times, not on whether it has
-  // points. A track exported without <time> elements filtered to nothing and
-  // took the app's own timestamped series down with it, so a fully tracked day
-  // shipped no stops at all and the whole panel vanished.
-  const gpxTimed = (track?.points ?? [])
-    .filter(p => p.time)
-    .map(p => ({ lat: p.lat, lon: p.lon, time: new Date(p.time as unknown as Date) }))
-  const timedPoints = gpxTimed.length >= 2 ? gpxTimed : ownTracksPoints
+  const timedPoints = ownTracksPoints
   const stops = detectStops(timedPoints)
 
   const journey = await describeJourney(
@@ -229,15 +210,15 @@ export async function GET(req: Request) {
   const totalMin = calcDurationMin(ownTracksPoints)
 
   return NextResponse.json({
-    distanceKm:  track?.distanceKm  ?? summary.distanceKm,
-    durationMin: track?.durationMin ?? totalMin,
-    movingMin:   track?.movingMin   ?? summary.movingMin,
-    maxSpeedKmh: track?.maxSpeedKmh ?? summary.maxSpeedKmh,
+    distanceKm:  summary.distanceKm,
+    durationMin: totalMin,
+    movingMin:   summary.movingMin,
+    maxSpeedKmh: summary.maxSpeedKmh,
     // Distance over time actually spent moving. Left at 0 when nothing moved,
     // rather than dividing by a zero denominator and reporting Infinity.
-    avgSpeedKmh: track?.avgSpeedKmh ?? (summary.movingMin > 0 ? summary.distanceKm / (summary.movingMin / 60) : 0),
-    startTime:   track?.startTime?.toISOString() ?? ownTracksPoints[0]?.time?.toISOString() ?? null,
-    endTime:     track?.endTime?.toISOString()   ?? ownTracksPoints.at(-1)?.time?.toISOString() ?? null,
+    avgSpeedKmh: summary.movingMin > 0 ? summary.distanceKm / (summary.movingMin / 60) : 0,
+    startTime:   ownTracksPoints[0]?.time?.toISOString() ?? null,
+    endTime:     ownTracksPoints.at(-1)?.time?.toISOString() ?? null,
     points,
     stops: stops.map(st => ({
       lat: st.lat,
@@ -248,7 +229,7 @@ export async function GET(req: Request) {
     })),
     journey,
     autoTagged,
-    source: gpxPoints.length >= 2 ? "gpx" : "owntracks",
+    source: "owntracks",
   })
 }
 

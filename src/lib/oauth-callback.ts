@@ -13,6 +13,14 @@ export function callbackDecision(sessionUserId: string | null | undefined, state
   return sessionUserId === stateUserId ? "exchange" : "mismatch"
 }
 
+/** Set by a connect started from the onboarding wizard, so it comes back there. */
+export const OAUTH_RETURN_COOKIE = "oauth_return"
+
+/** Where a finished connect lands: the wizard's connect step, or Settings. Only "onboarding" is honoured. */
+export function oauthReturnPath(cookieValue: string | undefined, query: string): string {
+  return cookieValue === "onboarding" ? `/onboarding?step=connect&${query}` : `/dashboard/settings?${query}`
+}
+
 export function maskEmail(email: string | null | undefined): string {
   const at = email?.lastIndexOf("@") ?? -1
   if (!email || at < 1) return "an account with no email address"

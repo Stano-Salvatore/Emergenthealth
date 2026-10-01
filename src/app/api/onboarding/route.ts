@@ -11,9 +11,18 @@ export async function GET() {
     const rows = await prisma.$queryRaw<{ value: string }[]>`
       SELECT value FROM "UserPreference" WHERE "userId" = ${userId} AND key = 'onboarding_completed' LIMIT 1
     `
-    return NextResponse.json({ completed: rows.length > 0 && rows[0].value === "true" })
+    // What is already connected, so the wizard's connect step shows the truth
+    // when it comes back from Oura or Strava rather than a fresh button.
+    const [oura, strava] = await Promise.all([
+      prisma.ouraToken.findUnique({ where: { userId }, select: { userId: true } }).catch(() => null),
+      prisma.$queryRaw<{ userId: string }[]>`SELECT "userId" FROM "StravaToken" WHERE "userId" = ${userId} LIMIT 1`.catch(() => []),
+    ])
+    return NextResponse.json({
+      completed: rows.length > 0 && rows[0].value === "true",
+      connections: { oura: !!oura, strava: strava.length > 0 },
+    })
   } catch {
-    return NextResponse.json({ completed: false })
+    return NextResponse.json({ completed: false, connections: { oura: false, strava: false } })
   }
 }
 
@@ -22,7 +31,9 @@ export async function POST(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const body = await req.json()
+  // Skipping the wizard completes it too — otherwise the dashboard would send
+  // them straight back. `skipped` is kept so a skip can be told from a finish.
+  const body = await req.json().catch(() => null)
   if (!body?.completed) return NextResponse.json({ error: "Invalid body" }, { status: 400 })
 
   try {
@@ -31,6 +42,14 @@ export async function POST(req: Request) {
       VALUES (${userId}, 'onboarding_completed', 'true')
       ON CONFLICT ("userId", "key") DO UPDATE SET "value" = 'true'
     `
+
+    if (body.skipped === true) {
+      await prisma.$executeRaw`
+        INSERT INTO "UserPreference" ("userId", "key", "value")
+        VALUES (${userId}, 'onboarding_skipped', 'true')
+        ON CONFLICT ("userId", "key") DO UPDATE SET "value" = 'true'
+      `.catch(() => {})
+    }
 
     const ref = typeof body.ref === "string" ? body.ref : null
     if (ref && /^[a-z0-9]{6,12}$/.test(ref)) {

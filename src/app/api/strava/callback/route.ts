@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { verifyState } from "@/lib/state-token"
-import { callbackDecision, confirmConnectPage, maskEmail } from "@/lib/oauth-callback"
+import { callbackDecision, confirmConnectPage, maskEmail, oauthReturnPath, OAUTH_RETURN_COOKIE } from "@/lib/oauth-callback"
 
 function settings(req: NextRequest, query: string, status?: number) {
-  return NextResponse.redirect(new URL(`/dashboard/settings?${query}`, req.url), status)
+  const res = NextResponse.redirect(new URL(oauthReturnPath(req.cookies.get(OAUTH_RETURN_COOKIE)?.value, query), req.url), status)
+  res.cookies.delete(OAUTH_RETURN_COOKIE)
+  return res
 }
 
 async function exchangeAndStore(req: NextRequest, code: string, userId: string, status?: number) {

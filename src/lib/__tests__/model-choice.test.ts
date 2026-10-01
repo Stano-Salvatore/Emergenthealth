@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest"
 import { readFileSync } from "node:fs"
 import { SONNET, OPUS, HAIKU } from "../models"
 import { turnCostUsd } from "../model-cost"
+// Imported here, not inside the test: a cold load of the client counted
+// against the test's five seconds and failed it on a busy machine.
+import { chatEffort } from "../claude"
 
 // One week of the ledger said it plainly: chat was $4.53 of a $4.91 bill —
 // 92% — with meal photos and briefings as rounding. Chat, photos and the
@@ -36,8 +39,7 @@ describe("who runs on which model", () => {
 })
 
 describe("chat effort steps down by default", () => {
-  it("unset means medium, 'default' hands the choice back to the model", async () => {
-    const { chatEffort } = await import("../claude")
+  it("unset means medium, 'default' hands the choice back to the model", () => {
     const prev = process.env.EMERGY_CHAT_EFFORT
     try {
       delete process.env.EMERGY_CHAT_EFFORT

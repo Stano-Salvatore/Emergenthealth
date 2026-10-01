@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { signState } from "@/lib/state-token"
+import { OAUTH_RETURN_COOKIE } from "@/lib/oauth-callback"
 
 export async function GET(req: NextRequest) {
   const session = await auth()
@@ -19,5 +20,10 @@ export async function GET(req: NextRequest) {
   })
 
   const authUrl = `https://www.strava.com/oauth/authorize?${params.toString()}`
-  return NextResponse.redirect(authUrl)
+  const res = NextResponse.redirect(authUrl)
+  // Started from the onboarding wizard: come back to it, not to Settings.
+  if (req.nextUrl.searchParams.get("return") === "onboarding") {
+    res.cookies.set(OAUTH_RETURN_COOKIE, "onboarding", { httpOnly: true, sameSite: "lax", maxAge: 900, path: "/" })
+  }
+  return res
 }

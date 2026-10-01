@@ -1,70 +1,8 @@
-import { distanceM } from "@/lib/places"
-
 export interface GpxPoint {
   lat: number
   lon: number
   time: Date | null
   ele: number | null
-}
-
-export interface GpxTrack {
-  points: GpxPoint[]
-  distanceKm: number
-  durationMin: number
-  movingMin: number
-  startTime: Date | null
-  endTime: Date | null
-  maxSpeedKmh: number
-  avgSpeedKmh: number
-}
-
-export function parseGpx(xml: string): GpxTrack {
-  const trkptRegex = /<trkpt\s+lat="([^"]+)"\s+lon="([^"]+)"[^>]*>([\s\S]*?)<\/trkpt>/g
-  const points: GpxPoint[] = []
-  let match
-  while ((match = trkptRegex.exec(xml)) !== null) {
-    const lat = parseFloat(match[1])
-    const lon = parseFloat(match[2])
-    const inner = match[3]
-    const timeMatch = inner.match(/<time>([^<]+)<\/time>/)
-    const eleMatch = inner.match(/<ele>([^<]+)<\/ele>/)
-    points.push({
-      lat, lon,
-      time: timeMatch ? new Date(timeMatch[1]) : null,
-      ele: eleMatch ? parseFloat(eleMatch[1]) : null,
-    })
-  }
-
-  const empty: GpxTrack = {
-    points, distanceKm: 0, durationMin: 0, movingMin: 0,
-    startTime: null, endTime: null, maxSpeedKmh: 0, avgSpeedKmh: 0,
-  }
-  if (points.length < 2) return empty
-
-  let totalKm = 0
-  let movingMs = 0
-  let maxSpeedKmh = 0
-
-  for (let i = 1; i < points.length; i++) {
-    const d = distanceM(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon) / 1000
-    totalKm += d
-    if (points[i].time && points[i - 1].time) {
-      const dtSec = (points[i].time!.getTime() - points[i - 1].time!.getTime()) / 1000
-      if (dtSec > 0 && dtSec < 300 && d > 0.003) {
-        movingMs += dtSec * 1000
-        const spd = (d / dtSec) * 3600
-        if (spd < 250) maxSpeedKmh = Math.max(maxSpeedKmh, spd)
-      }
-    }
-  }
-
-  const startTime = points[0].time
-  const endTime = points[points.length - 1].time
-  const durationMin = startTime && endTime ? (endTime.getTime() - startTime.getTime()) / 60000 : 0
-  const movingMin = movingMs / 60000
-  const avgSpeedKmh = movingMin > 0 ? totalKm / (movingMin / 60) : 0
-
-  return { points, distanceKm: totalKm, durationMin, movingMin, startTime, endTime, maxSpeedKmh, avgSpeedKmh }
 }
 
 export function downsamplePoints(points: GpxPoint[], maxPts = 400): GpxPoint[] {

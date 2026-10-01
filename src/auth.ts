@@ -62,12 +62,13 @@ export const authConfig: NextAuthConfig = {
           // consent screen of a health app for features nobody can reach —
           // alarming to the user, and needless verification burden on the
           // OAuth app. Add each back alongside the release that turns it on.
+          // Drive went the same way: it fed GPX tracks from one folder in the
+          // owner's Drive, and location now comes from the app's own GPS.
           scope: [
             "openid",
             "email",
             "profile",
             "https://www.googleapis.com/auth/calendar.readonly",
-            "https://www.googleapis.com/auth/drive.readonly",
           ].join(" "),
           access_type: "offline",
           prompt: "consent",

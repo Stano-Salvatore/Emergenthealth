@@ -480,6 +480,26 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Onboarding, and Drive removed (3.12.0).**
+  - **The redirect:** `needsOnboarding` in `lib/onboarding.ts` decides
+    whether `/dashboard` sends someone to `/onboarding`. An account with no
+    `onboarding_completed` pref and no HealthLog rows goes; an older account
+    with data is marked done instead. The layout calls it outside any
+    try/catch, because `redirect()` throws. `onboarding.test.ts` guards the
+    shape.
+  - **The steps:** `lib/onboarding-steps.ts` lists them; the cycle step is
+    dropped only for male. Each step writes where the app already reads:
+    Goals, `/api/cycle/settings`, the push subscription.
+  - **Skip:** posts `{completed, skipped}`, otherwise the redirect would
+    loop.
+  - **OAuth return:** `/api/{oura,strava}/auth?return=onboarding` sets a
+    15-minute `oauth_return` cookie, and the callback's `oauthReturnPath`
+    sends them back to `/onboarding?step=connect` rather than Settings. Only
+    the literal value `onboarding` is honoured, so the cookie can't be used
+    as an open redirect.
+  - **Drive:** the `drive.readonly` scope and `lib/google-drive.ts` are gone.
+    Location is the app's own `LocationPoint` rows only.
+    `no-google-drive.test.ts` keeps it that way.
 - **Cycle tracking (3.11.0).** `/dashboard/cycle`, off unless
   `cycle_settings.enabled` (UserPreference JSON, read by
   `parseCycleSettings`).

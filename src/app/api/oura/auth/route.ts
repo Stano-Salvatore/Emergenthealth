@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { signState } from "@/lib/state-token"
+import { OAUTH_RETURN_COOKIE } from "@/lib/oauth-callback"
 
 // What we ask Oura for. A scope missing here is a column that stays empty
 // forever, and silently: the sync succeeds, the other endpoints return their
@@ -47,5 +48,10 @@ export async function GET(req: NextRequest) {
 
   const authUrl = `https://cloud.ouraring.com/oauth/authorize?${params.toString()}`
 
-  return NextResponse.redirect(authUrl)
+  const res = NextResponse.redirect(authUrl)
+  // Started from the onboarding wizard: come back to it, not to Settings.
+  if (req.nextUrl.searchParams.get("return") === "onboarding") {
+    res.cookies.set(OAUTH_RETURN_COOKIE, "onboarding", { httpOnly: true, sameSite: "lax", maxAge: 900, path: "/" })
+  }
+  return res
 }

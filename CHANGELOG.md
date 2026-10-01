@@ -1,5 +1,41 @@
 # Changelog
 
+## 3.12.0 — Onboarding that works, and no more Google Drive
+
+Web-only, no new APK. No schema change.
+
+**Fixed**
+- **New accounts never saw onboarding.** The dashboard's redirect to the
+  wizard sat inside a try/catch, and `redirect()` works by throwing, so the
+  catch swallowed it and every new account went straight to an empty
+  dashboard. The check now lives in `lib/onboarding.ts`, outside any catch.
+- **Skip setup didn't stick.** It was a plain link to the dashboard, so once
+  the redirect worked it would have sent people straight back. Skipping now
+  records the wizard as done.
+
+**Changed**
+- **The wizard asks only what the app uses, and saves all of it.**
+  - **Welcome:** on iPhone it starts with Add to Home Screen, which
+    notifications need.
+  - **About you:** sex, birth year, weight and height, all optional, saved
+    to Goals. These feed the water, protein and calorie targets and body
+    strain. An empty box is not saved, so it never erases a value already
+    there.
+  - **Cycle tracking:** asked unless the answer above was male. Yes turns
+    the Cycle page on with the last period's start and contraception; no
+    keeps it out of the menu.
+  - **Connect:** real buttons for Oura and Strava that come back to this
+    step, Health Connect inside the Android app, and Google Calendar shown
+    as already connected through the Google sign-in.
+  - **Notifications:** lists what is actually sent: the morning check-in
+    reminder, the evening intention question or journal nudge, medication
+    and habit reminders, and notes from Emergy. The old list promised a
+    "streak protection alert" that doesn't exist.
+  - The categories and free-text goal steps are gone; nothing read them.
+- **Google Drive is no longer requested at sign-in.** It only fed GPX tracks
+  from one folder in the owner's Drive, and location now comes from the
+  app's own GPS. The Location page and card read only the app's own points.
+
 ## 3.11.0 — Cycle tracking
 
 Web-only, no new APK. The schema change is additive only: a new `CycleDay`

@@ -1,414 +1,434 @@
 "use client"
 
-import { useState } from "react"
+// The first-run wizard. Every step either saves something the app reads —
+// Goals, the cycle settings, a connection, a push subscription — or is
+// skippable in one tap; nothing is asked and then thrown away. Skipping the
+// whole wizard still records it as done, or the dashboard would send them
+// straight back here.
+
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import Link from "next/link"
+import { Bell, BellOff, Check, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Bell, BellOff } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { iosNeedsHomeScreen, subscribeWebPush } from "@/lib/web-push"
+import { isNativeShell } from "@/lib/native/shell"
 import { useClientValue } from "@/lib/use-client-value"
+import { onboardingSteps, type OnboardingStep } from "@/lib/onboarding-steps"
+import { CONTRACEPTION, type Contraception } from "@/lib/cycle"
+import { CONTRACEPTION_GUIDE } from "@/lib/cycle-guide"
 
-const TOTAL_STEPS = 6
+type Sex = "male" | "female" | null
 
-// ── Step indicator ────────────────────────────────────────────────────────────
 function StepDots({ current, total }: { current: number; total: number }) {
   return (
     <div className="flex items-center gap-2 mb-8">
       {Array.from({ length: total }).map((_, i) => (
         <span
           key={i}
-          className={`block rounded-full transition-all duration-300 ${
-            i < current
-              ? "w-2 h-2 bg-primary"
-              : i === current
-              ? "w-4 h-2 bg-primary"
-              : "w-2 h-2 bg-border"
-          }`}
+          className={cn(
+            "block rounded-full transition-all duration-300 h-2",
+            i === current ? "w-4 bg-primary" : i < current ? "w-2 bg-primary" : "w-2 bg-border",
+          )}
         />
       ))}
     </div>
   )
 }
 
-// ── Category card ─────────────────────────────────────────────────────────────
-interface Category {
-  emoji: string
-  name: string
-  description: string
-  id: string
-}
-
-const CATEGORIES: Category[] = [
-  { id: "sleep", emoji: "😴", name: "Sleep", description: "Track sleep quality and duration" },
-  { id: "fitness", emoji: "🏃", name: "Fitness", description: "Steps, activities, workouts" },
-  { id: "productivity", emoji: "🧠", name: "Productivity", description: "Focus time, tasks, coding" },
-  { id: "mood", emoji: "😊", name: "Mood", description: "Daily mood and energy" },
-  { id: "reading", emoji: "📖", name: "Reading", description: "Books and learning" },
-]
-
-function CategoryCard({
-  category,
-  selected,
-  onToggle,
-}: {
-  category: Category
-  selected: boolean
-  onToggle: () => void
-}) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <button
-      onClick={onToggle}
-      className={`rounded-xl border p-4 text-left cursor-pointer transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-        selected
-          ? "border-primary bg-primary/10"
-          : "border-border hover:border-primary/50 bg-card"
-      }`}
-    >
-      <div className="text-2xl mb-2">{category.emoji}</div>
-      <div className="font-medium text-foreground text-sm">{category.name}</div>
-      <div className="text-xs text-muted-foreground mt-0.5">{category.description}</div>
-    </button>
+    <label className="block">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      {children}
+    </label>
   )
 }
 
-// ── Integration card ──────────────────────────────────────────────────────────
-interface Integration {
-  emoji: string
-  name: string
-  description: string
-}
+const inputClass = "mt-1 w-full rounded-lg border bg-background px-3 py-2 text-sm"
 
-const INTEGRATIONS: Integration[] = [
-  { emoji: "💍", name: "Oura Ring", description: "Sleep & HRV tracking" },
-  { emoji: "📅", name: "Google Calendar", description: "Schedule context" },
-  { emoji: "🚴", name: "Strava", description: "Workouts & activities" },
-  { emoji: "🎵", name: "Last.fm", description: "Music listening" },
-  { emoji: "⏱️", name: "RescueTime", description: "Focus & productivity" },
-]
-
-function IntegrationCard({ integration }: { integration: Integration }) {
+function ConnectRow({ emoji, name, hint, connected, href, onClick, busy }: {
+  emoji: string; name: string; hint: string; connected: boolean
+  href?: string; onClick?: () => void; busy?: boolean
+}) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
-      <span className="text-xl shrink-0">{integration.emoji}</span>
+      <span className="text-xl shrink-0">{emoji}</span>
       <div className="flex-1 min-w-0">
-        <div className="font-medium text-foreground text-sm">{integration.name}</div>
-        <div className="text-xs text-muted-foreground">{integration.description}</div>
+        <div className="font-medium text-foreground text-sm">{name}</div>
+        <div className="text-xs text-muted-foreground">{hint}</div>
       </div>
-      <span className="shrink-0 text-xs text-muted-foreground border border-border rounded-md px-2 py-1 whitespace-nowrap">
-        Connect in Settings →
-      </span>
+      {connected ? (
+        <span className="shrink-0 flex items-center gap-1 text-xs text-green-400"><Check className="h-3.5 w-3.5" />Connected</span>
+      ) : href ? (
+        <Button size="sm" variant="outline" asChild><a href={href}>Connect</a></Button>
+      ) : (
+        <Button size="sm" variant="outline" onClick={onClick} disabled={busy}>
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Connect"}
+        </Button>
+      )}
     </div>
   )
 }
 
-// ── Preset goals ──────────────────────────────────────────────────────────────
-const PRESET_GOALS = [
-  "Sleep 7+ hours per night",
-  "Walk 8,000 steps daily",
-  "Complete habits 80% of the time",
-]
+const today = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
 
-// ── Main wizard ───────────────────────────────────────────────────────────────
 export default function OnboardingPage() {
   const router = useRouter()
-  const [step, setStep] = useState(0)
-  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set())
-  const [selectedGoal, setSelectedGoal] = useState<string | null>(null)
-  const [customGoal, setCustomGoal] = useState("")
-  const [finishing, setFinishing] = useState(false)
-  const [notifStatus, setNotifStatus] = useState<"idle" | "enabling" | "granted" | "denied">("idle")
+  // Coming back from Oura or Strava lands on ?step=connect, not the welcome.
+  const startAt = useClientValue(() => new URLSearchParams(window.location.search).get("step"), null)
+  const returned = useClientValue(() => window.location.search, "")
   const needsHomeScreen = useClientValue(() => iosNeedsHomeScreen(), false)
+  const native = useClientValue(() => isNativeShell(), false)
 
-  function toggleCategory(id: string) {
-    setSelectedCategories((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  const [picked, setPicked] = useState<OnboardingStep | null>(null)
+  const [sex, setSex] = useState<Sex>(null)
+  const [birthYear, setBirthYear] = useState("")
+  const [weightKg, setWeightKg] = useState("")
+  const [heightCm, setHeightCm] = useState("")
+  const [tracksCycle, setTracksCycle] = useState<boolean | null>(null)
+  const [lastStart, setLastStart] = useState("")
+  const [contraception, setContraception] = useState<Contraception>("none")
+  const [connections, setConnections] = useState({ oura: false, strava: false })
+  const [hc, setHc] = useState<"idle" | "busy" | "done" | "failed">("idle")
+  const [notif, setNotif] = useState<"idle" | "enabling" | "granted" | "denied">("idle")
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const steps = onboardingSteps({ sex })
+  const step: OnboardingStep = picked ?? (startAt === "connect" ? "connect" : "welcome")
+  const index = Math.max(0, steps.indexOf(step))
+  const next = () => { setError(null); setPicked(steps[Math.min(index + 1, steps.length - 1)]) }
+  const back = () => { setError(null); setPicked(steps[Math.max(index - 1, 0)]) }
+
+  // What is already known: someone coming back from a connection, or who set
+  // things in Goals before, sees their own answers rather than empty boxes.
+  useEffect(() => {
+    fetch("/api/goals").then(r => (r.ok ? r.json() : null)).then(g => {
+      if (!g) return
+      if (g.sex === "male" || g.sex === "female") setSex(g.sex)
+      if (g.birthYear != null) setBirthYear(String(g.birthYear))
+      if (g.weightKg != null) setWeightKg(String(g.weightKg))
+      if (g.heightCm != null) setHeightCm(String(g.heightCm))
+    }).catch(() => {})
+    fetch("/api/onboarding").then(r => (r.ok ? r.json() : null)).then(o => {
+      if (o?.connections) setConnections(o.connections)
+    }).catch(() => {})
+  }, [])
+
+  const num = (v: string) => (v.trim() === "" || !Number.isFinite(Number(v)) ? null : Number(v))
+
+  async function saveAbout() {
+    setSaving(true)
+    setError(null)
+    const res = await fetch("/api/goals", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // Only what was answered: an empty box is not an answer, and must not
+      // erase a value already saved in Goals if the prefill hadn't landed.
+      body: JSON.stringify(Object.fromEntries(Object.entries({
+        sex, birthYear: num(birthYear), weightKg: num(weightKg), heightCm: num(heightCm),
+      }).filter(([, v]) => v != null))),
+    }).catch(() => null)
+    setSaving(false)
+    if (!res?.ok) { setError("Not saved — try again, or skip this step."); return }
+    next()
   }
 
-  async function finish() {
-    if (finishing) return
-    setFinishing(true)
-    try {
-      const ref = typeof window !== "undefined" ? localStorage.getItem("eh_referral_code") : null
-      const goal = customGoal.trim() || selectedGoal || undefined
-
-      // The preset goals map onto real, dashboard-driving goal fields — this
-      // is what makes the wizard's "goals appear on your dashboard" true.
-      const goalPatch: Record<string, number> = {}
-      if (selectedGoal === PRESET_GOALS[0] && !customGoal.trim()) goalPatch.sleepH = 7
-      if (selectedGoal === PRESET_GOALS[1] && !customGoal.trim()) goalPatch.steps = 8000
-      if (selectedGoal === PRESET_GOALS[2] && !customGoal.trim()) goalPatch.habitsTarget = 80
-
-      await Promise.all([
-        fetch("/api/onboarding", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            completed: true,
-            ref: ref ?? undefined,
-            categories: [...selectedCategories],
-            goal,
-          }),
-        }),
-        (async () => {
-          if (Object.keys(goalPatch).length === 0) return
-          const existing = await fetch("/api/goals").then(r => (r.ok ? r.json() : {})).catch(() => ({}))
-          await fetch("/api/goals", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...existing, ...goalPatch }),
-          })
-        })(),
-      ])
-      if (ref) localStorage.removeItem("eh_referral_code")
-    } catch {
-      // non-fatal — still redirect
-    }
-    router.push("/dashboard/checkin")
+  async function saveCycle() {
+    if (tracksCycle === null) { next(); return }
+    setSaving(true)
+    setError(null)
+    const body = tracksCycle
+      ? { enabled: true, lastStart: lastStart || null, contraception }
+      : { enabled: false }
+    const res = await fetch("/api/cycle/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => null)
+    setSaving(false)
+    if (!res?.ok) { setError("Not saved — try again, or skip this step."); return }
+    next()
   }
+
+  async function connectHealthConnect() {
+    setHc("busy")
+    const { requestPermissions, syncToServer } = await import("@/lib/health-connect-service")
+    const granted = await requestPermissions().catch(() => false)
+    if (!granted) { setHc("failed"); return }
+    setHc("done")
+    // The first month comes over in the background; the dashboard picks it up.
+    syncToServer().catch(() => {})
+  }
+
+  async function complete(skipped: boolean, to = skipped ? "/dashboard" : "/dashboard/checkin") {
+    if (saving) return
+    setSaving(true)
+    let ref: string | null = null
+    try { ref = localStorage.getItem("eh_referral_code") } catch {}
+    const res = await fetch("/api/onboarding", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ completed: true, ...(skipped ? { skipped: true } : {}), ref: ref ?? undefined }),
+    }).catch(() => null)
+    if (res?.ok && ref) { try { localStorage.removeItem("eh_referral_code") } catch {} }
+    router.push(to)
+  }
+
+  const connectError = /(oura|strava)_error=/.exec(returned)?.[1]
 
   return (
     <div className="w-full max-w-lg">
       <div className="rounded-2xl bg-card border border-border p-8">
-        <StepDots current={step} total={TOTAL_STEPS} />
+        <StepDots current={index} total={steps.length} />
 
-        {/* ── Step 0: Welcome ───────────────────────────────── */}
-        {step === 0 && (
+        {step === "welcome" && (
           <div>
             <div className="text-4xl mb-4">✨</div>
-            <h1 className="text-2xl font-bold text-foreground mb-2">
-              Welcome to Emergenthealth
-            </h1>
-            <p className="text-muted-foreground mb-8 leading-relaxed">
-              Your personal health command center. Let&apos;s set it up in 2 minutes.
+            <h1 className="text-2xl font-bold text-foreground mb-2">Welcome to Emergenthealth</h1>
+            <p className="text-muted-foreground mb-6 leading-relaxed">
+              A few questions so the app starts from you rather than from defaults. Every one of them is optional.
             </p>
+            {needsHomeScreen && (
+              <p className="text-sm text-muted-foreground rounded-xl border border-border bg-card/50 px-4 py-3 mb-6">
+                On iPhone, add the app to your Home Screen first — in Safari tap Share, then Add to Home Screen, and open it from there. Notifications only work that way.
+              </p>
+            )}
             <div className="flex flex-col gap-3">
-              <Button
-                className="w-full"
-                size="lg"
-                onClick={() => setStep(1)}
-              >
-                Get started →
-              </Button>
-              <Button
-                variant="ghost"
-                size="lg"
-                className="w-full text-muted-foreground"
-                asChild
-              >
-                <Link href="/dashboard">Skip setup, take me to the dashboard</Link>
+              <Button className="w-full" size="lg" onClick={next}>Get started →</Button>
+              <Button variant="ghost" size="lg" className="w-full text-muted-foreground" onClick={() => complete(true)} disabled={saving}>
+                Skip setup, take me to the dashboard
               </Button>
             </div>
           </div>
         )}
 
-        {/* ── Step 1: Category picker ───────────────────────── */}
-        {step === 1 && (
+        {step === "about" && (
           <div>
-            <h2 className="text-xl font-bold text-foreground mb-1">
-              What matters most to you?
-            </h2>
+            <h2 className="text-xl font-bold text-foreground mb-1">About you</h2>
             <p className="text-muted-foreground text-sm mb-6">
-              We&apos;ll prioritize these on your dashboard.
+              Used for your daily water, protein and calorie targets and for reading body strain. Leave any of it empty.
             </p>
-            <div className="grid grid-cols-2 gap-3 mb-8">
-              {CATEGORIES.map((cat) => (
-                <CategoryCard
-                  key={cat.id}
-                  category={cat}
-                  selected={selectedCategories.has(cat.id)}
-                  onToggle={() => toggleCategory(cat.id)}
-                />
-              ))}
+            <div className="space-y-4 mb-8">
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">Sex</span>
+                <div className="mt-1 grid grid-cols-3 gap-2">
+                  {([["female", "Female"], ["male", "Male"], [null, "Rather not say"]] as const).map(([v, label]) => (
+                    <button
+                      key={label}
+                      onClick={() => setSex(v)}
+                      className={cn(
+                        "rounded-lg border px-3 py-2 text-sm transition-colors",
+                        sex === v ? "border-primary bg-primary text-primary-foreground font-medium" : "border-border text-muted-foreground hover:border-primary/50",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <Field label="Birth year">
+                  <input type="number" inputMode="numeric" min={1900} max={new Date().getFullYear()} placeholder="1990"
+                    value={birthYear} onChange={e => setBirthYear(e.target.value)} className={inputClass} />
+                </Field>
+                <Field label="Weight (kg)">
+                  <input type="number" inputMode="decimal" min={20} max={400} placeholder="70"
+                    value={weightKg} onChange={e => setWeightKg(e.target.value)} className={inputClass} />
+                </Field>
+                <Field label="Height (cm)">
+                  <input type="number" inputMode="numeric" min={50} max={260} placeholder="175"
+                    value={heightCm} onChange={e => setHeightCm(e.target.value)} className={inputClass} />
+                </Field>
+              </div>
+              <p className="text-[11px] text-muted-foreground">All of it can be changed later in Settings, under Goals.</p>
             </div>
-            <Button className="w-full" size="lg" onClick={() => setStep(2)}>
-              Continue →
-            </Button>
+            {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
+            <div className="flex flex-col gap-3">
+              <Button className="w-full" size="lg" onClick={saveAbout} disabled={saving}>
+                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Continue →
+              </Button>
+              <Button variant="ghost" size="lg" className="w-full text-muted-foreground" onClick={back}>Back</Button>
+            </div>
           </div>
         )}
 
-        {/* ── Step 2: Integrations ──────────────────────────── */}
-        {step === 2 && (
+        {step === "cycle" && (
           <div>
-            <h2 className="text-xl font-bold text-foreground mb-1">Connect your apps</h2>
+            <h2 className="text-xl font-bold text-foreground mb-1">Cycle tracking</h2>
             <p className="text-muted-foreground text-sm mb-6">
-              The more you connect, the smarter your insights.
+              A page for periods and phases, what each phase tends to bring, and a note on the home page two days before the next one.
             </p>
-            <div className="flex flex-col gap-2 mb-8">
-              {INTEGRATIONS.map((integration) => (
-                <IntegrationCard key={integration.name} integration={integration} />
-              ))}
-            </div>
-            <Button className="w-full" size="lg" onClick={() => setStep(3)}>
-              Continue →
-            </Button>
-          </div>
-        )}
-
-        {/* ── Step 3: Goal ─────────────────────────────────── */}
-        {step === 3 && (
-          <div>
-            <h2 className="text-xl font-bold text-foreground mb-1">Set your first goal</h2>
-            <p className="text-muted-foreground text-sm mb-6">
-              Goals appear on your dashboard so you can track progress.
-            </p>
-            <div className="flex flex-col gap-2 mb-4">
-              {PRESET_GOALS.map((goal) => (
+            <div className="grid grid-cols-2 gap-2 mb-6">
+              {([[true, "Yes, track it"], [false, "No thanks"]] as const).map(([v, label]) => (
                 <button
-                  key={goal}
-                  onClick={() => {
-                    setSelectedGoal(goal === selectedGoal ? null : goal)
-                    setCustomGoal("")
-                  }}
-                  className={`rounded-xl border px-4 py-3 text-left text-sm font-medium cursor-pointer transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                    selectedGoal === goal
-                      ? "border-primary bg-primary/10 text-foreground"
-                      : "border-border bg-card text-foreground hover:border-primary/50"
-                  }`}
+                  key={label}
+                  onClick={() => setTracksCycle(v)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-sm transition-colors",
+                    tracksCycle === v ? "border-primary bg-primary text-primary-foreground font-medium" : "border-border text-muted-foreground hover:border-primary/50",
+                  )}
                 >
-                  {goal}
+                  {label}
                 </button>
               ))}
             </div>
-            <Input
-              placeholder="Or type your own…"
-              value={customGoal}
-              onChange={(e) => {
-                setCustomGoal(e.target.value)
-                if (e.target.value) setSelectedGoal(null)
-              }}
-              className="mb-8"
-            />
+            {tracksCycle && (
+              <div className="space-y-4 mb-6">
+                <Field label="When did your last period start?">
+                  <input type="date" max={today()} value={lastStart} onChange={e => setLastStart(e.target.value)} className={inputClass} />
+                </Field>
+                <Field label="Contraception">
+                  <select value={contraception} onChange={e => setContraception(e.target.value as Contraception)} className={inputClass}>
+                    {CONTRACEPTION.map(c => <option key={c} value={c}>{CONTRACEPTION_GUIDE[c].name}</option>)}
+                  </select>
+                </Field>
+                <p className="text-[11px] text-muted-foreground">
+                  Both optional. Cycle length, the pill pack and the heads-up push are on the Cycle page.
+                </p>
+              </div>
+            )}
+            {tracksCycle === false && (
+              <p className="text-[11px] text-muted-foreground mb-6">The page stays out of the menu. It can be turned on later from Cycle in search.</p>
+            )}
+            {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
             <div className="flex flex-col gap-3">
-              <Button className="w-full" size="lg" onClick={() => setStep(4)}>
-                Continue →
+              <Button className="w-full" size="lg" onClick={saveCycle} disabled={saving}>
+                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Continue →
               </Button>
-              <Button
-                variant="ghost"
-                size="lg"
-                className="w-full text-muted-foreground"
-                onClick={() => setStep(4)}
-              >
-                Skip for now
-              </Button>
+              <Button variant="ghost" size="lg" className="w-full text-muted-foreground" onClick={back}>Back</Button>
             </div>
           </div>
         )}
 
-        {/* ── Step 4: Notifications ─────────────────────────── */}
-        {step === 4 && (
+        {step === "connect" && (
+          <div>
+            <h2 className="text-xl font-bold text-foreground mb-1">Connect your data</h2>
+            <p className="text-muted-foreground text-sm mb-6">
+              Each one fills in part of the picture on its own. None is required — check-ins, mood and habits work without any.
+            </p>
+            {connectError && (
+              <p className="text-xs text-amber-400 mb-3">
+                {`${connectError === "oura" ? "Oura" : "Strava"} didn't connect. Try again, or later from Settings.`}
+              </p>
+            )}
+            <div className="flex flex-col gap-2 mb-8">
+              <ConnectRow emoji="💍" name="Oura Ring" hint="Sleep, readiness, HRV, temperature"
+                connected={connections.oura} href="/api/oura/auth?return=onboarding" />
+              {native && (
+                <ConnectRow emoji="📱" name="Health Connect" hint="Steps, heart rate, sleep and workouts from this phone"
+                  connected={hc === "done"} onClick={connectHealthConnect} busy={hc === "busy"} />
+              )}
+              <ConnectRow emoji="🚴" name="Strava" hint="Workouts and activities"
+                connected={connections.strava} href="/api/strava/auth?return=onboarding" />
+              <ConnectRow emoji="📅" name="Google Calendar" hint="Read through your Google sign-in — nothing to do" connected />
+            </div>
+            {hc === "failed" && (
+              <p className="text-xs text-amber-400 -mt-6 mb-6">Health Connect wasn&apos;t allowed. It can be connected later from Settings.</p>
+            )}
+            <div className="flex flex-col gap-3">
+              <Button className="w-full" size="lg" onClick={next}>Continue →</Button>
+              <Button variant="ghost" size="lg" className="w-full text-muted-foreground" onClick={back}>Back</Button>
+            </div>
+          </div>
+        )}
+
+        {step === "notify" && (
           <div>
             <div className="text-4xl mb-4">🔔</div>
-            <h2 className="text-xl font-bold text-foreground mb-1">Stay on track</h2>
-            <p className="text-muted-foreground text-sm mb-6">
-              Get a gentle nudge at 7am to start your day, and a reminder at 9pm if your streaks are at risk.
-            </p>
+            <h2 className="text-xl font-bold text-foreground mb-1">Notifications</h2>
+            <p className="text-muted-foreground text-sm mb-6">With them on, the app can send:</p>
             <div className="rounded-xl border border-border bg-card/50 p-4 mb-6 space-y-3">
               {[
-                { emoji: "🌅", label: "Morning check-in reminder at 7am" },
-                { emoji: "🔥", label: "Streak protection alert at 9pm" },
-                { emoji: "💧", label: "Hydration nudges during the day" },
+                { emoji: "🌅", label: "A morning check-in reminder at 7:00 — the hour is yours to change in Settings" },
+                { emoji: "🌙", label: "In the evening, a question about that morning's intention — or, with none set, a nudge to write in the journal" },
+                { emoji: "💊", label: "Medication and habit reminders, at the times you give them" },
+                { emoji: "💬", label: "Now and then a note from Emergy when something in your data stands out" },
               ].map(({ emoji, label }) => (
-                <div key={label} className="flex items-center gap-2.5 text-sm">
+                <div key={label} className="flex items-start gap-2.5 text-sm">
                   <span className="shrink-0">{emoji}</span>
                   <span className="text-muted-foreground">{label}</span>
                 </div>
               ))}
             </div>
-            {notifStatus === "granted" ? (
+            {notif === "granted" ? (
               <div className="flex items-center gap-2 rounded-xl bg-green-500/10 border border-green-500/30 px-4 py-3 mb-4">
                 <Bell className="h-4 w-4 text-green-400 shrink-0" />
-                <p className="text-sm text-green-300 font-medium">Notifications enabled!</p>
+                <p className="text-sm text-green-300 font-medium">Notifications are on.</p>
               </div>
-            ) : notifStatus === "denied" ? (
+            ) : notif === "denied" ? (
               <div className="flex items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/30 px-4 py-3 mb-4">
                 <BellOff className="h-4 w-4 text-amber-400 shrink-0" />
-                <p className="text-sm text-amber-300">You can enable notifications later in Settings.</p>
+                <p className="text-sm text-amber-300">Not turned on. They can be enabled later in Settings.</p>
               </div>
             ) : null}
             <div className="flex flex-col gap-3">
-              {needsHomeScreen && notifStatus === "idle" && (
+              {needsHomeScreen && notif === "idle" && (
                 <p className="text-sm text-muted-foreground rounded-xl border border-border bg-card/50 px-4 py-3">
-                  On iPhone, notifications work once the app is on your Home Screen: in Safari tap Share, then Add to Home Screen. You can turn them on in Settings from there.
+                  On iPhone, notifications work once the app is on your Home Screen: in Safari tap Share, then Add to Home Screen. They can be turned on in Settings from there.
                 </p>
               )}
-              {!needsHomeScreen && notifStatus !== "granted" && notifStatus !== "denied" && (
+              {!needsHomeScreen && notif !== "granted" && notif !== "denied" && (
                 <Button
                   className="w-full"
                   size="lg"
-                  disabled={notifStatus === "enabling"}
+                  disabled={notif === "enabling"}
                   onClick={async () => {
-                    setNotifStatus("enabling")
+                    setNotif("enabling")
                     // The phone is registered here, not just asked — a
                     // permission with no subscription behind it receives nothing.
                     const result = await subscribeWebPush()
                     if (result === "unsupported") {
                       // The Android shell schedules on the device; only the permission is ours to ask.
                       const perm = typeof Notification === "undefined" ? "denied" : await Notification.requestPermission().catch(() => "denied" as const)
-                      setNotifStatus(perm === "granted" ? "granted" : "denied")
+                      setNotif(perm === "granted" ? "granted" : "denied")
                     } else {
-                      setNotifStatus(result === "subscribed" ? "granted" : "denied")
+                      setNotif(result === "subscribed" ? "granted" : "denied")
                     }
                   }}
                 >
-                  {notifStatus === "enabling" ? "Requesting…" : "Enable notifications →"}
+                  {notif === "enabling" ? "Requesting…" : "Turn on notifications"}
                 </Button>
               )}
-              <Button
-                className="w-full"
-                size="lg"
-                variant={notifStatus === "granted" ? "default" : "outline"}
-                onClick={() => setStep(5)}
-              >
-                {notifStatus === "granted" ? "Finish setup →" : "Skip for now"}
+              <Button className="w-full" size="lg" variant={notif === "granted" ? "default" : "outline"} onClick={next}>
+                {notif === "granted" ? "Continue →" : "Not now"}
               </Button>
             </div>
           </div>
         )}
 
-        {/* ── Step 5: Done ─────────────────────────────────── */}
-        {step === 5 && (
+        {step === "done" && (
           <div>
             <div className="text-center mb-6">
               <div className="text-5xl mb-4">🎉</div>
-              <h2 className="text-2xl font-bold text-foreground mb-2">You&apos;re all set!</h2>
+              <h2 className="text-2xl font-bold text-foreground mb-2">That&apos;s it</h2>
               <p className="text-muted-foreground leading-relaxed">
-                Your dashboard is ready. Here&apos;s what to do first:
+                The first check-in takes under a minute and is where most of the app starts.
               </p>
             </div>
-
             <div className="rounded-xl border border-border/60 divide-y divide-border/40 mb-8">
               {[
-                { emoji: "🌅", label: "Log your morning check-in", href: "/dashboard/checkin", hint: "Energy, mood, intention" },
-                { emoji: "🔗", label: "Connect Oura Ring or Strava", href: "/dashboard/settings", hint: "Auto-sync health & activity data" },
-                { emoji: "✅", label: "Create your first habit", href: "/dashboard/habits", hint: "Build streaks and earn XP" },
-              ].map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/40 transition-colors"
-                >
+                { emoji: "💬", label: "Talk to Emergy", href: "/dashboard/chat", hint: "Ask about your data, or log things by just saying them" },
+                { emoji: "✅", label: "Add a habit", href: "/dashboard/habits", hint: "With a reminder time if you want one" },
+                { emoji: "🎯", label: "Set goals", href: "/dashboard/settings#goals", hint: "Sleep, steps, water — what the dashboard measures against" },
+              ].map(item => (
+                <button key={item.href} onClick={() => complete(false, item.href)} disabled={saving}
+                  className="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-secondary/40 transition-colors">
                   <span className="text-xl shrink-0">{item.emoji}</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground">{item.label}</p>
                     <p className="text-xs text-muted-foreground">{item.hint}</p>
                   </div>
                   <span className="text-muted-foreground/40 text-sm">→</span>
-                </Link>
+                </button>
               ))}
             </div>
-
-            <Button
-              className="w-full"
-              size="lg"
-              onClick={finish}
-              disabled={finishing}
-            >
-              {finishing ? "Heading to your dashboard…" : "Go to dashboard →"}
+            <Button className="w-full" size="lg" onClick={() => complete(false)} disabled={saving}>
+              {saving ? "Opening…" : "Do the first check-in →"}
             </Button>
           </div>
         )}
