@@ -194,7 +194,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 22
+export const ENGINE_VERSION = 23
 
 /**
  * Both sides need this many days before a card is called confident.

@@ -1,3 +1,5 @@
+import { drinkProfile } from "./drink-catalog"
+
 // Shared caffeine knowledge: the manual quick-add compounds, display labels,
 // and the estimator that turns a logged drink (type + label + ml) into a
 // caffeine amount so intake entries auto-feed the caffeine tracker.
@@ -27,6 +29,7 @@ export const COMPOUND_LABELS: Record<string, { label: string; emoji: string }> =
   cappuccino: { label: "Cappuccino", emoji: "☕" },
   cold_brew:  { label: "Cold brew",  emoji: "🧊" },
   tea:        { label: "Tea",        emoji: "🍵" },
+  cocoa:      { label: "Hot chocolate", emoji: "🍫" },
 }
 
 export const HALF_LIFE_H = 5
@@ -76,6 +79,15 @@ const espressoShots = (ml: number) => Math.max(1, Math.round(ml / 35))
 export function estimateCaffeine(type: string, label: string, amountMl: number): { compound: string; mg: number } | null {
   const l = fold(label)
   const ml = Math.max(0, amountMl)
+
+  // A named drink knows its own caffeine: Kofola is not Coke, green tea is
+  // not black, chamomile has none. Only when it is the drink the type says,
+  // or the type says nothing more specific than "a soft drink".
+  const named = drinkProfile(label)
+  if (named?.caffeineMgPerMl !== undefined && (named.type === type || ["soda", "juice", "other"].includes(type))) {
+    const mg = Math.round(ml * named.caffeineMgPerMl)
+    return mg > 0 ? { compound: named.compound ?? type, mg } : null
+  }
 
   if (type === "matcha") return { compound: "matcha", mg: Math.round(ml * 0.28) || 70 }
   if (type === "tea")    return { compound: "tea",    mg: Math.round(ml * 0.2)  || 50 }

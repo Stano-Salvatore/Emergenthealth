@@ -2,12 +2,12 @@
 
 import { useRef, useState } from "react"
 import { Upload, CheckCircle2, AlertCircle, Loader2 } from "lucide-react"
-import { parseWatchHistory } from "@/lib/ytmusic-import"
+import { parseWatchHistory, slicePlaysByDay } from "@/lib/ytmusic-import"
 
 // One-shot backfill from a Google Takeout of YouTube Music. The 40 MB
 // watch-history.html never leaves the phone — it's parsed right here in the
-// browser and only the extracted plays (a couple hundred KB) go to the server,
-// which folds them into the same per-day rows Last.fm scrobbles land in.
+// browser and only the extracted plays go to the server, in whole-day slices,
+// which it folds into the same per-day rows Last.fm scrobbles land in.
 // Days Last.fm already covers are left untouched.
 
 interface ImportResult {
@@ -48,18 +48,42 @@ export function YtMusicImport({ onImported }: { onImported: () => void }) {
         return
       }
       setBusy("uploading")
-      const res = await fetch("/api/import/ytmusic", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plays }),
-      })
-      if (!res.ok) {
-        const data = await res.json().catch(() => null)
-        throw new Error(data?.error ?? `Import failed (${res.status})`)
+      // Sliced on the days the server will bucket into, so no day is split
+      // between two uploads; a years-long history as one body is over the
+      // platform's 4.5 MB request limit.
+      const tzPref = await fetch("/api/preferences/timezone")
+        .then(r => (r.ok ? r.json() : null)).catch(() => null) as { timezone?: string | null } | null
+      // A guessed zone could cut a day in two across uploads, and the server
+      // never overwrites a day it already has — half of it would be lost.
+      if (!tzPref) throw new Error("Couldn't read your time zone to split the upload by day. Nothing was imported — try again.")
+      // No stored zone is UTC on the server too (getUserTimezone).
+      const slices = slicePlaysByDay(plays, tzPref.timezone?.trim() || "UTC")
+
+      const total: ImportResult = { days: 0, skippedDays: 0, enrichedDays: 0, tracks: 0, from: null, to: null }
+      for (let i = 0; i < slices.length; i++) {
+        const res = await fetch("/api/import/ytmusic", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plays: slices[i], tagGenres: i === slices.length - 1 }),
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => null)
+          if (total.days > 0) onImported()
+          throw new Error(
+            (data?.error ?? `Import failed (${res.status})`) +
+            (i > 0 ? " — the days before it stopped are saved; importing the same file again picks up the rest." : ""),
+          )
+        }
+        const data: ImportResult = await res.json()
+        total.days += data.days
+        total.skippedDays += data.skippedDays
+        total.enrichedDays = (total.enrichedDays ?? 0) + (data.enrichedDays ?? 0)
+        total.tracks += data.tracks
+        total.from ??= data.from
+        total.to = data.to ?? total.to
       }
-      const data: ImportResult = await res.json()
-      setResult(data)
-      if (data.days > 0) onImported()
+      setResult(total)
+      if (total.days > 0) onImported()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Import failed")
     } finally {

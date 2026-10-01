@@ -81,6 +81,7 @@ export function chipsFromClaim(claimed: string[], manifest: SourceManifest): Sou
 const TOOL_SOURCES: Record<string, { label: string; domain: SourceDomain }> = {
   get_health_range:    { label: "Health history", domain: "sleep" },
   find_my_logs:        { label: "Logs",           domain: "life"  },
+  get_logs:            { label: "Your logs",      domain: "life"  },
   search_chat_history: { label: "Past chats",     domain: "life"  },
   get_day_journey:     { label: "Where you were", domain: "life"  },
   get_phone_day:       { label: "Phone sensors",  domain: "life"  },
@@ -112,6 +113,7 @@ export function mergeChips(fromTools: SourceChip[], fromClaim: SourceChip[]): So
 const TOOL_ACTIVITY: Record<string, string> = {
   get_health_range:   "reading your health history",
   find_my_logs:       "looking through your logs",
+  get_logs:           "reading back what you logged",
   search_chat_history: "looking back through our chats",
   get_day_journey:    "retracing that day",
   get_phone_day:      "reading what your phone noticed",

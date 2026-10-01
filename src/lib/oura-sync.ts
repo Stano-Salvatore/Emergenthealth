@@ -293,11 +293,14 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
         const tagsLiteral = `{${t.tags.join(",")}}`
         const tagName = t.tagName || null
         const text = t.comment || null
+        // The time too: a tag re-timed in the Oura app is fixed there, the
+        // only place a ring tag can be edited.
         await prisma.$executeRaw`
           INSERT INTO "OuraTag"("id","userId","day","timestamp","tagName","text","tags")
           VALUES (${t.id},${userId},${t.day},${new Date(t.timestamp)},${tagName},${text},${tagsLiteral}::text[])
           ON CONFLICT("id") DO UPDATE
-            SET "tagName"=EXCLUDED."tagName","text"=EXCLUDED."text","tags"=EXCLUDED."tags"
+            SET "tagName"=EXCLUDED."tagName","text"=EXCLUDED."text","tags"=EXCLUDED."tags",
+                "day"=EXCLUDED."day","timestamp"=EXCLUDED."timestamp"
         `
       }
 
@@ -352,7 +355,7 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
             note: `${t.tagName || label} (Oura)`,
             loggedAt: new Date(t.timestamp),
           },
-          update: { type: kind, amountMl: ml, note: `${t.tagName || label} (Oura)` },
+          update: { type: kind, amountMl: ml, note: `${t.tagName || label} (Oura)`, loggedAt: new Date(t.timestamp) },
         }).catch(() => null)
 
         // ring-logged coffee/tea/matcha auto-feeds the caffeine tracker too
@@ -368,7 +371,7 @@ export async function syncOuraForUser(userId: string): Promise<OuraSyncResult> {
               caffeineMg: est.mg,
               loggedAt: new Date(t.timestamp),
             },
-            update: { compound: est.compound, caffeineMg: est.mg },
+            update: { compound: est.compound, caffeineMg: est.mg, loggedAt: new Date(t.timestamp) },
           }).catch(() => null)
         }
       }

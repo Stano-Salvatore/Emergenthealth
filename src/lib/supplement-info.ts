@@ -167,6 +167,443 @@ const BY_CANONICAL: Record<string, SupplementInfo> = {
 // Medications arrive as free-text tags, not via normalizeSupplement. Slovak
 // brand names are matched alongside the international generic names.
 const MED_PATTERNS: [RegExp, SupplementInfo][] = [
+  // ── Sleep aids and anxiolytics ──
+  [/zolpidem|stil+nox|hypnogen|sanval|ambien/, {
+    halfLifeH: 2.5,
+    duration: "Half-life ≈2.5 h — works within 15–30 min and is mostly gone after a full night. A dose taken late, or with less than 7–8 h left in bed, is what leaves you impaired the next morning",
+    timing: "In bed, right before sleeping, on an empty stomach (a meal delays it by about an hour) — and only with 7–8 h of sleep ahead",
+    caution: "Adds to alcohol, Frontin, Atarax and mirtazapine — sedation stacks, and so does the risk of sleep-walking, eating or driving with no memory of it. Women clear it more slowly. Meant for short-term use; tolerance builds with nightly doses — prescription med, follow your doctor's dosing",
+  }],
+  [/zopiclon|imovane|zopitin/, {
+    halfLifeH: 5,
+    duration: "Half-life ≈5 h — longer than zolpidem, so next-morning grogginess is more common, especially after a late dose",
+    timing: "Right before bed, with 7–8 h of sleep ahead",
+    caution: "A bitter, metallic taste the next day is typical. Stacks with alcohol, benzodiazepines and Atarax; short-term use only",
+  }],
+  [/clonazepam|rivotril/, {
+    halfLifeH: 35,
+    duration: "Half-life ≈30–40 h — a daily dose accumulates for about a week before it levels off, and the next day is never drug-free",
+    timing: "As prescribed; bedtime dosing moves most of the sedation into the night",
+    caution: "Dependence builds with regular use; never stop abruptly — reductions belong on a prescriber-planned taper. Strongly additive with alcohol, Atarax, mirtazapine and sleeping pills",
+  }],
+  [/diazepam|apaurin|valium|seduxen/, {
+    halfLifeH: 48,
+    duration: "Half-life ≈2 days, and its active metabolite lasts longer still — regular doses build up over a week or more",
+    timing: "As prescribed",
+    caution: "Dependence builds with regular use; never stop abruptly. Additive with alcohol and every other sedative; impairs driving well into the next day",
+  }],
+  [/bromazepam|lexaurin|lexotan/, {
+    halfLifeH: 20,
+    duration: "Half-life ≈20 h — a bedtime dose is still mostly present in the morning",
+    timing: "As prescribed; short-term",
+    caution: "Dependence builds with regular use; taper with your prescriber. Additive with alcohol, Atarax and mirtazapine",
+  }],
+  [/lorazepam|lorafen|ativan/, {
+    halfLifeH: 12,
+    duration: "Half-life ≈12 h, effect ~6–8 h",
+    timing: "As prescribed; short-term",
+    caution: "Dependence builds with regular use; taper with your prescriber. Additive with alcohol and other sedatives",
+  }],
+  [/oxazepam/, {
+    halfLifeH: 8,
+    duration: "Half-life ≈8 h — one of the shorter benzodiazepines",
+    timing: "As prescribed",
+    caution: "Dependence builds with regular use; additive with alcohol and other sedatives",
+  }],
+  [/trazodon|trittico/, {
+    halfLifeH: 7,
+    duration: "Half-life ≈7 h — low doses used for sleep are largely cleared by morning",
+    timing: "At bedtime, after a light snack",
+    caution: "Adds to Elicea's serotonin load and to other sedatives; stand up slowly — it can drop blood pressure",
+  }],
+  [/quetiapin|ketilept|seroquel|kventiax/, {
+    halfLifeH: 7,
+    duration: "Half-life ≈7 h (the XR form is released over the day); low-dose sedation can linger into the morning",
+    timing: "Evening",
+    caution: "Weight and blood sugar can creep up with long-term use — your food and weight logs will show it. Additive with alcohol and other sedatives",
+  }],
+  [/pregabalin|lyrica/, {
+    halfLifeH: 6,
+    duration: "Half-life ≈6 h; usually dosed twice a day",
+    timing: "Same times daily, with or without food",
+    caution: "Additive with alcohol, benzodiazepines and opioids — breathing as well as sedation. Don't stop abruptly after regular use",
+  }],
+  [/gabapentin|neurontin/, {
+    halfLifeH: 6,
+    duration: "Half-life ≈5–7 h; usually dosed three times a day",
+    timing: "Spread evenly through the day",
+    caution: "Additive with alcohol, benzodiazepines and opioids. Don't stop abruptly after regular use",
+  }],
+
+  // ── Antidepressants with their own half-life ──
+  [/sertralin|zoloft|asentra|serlift/, {
+    halfLifeH: 26,
+    duration: "Half-life ≈26 h — steady state after about a week; mood effects build over 4–6 weeks",
+    timing: "Same time daily, with food; morning if it disturbs sleep",
+    caution: "Never stop or change the dose abruptly — taper with your prescriber. Serotonin load adds up with tramadol, triptans and other antidepressants",
+  }],
+  [/bupropion|wellbutrin|elontril/, {
+    halfLifeH: 21,
+    duration: "Half-life ≈21 h (active metabolites longer) — steady state in about a week",
+    timing: "Morning — an evening dose often costs sleep",
+    caution: "Lowers the seizure threshold: don't exceed the dose, and heavy drinking followed by stopping suddenly is a risk. Can raise blood pressure",
+  }],
+  [/vortioxetin|brintellix/, {
+    halfLifeH: 66,
+    duration: "Half-life ≈66 h — steady state after about two weeks",
+    timing: "Same time daily",
+    caution: "Nausea early on is common and usually fades. Serotonin load adds up with tramadol, triptans and other antidepressants",
+  }],
+  [/duloxetin|cymbalta/, {
+    halfLifeH: 12,
+    duration: "Half-life ≈12 h, once daily",
+    timing: "Same time daily, with food",
+    caution: "Never stop abruptly — discontinuation symptoms are strong with this one. Serotonin load adds up with tramadol and other antidepressants",
+  }],
+
+  // ── Pain and fever ──
+  [/metamizol|novalgin|algifen|analgin/, {
+    halfLifeH: 3,
+    duration: "Its active metabolite has a half-life ≈3 h; relief lasts ~4–6 h",
+    timing: "With or without food",
+    caution: "A rare but serious drop in white blood cells is possible — fever, sore throat or mouth ulcers while taking it need a doctor promptly",
+  }],
+  [/diclofenac|voltaren|dicloreum|olfen|veral/, {
+    halfLifeH: 2,
+    duration: "Half-life ≈2 h; slow-release forms spread that over 12–24 h",
+    timing: "With food",
+    caution: "Same stomach cautions as ibuprofen, plus a heart/blood-pressure load with regular use; don't stack two NSAIDs",
+  }],
+  [/ketoprofen|ketonal/, {
+    halfLifeH: 2,
+    duration: "Half-life ≈2 h; effect ~4–6 h",
+    timing: "With food",
+    caution: "An NSAID like ibuprofen — hard on the stomach; don't combine with other NSAIDs or alcohol",
+  }],
+  [/nimesulid|aulin|nimesil/, {
+    halfLifeH: 4,
+    duration: "Half-life ≈2–5 h; effect ~6–8 h",
+    timing: "After a meal",
+    caution: "Limited to short courses (max ~15 days) because of liver risk — avoid with alcohol and paracetamol-heavy days",
+  }],
+  [/tramadol|tramal|tralgit|zaldiar|doreta/, {
+    halfLifeH: 6,
+    duration: "Half-life ≈6 h; relief ~6 h",
+    timing: "As prescribed; with or without food",
+    caution: "With Elicea, sertraline or mirtazapine the serotonin load stacks — agitation, fever, tremor or confusion need urgent medical advice — and seizure risk rises. Additive with alcohol and benzodiazepines. Zaldiar and Doreta also contain paracetamol — count it",
+  }],
+  [/codein|kodein/, {
+    halfLifeH: 3,
+    duration: "Half-life ≈3 h; effect ~4–6 h",
+    timing: "As prescribed",
+    caution: "An opioid — additive with alcohol, benzodiazepines and sleeping pills; constipating",
+  }],
+  [/sumatriptan|imigran/, {
+    halfLifeH: 2,
+    duration: "Half-life ≈2 h — a returning migraine after ~a day is common",
+    timing: "At the start of the headache phase, not the aura",
+    caution: "Check with your doctor if you're on an SSRI like Elicea (serotonin); respect the daily maximum",
+  }],
+
+  // ── Allergy (specific names before the ones they contain) ──
+  [/desloratadin|aerius|dasselta/, {
+    halfLifeH: 27,
+    duration: "Half-life ≈27 h — one dose covers the day comfortably",
+    timing: "Any time — non-drowsy for most",
+  }],
+  [/levocetirizin|xyzal/, {
+    halfLifeH: 8,
+    duration: "Half-life ≈8 h; one dose covers ~24 h",
+    timing: "Evening if it makes you drowsy",
+  }],
+  [/bilastin|bilaxten/, {
+    halfLifeH: 14,
+    duration: "Half-life ≈14 h; one dose covers ~24 h",
+    timing: "On an empty stomach — 1 h before or 2 h after food or fruit juice, which cut its absorption",
+  }],
+  [/fexofenadin|telfast|allegra/, {
+    halfLifeH: 14,
+    duration: "Half-life ≈14 h; one dose covers ~24 h",
+    timing: "With water, not fruit juice (it blocks absorption)",
+  }],
+
+  // ── Everyday prescriptions ──
+  [/propranolol|inderal/, {
+    halfLifeH: 4,
+    duration: "Half-life ≈4 h; effect on heart rate ~6–12 h",
+    timing: "As prescribed; for situational anxiety, ~1 h before",
+    caution: "Lowers heart rate and blunts HRV and workout heart-rate zones — your ring numbers will show it. Don't stop abruptly after regular use; avoid with asthma",
+  }],
+  [/bisoprolol|concor/, {
+    halfLifeH: 11,
+    duration: "Half-life ≈11 h, once daily",
+    timing: "Morning",
+    caution: "Lowers resting heart rate — expected in your ring data. Don't stop abruptly",
+  }],
+  [/levothyroxin|euthyrox|letrox/, {
+    duration: "Half-life ≈7 days — a missed tablet barely moves the level; a dose change takes ~6 weeks to settle",
+    timing: "On an empty stomach, 30–60 min before breakfast and coffee",
+    caution: "Iron, calcium, magnesium and coffee block absorption — separate them by ~4 h",
+  }],
+  [/metformin|glucophage|siofor/, {
+    halfLifeH: 5,
+    duration: "Half-life ≈5 h; extended-release forms once daily",
+    timing: "With meals — cuts the stomach side effects",
+    caution: "Heavy drinking with metformin is a real risk; long-term use can lower B12",
+  }],
+  [/loperamid|imodium/, {
+    halfLifeH: 11,
+    duration: "Half-life ≈11 h",
+    timing: "After each loose stool, within the daily maximum",
+    caution: "Not with fever or blood in the stool — see a doctor instead",
+  }],
+  [/famotidin|quamatel/, {
+    halfLifeH: 3,
+    duration: "Half-life ≈3 h; acid relief ~10–12 h",
+    timing: "Before meals or at bedtime",
+  }],
+  [/amoxicil+in|augmentin|amoksiklav|ospamox|duomox/, {
+    halfLifeH: 1,
+    duration: "Half-life ≈1 h — which is why it's dosed 2–3 times a day",
+    timing: "Evenly spaced; with food if it upsets the stomach",
+    caution: "Finish the course as prescribed; a rash is worth telling the doctor about",
+  }],
+  [/azit?h?romycin|sumamed|azitrox/, {
+    halfLifeH: 68,
+    duration: "Half-life ≈68 h — a 3-day course keeps working for about a week",
+    timing: "Same time daily",
+    caution: "Finish the course; some heart-rhythm medicines don't mix with it",
+  }],
+
+  // ── More antidepressants and mood medicines ──
+  // Lookbehind, so escitalopram (Elicea, further down) is not read as citalopram.
+  [/(?<!es)citalopram|citalec|cipramil|seropram/, {
+    halfLifeH: 35,
+    duration: "Half-life ≈35 h — steady state after about a week; mood effects build over 4–6 weeks",
+    timing: "Same time daily",
+    caution: "Never stop or change the dose abruptly — taper with your prescriber. Serotonin load adds up with tramadol, triptans and other antidepressants",
+  }],
+  [/paroxetin|seroxat|paxil/, {
+    halfLifeH: 21,
+    duration: "Half-life ≈21 h, once daily",
+    timing: "Morning, with food",
+    caution: "Stopping it is harder than most SSRIs — taper slowly with your prescriber. Serotonin load adds up with tramadol and triptans",
+  }],
+  [/fluoxetin|prozac|deprex/, {
+    halfLifeH: 96,
+    duration: "Half-life ≈4 days, and its active metabolite lasts 1–2 weeks — it takes a month to reach steady state, and weeks to leave",
+    timing: "Morning — it can be activating",
+    caution: "Because it lingers, interactions outlast the last dose by weeks. Serotonin load adds up with tramadol and triptans",
+  }],
+  [/venlafaxin|efectin|olwexya/, {
+    halfLifeH: 11,
+    duration: "Half-life ≈5 h, ≈11 h for its active metabolite — extended-release capsules cover a day",
+    timing: "Same time daily, with food",
+    caution: "A missed dose is felt within a day (dizziness, 'brain zaps') — never stop abruptly. Can raise blood pressure at higher doses",
+  }],
+  [/lamotrigin|lamictal|lamolep/, {
+    halfLifeH: 29,
+    duration: "Half-life ≈29 h (shorter with some other medicines, much longer with valproate)",
+    timing: "Same time daily",
+    caution: "A new rash in the first two months needs a doctor promptly. The dose is built up slowly on purpose — don't skip ahead",
+  }],
+  [/lithium|litium|contemnol/, {
+    halfLifeH: 24,
+    duration: "Half-life ≈24 h; blood levels are checked for a reason",
+    timing: "Same time daily",
+    caution: "Dehydration, heavy sweating, ibuprofen and other NSAIDs raise lithium levels — tremor, diarrhoea or confusion need a doctor",
+  }],
+  [/valpro|depakin|orfiril/, {
+    halfLifeH: 14,
+    duration: "Half-life ≈14 h",
+    timing: "With food, same times daily",
+    caution: "Additive with alcohol; raises lamotrigine levels sharply",
+  }],
+  [/aripiprazol|abilify/, {
+    halfLifeH: 75,
+    duration: "Half-life ≈3 days — steady state after about two weeks",
+    timing: "Same time daily; morning if it keeps you up",
+    caution: "Restlessness (an urge to keep moving) is a known side effect worth mentioning to your prescriber",
+  }],
+  [/olanzapin|zyprexa|olpinat|zalasta/, {
+    halfLifeH: 33,
+    duration: "Half-life ≈33 h; sedating",
+    timing: "Evening",
+    caution: "Appetite and weight rise for many people — your food and weight logs will show it. Additive with alcohol and other sedatives",
+  }],
+
+  // ── ADHD ──
+  [/methylfenidat|methylphenidat|ritalin|concerta|medikinet/, {
+    halfLifeH: 3,
+    duration: "Half-life ≈3 h — plain tablets last ~4 h; Concerta and other long-acting forms release it over ~12 h",
+    timing: "Morning — a late dose costs sleep",
+    caution: "Raises heart rate and blood pressure (visible in your ring data) and cuts appetite; stacks with caffeine",
+  }],
+  [/lisdexamfetamin|elvanse|vyvanse/, {
+    halfLifeH: 11,
+    duration: "Converted to dexamfetamine over hours; half-life ≈11 h, effect ~13 h",
+    timing: "Early morning — it runs into the evening",
+    caution: "Raises heart rate and blood pressure; cuts appetite; stacks with caffeine and costs sleep if taken late",
+  }],
+  [/atomoxetin|strattera/, {
+    halfLifeH: 5,
+    duration: "Half-life ≈5 h, but the effect builds over weeks of daily use",
+    timing: "Morning, or split morning and evening",
+    caution: "Mood changes early on are worth telling your prescriber about; paroxetine and fluoxetine raise its levels",
+  }],
+
+  // ── Heart, cholesterol, blood thinners ──
+  [/amlodipin|norvasc|amlator/, {
+    halfLifeH: 40,
+    duration: "Half-life ≈30–50 h — a missed day barely moves the level",
+    timing: "Same time daily",
+    caution: "Ankle swelling is a common side effect; grapefruit raises its level a little",
+  }],
+  [/telmisartan|micardis|tolura/, {
+    halfLifeH: 24,
+    duration: "Half-life ≈24 h, once daily",
+    timing: "Same time daily",
+    caution: "Ibuprofen and other NSAIDs blunt it and strain the kidneys together with it",
+  }],
+  [/atorvastatin|atoris|sortis|lipitor/, {
+    halfLifeH: 14,
+    duration: "Half-life ≈14 h; the cholesterol effect is long-term",
+    timing: "Any consistent time",
+    caution: "Unexplained muscle pain is worth a call to your doctor; large amounts of grapefruit raise its level",
+  }],
+  [/rosuvastatin|crestor|roswera|rosucard/, {
+    halfLifeH: 19,
+    duration: "Half-life ≈19 h; the cholesterol effect is long-term",
+    timing: "Any consistent time",
+    caution: "Unexplained muscle pain is worth a call to your doctor",
+  }],
+  [/apixaban|eliquis/, {
+    halfLifeH: 12,
+    duration: "Half-life ≈12 h — protection fades within a day of a missed dose",
+    timing: "Twice daily, 12 h apart",
+    caution: "Ibuprofen, naproxen, aspirin and other NSAIDs raise bleeding risk — paracetamol is the usual painkiller. Never skip doses on your own",
+  }],
+  [/rivaroxaban|xarelto/, {
+    halfLifeH: 9,
+    duration: "Half-life ≈5–13 h — protection fades within a day of a missed dose",
+    timing: "With food (the higher doses need it to absorb)",
+    caution: "Ibuprofen, naproxen, aspirin and other NSAIDs raise bleeding risk — paracetamol is the usual painkiller. Never skip doses on your own",
+  }],
+  [/warfarin|lawarin|coumadin/, {
+    halfLifeH: 40,
+    duration: "Half-life ≈40 h; the INR responds over days",
+    timing: "Same time daily",
+    caution: "Alcohol, NSAIDs, many antibiotics and big swings in leafy greens (vitamin K) all move the INR — keep them steady and tell your clinic about changes",
+  }],
+
+  // ── Colds, stomach, pain relief extras ──
+  [/dextromethorphan|dextrometorfan|robitussin|stopex/, {
+    halfLifeH: 3,
+    duration: "Half-life ≈3 h in most people (much longer in some)",
+    timing: "As on the pack, not near bedtime if it keeps you up",
+    caution: "With Elicea, sertraline or other antidepressants the serotonin load stacks — check with a pharmacist first",
+  }],
+  [/acetylcystein|\bacc\b|fluimucil/, {
+    halfLifeH: 6,
+    duration: "Half-life ≈6 h",
+    timing: "Earlier in the day — the loosened mucus needs coughing up",
+  }],
+  [/ambroxol|mucosolvan|flavamed|ambrobene/, {
+    halfLifeH: 10,
+    duration: "Half-life ≈10 h",
+    timing: "With food, not late in the evening",
+  }],
+  [/metoclopramid|metoklopramid|degan|cerucal/, {
+    halfLifeH: 5,
+    duration: "Half-life ≈5 h",
+    timing: "30 min before a meal",
+    caution: "Short courses only (max ~5 days); restlessness or muscle spasms mean stop and call a doctor",
+  }],
+  [/ondansetron|zofran/, {
+    halfLifeH: 4,
+    duration: "Half-life ≈4 h",
+    timing: "As needed for nausea",
+    caution: "Constipating; check with a pharmacist if you're on an SSRI",
+  }],
+  [/tolperison|mydocalm/, {
+    halfLifeH: 2.5,
+    duration: "Half-life ≈2.5 h",
+    timing: "After meals",
+  }],
+  [/methylprednisolon|metylprednizolon|medrol/, {
+    halfLifeH: 2.5,
+    duration: "Plasma half-life ≈2.5 h, but the anti-inflammatory effect lasts 12–36 h",
+    timing: "Morning — an evening dose often costs sleep",
+    caution: "Raises blood sugar and can lift mood or cause insomnia; longer courses are tapered, not stopped",
+  }],
+  [/prednison|prednisolon|prednizon/, {
+    halfLifeH: 3,
+    duration: "Plasma half-life ≈3 h, but the effect lasts 12–36 h",
+    timing: "Morning, with food",
+    caution: "Raises blood sugar and can lift mood or cause insomnia; longer courses are tapered, not stopped",
+  }],
+  [/dimetinden|fenistil/, {
+    halfLifeH: 6,
+    duration: "Half-life ≈6 h (drops and tablets; the gel stays in the skin)",
+    timing: "Evening if it makes you drowsy",
+    caution: "Sedating antihistamine — adds to alcohol and sleeping pills",
+  }],
+  [/nikotin|nicotin|nicorette|\bzyn\b|\bvelo\b|snus|\bvape\b/, {
+    halfLifeH: 2,
+    duration: "Half-life ≈2 h; the cravings cycle is roughly that long",
+    timing: "Not in the last hours before bed",
+    caution: "Raises heart rate and blood pressure and fragments sleep — visible in your ring's night heart rate",
+  }],
+  [/sildenafil|viagra/, {
+    halfLifeH: 4,
+    duration: "Half-life ≈4 h; effective window ~4–5 h",
+    timing: "About an hour before; a fatty meal delays it",
+    caution: "Never with nitrates (chest-pain medicines) or poppers; alcohol blunts it",
+  }],
+  [/tadalafil|cialis/, {
+    halfLifeH: 17.5,
+    duration: "Half-life ≈17.5 h — the effective window is up to ~36 h",
+    timing: "Any time; food doesn't matter",
+    caution: "Never with nitrates (chest-pain medicines) or poppers",
+  }],
+  [/finasterid|proscar|propecia/, {
+    halfLifeH: 6,
+    duration: "Half-life ≈6 h, but the hormone effect is long-term",
+    timing: "Same time daily",
+  }],
+  [/oxycodon|oxykodon|oxycontin|targin/, {
+    halfLifeH: 4,
+    duration: "Half-life ≈4 h (slow-release forms last ~12 h)",
+    timing: "As prescribed",
+    caution: "An opioid — strongly additive with alcohol, benzodiazepines and sleeping pills (breathing, not just sedation); constipating",
+  }],
+
+  // ── Antibiotics ──
+  [/doxycyklin|doxycyclin|doxybene|deoxymykoin/, {
+    halfLifeH: 18,
+    duration: "Half-life ≈18 h, once or twice daily",
+    timing: "Upright with a full glass of water, not right before lying down",
+    caution: "Dairy, iron, calcium and magnesium block it — separate by 2–3 h. Makes skin burn faster in the sun",
+  }],
+  [/ciprofloxacin|ciphin|ciprinol/, {
+    halfLifeH: 4,
+    duration: "Half-life ≈4 h, twice daily",
+    timing: "Evenly spaced",
+    caution: "Dairy, iron, calcium and magnesium block it — separate by 2–6 h. Tendon pain means stop and call a doctor",
+  }],
+  [/klaritromycin|clarithromycin|klacid|fromilid/, {
+    halfLifeH: 5,
+    duration: "Half-life ≈5 h, twice daily",
+    timing: "Evenly spaced",
+    caution: "Interacts with many medicines, including some statins — check with a pharmacist",
+  }],
+  [/cefuroxim|zinnat|xorimax/, {
+    halfLifeH: 1.5,
+    duration: "Half-life ≈1.5 h, twice daily",
+    timing: "With food — it absorbs better",
+    caution: "Finish the course as prescribed",
+  }],
+
   [/hydroxyzin|atarax/, {
     halfLifeH: 20,
     duration: "You feel it for ~4–6 h, but the half-life is ≈20 h — after a bedtime dose roughly 70% is still on board at 8:00, which is why the next morning can feel foggy",

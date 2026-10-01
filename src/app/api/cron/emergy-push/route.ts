@@ -3,7 +3,8 @@ import { requireCronSecret } from "@/lib/cron-auth"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import { sayAsEmergy } from "@/lib/emergy-say"
 import { prisma } from "@/lib/prisma"
-import { hydrationMl, HYDRATING_TYPES } from "@/lib/hydration"
+import { hydrationMl, HYDRATING_TYPES, resolveWaterGoal, waterNudgeLevel, expectedWaterByNow } from "@/lib/hydration"
+import { DEFAULT_GOALS, getGoals } from "@/lib/goals"
 import { localDateStr, localTimeStr, zonedDayRange } from "@/lib/local-date"
 import { habitsTallyToday, weekStart } from "@/lib/habit-schedule"
 
@@ -24,6 +25,12 @@ const SCREAM_WATER = [
   (ml: number) => `I HAVE SEEN ${ml}ml GO IN TODAY AND I AM WILTING`,
   (ml: number) => `WATER. NOW. ${ml}ml IS NOT ENOUGH AND YOUR PLANT IS DYING 🌵`,
 ]
+// Behind, but drinking: a word, not a scream. The capitals are kept for a day
+// that has barely started, so they still mean something when they arrive.
+const NUDGE_WATER = [
+  (ml: number, behind: number) => `${ml}ml so far — about ${behind}ml behind where I'd like us by now. A glass? 💧`,
+  (ml: number, behind: number, time: string) => `${time} and ${ml}ml in. We're ${behind}ml off pace — one glass closes most of it 🌱`,
+]
 const SCREAM_HABITS = [
   (done: number, total: number, time: string) => `${done} OF ${total} HABITS. IT IS ${time}. WE ARE BOTH SUFFERING 😭`,
   (done: number, total: number) => `${total - done} HABITS STILL UNDONE... IT IS ALMOST TOO LATE`,
@@ -43,9 +50,9 @@ const SCREAM_HABITS = [
 // minutes and GitHub has run it 3–5 hours apart, so an hour-wide target was
 // missed on whole days. The first tick from 15:00 until 21:00 decides; the
 // daily Vercel cron at 15:00 UTC lands inside it for Central Europe as a
-// backstop. The decision is made once because it can only go one way after
-// 15:00: water only rises and habits only get completed, so a user who was
-// fine at the first tick stays fine.
+// backstop. The decision is made once, at the first tick in the window: one
+// push a day is the whole budget, and a user judged on pace then is not
+// chased again as the evening's expectation climbs.
 const NUDGE_HOUR = 15
 const NUDGE_UNTIL_HOUR = 21
 const SENT_KEY = "emergy_push:sent"
@@ -85,7 +92,7 @@ export async function GET(req: NextRequest) {
   const earliestStart = new Date(Math.min(...due.map(d => d.dayStart.getTime())))
   const earliestDay = due.map(d => d.today).sort()[0]
 
-  const [intakes, habits, completions, skips] = await Promise.all([
+  const [intakes, habits, completions, skips, checkins, goalsByUser] = await Promise.all([
     prisma.intakeLog.findMany({
       where: { userId: { in: dueIds }, type: { in: HYDRATING_TYPES }, loggedAt: { gte: earliestStart } },
       select: { userId: true, amountMl: true, type: true, loggedAt: true },
@@ -104,6 +111,12 @@ export async function GET(req: NextRequest) {
       where: { userId: { in: dueIds }, date: { gte: new Date(earliestDay + "T00:00:00Z") } },
       select: { habitId: true, date: true },
     }).catch(() => [] as { habitId: string; date: Date }[]),
+    prisma.morningCheckIn.findMany({
+      where: { userId: { in: dueIds }, date: { in: [...new Set(due.map(d => d.today))] } },
+      select: { userId: true, date: true, waterGoalMl: true },
+    }).catch(() => [] as { userId: string; date: string; waterGoalMl: number | null }[]),
+    // Read alongside everything else, not one user at a time inside the send loop.
+    Promise.all(dueIds.map(async id => [id, (await getGoals(id)).waterMl] as const)).then(e => new Map(e)),
   ])
 
   // Date-only columns: the ISO date IS the day each row was filed under.
@@ -135,17 +148,24 @@ export async function GET(req: NextRequest) {
       today,
     )
     const habitPct = totalHabits > 0 ? (doneHabits / totalHabits) * 100 : 100
+    const checkinGoal = checkins.find(c => c.userId === userId && c.date === today)?.waterGoalMl
+    const waterGoal = resolveWaterGoal(checkinGoal, goalsByUser.get(userId) ?? DEFAULT_GOALS.waterMl)
+    const waterLevel = waterNudgeLevel(water, waterGoal, time)
 
     let message: string | null = null
     let tag = "emergy"
     let url = "/dashboard"
     const pick = Math.floor(Date.now() / 86400000)
-    if (water < 1500) {
+    if (waterLevel === "scream") {
       message = SCREAM_WATER[pick % SCREAM_WATER.length](Math.round(water), time)
       tag = "water"; url = "/dashboard/intake"
     } else if (habitPct < 50) {
       message = SCREAM_HABITS[pick % SCREAM_HABITS.length](doneHabits, totalHabits, time)
       tag = "habit"; url = "/dashboard/habits"
+    } else if (waterLevel === "nudge") {
+      const behind = Math.round((expectedWaterByNow(waterGoal, time) - water) / 50) * 50
+      message = NUDGE_WATER[pick % NUDGE_WATER.length](Math.round(water), behind, time)
+      tag = "water"; url = "/dashboard/intake"
     }
 
     // Marked before sending: a delivery failure should not turn into six

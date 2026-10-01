@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs"
 // on board, and the "In my body" tab showed 71%. The script and the tab now
 // read one computation (lib/body-load-now), so they cannot disagree.
 //
-// A medicine the app has no half-life for used to vanish from both: Stilnox an
+// A medicine the app has no half-life for used to vanish from both: a pill an
 // hour ago, no coffee today, and the tab said "Clear right now." Not knowing
 // the curve is not the same as knowing it is gone, so it is named instead.
 //
@@ -80,18 +80,18 @@ describe("what is still in my body — the scripted answer", () => {
 
   it("names the weekday of a dose older than yesterday", async () => {
     // Thu 24 Sept 22:10 Bratislava; asked Sun 27 Sept 08:00 — still in the 72 h window.
-    db.tags = [tag("Stilnox", "2026-09-24T20:10:00Z")]
+    db.tags = [tag("Neurexan", "2026-09-24T20:10:00Z")]
     vi.setSystemTime(new Date("2026-09-27T06:00:00Z"))
     const a = await runQuickAnswer("u1", "what's in my system right now?")
-    expect(a!.reply).toMatch(/Stilnox, taken Thu 22:10/)
+    expect(a!.reply).toMatch(/Neurexan, taken Thu 22:10/)
   })
 
   it("names a medicine it has no half-life for rather than calling the body clear", async () => {
-    db.tags = [tag("Stilnox", "2026-09-27T05:00:00Z")]
+    db.tags = [tag("Neurexan", "2026-09-27T05:00:00Z")]
     vi.setSystemTime(new Date("2026-09-27T06:00:00Z"))
     const a = await runQuickAnswer("u1", "what's in my system right now?")
     expect(a!.reply).not.toMatch(/Nothing much/)
-    expect(a!.reply).toMatch(/Stilnox/)
+    expect(a!.reply).toMatch(/Neurexan/)
     expect(a!.reply).toMatch(/07:00/)
     expect(a!.reply).toMatch(/no half-life on file/)
   })
@@ -144,10 +144,10 @@ describe("bodyLoadFrom — the one computation behind the tab and the script", (
   it("keeps unknown medicines as unmodeled, once each, newest dose", () => {
     const r = bodyLoadFrom({
       ...base,
-      medTags: [tag("Stilnox", "2026-09-26T20:00:00Z"), tag("Stilnox", "2026-09-27T05:00:00Z")],
+      medTags: [tag("Neurexan", "2026-09-26T20:00:00Z"), tag("Neurexan", "2026-09-27T05:00:00Z")],
     }, now)
     expect(r.substances).toEqual([])
-    expect(r.unmodeled).toEqual([{ name: "Stilnox", takenAt: "2026-09-27T05:00:00.000Z", sourceId: "manual_Stilnox" }])
+    expect(r.unmodeled).toEqual([{ name: "Neurexan", takenAt: "2026-09-27T05:00:00.000Z", sourceId: "manual_Neurexan" }])
   })
 
   it("does not list a stored supplement as unknown — the app knows it has no hour-scale curve", () => {

@@ -4,8 +4,11 @@ import Anthropic from "@anthropic-ai/sdk"
 import { format } from "date-fns"
 import { addDaysISO, localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { adherenceOver, matchKey, sortedTimes, type ScheduleLike } from "@/lib/med-schedule"
+import { adherenceOver, matchKey, sortedTimes, toDose, type DoseRow, type ScheduleLike } from "@/lib/med-schedule"
 import { formatDose, sumDoses, type ParsedDose } from "@/lib/dose"
+import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { supplementInfoFor } from "@/lib/supplement-info"
+import { normalizeSupplement } from "@/lib/supplement-normalize"
 import { loadWeightSeries } from "@/lib/weight-series"
 import { RING_OFF_MAX_STEPS } from "@/lib/sleep-quality"
 import { convertLabValue, normalizeUnit } from "@/lib/lab-units"
@@ -55,6 +58,18 @@ export type MedSummary = {
   lastTaken: string | null
   /** Typical recorded amount, e.g. "12.5mg" or "½ tablet"; null when never stated. */
   typicalDose: string | null
+  /** The schedule is switched off but doses were still recorded in the period. */
+  stopped?: true
+}
+
+/** A medicine or supplement taken in the period with no schedule behind it. */
+export type OtherDoseSummary = {
+  name: string
+  count: number
+  /** Distinct days it was taken. */
+  days: number
+  typicalDose: string | null
+  lastTaken: string
 }
 
 export type SymptomSummary = {
@@ -112,6 +127,8 @@ export type HealthReport = {
   coverage: { daysWithWearable: number; longestGapDays: number }
   metrics: MetricSummary[]
   meds: MedSummary[]
+  /** Doses of things with no schedule — as-needed medicines, one-offs, supplements. */
+  otherDoses: OtherDoseSummary[]
   symptoms: SymptomSummary[]
   labs: LabSummary[]
   bloodPressure: BloodPressureSummary | null
@@ -190,12 +207,13 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
         restingHR: true, hrv: true, readinessScore: true, spo2: true, breathingRate: true, stressHigh: true,
       },
     }).catch(() => []),
-    prisma.medSchedule.findMany({ where: { userId, active: true } }).catch(() => []),
+    // Stopped schedules too: one paused last week still had a week of doses.
+    prisma.medSchedule.findMany({ where: { userId } }).catch(() => []),
     // Doses actually recorded — Oura tags and manual logs share this table.
-    prisma.$queryRaw<{ tagName: string | null; text: string | null; day: string; timestamp: Date; doseAmount: number | null; doseUnit: string | null }[]>`
-      SELECT "tagName", "text", "day", "timestamp", "doseAmount", "doseUnit" FROM "OuraTag"
+    prisma.$queryRaw<(DoseRow & { doseAmount: number | null; doseUnit: string | null })[]>`
+      SELECT "id", "tagName", "text", "day", "timestamp", "doseAmount", "doseUnit" FROM "OuraTag"
       WHERE "userId" = ${userId} AND "day" >= ${fromStr} AND "day" <= ${toStr}
-    `.catch(() => [] as { tagName: string | null; text: string | null; day: string; timestamp: Date; doseAmount: number | null; doseUnit: string | null }[]),
+    `.catch(() => [] as (DoseRow & { doseAmount: number | null; doseUnit: string | null })[]),
     prisma.symptomLog.findMany({
       where: { userId, day: { gte: fromStr, lte: toStr } },
       select: { name: true, severity: true, day: true },
@@ -288,9 +306,10 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   // Matching and the per-time cap are the Medications page's own
   // (matchKey/adherenceOver), so the report and the app never disagree, and
   // today is left out because its later doses have not happened yet.
-  const doseList = doseRows
-    .map(r => ({ row: r, day: r.day, name: (r.tagName ?? r.text ?? "").trim() }))
-    .filter(d => d.name.length > 0)
+  const doseList = doseRows.flatMap(r => {
+    const d = toDose(r, tz)
+    return d ? [{ ...d, row: r }] : []
+  })
   const completeDays = windowDays.filter(d => d !== toStr)
   const shaped: ScheduleLike[] = medSchedules.map(m => ({
     id: m.id, name: m.name, times: m.times, daysOfWeek: m.daysOfWeek,
@@ -298,34 +317,68 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   }))
   const adherence = new Map(adherenceOver(shaped, doseList, completeDays).map(a => [a.scheduleId, a]))
 
-  const meds: MedSummary[] = medSchedules.map((m, i) => {
-    const key = matchKey(m.name)
-    const hits = doseList.filter(d => matchKey(d.name) === key).map(d => d.row)
-    const adh = adherence.get(m.id)
-    // An as-needed schedule has no times, so adherenceOver expects nothing and
-    // counts nothing; its recorded doses are still what the doctor needs.
-    const asNeeded = sortedTimes(shaped[i]).length === 0
-    const lastTaken = hits.length
-      ? hits.reduce((a, b) => (a.timestamp > b.timestamp ? a : b)).day
-      : null
-    // The mean of what was actually recorded, in whichever unit was used.
-    // Milligrams and tablet fractions are never mixed into one number.
+  type DoseRec = (typeof doseRows)[number]
+  const lastOf = (hits: DoseRec[]) => hits.reduce((a, b) => (a.timestamp > b.timestamp ? a : b)).day
+  // The mean of what was actually recorded, in whichever unit was used.
+  // Milligrams and tablet fractions are never mixed into one number.
+  const typicalOf = (hits: DoseRec[]): string | null => {
     const doses: ParsedDose[] = hits
       .filter(h => h.doseAmount != null && (h.doseUnit === "mg" || h.doseUnit === "tablet"))
       .map(h => ({ amount: h.doseAmount as number, unit: h.doseUnit as ParsedDose["unit"] }))
     const totals = sumDoses(doses)
     const mgCount = doses.filter(d => d.unit === "mg").length
     const tabCount = doses.length - mgCount
-    const typicalDose =
-      totals.mg != null && mgCount > 0 ? formatDose(totals.mg / mgCount, "mg")
+    return totals.mg != null && mgCount > 0 ? formatDose(totals.mg / mgCount, "mg")
       : totals.tablets != null && tabCount > 0 ? formatDose(totals.tablets / tabCount, "tablet")
       : null
+  }
 
-    return {
+  const meds: MedSummary[] = medSchedules.flatMap((m, i) => {
+    const key = matchKey(m.name)
+    const hits = doseList.filter(d => matchKey(d.name) === key).map(d => d.row)
+    // A stopped schedule matters only for the doses it still had.
+    if (!m.active && hits.length === 0) return []
+    const adh = adherence.get(m.id)
+    // An as-needed schedule has no times, so adherenceOver expects nothing and
+    // counts nothing; its recorded doses are still what the doctor needs. A
+    // stopped one expects nothing either, and the same holds.
+    const countAll = !m.active || sortedTimes(shaped[i]).length === 0
+    return [{
       name: m.name, dose: m.dose, times: m.times, daysOfWeek: m.daysOfWeek, note: m.note,
-      expectedDoses: adh?.expected ?? 0, loggedDoses: asNeeded ? hits.length : adh?.taken ?? 0, lastTaken, typicalDose,
-    }
+      expectedDoses: adh?.expected ?? 0, loggedDoses: countAll ? hits.length : adh?.taken ?? 0,
+      lastTaken: hits.length ? lastOf(hits) : null, typicalDose: typicalOf(hits),
+      ...(m.active ? {} : { stopped: true as const }),
+    }]
   })
+
+  // ── Doses with no schedule ────────────────────────────────────────────────
+  // Frontin taken as needed, a one-off painkiller, a supplement: without a
+  // schedule none of it reached the report. A tag counts when it is a dose
+  // and not a drink, and either the app knows the substance or it was logged
+  // in the app as a dose — a free-text Oura tag like "Sauna" is neither.
+  const scheduledKeys = new Set(medSchedules.map(m => matchKey(m.name)))
+  const others = new Map<string, { labels: Map<string, number>; hits: DoseRec[] }>()
+  for (const d of doseList) {
+    if (classifyOuraTag(d.name).kind !== "med") continue
+    const known = supplementInfoFor(d.name) != null || normalizeSupplement(d.name) != null
+    const loggedAsDose = d.row.id?.startsWith("manual_") || d.row.doseAmount != null
+    if (!known && !loggedAsDose) continue
+    const key = matchKey(d.name)
+    if (scheduledKeys.has(key)) continue
+    const g = others.get(key) ?? { labels: new Map<string, number>(), hits: [] }
+    g.labels.set(d.name, (g.labels.get(d.name) ?? 0) + 1)
+    g.hits.push(d.row)
+    others.set(key, g)
+  }
+  const otherDoses: OtherDoseSummary[] = [...others.values()]
+    .map(g => ({
+      name: [...g.labels.entries()].sort((a, b) => b[1] - a[1])[0][0],
+      count: g.hits.length,
+      days: new Set(g.hits.map(h => h.day)).size,
+      typicalDose: typicalOf(g.hits),
+      lastTaken: lastOf(g.hits),
+    }))
+    .sort((a, b) => b.count - a.count || b.lastTaken.localeCompare(a.lastTaken))
 
   // ── Symptoms ──────────────────────────────────────────────────────────────
   const symptomMap = new Map<string, { sev: number[]; last: string }>()
@@ -487,8 +540,11 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     const excluded = m.excludedDays ? `; ${m.excludedDays} further days under ${RING_OFF_MAX_STEPS} steps left out as the device not worn` : ""
     return `- ${m.label}: mean ${m.avg}${m.unit}${trend}; range ${m.min}–${m.max}; ${m.days}/${days} days recorded${excluded}`
   })
-  const medLines = meds.map(m =>
-    `- ${m.name}${m.dose ? ` (${m.dose})` : ""}, scheduled ${m.times.length}×/day at ${m.times.join(", ") || "unspecified"}; ${m.loggedDoses} doses recorded in-app of ~${m.expectedDoses} scheduled${m.typicalDose ? `; typical recorded amount ${m.typicalDose}` : ""}`)
+  const medLines = meds.map(m => m.stopped
+    ? `- ${m.name}${m.dose ? ` (${m.dose})` : ""}: schedule stopped or paused; ${m.loggedDoses} doses still recorded in the period, last on ${m.lastTaken}${m.typicalDose ? `; typical recorded amount ${m.typicalDose}` : ""}`
+    : `- ${m.name}${m.dose ? ` (${m.dose})` : ""}, scheduled ${m.times.length}×/day at ${m.times.join(", ") || "unspecified"}; ${m.loggedDoses} doses recorded in-app of ~${m.expectedDoses} scheduled${m.typicalDose ? `; typical recorded amount ${m.typicalDose}` : ""}`)
+  const otherDoseLines = otherDoses.slice(0, 12).map(o =>
+    `- ${o.name}: ${o.count} doses on ${o.days} days, last on ${o.lastTaken}${o.typicalDose ? `; typical recorded amount ${o.typicalDose}` : ""}`)
   const symptomLines = symptoms.slice(0, 8).map(s =>
     `- ${s.name}: recorded ${s.occurrences}× , mean severity ${s.avgSeverity}/5, worst ${s.worstSeverity}/5, last on ${s.lastSeen}`)
   const bpLine = bloodPressure
@@ -509,6 +565,9 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     "",
     "MEDICATIONS (self-reported schedule; adherence counts only doses logged in the app and is therefore a lower bound):",
     ...(medLines.length ? medLines : ["- none on file"]),
+    "",
+    "OTHER DOSES LOGGED (no schedule — as-needed medicines, one-offs and supplements, as recorded by the patient):",
+    ...(otherDoseLines.length ? otherDoseLines : ["- none recorded"]),
     "",
     "SYMPTOMS (self-reported):",
     ...(symptomLines.length ? symptomLines : ["- none recorded"]),
@@ -555,6 +614,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     coverage,
     metrics,
     meds,
+    otherDoses,
     symptoms,
     labs,
     bloodPressure,

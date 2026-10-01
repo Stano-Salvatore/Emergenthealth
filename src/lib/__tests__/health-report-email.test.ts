@@ -17,6 +17,7 @@ const EMPTY: HealthReport = {
   coverage: { daysWithWearable: 0, longestGapDays: 0 },
   metrics: [],
   meds: [],
+  otherDoses: [],
   symptoms: [],
   labs: [],
   bloodPressure: null,

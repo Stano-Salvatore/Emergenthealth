@@ -4,6 +4,7 @@ import { useRef, useState } from "react"
 import { Upload, CheckCircle2, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { extractActivities, extractVisits, parseLatLngString } from "@/lib/timeline-visits"
+import { todayLocalISO } from "@/lib/local-date"
 
 // Import a Google Takeout of Timeline / Location History.
 //
@@ -29,6 +30,8 @@ interface ParsedPoint {
 }
 
 const BATCH = 500
+/** Each visit is a query or two server-side, so these go up in smaller slices. */
+const VISIT_BATCH = 100
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function extractPoints(doc: any): ParsedPoint[] {
@@ -85,10 +88,10 @@ export function extractPoints(doc: any): ParsedPoint[] {
   }
 
   // Visits are dwells Google already worked out — "at this place from 14:02 to
-  // 16:31". Two points per visit (arrival and departure at the place) is a
-  // faithful rendering of one, and it's what makes an import of a
-  // visit-heavy export show up on the map and in the frequent-place mining
-  // rather than being thrown away.
+  // 16:31". Two points per visit (arrival and departure at the place) put one
+  // on the map and into the frequent-place mining. They are NOT enough for the
+  // dwell detector, which ends a stay at any gap over MAX_GAP_MIN, so the
+  // visits themselves are uploaded as well and become check-ins directly.
   for (const v of extractVisits(doc)) {
     out.push({ lat: v.lat, lng: v.lng, trackedAt: v.start, speedKmh: 0 })
     if (v.end !== v.start) out.push({ lat: v.lat, lng: v.lng, trackedAt: v.end, speedKmh: 0 })
@@ -168,14 +171,28 @@ export function TimelineImport({ onImported }: { onImported?: () => void }) {
         checkIns += data.checkIns ?? 0
       }
 
+      // After the points, not before: a stay the point batches already caught
+      // part of is then inside the whole visit's dedupe window and lengthened,
+      // rather than the part landing outside it and being logged again.
+      const visits = extractVisits(doc)
+      for (let i = 0; i < visits.length; i += VISIT_BATCH) {
+        const res = await fetch("/api/import/timeline", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ visits: visits.slice(i, i + VISIT_BATCH) }),
+        })
+        if (!res.ok) throw new Error(`Saving visits failed (HTTP ${res.status}) — the GPS points are in; importing the file again will retry the visits without duplicating anything.`)
+        checkIns += (await res.json()).checkIns ?? 0
+      }
+
       setPhase({
         kind: "done",
         imported,
         checkIns,
         activitySpans,
         total: points.length,
-        from: points[0].trackedAt.slice(0, 10),
-        to: points[points.length - 1].trackedAt.slice(0, 10),
+        from: todayLocalISO(new Date(points[0].trackedAt)),
+        to: todayLocalISO(new Date(points[points.length - 1].trackedAt)),
       })
       onImported?.()
     } catch (err) {

@@ -90,8 +90,9 @@ afterEach(() => {
 const schedule = (id: string, name: string, times = ["08:00"]) => ({
   id, name, times, daysOfWeek: [], active: true, startDate: null, endDate: null, dose: null, note: null,
 })
+let doseSeq = 0
 const dose = (dayStr: string, tagName: string | null, text: string | null = null, at?: string) => ({
-  tagName, text, day: dayStr, timestamp: new Date(at ?? dayStr + "T06:00:00Z"), doseAmount: null, doseUnit: null,
+  id: `manual_${++doseSeq}`, tagName, text, day: dayStr, timestamp: new Date(at ?? dayStr + "T06:00:00Z"), doseAmount: null, doseUnit: null,
 })
 
 describe("weight", () => {
@@ -178,6 +179,49 @@ describe("medications", () => {
     db.schedules = [schedule("s1", "Atarax", ["22:00"])]
     const r = await buildHealthReport("u1", 30)
     expect(r.meds[0].expectedDoses).toBe(29)
+  })
+})
+
+describe("medicines outside a schedule", () => {
+  // Frontin ½ taken as needed 18 times in 90 days, and a daily medicine
+  // paused last week: neither had an active schedule, so neither reached the
+  // report, and the doctor read an incomplete medication list.
+
+  it("lists doses of medicines that have no schedule, with how often and when last", async () => {
+    db.schedules = [schedule("s1", "Elicea", ["08:00"])]
+    for (const n of [2, 5, 9]) db.doses.push(dose(daysBack(n), "Frontin ½"))
+    for (const n of [1, 4]) db.doses.push(dose(daysBack(n), "Stillnox"))
+    for (const n of [1, 2, 3]) db.doses.push(dose(daysBack(n), "Elicea"))
+    const r = await buildHealthReport("u1", 30)
+    const other = Object.fromEntries(r.otherDoses.map(o => [o.name, o]))
+    expect(other["Frontin ½"]?.count ?? other["Frontin"]?.count).toBe(3)
+    expect(Object.values(other).find(o => /stil+nox/i.test(o.name))?.count).toBe(2)
+    expect(r.otherDoses.some(o => /elicea/i.test(o.name))).toBe(false)
+    expect(Object.values(other).find(o => /stil+nox/i.test(o.name))?.lastTaken).toBe(daysBack(1))
+  })
+
+  it("leaves drinks and non-medicine tags out of it", async () => {
+    // Ring tags, as these always are: a "Sauna" typed in the Oura app is not a dose.
+    const ring = (d: ReturnType<typeof dose>) => ({ ...d, id: d.id.replace("manual_", "oura_") })
+    db.doses.push(ring(dose(daysBack(1), "Coldbrew 300ml")), ring(dose(daysBack(2), "Water 250ml")), ring(dose(daysBack(2), "Sauna")))
+    const r = await buildHealthReport("u1", 30)
+    expect(r.otherDoses).toEqual([])
+  })
+
+  it("shows a stopped schedule that still had doses in the period, marked as stopped", async () => {
+    db.schedules = [
+      { ...schedule("s2", "Atarax", ["22:00"]), active: false },
+      { ...schedule("s3", "Mirzaten", ["22:00"]), active: false },
+    ]
+    for (const n of [8, 9, 10, 11]) db.doses.push(dose(daysBack(n), "Atarax"))
+    const r = await buildHealthReport("u1", 30)
+    expect(r.meds.map(m => [m.name, m.stopped, m.loggedDoses])).toEqual([["Atarax", true, 4]])
+  })
+
+  it("puts both into what the narrative is written from", () => {
+    const src = readFileSync("src/lib/health-report.ts", "utf8")
+    expect(src).toMatch(/OTHER DOSES LOGGED/)
+    expect(src).toMatch(/stopped or paused/)
   })
 })
 

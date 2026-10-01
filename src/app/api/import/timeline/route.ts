@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { optionalNumber } from "@/lib/optional-number"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { recordPlaceVisits } from "@/lib/place-visits"
+import { DETECTION_LOOKBACK_MIN, recordPlaceVisits, recordTimelineVisits } from "@/lib/place-visits"
 import { googleActivityMode, spanId } from "@/lib/activity-modes"
 
 export const runtime = "nodejs"
@@ -16,6 +16,8 @@ export const maxDuration = 30
 // a growing pile of duplicate points.
 
 const MAX_BATCH = 1000
+/** Each visit costs a query or two, and the whole batch shares maxDuration. */
+const MAX_VISITS = 200
 
 interface InPoint {
   lat: number
@@ -31,11 +33,22 @@ export async function POST(req: NextRequest) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  let body: { points?: InPoint[]; activities?: { start?: string; end?: string; type?: string }[] }
+  let body: {
+    points?: InPoint[]
+    activities?: { start?: string; end?: string; type?: string }[]
+    visits?: { lat: number; lng: number; start: string; end: string }[]
+  }
   try {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
+  }
+
+  // Google's visits go up on their own, after the points, and become check-ins
+  // directly — see visitsAtPlaces for why the points alone cannot.
+  if (Array.isArray(body.visits)) {
+    const r = await recordTimelineVisits(userId, body.visits.slice(0, MAX_VISITS))
+    return NextResponse.json({ ok: true, checkIns: r.created, matched: r.detected })
   }
 
   // Activity segments ride the same endpoint as the points they belong to.
@@ -107,10 +120,14 @@ export async function POST(req: NextRequest) {
   // Back-fill check-ins for the span this batch covers, so imported history
   // shows up as visits straight away rather than waiting for a cron whose
   // look-back only reaches the last few hours.
+  //
+  // Looking back DETECTION_LOOKBACK_MIN before the batch, as live ingest does:
+  // a stay that crosses a batch boundary is otherwise seen as two, and the
+  // second half's dedupe window never reaches the first half's check-in.
   let checkIns = 0
   if (res.count > 0) {
     const times = data.map(d => d.trackedAt.getTime())
-    const from = new Date(Math.min(...times))
+    const from = new Date(Math.min(...times) - DETECTION_LOOKBACK_MIN * 60_000)
     const to = new Date(Math.max(...times))
     const visits = await recordPlaceVisits(userId, from, to).catch(() => ({ created: 0 }))
     checkIns = visits.created

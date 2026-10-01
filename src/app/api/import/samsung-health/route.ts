@@ -1,49 +1,19 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import {
+  parseCsv, combinedFields, importFieldsOverExisting, moodByDay, ISO_DAY, IMPORT_SELECT,
+} from "@/lib/samsung-health-import"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
 
-function parseLine(line: string): string[] {
-  const result: string[] = []
-  let field = ""
-  let inQuotes = false
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i]
-    if (c === '"') {
-      inQuotes = !inQuotes
-    } else if (c === "," && !inQuotes) {
-      result.push(field.trim())
-      field = ""
-    } else {
-      field += c
-    }
-  }
-  result.push(field.trim())
-  return result
-}
+// Small enough that one slow write cannot hold the rest past maxDuration,
+// large enough that a year of days is a handful of round trips.
+const CHUNK = 25
 
-function parseCsv(csv: string): Record<string, string>[] {
-  const lines = csv.trim().split(/\r?\n/).filter(l => l.trim())
-  if (lines.length < 2) return []
-  const headers = parseLine(lines[0]).map(h => h.trim())
-  return lines.slice(1).map(line => {
-    const values = parseLine(line)
-    return Object.fromEntries(headers.map((h, i) => [h, values[i] ?? ""]))
-  })
-}
-
-function num(s: string | undefined): number | null {
-  if (!s || s === "") return null
-  const n = parseFloat(s)
-  return isNaN(n) ? null : n
-}
-
-function int(s: string | undefined): number | null {
-  const n = num(s)
-  return n != null ? Math.round(n) : null
-}
+const COMBINED_COLUMNS = "date (YYYY-MM-DD), sleep_score, sleep_efficiency, sleep_duration_min, steps, distance_m, calories, weight_kg"
+const MOOD_COLUMNS = "date (YYYY-MM-DD), time, mood_type (1–5)"
 
 export async function POST(req: NextRequest) {
   const session = await auth()
@@ -61,66 +31,56 @@ export async function POST(req: NextRequest) {
   if (!rows.length) return NextResponse.json({ error: "No data parsed" }, { status: 400 })
 
   if (body.type === "mood") {
-    // Mood CSV: date, time, mood_type, emotions
-    // mood_type: 1=Terrible, 2=Bad, 3=Neutral, 4=Good, 5=Amazing — same as app's 1-5
-    let imported = 0
-    for (const row of rows) {
-      if (!row.date || !row.mood_type) continue
-      const mood = int(row.mood_type)
-      if (!mood || mood < 1 || mood > 5) continue
-      const date = new Date(row.date + "T00:00:00.000Z")
-      await prisma.moodLog.upsert({
-        where: { userId_date: { userId, date } },
-        create: { userId, date, mood },
-        update: {},
-      }).catch(() => {})
-      imported++
+    const days = moodByDay(rows)
+    if (days.size === 0) {
+      return NextResponse.json({ error: `No row had a usable date and mood. Expected columns: ${MOOD_COLUMNS}.` }, { status: 400 })
     }
-    return NextResponse.json({ imported, type: "mood" })
+    // A day already in MoodLog is the user's own entry and stays; one
+    // statement, so the count is exactly the rows it created.
+    const { count } = await prisma.moodLog.createMany({
+      data: [...days].map(([day, mood]) => ({ userId, date: new Date(day + "T00:00:00.000Z"), mood })),
+      skipDuplicates: true,
+    })
+    return NextResponse.json({ imported: count, unchanged: days.size - count, failed: 0, type: "mood" })
   }
 
-  // Combined CSV: date, sleep_score, sleep_efficiency, physical_recovery,
-  // mental_recovery, sleep_duration_min, steps, distance_m, calories,
-  // avg_stress, stress_readings, avg_hr, min_hr, max_hr, weight_kg
+  const usable = rows
+    .filter(row => row.date && ISO_DAY.test(row.date))
+    .map(row => ({ day: row.date, fields: combinedFields(row) }))
+    .filter(r => Object.keys(r.fields).length > 0)
+  if (usable.length === 0) {
+    return NextResponse.json({ error: `No row had a usable date and value. Expected columns: ${COMBINED_COLUMNS}.` }, { status: 400 })
+  }
+
+  // The ring wins where it speaks, and an import fills only what is empty.
+  const existingRows = await prisma.healthLog.findMany({
+    where: { userId, date: { in: usable.map(r => new Date(r.day + "T00:00:00.000Z")) } },
+    select: { date: true, ...IMPORT_SELECT },
+  })
+  const existingByDay = new Map(existingRows.map(r => [r.date.toISOString().slice(0, 10), r]))
+
   let imported = 0
-  const upserts = rows
-    .filter(row => row.date && /^\d{4}-\d{2}-\d{2}$/.test(row.date))
-    .map(row => {
-      const date = new Date(row.date + "T00:00:00.000Z")
+  let unchanged = 0
+  let failed = 0
+  const writes: (() => Promise<unknown>)[] = []
+  for (const { day, fields } of usable) {
+    const allowed = importFieldsOverExisting(existingByDay.get(day) ?? null, fields)
+    if (Object.keys(allowed).length === 0) { unchanged++; continue }
+    const date = new Date(day + "T00:00:00.000Z")
+    const syncedAt = new Date()
+    writes.push(() => prisma.healthLog.upsert({
+      where: { userId_date: { userId, date } },
+      create: { userId, date, ...allowed, syncedAt },
+      update: { ...allowed, syncedAt },
+    }))
+  }
+  for (let i = 0; i < writes.length; i += CHUNK) {
+    const results = await Promise.allSettled(writes.slice(i, i + CHUNK).map(w => w()))
+    for (const r of results) {
+      if (r.status === "fulfilled") imported++
+      else { failed++; console.error("[import/samsung-health] row failed:", r.reason) }
+    }
+  }
 
-      const sleepScore   = int(row.sleep_score)
-      const sleepEff     = int(row.sleep_efficiency)
-      const sleepDur     = int(row.sleep_duration_min)
-      const steps        = int(row.steps)
-      const distanceKm   = row.distance_m ? Math.round((parseFloat(row.distance_m) / 1000) * 100) / 100 : null
-      const calories     = int(row.calories)
-      const avgHr        = int(row.avg_hr)
-      const weightKg     = num(row.weight_kg)
-
-      const fields = {
-        ...(sleepScore != null    && { sleepScore }),
-        ...(sleepEff != null      && { sleepEfficiency: sleepEff }),
-        ...(sleepDur != null      && sleepDur > 0 && { sleepDuration: sleepDur }),
-        ...(steps != null         && steps > 0 && { steps }),
-        ...(distanceKm != null    && distanceKm > 0 && { distanceKm }),
-        ...(calories != null      && calories > 0 && { caloriesBurned: calories }),
-        ...(avgHr != null         && avgHr > 0 && avgHr < 250 && { restingHR: avgHr }),
-        ...(weightKg != null      && weightKg > 0 && { weight: Math.round(weightKg * 10) / 10 }),
-        syncedAt: new Date(),
-      }
-
-      if (Object.keys(fields).length <= 1) return null
-      imported++
-
-      return prisma.healthLog.upsert({
-        where: { userId_date: { userId, date } },
-        create: { userId, date, ...fields },
-        update: fields,
-      })
-    })
-    .filter((u): u is NonNullable<typeof u> => u != null)
-
-  await Promise.all(upserts)
-
-  return NextResponse.json({ imported, type: "combined" })
+  return NextResponse.json({ imported, unchanged, failed, type: "combined" })
 }

@@ -16,6 +16,8 @@ import MedicationsPage from "@/app/dashboard/medications/page"
 import { FoodTab } from "@/components/intake/FoodTab"
 import { OverviewTab } from "@/components/intake/OverviewTab"
 import { BodyLoadTab } from "@/components/intake/BodyLoadTab"
+import { WhenRow, PAST_DAY_DEFAULT } from "@/components/intake/WhenRow"
+import { atFromChoice, canBackfillDay, BACKFILL_MAX_DAYS, type WhenChoice } from "@/lib/backfill-time"
 
 interface IntakeLog {
   id: string
@@ -54,6 +56,20 @@ const QUICK_GROUPS: { title: string; items: QuickItem[] }[] = [
     ],
   },
   {
+    title: "Other drinks",
+    items: [
+      // note names the drink, so its caffeine and calories are read from it
+      { type: "juice", label: "Juice 250ml",   amount: 250, icon: "🧃", note: "Juice" },
+      { type: "soda",  label: "Kofola 500ml",  amount: 500, icon: "🥤", note: "Kofola" },
+      { type: "soda",  label: "Cola 330ml",    amount: 330, icon: "🥤", note: "Cola" },
+      { type: "soda",  label: "Energy drink",  amount: 250, icon: "⚡", note: "Energy drink" },
+      { type: "water", label: "Syrup water",   amount: 500, icon: "🍹", note: "Syrup water" },
+      { type: "milk",  label: "Milk 250ml",    amount: 250, icon: "🥛", note: "Milk" },
+      { type: "mate",  label: "Yerba mate",    amount: 500, icon: "🧉", note: "Yerba mate" },
+      { type: "soda",  label: "Alcohol-free beer", amount: 500, icon: "🍺", note: "Nealko pivo" },
+    ],
+  },
+  {
     title: "Alcohol",
     items: [
       { type: "beer",    label: "Beer 330ml",   amount: 330, icon: "🍺" },
@@ -76,6 +92,7 @@ const TYPE_META: Record<string, { label: string; color: string; goal?: number; i
   coffee:    { label: "Coffee",    color: "bg-amber-700",  goal: 400,  icon: <Coffee className="h-4 w-4 text-amber-600" /> },
   tea:       { label: "Tea",       color: "bg-green-600",              icon: <span className="text-sm">🍵</span> },
   matcha:    { label: "Matcha",    color: "bg-emerald-500",            icon: <span className="text-sm">🍃</span> },
+  mate:      { label: "Mate",      color: "bg-lime-600",               icon: <span className="text-sm">🧉</span> },
   alcohol:   { label: "Alcohol",   color: "bg-yellow-600",             icon: <Wine className="h-4 w-4 text-yellow-500" /> },
   beer:      { label: "Beer",      color: "bg-yellow-500",             icon: <span className="text-sm">🍺</span> },
   wine:      { label: "Wine",      color: "bg-rose-700",               icon: <span className="text-sm">🍷</span> },
@@ -88,11 +105,12 @@ const TYPE_META: Record<string, { label: string; color: string; goal?: number; i
 }
 
 // Types the custom-entry form offers, and which of them ask for a strength.
-const CUSTOM_TYPES = ["water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol", "other"] as const
+const CUSTOM_TYPES = ["water", "sparkling", "coffee", "tea", "matcha", "mate", "juice", "soda", "milk", "beer", "wine", "spirits", "alcohol", "other"] as const
 /** Only an alcoholic drink has a strength worth asking for — see isAlcohol. */
 const STRENGTH_TYPES = new Set<string>(ALCOHOL_TYPES)
 const CUSTOM_EMOJI: Record<string, string> = {
   water: "💧", sparkling: "🫧", coffee: "☕", tea: "🍵", matcha: "🍃",
+  mate: "🧉", juice: "🧃", soda: "🥤", milk: "🥛",
   beer: "🍺", wine: "🍷", spirits: "🥃", alcohol: "🍾", other: "🥤",
 }
 
@@ -161,6 +179,14 @@ export default function IntakePage() {
   const [caffeineMg, setCaffeineMg] = useState<number | null>(null)
   const [lateCoffee, setLateCoffee] = useState<{ mg: number; bedLabel: string } | null>(null)
   const isToday = date === localDateStr()
+  // When the next quick add happened. Reset with the day: a time picked for
+  // yesterday means nothing today.
+  const [when, setWhen] = useState<WhenChoice>(null)
+  const [whenFor, setWhenFor] = useState(date)
+  if (whenFor !== date) {
+    setWhenFor(date)
+    setWhen(isToday ? null : PAST_DAY_DEFAULT)
+  }
 
   // With the strip's scrollbar hidden, this is what keeps a deep-linked or
   // just-tapped tab visible instead of parked off the right edge.
@@ -240,6 +266,7 @@ export default function IntakePage() {
   // without the drink. Either way nothing said so.
   async function addEntry(type: string, amountMl: number, note?: string): Promise<boolean> {
     if ("vibrate" in navigator) navigator.vibrate(20)
+    const at = atFromChoice(date, isToday ? when : (when ?? PAST_DAY_DEFAULT))
     setAdding(`${type}-${amountMl}-${note ?? ""}`)
     setAddError(null)
     let ok = false
@@ -247,7 +274,7 @@ export default function IntakePage() {
       const res = await fetch("/api/intake", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, amountMl, ...(note ? { note } : {}) }),
+        body: JSON.stringify({ type, amountMl, ...(note ? { note } : {}), ...(at ? { at } : {}) }),
       })
       ok = res.ok
       if (!ok) setAddError(`Not saved. ${describeFetchFailure(new HttpStatusError(res.status))}`)
@@ -258,6 +285,11 @@ export default function IntakePage() {
     }
     load()
     if (!ok) return false
+    // A picked time is for this one drink: left set, the next tap would be
+    // filed an hour back without anyone asking for it.
+    if (isToday) setWhen(null)
+    // The bedtime warning is about a drink had just now, not one filed back.
+    if (at) return true
     const caf = await loadCaffeine()
     // Gentle heads-up after a caffeinated drink: how much will still be
     // circulating at their usual bedtime? Informational only — the drink is
@@ -487,9 +519,16 @@ export default function IntakePage() {
 
       {addError && <p role="alert" className="text-xs text-destructive">{addError}</p>}
 
+      {!canBackfillDay(date, localDateStr()) && (
+        <p className="text-xs text-muted-foreground">
+          Drinks can be added up to {BACKFILL_MAX_DAYS - 1} days back — this day is further than that.
+        </p>
+      )}
+
       {/* quick add buttons */}
-      {isToday && (
+      {canBackfillDay(date, localDateStr()) && (
         <div className="space-y-3">
+          <WhenRow isToday={isToday} value={isToday ? when : (when ?? PAST_DAY_DEFAULT)} onChange={setWhen} />
           {QUICK_GROUPS.map(group => (
             <div key={group.title}>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{group.title}</p>
@@ -585,7 +624,7 @@ export default function IntakePage() {
             <CardContent className="py-10 text-center">
               <Droplets className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">No entries for {dateLabel.toLowerCase()}</p>
-              {isToday && <p className="text-xs text-muted-foreground mt-1">Use quick add above to log your intake</p>}
+              <p className="text-xs text-muted-foreground mt-1">Use quick add above to log your intake</p>
             </CardContent>
           </Card>
         ) : (

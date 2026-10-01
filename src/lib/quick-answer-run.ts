@@ -30,6 +30,8 @@ import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { ALCOHOL_TYPES, CAFFEINE_FLOOR_MG } from "@/lib/body-load"
 import { computeBodyLoad } from "@/lib/body-load-now"
 import { supplementInfoFor } from "@/lib/supplement-info"
+import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { getGoals } from "@/lib/goals"
 import { formatDose } from "@/lib/dose"
 import { parseQuickAsk, type QuickAsk } from "@/lib/quick-answer"
@@ -166,13 +168,19 @@ async function intakeTotal(userId: string, tz: string, type: string, label: stri
 
 async function todaysDoses(userId: string, today: string) {
   const rows = await prisma.ouraTag.findMany({
-    where: { userId, day: today, tagName: { not: null } },
+    where: { userId, day: today },
     orderBy: { timestamp: "asc" },
-    select: { tagName: true, doseAmount: true, doseUnit: true },
+    select: { tagName: true, text: true, doseAmount: true, doseUnit: true },
   }).catch(() => [])
-  return rows.map(r => {
+  // The same table holds the Oura app's drink tags, which the sync already
+  // mirrors into IntakeLog. A dose is what the shared classifier calls a med,
+  // named as the dashboard and body load name it.
+  return rows.flatMap(r => {
+    const raw = (r.tagName ?? r.text ?? "").trim()
+    if (!raw || classifyOuraTag(raw).kind !== "med") return []
     const amount = formatDose(r.doseAmount, r.doseUnit)
-    return { label: `${r.tagName}${amount ? ` ${amount}` : ""}` }
+    const name = normalizeSupplement(raw) ?? cleanLabel(raw)
+    return [{ label: `${name}${amount ? ` ${amount}` : ""}` }]
   })
 }
 

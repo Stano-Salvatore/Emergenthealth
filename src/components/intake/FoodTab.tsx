@@ -16,6 +16,9 @@ import { getCurrentPosition } from "@/lib/native/geolocation"
 import { matchSavedPlace, type PlaceLike } from "@/lib/places"
 import { estimateCaffeine, decayed, hoursToBedtime } from "@/lib/caffeine"
 import { NutrientGapsCard } from "@/components/intake/NutrientGapsCard"
+import { WhenRow, PAST_DAY_DEFAULT } from "@/components/intake/WhenRow"
+import { atFromChoice, canBackfillDay, type WhenChoice } from "@/lib/backfill-time"
+import { todayLocalISO } from "@/lib/local-date"
 
 interface FoodItem {
   kind?: "food" | "drink"
@@ -129,6 +132,14 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
+  // When the meal was eaten: null = now (today only). A past day always has a time.
+  const [when, setWhen] = useState<WhenChoice>(null)
+  const [whenFor, setWhenFor] = useState(date)
+  if (whenFor !== date) {
+    setWhenFor(date)
+    setWhen(isToday ? null : PAST_DAY_DEFAULT)
+  }
+  const whenValue = isToday ? when : (when ?? PAST_DAY_DEFAULT)
   // Kicked off when a draft starts so the fix is usually ready by save time.
   const locRef = useRef<Promise<MealLocation | null> | null>(null)
 
@@ -340,10 +351,12 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
           lat: loc?.lat,
           lng: loc?.lng,
           place: loc?.place ?? undefined,
+          at: atFromChoice(date, whenValue),
         }),
       })
       if (res.ok) {
         setDraft(null)
+        if (isToday) setWhen(null)
         load()
         onSaved?.() // mirrored drinks land in Intake/Caffeine — refresh them
       } else {
@@ -492,7 +505,7 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
       )}
 
       {/* capture / manual entry */}
-      {isToday && !draft && (
+      {!draft && canBackfillDay(date, todayLocalISO()) && (
         <div className="flex flex-wrap gap-2">
           <Button onClick={snapMeal} disabled={analyzing} className="gap-2">
             {analyzing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
@@ -655,6 +668,8 @@ export function FoodTab({ date, isToday, onSaved }: { date: string; isToday: boo
                 </button>
               </div>
             )}
+
+            <WhenRow isToday={isToday} value={whenValue} onChange={setWhen} />
 
             <div className="flex gap-2 justify-end">
               <Button variant="ghost" size="sm" onClick={() => setDraft(null)} disabled={saving}>Cancel</Button>

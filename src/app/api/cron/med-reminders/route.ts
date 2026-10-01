@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { configurePush, loadLocalCoverage, loadSubscriptionsByUser, phoneCovers, sendToUser } from "@/lib/push"
-import { localDateStr, localTimeStr } from "@/lib/local-date"
+import { addDaysISO, localDateStr, localTimeStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { activeOn, matchKey, minutesOfDay, sortedTimes, type ScheduleLike } from "@/lib/med-schedule"
+import {
+  activeOn, dosesByDay, minutesOfDay, sortedTimes, toDose,
+  type DoseRow, type ScheduleLike,
+} from "@/lib/med-schedule"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -69,16 +72,12 @@ export async function GET(req: NextRequest) {
 
     const mine = schedules.filter(s => s.userId === userId)
 
-    const doseRows = await prisma.$queryRaw<{ tagName: string | null; text: string | null }[]>`
-      SELECT "tagName","text" FROM "OuraTag" WHERE "userId" = ${userId} AND "day" = ${today}
-    `.catch(() => [] as { tagName: string | null; text: string | null }[])
-    const takenByKey = new Map<string, number>()
-    for (const r of doseRows) {
-      const name = (r.tagName ?? r.text ?? "").trim()
-      if (!name) continue
-      const k = matchKey(name)
-      takenByKey.set(k, (takenByKey.get(k) ?? 0) + 1)
-    }
+    // Yesterday too: a dose after midnight may be last night's (dosesByDay).
+    const doseRows = await prisma.$queryRaw<DoseRow[]>`
+      SELECT "id","day","timestamp","tagName","text" FROM "OuraTag"
+      WHERE "userId" = ${userId} AND "day" >= ${addDaysISO(today, -1)}
+    `.catch(() => [] as DoseRow[])
+    const doses = doseRows.flatMap(r => toDose(r, tz) ?? [])
 
     const prev = stateByUser.get(userId) ?? {}
     // Only today's marks are worth carrying — yesterday's can't suppress
@@ -93,7 +92,7 @@ export async function GET(req: NextRequest) {
       }
       if (!activeOn(shape, today)) continue
 
-      const taken = takenByKey.get(matchKey(s.name)) ?? 0
+      const taken = dosesByDay(shape, doses).get(today) ?? 0
       const times = sortedTimes(shape)
       times.forEach((time, i) => {
         // Doses are covered in order, so the i-th time is satisfied once i+1

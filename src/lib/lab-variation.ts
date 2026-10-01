@@ -62,6 +62,7 @@ const VARIATION: Record<string, Variation> = {
   "White blood cells": { cvi: 10.9, cva: 3.5 },
   "AST": { cvi: 11.9, cva: 4.0 },
   "Urea": { cvi: 12.0, cva: 3.0 },
+  "BUN": { cvi: 12.0, cva: 3.0 }, // the same analyte as urea, reported by its nitrogen
   "Vitamin D": { cvi: 12.1, cva: 5.0 },
   "GGT": { cvi: 13.4, cva: 4.0 },
   "Vitamin B12": { cvi: 13.5, cva: 5.0 },

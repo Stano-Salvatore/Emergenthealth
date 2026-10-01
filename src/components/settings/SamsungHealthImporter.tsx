@@ -7,19 +7,21 @@ import { Upload, CheckCircle2, XCircle, Smartphone } from "lucide-react"
 
 type ImportState = "idle" | "uploading" | "done" | "error"
 
+type ImportResult = { imported: number; unchanged: number; failed: number }
+
 function FileImportRow({
   label,
   hint,
   onFile,
   state,
-  count,
+  result,
   error,
 }: {
   label: string
   hint: string
   onFile: (file: File) => void
   state: ImportState
-  count: number | null
+  result: ImportResult | null
   error: string | null
 }) {
   const ref = useRef<HTMLInputElement>(null)
@@ -28,9 +30,16 @@ function FileImportRow({
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium">{label}</p>
         <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>
-        {state === "done" && count != null && (
-          <p className="text-xs text-green-400 mt-1 flex items-center gap-1">
-            <CheckCircle2 className="h-3 w-3" /> {count} rows imported
+        {state === "done" && result != null && (
+          <p className={`text-xs mt-1 flex items-center gap-1 ${result.imported > 0 ? "text-green-400" : "text-muted-foreground"}`}>
+            {result.imported > 0 && <CheckCircle2 className="h-3 w-3" />}
+            {result.imported} {result.imported === 1 ? "day" : "days"} imported
+            {result.unchanged > 0 && ` · ${result.unchanged} already stored, left as they were`}
+          </p>
+        )}
+        {state === "done" && result != null && result.failed > 0 && (
+          <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
+            <XCircle className="h-3 w-3" /> {result.failed} {result.failed === 1 ? "day" : "days"} failed to save — importing again retries them
           </p>
         )}
         {state === "error" && error && (
@@ -80,17 +89,17 @@ function FileImportRow({
 
 export function SamsungHealthImporter() {
   const [combinedState, setCombinedState] = useState<ImportState>("idle")
-  const [combinedCount, setCombinedCount] = useState<number | null>(null)
+  const [combinedResult, setCombinedResult] = useState<ImportResult | null>(null)
   const [combinedError, setCombinedError] = useState<string | null>(null)
 
   const [moodState, setMoodState] = useState<ImportState>("idle")
-  const [moodCount, setMoodCount] = useState<number | null>(null)
+  const [moodResult, setMoodResult] = useState<ImportResult | null>(null)
   const [moodError, setMoodError] = useState<string | null>(null)
 
   async function handleFile(file: File, type: "combined" | "mood") {
     const set = type === "combined"
-      ? { setState: setCombinedState, setCount: setCombinedCount, setError: setCombinedError }
-      : { setState: setMoodState, setCount: setMoodCount, setError: setMoodError }
+      ? { setState: setCombinedState, setResult: setCombinedResult, setError: setCombinedError }
+      : { setState: setMoodState, setResult: setMoodResult, setError: setMoodError }
 
     set.setState("uploading")
     set.setError(null)
@@ -106,7 +115,7 @@ export function SamsungHealthImporter() {
         throw new Error(err.error ?? `HTTP ${res.status}`)
       }
       const data = await res.json()
-      set.setCount(data.imported)
+      set.setResult({ imported: data.imported ?? 0, unchanged: data.unchanged ?? 0, failed: data.failed ?? 0 })
       set.setState("done")
     } catch (e) {
       set.setError(e instanceof Error ? e.message : "Import failed")
@@ -124,24 +133,24 @@ export function SamsungHealthImporter() {
       </CardHeader>
       <CardContent className="space-y-1">
         <p className="text-xs text-muted-foreground mb-3">
-          Import your Samsung Health export. In Samsung Health → Profile → Data & privacy → Download personal data. Export as CSV and upload the files below.
+          Import older history from CSV files with the columns below. Samsung Health&apos;s own &ldquo;Download personal data&rdquo; export is a folder of per-type files in a different layout and will not import here; convert it first. Recent Samsung data arrives through Health Connect. Days that already hold a value — from the ring, Health Connect or a weight you typed — keep it.
         </p>
 
         <FileImportRow
           label="Health data (combined CSV)"
-          hint="Sleep, steps, distance, calories, HR, weight, stress"
+          hint="date (YYYY-MM-DD), sleep_score, sleep_efficiency, sleep_duration_min, steps, distance_m, calories, weight_kg"
           onFile={f => handleFile(f, "combined")}
           state={combinedState}
-          count={combinedCount}
+          result={combinedResult}
           error={combinedError}
         />
 
         <FileImportRow
-          label="Mood log (mood_scores CSV)"
-          hint="Mood entries (1–5 scale)"
+          label="Mood log (CSV)"
+          hint="date (YYYY-MM-DD), time, mood_type (1–5). A day you already logged keeps your entry."
           onFile={f => handleFile(f, "mood")}
           state={moodState}
-          count={moodCount}
+          result={moodResult}
           error={moodError}
         />
       </CardContent>

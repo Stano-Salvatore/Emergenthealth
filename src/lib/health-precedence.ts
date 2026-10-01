@@ -65,6 +65,11 @@ export const PRECEDENCE_SELECT = {
   activityScore: true, sedentaryTime: true,
 } as const satisfies Record<SharedColumn | RingActivityMarker | "ringAt", true>
 
+/** The ring has written this row and holds at least part of its night. */
+export function ringHoldsNight(existing: ExistingRow | null): boolean {
+  return existing?.ringAt != null && NIGHT_COLUMNS.some(c => existing[c] != null)
+}
+
 /**
  * The subset of `incoming` that a phone writer may write over `existing`.
  *
@@ -80,7 +85,7 @@ export function phoneFieldsRespectingRing<T extends SharedValues>(
 ): Partial<T> {
   const out: Partial<T> = {}
   const ringSpoke = existing?.ringAt != null
-  const ringNight = ringSpoke && NIGHT_COLUMNS.some(c => existing![c] != null)
+  const ringNight = ringHoldsNight(existing)
   const ringActivity = ringSpoke && RING_ACTIVITY_MARKERS.some(c => existing![c] != null)
   for (const key of Object.keys(incoming) as (keyof T)[]) {
     const value = incoming[key]

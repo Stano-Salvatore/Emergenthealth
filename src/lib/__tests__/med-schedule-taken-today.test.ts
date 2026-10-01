@@ -19,7 +19,7 @@ vi.mock("@/lib/prisma", () => {
           active: true, remind: true, note: null, startDate: null, endDate: null, createdAt: new Date(0),
         }],
       },
-      $queryRaw: () => Promise.resolve([{ day: today, tagName: "Atarax", text: null }]),
+      $queryRaw: () => Promise.resolve([{ id: "manual_1", day: today, timestamp: new Date(`${today}T12:00:00Z`),tagName: "Atarax", text: null }]),
     },
   }
 })

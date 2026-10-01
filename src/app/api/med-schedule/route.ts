@@ -4,8 +4,8 @@ import { prisma } from "@/lib/prisma"
 import { localDateStr, localTimeStr, addDaysISO } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import {
-  activeOn, adherenceOver, dosesForDay, matchKey, minutesOfDay, sortedTimes,
-  type ScheduleLike,
+  activeOn, adherenceOver, dosesByDay, dosesForDay, minutesOfDay, sortedTimes, toDose,
+  type DoseRow, type ScheduleLike,
 } from "@/lib/med-schedule"
 
 export const dynamic = "force-dynamic"
@@ -61,14 +61,12 @@ export async function GET() {
 
   // Every dose logged in the window, from the one table doses live in —
   // ring tags and manual taps alike.
-  const doseRows = await prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
-    SELECT "day", "tagName", "text" FROM "OuraTag"
+  const doseRows = await prisma.$queryRaw<DoseRow[]>`
+    SELECT "id", "day", "timestamp", "tagName", "text" FROM "OuraTag"
     WHERE "userId" = ${userId} AND "day" >= ${windowStart}
-  `.catch(() => [] as { day: string; tagName: string | null; text: string | null }[])
+  `.catch(() => [] as DoseRow[])
 
-  const doses = doseRows
-    .map(r => ({ day: r.day, name: (r.tagName ?? r.text ?? "").trim() }))
-    .filter(d => d.name.length > 0)
+  const doses = doseRows.flatMap(r => toDose(r, tz) ?? [])
 
   const days: string[] = []
   for (let i = ADHERENCE_DAYS; i >= 1; i--) days.push(addDaysISO(today, -i))
@@ -80,17 +78,10 @@ export async function GET() {
 
   const adherence = new Map(adherenceOver(shaped, doses, days).map(a => [a.scheduleId, a]))
 
-  const takenTodayByKey = new Map<string, number>()
-  for (const d of doses) {
-    if (d.day !== today) continue
-    const k = matchKey(d.name)
-    takenTodayByKey.set(k, (takenTodayByKey.get(k) ?? 0) + 1)
-  }
-
   const items = schedules.map(s => {
     const shape = shaped.find(x => x.id === s.id)!
     const runsToday = activeOn(shape, today)
-    const takenToday = takenTodayByKey.get(matchKey(s.name)) ?? 0
+    const takenToday = dosesByDay(shape, doses).get(today) ?? 0
     return {
       id: s.id,
       name: s.name,

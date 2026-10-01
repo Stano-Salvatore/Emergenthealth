@@ -10,6 +10,8 @@ import { format } from "date-fns"
 import { LabImportCard } from "@/components/labs/LabImportCard"
 import { LabTrendsCard } from "@/components/labs/LabTrendsCard"
 import { canonicalMarker, CANONICAL_MARKERS } from "@/lib/lab-markers"
+import { convertLabValue, normalizeUnit } from "@/lib/lab-units"
+import { implausibleJump, suggestedUnit } from "@/lib/lab-entry"
 
 interface LabResult {
   id: string
@@ -28,25 +30,6 @@ const COMMON_MARKERS = [
   "Iron", "CRP",
 ]
 
-const UNIT_DEFAULTS: Record<string, string> = {
-  "Vitamin D": "ng/mL",
-  "TSH": "mIU/L",
-  "Ferritin": "ng/mL",
-  "HbA1c": "%",
-  "Cholesterol": "mg/dL",
-  "LDL": "mg/dL",
-  "HDL": "mg/dL",
-  "Triglycerides": "mg/dL",
-  "Glucose": "mg/dL",
-  "Creatinine": "mg/dL",
-  "ALT": "U/L",
-  "AST": "U/L",
-  "B12": "pg/mL",
-  "Folate": "ng/mL",
-  "Iron": "µg/dL",
-  "CRP": "mg/L",
-}
-
 function statusColor(value: number, min: number | null, max: number | null) {
   if (min == null && max == null) return "text-foreground"
   const inRange =
@@ -60,9 +43,19 @@ function statusColor(value: number, min: number | null, max: number | null) {
   return "text-red-400"
 }
 
-function Sparkline({ entries }: { entries: LabResult[] }) {
-  if (entries.length < 2) return null
-  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date))
+function Sparkline({ marker, entries }: { marker: string; entries: LabResult[] }) {
+  const byDate = [...entries].sort((a, b) => a.date.localeCompare(b.date))
+  const unit = byDate[byDate.length - 1]?.unit ?? ""
+  // Every point in the latest reading's unit: 30 ng/mL then 60 nmol/l is a
+  // 20% fall, not a doubling. A point that can't be converted is left out
+  // rather than drawn at a number from another scale.
+  const sorted = byDate
+    .map(e => {
+      const v = normalizeUnit(e.unit) === normalizeUnit(unit) ? e.value : convertLabValue(e.value, e.unit, unit, marker)
+      return v == null ? null : { ...e, value: v }
+    })
+    .filter((e): e is LabResult => e != null)
+  if (sorted.length < 2) return null
   const values = sorted.map(e => e.value)
   const minVal = Math.min(...values)
   const maxVal = Math.max(...values)
@@ -133,7 +126,7 @@ function MarkerCard({
       </CardHeader>
       {entries.length >= 2 && (
         <CardContent className="pt-0 pb-3 px-4">
-          <Sparkline entries={entries} />
+          <Sparkline marker={marker} entries={entries} />
         </CardContent>
       )}
       {expanded && (
@@ -194,7 +187,8 @@ export default function LabsPage() {
 
   function handleMarkerChange(v: string) {
     setMarker(v)
-    if (UNIT_DEFAULTS[v]) setUnit(UNIT_DEFAULTS[v])
+    const suggested = suggestedUnit(v, grouped)
+    if (suggested) setUnit(suggested)
     if (v.length > 0) {
       // Suggest across everything the importer knows how to name, so a typed
       // entry lands on the same marker as an imported one rather than starting
@@ -208,7 +202,7 @@ export default function LabsPage() {
 
   function pickSuggestion(m: string) {
     setMarker(m)
-    setUnit(UNIT_DEFAULTS[m] ?? "")
+    setUnit(suggestedUnit(m, grouped) ?? "")
     setSuggestions([])
   }
 
@@ -257,6 +251,7 @@ export default function LabsPage() {
   }
 
   const markerList = Object.keys(grouped)
+  const jump = marker && value ? implausibleJump(marker, parseFloat(value), unit, grouped) : null
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-8">
@@ -345,6 +340,13 @@ export default function LabsPage() {
               className="bg-background/50"
             />
           </div>
+
+          {jump && (
+            <p className="text-xs text-amber-400">
+              That is about {Math.round(jump.factor)}× the last {canonicalMarker(marker)} ({jump.previous.value} {jump.previous.unit} on{" "}
+              {format(new Date(jump.previous.date), "MMM d, yyyy")}) — check the unit before saving.
+            </p>
+          )}
 
           <Button
             onClick={handleAdd}

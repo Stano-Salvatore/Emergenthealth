@@ -106,3 +106,54 @@ export function parseWatchHistory(html: string): YtMusicPlay[] {
 
   return plays
 }
+
+/** Plays per upload: even at the 300-character name and artist caps the
+ *  server applies, 5,000 stay far below the 4.5 MB function body limit. */
+export const YTMUSIC_SLICE_PLAYS = 5_000
+/** Days per upload, so one request's day rows fit its function comfortably. */
+export const YTMUSIC_SLICE_DAYS = 150
+
+/**
+ * The plays cut into uploads that each hold whole days only, as `timezone`
+ * (the one the server buckets in) counts them.
+ *
+ * The route never overwrites a day it already has, so a day split across two
+ * uploads would keep the first half's count and drop the rest. A single day
+ * over `maxPlays` still travels whole.
+ */
+export function slicePlaysByDay(
+  plays: YtMusicPlay[],
+  timezone: string,
+  maxPlays = YTMUSIC_SLICE_PLAYS,
+  maxDays = YTMUSIC_SLICE_DAYS,
+): YtMusicPlay[][] {
+  let fmt: Intl.DateTimeFormat
+  try {
+    fmt = new Intl.DateTimeFormat("en-CA", { timeZone: timezone })
+  } catch {
+    fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" })
+  }
+
+  const days: YtMusicPlay[][] = []
+  let lastDay: string | null = null
+  for (const p of [...plays].sort((a, b) => a.uts - b.uts)) {
+    const day = fmt.format(new Date(p.uts * 1000))
+    if (day !== lastDay) { days.push([]); lastDay = day }
+    days[days.length - 1].push(p)
+  }
+
+  const slices: YtMusicPlay[][] = []
+  let current: YtMusicPlay[] = []
+  let currentDays = 0
+  for (const day of days) {
+    if (current.length > 0 && (current.length + day.length > maxPlays || currentDays >= maxDays)) {
+      slices.push(current)
+      current = []
+      currentDays = 0
+    }
+    current.push(...day)
+    currentDays++
+  }
+  if (current.length > 0) slices.push(current)
+  return slices
+}

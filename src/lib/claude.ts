@@ -4,15 +4,21 @@ import { prisma } from "@/lib/prisma"
 import { loadMoodByDay, loadMoodSeries } from "@/lib/mood-series"
 import { Prisma } from "@prisma/client"
 import { isRefKind, issueConfirmToken, makeRef, parseRef, verifyConfirmToken, type RefKind } from "@/lib/log-refs"
+import {
+  correctionProblem, dateColumnDay, describeBp, describeFood, describeMetricLog, describeSymptom,
+  formatBpLog, formatFoodLog, formatMetricLog, formatSymptomLog, isLogKind, LOG_ROW_CAP,
+  matchMetrics, MAX_RANGE_DAYS, resolveLogRange, scaleFoodMacros,
+} from "@/lib/log-readback"
 import { getEventsInRange } from "@/lib/google-calendar"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
+import { resolveDrinkType } from "@/lib/drink-catalog"
 import { activeFromDoses, HALF_LIFE_H } from "@/lib/caffeine"
 import { getPersonalCaffeineProfile } from "@/lib/caffeine-profile"
 import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { hydrationMl, hydrationBreakdown, sumHydration, HYDRATION_FACTOR } from "@/lib/hydration"
 import { drinkCalories, drinkCaloriesTotal } from "@/lib/drink-calories"
 import { isAlcohol, ethanolGrams } from "@/lib/body-load"
-import { recordDrink } from "@/lib/intake-write"
+import { caffeineIdFor, forgetDrinkCaffeine, recordDrink } from "@/lib/intake-write"
 import { recordDose } from "@/lib/dose-write"
 import type { DoseUnit } from "@/lib/dose"
 import {
@@ -50,6 +56,8 @@ import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { analyseExperiment } from "@/lib/experiments-analysis"
 import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
 import { loadLabTrends } from "@/lib/lab-trends-load"
+import { previousReading } from "@/lib/lab-trends"
+import { saveLabRows } from "@/lib/lab-save"
 import { loadNutrientReport } from "@/lib/nutrient-gaps-load"
 import { getGoals, saveGoals } from "@/lib/goals"
 import { completeReminder } from "@/lib/reminders"
@@ -528,13 +536,27 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "find_my_logs",
-    description: "Look up the user's own recent entries so they can be corrected or removed. Returns each one with a `ref` — pass that ref verbatim to correct_log or delete_log. Use this first; never guess a ref.",
+    description: "Look up the user's own recent entries so they can be corrected or removed — including a meal whose calories you mis-estimated. Returns each one with a `ref` — pass that ref verbatim to correct_log or delete_log. Use this first; never guess a ref. To answer questions about what they logged, use get_logs.",
     input_schema: {
       type: "object" as const,
       properties: {
-        kind: { type: "string", enum: ["dose", "intake", "moment"], description: "dose = medication/supplement, intake = water/coffee/drinks, moment = timeline entry" },
+        kind: { type: "string", enum: ["dose", "intake", "moment", "food", "bp", "metric", "symptom"], description: "dose = medication/supplement, intake = water/coffee/drinks, moment = timeline entry, food = meals, bp = blood pressure, metric = custom tracker value, symptom" },
         date: { type: "string", description: "YYYY-MM-DD in the user's local time. Omit for the last few days." },
         name: { type: "string", description: "Filter by name, e.g. 'Atarax'. Omit for everything of that kind." },
+      },
+      required: ["kind"],
+    },
+  },
+  {
+    name: "get_logs",
+    description: "Read back what the user logged over a stretch of days — 'what did I eat on Tuesday', 'my blood pressure last week', 'how's my stress tracker been this month', 'how often have I had headaches'. Food comes with kcal per day, blood pressure with each reading and the period's average, trackers with their values and unit, symptoms by day. Dates and times are the user's local ones. A day with nothing logged is unknown, not zero — say so rather than counting it as nothing eaten. To fix or remove an entry, use find_my_logs.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        kind: { type: "string", enum: ["food", "bp", "metric", "symptom"], description: "food = meals, bp = blood pressure, metric = custom trackers, symptom = logged symptoms" },
+        from: { type: "string", description: "First day, YYYY-MM-DD in the user's local time. Omit for the last 7 days." },
+        to: { type: "string", description: "Last day, YYYY-MM-DD. Defaults to today; same as `from` for a single day." },
+        name: { type: "string", description: "Optional filter: dish, tracker or symptom name" },
       },
       required: ["kind"],
     },
@@ -553,15 +575,17 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "correct_log",
-    description: "Fix a detail of an existing entry rather than deleting it — a wrong time, a wrong amount, a moment filed on the wrong day. Say what changed when you report back, so the user can see it and correct again if needed.",
+    description: "Fix a detail of an existing entry rather than deleting it — a wrong time, a wrong amount, a meal's calories you over-estimated, a mistyped blood pressure, a moment filed on the wrong day. Say what changed when you report back, so the user can see it and correct again if needed.",
     input_schema: {
       type: "object" as const,
       properties: {
         ref: { type: "string", description: "The ref from find_my_logs" },
         occurredAt: { type: "string", description: "New local time: YYYY-MM-DD or YYYY-MM-DDTHH:MM" },
-        amount: { type: "number", description: "New amount — dose quantity, or millilitres for intake" },
+        amount: { type: "number", description: "New amount — dose quantity, millilitres for intake, kcal for food (its macros scale with it), a tracker's value, a symptom's 1-5 severity" },
         doseUnit: { type: "string", enum: ["mg", "tablet"], description: "Doses only: 'mg' for an absolute amount, 'tablet' for a share of a tablet. Required when the dose was saved without an amount." },
-        label: { type: "string", description: "New label, moments only" },
+        label: { type: "string", description: "New name — moments, food and symptoms" },
+        systolic: { type: "number", description: "Blood pressure only: new upper number" },
+        diastolic: { type: "number", description: "Blood pressure only: new lower number" },
       },
       required: ["ref"],
     },
@@ -594,7 +618,7 @@ const TOOLS: Anthropic.Tool[] = [
           items: {
             type: "object",
             properties: {
-              marker: { type: "string", description: "As printed, e.g. 'Ferritin', 'Vitamin D', 'HbA1c'" },
+              marker: { type: "string", description: "As printed, e.g. 'Ferritin', 'Vitamín D', 'Cholesterol HDL' — the app files it under its canonical name" },
               value: { type: "number" },
               unit: { type: "string", description: "As printed, e.g. 'ug/L', 'nmol/L', '%'" },
               referenceMin: { type: "number", description: "Lower end of the printed reference range, if any" },
@@ -729,7 +753,7 @@ const TOOLS: Anthropic.Tool[] = [
 
 // ── Correcting and removing the user's own entries ──────────────────────────
 //
-// Three tables, named explicitly. A kind that isn't on this list cannot be
+// Each table named explicitly. A kind that isn't on this list cannot be
 // reached at all, so a hallucinated ref has nowhere to land.
 
 function fmtLocal(d: Date, tz: string): string {
@@ -766,6 +790,34 @@ async function describeRef(userId: string, ref: { kind: RefKind; id: string }): 
     if (!r) return null
     return `${r.amountMl}ml ${r.type}${r.note ? ` (${r.note})` : ""} logged at ${fmtLocal(r.loggedAt, tz)}`
   }
+  if (ref.kind === "food") {
+    const r = await prisma.foodLog.findFirst({
+      where: { id: ref.id, userId },
+      select: { name: true, calories: true, mealType: true, loggedAt: true },
+    }).catch(() => null)
+    return r ? describeFood(r, tz) : null
+  }
+  if (ref.kind === "bp") {
+    const r = await prisma.bloodPressureLog.findFirst({
+      where: { id: ref.id, userId },
+      select: { systolic: true, diastolic: true, pulse: true, notes: true, loggedAt: true },
+    }).catch(() => null)
+    return r ? describeBp(r, tz) : null
+  }
+  if (ref.kind === "metric") {
+    const r = await prisma.customMetricLog.findFirst({
+      where: { id: ref.id, userId },
+      select: { date: true, value: true, note: true, metric: { select: { name: true, emoji: true, unit: true, type: true } } },
+    }).catch(() => null)
+    return r ? describeMetricLog(r.metric, dateColumnDay(r.date), r.value, r.note) : null
+  }
+  if (ref.kind === "symptom") {
+    const r = await prisma.symptomLog.findFirst({
+      where: { id: ref.id, userId },
+      select: { name: true, severity: true, note: true, day: true },
+    }).catch(() => null)
+    return r ? describeSymptom(r) : null
+  }
   const r = await prisma.timelineEvent.findFirst({
     where: { id: ref.id, userId },
     select: { emoji: true, label: true, occurredAt: true },
@@ -787,6 +839,29 @@ async function deleteRef(userId: string, ref: { kind: RefKind; id: string }): Pr
       const { count } = await prisma.intakeLog.deleteMany({ where: { id: ref.id, userId } })
       return count > 0
     }
+    if (ref.kind === "food") {
+      const { count } = await prisma.foodLog.deleteMany({ where: { id: ref.id, userId } })
+      if (count > 0) {
+        // The drinks a photographed meal mirrored into the tracker go with it,
+        // as they do from the Food tab — else its coffee outlives the meal.
+        await prisma.intakeLog.deleteMany({ where: { userId, id: { startsWith: `food_${ref.id}_` } } })
+          .catch((e: unknown) => console.error("[chat-tools] drink cleanup failed for meal", ref.id, e))
+        await forgetDrinkCaffeine(userId, { idPrefix: `food_${ref.id}_` })
+      }
+      return count > 0
+    }
+    if (ref.kind === "bp") {
+      const { count } = await prisma.bloodPressureLog.deleteMany({ where: { id: ref.id, userId } })
+      return count > 0
+    }
+    if (ref.kind === "metric") {
+      const { count } = await prisma.customMetricLog.deleteMany({ where: { id: ref.id, userId } })
+      return count > 0
+    }
+    if (ref.kind === "symptom") {
+      const { count } = await prisma.symptomLog.deleteMany({ where: { id: ref.id, userId } })
+      return count > 0
+    }
     const { count } = await prisma.timelineEvent.deleteMany({ where: { id: ref.id, userId } })
     return count > 0
   } catch {
@@ -797,7 +872,10 @@ async function deleteRef(userId: string, ref: { kind: RefKind; id: string }): Pr
 async function correctRef(
   userId: string,
   ref: { kind: RefKind; id: string },
-  change: { at: Date | null; amount: number | null; doseUnit?: DoseUnit | null; label: string | null },
+  change: {
+    at: Date | null; amount: number | null; doseUnit?: DoseUnit | null; label: string | null
+    systolic?: number | null; diastolic?: number | null
+  },
 ): Promise<boolean> {
   try {
     if (ref.kind === "dose") {
@@ -826,6 +904,81 @@ async function correctRef(
         data: {
           ...(change.at ? { loggedAt: change.at } : {}),
           ...(change.amount != null ? { amountMl: Math.round(Math.min(100_000, change.amount)) } : {}),
+        },
+      })
+      return count > 0
+    }
+    if (ref.kind === "food") {
+      let kcal = {}
+      if (change.amount != null) {
+        const prev = await prisma.foodLog.findFirst({
+          where: { id: ref.id, userId },
+          select: { calories: true, proteinG: true, carbsG: true, fatG: true, sugarG: true },
+        })
+        if (!prev) return false
+        const calories = Math.round(change.amount)
+        kcal = { calories, ...scaleFoodMacros(prev, calories) }
+      }
+      const { count } = await prisma.foodLog.updateMany({
+        where: { id: ref.id, userId },
+        data: {
+          ...kcal,
+          ...(change.at ? { loggedAt: change.at } : {}),
+          ...(change.label ? { name: change.label.slice(0, 120) } : {}),
+        },
+      })
+      if (count > 0 && change.at) {
+        // A photographed meal's coffee is its own drink row with its own
+        // caffeine; left behind, the bedtime cutoff still counts it at the old hour.
+        await prisma.intakeLog.updateMany({
+          where: { userId, id: { startsWith: `food_${ref.id}_` } },
+          data: { loggedAt: change.at },
+        }).catch((e: unknown) => console.error("[chat-tools] drink re-time failed for meal", ref.id, e))
+        await prisma.caffeineLog.updateMany({
+          where: { userId, id: { startsWith: caffeineIdFor(`food_${ref.id}_`) } },
+          data: { loggedAt: change.at },
+        }).catch((e: unknown) => console.error("[chat-tools] caffeine re-time failed for meal", ref.id, e))
+      }
+      return count > 0
+    }
+    if (ref.kind === "bp") {
+      const { count } = await prisma.bloodPressureLog.updateMany({
+        where: { id: ref.id, userId },
+        data: {
+          ...(change.at ? { loggedAt: change.at } : {}),
+          ...(change.systolic != null ? { systolic: Math.round(change.systolic) } : {}),
+          ...(change.diastolic != null ? { diastolic: Math.round(change.diastolic) } : {}),
+        },
+      })
+      return count > 0
+    }
+    if (ref.kind === "metric") {
+      const row = await prisma.customMetricLog.findFirst({
+        where: { id: ref.id, userId },
+        select: { metric: { select: { type: true } } },
+      })
+      if (!row) return false
+      // One value per tracker per local day, as the Trackers page writes it.
+      const tz = await getUserTimezone(userId)
+      const { count } = await prisma.customMetricLog.updateMany({
+        where: { id: ref.id, userId },
+        data: {
+          ...(change.at ? { date: new Date(`${localDateStr(tz, change.at)}T00:00:00Z`) } : {}),
+          ...(change.amount != null
+            ? { value: row.metric.type === "boolean" ? (change.amount >= 1 ? 1 : 0) : Math.round(change.amount * 100) / 100 }
+            : {}),
+        },
+      })
+      return count > 0
+    }
+    if (ref.kind === "symptom") {
+      const tz = await getUserTimezone(userId)
+      const { count } = await prisma.symptomLog.updateMany({
+        where: { id: ref.id, userId },
+        data: {
+          ...(change.at ? { loggedAt: change.at, day: localDateStr(tz, change.at) } : {}),
+          ...(change.amount != null ? { severity: Math.round(change.amount) } : {}),
+          ...(change.label ? { name: change.label.charAt(0).toUpperCase() + change.label.slice(1, 80) } : {}),
         },
       })
       return count > 0
@@ -1003,7 +1156,7 @@ export async function executeTool(name: string, input: Record<string, string>, u
 
   if (name === "log_drink") {
     const label = String(input.name ?? "").trim().slice(0, 120) || "Drink"
-    const type = normalizeDrinkType(String(input.drinkType ?? "other"))
+    const type = resolveDrinkType(normalizeDrinkType(String(input.drinkType ?? "other")), label)
     const amountMl = clampInt(input.amountMl, 1, 5000, 250)
 
     // The model's caffeine figure is an estimate, not a measurement, so it gets
@@ -1800,7 +1953,7 @@ export async function executeTool(name: string, input: Record<string, string>, u
 
   if (name === "find_my_logs") {
     const kind = String(input.kind ?? "")
-    if (!isRefKind(kind)) return "I can look up doses, intake or moments."
+    if (!isRefKind(kind)) return "I can look up doses, intake, moments, food, bp, metric or symptom entries."
     const tz = await getUserTimezone(userId)
     const dayFilter = String(input.date ?? "").trim()
     const nameFilter = String(input.name ?? "").trim().toLowerCase()
@@ -1834,6 +1987,49 @@ export async function executeTool(name: string, input: Record<string, string>, u
       ).join("\n")
     }
 
+    if (kind === "food") {
+      const rows = await prisma.foodLog.findMany({
+        where: { userId, ...(dayFilter ? zonedDayWhere("loggedAt", tz, dayFilter) : {}) },
+        orderBy: { loggedAt: "desc" }, take: 40,
+        select: { id: true, name: true, calories: true, mealType: true, loggedAt: true },
+      }).catch(() => [])
+      const hits = rows.filter(r => !nameFilter || r.name.toLowerCase().includes(nameFilter)).slice(0, 15)
+      if (hits.length === 0) return "Nothing matching that."
+      return hits.map(r => `${makeRef("food", r.id)} — ${describeFood(r, tz)}`).join("\n")
+    }
+
+    if (kind === "bp") {
+      const rows = await prisma.bloodPressureLog.findMany({
+        where: { userId, ...(dayFilter ? zonedDayWhere("loggedAt", tz, dayFilter) : {}) },
+        orderBy: { loggedAt: "desc" }, take: 15,
+        select: { id: true, systolic: true, diastolic: true, pulse: true, notes: true, loggedAt: true },
+      }).catch(() => [])
+      if (rows.length === 0) return "Nothing matching that."
+      return rows.map(r => `${makeRef("bp", r.id)} — ${describeBp(r, tz)}`).join("\n")
+    }
+
+    if (kind === "metric") {
+      const rows = await prisma.customMetricLog.findMany({
+        where: { userId, ...(dayFilter ? { date: new Date(`${dayFilter}T00:00:00Z`) } : {}) },
+        orderBy: { date: "desc" }, take: 40,
+        select: { id: true, date: true, value: true, note: true, metric: { select: { name: true, emoji: true, unit: true, type: true } } },
+      }).catch(() => [])
+      const hits = rows.filter(r => !nameFilter || r.metric.name.toLowerCase().includes(nameFilter)).slice(0, 15)
+      if (hits.length === 0) return "Nothing matching that."
+      return hits.map(r => `${makeRef("metric", r.id)} — ${describeMetricLog(r.metric, dateColumnDay(r.date), r.value, r.note)}`).join("\n")
+    }
+
+    if (kind === "symptom") {
+      const rows = await prisma.symptomLog.findMany({
+        where: { userId, ...(dayFilter ? { day: dayFilter } : {}) },
+        orderBy: { loggedAt: "desc" }, take: 40,
+        select: { id: true, name: true, severity: true, note: true, day: true },
+      }).catch(() => [])
+      const hits = rows.filter(r => !nameFilter || r.name.toLowerCase().includes(nameFilter)).slice(0, 15)
+      if (hits.length === 0) return "Nothing matching that."
+      return hits.map(r => `${makeRef("symptom", r.id)} — ${describeSymptom(r)}`).join("\n")
+    }
+
     const rows = await prisma.timelineEvent.findMany({
       where: { userId, ...(dayFilter ? zonedDayWhere("occurredAt", tz, dayFilter) : {}) },
       orderBy: { occurredAt: "desc" }, take: 40,
@@ -1842,6 +2038,78 @@ export async function executeTool(name: string, input: Record<string, string>, u
     const hits = rows.filter(r => !nameFilter || r.label.toLowerCase().includes(nameFilter)).slice(0, 15)
     if (hits.length === 0) return "Nothing matching that."
     return hits.map(r => `${makeRef("moment", r.id)} — ${r.emoji} ${r.label} at ${fmtLocal(r.occurredAt, tz)}`).join("\n")
+  }
+
+  if (name === "get_logs") {
+    const kind = String(input.kind ?? "")
+    if (!isLogKind(kind)) return "I can read food, bp, metric or symptom logs."
+    const tz = await getUserTimezone(userId)
+    const range = resolveLogRange(localDateStr(tz), String(input.from ?? ""), String(input.to ?? ""))
+    if ("error" in range) return range.error
+    const nameFilter = String(input.name ?? "").trim()
+    const { start } = zonedDayRange(tz, range.from)
+    const { end } = zonedDayRange(tz, range.to)
+    const clipped = range.clipped ? `\n(Only the last ${MAX_RANGE_DAYS} days of what was asked — ask again for an earlier stretch.)` : ""
+    const partial = (n: number) => n > LOG_ROW_CAP ? `\n(Only the first ${LOG_ROW_CAP} entries — narrow the range for the rest.)` : ""
+    // A failed read is said, never shown as an empty log: "no food logged"
+    // over a database blip reads exactly like a day of not eating.
+    const unreadable = `Couldn't read the ${kind} log just now — worth retrying.`
+
+    try {
+      if (kind === "food") {
+        const rows = await prisma.foodLog.findMany({
+          where: {
+            userId, loggedAt: { gte: start, lte: end },
+            ...(nameFilter ? { name: { contains: nameFilter, mode: "insensitive" as const } } : {}),
+          },
+          orderBy: { loggedAt: "asc" }, take: LOG_ROW_CAP + 1,
+          select: { name: true, calories: true, mealType: true, loggedAt: true },
+        })
+        return formatFoodLog(rows.slice(0, LOG_ROW_CAP), tz, range) + partial(rows.length) + clipped
+      }
+
+      if (kind === "bp") {
+        const rows = await prisma.bloodPressureLog.findMany({
+          where: { userId, loggedAt: { gte: start, lte: end } },
+          orderBy: { loggedAt: "asc" }, take: LOG_ROW_CAP + 1,
+          select: { systolic: true, diastolic: true, pulse: true, notes: true, loggedAt: true },
+        })
+        return formatBpLog(rows.slice(0, LOG_ROW_CAP), tz, range) + partial(rows.length) + clipped
+      }
+
+      if (kind === "metric") {
+        const all = await prisma.customMetric.findMany({
+          where: { userId },
+          select: { id: true, name: true, emoji: true, unit: true, type: true },
+        })
+        if (all.length === 0) return "No custom trackers exist yet — they can be created on the Trackers page."
+        const metrics = matchMetrics(all, nameFilter)
+        if (metrics.length === 0) return `No tracker matches "${nameFilter}". They have: ${all.map(m => `${m.emoji} ${m.name}`).join(", ")}.`
+        const logs = await prisma.customMetricLog.findMany({
+          where: {
+            userId, metricId: { in: metrics.map(m => m.id) },
+            date: { gte: new Date(`${range.from}T00:00:00Z`), lte: new Date(`${range.to}T00:00:00Z`) },
+          },
+          orderBy: { date: "asc" }, take: LOG_ROW_CAP + 1,
+          select: { metricId: true, date: true, value: true, note: true },
+        })
+        const rows = logs.slice(0, LOG_ROW_CAP).map(l => ({ ...l, date: dateColumnDay(l.date) }))
+        return formatMetricLog(metrics, rows, range) + partial(logs.length) + clipped
+      }
+
+      const rows = await prisma.symptomLog.findMany({
+        where: {
+          userId, day: { gte: range.from, lte: range.to },
+          ...(nameFilter ? { name: { contains: nameFilter, mode: "insensitive" as const } } : {}),
+        },
+        orderBy: { loggedAt: "asc" }, take: LOG_ROW_CAP + 1,
+        select: { name: true, severity: true, note: true, day: true },
+      })
+      return formatSymptomLog(rows.slice(0, LOG_ROW_CAP), range) + partial(rows.length) + clipped
+    } catch (err) {
+      console.error(`[chat-tools] ${kind} read failed:`, err)
+      return unreadable
+    }
   }
 
   if (name === "delete_log") {
@@ -1880,12 +2148,13 @@ export async function executeTool(name: string, input: Record<string, string>, u
     if (when && !at) return "I couldn't read that time. Use YYYY-MM-DD or YYYY-MM-DDTHH:MM."
     if (at && at.getTime() > Date.now() + 60_000) return "That time is in the future — a log has to be of something that happened."
 
-    const amountRaw = input.amount
-    const amount = amountRaw === undefined || amountRaw === null || amountRaw === "" ? null : Number(amountRaw)
-    if (amount != null && (!Number.isFinite(amount) || amount <= 0)) return "An amount needs to be a positive number."
-
+    const num = (v: unknown) => (v === undefined || v === null || v === "" ? null : Number(v))
+    const amount = num(input.amount)
+    const systolic = num(input.systolic)
+    const diastolic = num(input.diastolic)
     const label = String(input.label ?? "").trim()
-    if (!at && amount == null && !label) return "Nothing to change — give a time, an amount or a label."
+    const problem = correctionProblem(parsed.kind, { at: at != null, amount, label, systolic, diastolic })
+    if (problem) return problem
 
     // A dose saved without an amount has no unit either, and 400 alone is
     // magnesium milligrams or four hundred tablets; it used to become tablets.
@@ -1903,7 +2172,7 @@ export async function executeTool(name: string, input: Record<string, string>, u
       if (!existing) return "That dose has no unit yet, so the amount alone could be mg or tablets. Pass doseUnit ('mg' or 'tablet'), asking the user if they didn't say. Nothing was changed."
     }
 
-    const ok = await correctRef(userId, parsed, { at, amount, doseUnit, label: label || null })
+    const ok = await correctRef(userId, parsed, { at, amount, doseUnit, label: label || null, systolic, diastolic })
     if (!ok) return "Couldn't change that — nothing was altered."
     const after = await describeRef(userId, parsed)
     return `Changed. Before: ${before}. Now: ${after}. Tell the user both, so they can see it and correct again if it's still wrong.`
@@ -1918,9 +2187,10 @@ export async function executeTool(name: string, input: Record<string, string>, u
     const pulse = input.pulse != null && String(input.pulse) !== "" ? clampInt(input.pulse, 25, 220, 0) || null : null
     const { at, minutesAgo } = loggedAtFrom(input)
     const notes = typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 200) : null
-    await prisma.bloodPressureLog.create({
+    const savedBp = await prisma.bloodPressureLog.create({
       data: { id: randomUUID(), userId, systolic, diastolic, pulse, loggedAt: at, notes },
-    })
+    }).catch(writeFailed("blood pressure"))
+    if (!savedBp) return `Couldn't save ${systolic}/${diastolic} — the log didn't write. Worth retrying.`
     return `Logged blood pressure ${systolic}/${diastolic}${pulse ? `, pulse ${pulse}` : ""}${agoSuffix(minutesAgo)}. It shows under Body → Blood pressure.`
   }
 
@@ -1942,17 +2212,7 @@ export async function executeTool(name: string, input: Record<string, string>, u
       .filter(r => r.marker && r.value !== null && r.unit)
       .slice(0, 100)
     if (rows.length === 0) return "None of those rows had a marker, a number and a unit — read them back to the user and try again."
-    const when = new Date(date + "T00:00:00.000Z")
-    const existing = await prisma.labResult.findMany({
-      where: { userId, date: when, marker: { in: rows.map(r => r.marker) } },
-      select: { marker: true, value: true },
-    })
-    const seen = new Set(existing.map(e => `${e.marker}|${e.value}`))
-    const fresh = rows.filter(r => !seen.has(`${r.marker}|${r.value}`))
-    if (fresh.length > 0) {
-      await prisma.labResult.createMany({ data: fresh.map(r => ({ ...r, value: r.value as number, userId, date: when })) })
-    }
-    const skipped = rows.length - fresh.length
+    const { saved: fresh, skipped } = await saveLabRows(userId, date, rows.map(r => ({ ...r, value: r.value as number })))
     return `Recorded ${fresh.length} lab result${fresh.length === 1 ? "" : "s"} for ${date}${skipped ? ` (${skipped} already on file, skipped)` : ""}: ${fresh.map(r => `${r.marker} ${r.value} ${r.unit}`).join(", ") || "nothing new"}. They show under Body → Labs. Read them back so a misread digit can be caught.`
   }
 
@@ -2154,7 +2414,7 @@ export async function executeTool(name: string, input: Record<string, string>, u
     if (kind === "labs") {
       const labs = await loadLabTrends(userId)
       if (labs.markerCount === 0) return "No lab results on file."
-      const list = labs.trends.slice(0, 25).map(t => `- ${t.marker}: ${t.latest.value} ${t.unit} on ${t.latest.date} [${t.status}]${t.previous ? ` (was ${t.previous.value} on ${t.previous.date}${t.changePct != null ? `, ${t.changePct > 0 ? "+" : ""}${t.changePct.toFixed(0)}%` : ""}${t.significant ? ", beyond normal variation" : ""})` : ""}${t.crossed ? ` — crossed ${t.crossed}` : ""}${t.summary ? ` — ${t.summary}` : ""}`)
+      const list = labs.trends.slice(0, 25).map(t => `- ${t.marker}: ${t.latest.value} ${t.unit} on ${t.latest.date} [${t.status}]${t.previous ? ` (was ${previousReading(t)} on ${t.previous.date}${t.changePct != null ? `, ${t.changePct > 0 ? "+" : ""}${t.changePct.toFixed(0)}%` : ""}${t.significant ? ", beyond normal variation" : ""})` : ""}${t.crossed ? ` — crossed ${t.crossed}` : ""}${t.summary ? ` — ${t.summary}` : ""}`)
       return `${labs.markerCount} markers on file. Notable: ${labs.notable.length}.\n${list.join("\n")}\nRead these back; never interpret a value beyond the printed range or say what to do about it — that is the doctor's.`
     }
 

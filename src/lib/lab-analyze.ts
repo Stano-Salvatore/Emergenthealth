@@ -25,6 +25,16 @@ export interface ParsedLabRow {
   referenceMax: number | null
   /** The lab's own out-of-range mark, when the report carries one. */
   flag: "low" | "high" | "normal" | null
+  /** Printed as "< 5" or "> 90": `value` is a limit, not a measurement. */
+  qualifier: "<" | ">" | null
+  /** Reasons to look at this row against the page before saving it. */
+  checks: LabRowCheck[]
+}
+
+export interface LabRowCheck {
+  /** name: two rows share a marker; range: the range may be misread; limit: a < or > result. */
+  kind: "name" | "range" | "limit"
+  text: string
 }
 
 export interface ParsedLabReport {
@@ -41,10 +51,11 @@ export interface ParsedLabReport {
 const ROW_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["marker", "value", "unit", "referenceMin", "referenceMax", "flag"],
+  required: ["marker", "value", "qualifier", "unit", "referenceMin", "referenceMax", "flag"],
   properties: {
     marker: { type: "string", description: "The marker name exactly as printed on the report, in its original language." },
-    value: { type: "number", description: "The measured result as a number. Use a decimal point even if the report uses a comma." },
+    value: { type: "number", description: "The measured result as a number. Use a decimal point even if the report uses a comma. For '< 5' or '>90' this is the number alone." },
+    qualifier: { type: "string", enum: ["<", ">", "none"], description: "\"<\" or \">\" when the result is printed with that sign (a detection or reporting limit, e.g. 'CRP < 5', 'eGFR > 1.5'); otherwise \"none\"." },
     unit: { type: "string", description: "The unit exactly as printed, e.g. 'mmol/l', 'ng/mL', 'x10^9/l'. Empty string only if the report truly prints none." },
     referenceMin: { type: ["number", "null"], description: "Lower bound of the reference range printed ON THIS REPORT. Null if the report shows no lower bound. Never supply one from your own knowledge." },
     referenceMax: { type: ["number", "null"], description: "Upper bound of the reference range printed ON THIS REPORT. Null if the report shows no upper bound. Never supply one from your own knowledge." },
@@ -92,6 +103,7 @@ const PROMPT =
   "Copy what is printed. Specifically:\n" +
   "- Keep the marker name in its original language and spelling.\n" +
   "- Decimal commas become decimal points; do not otherwise change a number.\n" +
+  "- A result printed with < or > (\"< 5\", \">90\") is a limit, not a measurement: the number goes in value and the sign in qualifier. Every other row's qualifier is \"none\".\n" +
   "- Copy the unit exactly as printed. Never convert between units.\n" +
   "- A reference range comes from this report or it is null. Reference ranges differ between laboratories and assays, so one supplied from general knowledge would be wrong in a way nobody could see.\n" +
   "- Only set a flag if the report itself marks the row as out of range; otherwise the flag is \"none\".\n" +
@@ -159,6 +171,16 @@ export function normalizeReport(parsed: ParsedLabReport): ParsedLabReport {
     let max = typeof r.referenceMax === "number" && Number.isFinite(r.referenceMax) ? r.referenceMax : null
     if (min != null && max != null && min > max) { const t = min; min = max; max = t }
 
+    const q = (r as { qualifier?: unknown }).qualifier
+    const qualifier = q === "<" || q === ">" ? q : null
+    const checks: LabRowCheck[] = []
+    if (qualifier) {
+      checks.push({
+        kind: "limit",
+        text: `Printed as ${qualifier}${r.value}: a limit, not a measurement. Saved, it is kept as exactly ${r.value}, and later trends will treat it as one.`,
+      })
+    }
+
     results.push({
       marker,
       rawMarker,
@@ -167,7 +189,43 @@ export function normalizeReport(parsed: ParsedLabReport): ParsedLabReport {
       referenceMin: min,
       referenceMax: max,
       flag: r.flag === "low" || r.flag === "high" || r.flag === "normal" ? r.flag : null,
+      qualifier,
+      checks,
     })
+  }
+
+  // The range is the one number every later "above/below the range" trusts
+  // completely, so a misread one is worth a second look before it is saved.
+  // A report that marks some rows H/L is one whose silence on a row means
+  // "in range"; a report that marks nothing says nothing either way.
+  const reportFlags = results.some(r => r.flag === "high" || r.flag === "low")
+  for (const r of results) {
+    const min = r.referenceMin, max = r.referenceMax
+    const status = min != null && r.value < min ? "low" : max != null && r.value > max ? "high" : min != null || max != null ? "in" : null
+    if (status == null || r.qualifier) continue
+    const magnitude = (max != null && max > 0 && r.value > max * 10) || (min != null && min > 0 && r.value < min / 10)
+    if (magnitude) {
+      r.checks.push({ kind: "range", text: "The value and its range are more than 10× apart — the range may come from another unit's column. Check it against the page." })
+    } else if (status !== "in" && (r.flag === "normal" || (r.flag == null && reportFlags))) {
+      r.checks.push({ kind: "range", text: "Outside the range read for it, but the report didn't mark it — check the range against the page." })
+    } else if (status === "in" && (r.flag === "high" || r.flag === "low")) {
+      r.checks.push({ kind: "range", text: `The report marks this ${r.flag}, but it sits inside the range read for it — check the range against the page.` })
+    }
+  }
+
+  // Two printed names on one report that land on one marker are usually two
+  // different tests the name map can't tell apart. Saved together they become
+  // one series with two values on one day.
+  const printedAs = new Map<string, Set<string>>()
+  for (const r of results) {
+    const names = printedAs.get(r.marker) ?? new Set<string>()
+    names.add(r.rawMarker)
+    printedAs.set(r.marker, names)
+  }
+  for (const r of results) {
+    if ((printedAs.get(r.marker)?.size ?? 0) > 1) {
+      r.checks.push({ kind: "name", text: `Another row on this report also reads as ${r.marker} — keep only the one that is.` })
+    }
   }
 
   return {

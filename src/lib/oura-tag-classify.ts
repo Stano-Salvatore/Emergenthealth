@@ -6,15 +6,18 @@
 // of spirits, mirrored into the alcohol log every morning.
 
 import { normalizeSupplement } from "@/lib/supplement-normalize"
+import { drinkProfile } from "@/lib/drink-catalog"
 
 export type OuraTagKind =
-  | "water" | "sparkling" | "coffee" | "tea" | "matcha"
+  | "water" | "sparkling" | "coffee" | "tea" | "matcha" | "mate"
+  | "juice" | "soda" | "milk"
   | "beer" | "wine" | "spirits" | "alcohol"
   | "med" | "other"
 
 /** Intake types the Oura sync mirrors into IntakeLog. */
 export const INTAKE_KINDS: ReadonlySet<OuraTagKind> = new Set([
-  "water", "sparkling", "coffee", "tea", "matcha", "beer", "wine", "spirits", "alcohol",
+  "water", "sparkling", "coffee", "tea", "matcha", "mate", "juice", "soda", "milk",
+  "beer", "wine", "spirits", "alcohol",
 ])
 
 const ML_RE = /(\d+)\s*ml/i
@@ -54,6 +57,11 @@ const ALCOHOLIC: ReadonlySet<OuraTagKind> = new Set(["beer", "wine", "spirits", 
 export function classifyOuraTag(rawLabel: string): { kind: OuraTagKind; ml: number } {
   const label = fold(rawLabel.trim())
   const explicitMl = label.match(ML_RE)?.[1]
+  const withMl = (kind: OuraTagKind, defMl: number) => ({ kind, ml: explicitMl ? parseInt(explicitMl) : defMl })
+  // Alcohol-free beer reads "pivo" and "beer" like the real thing, so it is
+  // settled before the rules below can count it as alcohol.
+  const profile = drinkProfile(rawLabel)
+  if (profile?.nonAlcoholic) return withMl(profile.type as OuraTagKind, profile.ml)
   for (const [re, kind, defMl] of DEFAULTS) {
     if (re.test(label)) {
       // A substance the supplement canon knows is never alcohol, whatever its
@@ -63,6 +71,13 @@ export function classifyOuraTag(rawLabel: string): { kind: OuraTagKind; ml: numb
       return { kind, ml: explicitMl ? parseInt(explicitMl) : defMl }
     }
   }
+  // Named drinks the rules above don't know — Kofola, Red Bull, kefir,
+  // radler. A supplement the canon knows stays a supplement ("Electrolytes").
+  // A stated dose ("400 mg", "1 tbl") marks a medicine however it's taken —
+  // except milligrams on a caffeinated drink, which are its caffeine ("Red Bull 80 mg").
+  const dosed = /\btbl\b|tablet|kapsul|capsul/.test(label)
+    || (/\d\s*(mg|mcg|µg|ug)\b/.test(label) && profile?.caffeineMgPerMl === undefined)
+  if (profile && !dosed && !normalizeSupplement(rawLabel)) return withMl(profile.type as OuraTagKind, profile.ml)
   // Other drinks: not tracked as intake, but also not medication
   if (/juice|smoothie|shake|soda|dzus/.test(label)) {
     return { kind: "other", ml: 0 }

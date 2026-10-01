@@ -480,6 +480,22 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Drinks and medicines by name (3.8.0).** `lib/drink-catalog.ts` is the
+  one answer to "what is this drink": `drinkProfile(label)` gives type,
+  serving, kcal/100 ml, caffeine/ml, compound and typical ABV. It is read by
+  `classifyOuraTag` (alcohol-free beer is settled before the beer rule;
+  other named drinks after the existing rules, and never over a label the
+  supplement canon knows), `estimateCaffeine` (only when the profile is the
+  drink its type says, or the type is just soda/juice/other),
+  `drinkCalories`, `ethanolGrams` (a stated %/° wins, then the profile's
+  ABV, then the type average) and `resolveDrinkType` for Emergy's
+  `log_drink`. New drink words go in the catalog, not in any of those
+  readers. `lib/supplement-info.ts` `MED_PATTERNS` holds 86 medicines by
+  generic name and SK/CZ brand. The first match wins, so a name that
+  contains another comes first: desloratadine before loratadine, and
+  citalopram uses a `(?<!es)` lookbehind so escitalopram isn't read as it.
+  `med-catalog.test.ts` pins the real tags ("Stillnox").
+
 - **Tonight's brief, one thing to say, the ring wins (3.4.0).** Three
   features, all web. `/api/today` now also returns `tomorrow` (Google via
   `getEventsInRange` merged with `loadEventOccurrences` by `mergeDayEvents`),
@@ -1115,16 +1131,28 @@ Roughly in order, most recent first:
 
 - **From the 26–27 Sept full audit (3.7.0).** 16 auditors, a skeptic on every
   finding, 160 confirmed and ~138 fixed in 3.7.0. Left open, deliberately:
-  - **26 findings never verified** — the session limit killed their skeptics:
-    labs (marker canonicaliser merging HDL into Cholesterol, BUN→urea
-    conversion ~2.14× off, `<5`/`>90` results unrepresentable, CZ/SK
-    hyphenated spellings not collapsing), imports (Samsung import writes
-    average HR as restingHR and **still bypasses the ring rule**, Timeline
-    import duplicate check-ins across 500-point batches, visits >90 min never
-    becoming check-ins) and three medication items (a dose after local
-    midnight counting for the next day, Oura dose tags never removed, drink
-    tags listed as doses). Re-verify before fixing; the list with evidence is
-    worth regenerating rather than trusting from memory.
+  - ~~**26 findings never verified**~~ — re-verified and closed in 3.8.0:
+    21 real and fixed, 3 already fixed, 2 left for a schema change —
+    `LabResult.flag` (the lab's own H/L) and `LabResult.qualifier` (`<`/`>`;
+    3.8.0 keeps it in `notes` and unticks such rows on import). Two data
+    one-offs remain: re-running `canonicalMarker` over existing
+    `LabResult.marker` values (rows saved as "Urea" from a US report are
+    probably BUN — check unit and source), and restingHR values an old
+    Samsung import wrote from avg_hr (indistinguishable without a source
+    marker such as `HealthLog.importedFrom`).
+  - **Follow-ups the 3.8.0 agents left:**
+    - Emergy's adherence tool still counts raw 14-day totals; it could use
+      `dosesByDay`.
+    - Emergy's `save_place` doesn't trigger the visit back-fill the Settings
+      and API paths now run in `after()`.
+    - The midnight rule moves a dose only backward, so a 23:50 dose for a
+      00:30 slot counts for the day it was logged.
+    - The symptom look-back's pressure is the phone's station reading, so a
+      drive uphill can look like a front; WeatherLog's sea-level pressure
+      would be a fallback.
+    - Five other `.<timestamp>.slice(0, 10)` sites that the UTC guard
+      doesn't match: fasting/page.tsx, habits/page.tsx, streak.ts,
+      correlations.ts, claude.ts.
   - **Needs an APK:** a package-bound nonce for the mobile sign-in bridge
     (3.7.0 ships a server-side IP stopgap only); a try/catch rewrite in
     `.ci/patch-kiwi-health.py` so the Health Connect plugin can reject on
@@ -1134,8 +1162,9 @@ Roughly in order, most recent first:
   - **One-off production SQL, not code:** account deletion now removes
     everything, but rows orphaned by deletions BEFORE 3.7.0 remain in
     BodyMeasurementLog, PushSubscription, TagAlias, GocardlessConnection,
-    SaltedgeConnection and TruelayerConnection (`DELETE … WHERE "userId" NOT
-    IN (SELECT id FROM "User")`). Needs the owner's hand on the database.
+    SaltedgeConnection and TruelayerToken. The script is
+    `scripts/sql/orphan-cleanup-2026-09.sql` (read, then delete in a
+    transaction). Needs the owner's hand on the database.
   - **Ring precedence, second order:** on a ringAt row where the ring measured
     no night, the phone's first fill of restingHR/hrv (a partial-day average)
     is then held as if it were the ring's. Fixing it needs ring-only night
@@ -1147,9 +1176,11 @@ Roughly in order, most recent first:
   - **Insights cache race:** a stale-triggered `after()` recompute can finish
     after a concurrent `?refresh=1` and overwrite newer results;
     `shareInFlight` dedupes per instance only.
-  - Features proposed and not built: backfill a meal/drink to an earlier
-    time; Emergy reading back food/BP/custom metrics; a symptom look-back;
-    Active sessions / sign out everywhere; as-needed meds in the doctor report.
+  - ~~Features proposed and not built~~ — all five shipped in 3.8.0:
+    back-filled meal/drink times (`lib/backfill-time.ts`, `WhenRow`), Emergy
+    read-back (`get_logs`, `lib/log-readback.ts`), the symptom look-back
+    (`lib/symptom-lookback.ts`), signed-in sessions (`lib/account-sessions.ts`)
+    and as-needed/stopped medicines in the report (`otherDoses`, `stopped`).
 
 
 - ~~**From the September platform comparison, two steal-list items

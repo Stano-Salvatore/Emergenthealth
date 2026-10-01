@@ -89,3 +89,30 @@ export function resolveWaterGoal(checkinGoalMl: number | null | undefined, setti
 
 /** SQL fragment listing the types worth selecting — excludes the zero-factor ones. */
 export const HYDRATING_TYPES = Object.keys(HYDRATION_FACTOR).filter(t => !NON_HYDRATING.has(t))
+
+/**
+ * How far behind the day's water goal someone is, for Emergy's afternoon
+ * push. Read against pace — the share of the goal a waking day running
+ * 07:00–22:00 would have seen by `localTime` ("HH:MM") — because a fixed line
+ * screamed WILTING at a litre by five o'clock on a two-litre goal.
+ */
+export type WaterNudgeLevel = "fine" | "nudge" | "scream"
+
+const WAKING_START_H = 7
+const WAKING_END_H = 22
+
+export function expectedWaterByNow(goalMl: number, localTime: string): number {
+  const [h, m] = localTime.split(":").map(Number)
+  const hours = (Number.isFinite(h) ? h : 0) + (Number.isFinite(m) ? m : 0) / 60
+  const share = Math.min(1, Math.max(0, (hours - WAKING_START_H) / (WAKING_END_H - WAKING_START_H)))
+  return goalMl * share
+}
+
+export function waterNudgeLevel(waterMl: number, goalMl: number, localTime: string): WaterNudgeLevel {
+  const expected = expectedWaterByNow(goalMl, localTime)
+  if (expected <= 0 || waterMl >= goalMl) return "fine"
+  const ratio = waterMl / expected
+  if (ratio < 0.4) return "scream"
+  if (ratio < 0.7) return "nudge"
+  return "fine"
+}

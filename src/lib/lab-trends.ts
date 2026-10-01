@@ -204,6 +204,12 @@ function intervalHabits(tags: DayTags[], from: string, to: string): IntervalHabi
 }
 
 const r1 = (n: number) => Math.round(n * 10) / 10
+/**
+ * A computed lab value, to three significant figures. A fixed decimal count
+ * fits no marker range: µkat/l enzymes and PSA live below 1, where one
+ * decimal turns 0.45 into 0.5 and 0.04 into 0.
+ */
+export const labFigure = (n: number) => (Math.abs(n) >= 100 ? Math.round(n) : Number(n.toPrecision(3)))
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length
 
 // ── Everyday numbers through the interval ────────────────────────────────────
@@ -270,7 +276,8 @@ function intervalBehaviours(facts: DayFacts[], from: string, to: string): Interv
 
 function buildSummary(t: Omit<MarkerTrend, "summary">): string {
   const u = t.unit ? ` ${t.unit}` : ""
-  const now = `${r1(t.latest.value)}${u}`
+  // A stored value is what the lab printed, digits and all.
+  const now = `${t.latest.value}${u}`
 
   if (!t.previous) {
     const where =
@@ -285,8 +292,8 @@ function buildSummary(t: Omit<MarkerTrend, "summary">): string {
     return `${t.marker} ${now}, but the previous result was reported in ${t.previous.unit} and the two units can't be reconciled for this marker — so no change is shown.`
   }
 
-  const wasValue = t.converted ? t.converted.previousAs : t.previous.value
-  const was = `${r1(wasValue)}${u}`
+  const wasValue = t.converted ? labFigure(t.converted.previousAs) : t.previous.value
+  const was = `${wasValue}${u}`
   const months = t.intervalDays != null ? Math.round(t.intervalDays / 30) : null
   const gap = months != null && months >= 1 ? ` over ${months} month${months === 1 ? "" : "s"}` : ""
 
@@ -358,7 +365,9 @@ export function computeLabTrends(
   for (const [marker, list] of byMarker) {
     const sorted = [...list].sort((a, b) => a.date.localeCompare(b.date))
     const latest = sorted[sorted.length - 1]
-    const previous = sorted.length > 1 ? sorted[sorted.length - 2] : null
+    // The latest draw from an earlier day. Two results on one date are two
+    // tests under one name, or one entered twice — never a change over time.
+    const previous = sorted.findLast(r => r.date < latest.date) ?? null
 
     // Units are stored exactly as the lab printed them, so two readings can
     // legitimately disagree. Reconcile them where the conversion is defined,
@@ -376,7 +385,7 @@ export function computeLabTrends(
           unitMismatch = true
         } else {
           previousValue = asLatest
-          converted = { from: previous.unit, to: latest.unit, previousAs: Math.round(asLatest * 1000) / 1000 }
+          converted = { from: previous.unit, to: latest.unit, previousAs: Number(asLatest.toPrecision(4)) }
         }
       }
     }
@@ -415,6 +424,20 @@ export function computeLabTrends(
   }
 
   return trends.sort((a, b) => b.latest.date.localeCompare(a.latest.date) || a.marker.localeCompare(b.marker))
+}
+
+/**
+ * The earlier reading as a reader should see it beside the latest: in the
+ * latest unit when it was converted for the comparison, otherwise in its own
+ * unit. A bare number next to a changePct computed on the converted value
+ * reads "60 nmol/l vs 30 (-20%)" — a rise and a fall at once.
+ */
+export function previousReading(
+  t: { unit: string; previous: { value: number; unit: string } | null; converted: { previousAs: number } | null },
+): string | null {
+  if (!t.previous) return null
+  if (t.converted) return `${labFigure(t.converted.previousAs)} ${t.unit}`.trim()
+  return `${t.previous.value} ${t.previous.unit}`.trim()
 }
 
 /**

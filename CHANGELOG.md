@@ -1,5 +1,163 @@
 # Changelog
 
+## 3.8.0 — Drinks by name, and the rest of the audit
+
+Web-only: everything here is live on merge, no new APK.
+
+**New**
+- **Log a drink or meal at the time it happened**, up to a week back. The
+  Log and Food tabs have a *When* row: now, 1h or 3h ago, or a picked time.
+  On a past day it defaults to 20:00, and you can now add to past days at
+  all. The drink's caffeine is filed at that time too, so body load and the
+  bedtime cutoff read the real hour. A back-filled meal carries no location.
+- **Symptom look-back.** Tap a symptom and it shows what was different in
+  the ~36 hours before it, compared with your own last 45 days: a short
+  night, drinks, late caffeine, a pressure drop, an unusual dose. Anything
+  the app didn't measure is left out rather than called zero. From the
+  third episode, it notes which factors keep showing up, as an observation.
+- **Emergy reads your logs back.** "What did I eat on Tuesday?", "my blood
+  pressure last week", "how's my stress tracker this month?" now get real
+  answers, and Emergy can find, fix or delete a wrong meal, blood-pressure
+  reading, tracker value or symptom (with the same confirm step as
+  before). Fixing a meal's calories scales its macros with it.
+- **Where you're signed in.** Settings lists your signed-in devices and can
+  sign out one, or all of them except the one you're holding.
+- **Doctor report: as-needed and stopped medicines.** Medicines taken with
+  no schedule (Frontin ½, a one-off painkiller, supplements) get their own
+  *Other doses logged* table. A schedule you stopped still appears, marked
+  stopped, when it had doses in the period.
+
+**Fixed (the 26 audit findings that had never been checked)**
+
+Each one was re-checked against today's code first: 21 were real and are
+fixed, 3 had already been fixed, and 2 need a database change (below).
+- **Samsung import:**
+  - It now respects the ring: it fills only gaps and never overwrites a
+    ring night or a weight you typed.
+  - It no longer stores the day's average heart rate as resting HR, or
+    zero sleep scores as readings.
+  - An import that writes nothing no longer shows a green tick.
+  - Mood rows are counted only when they were actually written.
+- **Google Timeline:**
+  - A stay longer than 90 minutes becomes a check-in.
+  - A stay crossing an upload batch no longer gets two check-ins.
+  - Dates show in your own time zone.
+  - Saving a new place back-fills its visits from stored history.
+  - The Settings importer is now the same one the Location page uses. The
+    old one wrote data nothing read.
+- **Medications:**
+  - A dose after midnight (Atarax at 00:30) now counts for the evening it
+    belonged to.
+  - A dose logged both in Oura and in the app counts once.
+  - A tag re-timed in the Oura app moves here too.
+  - "What did I take today" and the brief no longer list drinks as doses.
+- **Lab results:**
+  - "Cholesterol HDL" is no longer merged into total cholesterol, and the
+    same goes for free testosterone, direct bilirubin, CA 19-9 and urine
+    creatinine.
+  - BUN is no longer converted as urea, which was 2.14× off.
+  - "LDL-cholesterol" and "Gama-GT" collapse onto LDL and GGT.
+  - Small values keep their digits (0.45 µkat/l no longer shows as 0.5).
+  - The same unit written differently now converts: mU/l and µU/ml,
+    mEq/L, HbA1c % and mmol/mol.
+  - Every save path canonicalises marker names.
+  - Add Result pre-fills your last unit, not US units, and warns about a
+    ×5 jump.
+  - An earlier value is never shown without its unit.
+  - Imports question a range that looks copied from the wrong unit column,
+    and keep a printed "<5" or ">90" as a limit rather than an exact value.
+- **Lab trends** no longer read the months before you logged drinks or
+  workouts as sober or sedentary days.
+- **Lab import** refuses files the platform can't deliver, instead of
+  failing mid-upload, and gets 5 minutes to read.
+- **YouTube Music import** uploads in whole-day slices within the platform
+  limits.
+- Emergy's blood-pressure log and the visit counter no longer report writes
+  that failed.
+
+**Caught by the pre-merge review**
+- "1h ago" just after midnight no longer lands in the future, and it counts
+  from the moment you tap Save, not from when the page opened.
+- Days too old to accept an entry no longer offer one.
+- "Stoptussin sirup", "cough syrup" and "Milk thistle" stay medicines
+  rather than becoming drinks.
+- "B-12 v sére" stays vitamin B12.
+- Moving a meal's time with Emergy moves its coffee and caffeine too.
+- YouTube Music import stops rather than splitting a day when your time
+  zone can't be read.
+- A café's usual drink can be yerba mate.
+
+**Still open**
+- **Needs a database change:** storing a lab's own H/L flag and a "<"/">"
+  qualifier as real columns (today the qualifier is kept in the note).
+- **One-off data fixes:**
+  - Old lab rows keep their old marker names until they are re-canonicalised.
+  - Resting HR values an earlier Samsung import wrote from average heart
+    rate are still stored.
+
+### Also in this release (first shipped as 3.7.1)
+
+
+- **More medicines, with half-lives.** Stilnox (zolpidem) was missing from
+  the medicine table, so a dose logged at 22:28 got no half-life and never
+  appeared in *In my body*. It's there now, however the tag spells it
+  ("Stillnox" too), along with about thirty others, each with a half-life,
+  timing advice and cautions:
+  - **Sleep and anxiety:** zopiclone, clonazepam, diazepam, bromazepam
+    (Lexaurin), lorazepam, oxazepam, trazodone, quetiapine, pregabalin,
+    gabapentin
+  - **Antidepressants:** sertraline, bupropion, vortioxetine, duloxetine
+  - **Pain:** metamizole (Novalgin/Algifen), diclofenac, ketoprofen,
+    nimesulide (Aulin), tramadol (with the serotonin warning next to
+    Elicea), codeine, sumatriptan
+  - **Allergy:** desloratadine, levocetirizine, bilastine, fexofenadine
+  - **Everyday prescriptions:** propranolol, bisoprolol, levothyroxine,
+    metformin, loperamide, famotidine, amoxicillin, azithromycin
+
+  Correlation cards recompute so the new half-lives are used.
+
+- **…and a second batch of medicines** (now about 90 in total):
+  - **Antidepressants and mood medicines:** citalopram (kept apart from
+    escitalopram), paroxetine, fluoxetine, venlafaxine, lamotrigine,
+    lithium, valproate, aripiprazole, olanzapine
+  - **ADHD:** Ritalin/Concerta, Elvanse, Strattera
+  - **Heart and blood:** amlodipine, telmisartan, atorvastatin,
+    rosuvastatin, Eliquis, Xarelto, warfarin — the blood thinners warn
+    against ibuprofen
+  - **Colds and stomach:** dextromethorphan (with a serotonin warning next
+    to Elicea), ACC, ambroxol, Degan, ondansetron
+  - **Steroids and muscle relaxants:** Medrol, prednisone, Mydocalm
+  - **Everything else:** Fenistil, nicotine (gum, pouches, vape),
+    sildenafil, tadalafil, finasteride, oxycodone, and the antibiotics
+    doxycycline, ciprofloxacin, clarithromycin and cefuroxime
+- **Drinks, by name.** One shared list of named drinks, used by the Oura
+  sync, the caffeine estimate, the calorie count, the alcohol curve and
+  Emergy's drink logging:
+  - **Oura tags that were ignored now count:** Kofola, cola, energy drinks,
+    Club-Mate and yerba mate, juice and smoothies, milk, kefir, hot
+    chocolate and kombucha. Before, they never reached the intake log.
+  - **Caffeine by drink:** Kofola ≈15 mg/100 ml, cola 10, energy drinks 32,
+    Club-Mate 20; green tea has less than black tea; herbal and fruit teas
+    have none; decaf is nearly none.
+  - **Calories by drink:** the milk in a latte, cappuccino, flat white or
+    mocha; syrup in water; juice, smoothies and kefir. Zero and light sodas
+    cost nothing.
+  - **Alcohol by strength:** alcohol-free beer ("nealko", Birell, 0.0)
+    counts no alcohol, even when Emergy files it as beer. Radler counts at
+    radler strength, prosecco and liqueurs at their own; Tatratea,
+    Becherovka and fernet are spirits. A strength written in the label
+    still wins.
+  - **Log page:** a new *Other drinks* row (juice, Kofola, cola, energy
+    drink, syrup water, milk, yerba mate, alcohol-free beer), and custom
+    entries can now be mate, juice, soft drink or milk.
+
+- Emergy's afternoon water push no longer screams "I AM WILTING" at a
+  litre by five o'clock. Anything under a fixed 1500 ml used to get the
+  capitals, whatever the time and whatever your goal. It now reads your
+  intake against your own water goal and the time of day. On pace: nothing.
+  Somewhat behind: a quiet line with how many ml you're off. The capitals
+  are kept for a day that has barely started drinking.
+
 ## 3.7.0 — The audit
 
 A full sweep: 16 auditors across every subsystem, production logs and the

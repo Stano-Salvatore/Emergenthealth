@@ -14,7 +14,7 @@
 // Storage is unaffected: a result is still saved exactly as the lab printed
 // it. This only exists so two of them can be compared.
 
-export type Dimension = "mass" | "molar" | "activity" | "count" | "fraction" | "iu"
+export type Dimension = "mass" | "molar" | "activity" | "count" | "fraction" | "iu" | "equiv"
 
 interface UnitDef {
   dim: Dimension
@@ -25,7 +25,7 @@ interface UnitDef {
 /**
  * Bases: mass = g/L, molar = mol/L, activity = U/L, count = cells/L,
  * fraction = %, iu = IU/L (arbitrary international units, never convertible
- * to mass without an assay-specific factor).
+ * to mass without an assay-specific factor), equiv = Eq/L (moles of charge).
  */
 const UNITS: Record<string, UnitDef> = {
   // ── mass concentration, base g/L ──
@@ -49,6 +49,9 @@ const UNITS: Record<string, UnitDef> = {
   "nmol/l": { dim: "molar", toBase: 1e-9 },
   "pmol/l": { dim: "molar", toBase: 1e-12 },
 
+  // ── charge concentration, base Eq/L; molar only through the ion's valence ──
+  "meq/l": { dim: "equiv", toBase: 1e-3 },
+
   // ── enzyme activity, base U/L ──
   "u/l": { dim: "activity", toBase: 1 },
   "iu/l": { dim: "activity", toBase: 1 },
@@ -70,6 +73,38 @@ const UNITS: Record<string, UnitDef> = {
   "miu/l": { dim: "iu", toBase: 1e-3 },
   "uiu/ml": { dim: "iu", toBase: 1e-3 }, // µIU/mL and mIU/L are the same thing
   "miu/ml": { dim: "iu", toBase: 1 },
+  // Czech and Slovak reports drop the I: "mU/l" for TSH is mIU/L.
+  "mu/l": { dim: "iu", toBase: 1e-3 },
+  "uu/ml": { dim: "iu", toBase: 1e-3 },
+}
+
+/**
+ * "U/L" and "IU/L" are enzyme activity for ALT and international units for a
+ * hormone like FSH. Against a unit that is only ever hormonal they mean the
+ * latter, 1 IU/L = 1 mIU/mL; against µkat/l they stay activity.
+ */
+const ACTIVITY_OR_IU = new Set(["u/l", "iu/l"])
+
+/** Charge per ion, so mEq/L can become mmol/L: an equivalent is a mole of charge. */
+const VALENCE: Record<string, number> = {
+  "Sodium": 1,
+  "Potassium": 1,
+  "Chloride": 1,
+  "Calcium": 2,
+  "Magnesium": 2,
+}
+
+/**
+ * HbA1c is printed as % (NGSP/DCCT) or mmol/mol (IFCC, the Czech and Slovak
+ * standard). The two scales are affine, not proportional, so no single
+ * factor exists; this is the IFCC–NGSP master equation,
+ * NGSP % = 0.09148 × IFCC + 2.152. Undefined when it doesn't apply.
+ */
+function convertHbA1c(value: number, from: string, to: string): number | undefined {
+  if (from === "mmol/mol" && to === "%") return 0.09148 * value + 2.152
+  if (from === "%" && to === "mmol/mol") return (value - 2.152) / 0.09148
+  if (from === "mmol/mol" && to === "mmol/mol") return value
+  return undefined
 }
 
 /**
@@ -79,7 +114,9 @@ const UNITS: Record<string, UnitDef> = {
  *
  * LDL and HDL take cholesterol's mass because that is what is being measured.
  * Triglycerides use triolein, the convention labs report against. Phosphate is
- * reported as elemental phosphorus.
+ * reported as elemental phosphorus. BUN weighs only the nitrogen: one urea
+ * carries two N (2 × 14.007), so mg/dL BUN × 0.357 is mmol/L of urea, where
+ * mg/dL urea × 0.1665 is.
  */
 const MOLAR_MASS: Record<string, number> = {
   "Cholesterol": 386.65,
@@ -89,6 +126,7 @@ const MOLAR_MASS: Record<string, number> = {
   "Glucose": 180.156,
   "Creatinine": 113.12,
   "Urea": 60.06,
+  "BUN": 28.014,
   "Uric acid": 168.11,
   "Calcium": 40.078,
   "Magnesium": 24.305,
@@ -106,9 +144,12 @@ const MOLAR_MASS: Record<string, number> = {
   "Homocysteine": 135.18,
 }
 
+const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹"
+
 /**
  * Fold the many ways a lab prints the same unit onto one key: case, spacing,
- * the micro sign vs "u" vs "mcg", "x10^9/L" vs "10*9/L" vs "G/L", and "per".
+ * the micro sign vs "u" vs "mcg", "x10^9/L" vs "10*9/L" vs "10⁹/l" vs "G/L",
+ * and "per".
  */
 export function normalizeUnit(raw: string): string {
   let u = (raw ?? "").trim().toLowerCase()
@@ -119,9 +160,10 @@ export function normalizeUnit(raw: string): string {
     .replace(/mcg/g, "ug")
     .replace(/per/g, "/")
     .replace(/litre|liter/g, "l")
-    .replace(/^x/, "")           // "x10^9/L"
+    .replace(/^[x×·]/, "")       // "x10^9/L", "×10^9/L"
     .replace(/\*/g, "^")         // "10*9/L"
     .replace(/10e(\d)/g, "10^$1")
+    .replace(/10([⁰¹²³⁴⁵⁶⁷⁸⁹]+)/g, (_, sup: string) => "10^" + [...sup].map(c => SUPERSCRIPT.indexOf(c)).join(""))
     .replace(/^g\/l$/, "g/l")
   // "G/L" for 10^9/L and "T/L" for 10^12/L are a European convention for cell
   // counts, but "g/l" is also grams per litre — so only the uppercase original
@@ -148,10 +190,25 @@ export function convertLabValue(
   marker: string,
 ): number | null {
   if (!Number.isFinite(value)) return null
-  const from = UNITS[normalizeUnit(fromUnit)]
-  const to = UNITS[normalizeUnit(toUnit)]
+  const fromKey = normalizeUnit(fromUnit)
+  const toKey = normalizeUnit(toUnit)
+  if (marker === "HbA1c") {
+    const a1c = convertHbA1c(value, fromKey, toKey)
+    if (a1c !== undefined) return a1c
+  }
+  let from: UnitDef | null = UNITS[fromKey] ?? null
+  let to: UnitDef | null = UNITS[toKey] ?? null
   if (!from || !to) return null
 
+  if (from.dim === "iu" && to.dim === "activity" && ACTIVITY_OR_IU.has(toKey)) to = { dim: "iu", toBase: 1 }
+  if (to.dim === "iu" && from.dim === "activity" && ACTIVITY_OR_IU.has(fromKey)) from = { dim: "iu", toBase: 1 }
+  if (from.dim === to.dim) return (value * from.toBase) / to.toBase
+
+  // mEq/L → mol/L of the ion: divide by its charge.
+  const z = VALENCE[marker]
+  if (from.dim === "equiv") from = z ? { dim: "molar", toBase: from.toBase / z } : null
+  if (to.dim === "equiv") to = z ? { dim: "molar", toBase: to.toBase / z } : null
+  if (!from || !to) return null
   if (from.dim === to.dim) return (value * from.toBase) / to.toBase
 
   // The only cross-dimension conversion that is ever legitimate.

@@ -18,6 +18,10 @@ export const runtime = "nodejs"
 // Months of day-rows plus a genre-tagging pass — more than the default
 // function budget allows.
 export const maxDuration = 60
+/** When the genre pass must be done by, measured from the request's start:
+ *  maxDuration less room to answer. A killed function loses its response,
+ *  and the client reads a finished import as a failed one. */
+const GENRE_DEADLINE_MS = 50_000
 
 interface IncomingPlay { name: string; artist: string; uts: number }
 
@@ -35,8 +39,9 @@ export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
+  const startedAt = Date.now()
 
-  const body = await req.json().catch(() => null) as { plays?: unknown } | null
+  const body = await req.json().catch(() => null) as { plays?: unknown; tagGenres?: unknown } | null
   if (!body || !Array.isArray(body.plays)) {
     return NextResponse.json({ error: "plays[] required" }, { status: 400 })
   }
@@ -100,9 +105,13 @@ export async function POST(req: NextRequest) {
 
   // The import can bring months of artists the genre table has never seen.
   // Tagging needs a Last.fm API key; without one connected this quietly waits
-  // for the first Last.fm sync to catch the same artists up.
-  const keyRow = await getLastfmKey(userId).catch(() => null)
-  if (keyRow) await syncArtistGenres(userId, keyRow.apiKey).catch(() => null)
+  // for the first Last.fm sync to catch the same artists up. A sliced upload
+  // asks for it once, on its last slice.
+  const genreBudgetMs = GENRE_DEADLINE_MS - (Date.now() - startedAt)
+  if (body.tagGenres !== false && genreBudgetMs > 0) {
+    const keyRow = await getLastfmKey(userId).catch(() => null)
+    if (keyRow) await syncArtistGenres(userId, keyRow.apiKey, { budgetMs: genreBudgetMs }).catch(() => null)
+  }
 
   return NextResponse.json({
     days: inserted,

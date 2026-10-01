@@ -63,12 +63,13 @@ const asMs = (day: string) => Date.parse(day + "T00:00:00Z")
  * Without this the day rows would be read from the earliest draw minus a
  * year, which for someone with a few years of lab history means thousands of
  * rows that nothing then looks at. `readings` arrives sorted ascending, so
- * the last two entries per marker are the two the trend compares.
+ * the last two distinct dates per marker are the two the trend compares.
  */
 function behaviourFloor(readings: LabReading[]): string | null {
   const lastTwo = new Map<string, string[]>()
   for (const r of readings) {
     const dates = lastTwo.get(r.marker) ?? []
+    if (dates[dates.length - 1] === r.date) continue
     dates.push(r.date)
     if (dates.length > 2) dates.shift()
     lastTwo.set(r.marker, dates)
@@ -89,18 +90,21 @@ function behaviourFloor(readings: LabReading[]): string | null {
 /**
  * The everyday numbers, for the days the app genuinely knows something about.
  *
- * HealthLog is what defines "knows something about": it is the row the daily
- * sync writes, so its presence means the app was live that day and an absent
- * drink really is a day without one. Building the day set from the logs
- * themselves instead would make every window look sober and sedentary except
- * the days something was recorded — the exact bias this comparison exists to
- * avoid. A user with no health sync gets no rows here and no behaviour
- * context, which is the honest answer rather than an invented one.
+ * HealthLog defines the day set: a user with no health sync gets no rows here
+ * and no behaviour context, which is the honest answer rather than an invented
+ * one. It does not say drinks or workouts were being recorded — the Oura cron
+ * writes it whether or not anyone opens the app — so each of those has its own
+ * start: alcohol is known from the first intake entry of any kind, exercise
+ * from the first workout on record. Before that the day's value is null, not
+ * 0, and the coverage gates in lab-trends drop a window that has too few.
+ * After it, an absent drink is a day without one; building the day set from
+ * the logs themselves would make every window sober and sedentary except the
+ * days something was recorded.
  */
 async function loadDayFacts(userId: string, since: string): Promise<DayFacts[]> {
   const sinceDate = new Date(since + "T00:00:00Z")
 
-  const [healthLogs, stravaRows, bodyRows, alcoholRows, tz] = await Promise.all([
+  const [healthLogs, stravaRows, bodyRows, alcoholRows, firstIntake, firstWorkout, tz] = await Promise.all([
     prisma.healthLog.findMany({
       where: { userId, date: { gte: sinceDate } },
       select: { date: true, sleepDuration: true, steps: true },
@@ -122,6 +126,14 @@ async function loadDayFacts(userId: string, since: string): Promise<DayFacts[]> 
       where: { userId, type: { in: [...ALCOHOL_TYPES] }, loggedAt: { gte: sinceDate } },
       select: { loggedAt: true, amountMl: true, type: true, note: true },
     }).catch(() => [] as { loggedAt: Date; amountMl: number; type: string; note: string | null }[]),
+
+    prisma.intakeLog.findFirst({
+      where: { userId }, orderBy: { loggedAt: "asc" }, select: { loggedAt: true },
+    }).catch(() => null),
+
+    prisma.stravaActivity.findFirst({
+      where: { userId }, orderBy: { day: "asc" }, select: { day: true },
+    }).catch(() => null),
 
     getUserTimezone(userId),
   ])
@@ -149,14 +161,17 @@ async function loadDayFacts(userId: string, since: string): Promise<DayFacts[]> 
     alcoholByDay.set(day, (alcoholByDay.get(day) ?? 0) + ethanolGrams(a.type, a.amountMl, a.note ?? undefined))
   }
 
+  const alcoholFrom = firstIntake ? dayFmt.format(firstIntake.loggedAt) : null
+  const workoutFrom = firstWorkout?.day ?? null
+
   return healthLogs.map(l => {
     const day = l.date.toISOString().slice(0, 10)
     return {
       day,
       sleepH: l.sleepDuration != null ? l.sleepDuration / 60 : null,
       steps: l.steps,
-      workoutMin: workoutByDay.get(day) ?? 0,
-      alcoholG: alcoholByDay.get(day) ?? 0,
+      workoutMin: workoutFrom != null && day >= workoutFrom ? workoutByDay.get(day) ?? 0 : null,
+      alcoholG: alcoholFrom != null && day >= alcoholFrom ? alcoholByDay.get(day) ?? 0 : null,
       weightKg: weightByDay.get(day) ?? null,
     }
   }).sort((a, b) => a.day.localeCompare(b.day))

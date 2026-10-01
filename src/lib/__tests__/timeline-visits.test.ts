@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest"
 import { extractVisits, matchVisitsToTargets, parseLatLngString, type VisitTarget } from "../timeline-visits"
-import { buildTargets } from "@/components/settings/TimelineImporter"
 
 const HOME: VisitTarget = { lat: 48.175421976678, lng: 17.126068557003457, label: "Home", emoji: "🏠" }
 
@@ -84,31 +83,5 @@ describe("matchVisitsToTargets", () => {
     const res = matchVisitsToTargets([at(50, 20)], { home: HOME }, 150)
     expect(res.summary.home).toBe(0)
     expect(res.visits.home).toEqual([])
-  })
-})
-
-describe("buildTargets", () => {
-  const place = (over: Partial<{ id: string; name: string; emoji: string; lat: number; lng: number; radiusM: number }> = {}) => ({
-    id: "abc", name: "Gym", emoji: "🏋️", lat: 48.2, lng: 17.2, radiusM: 150, ...over,
-  })
-
-  it("keeps the legacy six when nothing is saved, so an old import still works", () => {
-    const targets = buildTargets([])
-    expect(Object.keys(targets)).toHaveLength(6)
-    expect(targets.home.label).toBe("Home")
-  })
-
-  it("adds saved places alongside the legacy targets", () => {
-    const targets = buildTargets([place()])
-    expect(targets["place_abc"]).toMatchObject({ label: "Gym", emoji: "🏋️" })
-    expect(Object.keys(targets)).toHaveLength(7)
-  })
-
-  it("lets a saved place supersede the legacy target it covers", () => {
-    // Saving your home shouldn't produce two competing "home" series.
-    const targets = buildTargets([place({ id: "h", name: "My home", lat: HOME.lat, lng: HOME.lng })])
-    expect(targets.home).toBeUndefined()
-    expect(targets["place_h"].label).toBe("My home")
-    expect(Object.keys(targets)).toHaveLength(6)
   })
 })

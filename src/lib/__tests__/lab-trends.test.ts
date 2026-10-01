@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest"
-import { computeLabTrends, notableTrends, rangeStatus, type DayFacts, type DayTags, type LabReading } from "@/lib/lab-trends"
+import { readFileSync } from "node:fs"
+import { computeLabTrends, notableTrends, previousReading, rangeStatus, type DayFacts, type DayTags, type LabReading } from "@/lib/lab-trends"
 
 const reading = (over: Partial<LabReading> = {}): LabReading => ({
   marker: "Vitamin D", value: 42, unit: "ng/mL", date: "2026-03-01",
@@ -98,6 +99,54 @@ describe("computeLabTrends", () => {
     expect(Math.abs(t.changePct!)).toBeLessThan(1) // essentially unchanged
     expect(t.direction).toBe("flat")
     expect(t.summary).toContain("converted to mmol/l")
+  })
+
+  it("never measures a change between two results drawn on the same day", () => {
+    // Two rows filed under one marker on one date are two tests, or one test
+    // entered twice — neither is a change over time.
+    const [t] = computeLabTrends([
+      reading({ marker: "Cholesterol", value: 5.2, unit: "mmol/l", referenceMin: null, referenceMax: 5.0, date: "2026-08-01" }),
+      reading({ marker: "Cholesterol", value: 1.4, unit: "mmol/l", referenceMin: 1.0, referenceMax: null, date: "2026-08-01" }),
+    ])
+    expect(t.changePct).toBeNull()
+    expect(t.summary).not.toMatch(/down from|up from|%/)
+
+    // With an earlier draw on file, that is what the latest is compared with.
+    const [u] = computeLabTrends([
+      reading({ marker: "Cholesterol", value: 5.0, unit: "mmol/l", referenceMin: null, referenceMax: null, date: "2026-02-01" }),
+      reading({ marker: "Cholesterol", value: 5.2, unit: "mmol/l", referenceMin: null, referenceMax: null, date: "2026-08-01" }),
+      reading({ marker: "Cholesterol", value: 5.1, unit: "mmol/l", referenceMin: null, referenceMax: null, date: "2026-08-01" }),
+    ])
+    expect(u.previous!.date).toBe("2026-02-01")
+    expect(u.intervalDays).toBeGreaterThan(0)
+  })
+
+  it("keeps the digits that matter for small values", () => {
+    // µkat/l liver enzymes live below 1; one decimal made 0.45 → 0.95 read as
+    // "0.5 to 1", and a PSA of 0.04 read as 0.
+    const [ggt] = computeLabTrends([
+      reading({ marker: "GGT", value: 0.45, unit: "ukat/l", referenceMin: 0.14, referenceMax: 0.84, date: "2026-03-01" }),
+      reading({ marker: "GGT", value: 0.95, unit: "ukat/l", referenceMin: 0.14, referenceMax: 0.84, date: "2026-08-01" }),
+    ])
+    expect(ggt.summary).toContain("from 0.45 ukat/l to 0.95 ukat/l")
+
+    const [alt] = computeLabTrends([
+      reading({ marker: "ALT", value: 0.84, unit: "ukat/l", referenceMin: 0.1, referenceMax: 0.83, date: "2026-08-01" }),
+    ])
+    expect(alt.summary).toContain("0.84 ukat/l")
+
+    const [psa] = computeLabTrends([
+      reading({ marker: "PSA", value: 0.04, unit: "ng/ml", referenceMin: null, referenceMax: 4, date: "2026-08-01" }),
+    ])
+    expect(psa.summary).toContain("0.04 ng/ml")
+
+    // A converted earlier value gets the same care: 27 U/L is 0.45 µkat/l.
+    const [conv] = computeLabTrends([
+      reading({ marker: "GGT", value: 27, unit: "U/L", referenceMin: null, referenceMax: null, date: "2026-03-01" }),
+      reading({ marker: "GGT", value: 0.95, unit: "ukat/l", referenceMin: null, referenceMax: null, date: "2026-08-01" }),
+    ])
+    expect(conv.summary).toContain("from 0.45 ukat/l")
+    expect(conv.converted!.previousAs).toBe(0.45)
   })
 
   it("still refuses when the units genuinely can't be reconciled", () => {
@@ -306,5 +355,52 @@ describe("interval behaviours", () => {
     expect(t.behaviours[0].key).toBe("alcohol")
     expect(t.behaviours.map(b => Math.abs(b.changePct)))
       .toEqual([...t.behaviours.map(b => Math.abs(b.changePct))].sort((a, b) => b - a))
+  })
+})
+
+// "60 nmol/l vs 30 (-20%)" contradicts itself: the 30 was ng/mL, 74.9 nmol/l,
+// and the change beside it was computed on the converted value.
+describe("previousReading", () => {
+  it("gives the earlier value in the latest unit when it was converted", () => {
+    const [t] = computeLabTrends([
+      reading({ value: 30, unit: "ng/mL", date: "2026-03-01" }),
+      reading({ value: 60, unit: "nmol/l", date: "2026-08-01" }),
+    ])
+    expect(previousReading(t)).toBe("74.9 nmol/l")
+    expect(t.changePct!).toBeLessThan(0)
+  })
+
+  it("keeps the earlier value's own unit when the two can't be reconciled", () => {
+    const [t] = computeLabTrends([
+      reading({ marker: "NT-proBNP", value: 120, unit: "pg/mL", date: "2026-03-01" }),
+      reading({ marker: "NT-proBNP", value: 14, unit: "pmol/L", date: "2026-08-01" }),
+    ])
+    expect(previousReading(t)).toBe("120 pg/mL")
+  })
+
+  it("is null for a first reading", () => {
+    const [t] = computeLabTrends([reading()])
+    expect(previousReading(t)).toBeNull()
+  })
+})
+
+describe("nothing shows an earlier lab value without its unit", () => {
+  const stripped = (f: string) =>
+    readFileSync(f, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+
+  it("the long view and Emergy's labs answer go through previousReading", () => {
+    const longView = stripped("src/components/stats/LongView.tsx")
+    expect(longView).toMatch(/previousReading\(/)
+    expect(longView).not.toMatch(/previous\.value/)
+    const chat = stripped("src/lib/claude.ts")
+    const labs = chat.slice(chat.indexOf('kind === "labs"'), chat.indexOf('kind === "nutrients"'))
+    expect(labs).toMatch(/previousReading\(/)
+    expect(labs).not.toMatch(/previous\.value/)
+  })
+
+  it("the labs-page sparkline plots every point in the latest reading's unit", () => {
+    const page = stripped("src/app/dashboard/labs/page.tsx")
+    const spark = page.slice(page.indexOf("function Sparkline"), page.indexOf("function MarkerCard"))
+    expect(spark).toMatch(/convertLabValue\(/)
   })
 })

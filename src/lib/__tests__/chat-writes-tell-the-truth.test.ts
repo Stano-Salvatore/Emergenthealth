@@ -63,3 +63,20 @@ describe("chat writes tell the truth", () => {
     expect(handler("forget")).toMatch(/memory read failed/)
   })
 })
+
+describe("the last two writes that could claim success", () => {
+  const strip = (p: string) => readFileSync(p, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+
+  it("Emergy's blood-pressure log checks its write before saying Logged", () => {
+    const src = strip("src/lib/claude.ts")
+    const block = src.slice(src.indexOf('name === "log_blood_pressure"'), src.indexOf('name === "log_lab_results"'))
+    expect(block).toMatch(/bloodPressureLog\.create\([\s\S]*?\)\.catch\(writeFailed\(/)
+    expect(block).toMatch(/if \(!saved\w*\) return/)
+  })
+
+  it("a check-in counts as created only when it was", () => {
+    const src = strip("src/lib/place-visits.ts")
+    const block = src.slice(src.indexOf("export async function recordVisits"))
+    expect(block).not.toMatch(/\}\)\.catch\(\(\) => null\)\s*\n\s*created\+\+/)
+  })
+})
