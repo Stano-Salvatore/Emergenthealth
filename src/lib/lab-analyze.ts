@@ -10,6 +10,7 @@
 
 import Anthropic from "@anthropic-ai/sdk"
 import { canonicalMarker } from "@/lib/lab-markers"
+import { parseLabFlag, parseLabQualifier } from "@/lib/lab-flags"
 import { OPUS } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
 
@@ -171,13 +172,12 @@ export function normalizeReport(parsed: ParsedLabReport): ParsedLabReport {
     let max = typeof r.referenceMax === "number" && Number.isFinite(r.referenceMax) ? r.referenceMax : null
     if (min != null && max != null && min > max) { const t = min; min = max; max = t }
 
-    const q = (r as { qualifier?: unknown }).qualifier
-    const qualifier = q === "<" || q === ">" ? q : null
+    const qualifier = parseLabQualifier((r as { qualifier?: unknown }).qualifier)
     const checks: LabRowCheck[] = []
     if (qualifier) {
       checks.push({
         kind: "limit",
-        text: `Printed as ${qualifier}${r.value}: a limit, not a measurement. Saved, it is kept as exactly ${r.value}, and later trends will treat it as one.`,
+        text: `Printed as ${qualifier}${r.value}: a limit, not a measurement. It is saved with its sign, and trends won't read a size of change from it — check the sign against the page.`,
       })
     }
 
@@ -188,7 +188,7 @@ export function normalizeReport(parsed: ParsedLabReport): ParsedLabReport {
       unit: String(r.unit ?? "").trim().slice(0, 20),
       referenceMin: min,
       referenceMax: max,
-      flag: r.flag === "low" || r.flag === "high" || r.flag === "normal" ? r.flag : null,
+      flag: parseLabFlag(r.flag),
       qualifier,
       checks,
     })

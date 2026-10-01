@@ -51,6 +51,21 @@ describe("saveLabRows", () => {
     expect(db.written.map(w => w.marker)).toEqual(["HDL"])
   })
 
+  it("keeps the lab's own mark and a printed < or >, and nothing else in those columns", async () => {
+    await saveLabRows("u1", "2026-09-01", [
+      { ...row("CRP", 5, "mg/l"), flag: "normal", qualifier: "<" },
+      { ...row("Ferritin", 400, "ug/l"), flag: "high", qualifier: null },
+      { ...row("ALT", 0.4, "ukat/l"), flag: "H" as never, qualifier: "about" as never },
+      row("TSH", 2.1, "mIU/l"),
+    ])
+    expect(db.written.map(w => [w.marker, w.flag, w.qualifier])).toEqual([
+      ["CRP", "normal", "<"],
+      ["Ferritin", "high", null],
+      ["ALT", null, null],
+      ["TSH", null, null],
+    ])
+  })
+
   it("drops a row whose name canonicalises to nothing", async () => {
     const r = await saveLabRows("u1", "2026-09-01", [row("   ", 1)])
     expect(r.saved).toEqual([])

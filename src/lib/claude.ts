@@ -56,8 +56,9 @@ import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { analyseExperiment } from "@/lib/experiments-analysis"
 import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
 import { loadLabTrends } from "@/lib/lab-trends-load"
-import { previousReading } from "@/lib/lab-trends"
+import { previousReading, rangeStatus } from "@/lib/lab-trends"
 import { saveLabRows } from "@/lib/lab-save"
+import { labValueText, parseLabFlag, parseLabQualifier } from "@/lib/lab-flags"
 import { loadNutrientReport } from "@/lib/nutrient-gaps-load"
 import { getGoals, saveGoals } from "@/lib/goals"
 import { completeReminder } from "@/lib/reminders"
@@ -625,6 +626,8 @@ const TOOLS: Anthropic.Tool[] = [
               unit: { type: "string", description: "As printed, e.g. 'ug/L', 'nmol/L', '%'" },
               referenceMin: { type: "number", description: "Lower end of the printed reference range, if any" },
               referenceMax: { type: "number", description: "Upper end of the printed reference range, if any" },
+              flag: { type: "string", enum: ["low", "high", "normal"], description: "Only when the report itself marks the row (H, L, ↑, ↓) — never your own reading of the range. Omit otherwise." },
+              qualifier: { type: "string", enum: ["<", ">"], description: "When the result is printed with that sign ('CRP < 5'): value is then the number alone. Omit for an ordinary result." },
             },
             required: ["marker", "value", "unit"],
           },
@@ -2210,12 +2213,14 @@ export async function executeTool(name: string, input: Record<string, string>, u
         referenceMin: num(r?.referenceMin),
         referenceMax: num(r?.referenceMax),
         notes: null as string | null,
+        flag: parseLabFlag(r?.flag),
+        qualifier: parseLabQualifier(r?.qualifier),
       }))
       .filter(r => r.marker && r.value !== null && r.unit)
       .slice(0, 100)
     if (rows.length === 0) return "None of those rows had a marker, a number and a unit — read them back to the user and try again."
     const { saved: fresh, skipped } = await saveLabRows(userId, date, rows.map(r => ({ ...r, value: r.value as number })))
-    return `Recorded ${fresh.length} lab result${fresh.length === 1 ? "" : "s"} for ${date}${skipped ? ` (${skipped} already on file, skipped)` : ""}: ${fresh.map(r => `${r.marker} ${r.value} ${r.unit}`).join(", ") || "nothing new"}. They show under Body → Labs. Read them back so a misread digit can be caught.`
+    return `Recorded ${fresh.length} lab result${fresh.length === 1 ? "" : "s"} for ${date}${skipped ? ` (${skipped} already on file, skipped)` : ""}: ${fresh.map(r => `${r.marker} ${labValueText(r.value, r.qualifier)} ${r.unit}`).join(", ") || "nothing new"}. They show under Body → Labs. Read them back so a misread digit can be caught.`
   }
 
   if (name === "create_med_schedule") {
@@ -2420,7 +2425,7 @@ export async function executeTool(name: string, input: Record<string, string>, u
     if (kind === "labs") {
       const labs = await loadLabTrends(userId)
       if (labs.markerCount === 0) return "No lab results on file."
-      const list = labs.trends.slice(0, 25).map(t => `- ${t.marker}: ${t.latest.value} ${t.unit} on ${t.latest.date} [${t.status}]${t.previous ? ` (was ${previousReading(t)} on ${t.previous.date}${t.changePct != null ? `, ${t.changePct > 0 ? "+" : ""}${t.changePct.toFixed(0)}%` : ""}${t.significant ? ", beyond normal variation" : ""})` : ""}${t.crossed ? ` — crossed ${t.crossed}` : ""}${t.summary ? ` — ${t.summary}` : ""}`)
+      const list = labs.trends.slice(0, 25).map(t => `- ${t.marker}: ${labValueText(t.latest.value, t.latest.qualifier)} ${t.unit} on ${t.latest.date} [${t.status}]${t.previous ? ` (was ${previousReading(t)} on ${t.previous.date}${t.changePct != null ? `, ${t.changePct > 0 ? "+" : ""}${t.changePct.toFixed(0)}%` : ""}${t.limit ? `, ${t.limit}` : ""}${t.significant ? ", beyond normal variation" : ""})` : ""}${t.crossed ? ` — crossed ${t.crossed}` : ""}${t.summary ? ` — ${t.summary}` : ""}`)
       return `${labs.markerCount} markers on file. Notable: ${labs.notable.length}.\n${list.join("\n")}\nRead these back; never interpret a value beyond the printed range or say what to do about it — that is the doctor's.`
     }
 
@@ -2676,8 +2681,8 @@ export async function buildSystemPrompt(
     // body composition, workouts and fasting state.
     prisma.labResult.findMany({
       where: { userId }, orderBy: { date: "desc" }, take: 60,
-      select: { marker: true, value: true, unit: true, referenceMin: true, referenceMax: true, date: true },
-    }).catch(() => [] as { marker: string; value: number; unit: string; referenceMin: number | null; referenceMax: number | null; date: Date }[]),
+      select: { marker: true, value: true, unit: true, referenceMin: true, referenceMax: true, date: true, flag: true, qualifier: true },
+    }).catch(() => [] as { marker: string; value: number; unit: string; referenceMin: number | null; referenceMax: number | null; date: Date; flag: string | null; qualifier: string | null }[]),
     prisma.bodyMeasurement.findFirst({ where: { userId }, orderBy: { date: "desc" } }).catch(() => null),
     prisma.stravaActivity.findMany({
       where: { userId }, orderBy: { startDate: "desc" }, take: 7,
@@ -2891,9 +2896,10 @@ export async function buildSystemPrompt(
     ? null
     : [...latestLabByMarker.values()].slice(0, 20).map(l => {
         const range = l.referenceMin != null && l.referenceMax != null ? ` (ref ${l.referenceMin}–${l.referenceMax})` : ""
-        const flag = l.referenceMin != null && l.value < l.referenceMin ? " ⚠️ LOW"
-          : l.referenceMax != null && l.value > l.referenceMax ? " ⚠️ HIGH" : ""
-        return `- ${l.marker}: ${l.value} ${l.unit}${range}${flag} — measured ${l.date.toISOString().slice(0, 10)}`
+        // The same reading of range, limit and lab mark as the trend card.
+        const status = rangeStatus({ ...l, date: "", flag: parseLabFlag(l.flag), qualifier: parseLabQualifier(l.qualifier) })
+        const flag = status === "below" ? " ⚠️ LOW" : status === "above" ? " ⚠️ HIGH" : ""
+        return `- ${l.marker}: ${labValueText(l.value, l.qualifier)} ${l.unit}${range}${flag} — measured ${l.date.toISOString().slice(0, 10)}`
       }).join("\n")
 
   // Weight as a trend, never as the last number. The rule "judge on the

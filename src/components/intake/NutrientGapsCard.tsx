@@ -4,12 +4,14 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { NUTRIENT_CAVEAT } from "@/lib/nutrients"
+import { labValueText } from "@/lib/lab-flags"
 
 interface LabCheck {
   marker: string
   value: number
   unit: string
   date: string
+  qualifier?: "<" | ">" | null
   status: "in-range" | "below" | "above" | "unknown"
 }
 
@@ -47,23 +49,24 @@ function LabLine({ lab, nutrient }: { lab: LabCheck | null; nutrient: string }) 
     )
   }
   const when = new Date(lab.date).toLocaleDateString([], { month: "short", year: "numeric" })
+  const value = labValueText(lab.value, lab.qualifier)
   if (lab.status === "in-range") {
     return (
       <p className="text-[11px] text-emerald-400/80">
-        Your {when} blood test put {lab.marker} at {lab.value} {lab.unit} — inside the range printed on that report.
+        Your {when} blood test put {lab.marker} at {value} {lab.unit} — inside the range printed on that report.
       </p>
     )
   }
   if (lab.status === "below") {
     return (
       <p className="text-[11px] text-red-400/90">
-        Your {when} blood test put {lab.marker} at {lab.value} {lab.unit} — below the range on that report. Worth raising with your doctor.
+        Your {when} blood test put {lab.marker} at {value} {lab.unit} — below the range on that report. Worth raising with your doctor.
       </p>
     )
   }
   return (
     <p className="text-[11px] text-muted-foreground">
-      Last measured {when}: {lab.marker} {lab.value} {lab.unit}.
+      Last measured {when}: {lab.marker} {value} {lab.unit}.
     </p>
   )
 }
