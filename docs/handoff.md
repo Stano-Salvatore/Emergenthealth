@@ -1131,28 +1131,21 @@ Roughly in order, most recent first:
 
 - **From the 26–27 Sept full audit (3.7.0).** 16 auditors, a skeptic on every
   finding, 160 confirmed and ~138 fixed in 3.7.0. Left open, deliberately:
-  - ~~**26 findings never verified**~~ — re-verified and closed in 3.8.0:
-    21 real and fixed, 3 already fixed, 2 left for a schema change —
-    `LabResult.flag` (the lab's own H/L) and `LabResult.qualifier` (`<`/`>`;
-    3.8.0 keeps it in `notes` and unticks such rows on import). Two data
-    one-offs remain: re-running `canonicalMarker` over existing
-    `LabResult.marker` values (rows saved as "Urea" from a US report are
-    probably BUN — check unit and source), and restingHR values an old
-    Samsung import wrote from avg_hr (indistinguishable without a source
-    marker such as `HealthLog.importedFrom`).
-  - **Follow-ups the 3.8.0 agents left:**
-    - Emergy's adherence tool still counts raw 14-day totals; it could use
-      `dosesByDay`.
-    - Emergy's `save_place` doesn't trigger the visit back-fill the Settings
-      and API paths now run in `after()`.
-    - The midnight rule moves a dose only backward, so a 23:50 dose for a
-      00:30 slot counts for the day it was logged.
-    - The symptom look-back's pressure is the phone's station reading, so a
-      drive uphill can look like a front; WeatherLog's sea-level pressure
-      would be a fallback.
-    - Five other `.<timestamp>.slice(0, 10)` sites that the UTC guard
-      doesn't match: fasting/page.tsx, habits/page.tsx, streak.ts,
-      correlations.ts, claude.ts.
+  - ~~**26 findings never verified**~~ — re-verified and closed in 3.8.0;
+    the two schema items shipped in 3.9.0 (`LabResult.flag`, `LabResult.qualifier`,
+    `lib/lab-flags.ts`), with a user-run tidy for pre-3.8.0 marker names
+    (`lib/lab-recanonicalise.ts`, `/api/labs/tidy`, `LabTidyCard`): plain renames
+    and "<"/">" moved out of notes are applied; Urea in mg/dL (likely BUN),
+    collisions and same-day duplicates are listed, never changed. Still open:
+    restingHR values an old Samsung import wrote from avg_hr, indistinguishable
+    without a source marker such as `HealthLog.importedFrom`; and the manual Add
+    Result form has no inputs for a flag or sign (the POST accepts them).
+  - ~~Follow-ups the 3.8.0 agents left~~ — closed in 3.9.0: Emergy's adherence
+    read uses `adherenceOver`/`dosesByDay`; `save_place` back-fills in a nested
+    `after()`; the UTC guard also matches `.<timestampField>.slice(0, 10)` /
+    `split("T")` on ISO strings. Still open: the midnight rule moves a dose only
+    backward, and the symptom look-back's pressure is the phone's station
+    reading.
   - **Needs an APK:** a package-bound nonce for the mobile sign-in bridge
     (3.7.0 ships a server-side IP stopgap only); a try/catch rewrite in
     `.ci/patch-kiwi-health.py` so the Health Connect plugin can reject on

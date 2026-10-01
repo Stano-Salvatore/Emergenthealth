@@ -1,5 +1,44 @@
 # Changelog
 
+## 3.9.0 — Lab limits, a tidy, and blood oxygen watched
+
+Web-only, no new APK. The two new lab columns are added (never renamed or
+dropped) by the build's own schema push.
+
+**New**
+- **Lab results keep the lab's own H/L mark and a printed "<" or ">".**
+  - A "<5" is stored as a limit, not as an exact 5, and the sign is printed
+    everywhere the value appears: the labs page, the doctor report and its
+    email, the long view, and Emergy.
+  - Trends never claim a size of change across a limit. They say "below the
+    detection limit both times" or "now measurable" instead.
+  - A result with no range on file takes the lab's own H/L.
+- **Tidy lab names.** A card on the labs page offers to rename results saved
+  before 3.8.0 onto today's names, so "LDL-cholesterol" joins LDL. It also
+  moves a "<"/">" out of old notes into the new column. Anything a name
+  can't settle is listed for you and never changed:
+  - a "Urea" in mg/dL, which is likely BUN from a US report
+  - two results that would share one name on one day
+- **Blood oxygen is watched.** It was read every night but never checked.
+  A night like 93.7% against your usual 96–98% now shows up as an anomaly.
+  A 0 reading, when the ring wasn't measuring, is ignored.
+
+**Fixed**
+- Emergy's medication adherence counts the way the Medications page does:
+  - a dose logged in Oura and the app counts once
+  - a 00:30 dose counts for the night before
+  - today is left out
+  - as-needed meds are reported by how often they were taken
+- A place saved by chatting with Emergy now fills in its past visits.
+- Five more places turned a saved timestamp into a UTC day, so an event just
+  after midnight landed on the day before:
+  - fasting days in your patterns and in Emergy's context
+  - the fasting page's longest streak
+  - a habit's start day in the completion rate and the heatmap
+
+  The guard test now catches this shape too.
+- Add Result's "×5 jump" warning no longer measures from a previous "<5".
+
 ## 3.8.0 — Drinks by name, and the rest of the audit
 
 Web-only: everything here is live on merge, no new APK.
