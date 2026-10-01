@@ -88,7 +88,8 @@ export async function scanUserAnomalies(
     push("skinTemp", date, l.skinTemp)
     push("sleepLatency", date, l.sleepLatency)
     push("sleepEfficiency", date, l.sleepEfficiency)
-    push("spo2", date, l.spo2)
+    // 0 is the ring not measuring, not a reading — the report skips it too.
+    push("spo2", date, l.spo2 != null && l.spo2 > 0 ? l.spo2 : null)
   }
 
   const latestDate = iso(logs[logs.length - 1].date)

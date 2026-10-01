@@ -39,6 +39,10 @@ export const TRACKED_METRICS: MetricSpec[] = [
   { key: "sleepLatency",   label: "Time to fall asleep", unit: "min", direction: "higher-is-worse", emoji: "⏳", minAbsShift: 10 },
   { key: "sleepEfficiency", label: "Sleep efficiency",   unit: "%",   direction: "lower-is-worse",  emoji: "⚡", minAbsShift: 4 },
   { key: "skinTemp",       label: "Skin temperature",   unit: "°C",  direction: "higher-is-worse", emoji: "🌡️", minAbsShift: 0.4 },
+  // Read every night and shown on the vitals panel, but never watched — a
+  // 93.7% night against a usual 96–98% raised nothing. Ring SpO₂ sits in a
+  // band about two points wide, so a point and a half is a real move.
+  { key: "spo2",           label: "Blood oxygen",       unit: "%",   direction: "lower-is-worse",  emoji: "🩸", minAbsShift: 1.5 },
 ]
 
 export interface Anomaly {
