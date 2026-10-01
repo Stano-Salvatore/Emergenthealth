@@ -69,7 +69,7 @@ import { latestWeightKg, loadWeightSeries } from "@/lib/weight-series"
 import { weightGoalProgress } from "@/lib/weight-trend"
 import { logWorkout, loadSessionsForUser, WORKOUT_TYPES } from "@/lib/workouts"
 import { trainingLoad, suggestSession } from "@/lib/training-load"
-import { activeOn, matchKey } from "@/lib/med-schedule"
+import { adherenceOver, dosesByDay, sortedTimes, toDose, type DoseRow } from "@/lib/med-schedule"
 import { hhmm, lastCoffeeBy, medianBedtimeMin } from "@/lib/caffeine-cutoff"
 
 /** Fold whatever the model called it onto a type the app stores. */
@@ -2430,19 +2430,30 @@ export async function executeTool(name: string, input: Record<string, string>, u
     if (kind === "adherence") {
       const scheds = await prisma.medSchedule.findMany({ where: { userId, active: true } })
       if (scheds.length === 0) return "No medication schedules set up, so there is nothing to measure adherence against."
-      const since = addDaysISO(today, -13)
-      const doses = await prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
-        SELECT "day", "tagName", "text" FROM "OuraTag" WHERE "userId" = ${userId} AND "day" >= ${since}
-      `.catch(() => [] as { day: string; tagName: string | null; text: string | null }[])
+      // The last 14 finished days, counted by the rule the Medications page and
+      // the reminder cron use: a 00:30 dose fills the night before, one dose
+      // logged in both Oura and the app is one, and today is left out because
+      // its later doses haven't happened yet.
+      const since = addDaysISO(today, -14)
+      const tz = await getUserTimezone(userId)
+      const rows = await prisma.$queryRaw<DoseRow[]>`
+        SELECT "id", "day", "timestamp", "tagName", "text" FROM "OuraTag"
+        WHERE "userId" = ${userId} AND "day" >= ${addDaysISO(since, -1)} AND "day" < ${today}
+      `.catch(() => null)
+      if (!rows) return "Couldn't read the dose log just now — worth asking again in a moment."
+      const doses = rows.flatMap(r => toDose(r, tz) ?? [])
       const days: string[] = []
       for (let i = 0; i < 14; i++) days.push(addDaysISO(since, i))
+      const adh = new Map(adherenceOver(scheds, doses, days).map(a => [a.scheduleId, a]))
       const lines = scheds.map(s => {
-        let expected = 0
-        for (const day of days) if (activeOn(s, day)) expected += Math.max(1, s.times.length)
-        const key = matchKey(s.name)
-        const logged = doses.filter(d => matchKey(d.tagName ?? d.text ?? "") === key).length
-        const pct = expected > 0 ? Math.round((logged / expected) * 100) : null
-        return `- ${s.name}${s.dose ? ` (${s.dose})` : ""}: ${logged} logged of ${expected} scheduled in the last 14 days${pct != null ? ` (${pct}%)` : ""}`
+        const label = `${s.name}${s.dose ? ` (${s.dose})` : ""}`
+        if (sortedTimes(s).length === 0) {
+          const byDay = dosesByDay(s, doses)
+          const taken = days.reduce((n, d) => n + (byDay.get(d) ?? 0), 0)
+          return `- ${label}: as needed — taken ${taken} time${taken === 1 ? "" : "s"} in the last 14 days`
+        }
+        const a = adh.get(s.id)
+        return `- ${label}: ${a?.taken ?? 0} logged of ${a?.expected ?? 0} scheduled in the last 14 days${a?.pct != null ? ` (${a.pct}%)` : ""}`
       })
       return lines.join("\n") + "\nA lower bound: a dose taken and never logged is invisible here. Never scold; ask."
     }

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
+import { readFileSync } from "node:fs"
 
 // Doses were counted by the calendar day they were logged on. Atarax is due
 // at 22:00 and taken at 00:30: the night it belonged to scored a miss, and
@@ -150,5 +151,23 @@ describe("one dose logged in both Oura and the app", () => {
     vi.setSystemTime(new Date("2026-09-30T18:10:00Z"))
     await CRON(new Request("http://x/api/cron/med-reminders") as never)
     expect(db.sent.map(s => s.body)).toEqual(["Elicea"])
+  })
+})
+
+describe("Emergy's adherence read", () => {
+  // It kept its own count: every tag matching the name, all 14 days, today
+  // included — so a dose in both Oura and the app counted twice, a 00:30 dose
+  // counted for the wrong night, and an as-needed schedule expected one a day.
+  const src = readFileSync("src/lib/claude.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+  const block = src.slice(src.indexOf('kind === "adherence"'), src.indexOf('kind === "patterns"'))
+
+  it("counts through the shared rule the page and the cron use", () => {
+    expect(block).toMatch(/adherenceOver\(/)
+    expect(block).toMatch(/toDose\(/)
+    expect(block).not.toMatch(/Math\.max\(1, s\.times\.length\)/)
+  })
+
+  it("names as-needed schedules by what was taken, not against a quota", () => {
+    expect(block).toMatch(/as needed/)
   })
 })
