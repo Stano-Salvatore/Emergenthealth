@@ -26,6 +26,7 @@ interface Anomaly {
 
 interface AnomalyData {
   anomalies: Anomaly[]
+  strain: { level: "none" | "minor" | "major"; headline: string; summary: string } | null
   days: number
   latestDate: string | null
   stale: boolean
@@ -96,6 +97,12 @@ export function BaselineAlerts() {
             vs your own last {data.days} days
           </span>
         </p>
+        {data.strain && data.strain.level !== "none" && (
+          <p className="text-xs text-muted-foreground mt-1 leading-snug">
+            <span className={cn("font-medium", data.strain.level === "major" ? "text-rose-400" : "text-amber-400")}>{data.strain.headline}.</span>{" "}
+            {data.strain.summary}
+          </p>
+        )}
         <div className="mt-1 divide-y divide-border/60">
           {[...concerning, ...reassuring].map(a => <Row key={a.metric} a={a} />)}
         </div>

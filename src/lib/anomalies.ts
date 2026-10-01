@@ -242,8 +242,8 @@ export function illnessSignal(anomalies: Anomaly[]): Anomaly | null {
   }
 }
 
-/** Run every tracked metric over a map of series, strongest first. */
-export function detectAll(seriesByMetric: Record<string, DayValue[]>): Anomaly[] {
+/** Every tracked metric's own anomaly, strongest first, with no composite standing in. */
+export function detectEach(seriesByMetric: Record<string, DayValue[]>): Anomaly[] {
   const found: Anomaly[] = []
   for (const spec of TRACKED_METRICS) {
     const series = seriesByMetric[spec.key]
@@ -254,6 +254,15 @@ export function detectAll(seriesByMetric: Record<string, DayValue[]>): Anomaly[]
   // Concerning ones first, then by how far out they are
   found.sort((a, b) =>
     (Number(b.concerning) - Number(a.concerning)) || (Math.abs(b.z) - Math.abs(a.z)))
+  return found
+}
+
+/** Run every tracked metric over a map of series, strongest first. */
+export function detectAll(seriesByMetric: Record<string, DayValue[]>): Anomaly[] {
+  return withComposites(detectEach(seriesByMetric))
+}
+
+export function withComposites(found: Anomaly[]): Anomaly[] {
   // One composite stands in for its parts, so a push says "coming down with
   // something" once rather than "skin temp up" and "HRV down" separately.
   const illness = illnessSignal(found)

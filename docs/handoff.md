@@ -480,6 +480,22 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Body strain (3.9.0).** `lib/body-strain.ts` grades the vitals night
+  none/minor/major from the per-metric anomalies. `detectEach` returns them
+  before `withComposites` lets the illness composite stand in for its parts;
+  `detectAll` is the two together. Points: a body sign (RHR, HRV, skin temp,
+  breathing, SpO₂) is 2 and a sleep sign (latency, efficiency) is 1. Add +1
+  for |z| ≥ 3 and +1 for a run of 3 or more nights. Under 2 is none, 4 or
+  more is major, and the illness pattern is always major. Only anomalies
+  dated the vitals night count, so a metric whose newest reading is older
+  says nothing. `scanUserAnomalies` returns it as `strain`, and it is null
+  when the night measured none of the seven. "Readiness looks typical" is
+  said only when readiness has the history to have been judged. The push's
+  wording moved to `lib/anomaly-push.ts`: the night question still wins, and
+  a major night replaces the metric lines only when one of its signs is why
+  the push is going out, so the once-only state needed no new key. The
+  sentences pass `lintSentence`, which `body-strain.test.ts` checks.
+
 - **Drinks and medicines by name (3.8.0).** `lib/drink-catalog.ts` is the
   one answer to "what is this drink": `drinkProfile(label)` gives type,
   serving, kcal/100 ml, caffeine/ml, compound and typical ABV. It is read by

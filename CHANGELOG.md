@@ -1,11 +1,26 @@
 # Changelog
 
-## 3.9.0 — Lab limits, a tidy, and blood oxygen watched
+## 3.9.0 — Body strain, lab limits, a tidy, and blood oxygen watched
 
 Web-only, no new APK. The two new lab columns are added (never renamed or
 dropped) by the build's own schema push.
 
 **New**
+- **Body strain: last night graded none, minor or major.**
+  - It reads seven overnight signals against your own usual: resting heart
+    rate, HRV, temperature, breathing, blood oxygen, time to fall asleep and
+    sleep efficiency.
+  - A body signal counts more than a sleep one. A signal far from usual, or
+    held for three nights, counts more again. A slow night of falling asleep
+    on its own is not strain, and the infection pattern is always major.
+  - It reads next to readiness: on 1 Oct it would have said "Readiness looks
+    typical at 75, but blood oxygen, time to fall asleep and sleep efficiency
+    were off your usual last night." Oura called that night major, and the
+    app had said nothing.
+  - Shown on the dashboard's vitals card and the Insights page, given to the
+    morning brief and Emergy, and on a major night the push says it in one
+    sentence instead of two metric lines.
+  - A night the ring measured none of the seven gets no grade, not "none".
 - **Lab results keep the lab's own H/L mark and a printed "<" or ">".**
   - A "<5" is stored as a limit, not as an exact 5, and the sign is printed
     everywhere the value appears: the labs page, the doctor report and its

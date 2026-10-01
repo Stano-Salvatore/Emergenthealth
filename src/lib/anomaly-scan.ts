@@ -3,7 +3,8 @@
 // testable without a database.
 
 import { prisma } from "@/lib/prisma"
-import { detectAll, MIN_HISTORY_DAYS, TRACKED_METRICS, type Anomaly, type DayValue } from "@/lib/anomalies"
+import { detectEach, withComposites, MIN_HISTORY_DAYS, TRACKED_METRICS, type Anomaly, type DayValue } from "@/lib/anomalies"
+import { bodyStrain, type BodyStrain } from "@/lib/body-strain"
 import { median, mad } from "@/lib/anomalies"
 
 /** Long enough for a robust baseline, short enough that it tracks the current you. */
@@ -30,6 +31,8 @@ export interface ScanResult {
    * a drawer, and `stale` alone would pass a two-week-old night to the card.
    */
   vitalsStale: boolean
+  /** The vitals night graded as a whole; null when there is no fresh night to grade. */
+  strain: BodyStrain | null
 }
 
 function iso(d: Date): string {
@@ -61,7 +64,7 @@ export async function scanUserAnomalies(
   })
 
   if (logs.length === 0) {
-    return { anomalies: [], vitals: [], days: 0, latestDate: null, vitalsDate: null, stale: false, vitalsStale: false }
+    return { anomalies: [], vitals: [], days: 0, latestDate: null, vitalsDate: null, stale: false, vitalsStale: false, strain: null }
   }
 
   // Each metric gets its own series with its own gaps closed up: a day where
@@ -99,7 +102,8 @@ export async function scanUserAnomalies(
   // A gap in syncing is not an anomaly. Judging a five-day-old reading as
   // "today is unusual" would be wrong twice over — wrong day, and the user
   // can't act on it.
-  const anomalies = stale ? [] : detectAll(series)
+  const raw = stale ? [] : detectEach(series)
+  const anomalies = withComposites(raw)
 
   // The panel's night comes from the vital series themselves. The newest row
   // of any kind is often a steps-only row an activity sync wrote this morning,
@@ -118,7 +122,22 @@ export async function scanUserAnomalies(
   return {
     anomalies, days: logs.length, latestDate, stale, vitalsDate, vitalsStale,
     vitals: stale || vitalsStale ? [] : vitalsPanel(series, vitalsDate),
+    strain: stale || vitalsStale || !vitalsDate ? null : strainFor(raw, series, vitalsDate),
   }
+}
+
+function strainFor(raw: Anomaly[], series: Record<string, DayValue[]>, date: string): BodyStrain | null {
+  const on = (key: string) => series[key]?.find(d => d.date === date)?.value ?? null
+  const measured = Object.keys(series).filter(k => on(k) != null)
+  // "Typical" is a claim about the usual, so readiness is named only once
+  // there is enough history for the scan to have judged it.
+  const readinessKnown = (series.readinessScore?.length ?? 0) > MIN_HISTORY_DAYS
+  return bodyStrain(raw, {
+    date,
+    measured,
+    readiness: readinessKnown ? on("readinessScore") : null,
+    readinessLow: raw.some(a => a.metric === "readinessScore" && a.date === date && a.concerning),
+  })
 }
 
 // ── The vitals panel ────────────────────────────────────────────────────────

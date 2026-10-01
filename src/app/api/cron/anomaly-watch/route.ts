@@ -4,7 +4,9 @@ import { prisma } from "@/lib/prisma"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { configurePush, loadSubscriptionsByUser, sendToUser } from "@/lib/push"
 import { sayAsEmergy } from "@/lib/emergy-say"
-import { isNightAnomaly, nightQuestion, type Anomaly } from "@/lib/anomalies"
+import { isNightAnomaly, type Anomaly } from "@/lib/anomalies"
+import { anomalyPush } from "@/lib/anomaly-push"
+import type { BodyStrain } from "@/lib/body-strain"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -24,8 +26,6 @@ export const maxDuration = 120 // one 45-day scan per subscribed user
 const RE_ALERT_AFTER_DAYS = 7
 /** How much further out it has to move to be worth mentioning again mid-run. */
 const WORSENED_BY_Z = 1
-/** Two at once is a signal; five at once is noise. */
-const MAX_PER_PUSH = 2
 
 type WatchState = Record<string, { date: string; z: number }>
 
@@ -65,8 +65,9 @@ export async function GET(req: NextRequest) {
 
     let anomalies: Anomaly[]
     let latestDate: string | null
+    let strain: BodyStrain | null
     try {
-      ({ anomalies, latestDate } = await scanUserAnomalies(userId))
+      ({ anomalies, latestDate, strain } = await scanUserAnomalies(userId))
     } catch (e) {
       console.error("[cron/anomaly-watch] failed for", userId, e instanceof Error ? e.message : e)
       continue
@@ -102,21 +103,16 @@ export async function GET(req: NextRequest) {
       ON CONFLICT ("userId","key") DO UPDATE SET "value"=${stateJson}
     `.catch(() => {})
 
-    if (worth.length === 0) continue
-
-    // A night question goes out on its own, so the reply is unambiguous:
-    // "two beers with Peter" answers one night, not a list of three metrics.
-    const question = worth.map(nightQuestion).find((q): q is string => q != null)
-    const top = question ? worth.filter(a => nightQuestion(a) === question).slice(0, 1) : worth.slice(0, MAX_PER_PUSH)
-    const body = question ?? top.map(a => a.summary).join(" · ")
-      + (worth.length > top.length ? ` · +${worth.length - top.length} more` : "")
+    const push = anomalyPush(worth, strain)
+    if (!push) continue
+    const { body } = push
 
     const delivered = await sendToUser(subs, {
-      title: question ? `${top[0].emoji} About last night` : `${top[0].emoji} Off your baseline`,
+      title: push.title,
       body,
       // A question opens the chat, where it can be answered; a statement
       // opens the page that shows it.
-      url: question ? "/dashboard/chat" : "/dashboard/insights",
+      url: push.url,
       tag: "anomaly-watch",
       requireInteraction: false,
     })

@@ -744,7 +744,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "get_analysis",
-    description: "Read what the app has already worked out, when the user asks about it or it would change your answer: 'experiments' (every experiment with today's arm and the current result), 'anomalies' (what is off their own 45-day baseline), 'labs' (how each blood marker moved between draws), 'nutrients' (vitamins and minerals their logged food has been short on), 'adherence' (scheduled doses vs doses actually logged, last 14 days — a lower bound), 'patterns' (the correlation findings, with how trustworthy each is), 'drift' (the last 30 days against the 30 before: which everyday numbers moved enough to survive a permutation test, and what they logged differently alongside — use it for 'has anything changed lately', 'am I doing better this month', and when they reply to a monthly nudge).",
+    description: "Read what the app has already worked out, when the user asks about it or it would change your answer: 'experiments' (every experiment with today's arm and the current result), 'anomalies' (what is off their own 45-day baseline, and last night graded as none/minor/major body strain), 'labs' (how each blood marker moved between draws), 'nutrients' (vitamins and minerals their logged food has been short on), 'adherence' (scheduled doses vs doses actually logged, last 14 days — a lower bound), 'patterns' (the correlation findings, with how trustworthy each is), 'drift' (the last 30 days against the 30 before: which everyday numbers moved enough to survive a permutation test, and what they logged differently alongside — use it for 'has anything changed lately', 'am I doing better this month', and when they reply to a monthly nudge).",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -2417,8 +2417,9 @@ export async function executeTool(name: string, input: Record<string, string>, u
       const scan = await scanUserAnomalies(userId)
       if (scan.days < 15) return `Only ${scan.days} days of ring data in the last 45 — a baseline needs at least 15.`
       if (scan.stale) return `The newest ring data is from ${scan.latestDate ?? "?"}, too old to call anything "today". The ring is probably not syncing.`
-      if (scan.anomalies.length === 0) return `Nothing is off their 45-day baseline as of ${scan.latestDate}. Everything sits within the usual band.`
-      return scan.anomalies.map(a => `- ${a.emoji} ${a.label}: ${a.value}${a.unit} vs usual ${a.baseline}${a.unit} (${a.direction}, z=${a.z.toFixed(1)}, ${a.runLength}-day run${a.concerning ? ", unhelpful direction" : ""}) — ${a.summary}`).join("\n")
+      const strainLine = scan.strain ? `Last night (${scan.strain.date}) as a whole: ${scan.strain.headline.toLowerCase()} — ${scan.strain.summary}\n` : ""
+      if (scan.anomalies.length === 0) return `${strainLine}Nothing is off their 45-day baseline as of ${scan.latestDate}. Everything sits within the usual band.`
+      return strainLine + scan.anomalies.map(a => `- ${a.emoji} ${a.label}: ${a.value}${a.unit} vs usual ${a.baseline}${a.unit} (${a.direction}, z=${a.z.toFixed(1)}, ${a.runLength}-day run${a.concerning ? ", unhelpful direction" : ""}) — ${a.summary}`).join("\n")
         + "\nThese are deviations from their own median, not clinical thresholds — a flag to notice, never a diagnosis."
     }
 
@@ -3142,8 +3143,12 @@ export async function buildSystemPrompt(
       : phase.day.on ? `TODAY IS AN ON DAY → they should: ${e.action}` : `today is an OFF day → NOT: ${e.action}`
     return `- "${e.name}" — day ${Math.max(0, phase.dayIndex)}/${total}, watching ${label}; ${arm}${phase.daysLeft > 0 ? `; ${phase.daysLeft} days left` : ""}`
   }).join("\n")
-  const anomaliesStr = anomalyScan && !anomalyScan.stale && anomalyScan.anomalies.length > 0
-    ? anomalyScan.anomalies.slice(0, 4).map(a => `- ${a.emoji} ${a.label}: ${a.value}${a.unit} vs their usual ${a.baseline}${a.unit} (${a.direction}, ${a.runLength} day${a.runLength === 1 ? "" : "s"} running${a.concerning ? ", unhelpful direction" : ""}) — ${a.summary}`).join("\n")
+  const strain = anomalyScan?.strain && anomalyScan.strain.level !== "none" ? anomalyScan.strain : null
+  const anomaliesStr = anomalyScan && !anomalyScan.stale && (anomalyScan.anomalies.length > 0 || strain)
+    ? [
+        ...(strain ? [`- Last night as a whole: ${strain.headline.toLowerCase()} — ${strain.summary}`] : []),
+        ...anomalyScan.anomalies.slice(0, 4).map(a => `- ${a.emoji} ${a.label}: ${a.value}${a.unit} vs their usual ${a.baseline}${a.unit} (${a.direction}, ${a.runLength} day${a.runLength === 1 ? "" : "s"} running${a.concerning ? ", unhelpful direction" : ""}) — ${a.summary}`),
+      ].join("\n")
     : null
   const said = parseSaid(saidPref?.value)
   const saidStr = said.length === 0 ? null : said.slice(0, 5).map(s => `- ${fmtDateISO.format(new Date(s.at))}: "${s.text}"`).join("\n")
