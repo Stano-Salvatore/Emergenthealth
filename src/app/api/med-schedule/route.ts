@@ -7,38 +7,12 @@ import {
   activeOn, adherenceOver, dosesByDay, dosesForDay, minutesOfDay, sortedTimes, toDose,
   type DoseRow, type ScheduleLike,
 } from "@/lib/med-schedule"
+import { normalizeDays, normalizeTimes } from "@/lib/med-schedule-edit"
 
 export const dynamic = "force-dynamic"
 
 /** Complete days used for the adherence figure — today is still in progress. */
 const ADHERENCE_DAYS = 14
-
-const TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/
-
-function normalizeTimes(input: unknown): string[] {
-  if (!Array.isArray(input)) return []
-  const seen = new Set<string>()
-  for (const t of input) {
-    if (typeof t !== "string") continue
-    const trimmed = t.trim()
-    if (!TIME_RE.test(trimmed)) continue
-    // "8:00" and "08:00" are the same dose, not two.
-    const [h, m] = trimmed.split(":")
-    seen.add(`${h.padStart(2, "0")}:${m}`)
-  }
-  return [...seen].sort((a, b) => minutesOfDay(a) - minutesOfDay(b)).slice(0, 6)
-}
-
-function normalizeDays(input: unknown): number[] {
-  if (!Array.isArray(input)) return []
-  const set = new Set<number>()
-  for (const d of input) {
-    const n = Number(d)
-    if (Number.isInteger(n) && n >= 0 && n <= 6) set.add(n)
-  }
-  // Every day is expressed as "no restriction", so the two can't disagree.
-  return set.size === 7 ? [] : [...set].sort()
-}
 
 function asDateStr(v: unknown): string | null {
   return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.trim()) ? v.trim() : null
@@ -74,6 +48,7 @@ export async function GET() {
   const shaped: ScheduleLike[] = schedules.map(s => ({
     id: s.id, name: s.name, times: s.times, daysOfWeek: s.daysOfWeek,
     active: s.active, startDate: s.startDate, endDate: s.endDate,
+    createdDay: localDateStr(tz, s.createdAt),
   }))
 
   const adherence = new Map(adherenceOver(shaped, doses, days).map(a => [a.scheduleId, a]))

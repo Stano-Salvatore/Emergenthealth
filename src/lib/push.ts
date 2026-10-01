@@ -40,12 +40,21 @@ export interface Delivery {
   fcm: string[]
 }
 
+/** A dose the notification's "Took it" button files (public/sw.js → /api/med-schedule/took). */
+export interface TookDose {
+  scheduleId: string
+  time: string
+  /** File it at the scheduled time rather than at the tap. */
+  atScheduled?: boolean
+}
+
 export interface PushPayload {
   title: string
   body: string
   url?: string
   tag?: string
   requireInteraction?: boolean
+  took?: TookDose[]
 }
 
 /** Set up VAPID. False when push isn't configured, so callers can bail early. */

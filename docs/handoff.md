@@ -480,6 +480,34 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Medicines Emergy keeps track of, and links (3.10.0).**
+  - **Schedule edits:** `lib/med-schedule-edit.ts` matches a spoken name to
+    a schedule (`findSchedules`) and plans the edit (`planScheduleEdit`).
+    Emergy's `update_med_schedule` writes the plan; the page's PATCH shares
+    its `normalizeTimes`/`normalizeDays`. Stopped sets `endDate` to today,
+    and paused only clears `active`.
+  - **Today's doses:** `todayDoseLines` in `med-schedule.ts` puts today's
+    status per time (logged / not logged yet / due now / due later) into
+    Emergy's context.
+  - **Follow-up:** `lib/med-followup.ts` picks doses still unlogged two hours
+    on. The window is two hours wide, since the GitHub cron can be held
+    back. It is quiet between 22:00 and 07:00 and skips a time once the
+    medicine's next time has come. `med-reminders` sends it once per dose
+    (state key `id|time|f`), even when the phone covers the on-time
+    reminder.
+  - **Took it on web push:** `public/sw.js` shows "✓ Took it" on `med-*`
+    pushes that carry `took` (`PushPayload.took`). It posts to
+    `/api/med-schedule/took`, where `lib/med-took.ts` decides the time (the
+    tap, or the scheduled time for a follow-up) and writes nothing for a
+    slot already covered. FCM pushes carry no buttons; that would need the
+    APK. The Android app's own local reminders already have Took it.
+  - **Adherence start:** `ScheduleLike.createdDay` makes `adherenceOver`
+    count from the day a schedule was added when it has no `startDate`.
+  - **Links:** `lib/app-links.ts` is the one list of pages. The prompt reads
+    it through `linkPromptList()`, and `sayAsEmergy(…, { link })` adds the
+    button to a proactive message. It never points at a route the proxy
+    redirects, which a test checks.
+
 - **iPhone as a web app (3.9.1).** There is no iOS build. An iPhone runs the
   site from the Home Screen, and nothing under `android-widget/` reaches it:
   no Health Connect, phone sleep, location, widget or bubble. Web push is

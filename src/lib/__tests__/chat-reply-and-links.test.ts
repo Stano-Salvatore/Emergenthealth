@@ -33,9 +33,11 @@ describe("Emergy can point at a page the user can actually tap", () => {
   })
 
   it("the prompt tells him which paths exist", () => {
-    const chat = stripped("src/lib/claude.ts")
+    // The list lives in lib/app-links, shared with the links on his own nudges.
+    expect(stripped("src/lib/claude.ts")).toMatch(/linkPromptList\(\)/)
+    const links = stripped("src/lib/app-links.ts")
     for (const path of ["/dashboard/insights", "/dashboard/experiments", "/dashboard/health"]) {
-      expect(chat, `the prompt's route list is missing ${path}`).toContain(path)
+      expect(links, `the prompt's route list is missing ${path}`).toContain(`"${path}"`)
     }
   })
 })

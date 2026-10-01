@@ -206,7 +206,7 @@ export async function GET(req: NextRequest) {
       requireInteraction: false,
     })) {
       pushed++
-      await sayAsEmergy(userId, chatBody).catch(() => null)
+      await sayAsEmergy(userId, chatBody, { link: "/dashboard/insights" }).catch(() => null)
     }
 
     // ── Email ──

@@ -15,6 +15,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { userToday } from "@/lib/user-timezone"
+import { vitalText } from "@/lib/vital-format"
 
 const STRAIN_TONE = {
   none: "border-emerald-500/30 bg-emerald-500/5",
@@ -98,8 +99,8 @@ export async function VitalsCard({ userId }: { userId: string }) {
               <span className="tabular-nums">
                 {v.value != null ? (
                   <>
-                    <span className="font-semibold">{v.value}{v.unit}</span>
-                    <span className="text-muted-foreground text-xs"> · usual {v.baseline}{v.unit}</span>
+                    <span className="font-semibold">{vitalText(v.key, v.value, v.unit)}</span>
+                    <span className="text-muted-foreground text-xs"> · usual {vitalText(v.key, v.baseline, v.unit)}</span>
                   </>
                 ) : (
                   <span className="text-muted-foreground">—</span>

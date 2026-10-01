@@ -19,6 +19,11 @@ export interface ScheduleLike {
   active: boolean
   startDate?: string | null
   endDate?: string | null
+  /**
+   * The local day the schedule was added. Adherence starts here when no
+   * start date was set: the days before the plan existed are not misses.
+   */
+  createdDay?: string | null
 }
 
 export interface DoseLike {
@@ -189,6 +194,8 @@ export interface Adherence {
   pct: number | null
   /** Local dates in the window on which at least one dose was missed. */
   missedDays: string[]
+  /** Days in the window the schedule was expected to run. */
+  daysCounted: number
 }
 
 /**
@@ -205,9 +212,13 @@ export function adherenceOver(
     const byDay = dosesByDay(s, doses)
     let expected = 0
     let taken = 0
+    let daysCounted = 0
     const missedDays: string[] = []
+    const from = s.startDate ? null : s.createdDay ?? null
     for (const day of days) {
       if (!activeOn(s, day)) continue
+      if (from && day < from) continue
+      daysCounted++
       const want = sortedTimes(s).length
       const got = Math.min(byDay.get(day) ?? 0, want)
       expected += want
@@ -221,6 +232,34 @@ export function adherenceOver(
       taken,
       pct: expected > 0 ? Math.round((taken / expected) * 100) : null,
       missedDays,
+      daysCounted,
     }
   })
+}
+
+/**
+ * Today's doses as Emergy reads them: per schedule running today, each time
+ * and whether a dose is logged for it. "Not logged yet" is what the log
+ * says, not what happened — a pill taken and never ticked off looks the same,
+ * so he asks rather than concludes.
+ */
+export function todayDoseLines(
+  schedules: (ScheduleLike & { dose?: string | null })[],
+  doses: DoseLike[],
+  today: string,
+  nowMinutes: number,
+): string[] {
+  const lines: string[] = []
+  for (const s of schedules) {
+    if (!activeOn(s, today)) continue
+    const logged = dosesByDay(s, doses).get(today) ?? 0
+    const parts = dosesForDay(s, logged, nowMinutes).map(d => {
+      const state = d.status === "taken" ? "logged"
+        : d.status === "missed" ? "not logged yet"
+        : nowMinutes >= minutesOfDay(d.time) ? "due now" : "due later"
+      return `${d.time} ${state}`
+    })
+    lines.push(`${s.name}${s.dose ? ` (${s.dose})` : ""}: ${parts.join(", ")}`)
+  }
+  return lines
 }

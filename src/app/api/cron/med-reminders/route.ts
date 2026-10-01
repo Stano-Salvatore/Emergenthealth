@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireCronSecret } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
-import { configurePush, loadLocalCoverage, loadSubscriptionsByUser, phoneCovers, sendToUser } from "@/lib/push"
+import { configurePush, loadLocalCoverage, loadSubscriptionsByUser, phoneCovers, sendToUser, type TookDose } from "@/lib/push"
+import { followUpsDue, followUpText } from "@/lib/med-followup"
+import { sayAsEmergy } from "@/lib/emergy-say"
 import { addDaysISO, localDateStr, localTimeStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import {
@@ -14,9 +16,10 @@ export const dynamic = "force-dynamic"
 
 // Hourly. A scheduled time that has come round within the last hour and has no
 // matching dose logged gets one notification — one, ever, for that time on that
-// day. The reminder deep-links to the medications page, where tapping "took it"
-// writes a real dose, so acknowledging the reminder and recording the dose are
-// the same action rather than two things to remember.
+// day — and, if it is still unlogged two hours on, one follow-up question from
+// Emergy (lib/med-followup). The reminder deep-links to the medications page,
+// where tapping "took it" writes a real dose, so acknowledging the reminder and
+// recording the dose are the same action rather than two things to remember.
 //
 // Every time is judged in the user's own timezone, not the server's: a 21:00
 // dose in Bratislava is 19:00 UTC, and reminding someone at the wrong hour is
@@ -85,6 +88,7 @@ export async function GET(req: NextRequest) {
     const next: Sent = Object.fromEntries(Object.entries(prev).filter(([, day]) => day === today))
 
     const due: string[] = []
+    const took: TookDose[] = []
     for (const s of mine) {
       const shape: ScheduleLike = {
         id: s.id, name: s.name, times: s.times, daysOfWeek: s.daysOfWeek,
@@ -104,14 +108,40 @@ export async function GET(req: NextRequest) {
         if (next[key] === today) return
         next[key] = today
         due.push(s.dose ? `${s.name} (${s.dose})` : s.name)
+        took.push({ scheduleId: s.id, time })
       })
     }
+
+    // The second word: still unlogged two hours on. Its own state mark, so
+    // the reminder having gone out never suppresses it and it goes out once.
+    const followUps = followUpsDue(mine, doses, today, nowMinutes)
+      .filter(f => next[`${f.scheduleId}|${f.time}|f`] !== today)
+    for (const f of followUps) next[`${f.scheduleId}|${f.time}|f`] = today
 
     const stateJson = JSON.stringify(next)
     await prisma.$executeRaw`
       INSERT INTO "UserPreference" ("userId","key","value") VALUES (${userId},'med_reminder_state',${stateJson})
       ON CONFLICT ("userId","key") DO UPDATE SET "value"=${stateJson}
     `.catch(() => {})
+
+    if (followUps.length > 0) {
+      const text = followUpText(followUps)
+      const delivered = await sendToUser(subs, {
+        title: "💊 Did you take it?",
+        body: text,
+        // The chat, where "yes" is the answer that files it.
+        url: "/dashboard/chat",
+        tag: "med-followup",
+        requireInteraction: false,
+        // Filed at the scheduled time: by now the pill is either two hours
+        // old or not taken, and "Took it" says it was taken.
+        took: followUps.map(f => ({ scheduleId: f.scheduleId, time: f.time, atScheduled: true })),
+      })
+      if (delivered) {
+        pushed++
+        await sayAsEmergy(userId, text, { link: "/dashboard/intake?tab=meds" }).catch(() => null)
+      }
+    }
 
     if (due.length === 0) continue
 
@@ -127,9 +157,10 @@ export async function GET(req: NextRequest) {
     const delivered = await sendToUser(subs, {
       title: "💊 Time for your dose",
       body,
-      url: "/dashboard/medications",
+      url: "/dashboard/intake?tab=meds",
       tag: "med-reminder",
       requireInteraction: false,
+      took,
     })
     if (delivered) pushed++
   }

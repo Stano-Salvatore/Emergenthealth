@@ -1,5 +1,48 @@
 # Changelog
 
+## 3.10.0 — Emergy keeps track of your medicines, and points the way
+
+Web-only, no new APK.
+
+**New**
+- **Emergy can change a medication schedule.** For example: "add a 21:00
+  Elicea", "only weekdays now", "half a tablet from today", "turn off the
+  reminders", "pause the iron" or "I stopped the Atarax". A stopped
+  schedule ends today and keeps its history; a paused one expects nothing
+  until it is resumed. If a name could mean two schedules, Emergy asks which.
+  Telling Emergy about a medicine you already have a schedule for changes
+  that schedule instead of adding a second one.
+- **Emergy knows today's doses:** which are logged, which aren't yet and which
+  come later. "Did I take my pill?" now gets a real answer. "Not logged yet"
+  is treated as a question, not as a missed dose.
+- **One follow-up for a missed dose.** If a scheduled dose is still not logged
+  two hours after its time, Emergy asks once, in the chat and as a
+  notification: "Your 08:00 Elicea isn't logged yet. Did you take it?"
+  Answering yes logs it at 08:00. Never between 22:00 and 07:00, and never
+  once the next dose of the same medicine is due.
+- **"✓ Took it" on web notifications** (Chrome, desktop), as the Android app
+  already has. It logs the dose without opening anything, and a dose already
+  ticked off is not logged twice. iPhone notifications can't show buttons,
+  so there a tap opens the app instead.
+- **Buttons in Emergy's messages.** Emergy can send you to 23 places in the
+  app, up from 14, and its own messages (anomalies, patterns, the weekly
+  review, water and habit nudges, the evening check-in, a quiet ring) now
+  end with a button to the page they're about.
+
+**Fixed**
+- A schedule added today read "0% taken over 14 days". The two weeks before
+  it existed were counted as missed doses on the Medications page, in
+  Emergy's adherence read and in the doctor report. Adherence now starts
+  the day the schedule was added (or its start date, if one was set).
+- Adding a schedule through Emergy with a time like "8:00" saved it with no
+  time at all.
+- In the brief, "1:50am" had only the "1" coloured, as a sleep figure. Clock
+  times with am/pm are now one figure.
+- The brief's "Generated at" used a 12-hour clock ("01:30 PM"); it is
+  24-hour like the rest of the app.
+- Skin temperature on the vitals card read "0 °C · usual 0 °C". It is a
+  change from your usual, so it now shows a sign: "+0.0 °C".
+
 ## 3.9.1 — Ready for an iPhone
 
 Web-only, no new APK.

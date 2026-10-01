@@ -165,13 +165,13 @@ function MessageBubble({ msg, emergyState, onRetry }: { msg: Message; emergyStat
 }
 
 /** Tools that change something, and so can change how Emergy is feeling. */
-const WRITES = /^(log_|create_|complete_|skip_|write_|correct_|delete_|remember$)/
+const WRITES = /^(log_|create_|update_|complete_|skip_|write_|correct_|delete_|remember$)/
 /**
  * Tools that change what the phone should be ringing about: reminders, habit
  * alarms (a skipped or done habit stops ringing today), event alerts, the
  * evening intention question, and med alarms (which count today's doses).
  */
-const REMINDER_TOOLS = /^(create_reminder|complete_reminder|create_med_schedule|create_habit|skip_habit_today|complete_habit_today|create_event|log_morning_checkin|close_intention|log_dose|delete_log|correct_log)$/
+const REMINDER_TOOLS = /^(create_reminder|complete_reminder|create_med_schedule|update_med_schedule|create_habit|skip_habit_today|complete_habit_today|create_event|log_morning_checkin|close_intention|log_dose|delete_log|correct_log)$/
 
 function safeChips(raw: string): SourceChip[] | undefined {
   try {

@@ -152,6 +152,7 @@ const TOOL_ACTIVITY: Record<string, string> = {
   // digits off a printout, and it reads them back before recording anything.
   log_lab_results:    "reading your lab results",
   create_med_schedule: "setting up that schedule",
+  update_med_schedule: "changing that schedule",
   start_fast:         "starting your fast",
   end_fast:           "ending your fast",
   set_goal:           "setting that goal",

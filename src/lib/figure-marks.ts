@@ -37,7 +37,7 @@ const UNIT_DOMAIN: [RegExp, FigureDomain | null][] = [
   [/^\d(?:[.,]\d)?\/5$/, "mind"],                                 // 5/5, 3.5/5
   [/^\d+(?:[.,]\d+)?\s?kg$/i, null],                              // body has no hue; bold only
   [/^\d+(?:[.,]\d+)?%$/, null],                                   // a share of something; bold only
-  [/^\d{1,2}:\d{2}$/, null],                                      // a clock time; bold only
+  [/^\d{1,2}:\d{2}(?:\s?[ap]\.?m\.?)?$/i, null],                  // a clock time, 1:50am too; bold only
 ]
 
 // A bare number or a "min" figure takes its domain from the words just
@@ -62,7 +62,9 @@ const FIGURE_RE = new RegExp(
     String.raw`\d+(?:[.,]\d+)?\s?(?:min|mins|minutes?)\b`,
     String.raw`\d(?:[.,]\d)?\/5\b`,
     String.raw`\d+(?:[.,]\d+)?%`,
-    String.raw`\b\d{1,2}:\d{2}\b`,
+    // "1:50am" whole: with a bare \b the "am" stopped the clock matching and
+    // the lone "1" was coloured as a sleep figure.
+    String.raw`\b\d{1,2}:\d{2}(?:\s?[aApP]\.?[mM]\b\.?)?(?!\w)`,
     String.raw`\b\d{1,3}(?:,\d{3})+\b`,
     String.raw`\b\d+(?:\.\d+)?\b`,
   ].join("|"),

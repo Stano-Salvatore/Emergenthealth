@@ -319,6 +319,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   const shaped: ScheduleLike[] = medSchedules.map(m => ({
     id: m.id, name: m.name, times: m.times, daysOfWeek: m.daysOfWeek,
     active: m.active, startDate: m.startDate, endDate: m.endDate,
+    createdDay: m.createdAt ? localDateStr(tz, m.createdAt) : null,
   }))
   const adherence = new Map(adherenceOver(shaped, doseList, completeDays).map(a => [a.scheduleId, a]))
 

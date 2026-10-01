@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
     })
     if (delivered) {
       sent++
-      await sayAsEmergy(userId, nudge.body).catch(() => null)
+      await sayAsEmergy(userId, nudge.body, { link: "/dashboard/settings" }).catch(() => null)
     }
 
     // Recorded whether or not a device took it, like every other sent log:
