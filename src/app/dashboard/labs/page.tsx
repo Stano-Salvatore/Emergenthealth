@@ -14,6 +14,7 @@ import { convertLabValue, normalizeUnit } from "@/lib/lab-units"
 import { implausibleJump, suggestedUnit } from "@/lib/lab-entry"
 import { rangeStatus } from "@/lib/lab-trends"
 import { labValueText, parseLabFlag, parseLabQualifier } from "@/lib/lab-flags"
+import { LabTidyCard } from "@/components/labs/LabTidyCard"
 
 interface LabResult {
   id: string
@@ -278,6 +279,9 @@ export default function LabsPage() {
 
       {/* The whole page in one shot, instead of a row at a time */}
       <LabImportCard onSaved={load} />
+
+      {/* Rows saved under names from before the marker map grew */}
+      <LabTidyCard onApplied={load} />
 
       <Card className="bg-card/60 border-border/50">
         <CardHeader className="pb-3">
