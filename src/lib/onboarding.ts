@@ -1,6 +1,7 @@
 // Whether this account still has the onboarding wizard ahead of it.
 
 import { prisma } from "@/lib/prisma"
+import type { OnboardingConnections } from "@/lib/onboarding-steps"
 
 /**
  * True for an account that has neither finished nor skipped onboarding and
@@ -29,5 +30,30 @@ export async function needsOnboarding(userId: string): Promise<boolean> {
     return false
   } catch {
     return false
+  }
+}
+
+/**
+ * What is already connected, for the connect step — on first paint, and again
+ * when it comes back from Oura or Strava, so a finished connection shows as
+ * done rather than as a fresh button. Each lookup fails to "not connected" on
+ * its own; none of them is worth failing the wizard over.
+ */
+export async function onboardingConnections(userId: string): Promise<OnboardingConnections> {
+  const [oura, strava, google] = await Promise.all([
+    prisma.ouraToken.findUnique({ where: { userId }, select: { userId: true } }).catch(() => null),
+    prisma.$queryRaw<{ userId: string }[]>`SELECT "userId" FROM "StravaToken" WHERE "userId" = ${userId} LIMIT 1`.catch(() => []),
+    // The calendar comes with a Google sign-in, so it is connected exactly
+    // when this account holds a Google grant that includes it. An account
+    // that never signed in with Google — the seeded demo a store reviewer
+    // gets through the password form — has none, and must not be told
+    // otherwise. A row from before scopes were recorded is the sign-in that
+    // always asked for it.
+    prisma.account.findFirst({ where: { userId, provider: "google" }, select: { scope: true } }).catch(() => null),
+  ])
+  return {
+    oura: !!oura,
+    strava: strava.length > 0,
+    calendar: !!google && (google.scope == null || google.scope.includes("calendar")),
   }
 }

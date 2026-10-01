@@ -30,11 +30,11 @@ describe("wiring", () => {
   const strip = (p: string) => readFileSync(p, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")
 
   it("onboarding's Enable registers the phone for pushes, not only the permission", () => {
-    expect(strip("src/app/onboarding/page.tsx")).toMatch(/subscribeWebPush\(/)
+    expect(strip("src/app/onboarding/OnboardingWizard.tsx")).toMatch(/subscribeWebPush\(/)
   })
 
   it("one subscribe path: settings, Emergy's panel and onboarding share it", () => {
-    for (const f of ["src/components/settings/PushNotifications.tsx", "src/components/emergy/EmergyPanel.tsx"]) {
+    for (const f of ["src/components/settings/PushNotifications.tsx", "src/components/emergy/EmergyPanel.tsx", "src/app/onboarding/OnboardingWizard.tsx"]) {
       const src = strip(f)
       expect(src, f).toMatch(/subscribeWebPush\(/)
       expect(src, f).not.toMatch(/pushManager\.subscribe\(/)
@@ -44,6 +44,6 @@ describe("wiring", () => {
 
   it("an iPhone in a Safari tab is told how to get notifications instead of seeing nothing", () => {
     expect(strip("src/components/settings/PushNotifications.tsx")).toMatch(/iosNeedsHomeScreen\(/)
-    expect(strip("src/app/onboarding/page.tsx")).toMatch(/iosNeedsHomeScreen\(/)
+    expect(strip("src/app/onboarding/OnboardingWizard.tsx")).toMatch(/iosNeedsHomeScreen\(/)
   })
 })

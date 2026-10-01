@@ -8,7 +8,7 @@ import Link from "next/link"
 import { X, Rocket, ChevronRight } from "lucide-react"
 
 const DISMISS_KEY = "quickstart_dismissed_v1"
-const FIRST_SEEN_KEY = "eh_first_seen"
+/** The card's fortnight, counted from when the account was made. */
 const SHOW_DAYS = 14
 
 interface Step {
@@ -39,35 +39,29 @@ function CheckItem({ step }: { step: Step }) {
   )
 }
 
-// Shown only for the first few days after this browser first saw the app,
-// and never again once dismissed.
-function withinFirstDays(): boolean {
+// Dismissal is a per-browser choice, so it stays in localStorage. The
+// fortnight is not: it used to be timed from an "eh_first_seen" stamp this
+// component wrote AFTER deciding whether to show, so a new account never saw
+// the card on its first dashboard visit — the visit straight out of the
+// onboarding — and every new device started the fortnight over.
+function notDismissed(): boolean {
   try {
-    if (localStorage.getItem(DISMISS_KEY)) return false
-    const firstSeen = parseInt(localStorage.getItem(FIRST_SEEN_KEY) ?? "", 10)
-    if (isNaN(firstSeen)) return false
-    return (Date.now() - firstSeen) / (1000 * 60 * 60 * 24) <= SHOW_DAYS
+    return !localStorage.getItem(DISMISS_KEY)
   } catch {
-    return false
+    return true
   }
 }
 
-export function QuickStart({ hasCheckin, hasHabits, hasPush }: {
+export function QuickStart({ hasCheckin, hasHabits, hasPush, accountAgeDays }: {
   hasCheckin: boolean
   hasHabits: boolean
   hasPush?: boolean
+  /** Whole days since the account was made; null when unknown, which shows nothing. */
+  accountAgeDays: number | null
 }) {
-  const [visible, setVisible] = useLocalSetting(withinFirstDays, false)
+  const [notHidden, setNotHidden] = useLocalSetting(notDismissed, false)
+  const visible = notHidden && accountAgeDays != null && accountAgeDays < SHOW_DAYS
   const [pushEnabled, setPushEnabled] = useState(hasPush ?? false)
-
-  // Start the clock on the first visit. A write to storage, nothing on screen.
-  useEffect(() => {
-    try {
-      if (!localStorage.getItem(FIRST_SEEN_KEY)) {
-        localStorage.setItem(FIRST_SEEN_KEY, String(Date.now()))
-      }
-    } catch { /* private mode */ }
-  }, [])
 
   useEffect(() => {
     // Check push subscription status
@@ -80,8 +74,8 @@ export function QuickStart({ hasCheckin, hasHabits, hasPush }: {
   }, [])
 
   function dismiss() {
-    localStorage.setItem(DISMISS_KEY, "1")
-    setVisible(false)
+    try { localStorage.setItem(DISMISS_KEY, "1") } catch { /* private mode */ }
+    setNotHidden(false)
   }
 
   if (!visible) return null

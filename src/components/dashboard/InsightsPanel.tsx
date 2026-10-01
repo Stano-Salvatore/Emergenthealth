@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react"
 import Link from "next/link"
 import { ChevronRight, Star, Minus, Plus } from "lucide-react"
 import { sharedFetchJson } from "@/lib/shared-fetch"
+import { EARLIEST_TEST_DAY, noPatternsYet, PERIOD_DAYS } from "@/lib/pattern-rules"
 
 type Period = "today" | "week" | "month" | "overall"
 
@@ -130,6 +131,12 @@ type LocationPattern = {
 
 type PeriodData = {
   correlations: CorrelationItem[]
+  /** Patterns the engine found and this panel leaves out as chance. */
+  chanceCount: number
+  /** Days in the window with any data at all; null when the run didn't say. */
+  days: number | null
+  /** The request failed — which says nothing about the data. */
+  failed: boolean
   locationPatterns: LocationPattern[]
   loaded: boolean
 }
@@ -211,9 +218,16 @@ function PeriodTab({
   const visibleCorr = [...pinnedInCorr, ...rest].slice(0, Math.max(count, pinnedInCorr.length))
 
   if (!hasCorr) {
+    // "Keep logging" was the answer to every empty window, including the
+    // 7-day one, which cannot hold five days a side however much is logged —
+    // and including windows that had patterns, all of them hidden as chance.
     return (
       <p className="text-xs text-muted-foreground py-2">
-        Not enough data for this period yet — keep logging!
+        {data.failed
+          ? "Couldn't load patterns just now."
+          : data.chanceCount > 0
+          ? `Nothing that stands out from chance yet — ${data.chanceCount} weaker pattern${data.chanceCount === 1 ? "" : "s"} on the Insights page.`
+          : noPatternsYet(data.days, PERIOD_DAYS[period])}
       </p>
     )
   }
@@ -340,6 +354,13 @@ export function InsightsPanel() {
         correlations: corrRes.status === "fulfilled"
           ? ((corrRes.value.insights ?? []) as CorrelationItem[]).filter(i => i.tier !== "noise")
           : [],
+        chanceCount: corrRes.status === "fulfilled"
+          ? ((corrRes.value.insights ?? []) as CorrelationItem[]).filter(i => i.tier === "noise").length
+          : 0,
+        days: corrRes.status === "fulfilled" && typeof corrRes.value.dataRange?.days === "number"
+          ? corrRes.value.dataRange.days
+          : null,
+        failed: corrRes.status === "rejected" || !Array.isArray(corrRes.value?.insights),
         locationPatterns: locRes.status === "fulfilled" && Array.isArray(locRes.value) ? locRes.value : [],
         loaded: true,
       },
@@ -385,6 +406,14 @@ export function InsightsPanel() {
     })
   }, [persist])
 
+  // The longest window speaks for the account: if it has fewer days than the
+  // earliest a comparison can exist, no shorter window can have one either.
+  const overall = periodData.overall
+  const tooNew = overall?.loaded && !overall.failed && overall.correlations.length === 0 && overall.chanceCount === 0
+    && overall.days != null && overall.days < EARLIEST_TEST_DAY
+    ? { days: overall.days }
+    : null
+
   return (
     <div className="rounded-xl border border-border/50 bg-background/50 backdrop-blur px-4 py-3 space-y-4">
       {/* Today snapshot */}
@@ -393,13 +422,20 @@ export function InsightsPanel() {
         <TodayTab />
       </div>
 
-      {/* Trends, one period after another */}
-      {PERIODS.map(p => (
+      {/* Trends, one period after another — except for an account too new for
+          any comparison, where three sections would print the same sentence
+          a few rows apart, which reads as a rendering fault. One says it. */}
+      {tooNew ? (
+        <div className="pt-3 border-t border-border/40">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-foreground/70 mb-2">Patterns</p>
+          <p className="text-xs text-muted-foreground py-2">{noPatternsYet(tooNew.days, PERIOD_DAYS.overall)}</p>
+        </div>
+      ) : PERIODS.map(p => (
         <div key={p.key} className="pt-3 border-t border-border/40">
           <p className="text-[11px] font-bold uppercase tracking-wider text-foreground/70 mb-2">{p.label}</p>
           <PeriodTab
             period={p.key}
-            data={periodData[p.key] ?? { correlations: [], locationPatterns: [], loaded: false }}
+            data={periodData[p.key] ?? { correlations: [], chanceCount: 0, days: null, failed: false, locationPatterns: [], loaded: false }}
             count={counts[p.key] ?? DEFAULT_COUNTS[p.key]}
             pinned={pinned}
             onCountChange={n => changeCount(p.key, n)}

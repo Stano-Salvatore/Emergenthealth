@@ -480,16 +480,40 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
-- **Onboarding, and Drive removed (3.12.0).**
+- **Onboarding, how patterns work, and Drive removed (3.12.0).**
   - **The redirect:** `needsOnboarding` in `lib/onboarding.ts` decides
     whether `/dashboard` sends someone to `/onboarding`. An account with no
     `onboarding_completed` pref and no HealthLog rows goes; an older account
     with data is marked done instead. The layout calls it outside any
     try/catch, because `redirect()` throws. `onboarding.test.ts` guards the
     shape.
-  - **The steps:** `lib/onboarding-steps.ts` lists them; the cycle step is
-    dropped only for male. Each step writes where the app already reads:
-    Goals, `/api/cycle/settings`, the push subscription.
+  - **Two halves:** `app/onboarding/page.tsx` is the server half. It reads
+    the name, Goals, cycle settings and `onboardingConnections`, so nothing
+    pops in after paint. `OnboardingWizard.tsx` is the client half: the
+    steps, the saves, the sticky footer and focus handling.
+  - **The steps:** `lib/onboarding-steps.ts` lists them: welcome, patterns,
+    about, cycle (dropped only for male), connect, notify, done. Each step
+    writes where the app already reads: Goals, `/api/cycle/settings`, the
+    push subscription.
+  - **Patterns step:** `components/onboarding/PatternsStep.tsx`. Its example
+    is `lib/onboarding-example.ts`, drawn with
+    `components/insights/InsightParts` — the same `DeltaPill`, `TierBadge`
+    and `GroupChips` the Insights page uses. The test holds the example to
+    the engine's arithmetic and to a Solid card having both sides at
+    `CONFIDENT_N`.
+  - **The bars the user is told:** `lib/pattern-rules.ts` holds
+    `MIN_GROUP_DAYS` (compareGroups' default), `CONFIDENT_N` and
+    `PERIOD_DAYS`, and derives `EARLIEST_TEST_DAY` and
+    `EARLIEST_CONFIDENT_DAY`. `correlations.ts` imports and re-exports them,
+    because it pulls in the database client and the browser can't import
+    it. `noPatternsYet` is the one empty-state sentence, used by the
+    Insights page and the dashboard panel. `pattern-rules.test.ts` fails on
+    a typed-out day count in those files.
+  - **Calendar row:** shown, and only as connected, when the account holds
+    a Google `Account` row whose scope includes the calendar. The seeded
+    demo account, reached through the password form, has none.
+  - **Getting started** (`QuickStart`) is timed from `User.createdAt`, not a
+    localStorage stamp.
   - **Skip:** posts `{completed, skipped}`, otherwise the redirect would
     loop.
   - **OAuth return:** `/api/{oura,strava}/auth?return=onboarding` sets a

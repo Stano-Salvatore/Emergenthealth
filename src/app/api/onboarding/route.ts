@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { onboardingConnections } from "@/lib/onboarding"
 
 export async function GET() {
   const session = await auth()
@@ -11,18 +12,12 @@ export async function GET() {
     const rows = await prisma.$queryRaw<{ value: string }[]>`
       SELECT value FROM "UserPreference" WHERE "userId" = ${userId} AND key = 'onboarding_completed' LIMIT 1
     `
-    // What is already connected, so the wizard's connect step shows the truth
-    // when it comes back from Oura or Strava rather than a fresh button.
-    const [oura, strava] = await Promise.all([
-      prisma.ouraToken.findUnique({ where: { userId }, select: { userId: true } }).catch(() => null),
-      prisma.$queryRaw<{ userId: string }[]>`SELECT "userId" FROM "StravaToken" WHERE "userId" = ${userId} LIMIT 1`.catch(() => []),
-    ])
     return NextResponse.json({
       completed: rows.length > 0 && rows[0].value === "true",
-      connections: { oura: !!oura, strava: strava.length > 0 },
+      connections: await onboardingConnections(userId),
     })
   } catch {
-    return NextResponse.json({ completed: false, connections: { oura: false, strava: false } })
+    return NextResponse.json({ completed: false, connections: { oura: false, strava: false, calendar: false } })
   }
 }
 

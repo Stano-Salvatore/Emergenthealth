@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.12.0 — Onboarding that works, and no more Google Drive
+## 3.12.0 — Onboarding, how patterns work, and no more Google Drive
 
 Web-only, no new APK. No schema change.
 
@@ -12,26 +12,68 @@ Web-only, no new APK. No schema change.
 - **Skip setup didn't stick.** It was a plain link to the dashboard, so once
   the redirect worked it would have sent people straight back. Skipping now
   records the wizard as done.
+- **Getting started never showed on a new account's first visit.** Its
+  fortnight was timed from a stamp the card wrote after deciding whether to
+  show, and restarted on every new device. It is now timed from when the
+  account was made.
+- **"Keep logging!" where logging can't help.** The 7-day window cannot hold
+  a comparison (five days a side need ten), yet its empty state asked for
+  more logging, as did windows whose patterns were all hidden as chance.
+
+**New**
+- **How patterns work, right after the welcome.** Before anything is asked:
+  - Each day becomes a row, and days with something are set against days
+    without. The comparisons use only your own days.
+  - An example card, labelled as one, drawn with the Insights page's own
+    pieces: the real late-caffeine card's title and sentence, invented
+    numbers.
+  - What Solid, Suggestive and Could be chance mean, in terms of shuffling
+    the days.
+  - What a pattern is not: two things that went together, not a cause.
+    Cards say when weekends or bedtimes could explain a gap, and some can be
+    run as experiments.
+- **What happens next, at the end.** The first check-in today, the earliest
+  a pattern can appear (day 10: five days on each side) and when sides
+  reach the size the app treats as enough (day 20). The numbers come from
+  the engine's own constants.
+- **Empty states that say why, in days.** The Insights page and the
+  dashboard panel give the days of data so far and the earliest day a
+  comparison can appear, or that a window is too short to hold one. A brand
+  new account sees this once on the dashboard, not three times.
 
 **Changed**
 - **The wizard asks only what the app uses, and saves all of it.**
-  - **Welcome:** on iPhone it starts with Add to Home Screen, which
-    notifications need.
+  - **Welcome:** greets you by first name, says in three lines what the app
+    does, and on iPhone starts with Add to Home Screen, which notifications
+    need.
   - **About you:** sex, birth year, weight and height, all optional, saved
     to Goals. These feed the water, protein and calorie targets and body
     strain. An empty box is not saved, so it never erases a value already
-    there.
+    there. Nothing is preselected, and "Rather not say" clears an earlier
+    answer.
   - **Cycle tracking:** asked unless the answer above was male. Yes turns
     the Cycle page on with the last period's start and contraception; no
     keeps it out of the menu.
   - **Connect:** real buttons for Oura and Strava that come back to this
-    step, Health Connect inside the Android app, and Google Calendar shown
-    as already connected through the Google sign-in.
+    step, and Health Connect inside the Android app. Each source says what
+    it brings. Google Calendar shows as connected only when the account
+    really holds a Google grant that includes it.
   - **Notifications:** lists what is actually sent: the morning check-in
     reminder, the evening intention question or journal nudge, medication
     and habit reminders, and notes from Emergy. The old list promised a
     "streak protection alert" that doesn't exist.
   - The categories and free-text goal steps are gone; nothing read them.
+- **Built for a phone.** The wizard fills the screen with the buttons kept
+  at the bottom, has a back arrow and a progress bar, and from tablet width
+  up it sits in a card. A new step starts at its top, focus moves to its
+  title, and its short entrance animation is off under reduced motion. Your
+  name, saved answers and connections are loaded on the server, so nothing
+  pops in after the page appears. The browser's timezone is saved during the
+  wizard, so the 7:00 reminder it describes is 7:00 where you are. The
+  corner Privacy/Terms links make way for the buttons, and the steps that
+  ask personal things link the policy instead.
+- **Insight cards' group labels wrap to two lines** instead of being cut off
+  mid-word ("all caffeine before 1…").
 - **Google Drive is no longer requested at sign-in.** It only fed GPX tracks
   from one folder in the owner's Drive, and location now comes from the
   app's own GPS. The Location page and card read only the app's own points.

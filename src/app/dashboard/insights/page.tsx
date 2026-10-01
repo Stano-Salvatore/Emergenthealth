@@ -14,6 +14,8 @@ import { BaselineAlerts } from "@/components/dashboard/BaselineAlerts"
 import { DailyScoreCard } from "@/components/dashboard/DailyScoreCard"
 import { experimentSuggestion } from "@/lib/experiment-suggest"
 import { weaknessReason } from "@/lib/insight-weakness"
+import { noPatternsYet, PERIOD_DAYS } from "@/lib/pattern-rules"
+import { DeltaPill, GroupChips, TierBadge } from "@/components/insights/InsightParts"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -105,24 +107,6 @@ function InsightSkeleton() {
   )
 }
 
-// ─── Delta Pill ───────────────────────────────────────────────────────────────
-
-function DeltaPill({ delta }: { delta: number }) {
-  const positive = delta >= 0
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-semibold",
-        positive
-          ? "bg-green-500/15 text-green-400"
-          : "bg-red-500/15 text-red-400",
-      )}
-    >
-      {positive ? "+" : ""}{delta.toFixed(1)}%
-    </span>
-  )
-}
-
 // ─── Insight Card ─────────────────────────────────────────────────────────────
 
 function InsightCard({ insight }: { insight: InsightResult }) {
@@ -157,27 +141,7 @@ function InsightCard({ insight }: { insight: InsightResult }) {
               <Star className={cn("h-3.5 w-3.5", isPinned && "fill-current")} />
             </button>
             <DeltaPill delta={insight.delta} />
-            {/* Trust tier: permutation test + false-discovery control, not just sample size */}
-            <Badge
-              variant="secondary"
-              className={cn(
-                "text-[10px] font-semibold px-1.5",
-                insight.tier === "strong" ? "text-emerald-400"
-                  : insight.tier === "suggestive" ? "text-amber-400"
-                  : insight.tier === "noise" ? "text-muted-foreground"
-                  : insight.confident ? "text-primary" : "text-muted-foreground",
-              )}
-            >
-              {/* The fallback used to read "Strong" for a card with no tier —
-                  which means only that both sides had ten days, and in plain
-                  English outranks "Solid", which means it survived correction
-                  across the whole run. The weaker badge read stronger. A card
-                  with no tier has not been placed, so it says so. */}
-              {insight.tier === "strong" ? "Solid"
-                : insight.tier === "suggestive" ? "Suggestive"
-                : insight.tier === "noise" ? "Could be chance"
-                : "Not placed yet"}
-            </Badge>
+            <TierBadge tier={insight.tier} confident={insight.confident} />
             {insight.weekendDriven && (
               // Not just suspicion — say how much survives without weekends,
               // so "the weekend did most of this" is a number, not a vibe.
@@ -223,23 +187,10 @@ function InsightCard({ insight }: { insight: InsightResult }) {
           </Link>
         )}
 
-        {/* Stat chips */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-lg bg-secondary/50 px-3 py-2">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide truncate mb-1">
-              {insight.highGroupLabel}
-            </p>
-            <p className="text-base font-bold text-foreground leading-none">{insight.highGroupAvg}</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">{insight.highGroupN} days</p>
-          </div>
-          <div className="rounded-lg bg-secondary/50 px-3 py-2">
-            <p className="text-[10px] text-muted-foreground uppercase tracking-wide truncate mb-1">
-              {insight.lowGroupLabel}
-            </p>
-            <p className="text-base font-bold text-foreground leading-none">{insight.lowGroupAvg}</p>
-            <p className="text-[10px] text-muted-foreground mt-0.5">{insight.lowGroupN} days</p>
-          </div>
-        </div>
+        <GroupChips
+          high={{ label: insight.highGroupLabel, avg: insight.highGroupAvg, n: insight.highGroupN }}
+          low={{ label: insight.lowGroupLabel, avg: insight.lowGroupAvg, n: insight.lowGroupN }}
+        />
       </CardContent>
     </Card>
   )
@@ -247,15 +198,16 @@ function InsightCard({ insight }: { insight: InsightResult }) {
 
 // ─── Empty state ─────────────────────────────────────────────────────────────
 
-function EmptyState() {
+// Why there is nothing to show, in days — the same sentence the dashboard
+// panel uses, built from the engine's own bars (lib/pattern-rules), so the
+// page never asks for more logging where more logging can't help.
+function EmptyState({ days, windowDays }: { days: number | null; windowDays: number }) {
   return (
     <Card className="border-dashed">
       <CardContent className="flex flex-col items-center justify-center py-16 text-center">
         <div className="mb-3 text-5xl leading-none select-none">✨</div>
-        <h3 className="text-base font-semibold text-foreground">Not enough data yet</h3>
-        <p className="mt-2 text-sm text-muted-foreground max-w-xs">
-          Log more check-ins, habits, and health data to see personalised patterns. At least 5 days per group are needed.
-        </p>
+        <h3 className="text-base font-semibold text-foreground">No patterns yet</h3>
+        <p className="mt-2 text-sm text-muted-foreground max-w-xs">{noPatternsYet(days, windowDays)}</p>
       </CardContent>
     </Card>
   )
@@ -263,8 +215,6 @@ function EmptyState() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-/** Mirrors PERIOD_DAYS in correlations.ts — what each button asks the engine for. */
-const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall: 90, year: 365 }
 
 const PERIODS = [
   { key: "week", label: "7 days" },
@@ -424,7 +374,7 @@ export default function InsightsPage() {
             </CardContent>
           </Card>
         ) : (
-          <EmptyState />
+          <EmptyState days={data?.dataRange.days ?? null} windowDays={PERIOD_DAYS[period]} />
         )
       ) : (
         <div className="space-y-8">
