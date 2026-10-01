@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Timer, UtensilsCrossed, CheckCircle2, XCircle } from "lucide-react"
 import { format } from "date-fns"
+import { todayLocalISO } from "@/lib/local-date"
 
 interface ActiveFast {
   startedAt: string
@@ -40,7 +41,7 @@ function formatDuration(h: number): string {
 function getLongestStreak(history: FastRecord[]): number {
   if (history.length === 0) return 0
   // Get unique dates with at least one fast
-  const dates = new Set(history.map(r => r.startedAt.split("T")[0]))
+  const dates = new Set(history.map(r => todayLocalISO(new Date(r.startedAt))))
   const sorted = [...dates].sort()
   let streak = 1
   let best = 1

@@ -120,12 +120,13 @@ export function computeBestStreak(
  * which is the number already displayed beside it as "Done today" — the same
  * fact twice, and a rate that reads 0% every morning before the first tick.
  *
- * A habit counts only from the day it was created: one added yesterday is not
+ * A habit counts only from the day it was created — `createdDay` is the
+ * user's local YYYY-MM-DD, never an instant's UTC date: one added yesterday is not
  * 3% adherent because it did not exist last month. Days before any habit
  * existed are excluded rather than counted as missed.
  */
 export function computeCompletionRate(
-  habits: { completionDays: Set<string>; createdAt?: string | null; isOff?: (day: string) => boolean }[],
+  habits: { completionDays: Set<string>; createdDay?: string | null; isOff?: (day: string) => boolean }[],
   todayStr: string,
   days = 30,
 ): number | null {
@@ -137,7 +138,7 @@ export function computeCompletionRate(
       // Today is still in progress — counting it as missed drags the rate
       // down all morning for no reason.
       if (i === 0) continue
-      if (habit.createdAt && day < habit.createdAt.slice(0, 10)) continue
+      if (habit.createdDay && day < habit.createdDay) continue
       // A day the schedule didn't ask for, or the user skipped, was never due.
       if (habit.isOff?.(day)) continue
       due++

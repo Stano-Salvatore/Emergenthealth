@@ -2658,7 +2658,7 @@ export async function buildSystemPrompt(
 
   const [recentMoods, todayWeather, recentNotes, recentLabs, latestBody, recentWorkouts, recentSymptoms, fastActivePref, fastHistoryPref] = await Promise.all([
     // Both tables, check-in first — see lib/mood-series.
-    loadMoodSeries(userId, since14.toISOString().slice(0, 10), todayStr)
+    loadMoodSeries(userId, addDaysISO(todayStr, -14), todayStr)
       .then(rows => rows
         .map(r => ({ date: new Date(r.day + "T00:00:00.000Z"), mood: r.mood }))
         .sort((a, b) => b.date.getTime() - a.date.getTime()))
@@ -2973,7 +2973,7 @@ export async function buildSystemPrompt(
       const hist = fastHistoryPref ? JSON.parse(fastHistoryPref.value) as { endedAt?: string; durationH?: number; completed?: boolean }[] : []
       const last = Array.isArray(hist) ? hist[0] : null
       if (last?.endedAt && typeof last.durationH === "number") {
-        fastingStr = `- Last fast: ${last.durationH.toFixed(1)}h, ended ${last.endedAt.slice(0, 10)}${last.completed ? " (target reached)" : ""}`
+        fastingStr = `- Last fast: ${last.durationH.toFixed(1)}h, ended ${localDateStr(tz, new Date(last.endedAt))}${last.completed ? " (target reached)" : ""}`
       }
     } catch { /* malformed — skip */ }
   }
