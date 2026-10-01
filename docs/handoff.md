@@ -480,6 +480,16 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **iPhone as a web app (3.9.1).** There is no iOS build. An iPhone runs the
+  site from the Home Screen, and nothing under `android-widget/` reaches it:
+  no Health Connect, phone sleep, location, widget or bubble. Web push is
+  `lib/web-push.ts`. `subscribeWebPush` is the one subscribe path for
+  Settings, Emergy's panel and onboarding. `iosNeedsHomeScreen` is true in a
+  Safari tab, which has no `Notification` or `PushManager`, and both the
+  push card and onboarding show the Add to Home Screen hint there. Nobody
+  has run it on a real iPhone; the checks so far are Chromium with an
+  iPhone UA and those APIs deleted.
+
 - **Body strain (3.9.0).** `lib/body-strain.ts` grades the vitals night
   none/minor/major from the per-metric anomalies. `detectEach` returns them
   before `withComposites` lets the illness composite stand in for its parts;

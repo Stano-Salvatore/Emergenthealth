@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState, useCallback } from "react"
-import { isNativeShell } from "@/lib/native/shell"
+import { subscribeWebPush } from "@/lib/web-push"
 import { usePathname } from "next/navigation"
 import { X, Send, Bell, Mic, Square, Volume2, VolumeX, ImagePlus } from "lucide-react"
 import {
@@ -19,13 +19,6 @@ interface ChatMessage {
   role: "user" | "assistant"
   content: string
   createdAt?: string
-}
-
-function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4)
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/")
-  const rawData = window.atob(base64)
-  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0))).buffer
 }
 
 export function EmergyPanel() {
@@ -152,28 +145,10 @@ export function EmergyPanel() {
   }, [messages])
 
   async function enablePush() {
-    if (typeof Notification === "undefined") return
-    const perm = await Notification.requestPermission()
-    setNotifPerm(perm)
-    if (perm !== "granted") return
-    try {
-      // Never in the shell: registering here would reinstall the worker the
-      // app strips on launch, and with it the stale-code failure mode.
-      if (isNativeShell()) return
-      const reg = await navigator.serviceWorker.register("/sw.js")
-      const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-      if (!vapidKey) return
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey),
-      })
-      await fetch("/api/push/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscription: sub }),
-      })
-    } catch {}
+    await subscribeWebPush()
+    if (typeof Notification !== "undefined") setNotifPerm(Notification.permission)
   }
+
 
   useEffect(() => {
     let cancelled = false

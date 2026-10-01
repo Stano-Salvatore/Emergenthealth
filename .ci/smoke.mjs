@@ -320,7 +320,12 @@ for (const route of ROUTES) {
     }
 
     // 3. Wide content that was never given its own scroll container.
+    //    Pages scroll inside <main>, not the window, so a row too wide for the
+    //    phone widens <main> and leaves the document's own width untouched —
+    //    the calendar toolbar ran 66px off a 390px screen with this passing.
+    const main = document.querySelector("main")
     out.scrollsSideways = document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
+      || (main != null && main.scrollWidth > main.clientWidth + 1)
 
     return out
   })

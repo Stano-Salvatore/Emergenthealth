@@ -1120,10 +1120,13 @@ export default function CalendarPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* min-w-0 down the chain: a flex child never shrinks below its
+            content otherwise, so the toggle's own scroll never engaged and
+            the row ran off a 390px phone instead. */}
+        <div className="flex items-center gap-2 min-w-0 max-w-full">
           {/* view toggle — pill style. Scrolls sideways rather than wrapping
               when five options are too wide for a narrow phone. */}
-          <div className="flex rounded-lg border bg-secondary/40 p-0.5 gap-0.5 overflow-x-auto scrollbar-thin max-w-full">
+          <div className="flex min-w-0 rounded-lg border bg-secondary/40 p-0.5 gap-0.5 overflow-x-auto scrollbar-thin max-w-full">
             {VIEW_ORDER.map(v => (
               <button key={v} onClick={() => chooseView(v)}
                 className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-all whitespace-nowrap
