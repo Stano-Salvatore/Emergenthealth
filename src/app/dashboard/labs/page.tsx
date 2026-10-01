@@ -360,7 +360,7 @@ export default function LabsPage() {
 
           {jump && (
             <p className="text-xs text-amber-400">
-              That is about {Math.round(jump.factor)}× the last {canonicalMarker(marker)} ({jump.previous.value} {jump.previous.unit} on{" "}
+              That is about {Math.round(jump.factor)}× the last {canonicalMarker(marker)} ({labValueText(jump.previous.value, jump.previous.qualifier)} {jump.previous.unit} on{" "}
               {format(new Date(jump.previous.date), "MMM d, yyyy")}) — check the unit before saving.
             </p>
           )}

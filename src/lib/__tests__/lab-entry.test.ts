@@ -63,3 +63,15 @@ describe("the Add Result form", () => {
     expect(page).not.toMatch(/UNIT_DEFAULTS/)
   })
 })
+
+describe("a jump measured against a printed limit", () => {
+  it("is not a jump: '<5' last time says nothing about how far 30 is from it", () => {
+    const history = { CRP: [{ value: 5, unit: "mg/l", date: "2026-05-01", qualifier: "<" }] }
+    expect(implausibleJump("CRP", 30, "mg/l", history)).toBeNull()
+  })
+
+  it("the form prints the last reading with its sign", () => {
+    const src = readFileSync("src/app/dashboard/labs/page.tsx", "utf8")
+    expect(src).toMatch(/labValueText\(jump\.previous/)
+  })
+})
