@@ -53,6 +53,17 @@
   --radius-3xl: calc(var(--radius) * 2);
 }
 
+/* The onboarding's step change: a short rise and fade, so a new screen reads
+   as the next one rather than a jump. Off under reduced motion (the
+   motion-reduce:animate-none beside every use). */
+@theme {
+  --animate-step-in: step-in 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  @keyframes step-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
 /* ── The two palettes (see design/handoff/README.md) ──
    Colour has exactly two jobs, and a screen may tint a number by one or the
    other, never both.

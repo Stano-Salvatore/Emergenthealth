@@ -13,33 +13,13 @@ import { WidgetAutoActivate } from "@/components/WidgetAutoActivate"
 import { MorningBriefPopup } from "@/components/dashboard/MorningBriefPopup"
 import { UpdateAvailableBanner } from "@/components/UpdateAvailableBanner"
 import { ClientErrorReporter } from "@/components/layout/ClientErrorReporter"
-import { prisma } from "@/lib/prisma"
+import { needsOnboarding } from "@/lib/onboarding"
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth()
   if (!session?.user) redirect("/signin")
 
-  try {
-    const prefs = await prisma.$queryRaw<{ value: string }[]>`
-      SELECT value FROM "UserPreference" WHERE "userId" = ${session.user.id} AND key = 'onboarding_completed' LIMIT 1
-    `
-    if (!prefs.length) {
-      // Check if this is an existing user with data
-      const hasData = await prisma.healthLog.count({ where: { userId: session.user.id }, take: 1 }).catch(() => 0)
-      if (hasData > 0) {
-        // Auto-mark as onboarded — existing user
-        await prisma.$executeRaw`
-          INSERT INTO "UserPreference" ("userId", key, value)
-          VALUES (${session.user.id}, 'onboarding_completed', 'true')
-          ON CONFLICT ("userId", key) DO UPDATE SET value = 'true'
-        `.catch(() => {})
-      } else {
-        redirect("/onboarding")
-      }
-    }
-  } catch {
-    // table not yet created, let user through
-  }
+  if (await needsOnboarding(session.user.id)) redirect("/onboarding")
 
   return (
     <>

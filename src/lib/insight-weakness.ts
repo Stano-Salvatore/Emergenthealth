@@ -22,7 +22,7 @@
 // power calculation, and an honest one needs an effect size we'd have to
 // assume. Naming the count and the bar is what the data supports.
 
-import { CONFIDENT_N } from "./correlations"
+import { CONFIDENT_N } from "./pattern-rules"
 
 export interface WeaknessInput {
   tier?: "strong" | "suggestive" | "noise"

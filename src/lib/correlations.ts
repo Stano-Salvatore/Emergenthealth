@@ -12,6 +12,7 @@ import { loadCoarsePoints } from "@/lib/day-location-load"
 import { bedtimeMinutesLate, hhmm } from "@/lib/caffeine-cutoff"
 import { ALCOHOL_TYPES, ethanolGrams } from "@/lib/body-load"
 import { localDateStr } from "@/lib/local-date"
+import { CONFIDENT_N, MIN_GROUP_DAYS, PERIOD_DAYS } from "@/lib/pattern-rules"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
 // (interactive dashboard) and the correlation-watch cron (pin & watch alerts).
@@ -176,16 +177,8 @@ export type InsightResult = {
   weekdayDelta?: number
 }
 
-/**
- * The windows a user can ask for.
- *
- * "year" exists because 90 days cannot see a season. A Samsung Health export
- * goes back years and all of it is stored, but the longest window on offer was
- * a quarter — so "am I worse in winter", the question a year of data is for,
- * could not be asked at all. The engine is window-agnostic; only this list
- * decided how far it was allowed to look.
- */
-export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall: 90, year: 365 }
+/** The windows a user can ask for — defined in lib/pattern-rules, which the browser can import. */
+export { PERIOD_DAYS }
 
 /**
  * Bump when the insight battery gains or loses sources, or when a group
@@ -198,13 +191,16 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
 export const ENGINE_VERSION = 24
 
 /**
- * Both sides need this many days before a card is called confident.
+ * Both sides need CONFIDENT_N days before a card is called confident, and
+ * MIN_GROUP_DAYS before it is tested at all.
  *
- * `insight-weakness.ts` used to declare its own copy of this number and write
+ * `insight-weakness.ts` used to declare its own copy of the first and write
  * sentences about it. Two constants meaning one thing is how a card comes to
  * say "under 10 days a side" while the engine has moved to a different bar.
+ * Both now live in lib/pattern-rules, which the onboarding and the empty
+ * states also quote — and which, unlike this file, is safe in the browser.
  */
-export const CONFIDENT_N = 10
+export { CONFIDENT_N }
 
 function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length
@@ -645,7 +641,8 @@ const byDirection = (h: number, l: number, s: { higher: string; lower: string; s
   h > l ? s.higher : h < l ? s.lower : s.same
 
 /**
- * Compare two groups on a metric. Returns an insight if both groups have >= minN days.
+ * Compare two groups on a metric. Returns an insight if both groups have >= minN days
+ * (MIN_GROUP_DAYS unless the family asks for more).
  */
 function compareGroups(opts: {
   id: string
@@ -671,7 +668,7 @@ function compareGroups(opts: {
     series,
     higherIsBetter = true,
     findingTemplate,
-    minN = 5,
+    minN = MIN_GROUP_DAYS,
   } = opts
   const highValues = series.high
   const lowValues = series.low

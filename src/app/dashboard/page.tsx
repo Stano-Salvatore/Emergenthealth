@@ -210,6 +210,7 @@ export default async function DashboardPage() {
     healthLogs, habits, reminders, calendar, appEvents, gmailData, todayIntake, todayFocus, todayOuraTags,
     latestWeightKg, daily, reminderCountAll,
     vacationWindow,
+    accountRow,
   ] = await Promise.all([
     getGoals(userId),
     prisma.$queryRaw<{id: string; waterGoalMl: number | null}[]>`
@@ -273,7 +274,10 @@ export default async function DashboardPage() {
     loadDailyScore(userId).catch(() => null),
     prisma.reminder.count({ where: { userId } }).catch(() => 0),
     getVacationWindow(userId),
+    prisma.user.findUnique({ where: { id: userId }, select: { createdAt: true } }).catch(() => null),
   ])
+  // Getting started is a new account's card, timed from the account itself.
+  const accountAgeDays = accountRow ? Math.floor((Date.now() - accountRow.createdAt.getTime()) / 86_400_000) : null
 
   // ── goals + check-in (parsed from the batch above)
   const STEP_GOAL = userGoals.steps
@@ -876,7 +880,7 @@ export default async function DashboardPage() {
     // The AC is the owner's device on the owner's credentials; /api/home serves it to no one else.
     ac: isHomeOwner(session.user.email) ? <AcCard /> : null,
     quests: <DailyQuests />,
-    quickstart: <QuickStart hasCheckin={hasCheckedInToday} hasHabits={habits.length > 0} />,
+    quickstart: <QuickStart hasCheckin={hasCheckedInToday} hasHabits={habits.length > 0} accountAgeDays={accountAgeDays} />,
   }
 
   // On phones the Today view (gauge, sleep/heart cards, calendar, timeline)

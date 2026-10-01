@@ -1,7 +1,6 @@
 import { auth } from "@/auth"
-import { distanceM } from "@/lib/places"
-import { getGpxTrackForDate } from "@/lib/google-drive"
-import { downsamplePoints, trackToSvgPath } from "@/lib/gpx"
+import { trackToSvgPath } from "@/lib/gpx"
+import { detectStops, summariseTrack } from "@/lib/day-stops"
 import { prisma } from "@/lib/prisma"
 import Link from "next/link"
 import { MapPin, ChevronRight } from "lucide-react"
@@ -41,23 +40,19 @@ export async function LocationCard() {
   const today = localDateStr(timezone)
   const { start: dayStart, end: dayEnd } = zonedDayRange(timezone, today)
 
-  const [track, ownTracksRows] = await Promise.all([
-    getGpxTrackForDate(session.user.id, today).catch(() => null),
-    prisma.locationPoint.findMany({
-      where: { userId: session.user.id, trackedAt: { gte: dayStart, lte: dayEnd } },
-      orderBy: { trackedAt: "asc" },
-      select: { lat: true, lng: true },
-    }),
-  ])
+  const rows = await prisma.locationPoint.findMany({
+    where: { userId: session.user.id, trackedAt: { gte: dayStart, lte: dayEnd } },
+    orderBy: { trackedAt: "asc" },
+    select: { lat: true, lng: true, trackedAt: true },
+  })
 
-  const gpxPts = track ? downsamplePoints(track.points, 300).map(p => ({ lat: p.lat, lon: p.lon })) : []
-  const otPts  = ownTracksRows.map(r => ({ lat: r.lat, lon: r.lng }))
-  const pts    = gpxPts.length >= 2 ? gpxPts : otPts
+  const pts = rows.map(r => ({ lat: r.lat, lon: r.lng }))
   const hasData = pts.length >= 2
-
-  const distanceKm = track?.distanceKm ?? calcKm(otPts)
-  const movingMin  = track?.movingMin  ?? 0
-  const avgSpeed   = track?.avgSpeedKmh ?? 0
+  // The same numbers the Location page shows for the day: stops found first,
+  // so standing still with a jittery fix is not counted as moving.
+  const timed = rows.map(r => ({ lat: r.lat, lon: r.lng, time: r.trackedAt }))
+  const { distanceKm, movingMin } = summariseTrack(timed, detectStops(timed))
+  const avgSpeed = movingMin > 0 ? distanceKm / (movingMin / 60) : null
 
   return (
     <Link href="/dashboard/location">
@@ -90,7 +85,7 @@ export async function LocationCard() {
               </div>
               <div>
                 <p className="text-[10px] text-muted-foreground">Avg speed</p>
-                <p className="text-sm font-bold tabular-nums">{avgSpeed.toFixed(1)} km/h</p>
+                <p className="text-sm font-bold tabular-nums">{avgSpeed != null ? `${avgSpeed.toFixed(1)} km/h` : "—"}</p>
               </div>
             </div>
           </>
@@ -98,10 +93,4 @@ export async function LocationCard() {
       </div>
     </Link>
   )
-}
-
-function calcKm(pts: { lat: number; lon: number }[]): number {
-  let m = 0
-  for (let i = 1; i < pts.length; i++) m += distanceM(pts[i - 1].lat, pts[i - 1].lon, pts[i].lat, pts[i].lon)
-  return m / 1000
 }

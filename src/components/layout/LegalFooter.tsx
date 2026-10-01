@@ -17,6 +17,9 @@ import { usePathname } from "next/navigation"
 export function LegalFooter() {
   const pathname = usePathname()
   if (pathname?.startsWith("/dashboard")) return null
+  // The same collision in the onboarding: its buttons sit at the bottom of a
+  // phone screen. The steps that ask personal things link the policy themselves.
+  if (pathname?.startsWith("/onboarding")) return null
 
   return (
     <footer className="fixed bottom-0 right-0 z-50 p-3 flex gap-3 pointer-events-none">
