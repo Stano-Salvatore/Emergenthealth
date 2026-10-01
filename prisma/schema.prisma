@@ -40,6 +40,7 @@ model User {
   intakeLogs           IntakeLog[]
   foodLogs             FoodLog[]
   symptomLogs          SymptomLog[]
+  cycleDays            CycleDay[]
   experiments          Experiment[]
   medSchedules         MedSchedule[]
   focusSessions        FocusSession[]
@@ -918,6 +919,33 @@ model Passkey {
 // involved a headache, nausea or brain fog — which is exactly the surface a
 // medication's side effects show up on. Severity is 1-5; a day with no entry
 // for a symptom counts as 0 in the correlation engine, so absence is data too.
+/// One day of cycle tracking. A period is never stored: it is the run of
+/// bleeding days, so correcting a day corrects the period, the averages and
+/// every prediction together (lib/cycle).
+model CycleDay {
+  id        String   @id @default(cuid())
+  userId    String
+  /// YYYY-MM-DD, the user's local day.
+  day       String
+  /// "none" | "spotting" | "light" | "medium" | "heavy"; null when only other things were logged.
+  flow      String?
+  /// 0 none, 1 mild, 2 moderate, 3 severe.
+  pain      Int?
+  symptoms  String[] @default([])
+  moods     String[] @default([])
+  /// "dry" | "sticky" | "creamy" | "watery" | "eggwhite"
+  discharge String?
+  /// An ovulation (LH) test: "positive" | "negative".
+  lhTest    String?
+  note      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+}
+
 model SymptomLog {
   id        String   @id @default(cuid())
   userId    String
@@ -1008,21 +1036,27 @@ model UserFeedback {
 // it's derived from the dose log (OuraTag), which is the single place a dose
 // exists whether it came from the ring, a manual tap, or a reminder.
 model MedSchedule {
-  id         String   @id @default(cuid())
-  userId     String
-  name       String // display name, e.g. "Elicea 10 mg"
-  dose       String? // free text, e.g. "1 tablet"
+  id          String   @id @default(cuid())
+  userId      String
+  name        String // display name, e.g. "Elicea 10 mg"
+  dose        String? // free text, e.g. "1 tablet"
   /// Local times of day in HH:mm, e.g. ["08:00", "21:00"]
-  times      String[]
+  times       String[]
   /// Days of the week (0 = Sunday). Empty means every day.
-  daysOfWeek Int[]    @default([])
-  active     Boolean  @default(true)
-  remind     Boolean  @default(true)
-  note       String?
-  startDate  String? // YYYY-MM-DD, optional
-  endDate    String? // YYYY-MM-DD, optional
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  daysOfWeek  Int[]    @default([])
+  active      Boolean  @default(true)
+  remind      Boolean  @default(true)
+  note        String?
+  startDate   String? // YYYY-MM-DD, optional
+  endDate     String? // YYYY-MM-DD, optional
+  /// A pack rhythm, e.g. the pill's 21 days on and 7 off: due on the first
+  /// packOnDays of every (packOnDays + packOffDays), counted from packStart.
+  /// All three null means every scheduled day.
+  packOnDays  Int?
+  packOffDays Int?
+  packStart   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

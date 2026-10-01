@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
-import { activeOn } from "@/lib/med-schedule"
+import { activeOn, packOf } from "@/lib/med-schedule"
 import { isScheduledOn } from "@/lib/habit-schedule"
 import { loadEventOccurrences } from "@/lib/app-events"
 import { getUserTimezone } from "@/lib/user-timezone"
@@ -122,7 +122,7 @@ export async function GET(req: NextRequest) {
     for (const med of meds) {
       if (!activeOn({
         id: med.id, name: med.name, times: med.times, daysOfWeek: med.daysOfWeek,
-        active: med.active, startDate: med.startDate, endDate: med.endDate,
+        active: med.active, startDate: med.startDate, endDate: med.endDate, ...packOf(med),
       }, day)) continue
       med.times.forEach((time, i) => {
         const start = at(day, time, timezone)

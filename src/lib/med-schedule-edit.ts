@@ -65,6 +65,20 @@ export function normalizeDays(input: unknown): number[] {
   return set.size === 7 ? [] : [...set].sort()
 }
 
+/**
+ * A pack rhythm from a request: on days, off days and the first day of a
+ * pack, all three or nothing. Null when absent or malformed.
+ */
+export function normalizePack(body: Record<string, unknown> | null | undefined): { packOnDays: number; packOffDays: number; packStart: string } | null {
+  const on = Number(body?.packOnDays)
+  const off = Number(body?.packOffDays)
+  const start = body?.packStart
+  if (!Number.isInteger(on) || on < 1 || on > 90) return null
+  if (!Number.isInteger(off) || off < 1 || off > 90) return null
+  if (typeof start !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(start)) return null
+  return { packOnDays: on, packOffDays: off, packStart: start }
+}
+
 export function describeDays(days: number[]): string {
   return days.length === 0 || days.length === 7 ? "daily" : days.map(d => DOW[d]).join("/")
 }

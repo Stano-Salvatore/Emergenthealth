@@ -153,6 +153,7 @@ const TOOL_ACTIVITY: Record<string, string> = {
   log_lab_results:    "reading your lab results",
   create_med_schedule: "setting up that schedule",
   update_med_schedule: "changing that schedule",
+  log_cycle:          "noting that in your cycle",
   start_fast:         "starting your fast",
   end_fast:           "ending your fast",
   set_goal:           "setting that goal",

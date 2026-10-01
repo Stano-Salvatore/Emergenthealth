@@ -35,7 +35,7 @@ export async function POST(req: Request) {
   const [schedules, rows] = await Promise.all([
     prisma.medSchedule.findMany({
       where: { userId, id: { in: items.map(i => i.scheduleId) } },
-      select: { id: true, name: true, dose: true, times: true, daysOfWeek: true, active: true, startDate: true, endDate: true },
+      select: { id: true, name: true, dose: true, times: true, daysOfWeek: true, active: true, startDate: true, endDate: true, packOnDays: true, packOffDays: true, packStart: true },
     }),
     // Since yesterday: dosesByDay may file a 00:30 dose on the night before.
     prisma.$queryRaw<DoseRow[]>`

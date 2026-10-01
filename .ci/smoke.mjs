@@ -67,6 +67,7 @@ const ROUTES = (process.env.ROUTES ?? [
   "/dashboard/brief",
   "/dashboard/caffeine",
   "/dashboard/calendar",
+  "/dashboard/cycle",
   "/dashboard/chat",
   "/dashboard/checkin",
   "/dashboard/custom",

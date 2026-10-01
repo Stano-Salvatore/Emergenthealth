@@ -1,5 +1,65 @@
 # Changelog
 
+## 3.11.0 — Cycle tracking
+
+Web-only, no new APK. The schema change is additive only: a new `CycleDay`
+table and three nullable pill-pack columns on `MedSchedule`.
+
+**New**
+- **A Cycle page** (🌸, under Body) for periods and phases. It is off until
+  you turn it on. People whose Goals sex setting is female see it suggested
+  in the sidebar; anyone can open it from search.
+  - **Today:** a ring of your own cycle with today marked, "Period · day 2"
+    or "Luteal · day 20", the next period's likely dates and an ovulation
+    estimate.
+  - **Learns your cycle:** predictions come from your own logged cycles after
+    two of them, until then from the length you entered or a typical 28 days.
+    The page always says which. Spotting never starts a period, and bleeding
+    soon after a period is noted as between-period bleeding.
+  - **Log a day in taps:** flow, pain, 13 body symptoms, mood, discharge, an
+    ovulation test and a note. "None" on a day ends the period. "Period
+    started today" is one button.
+  - **Calendar:** logged days as logged; the predicted period, fertile window
+    and ovulation drawn only from today forward.
+  - **Every phase explained:** period, follicular, ovulation, luteal and the
+    premenstrual days. For each: what is happening, what many people notice,
+    food, movement, sleep, and medicines and supplements. It is written as
+    information, with no doses; medicine questions go to the label, the
+    leaflet or a pharmacist. Your latest ferritin from Labs shows beside the
+    period's iron advice.
+  - **Your phases in your data:** after two complete cycles with ring data,
+    your own sleep score, HRV, resting heart rate, readiness, mood and energy
+    in each phase.
+  - **Ring temperature:** with an Oura ring, the temperature rise after
+    ovulation confirms when it happened (a "three over six" rule). The
+    estimate then uses it, and a chart shows it.
+  - **Contraception:** the combined pill, mini-pill, hormonal and copper coil,
+    implant, injection, ring and patch each change what the page shows.
+    - On the pill, ring or patch the ring becomes the pack: pill day, break
+      week and the withdrawal bleed.
+    - Under other hormonal methods no ovulation or fertile window is drawn.
+    - Each method has its own notes, such as missed pills ("the leaflet
+      says") and medicines that make it less effective.
+  - **When to talk to a doctor,** and a list of past periods with each
+    cycle's length.
+- **On the home page,** only when it matters: "Period · day 2" with a line
+  for that day, "Period likely in 2 days", a late period (as a count of days,
+  for up to two weeks), and the pill's break week. Every other day the home
+  page is unchanged.
+- **Pill reminders that skip the break week.** Medication schedules can have
+  a pack rhythm (21 days on, 7 off). Reminders, the phone's alarms,
+  adherence, the missed-dose follow-up and the calendar all leave the break
+  alone. The Cycle page adds the reminder in one tap.
+- **An optional notification two days before.** It says only "Cycle heads-up"
+  on the lock screen; the detail goes to your chat with Emergy.
+- **Emergy knows the cycle:** the phase, the predictions and today's log.
+  "My period started yesterday" or "cramps today" gets logged. In the luteal
+  phase, Emergy and the vitals card note that a warmer body, a higher resting
+  heart rate and a lower HRV are usual for those days.
+- **The health report** gets a menstrual-cycle section: when the last period
+  started, cycle and period length, contraception, and the period's heavy
+  days, painful days and between-period bleeding.
+
 ## 3.10.0 — Emergy keeps track of your medicines, and points the way
 
 Web-only, no new APK.

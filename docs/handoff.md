@@ -480,6 +480,37 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Cycle tracking (3.11.0).** `/dashboard/cycle`, off unless
+  `cycle_settings.enabled` (UserPreference JSON, read by
+  `parseCycleSettings`).
+  - **Engine:** `lib/cycle.ts` is pure and runs in the browser too.
+    - Periods are never stored: `periodsFrom` derives them from `CycleDay`
+      rows. Bleeding days within 3 days merge into one period, and bleeding
+      sooner than 15 days after a start counts as between-period bleeding.
+    - Gaps over 60 days are logging gaps.
+    - `cycleStats` uses the median of the last 6 cycles once there are two.
+    - The luteal phase defaults to 14 days, counted from the day after
+      ovulation, so ovulation lands on day 14 of a 28-day cycle.
+      `ovulationFromTemps` applies "three over six" to Oura's skin
+      temperature.
+    - `cycleToday` is the one state everything reads.
+  - **Wording:** `lib/cycle-text.ts` holds it for the page, home card and
+    Emergy. The phase guide is `lib/cycle-guide.ts`: no doses, guarded by
+    `cycle-guide.test.ts`. `lib/cycle-load.ts` reads and writes, and returns
+    early when tracking is off, because Emergy, the home page and the report
+    ask for every user.
+  - **Sidebar:** gated through `OPT_IN_ROUTES` in `nav-items.ts`.
+    `/api/preferences/sidebar` returns `optIn`.
+  - **Pill packs:** `MedSchedule.packOnDays`/`packOffDays`/`packStart` are
+    applied inside `activeOn`. Every place that builds a schedule shape
+    spreads `packOf(row)`, which `med-pack.test.ts` checks.
+  - **Heads-up push:** `/api/cron/cycle-heads-up` is in the reminders
+    workflow. It is opt-in and fires once per predicted start. The
+    notification text is fixed and neutral (`HEADS_UP_PUSH`); the detail
+    goes to the chat.
+  - **Not built:** Health Connect's menstruation records (that needs the APK
+    and Android), and cycle phase as a factor in the correlation engine.
+
 - **Medicines Emergy keeps track of, and links (3.10.0).**
   - **Schedule edits:** `lib/med-schedule-edit.ts` matches a spoken name to
     a schedule (`findSchedules`) and plans the edit (`planScheduleEdit`).

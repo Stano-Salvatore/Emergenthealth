@@ -54,6 +54,10 @@ import { renderDrift } from "@/lib/drift"
 import { closeIntention, parseOutcome } from "@/lib/intention"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { linkPromptList } from "@/lib/app-links"
+import { getCycleSettings, loadCycle, saveCycleDay, type CycleLoad } from "@/lib/cycle-load"
+import { parseDayInput } from "@/lib/cycle-input"
+import { cycleHeadline, shortDay } from "@/lib/cycle-text"
+import { CONTRACEPTION_GUIDE } from "@/lib/cycle-guide"
 import { describeDays, findSchedules, normalizeDays, normalizeTimes, planScheduleEdit } from "@/lib/med-schedule-edit"
 import { analyseExperiment } from "@/lib/experiments-analysis"
 import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
@@ -670,6 +674,24 @@ const TOOLS: Anthropic.Tool[] = [
         status: { type: "string", enum: ["active", "paused", "stopped"], description: "Pause, stop or resume the schedule" },
       },
       required: ["name"],
+    },
+  },
+  {
+    name: "log_cycle",
+    description: "Record period and cycle details the user tells you, for users who track their cycle: flow ('my period started' → medium unless they say otherwise; 'spotting'; 'heavy day'; 'it's over' → none), pain 0–3, cycle symptoms, mood, discharge, an ovulation (LH) test. Pass date when it was not today ('started yesterday'). Symptoms and moods are added to the day, never replacing what is there.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD, their local day; omit for today" },
+        flow: { type: "string", enum: ["none", "spotting", "light", "medium", "heavy"] },
+        pain: { type: "number", description: "0 none, 1 mild, 2 moderate, 3 severe" },
+        symptoms: { type: "array", items: { type: "string", enum: ["cramps", "back_pain", "headache", "bloating", "breast_tenderness", "acne", "fatigue", "cravings", "nausea", "gut", "poor_sleep", "dizzy", "ovulation_pain"] } },
+        moods: { type: "array", items: { type: "string", enum: ["happy", "calm", "energetic", "irritable", "anxious", "sad", "mood_swings", "sensitive"] } },
+        discharge: { type: "string", enum: ["dry", "sticky", "creamy", "watery", "eggwhite"] },
+        lhTest: { type: "string", enum: ["positive", "negative"] },
+        note: { type: "string" },
+      },
+      required: [],
     },
   },
   {
@@ -2293,6 +2315,32 @@ export async function executeTool(name: string, input: Record<string, string>, u
     return `Changed ${plan.summary} Reminders follow the new plan. Say it back as what they asked for; it is their routine, not advice. [Medications](/dashboard/intake?tab=meds) shows it.`
   }
 
+  if (name === "log_cycle") {
+    const { settings } = await getCycleSettings(userId)
+    if (!settings.enabled) return "Cycle tracking is off for them, so nothing was logged. The [Cycle](/dashboard/cycle) page turns it on — offer it only if they want it."
+    const tz = await getUserTimezone(userId)
+    const today = localDateStr(tz)
+    const rec = input as Record<string, unknown>
+    const parsed = parseDayInput({ ...rec, day: typeof rec.date === "string" && rec.date ? rec.date : today }, today)
+    if (!parsed.ok) return parsed.error
+    const fields = Object.keys(parsed.data)
+    if (fields.length === 0) return "Nothing recognisable to log — ask what they want recorded."
+    const saved = await saveCycleDay(userId, parsed.day, parsed.data, { union: true }).catch(() => undefined)
+    if (saved === undefined) return "Couldn't save that — the write didn't go through. Worth retrying."
+    const load = await loadCycle(userId)
+    const head = cycleHeadline(load.today, load.settings)
+    const what = [
+      parsed.data.flow ? `flow ${parsed.data.flow}` : null,
+      parsed.data.pain != null ? `pain ${parsed.data.pain}/3` : null,
+      parsed.data.symptoms?.length ? parsed.data.symptoms.join(", ").replace(/_/g, " ") : null,
+      parsed.data.moods?.length ? `mood ${parsed.data.moods.join(", ").replace(/_/g, " ")}` : null,
+      parsed.data.discharge ? `discharge ${parsed.data.discharge}` : null,
+      parsed.data.lhTest ? `ovulation test ${parsed.data.lhTest}` : null,
+      parsed.data.note ? "a note" : null,
+    ].filter(Boolean).join("; ")
+    return `Logged for ${parsed.day === today ? "today" : parsed.day}: ${what}. The cycle now reads "${head.title}"${head.detail ? ` — ${head.detail}` : ""}. Say it back in one line; [Cycle](/dashboard/cycle) shows the rest.`
+  }
+
   if (name === "start_fast") {
     const targetH = clampInt(input.targetH, 8, 72, 16)
     const value = JSON.stringify({ startedAt: new Date().toISOString(), targetH })
@@ -2674,7 +2722,7 @@ export async function buildSystemPrompt(
   // their symptoms but not their prescriptions, and had no idea what they were
   // aiming at. Fetched in one batch alongside the rest so the extra sources
   // cost latency once, not seven times.
-  const [locationPoints, timelineEvents, focusSessions, medSchedules, books, goals, routines, cachedInsights, doseRows] = await Promise.all([
+  const [locationPoints, timelineEvents, focusSessions, medSchedules, books, goals, routines, cachedInsights, doseRows, cycle] = await Promise.all([
     // Raw pings, summarised below rather than listed — there can be thousands
     // a week and none of them mean anything individually.
     prisma.locationPoint.findMany({
@@ -2694,8 +2742,8 @@ export async function buildSystemPrompt(
     }).catch(() => [] as { durationMin: number; label: string | null; startedAt: Date }[]),
     prisma.medSchedule.findMany({
       where: { userId, active: true },
-      select: { id: true, active: true, name: true, dose: true, times: true, daysOfWeek: true, note: true, startDate: true, endDate: true },
-    }).catch(() => [] as { id: string; active: boolean; name: string; dose: string | null; times: string[]; daysOfWeek: number[]; note: string | null; startDate: string | null; endDate: string | null }[]),
+      select: { id: true, active: true, name: true, dose: true, times: true, daysOfWeek: true, note: true, startDate: true, endDate: true, packOnDays: true, packOffDays: true, packStart: true },
+    }).catch(() => [] as { id: string; active: boolean; name: string; dose: string | null; times: string[]; daysOfWeek: number[]; note: string | null; startDate: string | null; endDate: string | null; packOnDays: number | null; packOffDays: number | null; packStart: string | null }[]),
     prisma.book.findMany({
       where: { userId, status: { in: ["reading", "done"] } },
       orderBy: { updatedAt: "desc" }, take: 8,
@@ -2722,6 +2770,7 @@ export async function buildSystemPrompt(
       SELECT "id","day","timestamp","tagName","text" FROM "OuraTag"
       WHERE "userId" = ${userId} AND "day" >= ${addDaysISO(todayStr, -1)}
     `.catch(() => [] as DoseRow[]),
+    loadCycle(userId).catch(() => null),
   ])
 
   const [recentMoods, todayWeather, recentNotes, recentLabs, latestBody, recentWorkouts, recentSymptoms, fastActivePref, fastHistoryPref] = await Promise.all([
@@ -3232,6 +3281,8 @@ export async function buildSystemPrompt(
   )
   const doseTodayStr = doseLines.length === 0 ? null : doseLines.map(l => `- ${l}`).join("\n")
 
+  const cycleStr = cycle && cycle.settings.enabled ? cycleContext(cycle) : null
+
   const booksStr = books.length === 0
     ? null
     : books.map(b => b.status === "reading"
@@ -3334,7 +3385,7 @@ ${weightGoalStr ? `## Weight goal (progress is judged on the 7-day trend, never 
 ${weightStr ? `## Weight (judge on the trend below — never on one weigh-in, and never read a single reading as a change)\n${weightStr}\n` : ""}
 ${bodyStr ? `## Body composition (latest measurement)\n${bodyStr}\n` : ""}
 ${labsStr ? `## Blood work (latest value per marker — mention ⚠️ flags when health topics come up)\n${labsStr}\n` : ""}
-${medsStr ? `## Prescribed medications (active schedules — read these back, never advise on dose or whether to take them)\n${medsStr}\n` : ""}${doseTodayStr ? `## Today's scheduled doses (from the dose log, as of now)\n${doseTodayStr}\n"Not logged yet" means nothing is recorded, not that they skipped it — when it fits the conversation, ask whether they took it and log_dose it if they did (with minutesAgo from when they say). Never scold, and never advise taking it late or doubling up.\n` : ""}
+${medsStr ? `## Prescribed medications (active schedules — read these back, never advise on dose or whether to take them)\n${medsStr}\n` : ""}${cycleStr ? `## Their cycle (they track it on the Cycle page)\n${cycleStr}\nBring it in when it explains what they ask about — energy, sleep, mood, cravings, the ring's numbers. Predictions are estimates and never contraception; a late period is a number of days, not a diagnosis, and a question about pregnancy goes to a test and a doctor. When they mention their period or cycle symptoms, record it.\n` : ""}${doseTodayStr ? `## Today's scheduled doses (from the dose log, as of now)\n${doseTodayStr}\n"Not logged yet" means nothing is recorded, not that they skipped it — when it fits the conversation, ask whether they took it and log_dose it if they did (with minutesAgo from when they say). Never scold, and never advise taking it late or doubling up.\n` : ""}
 ## Oura tags (last 7 days — coffee, supplements, meds the user logs in the Oura app)
 ${ouraTagsStr ?? "None logged this week. (For longer history, call get_health_range — it includes tags.)"}
 
@@ -3380,6 +3431,29 @@ export type ChatImage = { mediaType: string; base64: string }
  * write it. Chat-only: the weekly review shares the system prompt but renders
  * as plain prose, so these conventions live here rather than in the prompt.
  */
+/** The cycle as Emergy reads it: where they are, what is predicted, today's log. */
+function cycleContext(c: CycleLoad): string {
+  const t = c.today
+  const head = cycleHeadline(t, c.settings)
+  const lines = [`- Today: ${head.title}${head.detail ? ` — ${head.detail}` : ""}`]
+  if (t.mode !== "pack" && t.currentStart) {
+    const s = t.stats
+    const basis = s.basis === "personal" && s.range ? `from ${s.lengths.length} logged cycles, ${s.range[0]}–${s.range[1]} days`
+      : s.basis === "entered" ? "the length they entered" : s.basis === "personal" ? "one logged cycle" : "a typical 28 days, nothing logged yet"
+    lines.push(`- Cycle length ${s.cycleLength} days (${basis}); period about ${s.periodLength} days; current cycle began ${shortDay(t.currentStart)}.`)
+    if (t.nextStart) lines.push(`- Next period expected around ${shortDay(t.nextStart)}${t.ovulation ? `; ovulation ${t.ovulationConfirmed ? "shown by their temperature" : "estimated"} around ${shortDay(t.ovulation)}` : ""}.`)
+    if (t.phase === "luteal") lines.push("- Luteal phase: a higher skin temperature and resting heart rate and a lower HRV are expected now — say so before treating them as a warning.")
+  }
+  lines.push(`- Contraception: ${CONTRACEPTION_GUIDE[c.settings.contraception].name}.`)
+  const todays = c.logs.find(l => l.day === c.todayStr)
+  if (todays) {
+    const bits = [todays.flow ? `flow ${todays.flow}` : null, todays.pain ? `pain ${todays.pain}/3` : null,
+      ...(todays.symptoms ?? []), ...(todays.moods ?? [])].filter(Boolean)
+    if (bits.length) lines.push(`- Logged today: ${bits.join(", ").replace(/_/g, " ")}.`)
+  }
+  return lines.join("\n")
+}
+
 const CHAT_PRESENTATION = `
 
 ## How the app renders your reply

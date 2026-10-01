@@ -1,10 +1,13 @@
 import { parseInsightsCache } from "@/lib/insights-cache"
 import { prisma } from "@/lib/prisma"
+import { loadCycle } from "@/lib/cycle-load"
+import { periodsFrom } from "@/lib/cycle"
+import { CONTRACEPTION_GUIDE } from "@/lib/cycle-guide"
 import Anthropic from "@anthropic-ai/sdk"
 import { format } from "date-fns"
 import { addDaysISO, localDateStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
-import { adherenceOver, matchKey, sortedTimes, toDose, type DoseRow, type ScheduleLike } from "@/lib/med-schedule"
+import { adherenceOver, matchKey, packOf, sortedTimes, toDose, type DoseRow, type ScheduleLike } from "@/lib/med-schedule"
 import { formatDose, sumDoses, type ParsedDose } from "@/lib/dose"
 import { classifyOuraTag } from "@/lib/oura-tag-classify"
 import { supplementInfoFor } from "@/lib/supplement-info"
@@ -123,6 +126,25 @@ export type BloodPressureSummary = {
   band: "optimal" | "normal" | "high-normal" | "grade 1" | "grade 2" | "grade 3"
 }
 
+/** For someone who tracks a cycle in the app: what a doctor asks first, then the pattern. */
+export type CycleSummary = {
+  /** First day of the last period — the date a doctor asks for first. */
+  lastPeriodStart: string | null
+  cycleDay: number | null
+  cycleLength: number
+  /** personal: learned from logged cycles. entered/default: not measured data yet. */
+  basis: "personal" | "entered" | "default"
+  range: [number, number] | null
+  cyclesLogged: number
+  periodLength: number
+  contraception: string
+  /** Inside the report period. */
+  periods: { start: string; days: number }[]
+  betweenBleedingDays: number
+  heavyDays: number
+  painfulDays: number
+}
+
 export type HealthReport = {
   generatedAt: string
   periodDays: number
@@ -137,6 +159,8 @@ export type HealthReport = {
   symptoms: SymptomSummary[]
   labs: LabSummary[]
   bloodPressure: BloodPressureSummary | null
+  /** Null unless cycle tracking is on. */
+  cycle: CycleSummary | null
   body: { weightKg: number | null; prevWeightKg: number | null; bodyFatPct: number | null; bodyFatDate: string | null; date: string | null }
   /** Weight across the reporting period itself, from whichever source recorded it. */
   weightTrend: { first: number; last: number; changeKg: number; readings: number; firstDate: string; lastDate: string } | null
@@ -319,7 +343,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
   const shaped: ScheduleLike[] = medSchedules.map(m => ({
     id: m.id, name: m.name, times: m.times, daysOfWeek: m.daysOfWeek,
     active: m.active, startDate: m.startDate, endDate: m.endDate,
-    createdDay: m.createdAt ? localDateStr(tz, m.createdAt) : null,
+    createdDay: m.createdAt ? localDateStr(tz, m.createdAt) : null, ...packOf(m),
   }))
   const adherence = new Map(adherenceOver(shaped, doseList, completeDays).map(a => [a.scheduleId, a]))
 
@@ -547,6 +571,31 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
       }
     : null
 
+  // ── Cycle ─────────────────────────────────────────────────────────────────
+  // Only when cycle tracking is on, and only what was logged: a period counts from
+  // its first day of real flow, and the counts are days within this report.
+  let cycle: CycleSummary | null = null
+  const cycleLoad = await loadCycle(userId).catch(() => null)
+  if (cycleLoad?.settings.enabled) {
+    const t = cycleLoad.today
+    const { periods, between } = periodsFrom(cycleLoad.logs)
+    const inWindow = (d: string) => d >= fromStr && d <= toStr
+    cycle = {
+      lastPeriodStart: t.currentStart,
+      cycleDay: t.cycleDay,
+      cycleLength: t.stats.cycleLength,
+      basis: t.stats.basis,
+      range: t.stats.range,
+      cyclesLogged: t.stats.cycles,
+      periodLength: t.stats.periodLength,
+      contraception: CONTRACEPTION_GUIDE[cycleLoad.settings.contraception].name,
+      periods: periods.filter(p => inWindow(p.start)).map(p => ({ start: p.start, days: p.days })),
+      betweenBleedingDays: between.filter(inWindow).length,
+      heavyDays: cycleLoad.logs.filter(l => inWindow(l.day) && l.flow === "heavy").length,
+      painfulDays: cycleLoad.logs.filter(l => inWindow(l.day) && (l.pain ?? 0) >= 2).length,
+    }
+  }
+
   // ── Narrative ─────────────────────────────────────────────────────────────
   const firstName = user?.name?.split(" ")[0] ?? "The patient"
   const metricLines = metrics.map(m => {
@@ -588,6 +637,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     "",
     bpLine,
     "",
+    ...(cycle ? [cycleLine(cycle), ""] : []),
     "LABORATORY RESULTS (most recent per marker, entered by the patient; previous value given where one exists):",
     ...(labLines.length ? labLines : ["- none on file"]),
     "",
@@ -632,12 +682,20 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     symptoms,
     labs,
     bloodPressure,
+    cycle,
     body,
     weightTrend,
     patterns,
     patternsAsOf,
     narrative,
   }
+}
+
+function cycleLine(c: CycleSummary): string {
+  const length = c.basis === "personal"
+    ? `cycle length median ${c.cycleLength} days${c.range ? ` (range ${c.range[0]}–${c.range[1]})` : ""} over ${c.cyclesLogged} logged cycles`
+    : `cycle length ${c.cycleLength} days as ${c.basis === "entered" ? "estimated by the patient" : "a default; too few cycles logged to measure"}`
+  return `MENSTRUAL CYCLE (self-tracked in the app): ${c.lastPeriodStart ? `last period started ${c.lastPeriodStart}${c.cycleDay != null ? ` (cycle day ${c.cycleDay} on the report date)` : ""}` : "no period start logged"}; ${length}; periods about ${c.periodLength} days; contraception: ${c.contraception}. In the reporting period: ${c.periods.length} period${c.periods.length === 1 ? "" : "s"} logged${c.periods.length ? ` (${c.periods.map(p => `${p.start}, ${p.days} days`).join("; ")})` : ""}, ${c.heavyDays} heavy-flow day${c.heavyDays === 1 ? "" : "s"}, ${c.painfulDays} day${c.painfulDays === 1 ? "" : "s"} of moderate or severe pain, ${c.betweenBleedingDays} day${c.betweenBleedingDays === 1 ? "" : "s"} of bleeding between periods.`
 }
 
 function labPreviousText(l: LabSummary, p: NonNullable<LabSummary["previous"]>): string {

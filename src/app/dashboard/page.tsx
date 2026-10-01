@@ -41,6 +41,7 @@ import { QuickStart } from "@/components/dashboard/QuickStart"
 import { DailyQuests } from "@/components/dashboard/DailyQuests"
 import { DailyBriefing } from "@/components/dashboard/DailyBriefing"
 import { VitalsCard } from "@/components/dashboard/VitalsCard"
+import { CycleCard } from "@/components/dashboard/CycleCard"
 import { NotesWidget } from "@/components/dashboard/NotesWidget"
 import { ScreenTimeCard } from "@/components/dashboard/ScreenTimeCard"
 import { isFeatureEnabled } from "@/lib/features"
@@ -468,6 +469,11 @@ export default async function DashboardPage() {
             former standalone "Daily Briefing" and "Today" widgets so the top of
             the dashboard reads as one card instead of three overlapping ones. */}
         <div className="mt-4 space-y-3 relative">
+          {/* Renders only on period days, the two days before and the pill
+              break — and only for someone who turned cycle tracking on. */}
+          <Suspense fallback={null}>
+            <CycleCard userId={userId} />
+          </Suspense>
           <DailyBriefing />
           {/* Streams in after first paint: the anomaly scan is the page's
               heaviest read, and one card's homework must not hold the whole

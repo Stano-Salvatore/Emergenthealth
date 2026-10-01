@@ -24,6 +24,25 @@ export interface ScheduleLike {
    * start date was set: the days before the plan existed are not misses.
    */
   createdDay?: string | null
+  /** A pack rhythm — the pill's 21 on, 7 off — counted from packStart. */
+  packOnDays?: number | null
+  packOffDays?: number | null
+  packStart?: string | null
+}
+
+/** The pack fields of a schedule row, for building a ScheduleLike from it. */
+export function packOf(s: { packOnDays?: number | null; packOffDays?: number | null; packStart?: string | null }) {
+  return { packOnDays: s.packOnDays ?? null, packOffDays: s.packOffDays ?? null, packStart: s.packStart ?? null }
+}
+
+/** Inside the "on" days of the pack, or no pack at all. */
+function onPackDay(s: ScheduleLike, day: string): boolean {
+  const on = s.packOnDays
+  const off = s.packOffDays
+  if (!on || !off || !s.packStart) return true
+  const since = Math.round((Date.parse(day + "T00:00:00Z") - Date.parse(s.packStart + "T00:00:00Z")) / 86400000)
+  if (since < 0) return false
+  return since % (on + off) < on
 }
 
 export interface DoseLike {
@@ -143,6 +162,7 @@ export function activeOn(s: ScheduleLike, day: string): boolean {
   if (s.startDate && day < s.startDate) return false
   if (s.endDate && day > s.endDate) return false
   if (s.daysOfWeek.length > 0 && !s.daysOfWeek.includes(dayOfWeek(day))) return false
+  if (!onPackDay(s, day)) return false
   return sortedTimes(s).length > 0
 }
 

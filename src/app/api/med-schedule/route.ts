@@ -4,10 +4,10 @@ import { prisma } from "@/lib/prisma"
 import { localDateStr, localTimeStr, addDaysISO } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import {
-  activeOn, adherenceOver, dosesByDay, dosesForDay, minutesOfDay, sortedTimes, toDose,
+  activeOn, adherenceOver, dosesByDay, dosesForDay, minutesOfDay, packOf, sortedTimes, toDose,
   type DoseRow, type ScheduleLike,
 } from "@/lib/med-schedule"
-import { normalizeDays, normalizeTimes } from "@/lib/med-schedule-edit"
+import { normalizeDays, normalizePack, normalizeTimes } from "@/lib/med-schedule-edit"
 
 export const dynamic = "force-dynamic"
 
@@ -48,7 +48,7 @@ export async function GET() {
   const shaped: ScheduleLike[] = schedules.map(s => ({
     id: s.id, name: s.name, times: s.times, daysOfWeek: s.daysOfWeek,
     active: s.active, startDate: s.startDate, endDate: s.endDate,
-    createdDay: localDateStr(tz, s.createdAt),
+    createdDay: localDateStr(tz, s.createdAt), ...packOf(s),
   }))
 
   const adherence = new Map(adherenceOver(shaped, doses, days).map(a => [a.scheduleId, a]))
@@ -68,6 +68,8 @@ export async function GET() {
       note: s.note,
       startDate: s.startDate,
       endDate: s.endDate,
+      // The phone's alarms apply the same pack rule (lib/native/notifications).
+      ...packOf(s),
       runsToday,
       // The phone's dose alarms skip today's first `takenToday` slots; without
       // it a dose taken early still rang at its scheduled time.
@@ -102,6 +104,7 @@ export async function POST(req: Request) {
       note: typeof body?.note === "string" && body.note.trim() ? body.note.trim().slice(0, 200) : null,
       startDate: asDateStr(body?.startDate),
       endDate: asDateStr(body?.endDate),
+      ...(normalizePack(body) ?? {}),
     },
   })
 
@@ -133,6 +136,8 @@ export async function PATCH(req: Request) {
   if (body?.note !== undefined) data.note = typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 200) : null
   if (body?.startDate !== undefined) data.startDate = asDateStr(body.startDate)
   if (body?.endDate !== undefined) data.endDate = asDateStr(body.endDate)
+  // All three or none: a pack is cleared by sending packOnDays: null.
+  if (body?.packOnDays !== undefined) Object.assign(data, normalizePack(body) ?? { packOnDays: null, packOffDays: null, packStart: null })
 
   await prisma.medSchedule.update({ where: { id }, data })
   return NextResponse.json({ ok: true })

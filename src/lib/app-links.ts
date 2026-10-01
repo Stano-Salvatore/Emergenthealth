@@ -28,6 +28,7 @@ export const APP_LINKS: AppLink[] = [
   { path: "/dashboard/intake?tab=meds", label: "Medications", what: "schedules, today's doses, tick one off" },
   { path: "/dashboard/intake?tab=body", label: "In my body", what: "caffeine, alcohol and medicines still circulating" },
   { path: "/dashboard/symptoms", label: "Symptoms", what: "symptom log" },
+  { path: "/dashboard/cycle", label: "Cycle", what: "period, phases and predictions, for those who track it" },
   { path: "/dashboard/checkin", label: "Check-in", what: "morning and evening check-in" },
   { path: "/dashboard/journal", label: "Journal", what: "journal entries" },
   { path: "/dashboard/habits", label: "Habits", what: "habits and streaks" },

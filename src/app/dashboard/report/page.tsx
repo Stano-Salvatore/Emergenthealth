@@ -406,6 +406,25 @@ export default function ReportPage() {
             </Section>
           )}
 
+          {report.cycle && (
+            <Section title="Menstrual cycle">
+              <p>
+                {report.cycle.lastPeriodStart
+                  ? <>Last period started <strong>{fmtDay(report.cycle.lastPeriodStart)}</strong>{report.cycle.cycleDay != null ? ` (cycle day ${report.cycle.cycleDay} today)` : ""}.</>
+                  : "No period start logged."}{" "}
+                {report.cycle.basis === "personal"
+                  ? <>Cycles median <strong>{report.cycle.cycleLength} days</strong>{report.cycle.range ? ` (${report.cycle.range[0]}–${report.cycle.range[1]})` : ""} over {report.cycle.cyclesLogged} logged cycles</>
+                  : <>Cycle length {report.cycle.cycleLength} days, {report.cycle.basis === "entered" ? "the patient's own estimate" : "a default — too few cycles logged to measure"}</>}
+                ; periods about {report.cycle.periodLength} days. Contraception: {report.cycle.contraception}.
+              </p>
+              <p className="text-[12px] text-muted-foreground print:text-black/70 mt-1">
+                In this period: {report.cycle.periods.length} period{report.cycle.periods.length === 1 ? "" : "s"} logged
+                {report.cycle.periods.length > 0 && ` (${report.cycle.periods.map(p => `${fmtDay(p.start)}, ${p.days} days`).join("; ")})`}
+                {" "}· {report.cycle.heavyDays} heavy-flow day{report.cycle.heavyDays === 1 ? "" : "s"} · {report.cycle.painfulDays} day{report.cycle.painfulDays === 1 ? "" : "s"} of moderate or severe pain · {report.cycle.betweenBleedingDays} day{report.cycle.betweenBleedingDays === 1 ? "" : "s"} of bleeding between periods.
+              </p>
+            </Section>
+          )}
+
           {report.weightTrend && (
             <Section title="Weight">
               <p>

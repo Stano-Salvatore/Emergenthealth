@@ -7,7 +7,7 @@ import { sayAsEmergy } from "@/lib/emergy-say"
 import { addDaysISO, localDateStr, localTimeStr } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
 import {
-  activeOn, dosesByDay, minutesOfDay, sortedTimes, toDose,
+  activeOn, dosesByDay, minutesOfDay, packOf, sortedTimes, toDose,
   type DoseRow, type ScheduleLike,
 } from "@/lib/med-schedule"
 
@@ -43,6 +43,7 @@ export async function GET(req: NextRequest) {
     select: {
       id: true, userId: true, name: true, dose: true, times: true,
       daysOfWeek: true, active: true, startDate: true, endDate: true,
+      packOnDays: true, packOffDays: true, packStart: true,
     },
   })
   if (schedules.length === 0) return NextResponse.json({ ok: true, checked: 0, pushed: 0 })
@@ -92,7 +93,7 @@ export async function GET(req: NextRequest) {
     for (const s of mine) {
       const shape: ScheduleLike = {
         id: s.id, name: s.name, times: s.times, daysOfWeek: s.daysOfWeek,
-        active: s.active, startDate: s.startDate, endDate: s.endDate,
+        active: s.active, startDate: s.startDate, endDate: s.endDate, ...packOf(s),
       }
       if (!activeOn(shape, today)) continue
 

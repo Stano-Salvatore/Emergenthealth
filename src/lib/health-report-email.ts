@@ -97,6 +97,14 @@ export function renderReportEmail(report: HealthReport): string {
   </table>
   <p style="font-size:10px;color:#888;margin:6px 0 0">Home readings; bands are the ESC/ESH office thresholds and do not translate directly.</p>` : ""
 
+  const c = r.cycle
+  const cycle = c ? `<p style="font-size:12px;color:#111;margin:0">
+    ${c.lastPeriodStart ? `Last period started <strong>${esc(fmtDay(c.lastPeriodStart))}</strong>${c.cycleDay != null ? ` (cycle day ${c.cycleDay} on the report date)` : ""}.` : "No period start logged."}
+    ${c.basis === "personal" ? `Cycles median <strong>${c.cycleLength} days</strong>${c.range ? ` (${c.range[0]}–${c.range[1]})` : ""} over ${c.cyclesLogged} logged cycles` : `Cycle length ${c.cycleLength} days (${c.basis === "entered" ? "the patient's own estimate" : "default; too few cycles logged"})`};
+    periods about ${c.periodLength} days. Contraception: ${esc(c.contraception)}.
+  </p>
+  <p style="font-size:11px;color:#555;margin:4px 0 0">In this period: ${c.periods.length} period${c.periods.length === 1 ? "" : "s"} logged${c.periods.length ? ` (${c.periods.map(p => `${esc(fmtDay(p.start))}, ${p.days} days`).join("; ")})` : ""} · ${c.heavyDays} heavy-flow day${c.heavyDays === 1 ? "" : "s"} · ${c.painfulDays} day${c.painfulDays === 1 ? "" : "s"} of moderate or severe pain · ${c.betweenBleedingDays} day${c.betweenBleedingDays === 1 ? "" : "s"} of bleeding between periods.</p>` : ""
+
   const labs = r.labs.length ? `<table style="width:100%;border-collapse:collapse">
     <tr><th ${TH}>Marker</th><th ${TH}>Result</th><th ${TH}>Previous</th><th ${TH}>Reference</th><th ${TH}>Date</th></tr>
     ${r.labs.map(l => {
@@ -172,6 +180,7 @@ export function renderReportEmail(report: HealthReport): string {
     ${section("Medications", meds)}
     ${section("Other doses logged", otherDoses)}
     ${section("Symptoms", symptoms)}
+    ${section("Menstrual cycle", cycle)}
     ${section("Laboratory results", labs)}
     ${section("Weight", weight)}
     ${section("Self-tracked patterns", patterns)}
