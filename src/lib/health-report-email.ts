@@ -1,4 +1,5 @@
 import type { HealthReport } from "@/lib/health-report"
+import { labValueText } from "@/lib/lab-flags"
 
 // The report as a self-contained HTML email.
 //
@@ -104,11 +105,11 @@ export function renderReportEmail(report: HealthReport): string {
       // comparison: 200 mg/dL beside 5.2 mmol/L is flat, not a fall.
       const p = l.previous
       const arrow = p == null ? "—"
-        : p.unitMismatch ? `${p.value} ${p.unit} (different unit)`
-        : `${p.direction === "up" ? "↑" : p.direction === "down" ? "↓" : "≈"} ${p.valueInLatestUnit ?? p.value}${p.unit !== l.unit ? ` ${l.unit}` : ""}${p.direction === "flat" ? " (within normal variation)" : ""}`
+        : p.unitMismatch ? `${labValueText(p.value, p.qualifier)} ${p.unit} (different unit)`
+        : `${p.direction === "up" ? "↑ " : p.direction === "down" ? "↓ " : p.direction === "flat" ? "≈ " : ""}${labValueText(p.valueInLatestUnit ?? p.value, p.qualifier)}${p.unit !== l.unit ? ` ${l.unit}` : ""}${p.direction === "flat" ? " (within normal variation)" : ""}`
       return `<tr>
         <td ${TD}>${esc(l.marker)}</td>
-        <td ${TD}><strong style="color:${colour}">${l.value} ${esc(l.unit)}</strong></td>
+        <td ${TD}><strong style="color:${colour}">${esc(labValueText(l.value, l.qualifier))} ${esc(l.unit)}</strong></td>
         <td ${TD}>${esc(arrow)}${l.previous ? `<br><span style="color:#777;font-size:11px">${esc(fmtDay(l.previous.date))}</span>` : ""}</td>
         <td ${TD}>${l.referenceMin != null && l.referenceMax != null ? `${l.referenceMin}–${l.referenceMax}` : "—"}</td>
         <td ${TD}>${esc(fmtDay(l.date))}</td>

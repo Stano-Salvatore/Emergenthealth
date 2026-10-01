@@ -360,7 +360,7 @@ function HeatmapRow({ habit, days, onToggleDay }: { habit: Habit; days: Date[]; 
   const skipSet = new Set((habit.skips ?? []).map(s => s.date?.split("T")[0]))
   const schedule = { scheduleDays: habit.scheduleDays ?? [], timesPerWeek: habit.timesPerWeek ?? null }
   const todayStr = localDateStr()
-  const created = habit.createdAt?.slice(0, 10) ?? null
+  const created = habit.createdAt ? localDateStr(new Date(habit.createdAt)) : null
   return (
     <div className="flex gap-0.5">
       {days.map((d, i) => {
@@ -1049,7 +1049,7 @@ export default function HabitsPage() {
   // called one of them a rate. Both now use the history.
   const perHabitDays = habits.map(h => ({
     completionDays: new Set(h.completions.map(c => c.date?.split("T")[0]).filter(Boolean) as string[]),
-    createdAt: h.createdAt ?? null,
+    createdDay: h.createdAt ? localDateStr(new Date(h.createdAt)) : null,
     // Off-days and skips hold the record together and are not "due".
     isOff: makeOffDay(
       { scheduleDays: h.scheduleDays ?? [], timesPerWeek: h.timesPerWeek ?? null },

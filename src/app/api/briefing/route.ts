@@ -485,7 +485,12 @@ export async function GET(req: NextRequest) {
   // Anything genuinely unusual for this person today. Population norms are
   // useless here — the point is the deviation from their own median.
   try {
-    const { anomalies } = await scanUserAnomalies(userId)
+    const { anomalies, strain } = await scanUserAnomalies(userId)
+    // The night graded as a whole, so the brief can say "readiness looks
+    // fine, but…" the way the ring app does instead of listing metrics.
+    if (strain && strain.level !== "none") {
+      lines.push(`Last night as a whole: ${strain.headline.toLowerCase()} — ${strain.summary} (Say it as an observation; it is not a diagnosis.)`)
+    }
     const notable = anomalies.filter(a => a.concerning).slice(0, 2).map(a => a.summary)
     if (notable.length > 0) {
       lines.push(`Off their own baseline today: ${notable.join(" | ")}.`)

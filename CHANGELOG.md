@@ -1,5 +1,59 @@
 # Changelog
 
+## 3.9.0 — Body strain, lab limits, a tidy, and blood oxygen watched
+
+Web-only, no new APK. The two new lab columns are added (never renamed or
+dropped) by the build's own schema push.
+
+**New**
+- **Body strain: last night graded none, minor or major.**
+  - It reads seven overnight signals against your own usual: resting heart
+    rate, HRV, temperature, breathing, blood oxygen, time to fall asleep and
+    sleep efficiency.
+  - A body signal counts more than a sleep one. A signal far from usual, or
+    held for three nights, counts more again. A slow night of falling asleep
+    on its own is not strain, and the infection pattern is always major.
+  - It reads next to readiness: on 1 Oct it would have said "Readiness looks
+    typical at 75, but blood oxygen, time to fall asleep and sleep efficiency
+    were off your usual last night." Oura called that night major, and the
+    app had said nothing.
+  - Shown on the dashboard's vitals card and the Insights page, given to the
+    morning brief and Emergy, and on a major night the push says it in one
+    sentence instead of two metric lines.
+  - A night the ring measured none of the seven gets no grade, not "none".
+- **Lab results keep the lab's own H/L mark and a printed "<" or ">".**
+  - A "<5" is stored as a limit, not as an exact 5, and the sign is printed
+    everywhere the value appears: the labs page, the doctor report and its
+    email, the long view, and Emergy.
+  - Trends never claim a size of change across a limit. They say "below the
+    detection limit both times" or "now measurable" instead.
+  - A result with no range on file takes the lab's own H/L.
+- **Tidy lab names.** A card on the labs page offers to rename results saved
+  before 3.8.0 onto today's names, so "LDL-cholesterol" joins LDL. It also
+  moves a "<"/">" out of old notes into the new column. Anything a name
+  can't settle is listed for you and never changed:
+  - a "Urea" in mg/dL, which is likely BUN from a US report
+  - two results that would share one name on one day
+- **Blood oxygen is watched.** It was read every night but never checked.
+  A night like 93.7% against your usual 96–98% now shows up as an anomaly.
+  A 0 reading, when the ring wasn't measuring, is ignored.
+
+**Fixed**
+- Emergy's medication adherence counts the way the Medications page does:
+  - a dose logged in Oura and the app counts once
+  - a 00:30 dose counts for the night before
+  - today is left out
+  - as-needed meds are reported by how often they were taken
+- A place saved by chatting with Emergy now fills in its past visits.
+- Five more places turned a saved timestamp into a UTC day, so an event just
+  after midnight landed on the day before:
+  - fasting days in your patterns and in Emergy's context
+  - the fasting page's longest streak
+  - a habit's start day in the completion rate and the heatmap
+
+  The guard test now catches this shape too.
+- Add Result's "×5 jump" warning no longer measures from a previous "<5".
+
 ## 3.8.0 — Drinks by name, and the rest of the audit
 
 Web-only: everything here is live on merge, no new APK.

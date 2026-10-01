@@ -13,6 +13,8 @@ import {
   assessCoverage, nutrientGapsOverLoggedDays, LAB_MARKER_FOR,
   type CoverageVerdict, type DayCalories, type LoggedMicro, type NutrientGap,
 } from "@/lib/nutrients"
+import { rangeStatus } from "@/lib/lab-trends"
+import { parseLabQualifier, type LabQualifier } from "@/lib/lab-flags"
 
 export const WINDOW_DAYS = 14
 
@@ -21,6 +23,8 @@ export interface LabCheck {
   value: number
   unit: string
   date: string
+  /** Printed as "< 5" or "> 90": `value` is the limit. */
+  qualifier: LabQualifier | null
   status: "in-range" | "below" | "above" | "unknown"
 }
 
@@ -85,7 +89,7 @@ export async function loadNutrientReport(userId: string): Promise<NutrientReport
     ? await prisma.labResult.findMany({
         where: { userId, marker: { in: wanted } },
         orderBy: { date: "desc" },
-        select: { marker: true, value: true, unit: true, date: true, referenceMin: true, referenceMax: true },
+        select: { marker: true, value: true, unit: true, date: true, referenceMin: true, referenceMax: true, qualifier: true },
       }).catch(() => [])
     : []
 
@@ -99,17 +103,19 @@ export async function loadNutrientReport(userId: string): Promise<NutrientReport
       const marker = LAB_MARKER_FOR[g.nutrient]
       const l = marker ? latestByMarker.get(marker) : undefined
       if (!l) return { ...g, lab: null }
-      const status: LabCheck["status"] =
-        l.referenceMin == null && l.referenceMax == null ? "unknown"
-          : l.referenceMin != null && l.value < l.referenceMin ? "below"
-            : l.referenceMax != null && l.value > l.referenceMax ? "above"
-              : "in-range"
+      const qualifier = parseLabQualifier(l.qualifier)
+      // Against the printed range only: the card's wording names the range.
+      const status: LabCheck["status"] = rangeStatus({
+        marker: l.marker, value: l.value, unit: l.unit, date: "",
+        referenceMin: l.referenceMin, referenceMax: l.referenceMax, qualifier,
+      })
       return {
         ...g,
         lab: {
           marker: l.marker,
           value: l.value,
           unit: l.unit,
+          qualifier,
           date: typeof l.date === "string" ? l.date : dayOf(l.date as unknown as Date),
           status,
         },

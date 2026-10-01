@@ -464,8 +464,13 @@ describe("each kind of day column gets its own kind of midnight", () => {
 // Client components may do the last two: there the process clock is the
 // user's own.
 
+//  • The same slice on an instant that has already been serialised — an ISO
+//    string from JSON (`rec.endedAt.slice(0, 10)`, `habit.createdAt?.slice(0,
+//    10)`) — is still the UTC day: a fast ending at 00:30 was filed under
+//    yesterday, and a habit made just after midnight was due the day before.
 const CLOCK_PATTERNS: { pattern: string; serverOnly: boolean }[] = [
   { pattern: `\\.toISOString\\(\\)\\.slice\\(11`, serverOnly: false },
+  { pattern: `\\.(${TIMESTAMP_FIELDS})\\??\\.(slice\\(0, ?10\\)|split\\("T"\\))`, serverOnly: false },
   { pattern: `new Date\\(\\w+, ?\\w+ ?- ?1, ?\\w+, ?\\w+`, serverOnly: true },
   { pattern: `format\\((new Date\\()?[\\w.]*\\.(${TIMESTAMP_FIELDS})\\)?, ?.yyyy-MM-dd.\\)`, serverOnly: true },
 ]

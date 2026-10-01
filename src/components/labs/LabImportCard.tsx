@@ -112,9 +112,9 @@ export function LabImportCard({ onSaved }: { onSaved: () => void }) {
       }
       setParsed(data)
       setRows(data.results ?? [])
-      // A "< 5" can only be stored as an exact 5, so it is left for the user
-      // to opt into rather than saved by default.
-      setKeep((data.results ?? []).map((r: Row) => !r.qualifier))
+      // Every row starts ticked, limits included: "< 5" is stored with its
+      // sign, so saving it records what the report says rather than an exact 5.
+      setKeep((data.results ?? []).map(() => true))
       setDate(data.date ?? todayLocalISO())
     } catch {
       setError("Couldn't read that file.")
@@ -150,10 +150,9 @@ export function LabImportCard({ onSaved }: { onSaved: () => void }) {
             unit: r.unit,
             referenceMin: r.referenceMin,
             referenceMax: r.referenceMax,
-            notes: [
-              r.qualifier ? `Printed as ${r.qualifier}${r.value} (a limit, not an exact value).` : null,
-              parsed?.lab ? `Imported from ${parsed.lab}` : "Imported from a document",
-            ].filter(Boolean).join(" "),
+            flag: r.flag,
+            qualifier: r.qualifier,
+            notes: parsed?.lab ? `Imported from ${parsed.lab}` : "Imported from a document",
           })),
         }),
       })

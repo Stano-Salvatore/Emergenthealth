@@ -12,6 +12,9 @@ import { LabTrendsCard } from "@/components/labs/LabTrendsCard"
 import { canonicalMarker, CANONICAL_MARKERS } from "@/lib/lab-markers"
 import { convertLabValue, normalizeUnit } from "@/lib/lab-units"
 import { implausibleJump, suggestedUnit } from "@/lib/lab-entry"
+import { rangeStatus } from "@/lib/lab-trends"
+import { labValueText, parseLabFlag, parseLabQualifier } from "@/lib/lab-flags"
+import { LabTidyCard } from "@/components/labs/LabTidyCard"
 
 interface LabResult {
   id: string
@@ -22,6 +25,8 @@ interface LabResult {
   referenceMax: number | null
   date: string
   notes: string | null
+  flag: string | null
+  qualifier: string | null
 }
 
 const COMMON_MARKERS = [
@@ -30,8 +35,16 @@ const COMMON_MARKERS = [
   "Iron", "CRP",
 ]
 
-function statusColor(value: number, min: number | null, max: number | null) {
-  if (min == null && max == null) return "text-foreground"
+function statusColor(r: LabResult) {
+  const { value, referenceMin: min, referenceMax: max } = r
+  // A limit, or a row with no printed range, is read the way the trend card
+  // reads it: what the limit settles, else the lab's own mark.
+  if (parseLabQualifier(r.qualifier) || (min == null && max == null)) {
+    const status = rangeStatus({ ...r, flag: parseLabFlag(r.flag), qualifier: parseLabQualifier(r.qualifier) })
+    return status === "above" || status === "below" ? "text-red-400"
+      : status === "in-range" ? "text-green-400"
+        : "text-foreground"
+  }
   const inRange =
     (min == null || value >= min) && (max == null || value <= max)
   if (inRange) {
@@ -67,7 +80,7 @@ function Sparkline({ marker, entries }: { marker: string; entries: LabResult[] }
   const points = sorted.map((e, i) => {
     const x = pad + (i / (sorted.length - 1)) * (W - pad * 2)
     const y = H - pad - ((e.value - minVal) / range) * (H - pad * 2)
-    return { x, y }
+    return { x, y, limit: parseLabQualifier(e.qualifier) != null }
   })
 
   const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")
@@ -76,7 +89,8 @@ function Sparkline({ marker, entries }: { marker: string; entries: LabResult[] }
     <svg width={W} height={H} className="opacity-70">
       <path d={pathD} fill="none" stroke="currentColor" strokeWidth="1.5" className="text-primary" />
       {points.map((p, i) => (
-        <circle key={i} cx={p.x} cy={p.y} r="2.5" className="fill-primary" />
+        // A limit is drawn hollow: its height is the limit, not a measurement.
+        <circle key={i} cx={p.x} cy={p.y} r="2.5" className={p.limit ? "fill-none stroke-primary" : "fill-primary"} />
       ))}
     </svg>
   )
@@ -94,7 +108,7 @@ function MarkerCard({
   const [expanded, setExpanded] = useState(false)
   const sorted = [...entries].sort((a, b) => b.date.localeCompare(a.date))
   const latest = sorted[0]
-  const color = statusColor(latest.value, latest.referenceMin, latest.referenceMax)
+  const color = statusColor(latest)
 
   return (
     <Card className="bg-card/60 border-border/50">
@@ -110,7 +124,7 @@ function MarkerCard({
         </div>
         <div className="flex items-end gap-3 mt-1">
           <span className={cn("text-3xl font-bold tabular-nums", color)}>
-            {latest.value}
+            {labValueText(latest.value, latest.qualifier)}
           </span>
           <span className="text-muted-foreground text-sm mb-1">{latest.unit}</span>
           {(latest.referenceMin != null || latest.referenceMax != null) && (
@@ -139,8 +153,8 @@ function MarkerCard({
               <span className="text-muted-foreground text-xs w-24 shrink-0">
                 {format(new Date(e.date), "MMM d, yyyy")}
               </span>
-              <span className={cn("font-semibold tabular-nums", statusColor(e.value, e.referenceMin, e.referenceMax))}>
-                {e.value} {e.unit}
+              <span className={cn("font-semibold tabular-nums", statusColor(e))}>
+                {labValueText(e.value, e.qualifier)} {e.unit}
               </span>
               {e.notes && <span className="text-muted-foreground text-xs flex-1 truncate">{e.notes}</span>}
               <button
@@ -184,6 +198,11 @@ export default function LabsPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // The trends card reads its own endpoint; after an import or a tidy it is
+  // re-mounted so it doesn't keep showing the names it loaded before.
+  const [trendsRev, setTrendsRev] = useState(0)
+  const reloadAll = useCallback(() => { load(); setTrendsRev(r => r + 1) }, [load])
 
   function handleMarkerChange(v: string) {
     setMarker(v)
@@ -261,10 +280,13 @@ export default function LabsPage() {
       </div>
 
       {/* What moved since the last draw, and what was going on in between */}
-      <LabTrendsCard />
+      <LabTrendsCard key={trendsRev} />
 
       {/* The whole page in one shot, instead of a row at a time */}
-      <LabImportCard onSaved={load} />
+      <LabImportCard onSaved={reloadAll} />
+
+      {/* Rows saved under names from before the marker map grew */}
+      <LabTidyCard onApplied={reloadAll} />
 
       <Card className="bg-card/60 border-border/50">
         <CardHeader className="pb-3">
@@ -343,7 +365,7 @@ export default function LabsPage() {
 
           {jump && (
             <p className="text-xs text-amber-400">
-              That is about {Math.round(jump.factor)}× the last {canonicalMarker(marker)} ({jump.previous.value} {jump.previous.unit} on{" "}
+              That is about {Math.round(jump.factor)}× the last {canonicalMarker(marker)} ({labValueText(jump.previous.value, jump.previous.qualifier)} {jump.previous.unit} on{" "}
               {format(new Date(jump.previous.date), "MMM d, yyyy")}) — check the unit before saving.
             </p>
           )}

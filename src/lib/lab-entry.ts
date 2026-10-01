@@ -33,6 +33,8 @@ export interface PastReading {
   unit: string
   /** YYYY-MM-DD, or anything that sorts the same way. */
   date: string
+  /** A printed "<" or ">": the value is a limit, not a measurement. */
+  qualifier?: string | null
 }
 
 function latest(marker: string, history: Record<string, PastReading[]>): PastReading | null {
@@ -67,6 +69,8 @@ export function implausibleJump(
 ): { factor: number; previous: PastReading } | null {
   const previous = latest(marker, history)
   if (!previous || !Number.isFinite(value) || value <= 0 || !unit.trim()) return null
+  // "<5" last time bounds the old value without fixing it — no factor follows.
+  if (previous.qualifier) return null
   const was = normalizeUnit(previous.unit) === normalizeUnit(unit)
     ? previous.value
     : convertLabValue(previous.value, previous.unit, unit, canonicalMarker(marker))

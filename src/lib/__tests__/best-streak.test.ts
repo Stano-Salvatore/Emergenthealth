@@ -50,7 +50,7 @@ describe("computeCompletionRate", () => {
 
   it("ignores today, which is still in progress", () => {
     // Created yesterday, kept yesterday, nothing today: one day due, one kept.
-    const habit = { completionDays: set("2026-09-01"), createdAt: "2026-09-01" }
+    const habit = { completionDays: set("2026-09-01"), createdDay: "2026-09-01" }
     expect(computeCompletionRate([habit], "2026-09-02")).toBe(1)
   })
 
@@ -58,13 +58,13 @@ describe("computeCompletionRate", () => {
     // Ten days old, kept five of the nine days that count. Were the full 30-day
     // window charged to it, this would read 17% rather than 56%.
     const days = set("2026-08-24", "2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28")
-    const habit = { completionDays: days, createdAt: "2026-08-24" }
+    const habit = { completionDays: days, createdDay: "2026-08-24" }
     expect(computeCompletionRate([habit], "2026-09-02")).toBeCloseTo(5 / 9, 5)
   })
 
   it("averages across habits by total days due", () => {
-    const a = { completionDays: set("2026-09-01"), createdAt: "2026-09-01" }
-    const b = { completionDays: set(), createdAt: "2026-09-01" }
+    const a = { completionDays: set("2026-09-01"), createdDay: "2026-09-01" }
+    const b = { completionDays: set(), createdDay: "2026-09-01" }
     expect(computeCompletionRate([a, b], "2026-09-02")).toBe(0.5)
   })
 })

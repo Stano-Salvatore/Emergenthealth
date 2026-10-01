@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest"
+import { readFileSync } from "node:fs"
 import { detectAnomaly, detectAll, illnessSignal, median, mad, nightQuestion, TRACKED_METRICS, type Anomaly, type DayValue } from "@/lib/anomalies"
 
 const spec = (key: string) => TRACKED_METRICS.find(m => m.key === key)!
@@ -154,5 +155,25 @@ describe("nightQuestion", () => {
   it("only night metrics are asked about", () => {
     expect(nightQuestion({ ...base, metric: "steps", label: "Steps" })).toBeNull()
     expect(nightQuestion({ ...base, metric: "restingHR" })).toBeNull()
+  })
+})
+
+describe("blood oxygen", () => {
+  // Read on every night, shown on the vitals panel, never watched: a night at
+  // 93.7% against a usual 96–98% raised nothing.
+  it("is watched, and a real drop below the usual is flagged as concerning", () => {
+    const usual = Array.from({ length: 20 }, (_, i) => ({ date: `2026-09-${String(i + 1).padStart(2, "0")}`, value: [96.4, 97.0, 96.0, 97.7, 98.0, 96.8][i % 6] }))
+    const found = detectAll({ spo2: [...usual, { date: "2026-10-01", value: 93.7 }] })
+    expect(found.map(a => [a.metric, a.direction, a.concerning])).toEqual([["spo2", "below", true]])
+  })
+
+  it("ignores a wobble inside the normal band", () => {
+    const usual = Array.from({ length: 20 }, (_, i) => ({ date: `2026-09-${String(i + 1).padStart(2, "0")}`, value: 96 + (i % 3) * 0.5 }))
+    expect(detectAll({ spo2: [...usual, { date: "2026-10-01", value: 95.6 }] })).toEqual([])
+  })
+
+  it("the scan treats a 0 reading as no reading, as the report does", () => {
+    const src = readFileSync("src/lib/anomaly-scan.ts", "utf8")
+    expect(src).toMatch(/push\("spo2", date, l\.spo2 != null && l\.spo2 > 0 \? l\.spo2 : null\)/)
   })
 })

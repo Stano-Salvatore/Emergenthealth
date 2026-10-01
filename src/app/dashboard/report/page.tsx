@@ -3,6 +3,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react"
 import { Check, FileText, Mail, Printer, RefreshCw } from "lucide-react"
 import type { HealthReport } from "@/lib/health-report"
+import { labValueText } from "@/lib/lab-flags"
 import { printPage, printSupport } from "@/lib/native/print"
 
 // The one thing this app produced that a doctor could not use was everything.
@@ -434,7 +435,7 @@ export default function ReportPage() {
                     <tr key={l.marker} className="border-t border-border/50 print:border-black/10">
                       <td className={TD}>{l.marker}</td>
                       <td className={`${TD} font-semibold ${l.flag === "high" || l.flag === "low" ? "text-red-600 dark:text-red-400" : ""}`}>
-                        {l.value} {l.unit}
+                        {labValueText(l.value, l.qualifier)} {l.unit}
                         {l.flag === "high" && " ↑"}
                         {l.flag === "low" && " ↓"}
                       </td>
@@ -442,16 +443,16 @@ export default function ReportPage() {
                         {l.previous ? (
                           l.previous.unitMismatch ? (
                             <>
-                              {l.previous.value} {l.previous.unit}{" "}
+                              {labValueText(l.previous.value, l.previous.qualifier)} {l.previous.unit}{" "}
                               <span className="text-muted-foreground print:text-black/60">different unit</span>
                             </>
                           ) : (
                             <>
-                              {l.previous.valueInLatestUnit ?? l.previous.value}
+                              {labValueText(l.previous.valueInLatestUnit ?? l.previous.value, l.previous.qualifier)}
                               {l.previous.unit !== l.unit && <> {l.unit}</>}
                               {" "}
                               <span className="text-muted-foreground print:text-black/60">
-                                {l.previous.direction === "up" ? "↑" : l.previous.direction === "down" ? "↓" : "≈"}
+                                {l.previous.direction === "up" ? "↑" : l.previous.direction === "down" ? "↓" : l.previous.direction === "flat" ? "≈" : ""}
                               </span>
                             </>
                           )

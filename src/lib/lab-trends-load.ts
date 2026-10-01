@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma"
 import { computeLabTrends, notableTrends, type DayFacts, type DayTags, type LabReading, type MarkerTrend } from "@/lib/lab-trends"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { ALCOHOL_TYPES, ethanolGrams } from "@/lib/body-load"
+import { parseLabFlag, parseLabQualifier } from "@/lib/lab-flags"
 
 export interface LabTrendsResult {
   trends: MarkerTrend[]
@@ -16,7 +17,7 @@ export async function loadLabTrends(userId: string): Promise<LabTrendsResult> {
   const results = await prisma.labResult.findMany({
     where: { userId },
     orderBy: { date: "asc" },
-    select: { marker: true, value: true, unit: true, date: true, referenceMin: true, referenceMax: true },
+    select: { marker: true, value: true, unit: true, date: true, referenceMin: true, referenceMax: true, flag: true, qualifier: true },
   })
 
   if (results.length === 0) return { trends: [], notable: [], markerCount: 0 }
@@ -28,6 +29,8 @@ export async function loadLabTrends(userId: string): Promise<LabTrendsResult> {
     date: r.date.toISOString().slice(0, 10),
     referenceMin: r.referenceMin,
     referenceMax: r.referenceMax,
+    flag: parseLabFlag(r.flag),
+    qualifier: parseLabQualifier(r.qualifier),
   }))
 
   // Only doses from the earliest draw onwards can sit between two of them, and

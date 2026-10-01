@@ -802,6 +802,10 @@ model LabResult {
   referenceMax Float?
   date         DateTime @db.Date
   notes        String?
+  /// The lab's own printed mark: "low" | "high" | "normal". Null when the report marked nothing.
+  flag         String?
+  /// "<" or ">" when the result was printed as a limit ("< 5"); `value` is then the limit, not a measurement.
+  qualifier    String?
   createdAt    DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

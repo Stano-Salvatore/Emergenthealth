@@ -480,6 +480,22 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Body strain (3.9.0).** `lib/body-strain.ts` grades the vitals night
+  none/minor/major from the per-metric anomalies. `detectEach` returns them
+  before `withComposites` lets the illness composite stand in for its parts;
+  `detectAll` is the two together. Points: a body sign (RHR, HRV, skin temp,
+  breathing, SpO₂) is 2 and a sleep sign (latency, efficiency) is 1. Add +1
+  for |z| ≥ 3 and +1 for a run of 3 or more nights. Under 2 is none, 4 or
+  more is major, and the illness pattern is always major. Only anomalies
+  dated the vitals night count, so a metric whose newest reading is older
+  says nothing. `scanUserAnomalies` returns it as `strain`, and it is null
+  when the night measured none of the seven. "Readiness looks typical" is
+  said only when readiness has the history to have been judged. The push's
+  wording moved to `lib/anomaly-push.ts`: the night question still wins, and
+  a major night replaces the metric lines only when one of its signs is why
+  the push is going out, so the once-only state needed no new key. The
+  sentences pass `lintSentence`, which `body-strain.test.ts` checks.
+
 - **Drinks and medicines by name (3.8.0).** `lib/drink-catalog.ts` is the
   one answer to "what is this drink": `drinkProfile(label)` gives type,
   serving, kcal/100 ml, caffeine/ml, compound and typical ABV. It is read by
@@ -1131,28 +1147,21 @@ Roughly in order, most recent first:
 
 - **From the 26–27 Sept full audit (3.7.0).** 16 auditors, a skeptic on every
   finding, 160 confirmed and ~138 fixed in 3.7.0. Left open, deliberately:
-  - ~~**26 findings never verified**~~ — re-verified and closed in 3.8.0:
-    21 real and fixed, 3 already fixed, 2 left for a schema change —
-    `LabResult.flag` (the lab's own H/L) and `LabResult.qualifier` (`<`/`>`;
-    3.8.0 keeps it in `notes` and unticks such rows on import). Two data
-    one-offs remain: re-running `canonicalMarker` over existing
-    `LabResult.marker` values (rows saved as "Urea" from a US report are
-    probably BUN — check unit and source), and restingHR values an old
-    Samsung import wrote from avg_hr (indistinguishable without a source
-    marker such as `HealthLog.importedFrom`).
-  - **Follow-ups the 3.8.0 agents left:**
-    - Emergy's adherence tool still counts raw 14-day totals; it could use
-      `dosesByDay`.
-    - Emergy's `save_place` doesn't trigger the visit back-fill the Settings
-      and API paths now run in `after()`.
-    - The midnight rule moves a dose only backward, so a 23:50 dose for a
-      00:30 slot counts for the day it was logged.
-    - The symptom look-back's pressure is the phone's station reading, so a
-      drive uphill can look like a front; WeatherLog's sea-level pressure
-      would be a fallback.
-    - Five other `.<timestamp>.slice(0, 10)` sites that the UTC guard
-      doesn't match: fasting/page.tsx, habits/page.tsx, streak.ts,
-      correlations.ts, claude.ts.
+  - ~~**26 findings never verified**~~ — re-verified and closed in 3.8.0;
+    the two schema items shipped in 3.9.0 (`LabResult.flag`, `LabResult.qualifier`,
+    `lib/lab-flags.ts`), with a user-run tidy for pre-3.8.0 marker names
+    (`lib/lab-recanonicalise.ts`, `/api/labs/tidy`, `LabTidyCard`): plain renames
+    and "<"/">" moved out of notes are applied; Urea in mg/dL (likely BUN),
+    collisions and same-day duplicates are listed, never changed. Still open:
+    restingHR values an old Samsung import wrote from avg_hr, indistinguishable
+    without a source marker such as `HealthLog.importedFrom`; and the manual Add
+    Result form has no inputs for a flag or sign (the POST accepts them).
+  - ~~Follow-ups the 3.8.0 agents left~~ — closed in 3.9.0: Emergy's adherence
+    read uses `adherenceOver`/`dosesByDay`; `save_place` back-fills in a nested
+    `after()`; the UTC guard also matches `.<timestampField>.slice(0, 10)` /
+    `split("T")` on ISO strings. Still open: the midnight rule moves a dose only
+    backward, and the symptom look-back's pressure is the phone's station
+    reading.
   - **Needs an APK:** a package-bound nonce for the mobile sign-in bridge
     (3.7.0 ships a server-side IP stopgap only); a try/catch rewrite in
     `.ci/patch-kiwi-health.py` so the Health Connect plugin can reject on

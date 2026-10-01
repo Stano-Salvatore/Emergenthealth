@@ -56,8 +56,9 @@ import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { analyseExperiment } from "@/lib/experiments-analysis"
 import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
 import { loadLabTrends } from "@/lib/lab-trends-load"
-import { previousReading } from "@/lib/lab-trends"
+import { previousReading, rangeStatus } from "@/lib/lab-trends"
 import { saveLabRows } from "@/lib/lab-save"
+import { labValueText, parseLabFlag, parseLabQualifier } from "@/lib/lab-flags"
 import { loadNutrientReport } from "@/lib/nutrient-gaps-load"
 import { getGoals, saveGoals } from "@/lib/goals"
 import { completeReminder } from "@/lib/reminders"
@@ -69,8 +70,10 @@ import { latestWeightKg, loadWeightSeries } from "@/lib/weight-series"
 import { weightGoalProgress } from "@/lib/weight-trend"
 import { logWorkout, loadSessionsForUser, WORKOUT_TYPES } from "@/lib/workouts"
 import { trainingLoad, suggestSession } from "@/lib/training-load"
-import { activeOn, matchKey } from "@/lib/med-schedule"
+import { adherenceOver, dosesByDay, sortedTimes, toDose, type DoseRow } from "@/lib/med-schedule"
 import { hhmm, lastCoffeeBy, medianBedtimeMin } from "@/lib/caffeine-cutoff"
+import { after } from "next/server"
+import { backfillPlaceVisits } from "@/lib/place-visits"
 
 /** Fold whatever the model called it onto a type the app stores. */
 function normalizeDrinkType(raw: string): string {
@@ -623,6 +626,8 @@ const TOOLS: Anthropic.Tool[] = [
               unit: { type: "string", description: "As printed, e.g. 'ug/L', 'nmol/L', '%'" },
               referenceMin: { type: "number", description: "Lower end of the printed reference range, if any" },
               referenceMax: { type: "number", description: "Upper end of the printed reference range, if any" },
+              flag: { type: "string", enum: ["low", "high", "normal"], description: "Only when the report itself marks the row (H, L, ↑, ↓) — never your own reading of the range. Omit otherwise." },
+              qualifier: { type: "string", enum: ["<", ">"], description: "When the result is printed with that sign ('CRP < 5'): value is then the number alone. Omit for an ordinary result." },
             },
             required: ["marker", "value", "unit"],
           },
@@ -739,7 +744,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "get_analysis",
-    description: "Read what the app has already worked out, when the user asks about it or it would change your answer: 'experiments' (every experiment with today's arm and the current result), 'anomalies' (what is off their own 45-day baseline), 'labs' (how each blood marker moved between draws), 'nutrients' (vitamins and minerals their logged food has been short on), 'adherence' (scheduled doses vs doses actually logged, last 14 days — a lower bound), 'patterns' (the correlation findings, with how trustworthy each is), 'drift' (the last 30 days against the 30 before: which everyday numbers moved enough to survive a permutation test, and what they logged differently alongside — use it for 'has anything changed lately', 'am I doing better this month', and when they reply to a monthly nudge).",
+    description: "Read what the app has already worked out, when the user asks about it or it would change your answer: 'experiments' (every experiment with today's arm and the current result), 'anomalies' (what is off their own 45-day baseline, and last night graded as none/minor/major body strain), 'labs' (how each blood marker moved between draws), 'nutrients' (vitamins and minerals their logged food has been short on), 'adherence' (scheduled doses vs doses actually logged, last 14 days — a lower bound), 'patterns' (the correlation findings, with how trustworthy each is), 'drift' (the last 30 days against the 30 before: which everyday numbers moved enough to survive a permutation test, and what they logged differently alongside — use it for 'has anything changed lately', 'am I doing better this month', and when they reply to a monthly nudge).",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -2208,12 +2213,14 @@ export async function executeTool(name: string, input: Record<string, string>, u
         referenceMin: num(r?.referenceMin),
         referenceMax: num(r?.referenceMax),
         notes: null as string | null,
+        flag: parseLabFlag(r?.flag),
+        qualifier: parseLabQualifier(r?.qualifier),
       }))
       .filter(r => r.marker && r.value !== null && r.unit)
       .slice(0, 100)
     if (rows.length === 0) return "None of those rows had a marker, a number and a unit — read them back to the user and try again."
     const { saved: fresh, skipped } = await saveLabRows(userId, date, rows.map(r => ({ ...r, value: r.value as number })))
-    return `Recorded ${fresh.length} lab result${fresh.length === 1 ? "" : "s"} for ${date}${skipped ? ` (${skipped} already on file, skipped)` : ""}: ${fresh.map(r => `${r.marker} ${r.value} ${r.unit}`).join(", ") || "nothing new"}. They show under Body → Labs. Read them back so a misread digit can be caught.`
+    return `Recorded ${fresh.length} lab result${fresh.length === 1 ? "" : "s"} for ${date}${skipped ? ` (${skipped} already on file, skipped)` : ""}: ${fresh.map(r => `${r.marker} ${labValueText(r.value, r.qualifier)} ${r.unit}`).join(", ") || "nothing new"}. They show under Body → Labs. Read them back so a misread digit can be caught.`
   }
 
   if (name === "create_med_schedule") {
@@ -2318,6 +2325,10 @@ export async function executeTool(name: string, input: Record<string, string>, u
     const radiusM = clampInt(input.radiusM, 30, 2000, 100)
     const emoji = typeof input.emoji === "string" && input.emoji.trim() ? input.emoji.trim().slice(0, 4) : "📍"
     const place = await prisma.savedPlace.create({ data: { userId, name: placeName, emoji, lat, lng, radiusM } })
+    // The same back-fill the Settings and API paths run: without it a place
+    // saved here shows no visits until the next live fix lands inside it.
+    const backfill = () => backfillPlaceVisits(userId, place.id).then(() => undefined, () => undefined)
+    try { after(backfill) } catch { void backfill() }
     return `Saved ${emoji} ${place.name} (${radiusM}m radius, from ${source}). Visits there will show on the Location page and in the place patterns.`
   }
 
@@ -2406,15 +2417,16 @@ export async function executeTool(name: string, input: Record<string, string>, u
       const scan = await scanUserAnomalies(userId)
       if (scan.days < 15) return `Only ${scan.days} days of ring data in the last 45 — a baseline needs at least 15.`
       if (scan.stale) return `The newest ring data is from ${scan.latestDate ?? "?"}, too old to call anything "today". The ring is probably not syncing.`
-      if (scan.anomalies.length === 0) return `Nothing is off their 45-day baseline as of ${scan.latestDate}. Everything sits within the usual band.`
-      return scan.anomalies.map(a => `- ${a.emoji} ${a.label}: ${a.value}${a.unit} vs usual ${a.baseline}${a.unit} (${a.direction}, z=${a.z.toFixed(1)}, ${a.runLength}-day run${a.concerning ? ", unhelpful direction" : ""}) — ${a.summary}`).join("\n")
+      const strainLine = scan.strain ? `Last night (${scan.strain.date}) as a whole: ${scan.strain.headline.toLowerCase()} — ${scan.strain.summary}\n` : ""
+      if (scan.anomalies.length === 0) return `${strainLine}Nothing is off their 45-day baseline as of ${scan.latestDate}. Everything sits within the usual band.`
+      return strainLine + scan.anomalies.map(a => `- ${a.emoji} ${a.label}: ${a.value}${a.unit} vs usual ${a.baseline}${a.unit} (${a.direction}, z=${a.z.toFixed(1)}, ${a.runLength}-day run${a.concerning ? ", unhelpful direction" : ""}) — ${a.summary}`).join("\n")
         + "\nThese are deviations from their own median, not clinical thresholds — a flag to notice, never a diagnosis."
     }
 
     if (kind === "labs") {
       const labs = await loadLabTrends(userId)
       if (labs.markerCount === 0) return "No lab results on file."
-      const list = labs.trends.slice(0, 25).map(t => `- ${t.marker}: ${t.latest.value} ${t.unit} on ${t.latest.date} [${t.status}]${t.previous ? ` (was ${previousReading(t)} on ${t.previous.date}${t.changePct != null ? `, ${t.changePct > 0 ? "+" : ""}${t.changePct.toFixed(0)}%` : ""}${t.significant ? ", beyond normal variation" : ""})` : ""}${t.crossed ? ` — crossed ${t.crossed}` : ""}${t.summary ? ` — ${t.summary}` : ""}`)
+      const list = labs.trends.slice(0, 25).map(t => `- ${t.marker}: ${labValueText(t.latest.value, t.latest.qualifier)} ${t.unit} on ${t.latest.date} [${t.status}]${t.previous ? ` (was ${previousReading(t)} on ${t.previous.date}${t.changePct != null ? `, ${t.changePct > 0 ? "+" : ""}${t.changePct.toFixed(0)}%` : ""}${t.limit ? `, ${t.limit}` : ""}${t.significant ? ", beyond normal variation" : ""})` : ""}${t.crossed ? ` — crossed ${t.crossed}` : ""}${t.summary ? ` — ${t.summary}` : ""}`)
       return `${labs.markerCount} markers on file. Notable: ${labs.notable.length}.\n${list.join("\n")}\nRead these back; never interpret a value beyond the printed range or say what to do about it — that is the doctor's.`
     }
 
@@ -2430,19 +2442,31 @@ export async function executeTool(name: string, input: Record<string, string>, u
     if (kind === "adherence") {
       const scheds = await prisma.medSchedule.findMany({ where: { userId, active: true } })
       if (scheds.length === 0) return "No medication schedules set up, so there is nothing to measure adherence against."
-      const since = addDaysISO(today, -13)
-      const doses = await prisma.$queryRaw<{ day: string; tagName: string | null; text: string | null }[]>`
-        SELECT "day", "tagName", "text" FROM "OuraTag" WHERE "userId" = ${userId} AND "day" >= ${since}
-      `.catch(() => [] as { day: string; tagName: string | null; text: string | null }[])
+      // The last 14 finished days, counted by the rule the Medications page and
+      // the reminder cron use: a 00:30 dose fills the night before, one dose
+      // logged in both Oura and the app is one, and today is left out of the
+      // COUNTED days because its later doses haven't happened yet. Today's rows
+      // are still read — last night's 00:30 dose is filed under today.
+      const since = addDaysISO(today, -14)
+      const tz = await getUserTimezone(userId)
+      const rows = await prisma.$queryRaw<DoseRow[]>`
+        SELECT "id", "day", "timestamp", "tagName", "text" FROM "OuraTag"
+        WHERE "userId" = ${userId} AND "day" >= ${addDaysISO(since, -1)} AND "day" <= ${today}
+      `.catch(() => null)
+      if (!rows) return "Couldn't read the dose log just now — worth asking again in a moment."
+      const doses = rows.flatMap(r => toDose(r, tz) ?? [])
       const days: string[] = []
       for (let i = 0; i < 14; i++) days.push(addDaysISO(since, i))
+      const adh = new Map(adherenceOver(scheds, doses, days).map(a => [a.scheduleId, a]))
       const lines = scheds.map(s => {
-        let expected = 0
-        for (const day of days) if (activeOn(s, day)) expected += Math.max(1, s.times.length)
-        const key = matchKey(s.name)
-        const logged = doses.filter(d => matchKey(d.tagName ?? d.text ?? "") === key).length
-        const pct = expected > 0 ? Math.round((logged / expected) * 100) : null
-        return `- ${s.name}${s.dose ? ` (${s.dose})` : ""}: ${logged} logged of ${expected} scheduled in the last 14 days${pct != null ? ` (${pct}%)` : ""}`
+        const label = `${s.name}${s.dose ? ` (${s.dose})` : ""}`
+        if (sortedTimes(s).length === 0) {
+          const byDay = dosesByDay(s, doses)
+          const taken = days.reduce((n, d) => n + (byDay.get(d) ?? 0), 0)
+          return `- ${label}: as needed — taken ${taken} time${taken === 1 ? "" : "s"} in the last 14 days`
+        }
+        const a = adh.get(s.id)
+        return `- ${label}: ${a?.taken ?? 0} logged of ${a?.expected ?? 0} scheduled in the last 14 days${a?.pct != null ? ` (${a.pct}%)` : ""}`
       })
       return lines.join("\n") + "\nA lower bound: a dose taken and never logged is invisible here. Never scold; ask."
     }
@@ -2641,7 +2665,7 @@ export async function buildSystemPrompt(
 
   const [recentMoods, todayWeather, recentNotes, recentLabs, latestBody, recentWorkouts, recentSymptoms, fastActivePref, fastHistoryPref] = await Promise.all([
     // Both tables, check-in first — see lib/mood-series.
-    loadMoodSeries(userId, since14.toISOString().slice(0, 10), todayStr)
+    loadMoodSeries(userId, addDaysISO(todayStr, -14), todayStr)
       .then(rows => rows
         .map(r => ({ date: new Date(r.day + "T00:00:00.000Z"), mood: r.mood }))
         .sort((a, b) => b.date.getTime() - a.date.getTime()))
@@ -2659,8 +2683,8 @@ export async function buildSystemPrompt(
     // body composition, workouts and fasting state.
     prisma.labResult.findMany({
       where: { userId }, orderBy: { date: "desc" }, take: 60,
-      select: { marker: true, value: true, unit: true, referenceMin: true, referenceMax: true, date: true },
-    }).catch(() => [] as { marker: string; value: number; unit: string; referenceMin: number | null; referenceMax: number | null; date: Date }[]),
+      select: { marker: true, value: true, unit: true, referenceMin: true, referenceMax: true, date: true, flag: true, qualifier: true },
+    }).catch(() => [] as { marker: string; value: number; unit: string; referenceMin: number | null; referenceMax: number | null; date: Date; flag: string | null; qualifier: string | null }[]),
     prisma.bodyMeasurement.findFirst({ where: { userId }, orderBy: { date: "desc" } }).catch(() => null),
     prisma.stravaActivity.findMany({
       where: { userId }, orderBy: { startDate: "desc" }, take: 7,
@@ -2874,9 +2898,10 @@ export async function buildSystemPrompt(
     ? null
     : [...latestLabByMarker.values()].slice(0, 20).map(l => {
         const range = l.referenceMin != null && l.referenceMax != null ? ` (ref ${l.referenceMin}–${l.referenceMax})` : ""
-        const flag = l.referenceMin != null && l.value < l.referenceMin ? " ⚠️ LOW"
-          : l.referenceMax != null && l.value > l.referenceMax ? " ⚠️ HIGH" : ""
-        return `- ${l.marker}: ${l.value} ${l.unit}${range}${flag} — measured ${l.date.toISOString().slice(0, 10)}`
+        // The same reading of range, limit and lab mark as the trend card.
+        const status = rangeStatus({ ...l, date: "", flag: parseLabFlag(l.flag), qualifier: parseLabQualifier(l.qualifier) })
+        const flag = status === "below" ? " ⚠️ LOW" : status === "above" ? " ⚠️ HIGH" : ""
+        return `- ${l.marker}: ${labValueText(l.value, l.qualifier)} ${l.unit}${range}${flag} — measured ${l.date.toISOString().slice(0, 10)}`
       }).join("\n")
 
   // Weight as a trend, never as the last number. The rule "judge on the
@@ -2956,7 +2981,7 @@ export async function buildSystemPrompt(
       const hist = fastHistoryPref ? JSON.parse(fastHistoryPref.value) as { endedAt?: string; durationH?: number; completed?: boolean }[] : []
       const last = Array.isArray(hist) ? hist[0] : null
       if (last?.endedAt && typeof last.durationH === "number") {
-        fastingStr = `- Last fast: ${last.durationH.toFixed(1)}h, ended ${last.endedAt.slice(0, 10)}${last.completed ? " (target reached)" : ""}`
+        fastingStr = `- Last fast: ${last.durationH.toFixed(1)}h, ended ${localDateStr(tz, new Date(last.endedAt))}${last.completed ? " (target reached)" : ""}`
       }
     } catch { /* malformed — skip */ }
   }
@@ -3118,8 +3143,12 @@ export async function buildSystemPrompt(
       : phase.day.on ? `TODAY IS AN ON DAY → they should: ${e.action}` : `today is an OFF day → NOT: ${e.action}`
     return `- "${e.name}" — day ${Math.max(0, phase.dayIndex)}/${total}, watching ${label}; ${arm}${phase.daysLeft > 0 ? `; ${phase.daysLeft} days left` : ""}`
   }).join("\n")
-  const anomaliesStr = anomalyScan && !anomalyScan.stale && anomalyScan.anomalies.length > 0
-    ? anomalyScan.anomalies.slice(0, 4).map(a => `- ${a.emoji} ${a.label}: ${a.value}${a.unit} vs their usual ${a.baseline}${a.unit} (${a.direction}, ${a.runLength} day${a.runLength === 1 ? "" : "s"} running${a.concerning ? ", unhelpful direction" : ""}) — ${a.summary}`).join("\n")
+  const strain = anomalyScan?.strain && anomalyScan.strain.level !== "none" ? anomalyScan.strain : null
+  const anomaliesStr = anomalyScan && !anomalyScan.stale && (anomalyScan.anomalies.length > 0 || strain)
+    ? [
+        ...(strain ? [`- Last night as a whole: ${strain.headline.toLowerCase()} — ${strain.summary}`] : []),
+        ...anomalyScan.anomalies.slice(0, 4).map(a => `- ${a.emoji} ${a.label}: ${a.value}${a.unit} vs their usual ${a.baseline}${a.unit} (${a.direction}, ${a.runLength} day${a.runLength === 1 ? "" : "s"} running${a.concerning ? ", unhelpful direction" : ""}) — ${a.summary}`),
+      ].join("\n")
     : null
   const said = parseSaid(saidPref?.value)
   const saidStr = said.length === 0 ? null : said.slice(0, 5).map(s => `- ${fmtDateISO.format(new Date(s.at))}: "${s.text}"`).join("\n")

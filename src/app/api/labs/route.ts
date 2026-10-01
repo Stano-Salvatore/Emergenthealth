@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { NextResponse } from "next/server"
 import { canonicalMarker } from "@/lib/lab-markers"
 import { saveLabRows } from "@/lib/lab-save"
+import { parseLabFlag, parseLabQualifier } from "@/lib/lab-flags"
 
 export async function GET() {
   const session = await auth()
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return NextResponse.json({ error: "date (YYYY-MM-DD) required" }, { status: 400 })
     }
-    type Row = { marker?: unknown; value?: unknown; unit?: unknown; referenceMin?: unknown; referenceMax?: unknown; notes?: unknown }
+    type Row = { marker?: unknown; value?: unknown; unit?: unknown; referenceMin?: unknown; referenceMax?: unknown; notes?: unknown; flag?: unknown; qualifier?: unknown }
     const rows = (body.results as Row[])
       .map(r => ({
         marker: typeof r.marker === "string" ? r.marker.trim().slice(0, 80) : "",
@@ -48,6 +49,8 @@ export async function POST(req: Request) {
         referenceMin: typeof r.referenceMin === "number" && Number.isFinite(r.referenceMin) ? r.referenceMin : null,
         referenceMax: typeof r.referenceMax === "number" && Number.isFinite(r.referenceMax) ? r.referenceMax : null,
         notes: typeof r.notes === "string" && r.notes.trim() ? r.notes.trim().slice(0, 200) : null,
+        flag: parseLabFlag(r.flag),
+        qualifier: parseLabQualifier(r.qualifier),
       }))
       .filter(r => r.marker && r.value !== null)
       .slice(0, 100)
@@ -58,7 +61,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, saved: saved.length, skipped }, { status: 201 })
   }
 
-  const { marker, value, unit, referenceMin, referenceMax, date, notes } = body
+  const { marker, value, unit, referenceMin, referenceMax, date, notes, flag, qualifier } = body
   const canonical = typeof marker === "string" ? canonicalMarker(marker).slice(0, 80) : ""
   if (!canonical || typeof value !== "number" || !unit || !date) {
     return NextResponse.json({ error: "marker, value, unit, date required" }, { status: 400 })
@@ -74,6 +77,8 @@ export async function POST(req: Request) {
       referenceMax: referenceMax ?? null,
       date: new Date(date + "T00:00:00.000Z"),
       notes: notes ?? null,
+      flag: parseLabFlag(flag),
+      qualifier: parseLabQualifier(qualifier),
     },
   })
 

@@ -15,6 +15,7 @@ import { normalizeSupplement, cleanLabel } from "@/lib/supplement-normalize"
 import { convertLabValue, normalizeUnit } from "@/lib/lab-units"
 import { referenceChangeValue } from "@/lib/lab-variation"
 import { cadenceLabel, describeCadence, type Cadence } from "@/lib/dose-cadence"
+import { labValueText, parseLabFlag, parseLabQualifier, type LabFlag, type LabQualifier } from "@/lib/lab-flags"
 
 export interface LabReading {
   marker: string
@@ -24,6 +25,10 @@ export interface LabReading {
   date: string
   referenceMin: number | null
   referenceMax: number | null
+  /** The lab's own printed mark, for when the range can't say. */
+  flag?: LabFlag | null
+  /** Printed as "< 5" or "> 90": `value` is the limit, not a measurement. */
+  qualifier?: LabQualifier | null
 }
 
 export interface DayTags {
@@ -98,7 +103,10 @@ export interface MarkerTrend {
   previous: LabReading | null
   status: RangeStatus
   previousStatus: RangeStatus
-  /** Signed percentage change, or null when it can't honestly be computed. */
+  /**
+   * Signed percentage change, or null when it can't honestly be computed —
+   * including whenever either reading was printed as a limit.
+   */
   changePct: number | null
   direction: "up" | "down" | "flat" | null
   /**
@@ -123,6 +131,11 @@ export interface MarkerTrend {
   converted: { from: string; to: string; previousAs: number } | null
   /** Units genuinely can't be reconciled, so no change was computed. */
   unitMismatch: boolean
+  /**
+   * Either reading was printed as a limit, so there is no size of change to
+   * give — "below the detection limit both times", "now measurable"…
+   */
+  limit: string | null
 }
 
 /** Share of the prior window below which a substance counts as newly started. */
@@ -141,11 +154,52 @@ function shiftDays(day: string, n: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+/**
+ * Against the range the report printed, and where that can't settle it, the
+ * lab's own mark. A limit settles it only when every value it allows lands
+ * on the same side: "< 5" against 3–10 could be 1 or 4.
+ */
 export function rangeStatus(r: LabReading): RangeStatus {
-  if (r.referenceMin == null && r.referenceMax == null) return "unknown"
-  if (r.referenceMin != null && r.value < r.referenceMin) return "below"
-  if (r.referenceMax != null && r.value > r.referenceMax) return "above"
-  return "in-range"
+  const min = r.referenceMin, max = r.referenceMax
+  const q = parseLabQualifier(r.qualifier)
+  // The values the printed result allows.
+  const lo = q === "<" ? -Infinity : r.value
+  const hi = q === ">" ? Infinity : r.value
+  let status: RangeStatus = "unknown"
+  if (min != null || max != null) {
+    if (min != null && (q === "<" ? hi <= min : hi < min)) status = "below"
+    else if (max != null && (q === ">" ? lo >= max : lo > max)) status = "above"
+    else if ((min == null || lo >= min) && (max == null || hi <= max)) status = "in-range"
+  }
+  if (status !== "unknown") return status
+  const flag = parseLabFlag(r.flag)
+  return flag === "high" ? "above" : flag === "low" ? "below" : flag === "normal" ? "in-range" : "unknown"
+}
+
+/**
+ * What can be said between two readings when either is a limit. The size of
+ * the change is never known; the direction is, when the limit puts every
+ * value it allows on one side of the other reading.
+ */
+function acrossLimit(
+  previous: { value: number; qualifier: LabQualifier | null },
+  latest: { value: number; qualifier: LabQualifier | null },
+): { limit: string; direction: "up" | "down" | null } {
+  const span = (r: { value: number; qualifier: LabQualifier | null }) =>
+    [r.qualifier === "<" ? -Infinity : r.value, r.qualifier === ">" ? Infinity : r.value] as const
+  const [pLo, pHi] = span(previous)
+  const [lLo, lHi] = span(latest)
+  const direction = pHi <= lLo ? "up" as const : lHi <= pLo ? "down" as const : null
+
+  const p = previous.qualifier, l = latest.qualifier
+  const limit =
+    p && l ? (p === "<" && l === "<" ? "below the detection limit both times"
+      : p === ">" && l === ">" ? "above the reportable limit both times"
+        : "printed as a limit both times")
+      : p ? "now measurable"
+        : l === "<" ? "now below the detection limit"
+          : "now above the reportable limit"
+  return { limit, direction }
 }
 
 /** Canonical substance name, so dosage text doesn't split one thing into two. */
@@ -276,8 +330,8 @@ function intervalBehaviours(facts: DayFacts[], from: string, to: string): Interv
 
 function buildSummary(t: Omit<MarkerTrend, "summary">): string {
   const u = t.unit ? ` ${t.unit}` : ""
-  // A stored value is what the lab printed, digits and all.
-  const now = `${t.latest.value}${u}`
+  // A stored value is what the lab printed, digits and sign and all.
+  const now = `${labValueText(t.latest.value, t.latest.qualifier)}${u}`
 
   if (!t.previous) {
     const where =
@@ -293,12 +347,14 @@ function buildSummary(t: Omit<MarkerTrend, "summary">): string {
   }
 
   const wasValue = t.converted ? labFigure(t.converted.previousAs) : t.previous.value
-  const was = `${wasValue}${u}`
+  const was = `${labValueText(wasValue, t.previous.qualifier)}${u}`
   const months = t.intervalDays != null ? Math.round(t.intervalDays / 30) : null
   const gap = months != null && months >= 1 ? ` over ${months} month${months === 1 ? "" : "s"}` : ""
 
   let line: string
-  if (t.direction === "flat") {
+  if (t.limit) {
+    line = `${t.marker} is ${t.limit}: ${now}, was ${was}${gap}. A printed limit isn't a measurement, so no size of change is given.`
+  } else if (t.direction === "flat") {
     line = t.rcvPct != null
       ? `${t.marker} is holding steady at ${now} (was ${was}${gap}) — the ${Math.abs(Math.round(t.changePct!))}% difference is inside the ~${t.rcvPct}% this marker moves on its own.`
       : `${t.marker} is steady at ${now} (was ${was}${gap}).`
@@ -390,7 +446,15 @@ export function computeLabTrends(
       }
     }
 
-    const comparable = previousValue != null && previousValue !== 0
+    // A limit on either side leaves no size of change, only, sometimes, a
+    // direction — "< 5" then 12 is up, by an amount nobody measured.
+    const latestQ = parseLabQualifier(latest.qualifier)
+    const previousQ = previous ? parseLabQualifier(previous.qualifier) : null
+    const across = previousValue != null && (latestQ || previousQ)
+      ? acrossLimit({ value: previousValue, qualifier: previousQ }, { value: latest.value, qualifier: latestQ })
+      : null
+
+    const comparable = previousValue != null && previousValue !== 0 && across == null
     const changePct = comparable ? ((latest.value - previousValue!) / Math.abs(previousValue!)) * 100 : null
 
     const rcvPct = referenceChangeValue(marker)
@@ -398,9 +462,10 @@ export function computeLabTrends(
     // no published variation for the marker we can't call it either way, so
     // the direction stands and `significant` says we don't know.
     const significant = changePct == null ? null : rcvPct == null ? null : Math.abs(changePct) >= rcvPct
-    const direction = changePct == null ? null
-      : significant === false ? "flat" as const
-        : changePct > 0 ? "up" as const : "down" as const
+    const direction = across ? across.direction
+      : changePct == null ? null
+        : significant === false ? "flat" as const
+          : changePct > 0 ? "up" as const : "down" as const
 
     const status = rangeStatus(latest)
     const previousStatus = previous ? rangeStatus(previous) : "unknown" as RangeStatus
@@ -418,7 +483,7 @@ export function computeLabTrends(
     const base = {
       marker, unit: latest.unit, latest, previous, status, previousStatus,
       changePct, direction, significant, rcvPct, crossed, intervalDays, taken,
-      behaviours, converted, unitMismatch,
+      behaviours, converted, unitMismatch, limit: across?.limit ?? null,
     }
     trends.push({ ...base, summary: buildSummary(base) })
   }
@@ -433,11 +498,16 @@ export function computeLabTrends(
  * reads "60 nmol/l vs 30 (-20%)" — a rise and a fall at once.
  */
 export function previousReading(
-  t: { unit: string; previous: { value: number; unit: string } | null; converted: { previousAs: number } | null },
+  t: {
+    unit: string
+    previous: { value: number; unit: string; qualifier?: LabQualifier | null } | null
+    converted: { previousAs: number } | null
+  },
 ): string | null {
   if (!t.previous) return null
-  if (t.converted) return `${labFigure(t.converted.previousAs)} ${t.unit}`.trim()
-  return `${t.previous.value} ${t.previous.unit}`.trim()
+  const q = t.previous.qualifier
+  if (t.converted) return `${labValueText(labFigure(t.converted.previousAs), q)} ${t.unit}`.trim()
+  return `${labValueText(t.previous.value, q)} ${t.previous.unit}`.trim()
 }
 
 /**

@@ -9,11 +9,18 @@
 // The bands are the user's own 45-day median with a robust spread — never
 // clinical ranges, and the footer says so. A signal the ring did not report
 // last night shows a dash, not a zero. A stale ring gets one honest line
-// instead of five stale rows dressed as tonight's.
+// instead of five stale rows dressed as tonight's. Above the rows, the night
+// graded as a whole (body-strain.ts): seven signals, not just these five.
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { userToday } from "@/lib/user-timezone"
+
+const STRAIN_TONE = {
+  none: "border-emerald-500/30 bg-emerald-500/5",
+  minor: "border-amber-500/40 bg-amber-500/5",
+  major: "border-rose-500/50 bg-rose-500/10",
+} as const
 
 export async function VitalsCard({ userId }: { userId: string }) {
   let scan
@@ -75,6 +82,12 @@ export async function VitalsCard({ userId }: { userId: string }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
+        {scan.strain && (
+          <div className={`mb-2 rounded-md border px-2.5 py-2 ${STRAIN_TONE[scan.strain.level]}`}>
+            <p className="text-xs font-semibold">{scan.strain.headline}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{scan.strain.summary}</p>
+          </div>
+        )}
         <ul className="divide-y divide-border/60">
           {scan.vitals.map(v => (
             <li key={v.key} className="flex items-center justify-between py-1.5 text-sm">

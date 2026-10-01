@@ -39,6 +39,10 @@ export const TRACKED_METRICS: MetricSpec[] = [
   { key: "sleepLatency",   label: "Time to fall asleep", unit: "min", direction: "higher-is-worse", emoji: "⏳", minAbsShift: 10 },
   { key: "sleepEfficiency", label: "Sleep efficiency",   unit: "%",   direction: "lower-is-worse",  emoji: "⚡", minAbsShift: 4 },
   { key: "skinTemp",       label: "Skin temperature",   unit: "°C",  direction: "higher-is-worse", emoji: "🌡️", minAbsShift: 0.4 },
+  // Read every night and shown on the vitals panel, but never watched — a
+  // 93.7% night against a usual 96–98% raised nothing. Ring SpO₂ sits in a
+  // band about two points wide, so a point and a half is a real move.
+  { key: "spo2",           label: "Blood oxygen",       unit: "%",   direction: "lower-is-worse",  emoji: "🩸", minAbsShift: 1.5 },
 ]
 
 export interface Anomaly {
@@ -238,8 +242,8 @@ export function illnessSignal(anomalies: Anomaly[]): Anomaly | null {
   }
 }
 
-/** Run every tracked metric over a map of series, strongest first. */
-export function detectAll(seriesByMetric: Record<string, DayValue[]>): Anomaly[] {
+/** Every tracked metric's own anomaly, strongest first, with no composite standing in. */
+export function detectEach(seriesByMetric: Record<string, DayValue[]>): Anomaly[] {
   const found: Anomaly[] = []
   for (const spec of TRACKED_METRICS) {
     const series = seriesByMetric[spec.key]
@@ -250,6 +254,15 @@ export function detectAll(seriesByMetric: Record<string, DayValue[]>): Anomaly[]
   // Concerning ones first, then by how far out they are
   found.sort((a, b) =>
     (Number(b.concerning) - Number(a.concerning)) || (Math.abs(b.z) - Math.abs(a.z)))
+  return found
+}
+
+/** Run every tracked metric over a map of series, strongest first. */
+export function detectAll(seriesByMetric: Record<string, DayValue[]>): Anomaly[] {
+  return withComposites(detectEach(seriesByMetric))
+}
+
+export function withComposites(found: Anomaly[]): Anomaly[] {
   // One composite stands in for its parts, so a push says "coming down with
   // something" once rather than "skin temp up" and "HRV down" separately.
   const illness = illnessSignal(found)

@@ -8,6 +8,7 @@
 
 import { prisma } from "@/lib/prisma"
 import { canonicalMarker } from "@/lib/lab-markers"
+import { parseLabFlag, parseLabQualifier, type LabFlag, type LabQualifier } from "@/lib/lab-flags"
 
 export interface LabRowIn {
   marker: string
@@ -16,6 +17,10 @@ export interface LabRowIn {
   referenceMin: number | null
   referenceMax: number | null
   notes: string | null
+  /** The lab's own printed H/L mark. */
+  flag?: LabFlag | null
+  /** Printed as "< 5" or "> 90": `value` is the limit. */
+  qualifier?: LabQualifier | null
 }
 
 /**
@@ -29,7 +34,12 @@ export async function saveLabRows(
   rowsIn: LabRowIn[],
 ): Promise<{ saved: LabRowIn[]; skipped: number }> {
   const rows = rowsIn
-    .map(r => ({ ...r, marker: canonicalMarker(r.marker).slice(0, 80) }))
+    .map(r => ({
+      ...r,
+      marker: canonicalMarker(r.marker).slice(0, 80),
+      flag: parseLabFlag(r.flag),
+      qualifier: parseLabQualifier(r.qualifier),
+    }))
     .filter(r => r.marker)
   if (rows.length === 0) return { saved: [], skipped: 0 }
 

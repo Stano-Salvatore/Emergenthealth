@@ -11,6 +11,7 @@ import { estimateHome, summariseDays, AWAY_KM } from "@/lib/day-location"
 import { loadCoarsePoints } from "@/lib/day-location-load"
 import { bedtimeMinutesLate, hhmm } from "@/lib/caffeine-cutoff"
 import { ALCOHOL_TYPES, ethanolGrams } from "@/lib/body-load"
+import { localDateStr } from "@/lib/local-date"
 
 // Shared correlation engine, used by both the /api/insights/correlations route
 // (interactive dashboard) and the correlation-watch cron (pin & watch alerts).
@@ -194,7 +195,7 @@ export const PERIOD_DAYS: Record<string, number> = { week: 7, month: 30, overall
  * instead of served, so the change appears immediately rather than after the
  * cache TTL happens to expire.
  */
-export const ENGINE_VERSION = 23
+export const ENGINE_VERSION = 24
 
 /**
  * Both sides need this many days before a card is called confident.
@@ -1227,7 +1228,7 @@ export async function computeCorrelations(
     if (Array.isArray(fastHistory)) {
       for (const rec of fastHistory) {
         if (!rec?.endedAt || typeof rec.durationH !== "number") continue
-        const dateStr = rec.endedAt.slice(0, 10)
+        const dateStr = localDateStr(tz, new Date(rec.endedAt))
         if (fastingFrom == null || dateStr < fastingFrom) fastingFrom = dateStr
         if (dateStr < since60str) continue
         const d = getOrCreate(dateStr)

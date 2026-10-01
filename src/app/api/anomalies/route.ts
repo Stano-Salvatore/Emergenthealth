@@ -14,9 +14,10 @@ export async function GET() {
   }
 
   try {
-    const { anomalies, days, latestDate, stale } = await scanUserAnomalies(session.user.id)
+    const { anomalies, days, latestDate, stale, strain } = await scanUserAnomalies(session.user.id)
     return NextResponse.json({
       anomalies,
+      strain,
       days,
       latestDate,
       stale,

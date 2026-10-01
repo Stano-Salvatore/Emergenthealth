@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { TrendingUp, TrendingDown } from "lucide-react"
 import { fmtDrift } from "@/lib/drift"
 import { previousReading } from "@/lib/lab-trends"
+import { labValueText } from "@/lib/lab-flags"
 
 interface Shift {
   label: string; unit: string
@@ -20,10 +21,11 @@ interface Shift {
 interface MonthAvg { month: string; sleepH: number | null; steps: number | null; days: number }
 interface LabTrend {
   marker: string; unit: string
-  latest: { value: number; date: string }
-  previous: { value: number; unit: string; date: string } | null
+  latest: { value: number; date: string; qualifier?: "<" | ">" | null }
+  previous: { value: number; unit: string; date: string; qualifier?: "<" | ">" | null } | null
   converted: { previousAs: number } | null
   status: string; changePct: number | null; direction: "up" | "down" | "flat" | null
+  limit?: string | null
 }
 interface LongViewData {
   quarter: { judged: number; shifts: Shift[] } | null
@@ -130,10 +132,10 @@ export function LongView() {
             <ul className="space-y-1">
               {data.labs.map(l => (
                 <li key={l.marker} className="text-sm">
-                  {l.marker}: <span className="font-semibold tabular-nums">{l.latest.value} {l.unit}</span>
+                  {l.marker}: <span className="font-semibold tabular-nums">{labValueText(l.latest.value, l.latest.qualifier)} {l.unit}</span>
                   {l.previous && (
                     <span className="text-muted-foreground"> vs {previousReading(l)} on {l.previous.date}
-                      {l.changePct != null ? ` (${l.changePct > 0 ? "+" : ""}${Math.round(l.changePct)}%)` : ""}</span>
+                      {l.changePct != null ? ` (${l.changePct > 0 ? "+" : ""}${Math.round(l.changePct)}%)` : l.limit ? ` (${l.limit})` : ""}</span>
                   )}
                 </li>
               ))}

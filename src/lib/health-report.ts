@@ -13,6 +13,8 @@ import { loadWeightSeries } from "@/lib/weight-series"
 import { RING_OFF_MAX_STEPS } from "@/lib/sleep-quality"
 import { convertLabValue, normalizeUnit } from "@/lib/lab-units"
 import { referenceChangeValue } from "@/lib/lab-variation"
+import { rangeStatus } from "@/lib/lab-trends"
+import { labValueText, parseLabFlag, parseLabQualifier, type LabQualifier } from "@/lib/lab-flags"
 import { OPUS } from "@/lib/models"
 import { recordModelTurn } from "@/lib/model-spend"
 
@@ -88,6 +90,8 @@ export type LabSummary = {
   referenceMax: number | null
   date: string
   flag: "low" | "high" | "normal" | "unknown"
+  /** Printed as "< 5" or "> 90": `value` is the limit. */
+  qualifier?: LabQualifier | null
   /**
    * The reading before this one, so a clinician sees direction, not a dot.
    * Direction is judged in the latest reading's unit and against the marker's
@@ -98,9 +102,10 @@ export type LabSummary = {
     value: number
     unit: string
     date: string
+    qualifier?: LabQualifier | null
     /** The previous value in the latest reading's unit; null when the units cannot be converted. */
     valueInLatestUnit: number | null
-    /** Null when the two readings cannot be compared. */
+    /** Null when the two readings cannot be compared, or either was printed as a limit. */
     direction: "up" | "down" | "flat" | null
     unitMismatch: boolean
   } | null
@@ -406,20 +411,27 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     seenMarkers.add(l.marker)
     // labRows is newest-first, so the next row for this marker is the one before.
     const prior = labRows.find(o => o.marker === l.marker && o.date < l.date)
+    const qualifier = parseLabQualifier(l.qualifier)
+    // Range first, the lab's own mark where the range can't say.
+    const status = rangeStatus({
+      marker: l.marker, value: l.value, unit: l.unit, date: "",
+      referenceMin: l.referenceMin, referenceMax: l.referenceMax,
+      flag: parseLabFlag(l.flag), qualifier,
+    })
     const flag: LabSummary["flag"] =
-      l.referenceMin != null && l.value < l.referenceMin ? "low"
-      : l.referenceMax != null && l.value > l.referenceMax ? "high"
-      : l.referenceMin != null || l.referenceMax != null ? "normal"
-      : "unknown"
+      status === "below" ? "low" : status === "above" ? "high" : status === "in-range" ? "normal" : "unknown"
     let previous: LabSummary["previous"] = null
     if (prior) {
+      const priorQualifier = parseLabQualifier(prior.qualifier)
       const conv = normalizeUnit(prior.unit) === normalizeUnit(l.unit)
         ? prior.value
         : convertLabValue(prior.value, prior.unit, l.unit, l.marker)
       const pct = conv != null && conv !== 0 ? ((l.value - conv) / Math.abs(conv)) * 100 : null
       const rcv = referenceChangeValue(l.marker)
+      // A limit on either side is not a measurement to take a direction from:
+      // "< 5" twice is not "flat".
       const direction: "up" | "down" | "flat" | null =
-        conv == null ? null
+        conv == null || qualifier || priorQualifier ? null
         : pct == null ? (l.value === conv ? "flat" : l.value > conv ? "up" : "down")
         : rcv != null && Math.abs(pct) < rcv ? "flat"
         : pct > 0 ? "up" : pct < 0 ? "down" : "flat"
@@ -427,6 +439,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
         value: prior.value,
         unit: prior.unit,
         date: prior.date.toISOString().slice(0, 10),
+        qualifier: priorQualifier,
         valueInLatestUnit: conv == null ? null : Math.round(conv * 100) / 100,
         direction,
         unitMismatch: conv == null,
@@ -435,7 +448,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     labs.push({
       marker: l.marker, value: l.value, unit: l.unit,
       referenceMin: l.referenceMin, referenceMax: l.referenceMax,
-      date: l.date.toISOString().slice(0, 10), flag,
+      date: l.date.toISOString().slice(0, 10), flag, qualifier,
       previous,
     })
   }
@@ -554,7 +567,7 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
     ? `WEIGHT: ${weightTrend.first}kg on ${weightTrend.firstDate} to ${weightTrend.last}kg on ${weightTrend.lastDate} (${weightTrend.changeKg >= 0 ? "+" : ""}${weightTrend.changeKg}kg across ${weightTrend.readings} measurements).`
     : null
   const labLines = labs.slice(0, 12).map(l =>
-    `- ${l.marker}: ${l.value} ${l.unit} (${l.date})${l.referenceMin != null || l.referenceMax != null ? ` [ref ${l.referenceMin ?? "–"}–${l.referenceMax ?? "–"}]` : ""}${l.flag === "low" || l.flag === "high" ? ` — ${l.flag.toUpperCase()}` : ""}${l.previous ? `; ${labPreviousText(l, l.previous)}` : ""}`)
+    `- ${l.marker}: ${labValueText(l.value, l.qualifier)} ${l.unit} (${l.date})${l.referenceMin != null || l.referenceMax != null ? ` [ref ${l.referenceMin ?? "–"}–${l.referenceMax ?? "–"}]` : ""}${l.flag === "low" || l.flag === "high" ? ` — ${l.flag.toUpperCase()}` : ""}${l.previous ? `; ${labPreviousText(l, l.previous)}` : ""}`)
 
   const context = [
     `Patient: ${firstName}. Reporting period: ${fromStr} to ${toStr} (${days} days).`,
@@ -627,8 +640,8 @@ export async function buildHealthReport(userId: string, periodDays = 90): Promis
 }
 
 function labPreviousText(l: LabSummary, p: NonNullable<LabSummary["previous"]>): string {
-  if (p.unitMismatch) return `previous ${p.value} ${p.unit} on ${p.date} (different unit, not comparable)`
-  return `previous ${p.valueInLatestUnit ?? p.value} ${l.unit} on ${p.date}${p.direction === "flat" ? " (within normal variation)" : ""}`
+  if (p.unitMismatch) return `previous ${labValueText(p.value, p.qualifier)} ${p.unit} on ${p.date} (different unit, not comparable)`
+  return `previous ${labValueText(p.valueInLatestUnit ?? p.value, p.qualifier)} ${l.unit} on ${p.date}${p.direction === "flat" ? " (within normal variation)" : ""}`
 }
 
 export function formatReportDate(iso: string): string {
