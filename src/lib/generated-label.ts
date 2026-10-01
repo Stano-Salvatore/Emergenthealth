@@ -4,7 +4,9 @@
 export function generatedLabel(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ""
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  // The app's clock is 24-hour everywhere else; a locale default printed
+  // "01:30 PM" under a phone showing 13:30.
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false })
   return d.toDateString() === new Date().toDateString()
     ? `Generated at ${time}`
     : `Generated ${d.toLocaleDateString([], { day: "numeric", month: "short" })} at ${time}`

@@ -189,7 +189,7 @@ export async function GET(req: NextRequest) {
       // The same courtesy every other proactive cron pays: the scream becomes
       // a real message in a real conversation, so Emergy knows he said it and
       // the user can answer it instead of just dismissing it.
-      await sayAsEmergy(userId, message).catch(() => null)
+      await sayAsEmergy(userId, message, { link: url }).catch(() => null)
     }
   }))
 

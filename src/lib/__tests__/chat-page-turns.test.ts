@@ -21,6 +21,7 @@ describe("chat turns that change the phone's alarms resync them", () => {
     "create_reminder", "complete_reminder", "create_med_schedule", "create_habit",
     "skip_habit_today", "complete_habit_today", "create_event",
     "log_morning_checkin", "close_intention", "log_dose", "delete_log", "correct_log",
+    "update_med_schedule",
   ])("%s", (tool) => {
     expect(REMINDER_TOOLS.test(tool)).toBe(true)
   })

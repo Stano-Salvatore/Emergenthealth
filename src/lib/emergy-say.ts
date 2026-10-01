@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma"
 import { localDateStr, zonedDayRange } from "@/lib/local-date"
 import { getUserTimezone } from "@/lib/user-timezone"
+import { withLink } from "@/lib/app-links"
 
 // Emergy saying something first — as a real message in a real conversation,
 // so the user can reply to it and he knows what he said.
@@ -46,9 +47,14 @@ export function parseSaid(value: string | null | undefined): SaidEntry[] {
 export async function sayAsEmergy(
   userId: string,
   raw: string,
+  opts: { link?: string | null } = {},
 ): Promise<{ conversationId: string; reused: boolean } | null> {
-  const message = raw.replace(/\s+/g, " ").trim().slice(0, SAY_MAX_LEN)
-  if (!message) return null
+  const line = raw.replace(/\s+/g, " ").trim().slice(0, SAY_MAX_LEN)
+  if (!line) return null
+  // The page the notification opens, as a button under the same words: in
+  // the chat a nudge is read, and "it's on your insights page" with nothing
+  // to tap left the reader to go and find it.
+  const message = withLink(line, opts.link)
 
   // The same pop opened twice — tapped, backgrounded, tapped again — is one
   // conversation, not two identical ones a minute apart.
@@ -78,7 +84,7 @@ export async function sayAsEmergy(
   }).catch(() => null)
 
   const conversation = todays ?? await prisma.chatConversation.create({
-    data: { userId, title: titleFrom(message) },
+    data: { userId, title: titleFrom(line) },
   })
   await prisma.chatMessage.create({
     data: { userId, conversationId: conversation.id, role: "assistant", content: message },

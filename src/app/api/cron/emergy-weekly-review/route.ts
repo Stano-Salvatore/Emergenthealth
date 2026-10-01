@@ -176,7 +176,7 @@ export async function GET(req: NextRequest) {
       requireInteraction: false,
     })) {
       pushed++
-      await sayAsEmergy(user.id, "Your weekly review is ready — how the week actually went, and one thing for next week. It's on This Week 🌱").catch(() => null)
+      await sayAsEmergy(user.id, "Your weekly review is ready — how the week actually went, and one thing for next week 🌱", { link: "/dashboard/week" }).catch(() => null)
     }
 
     if (resend && user.email) {

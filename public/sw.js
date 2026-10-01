@@ -181,8 +181,10 @@ self.addEventListener("push", function (event) {
     renotify: data.tag !== "general",
     requireInteraction: data.requireInteraction,
     vibrate: [100, 50, 100],
-    data: { url: data.url },
-    actions: String(data.tag).startsWith("habit")
+    data: { url: data.url, took: Array.isArray(data.took) ? data.took : null },
+    actions: String(data.tag).startsWith("med-") && Array.isArray(data.took) && data.took.length > 0
+      ? [{ action: "took", title: "✓ Took it" }]
+      : String(data.tag).startsWith("habit")
       ? [{ action: "open", title: "Log habits" }]
       : String(data.tag).startsWith("water")
       ? [{ action: "open", title: "Log water" }]
@@ -192,9 +194,44 @@ self.addEventListener("push", function (event) {
   event.waitUntil(self.registration.showNotification(data.title, options))
 })
 
+// "✓ Took it" files the dose without opening anything. The server decides
+// what that means (lib/med-took): which time, and nothing at all when the
+// dose is already logged. A failure says so and offers the page, rather than
+// leaving the tap looking as if it worked.
+function logTook(took, url) {
+  return fetch("/api/med-schedule/took", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ doses: took }),
+  })
+    .then(res => res.ok ? res.json() : Promise.reject(res.status))
+    .then(r => {
+      const names = (r.logged ?? []).concat(r.already ?? [])
+      return self.registration.showNotification(r.logged?.length ? "✓ Logged" : "Already logged", {
+        body: names.join(", ") || "Nothing to log",
+        icon: "/icons/icon-192.png",
+        badge: "/icons/icon-192.png",
+        tag: "med-took",
+        data: { url },
+      })
+    })
+    .catch(() => self.registration.showNotification("Couldn't log that", {
+      body: "Nothing was saved — tap to log it in the app.",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: "med-took",
+      data: { url: "/dashboard/intake?tab=meds" },
+    }))
+}
+
 self.addEventListener("notificationclick", function (event) {
   event.notification.close()
   const url = event.notification.data?.url ?? "/dashboard"
+  if (event.action === "took" && Array.isArray(event.notification.data?.took)) {
+    event.waitUntil(logTook(event.notification.data.took, url))
+    return
+  }
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
       // Focus existing window if open

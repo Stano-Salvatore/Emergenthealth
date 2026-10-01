@@ -25,7 +25,7 @@ import { Capacitor } from "@capacitor/core"
 import { LocalNotifications } from "@capacitor/local-notifications"
 import { intentionQuestion } from "@/lib/checkin-mode"
 
-import { activeOn } from "@/lib/med-schedule"
+import { activeOn, packOf } from "@/lib/med-schedule"
 import { scheduleHeadPops } from "@/lib/native/bubble"
 import { isScheduledOn } from "@/lib/habit-schedule"
 import { normalizeRepeat, occurrencesBetween } from "@/lib/recurrence"
@@ -64,6 +64,10 @@ type MedReminder = {
   remind?: boolean
   startDate?: string | null      // YYYY-MM-DD
   endDate?: string | null
+  /** A pack rhythm (the pill's 21 on, 7 off); the break days never ring. */
+  packOnDays?: number | null
+  packOffDays?: number | null
+  packStart?: string | null
   takenToday?: number
 }
 
@@ -546,7 +550,7 @@ export async function syncNotifications(
         // can't disagree with either about which days a course runs.
         if (!activeOn({
           id: med.id, name: med.name, times, daysOfWeek: med.daysOfWeek ?? [],
-          active: med.active, startDate: med.startDate, endDate: med.endDate,
+          active: med.active, startDate: med.startDate, endDate: med.endDate, ...packOf(med),
         }, localDateOn(day))) continue
 
         times.forEach((time, i) => {

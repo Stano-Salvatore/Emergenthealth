@@ -480,6 +480,65 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Cycle tracking (3.11.0).** `/dashboard/cycle`, off unless
+  `cycle_settings.enabled` (UserPreference JSON, read by
+  `parseCycleSettings`).
+  - **Engine:** `lib/cycle.ts` is pure and runs in the browser too.
+    - Periods are never stored: `periodsFrom` derives them from `CycleDay`
+      rows. Bleeding days within 3 days merge into one period, and bleeding
+      sooner than 15 days after a start counts as between-period bleeding.
+    - Gaps over 60 days are logging gaps.
+    - `cycleStats` uses the median of the last 6 cycles once there are two.
+    - The luteal phase defaults to 14 days, counted from the day after
+      ovulation, so ovulation lands on day 14 of a 28-day cycle.
+      `ovulationFromTemps` applies "three over six" to Oura's skin
+      temperature.
+    - `cycleToday` is the one state everything reads.
+  - **Wording:** `lib/cycle-text.ts` holds it for the page, home card and
+    Emergy. The phase guide is `lib/cycle-guide.ts`: no doses, guarded by
+    `cycle-guide.test.ts`. `lib/cycle-load.ts` reads and writes, and returns
+    early when tracking is off, because Emergy, the home page and the report
+    ask for every user.
+  - **Sidebar:** gated through `OPT_IN_ROUTES` in `nav-items.ts`.
+    `/api/preferences/sidebar` returns `optIn`.
+  - **Pill packs:** `MedSchedule.packOnDays`/`packOffDays`/`packStart` are
+    applied inside `activeOn`. Every place that builds a schedule shape
+    spreads `packOf(row)`, which `med-pack.test.ts` checks.
+  - **Heads-up push:** `/api/cron/cycle-heads-up` is in the reminders
+    workflow. It is opt-in and fires once per predicted start. The
+    notification text is fixed and neutral (`HEADS_UP_PUSH`); the detail
+    goes to the chat.
+  - **Not built:** Health Connect's menstruation records (that needs the APK
+    and Android), and cycle phase as a factor in the correlation engine.
+
+- **Medicines Emergy keeps track of, and links (3.10.0).**
+  - **Schedule edits:** `lib/med-schedule-edit.ts` matches a spoken name to
+    a schedule (`findSchedules`) and plans the edit (`planScheduleEdit`).
+    Emergy's `update_med_schedule` writes the plan; the page's PATCH shares
+    its `normalizeTimes`/`normalizeDays`. Stopped sets `endDate` to today,
+    and paused only clears `active`.
+  - **Today's doses:** `todayDoseLines` in `med-schedule.ts` puts today's
+    status per time (logged / not logged yet / due now / due later) into
+    Emergy's context.
+  - **Follow-up:** `lib/med-followup.ts` picks doses still unlogged two hours
+    on. The window is two hours wide, since the GitHub cron can be held
+    back. It is quiet between 22:00 and 07:00 and skips a time once the
+    medicine's next time has come. `med-reminders` sends it once per dose
+    (state key `id|time|f`), even when the phone covers the on-time
+    reminder.
+  - **Took it on web push:** `public/sw.js` shows "✓ Took it" on `med-*`
+    pushes that carry `took` (`PushPayload.took`). It posts to
+    `/api/med-schedule/took`, where `lib/med-took.ts` decides the time (the
+    tap, or the scheduled time for a follow-up) and writes nothing for a
+    slot already covered. FCM pushes carry no buttons; that would need the
+    APK. The Android app's own local reminders already have Took it.
+  - **Adherence start:** `ScheduleLike.createdDay` makes `adherenceOver`
+    count from the day a schedule was added when it has no `startDate`.
+  - **Links:** `lib/app-links.ts` is the one list of pages. The prompt reads
+    it through `linkPromptList()`, and `sayAsEmergy(…, { link })` adds the
+    button to a proactive message. It never points at a route the proxy
+    redirects, which a test checks.
+
 - **iPhone as a web app (3.9.1).** There is no iOS build. An iPhone runs the
   site from the Home Screen, and nothing under `android-widget/` reaches it:
   no Health Connect, phone sleep, location, widget or bubble. Web push is

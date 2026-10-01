@@ -408,6 +408,19 @@ export default async function SettingsPage({
       {/* Personal goals */}
       <GoalsEditor />
 
+      {/* Cycle tracking lives on its own page, switch included. */}
+      <Link href="/dashboard/cycle" className="block">
+        <Card className="hover:bg-muted/30 transition-colors">
+          <CardContent className="pt-4 pb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium">🌸 Cycle tracking</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Periods, phases and the pill — turn it on or change it on its page.</p>
+            </div>
+            <span className="text-xs text-primary shrink-0">Open →</span>
+          </CardContent>
+        </Card>
+      </Link>
+
       {/* Emergy's long-term memory, with delete */}
       <EmergyMemory />
 

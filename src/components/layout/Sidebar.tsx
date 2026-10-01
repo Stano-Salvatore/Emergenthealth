@@ -21,7 +21,7 @@ import { CSS } from "@dnd-kit/utilities"
 import { isRouteEnabled } from "@/lib/features"
 import { EmergyAvatar } from "@/components/emergy/EmergyAvatar"
 import { useEmergyState } from "@/lib/emergy-store"
-import { NAV_ITEMS, type NavItem } from "@/lib/nav-items"
+import { NAV_ITEMS, OPT_IN_ROUTES, type NavItem } from "@/lib/nav-items"
 
 // Four rooms rather than one 27-item list: where you are now, what your body
 // is doing, the rest of life, and what the data means. Headers only render
@@ -142,6 +142,7 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
   const pathname = usePathname()
   const [order,   setOrder]   = useState<string[]>(DEFAULT_ORDER)
   const [hidden,  setHidden]  = useState<Set<string>>(new Set())
+  const [optIn,   setOptIn]   = useState<Set<string>>(new Set())
   const [editing, setEditing] = useState(false)
   const [bottomHovered, setBottomHovered] = useState(false)
   // Shared with every other Emergy on the page — see lib/emergy-store.
@@ -220,6 +221,7 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
           // No saved pref anywhere — persist the defaults so reset works correctly
           localStorage.setItem(LS_HIDDEN, JSON.stringify([...DEFAULT_HIDDEN]))
         }
+        if (Array.isArray(d.optIn)) setOptIn(new Set(d.optIn))
         if (serverOrder) {
           setOrder(serverOrder)
           localStorage.setItem(LS_ORDER, JSON.stringify(serverOrder))
@@ -277,7 +279,9 @@ export function Sidebar({ onClose, compact }: { onClose?: () => void; compact?: 
     ...order.map(href => ALL_ITEMS.find(i => i.href === href)).filter(Boolean) as NavItem[],
     ...ALL_ITEMS.filter(i => !order.includes(i.href)),
   ]
-  const displayItems = editing ? orderedItems : orderedItems.filter(i => !hidden.has(i.href))
+  // An opt-in page stays out of the list, editing included, until it is on.
+  const switchedOn = orderedItems.filter(i => !OPT_IN_ROUTES[i.href] || optIn.has(OPT_IN_ROUTES[i.href]))
+  const displayItems = editing ? switchedOn : switchedOn.filter(i => !hidden.has(i.href))
 
   if (compact) {
     return (

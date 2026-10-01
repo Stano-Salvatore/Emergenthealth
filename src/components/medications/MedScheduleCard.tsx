@@ -20,7 +20,7 @@ type DoseStatus = "taken" | "missed" | "upcoming"
 
 interface ScheduledDose { scheduleId: string; name: string; time: string; status: DoseStatus }
 
-interface Adherence { expected: number; taken: number; pct: number | null; missedDays: string[] }
+interface Adherence { expected: number; taken: number; pct: number | null; missedDays: string[]; daysCounted?: number }
 
 interface ScheduleItem {
   id: string
@@ -31,6 +31,8 @@ interface ScheduleItem {
   active: boolean
   remind: boolean
   note: string | null
+  packOnDays?: number | null
+  packOffDays?: number | null
   runsToday: boolean
   today: ScheduledDose[]
   adherence: Adherence | null
@@ -299,9 +301,14 @@ export function MedScheduleCard({ onDoseLogged }: { onDoseLogged?: () => void })
                     {s.name}
                     {s.dose && <span className="ml-1 font-normal text-muted-foreground">· {s.dose}</span>}
                   </p>
+                  {s.packOnDays && s.packOffDays && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {s.packOnDays} days on, {s.packOffDays} off{!s.runsToday ? " · break today" : ""}
+                    </p>
+                  )}
                   {a && a.pct !== null && (
                     <p className="text-[10px] text-muted-foreground mt-0.5">
-                      <span className={adherenceColor(a.pct)}>{a.pct}%</span> taken over {windowDays} days
+                      <span className={adherenceColor(a.pct)}>{a.pct}%</span> taken over {a.daysCounted ?? windowDays} day{(a.daysCounted ?? windowDays) === 1 ? "" : "s"}
                       {a.missedDays.length > 0 && ` · ${a.missedDays.length} day${a.missedDays.length === 1 ? "" : "s"} incomplete`}
                     </p>
                   )}

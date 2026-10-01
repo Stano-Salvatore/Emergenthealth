@@ -110,7 +110,7 @@ export async function GET(req: NextRequest) {
       sent++
       // The question is a real question: it lands in the chat so a reply
       // there closes it too (close_intention), not only the check-in screen.
-      if (askIntention) await sayAsEmergy(userId, prompt).catch(() => null)
+      if (askIntention) await sayAsEmergy(userId, prompt, { link: "/dashboard/checkin" }).catch(() => null)
     }
 
     alreadySent.add("evening")

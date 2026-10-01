@@ -24,6 +24,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/intake",      label: "Intake & Meds",   emoji: "🥤", section: "Body" },
   { href: "/dashboard/health",      label: "Health & Body",   emoji: "❤️", section: "Body" },
   { href: "/dashboard/symptoms",    label: "Symptoms",        emoji: "🩹", section: "Body" },
+  { href: "/dashboard/cycle",       label: "Cycle",           emoji: "🌸", section: "Body" },
   { href: "/dashboard/report",      label: "Health report",   emoji: "📄", section: "Body" },
   { href: "/dashboard/fasting",     label: "Fasting",         emoji: "⏳", section: "Body" },
   { href: "/dashboard/strava",      label: "Training",        emoji: "🏃", section: "Body" },
@@ -54,6 +55,13 @@ export const NAV_ITEMS: NavItem[] = [
 
   { href: "/dashboard/settings",    label: "Settings",        emoji: "⚙️", section: "Life" },
 ]
+
+// Pages a person switches on for themselves. The sidebar leaves them out
+// until /api/preferences/sidebar says the switch is on (or suggested); search
+// still finds them, and the page itself has the switch.
+export const OPT_IN_ROUTES: Record<string, "cycle"> = {
+  "/dashboard/cycle": "cycle",
+}
 
 // Destinations that live as tabs inside a page. They earn no sidebar row —
 // that's five rows the sidebar just lost — but search should still land a

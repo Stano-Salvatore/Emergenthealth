@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { getCycleSettings } from "@/lib/cycle-load"
 
 export async function GET() {
   const session = await auth()
@@ -11,9 +12,12 @@ export async function GET() {
     WHERE "userId" = ${userId} AND "key" IN ('sidebar_hidden', 'sidebar_order')
   `
   const get = (k: string) => rows.find(r => r.key === k)?.value
+  const { visibility } = await getCycleSettings(userId).catch(() => ({ visibility: "off" as const }))
   return NextResponse.json({
     hidden: get("sidebar_hidden") ? JSON.parse(get("sidebar_hidden")!) : [],
     order:  get("sidebar_order")  ? JSON.parse(get("sidebar_order")!)  : [],
+    // Opt-in pages the sidebar may show (lib/nav-items OPT_IN_ROUTES).
+    optIn: visibility === "off" ? [] : ["cycle"],
   })
 }
 

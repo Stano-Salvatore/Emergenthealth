@@ -15,6 +15,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
 import { userToday } from "@/lib/user-timezone"
+import { vitalText } from "@/lib/vital-format"
+import { loadCycle } from "@/lib/cycle-load"
+import { lutealNote } from "@/lib/cycle-text"
 
 const STRAIN_TONE = {
   none: "border-emerald-500/30 bg-emerald-500/5",
@@ -67,6 +70,14 @@ export async function VitalsCard({ userId }: { userId: string }) {
     )
   }
   const flaggedCount = measured.filter(v => v.flagged).length
+
+  // The luteal phase moves temperature, heart rate and HRV every cycle; say
+  // so beside a strain built from those, for someone who tracks the cycle.
+  let cycleLine: string | null = null
+  if (scan.strain && scan.strain.signs.length > 0) {
+    const cycle = await loadCycle(userId).catch(() => null)
+    if (cycle?.settings.enabled) cycleLine = lutealNote(cycle.today, scan.strain.signs.map(s => s.metric))
+  }
   const status = flaggedCount > 0
     ? `${flaggedCount} outside the usual band`
     : measured.length === scan.vitals.length
@@ -86,6 +97,7 @@ export async function VitalsCard({ userId }: { userId: string }) {
           <div className={`mb-2 rounded-md border px-2.5 py-2 ${STRAIN_TONE[scan.strain.level]}`}>
             <p className="text-xs font-semibold">{scan.strain.headline}</p>
             <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{scan.strain.summary}</p>
+            {cycleLine && <p className="text-xs mt-1 leading-snug">🌸 {cycleLine}</p>}
           </div>
         )}
         <ul className="divide-y divide-border/60">
@@ -98,8 +110,8 @@ export async function VitalsCard({ userId }: { userId: string }) {
               <span className="tabular-nums">
                 {v.value != null ? (
                   <>
-                    <span className="font-semibold">{v.value}{v.unit}</span>
-                    <span className="text-muted-foreground text-xs"> · usual {v.baseline}{v.unit}</span>
+                    <span className="font-semibold">{vitalText(v.key, v.value, v.unit)}</span>
+                    <span className="text-muted-foreground text-xs"> · usual {vitalText(v.key, v.baseline, v.unit)}</span>
                   </>
                 ) : (
                   <span className="text-muted-foreground">—</span>

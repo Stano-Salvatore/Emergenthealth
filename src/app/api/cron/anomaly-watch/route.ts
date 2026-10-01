@@ -119,7 +119,7 @@ export async function GET(req: NextRequest) {
     if (delivered) {
       pushed++
       // The same words land in chat, so he knows he said them and the user can reply.
-      await sayAsEmergy(userId, body).catch(() => null)
+      await sayAsEmergy(userId, body, { link: push.url }).catch(() => null)
     }
   }
 

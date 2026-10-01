@@ -21,6 +21,7 @@ const EMPTY: HealthReport = {
   symptoms: [],
   labs: [],
   bloodPressure: null,
+  cycle: null,
   body: { weightKg: null, prevWeightKg: null, bodyFatPct: null, bodyFatDate: null, date: null },
   weightTrend: null,
   patterns: [],

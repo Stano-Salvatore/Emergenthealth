@@ -53,6 +53,12 @@ import { anchoredWindows, loadDriftReport, rollingWindows, seasonWindows } from 
 import { renderDrift } from "@/lib/drift"
 import { closeIntention, parseOutcome } from "@/lib/intention"
 import { scanUserAnomalies } from "@/lib/anomaly-scan"
+import { linkPromptList } from "@/lib/app-links"
+import { getCycleSettings, loadCycle, saveCycleDay, type CycleLoad } from "@/lib/cycle-load"
+import { parseDayInput } from "@/lib/cycle-input"
+import { cycleHeadline, shortDay } from "@/lib/cycle-text"
+import { CONTRACEPTION_GUIDE } from "@/lib/cycle-guide"
+import { describeDays, findSchedules, normalizeDays, normalizeTimes, planScheduleEdit } from "@/lib/med-schedule-edit"
 import { analyseExperiment } from "@/lib/experiments-analysis"
 import { buildSchedule, currentPhase, outcomeSpec, OUTCOMES, type ExperimentRow } from "@/lib/experiments"
 import { loadLabTrends } from "@/lib/lab-trends-load"
@@ -70,7 +76,7 @@ import { latestWeightKg, loadWeightSeries } from "@/lib/weight-series"
 import { weightGoalProgress } from "@/lib/weight-trend"
 import { logWorkout, loadSessionsForUser, WORKOUT_TYPES } from "@/lib/workouts"
 import { trainingLoad, suggestSession } from "@/lib/training-load"
-import { adherenceOver, dosesByDay, sortedTimes, toDose, type DoseRow } from "@/lib/med-schedule"
+import { adherenceOver, dosesByDay, minutesOfDay, sortedTimes, toDose, todayDoseLines, type DoseRow } from "@/lib/med-schedule"
 import { hhmm, lastCoffeeBy, medianBedtimeMin } from "@/lib/caffeine-cutoff"
 import { after } from "next/server"
 import { backfillPlaceVisits } from "@/lib/place-visits"
@@ -638,7 +644,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "create_med_schedule",
-    description: "Add a medication or supplement the user takes regularly to their schedule, exactly as THEY describe it — name, dose, times of day, days of the week. This records their routine so reminders and adherence work; it is never a recommendation. If they already have a schedule for it, tell them to edit it on the Medications page instead of creating a second one.",
+    description: "Add a medication or supplement the user takes regularly to their schedule, exactly as THEY describe it — name, dose, times of day, days of the week. This records their routine so reminders and adherence work; it is never a recommendation. If they already have a schedule for it, change that one with update_med_schedule instead of creating a second.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -649,6 +655,43 @@ const TOOLS: Anthropic.Tool[] = [
         note: { type: "string", description: "Optional, e.g. 'with food'" },
       },
       required: ["name", "times"],
+    },
+  },
+  {
+    name: "update_med_schedule",
+    description: "Change one of the user's existing medication schedules, as THEY describe the change: add or drop a time ('add a 21:00 Elicea'), replace the times, change the days ('only weekdays now'), the dose or the note, turn its reminders off or on, pause it, stop it ('I stopped the Atarax') or resume it. Pausing keeps the plan but expects and reminds nothing; stopping ends it today and keeps its history. Only fields you pass change. Never suggest a change yourself — dosing is between them and their doctor.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string", description: "Which schedule, as they named it, e.g. 'Elicea'" },
+        addTimes: { type: "array", items: { type: "string" }, description: "Times to add, HH:MM" },
+        removeTimes: { type: "array", items: { type: "string" }, description: "Times to drop, HH:MM" },
+        times: { type: "array", items: { type: "string" }, description: "Replace every time with these, HH:MM" },
+        daysOfWeek: { type: "array", items: { type: "number" }, description: "0 = Sunday … 6 = Saturday; empty for every day" },
+        dose: { type: "string", description: "New dose as they say it; empty string clears it" },
+        note: { type: "string", description: "New note; empty string clears it" },
+        remind: { type: "boolean", description: "Reminders on or off" },
+        status: { type: "string", enum: ["active", "paused", "stopped"], description: "Pause, stop or resume the schedule" },
+      },
+      required: ["name"],
+    },
+  },
+  {
+    name: "log_cycle",
+    description: "Record period and cycle details the user tells you, for users who track their cycle: flow ('my period started' → medium unless they say otherwise; 'spotting'; 'heavy day'; 'it's over' → none), pain 0–3, cycle symptoms, mood, discharge, an ovulation (LH) test. Pass date when it was not today ('started yesterday'). Symptoms and moods are added to the day, never replacing what is there.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD, their local day; omit for today" },
+        flow: { type: "string", enum: ["none", "spotting", "light", "medium", "heavy"] },
+        pain: { type: "number", description: "0 none, 1 mild, 2 moderate, 3 severe" },
+        symptoms: { type: "array", items: { type: "string", enum: ["cramps", "back_pain", "headache", "bloating", "breast_tenderness", "acne", "fatigue", "cravings", "nausea", "gut", "poor_sleep", "dizzy", "ovulation_pain"] } },
+        moods: { type: "array", items: { type: "string", enum: ["happy", "calm", "energetic", "irritable", "anxious", "sad", "mood_swings", "sensitive"] } },
+        discharge: { type: "string", enum: ["dry", "sticky", "creamy", "watery", "eggwhite"] },
+        lhTest: { type: "string", enum: ["positive", "negative"] },
+        note: { type: "string" },
+      },
+      required: [],
     },
   },
   {
@@ -2226,16 +2269,76 @@ export async function executeTool(name: string, input: Record<string, string>, u
   if (name === "create_med_schedule") {
     const medName = String(input.name ?? "").trim().slice(0, 60)
     if (!medName) return "I need the medication's name."
-    const rawTimes = (input as Record<string, unknown>).times
-    const times = (Array.isArray(rawTimes) ? rawTimes : []).map(String).map(t => t.trim()).filter(t => /^\d{2}:\d{2}$/.test(t)).slice(0, 6)
-    const rawDays = (input as Record<string, unknown>).daysOfWeek
-    const daysOfWeek = (Array.isArray(rawDays) ? rawDays : []).map(Number).filter(n => Number.isInteger(n) && n >= 0 && n <= 6)
+    // "8:00" is a time too; the strict HH:MM filter here dropped it and saved
+    // a schedule with no time at all.
+    const times = normalizeTimes((input as Record<string, unknown>).times)
+    const daysOfWeek = normalizeDays((input as Record<string, unknown>).daysOfWeek)
+    const existing = findSchedules(await prisma.medSchedule.findMany({ where: { userId, active: true }, select: { id: true, name: true } }), medName)
+    if (existing.length > 0) return `They already have a schedule for ${existing.map(e => e.name).join(" and ")}. Change that one with update_med_schedule rather than adding a second.`
     const dose = typeof input.dose === "string" && input.dose.trim() ? input.dose.trim().slice(0, 40) : null
     const note = typeof input.note === "string" && input.note.trim() ? input.note.trim().slice(0, 200) : null
     const created = await prisma.medSchedule.create({ data: { userId, name: medName, dose, times, daysOfWeek, note } })
-    const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
-    const days = daysOfWeek.length === 0 || daysOfWeek.length === 7 ? "daily" : daysOfWeek.map(d => DOW[d]).join("/")
+    const days = describeDays(daysOfWeek)
     return `Added ${created.name}${dose ? ` (${dose})` : ""} to their schedule — ${times.length ? times.join(", ") : "no time set"}, ${days}. Reminders follow it. Say it back as what they told you; it is their routine, not advice.`
+  }
+
+  if (name === "update_med_schedule") {
+    const query = String(input.name ?? "").trim()
+    if (!query) return "Which medication's schedule?"
+    const schedules = await prisma.medSchedule.findMany({ where: { userId }, orderBy: { createdAt: "asc" } })
+    let found = findSchedules(schedules, query)
+    // A resumed or stopped schedule is usually the live one; prefer it when
+    // the name also matches an old, stopped copy.
+    if (found.length > 1 && found.filter(s => s.active).length === 1) found = found.filter(s => s.active)
+    if (found.length === 0) {
+      return schedules.length === 0
+        ? "They have no medication schedules yet — create_med_schedule adds one."
+        : `No schedule matches "${query}". Theirs are: ${schedules.map(s => s.name).join(", ")}. Ask which they mean.`
+    }
+    if (found.length > 1) return `"${query}" could be ${found.map(s => s.name).join(" or ")} — ask which one.`
+    const target = found[0]
+    const rec = input as Record<string, unknown>
+    const strs = (v: unknown) => Array.isArray(v) ? v.map(String) : undefined
+    const plan = planScheduleEdit(target, {
+      addTimes: strs(rec.addTimes),
+      removeTimes: strs(rec.removeTimes),
+      times: strs(rec.times),
+      daysOfWeek: Array.isArray(rec.daysOfWeek) ? rec.daysOfWeek.map(Number) : undefined,
+      dose: typeof rec.dose === "string" ? rec.dose : undefined,
+      note: typeof rec.note === "string" ? rec.note : undefined,
+      remind: typeof rec.remind === "boolean" ? rec.remind : undefined,
+      status: rec.status === "active" || rec.status === "paused" || rec.status === "stopped" ? rec.status : undefined,
+    }, localDateStr(await getUserTimezone(userId)))
+    if (!plan.ok) return plan.reason
+    const wrote = await prisma.medSchedule.updateMany({ where: { id: target.id, userId }, data: plan.data }).catch(() => null)
+    if (!wrote?.count) return `Couldn't change ${target.name} — the write didn't go through. Worth retrying.`
+    return `Changed ${plan.summary} Reminders follow the new plan. Say it back as what they asked for; it is their routine, not advice. [Medications](/dashboard/intake?tab=meds) shows it.`
+  }
+
+  if (name === "log_cycle") {
+    const { settings } = await getCycleSettings(userId)
+    if (!settings.enabled) return "Cycle tracking is off for them, so nothing was logged. The [Cycle](/dashboard/cycle) page turns it on — offer it only if they want it."
+    const tz = await getUserTimezone(userId)
+    const today = localDateStr(tz)
+    const rec = input as Record<string, unknown>
+    const parsed = parseDayInput({ ...rec, day: typeof rec.date === "string" && rec.date ? rec.date : today }, today)
+    if (!parsed.ok) return parsed.error
+    const fields = Object.keys(parsed.data)
+    if (fields.length === 0) return "Nothing recognisable to log — ask what they want recorded."
+    const saved = await saveCycleDay(userId, parsed.day, parsed.data, { union: true }).catch(() => undefined)
+    if (saved === undefined) return "Couldn't save that — the write didn't go through. Worth retrying."
+    const load = await loadCycle(userId)
+    const head = cycleHeadline(load.today, load.settings)
+    const what = [
+      parsed.data.flow ? `flow ${parsed.data.flow}` : null,
+      parsed.data.pain != null ? `pain ${parsed.data.pain}/3` : null,
+      parsed.data.symptoms?.length ? parsed.data.symptoms.join(", ").replace(/_/g, " ") : null,
+      parsed.data.moods?.length ? `mood ${parsed.data.moods.join(", ").replace(/_/g, " ")}` : null,
+      parsed.data.discharge ? `discharge ${parsed.data.discharge}` : null,
+      parsed.data.lhTest ? `ovulation test ${parsed.data.lhTest}` : null,
+      parsed.data.note ? "a note" : null,
+    ].filter(Boolean).join("; ")
+    return `Logged for ${parsed.day === today ? "today" : parsed.day}: ${what}. The cycle now reads "${head.title}"${head.detail ? ` — ${head.detail}` : ""}. Say it back in one line; [Cycle](/dashboard/cycle) shows the rest.`
   }
 
   if (name === "start_fast") {
@@ -2457,7 +2560,7 @@ export async function executeTool(name: string, input: Record<string, string>, u
       const doses = rows.flatMap(r => toDose(r, tz) ?? [])
       const days: string[] = []
       for (let i = 0; i < 14; i++) days.push(addDaysISO(since, i))
-      const adh = new Map(adherenceOver(scheds, doses, days).map(a => [a.scheduleId, a]))
+      const adh = new Map(adherenceOver(scheds.map(s => ({ ...s, createdDay: localDateStr(tz, s.createdAt) })), doses, days).map(a => [a.scheduleId, a]))
       const lines = scheds.map(s => {
         const label = `${s.name}${s.dose ? ` (${s.dose})` : ""}`
         if (sortedTimes(s).length === 0) {
@@ -2619,7 +2722,7 @@ export async function buildSystemPrompt(
   // their symptoms but not their prescriptions, and had no idea what they were
   // aiming at. Fetched in one batch alongside the rest so the extra sources
   // cost latency once, not seven times.
-  const [locationPoints, timelineEvents, focusSessions, medSchedules, books, goals, routines, cachedInsights] = await Promise.all([
+  const [locationPoints, timelineEvents, focusSessions, medSchedules, books, goals, routines, cachedInsights, doseRows, cycle] = await Promise.all([
     // Raw pings, summarised below rather than listed — there can be thousands
     // a week and none of them mean anything individually.
     prisma.locationPoint.findMany({
@@ -2639,8 +2742,8 @@ export async function buildSystemPrompt(
     }).catch(() => [] as { durationMin: number; label: string | null; startedAt: Date }[]),
     prisma.medSchedule.findMany({
       where: { userId, active: true },
-      select: { name: true, dose: true, times: true, daysOfWeek: true, note: true, startDate: true, endDate: true },
-    }).catch(() => [] as { name: string; dose: string | null; times: string[]; daysOfWeek: number[]; note: string | null; startDate: string | null; endDate: string | null }[]),
+      select: { id: true, active: true, name: true, dose: true, times: true, daysOfWeek: true, note: true, startDate: true, endDate: true, packOnDays: true, packOffDays: true, packStart: true },
+    }).catch(() => [] as { id: string; active: boolean; name: string; dose: string | null; times: string[]; daysOfWeek: number[]; note: string | null; startDate: string | null; endDate: string | null; packOnDays: number | null; packOffDays: number | null; packStart: string | null }[]),
     prisma.book.findMany({
       where: { userId, status: { in: ["reading", "done"] } },
       orderBy: { updatedAt: "desc" }, take: 8,
@@ -2661,6 +2764,13 @@ export async function buildSystemPrompt(
       where: { userId_key: { userId, key: "insights_cache:overall" } },
       select: { value: true },
     }).catch(() => null),
+    // Since yesterday: a dose at 00:30 is filed under today but may fill
+    // last night's slot, which dosesByDay settles.
+    prisma.$queryRaw<DoseRow[]>`
+      SELECT "id","day","timestamp","tagName","text" FROM "OuraTag"
+      WHERE "userId" = ${userId} AND "day" >= ${addDaysISO(todayStr, -1)}
+    `.catch(() => [] as DoseRow[]),
+    loadCycle(userId).catch(() => null),
   ])
 
   const [recentMoods, todayWeather, recentNotes, recentLabs, latestBody, recentWorkouts, recentSymptoms, fastActivePref, fastHistoryPref] = await Promise.all([
@@ -3163,6 +3273,16 @@ export async function buildSystemPrompt(
         return `- ${m.name}${m.dose ? ` (${m.dose})` : ""} — ${m.times.join(", ") || "no time set"}, ${days}${window}${m.note ? ` · ${m.note}` : ""}`
       }).join("\n")
 
+  const doseLines = medSchedules.length === 0 ? [] : todayDoseLines(
+    medSchedules,
+    doseRows.flatMap(r => toDose(r, tz) ?? []),
+    todayStr,
+    minutesOfDay(localTimeStr(tz)),
+  )
+  const doseTodayStr = doseLines.length === 0 ? null : doseLines.map(l => `- ${l}`).join("\n")
+
+  const cycleStr = cycle && cycle.settings.enabled ? cycleContext(cycle) : null
+
   const booksStr = books.length === 0
     ? null
     : books.map(b => b.status === "reading"
@@ -3230,7 +3350,7 @@ CALENDAR TIMES: every calendar line below already shows the correct weekday and 
 Use your tools when they are relevant rather than describing what you could do. When the user mentions doing something a tool can record ("just meditated", "headache all afternoon", "did 50min of writing"), offer to log it or just log it when the intent is clear, and say what you logged. When they tell you what was going on in a stretch of their life rather than a single act — "I had flu that week", "I was in Berlin most of August", "that was when I started the new job" — that is log_tag, and it belongs on the days it was true, not on today. This matters most when you have just asked: compare_periods and the monthly drift message both end by asking what changed, and the engine looks for a tag that was absent for a fortnight and then started appearing, so a month of "new job" recorded as one tag on today is a month it cannot see. Ask which days if they are vague ("all of August, or just the start?"), and tag each one. When asked "why" something changed, call get_health_range and reason over the actual numbers rather than guessing. When the reasoning rests on only a handful of days, say so up front ("only a few nights, but…") and offer it as the most likely story, not a settled fact — a week of data supports a hunch, not a verdict, and the user trusts you more when the confidence matches the evidence. If a pattern keeps coming up and they seem to want a real answer, mention that Experiments (Patterns → Experiments) can test it properly: they alternate doing the thing and not doing it in blocks and the app compares the two arms, which turns an association into evidence about cause that no correlation can give them. If they send a photo, read what is actually in it and act on it: a lab printout means recording the values with log_lab_results, a medication box means the name and strength (and create_med_schedule if they take it regularly), a meal means a reasonable estimate they can correct. Say what you can and cannot make out rather than guessing at a blurry number, and the medical limits above apply to a photographed result exactly as they do to a typed one. If they mention a doctor's appointment or needing to explain their health to someone, point them at the printable Health report (Body → Health report) — it puts their vitals, medications, symptoms, labs and tested patterns on one page. Read the user's calendar below as real-life context — recurring events are activities (e.g. gardening, tutoring, appointments) and locations are places they spend time — and connect them to how they feel when it's relevant.
 ${memories.length > 0 ? `\n## What I remember about you\n${renderFacts(memories)}\nIf they say one of these is no longer true, call forget — a fact that has gone stale still steers what you say until it is gone.\n` : ""}
 ${goalsStr ? `## What they're aiming for (their own targets — compare today's numbers against these)\n${goalsStr}\n` : ""}
-${saidStr ? `## What you told them recently (nudges you sent on your own — they may be replying to one)\n${saidStr}\nIf one of these asked whether something happened on a particular night and they are now answering, log what they say against THAT night, not today: a drink with log_drink, a dose with log_dose, anything else with log_moment — each with the date the question named (the evening before that date for a drink or a late meal). Then say in one line what you filed and where. Never log it as today.\n` : ""}
+${saidStr ? `## What you told them recently (nudges you sent on your own — they may be replying to one)\n${saidStr}\nIf one of these asked whether something happened on a particular night and they are now answering, log what they say against THAT night, not today: a drink with log_drink, a dose with log_dose, anything else with log_moment — each with the date the question named (the evening before that date for a drink or a late meal). Then say in one line what you filed and where. Never log it as today. If one asked whether they took a scheduled dose ("Your 08:00 Elicea isn't logged yet") and they say they did, log_dose it at that scheduled time — minutesAgo counted from it — unless they name another time; if they say they skipped it, log nothing and leave it there.\n` : ""}
 ${experimentsStr ? `## Experiments running (N-of-1; when it is relevant, say which arm today is)\n${experimentsStr}\n` : ""}
 ${anomaliesStr ? `## Off their own baseline right now (45-day median/MAD scan of their ring data)\n${anomaliesStr}\nBring one up only when it fits what they ask; it is a flag, never a diagnosis.\n` : ""}
 ## Today's snapshot
@@ -3265,7 +3385,7 @@ ${weightGoalStr ? `## Weight goal (progress is judged on the 7-day trend, never 
 ${weightStr ? `## Weight (judge on the trend below — never on one weigh-in, and never read a single reading as a change)\n${weightStr}\n` : ""}
 ${bodyStr ? `## Body composition (latest measurement)\n${bodyStr}\n` : ""}
 ${labsStr ? `## Blood work (latest value per marker — mention ⚠️ flags when health topics come up)\n${labsStr}\n` : ""}
-${medsStr ? `## Prescribed medications (active schedules — read these back, never advise on dose or whether to take them)\n${medsStr}\n` : ""}
+${medsStr ? `## Prescribed medications (active schedules — read these back, never advise on dose or whether to take them)\n${medsStr}\n` : ""}${cycleStr ? `## Their cycle (they track it on the Cycle page)\n${cycleStr}\nBring it in when it explains what they ask about — energy, sleep, mood, cravings, the ring's numbers. Predictions are estimates and never contraception; a late period is a number of days, not a diagnosis, and a question about pregnancy goes to a test and a doctor. When they mention their period or cycle symptoms, record it.\n` : ""}${doseTodayStr ? `## Today's scheduled doses (from the dose log, as of now)\n${doseTodayStr}\n"Not logged yet" means nothing is recorded, not that they skipped it — when it fits the conversation, ask whether they took it and log_dose it if they did (with minutesAgo from when they say). Never scold, and never advise taking it late or doubling up.\n` : ""}
 ## Oura tags (last 7 days — coffee, supplements, meds the user logs in the Oura app)
 ${ouraTagsStr ?? "None logged this week. (For longer history, call get_health_range — it includes tags.)"}
 
@@ -3311,13 +3431,36 @@ export type ChatImage = { mediaType: string; base64: string }
  * write it. Chat-only: the weekly review shares the system prompt but renders
  * as plain prose, so these conventions live here rather than in the prompt.
  */
+/** The cycle as Emergy reads it: where they are, what is predicted, today's log. */
+function cycleContext(c: CycleLoad): string {
+  const t = c.today
+  const head = cycleHeadline(t, c.settings)
+  const lines = [`- Today: ${head.title}${head.detail ? ` — ${head.detail}` : ""}`]
+  if (t.mode !== "pack" && t.currentStart) {
+    const s = t.stats
+    const basis = s.basis === "personal" && s.range ? `from ${s.lengths.length} logged cycles, ${s.range[0]}–${s.range[1]} days`
+      : s.basis === "entered" ? "the length they entered" : s.basis === "personal" ? "one logged cycle" : "a typical 28 days, nothing logged yet"
+    lines.push(`- Cycle length ${s.cycleLength} days (${basis}); period about ${s.periodLength} days; current cycle began ${shortDay(t.currentStart)}.`)
+    if (t.nextStart) lines.push(`- Next period expected around ${shortDay(t.nextStart)}${t.ovulation ? `; ovulation ${t.ovulationConfirmed ? "shown by their temperature" : "estimated"} around ${shortDay(t.ovulation)}` : ""}.`)
+    if (t.phase === "luteal") lines.push("- Luteal phase: a higher skin temperature and resting heart rate and a lower HRV are expected now — say so before treating them as a warning.")
+  }
+  lines.push(`- Contraception: ${CONTRACEPTION_GUIDE[c.settings.contraception].name}.`)
+  const todays = c.logs.find(l => l.day === c.todayStr)
+  if (todays) {
+    const bits = [todays.flow ? `flow ${todays.flow}` : null, todays.pain ? `pain ${todays.pain}/3` : null,
+      ...(todays.symptoms ?? []), ...(todays.moods ?? [])].filter(Boolean)
+    if (bits.length) lines.push(`- Logged today: ${bits.join(", ").replace(/_/g, " ")}.`)
+  }
+  return lines.join("\n")
+}
+
 const CHAT_PRESENTATION = `
 
 ## How the app renders your reply
 The chat screen shows your answer with its working, so write it that way.
 - Put any figure you read from their data in backticks — \`6h 10m\`, \`68\`, \`3.2k\`. They render as ordinary prose; the backticks only set the digits in tabular figures so they line up down a list.
 - When their own words say it better than yours, quote the journal back as a blockquote opening with the date: "> 24 Aug — Woke up already behind." One quote at most, only when it earns its place, and never paraphrased inside the quote marks — if you cannot quote it as written, do not quote it.
-- When your answer points somewhere in the app, end that sentence with a markdown link the screen renders as a tappable button — e.g. "the full list is on [Patterns](/dashboard/insights)". Use ONLY these paths: /dashboard (home), /dashboard/insights (Patterns), /dashboard/experiments, /dashboard/health, /dashboard/journal, /dashboard/brief, /dashboard/week, /dashboard/habits, /dashboard/weight, /dashboard/timeline (day journeys), /dashboard/stats (the Long view: quarter vs quarter, monthly averages), /dashboard/labs, /dashboard/medications, /dashboard/settings. One link per reply at most; never invent other paths; never link when the answer itself is complete.
+- When your answer mentions a place in the app, or the next step happens there (a dose to tick off, a schedule to look at, a chart that shows it), end that sentence with a markdown link the screen renders as a tappable button — e.g. "the full list is on [Patterns](/dashboard/insights)". Use ONLY these paths, with the label given: ${linkPromptList()}. At most two links per reply, never two to the same place; never invent other paths; leave them off small talk.
 - If the answer leaned on their data, close with one final line naming what you used, exactly like this: [sources: sleep, journal]. Choose only from: ${SOURCE_KEYS.join(", ")}. Name only what actually shaped the answer, not everything you can see, and leave the line off entirely for small talk or anything you answered without reading. The user never sees the line itself — it draws the source chips under your reply, so a source you name but did not use puts a false receipt on their screen.`
 
 /**
