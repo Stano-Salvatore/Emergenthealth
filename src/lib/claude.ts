@@ -71,6 +71,8 @@ import { logWorkout, loadSessionsForUser, WORKOUT_TYPES } from "@/lib/workouts"
 import { trainingLoad, suggestSession } from "@/lib/training-load"
 import { adherenceOver, dosesByDay, sortedTimes, toDose, type DoseRow } from "@/lib/med-schedule"
 import { hhmm, lastCoffeeBy, medianBedtimeMin } from "@/lib/caffeine-cutoff"
+import { after } from "next/server"
+import { backfillPlaceVisits } from "@/lib/place-visits"
 
 /** Fold whatever the model called it onto a type the app stores. */
 function normalizeDrinkType(raw: string): string {
@@ -2318,6 +2320,10 @@ export async function executeTool(name: string, input: Record<string, string>, u
     const radiusM = clampInt(input.radiusM, 30, 2000, 100)
     const emoji = typeof input.emoji === "string" && input.emoji.trim() ? input.emoji.trim().slice(0, 4) : "📍"
     const place = await prisma.savedPlace.create({ data: { userId, name: placeName, emoji, lat, lng, radiusM } })
+    // The same back-fill the Settings and API paths run: without it a place
+    // saved here shows no visits until the next live fix lands inside it.
+    const backfill = () => backfillPlaceVisits(userId, place.id).then(() => undefined, () => undefined)
+    try { after(backfill) } catch { void backfill() }
     return `Saved ${emoji} ${place.name} (${radiusM}m radius, from ${source}). Visits there will show on the Location page and in the place patterns.`
   }
 

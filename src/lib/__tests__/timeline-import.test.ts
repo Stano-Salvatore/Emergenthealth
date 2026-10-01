@@ -182,3 +182,11 @@ describe("Settings imports Timeline through the importer that writes check-ins",
     expect(existsSync("src/app/api/import/timeline-visits/route.ts")).toBe(false)
   })
 })
+
+describe("a place saved through Emergy", () => {
+  it("back-fills its visits like one saved from the app", () => {
+    const src = readFileSync("src/lib/claude.ts", "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ")
+    const block = src.slice(src.indexOf('name === "save_place"'), src.indexOf('name === "create_experiment"'))
+    expect(block).toMatch(/backfillPlaceVisits\(userId, place\.id\)/)
+  })
+})
