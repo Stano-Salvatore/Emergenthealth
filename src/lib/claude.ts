@@ -2443,13 +2443,14 @@ export async function executeTool(name: string, input: Record<string, string>, u
       if (scheds.length === 0) return "No medication schedules set up, so there is nothing to measure adherence against."
       // The last 14 finished days, counted by the rule the Medications page and
       // the reminder cron use: a 00:30 dose fills the night before, one dose
-      // logged in both Oura and the app is one, and today is left out because
-      // its later doses haven't happened yet.
+      // logged in both Oura and the app is one, and today is left out of the
+      // COUNTED days because its later doses haven't happened yet. Today's rows
+      // are still read — last night's 00:30 dose is filed under today.
       const since = addDaysISO(today, -14)
       const tz = await getUserTimezone(userId)
       const rows = await prisma.$queryRaw<DoseRow[]>`
         SELECT "id", "day", "timestamp", "tagName", "text" FROM "OuraTag"
-        WHERE "userId" = ${userId} AND "day" >= ${addDaysISO(since, -1)} AND "day" < ${today}
+        WHERE "userId" = ${userId} AND "day" >= ${addDaysISO(since, -1)} AND "day" <= ${today}
       `.catch(() => null)
       if (!rows) return "Couldn't read the dose log just now — worth asking again in a moment."
       const doses = rows.flatMap(r => toDose(r, tz) ?? [])

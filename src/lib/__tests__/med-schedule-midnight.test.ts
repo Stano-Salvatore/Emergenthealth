@@ -167,6 +167,10 @@ describe("Emergy's adherence read", () => {
     expect(block).not.toMatch(/Math\.max\(1, s\.times\.length\)/)
   })
 
+  it("loads today's rows, so a 00:30 dose can fill last night's slot", () => {
+    expect(block).not.toMatch(/"day" < \$\{today\}/)
+  })
+
   it("names as-needed schedules by what was taken, not against a quota", () => {
     expect(block).toMatch(/as needed/)
   })
