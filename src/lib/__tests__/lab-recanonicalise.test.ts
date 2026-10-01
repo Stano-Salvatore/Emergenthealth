@@ -137,3 +137,11 @@ describe("the tidy route", () => {
     expect(post).not.toMatch(/req\.json\(\)/)
   })
 })
+
+describe("the labs page after a tidy", () => {
+  it("refreshes the trends card, not only the list", () => {
+    const src = readFileSync("src/app/dashboard/labs/page.tsx", "utf8")
+    expect(src).toMatch(/<LabTrendsCard key=\{trendsRev\} \/>/)
+    expect(src).toMatch(/<LabTidyCard onApplied=\{reloadAll\} \/>/)
+  })
+})

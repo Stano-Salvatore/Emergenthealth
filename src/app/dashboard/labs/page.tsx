@@ -199,6 +199,11 @@ export default function LabsPage() {
 
   useEffect(() => { load() }, [load])
 
+  // The trends card reads its own endpoint; after an import or a tidy it is
+  // re-mounted so it doesn't keep showing the names it loaded before.
+  const [trendsRev, setTrendsRev] = useState(0)
+  const reloadAll = useCallback(() => { load(); setTrendsRev(r => r + 1) }, [load])
+
   function handleMarkerChange(v: string) {
     setMarker(v)
     const suggested = suggestedUnit(v, grouped)
@@ -275,13 +280,13 @@ export default function LabsPage() {
       </div>
 
       {/* What moved since the last draw, and what was going on in between */}
-      <LabTrendsCard />
+      <LabTrendsCard key={trendsRev} />
 
       {/* The whole page in one shot, instead of a row at a time */}
-      <LabImportCard onSaved={load} />
+      <LabImportCard onSaved={reloadAll} />
 
       {/* Rows saved under names from before the marker map grew */}
-      <LabTidyCard onApplied={load} />
+      <LabTidyCard onApplied={reloadAll} />
 
       <Card className="bg-card/60 border-border/50">
         <CardHeader className="pb-3">
