@@ -7,6 +7,7 @@ import { runQuickAnswer } from "@/lib/quick-answer-run"
 import { describeChatFailure, logChatFailure } from "@/lib/chat-error"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { isNightQuestion } from "@/lib/anomalies"
+import { claimEmergyTurn, quotaReply } from "@/lib/emergy-quota"
 
 export const maxDuration = 120 // Opus with up to eight tool turns; the default limit cut long replies off mid-tool
 
@@ -129,6 +130,23 @@ export async function POST(req: NextRequest) {
         { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } }
       )
     }
+  }
+
+  // Everything past here is a model turn. Other people's accounts get a daily
+  // allowance of them (lib/emergy-quota); the quick logs and lookups above
+  // were already answered and never count. A turn over the allowance is
+  // answered here, in Emergy's voice and in the transcript, rather than
+  // failed — the client renders it like any reply.
+  const turn = await claimEmergyTurn(userId)
+  if (!turn.allowed) {
+    const reply = quotaReply()
+    await prisma.chatMessage.create({ data: { userId, conversationId: convId, role: "assistant", content: reply } }).catch(() => {})
+    await prisma.chatConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } }).catch(() => {})
+    const events = [{ conversationId: convId, userMessageId: userRow.id }, { type: "text", text: reply }]
+    return new NextResponse(
+      new TextEncoder().encode(events.map(e => `data: ${JSON.stringify(e)}\n\n`).join("") + "data: [DONE]\n\n"),
+      { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } }
+    )
   }
 
   // Real token streaming — but the TURN does not belong to the stream. "log

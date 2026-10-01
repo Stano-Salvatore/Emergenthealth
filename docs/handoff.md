@@ -480,6 +480,19 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Emergy's daily allowance (3.13.0).** `lib/emergy-quota.ts`.
+  - **Where it's checked:** `claimEmergyTurn` runs in `/api/chat` after the
+    quick log/lookup path and before `streamChatEvents`, and in the Telegram
+    webhook after `claimUpdate`, so a redelivered update isn't counted
+    twice.
+  - **Limit:** 10 a day; the owner by email is exempt.
+  - **Storage:** one `UserPreference` row, `emergy_turns` = `day:n`,
+    incremented in a single `INSERT … ON CONFLICT … RETURNING`. Twelve
+    concurrent claims counted 1–12 locally.
+  - **Failure:** a DB error lets the message through; the hourly rate limit
+    still applies.
+  - **Over the limit:** the reply is a normal assistant message, so the
+    clients need no change.
 - **Onboarding, how patterns work, and Drive removed (3.12.0).**
   - **The redirect:** `needsOnboarding` in `lib/onboarding.ts` decides
     whether `/dashboard` sends someone to `/onboarding`. An account with no

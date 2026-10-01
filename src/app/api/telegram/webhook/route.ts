@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, after } from "next/server"
 import { headerSecretMatches } from "@/lib/cron-auth"
 import { prisma } from "@/lib/prisma"
 import { streamChatResponse } from "@/lib/claude"
+import { claimEmergyTurn, quotaReply } from "@/lib/emergy-quota"
 import { checkRateLimit } from "@/lib/rate-limit"
 import {
   getUserIdForChat, redeemLinkCode, sendTelegramMessage, telegramConfigured,
@@ -144,6 +145,14 @@ export async function POST(req: NextRequest) {
   const incoming = text.slice(0, MAX_INCOMING_CHARS)
 
   if (!(await claimUpdate(userId, update?.update_id))) return NextResponse.json({ ok: true })
+
+  // Every message here reaches the model, so each one spends the same daily
+  // allowance as the app's chat (lib/emergy-quota). Claimed after the
+  // duplicate check, so a webhook Telegram redelivers is not counted twice.
+  if (!(await claimEmergyTurn(userId)).allowed) {
+    await sendTelegramMessage(chat, quotaReply("telegram"))
+    return NextResponse.json({ ok: true })
+  }
 
   after(async () => {
     try {

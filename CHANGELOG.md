@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.13.0 — A daily allowance for Emergy
+
+Web-only, no new APK. No schema change.
+
+**Changed**
+- **Accounts other than the owner get 10 messages a day with Emergy.** The
+  allowance counts only messages Emergy's model answers; it resets at the
+  user's own midnight.
+  - **Never counted:** quick logs ("log 300ml water") and quick lookups
+    ("how was my sleep this week"), which the app answers itself, and the
+    messages Emergy sends on its own.
+  - **The 11th message** gets a reply in Emergy's voice, saved in the chat,
+    saying the limit is reached until tomorrow and that quick things still
+    work.
+  - **Telegram** draws on the same allowance. Its reply points to the app
+    for quick things, because Telegram has no quick path.
+  - **The owner** (`FEEDBACK_NOTIFY_EMAIL`, or `OWNER_EMAIL`) is never
+    limited.
+
 ## 3.12.0 — Onboarding, how patterns work, and no more Google Drive
 
 Web-only, no new APK. No schema change.
