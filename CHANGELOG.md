@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.13.1 — What's left of the day's Emergy messages
+## 3.13.1 — Sleep first on the phone, and what's left of Emergy's messages
 
 Web-only, no new APK. No schema change.
 
@@ -9,6 +9,15 @@ Web-only, no new APK. No schema change.
   Emergy messages left today · quick logs are free". It turns amber at
   none left. It updates with each reply, and quick logs and lookups leave
   it alone. The owner sees nothing, having no limit.
+
+**Changed**
+- **The phone's home screen leads with last night and the day ahead.**
+  - **New order:** greeting, then the score and sleep, then "Your day"
+    (check-in, reminders, habits, water), then the calendar.
+  - **Moved below the fold:** Emergy's brief, last night's vitals and the
+    period card now follow those, where before they came first. The vitals
+    card had pushed both sleep and the day below the fold.
+  - **Desktop:** keeps the brief and vitals under the greeting.
 
 **Fixed**
 - **A reply that fails no longer uses up a message.** If the model errors,
