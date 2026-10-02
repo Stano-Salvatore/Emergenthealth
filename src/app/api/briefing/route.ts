@@ -21,6 +21,12 @@ import { loadWeightSeries } from "@/lib/weight-series"
 import { weightGoalProgress } from "@/lib/weight-trend"
 import { loadSessionsForUser } from "@/lib/workouts"
 import { trainingLoad, suggestSession } from "@/lib/training-load"
+import { dayAheadLine } from "@/lib/brief-day-ahead"
+import { getUpcomingEventsWithStatusCached, type CalendarEvent } from "@/lib/google-calendar"
+import { loadEventOccurrences } from "@/lib/app-events"
+import { mergeDayEvents } from "@/lib/day-events"
+import { isDueOn } from "@/lib/habit-schedule"
+import { minutesOfDay, todayDoseLines, toDose, type DoseRow } from "@/lib/med-schedule"
 
 const anthropic = new Anthropic()
 
@@ -36,7 +42,10 @@ export async function GET(req: NextRequest) {
   // regenerated needlessly.
   const timezone = await getUserTimezone(userId)
   const todayStr = localDateStr(timezone)
-  const cacheKey = `daily_briefing_${todayStr}`
+  // v2: the brief's shape changed to sleep first, then the day ahead. A
+  // brief cached that morning in the old shape would otherwise be served
+  // until the period turned.
+  const cacheKey = `daily_briefing_v2_${todayStr}`
 
   // The brief reads differently at 07:00 than at 19:00 — a morning text plans
   // the day, an evening one reads back over it. Boundaries match periodFor()
@@ -173,7 +182,7 @@ export async function GET(req: NextRequest) {
     prisma.healthLog.findFirst({
       where: { userId, sleepDuration: { not: null } },
       orderBy: { date: "desc" },
-      select: { sleepDuration: true, readinessScore: true, date: true },
+      select: { sleepDuration: true, sleepScore: true, deepSleep: true, remSleep: true, readinessScore: true, date: true },
     }).catch(() => null),
 
     // Steps for today and yesterday, and the movement the phone recognised
@@ -298,8 +307,11 @@ export async function GET(req: NextRequest) {
   let phoneNightUsed = false
   if (sleepIsToday && latestHealth?.sleepDuration != null) {
     const sleepHrs = (latestHealth.sleepDuration / 60).toFixed(1)
+    const scoreStr = latestHealth.sleepScore != null ? `, sleep score ${latestHealth.sleepScore}` : ""
+    const stagesStr = latestHealth.deepSleep != null && latestHealth.remSleep != null
+      ? `, deep ${latestHealth.deepSleep} min, REM ${latestHealth.remSleep} min` : ""
     const readinessStr = latestHealth.readinessScore != null ? `, readiness ${latestHealth.readinessScore}/100` : ""
-    lines.push(`Last night's sleep: ${sleepHrs} hours${readinessStr}.`)
+    lines.push(`Last night's sleep: ${sleepHrs} hours${scoreStr}${stagesStr}${readinessStr}.`)
   } else {
     // The ring has nothing for last night. Before saying the app knows
     // nothing, ask the phone — which is the entire reason those segments are
@@ -364,6 +376,66 @@ export async function GET(req: NextRequest) {
 
   if (weatherSnippet) {
     lines.push(`Weather: ${weatherSnippet}.`)
+  }
+
+  // What is still ahead today — the second half of the brief. Each source
+  // fails to nothing on its own; a calendar that didn't answer is not a free
+  // afternoon, so its absence just leaves events out of the line.
+  {
+    const nowMs = Date.now()
+    const [habitList, reminderList, calendar, appEvents, schedules, doseRows] = await Promise.all([
+      prisma.habit.findMany({
+        where: { userId, isArchived: false },
+        select: {
+          name: true, scheduleDays: true, timesPerWeek: true,
+          completions: { where: { date: { gte: new Date(addDaysISO(todayStr, -7) + "T00:00:00Z") } }, select: { date: true } },
+          skips: { where: { date: new Date(todayStr + "T00:00:00Z") }, select: { date: true } },
+        },
+      }).catch(() => []),
+      prisma.reminder.findMany({
+        where: { userId, isCompleted: false, dueDate: { lte: todayEnd } },
+        select: { title: true, dueDate: true },
+        orderBy: { dueDate: "asc" },
+        take: 10,
+      }).catch(() => [] as { title: string; dueDate: Date | null }[]),
+      getUpcomingEventsWithStatusCached(userId, 1).catch(() => null),
+      loadEventOccurrences(userId, new Date(nowMs), todayEnd, timezone).catch(() => []),
+      prisma.medSchedule.findMany({
+        where: { userId, active: true },
+        select: { id: true, active: true, name: true, dose: true, times: true, daysOfWeek: true, note: true, startDate: true, endDate: true, packOnDays: true, packOffDays: true, packStart: true },
+      }).catch(() => []),
+      prisma.$queryRaw<DoseRow[]>`
+        SELECT "id","day","timestamp","tagName","text" FROM "OuraTag"
+        WHERE "userId" = ${userId} AND "day" >= ${yesterdayStr}
+      `.catch(() => [] as DoseRow[]),
+    ])
+
+    const habitsLeft = habitList.flatMap(h => {
+      const dates = new Set(h.completions.map(c => c.date.toISOString().slice(0, 10)))
+      if (dates.has(todayStr) || h.skips.length > 0) return []
+      return isDueOn({ scheduleDays: h.scheduleDays, timesPerWeek: h.timesPerWeek }, todayStr, dates) ? [h.name] : []
+    })
+    // A due date is UTC midnight of its calendar day, due until that day ends.
+    const remindersDue = reminderList.filter(r => r.dueDate && r.dueDate >= todayStart).map(r => r.title)
+    const remindersOverdue = reminderList.filter(r => r.dueDate && r.dueDate < todayStart).map(r => r.title)
+
+    const events: CalendarEvent[] = mergeDayEvents(
+      calendar?.events ?? [],
+      appEvents.map((o): CalendarEvent => ({
+        id: o.id, title: o.title, description: o.description, location: o.location,
+        start: o.start, end: o.end, isAllDay: o.isAllDay, url: null, color: o.color, source: "app",
+      })),
+    ).filter(e => e.start && (e.isAllDay ? e.start.slice(0, 10) === todayStr : localDateStr(timezone, new Date(e.start)) === todayStr))
+
+    const dosesDue = todayDoseLines(
+      schedules, doseRows.flatMap(r => toDose(r, timezone) ?? []), todayStr, minutesOfDay(localTimeStr(timezone)),
+    ).filter(l => /due now|due later|not logged yet/.test(l))
+
+    const ahead = dayAheadLine({
+      nowMs, fmtTime: iso => localTimeStr(timezone, new Date(iso)),
+      events, habitsLeft, remindersDue, remindersOverdue, dosesDue,
+    })
+    if (ahead) lines.push(ahead)
   }
 
   // In the morning, yesterday's eating (and how late it ended) is one of the
@@ -485,15 +557,21 @@ export async function GET(req: NextRequest) {
   // Anything genuinely unusual for this person today. Population norms are
   // useless here — the point is the deviation from their own median.
   try {
-    const { anomalies, strain } = await scanUserAnomalies(userId)
+    const { anomalies, strain, vitalsDate, latestDate } = await scanUserAnomalies(userId)
+    // The scan counts a night as fresh for two days, so before this morning's
+    // ring sync its newest night is the one before — and the brief called it
+    // "last night" right beside "no sleep data for last night yet". Each note
+    // is named by the night it is really about.
+    const nightOf = (date: string | null) =>
+      date === todayStr ? "Last night" : `The night ending ${date} (NOT last night, which isn't in yet)`
     // The night graded as a whole, so the brief can say "readiness looks
     // fine, but…" the way the ring app does instead of listing metrics.
     if (strain && strain.level !== "none") {
-      lines.push(`Last night as a whole: ${strain.headline.toLowerCase()} — ${strain.summary} (Say it as an observation; it is not a diagnosis.)`)
+      lines.push(`${nightOf(vitalsDate)} as a whole: ${strain.headline.toLowerCase()} — ${strain.summary} (Say it as an observation; it is not a diagnosis.)`)
     }
     const notable = anomalies.filter(a => a.concerning).slice(0, 2).map(a => a.summary)
     if (notable.length > 0) {
-      lines.push(`Off their own baseline today: ${notable.join(" | ")}.`)
+      lines.push(`${latestDate === todayStr ? "Off their own baseline today" : `Off their own baseline on ${latestDate} (not today)`}: ${notable.join(" | ")}.`)
     }
   } catch { /* not enough history */ }
 
@@ -535,7 +613,7 @@ export async function GET(req: NextRequest) {
   async function modelCall() {
     return anthropic.messages.create({
       model: HAIKU,
-      max_tokens: 200,
+      max_tokens: 260,
       messages: [
         {
           role: "user",
@@ -545,7 +623,7 @@ export async function GET(req: NextRequest) {
             : "a personal evening recap — the day is mostly behind, so read back over how it went rather than planning it"
           }. Based on the user's data, write 2-3 sentences.
 
-  Pick the two or three things that actually matter right now rather than listing everything — a late dinner before a bad night, a med still circulating that explains feeling foggy, a workout that earned the tiredness, an established pattern today is repeating. Prefer a connection between two facts over two separate observations. If something contradicts an established pattern, that's worth saying too. Match the time of day: don't plan a morning that already happened or recap an evening that hasn't.
+  Shape it in this order, every time. First, last night's sleep: the hours and the sleep score as given above, with readiness if it is there — and if a "last night as a whole" or "off their own baseline" line appears, it belongs inside this first part, briefly, never ahead of it; with no sleep data, say that first. Then what is left of ${period === "evening" ? "the evening — what is still to do tonight, and winding down, not tomorrow" : "the day"}, from "Still ahead today": the next thing on the calendar and what is still to do — habits, doses, reminders — the one or two that matter most, not a list. With nothing ahead, say the rest of the day is open rather than inventing plans. Where it fits, connect the two halves (a short night before a long afternoon). Match the time of day: don't plan a morning that already happened.
 
   Be specific with their numbers. Sound like a smart friend who noticed, not a wellness bot. Never give medical advice or suggest changing a medication. If blood work appears above, you may repeat what it says, but never interpret what a result means, never say what caused it, and never suggest what to do about it — that belongs to the doctor who ordered the test. No greeting — start directly with the observation.
 
