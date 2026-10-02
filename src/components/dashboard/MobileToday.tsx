@@ -293,9 +293,45 @@ export function MobileToday(p: MobileTodayProps) {
         </Link>
       </div>
 
-      {/* What is left of today, straight after how last night went — the
-          calendar month is reference, the day is the point of opening
-          the app. */}
+      {/* Calendar — mini month with per-event colours + what's next */}
+      <Link href="/dashboard/calendar" className="rounded-2xl border border-border bg-card px-4 py-3.5 flex gap-4 block">
+        <MiniMonth year={p.calYear} month={p.calMonth} todayDate={p.calToday} dots={p.monthDots} />
+        <div className="flex-1 min-w-0 border-l border-border pl-3.5">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Up next</p>
+          {p.nextEvents.length === 0 ? (
+            p.calendarFailed
+              ? <p className="text-sm text-amber-400">Calendar didn&apos;t answer</p>
+              : <p className="text-sm text-muted-foreground">Nothing coming up 🌿</p>
+          ) : (
+            <div className="space-y-1.5">
+              {p.nextEvents.slice(0, 4).map(e => {
+                const hex = hexOrNull(e.color)
+                const d = e.start ? parseISO(e.isAllDay ? e.start.slice(0, 10) + "T12:00:00" : e.start) : null
+                return (
+                  <div key={e.id} className="flex gap-1.5 items-start">
+                    <div
+                      className={`h-1.5 w-1.5 rounded-full mt-1.5 shrink-0 ${hex ? "" : "bg-primary"}`}
+                      style={hex ? { backgroundColor: hex } : undefined}
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium leading-tight truncate">{e.title}</p>
+                      {d && (
+                        <p className="text-[10px] text-muted-foreground">
+                          {format(d, "EEE d MMM")}{!e.isAllDay ? ` · ${format(d, "HH:mm")}` : ""}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </Link>
+
+      {/* No Ask-Emergy pill here: on mobile he's the centre button in the
+          bottom nav, so a second entry point is pure duplication. */}
+
       {/* Day timeline */}
       <div className="rounded-2xl border border-border bg-card px-4 py-4">
         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">
@@ -373,44 +409,6 @@ export function MobileToday(p: MobileTodayProps) {
           )}
         </div>
       </div>
-      {/* Calendar — mini month with per-event colours + what's next */}
-      <Link href="/dashboard/calendar" className="rounded-2xl border border-border bg-card px-4 py-3.5 flex gap-4 block">
-        <MiniMonth year={p.calYear} month={p.calMonth} todayDate={p.calToday} dots={p.monthDots} />
-        <div className="flex-1 min-w-0 border-l border-border pl-3.5">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Up next</p>
-          {p.nextEvents.length === 0 ? (
-            p.calendarFailed
-              ? <p className="text-sm text-amber-400">Calendar didn&apos;t answer</p>
-              : <p className="text-sm text-muted-foreground">Nothing coming up 🌿</p>
-          ) : (
-            <div className="space-y-1.5">
-              {p.nextEvents.slice(0, 4).map(e => {
-                const hex = hexOrNull(e.color)
-                const d = e.start ? parseISO(e.isAllDay ? e.start.slice(0, 10) + "T12:00:00" : e.start) : null
-                return (
-                  <div key={e.id} className="flex gap-1.5 items-start">
-                    <div
-                      className={`h-1.5 w-1.5 rounded-full mt-1.5 shrink-0 ${hex ? "" : "bg-primary"}`}
-                      style={hex ? { backgroundColor: hex } : undefined}
-                    />
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium leading-tight truncate">{e.title}</p>
-                      {d && (
-                        <p className="text-[10px] text-muted-foreground">
-                          {format(d, "EEE d MMM")}{!e.isAllDay ? ` · ${format(d, "HH:mm")}` : ""}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </Link>
-
-      {/* No Ask-Emergy pill here: on mobile he's the centre button in the
-          bottom nav, so a second entry point is pure duplication. */}
     </div>
   )
 }

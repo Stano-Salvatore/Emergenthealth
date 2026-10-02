@@ -436,7 +436,7 @@ export default async function DashboardPage() {
     : null
 
   const header = (
-    <div className="flex flex-col gap-3 md:gap-2">
+    <>
       {/* ── header ── */}
       <div className="relative rounded-2xl overflow-hidden bg-gradient-to-br from-primary/15 via-primary/5 to-background border border-primary/20 p-5">
         <div className="absolute -top-12 -right-12 w-56 h-56 bg-primary/15 rounded-full blur-3xl pointer-events-none" />
@@ -468,34 +468,31 @@ export default async function DashboardPage() {
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Emergy's brief and last night's vitals. Under the greeting on desktop;
-          on a phone after the Today view (order-last), because the first
-          screen there is how last night went and what is left of today, and
-          once the vitals card arrived the brief and it had pushed both below
-          the fold. Its own block rather than inside the gradient card, so
-          the one element can sit in either place without rendering twice. */}
-      <div className="space-y-3 relative max-md:order-last">
-        {/* Renders only on period days, the two days before and the pill
-            break — and only for someone who turned cycle tracking on. */}
-        <Suspense fallback={null}>
-          <CycleCard userId={userId} />
-        </Suspense>
-        <DailyBriefing />
-        {/* Streams in after first paint: the anomaly scan is the page's
-            heaviest read, and one card's homework must not hold the whole
-            dashboard's HTML — on the phone that wait IS app startup. */}
-        <Suspense fallback={
-          <Card>
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Last night&apos;s vitals</CardTitle></CardHeader>
-            <CardContent className="pt-0"><p className="text-sm text-muted-foreground">Checking against your baselines…</p></CardContent>
-          </Card>
-        }>
-          <VitalsCard userId={userId} />
-        </Suspense>
-        {/* TodayStrip — desktop only; the mobile gauge + timeline cover it */}
-        <div className="hidden md:block"><TodayStrip /></div>
+        {/* AI briefing line + condensed today summary — merged in from the
+            former standalone "Daily Briefing" and "Today" widgets so the top of
+            the dashboard reads as one card instead of three overlapping ones. */}
+        <div className="mt-4 space-y-3 relative">
+          {/* Renders only on period days, the two days before and the pill
+              break — and only for someone who turned cycle tracking on. */}
+          <Suspense fallback={null}>
+            <CycleCard userId={userId} />
+          </Suspense>
+          <DailyBriefing />
+          {/* Streams in after first paint: the anomaly scan is the page's
+              heaviest read, and one card's homework must not hold the whole
+              dashboard's HTML — on the phone that wait IS app startup. */}
+          <Suspense fallback={
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm">Last night&apos;s vitals</CardTitle></CardHeader>
+              <CardContent className="pt-0"><p className="text-sm text-muted-foreground">Checking against your baselines…</p></CardContent>
+            </Card>
+          }>
+            <VitalsCard userId={userId} />
+          </Suspense>
+          {/* TodayStrip — desktop only; the mobile gauge + timeline cover it */}
+          <div className="hidden md:block"><TodayStrip /></div>
+        </div>
       </div>
 
       {/* Desktop only — the mobile timeline has its own check-in row/CTA */}
@@ -593,7 +590,7 @@ export default async function DashboardPage() {
           </div>
         </div>
       )}
-    </div>
+    </>
   )
 
   const blocks = {
