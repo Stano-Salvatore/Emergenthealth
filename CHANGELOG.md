@@ -1,6 +1,32 @@
 # Changelog
 
-## 3.13.1 — Sleep first on the phone, and what's left of Emergy's messages
+## 3.13.2 — Emergy's brief: sleep first, then what's left of the day
+
+Web-only, no new APK. No schema change.
+
+**Changed**
+- **The brief has a fixed order.**
+  - **First, last night's sleep:** hours, sleep score, deep and REM sleep,
+    readiness.
+  - **Then what is left of the day:** the next calendar event, and the habits,
+    doses and reminders still to do. In the evening this becomes what's left
+    of tonight.
+  - **Strain and baseline notes** (like a blood-oxygen dip) are folded into the
+    sleep part instead of leading the brief.
+  - **New data:** the brief is now given the rest of today, where before it
+    only knew the habits already done.
+  - **Cached briefs:** today's brief is rewritten in the new shape rather than
+    served in the old one.
+- **The phone home layout is back as it was.** 3.13.1 moved the cards. The
+  request was about the brief's order, not the screen's.
+
+**Fixed**
+- **A strain note from the night before was called "last night".** Before
+  this morning's ring sync, the brief was told both "no sleep data for last
+  night yet" and "last night as a whole: strain". Each note is now named by
+  the night it is about.
+
+## 3.13.1 — What's left of the day's Emergy messages
 
 Web-only, no new APK. No schema change.
 
@@ -9,15 +35,6 @@ Web-only, no new APK. No schema change.
   Emergy messages left today · quick logs are free". It turns amber at
   none left. It updates with each reply, and quick logs and lookups leave
   it alone. The owner sees nothing, having no limit.
-
-**Changed**
-- **The phone's home screen leads with last night and the day ahead.**
-  - **New order:** greeting, then the score and sleep, then "Your day"
-    (check-in, reminders, habits, water), then the calendar.
-  - **Moved below the fold:** Emergy's brief, last night's vitals and the
-    period card now follow those, where before they came first. The vitals
-    card had pushed both sleep and the day below the fold.
-  - **Desktop:** keeps the brief and vitals under the greeting.
 
 **Fixed**
 - **A reply that fails no longer uses up a message.** If the model errors,
