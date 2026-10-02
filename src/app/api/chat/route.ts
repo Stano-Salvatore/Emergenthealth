@@ -7,7 +7,7 @@ import { runQuickAnswer } from "@/lib/quick-answer-run"
 import { describeChatFailure, logChatFailure } from "@/lib/chat-error"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { isNightQuestion } from "@/lib/anomalies"
-import { claimEmergyTurn, quotaReply } from "@/lib/emergy-quota"
+import { claimEmergyTurn, quotaReply, refundEmergyTurn } from "@/lib/emergy-quota"
 
 export const maxDuration = 120 // Opus with up to eight tool turns; the default limit cut long replies off mid-tool
 
@@ -142,7 +142,7 @@ export async function POST(req: NextRequest) {
     const reply = quotaReply()
     await prisma.chatMessage.create({ data: { userId, conversationId: convId, role: "assistant", content: reply } }).catch(() => {})
     await prisma.chatConversation.update({ where: { id: convId }, data: { updatedAt: new Date() } }).catch(() => {})
-    const events = [{ conversationId: convId, userMessageId: userRow.id }, { type: "text", text: reply }]
+    const events = [{ conversationId: convId, userMessageId: userRow.id }, { type: "allowance", remaining: 0 }, { type: "text", text: reply }]
     return new NextResponse(
       new TextEncoder().encode(events.map(e => `data: ${JSON.stringify(e)}\n\n`).join("") + "data: [DONE]\n\n"),
       { headers: { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" } }
@@ -175,6 +175,9 @@ export async function POST(req: NextRequest) {
         // text, and which stored row is its question: a screen that loses the
         // stream finds the reply by what follows that row, not by what sits last.
         send({ conversationId: convId, userMessageId: userRow.id })
+        // What this turn left of today's allowance, so the count under the
+        // chat box moves with it. The owner has none to show.
+        if (turn.remaining != null) send({ type: "allowance", remaining: turn.remaining })
         let full = ""
         let chips: unknown[] = []
         try {
@@ -195,6 +198,12 @@ export async function POST(req: NextRequest) {
           // stream it to, and an answerless message is what this whole path
           // exists to prevent.
           console.error("[emergy] chat failed", logChatFailure(error))
+          // A reply that failed was not a message they got: give the turn back,
+          // and say so to the count under the chat box.
+          if (turn.remaining != null) {
+            await refundEmergyTurn(userId)
+            send({ type: "allowance", remaining: turn.remaining + 1 })
+          }
           full += `\n\n_(${describeChatFailure(error)})_`
           send({ type: "text", text: `\n\n_(${describeChatFailure(error)})_` })
         }

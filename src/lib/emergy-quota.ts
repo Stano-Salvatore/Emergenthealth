@@ -23,6 +23,27 @@ export function isOwnerEmail(email: string | null | undefined): boolean {
   return !!owner && !!email && email.trim().toLowerCase() === owner
 }
 
+/** Turns left today, from the stored "day:n". Another day, or a value that can't be read, is a full allowance. */
+export function remainingFrom(stored: string | null, today: string): number {
+  const m = stored ? /^(\d{4}-\d{2}-\d{2}):(\d+)$/.exec(stored) : null
+  const used = m && m[1] === today ? Number(m[2]) : 0
+  return Math.max(0, DAILY_EMERGY_LIMIT - used)
+}
+
+/**
+ * Today's allowance without spending any of it, for the chat to show before
+ * the first message. null for the owner, who has no limit to show.
+ */
+export async function emergyAllowance(userId: string): Promise<{ limit: number; remaining: number } | null> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
+  if (isOwnerEmail(user?.email)) return null
+  const [today, row] = await Promise.all([
+    userToday(userId),
+    prisma.userPreference.findUnique({ where: { userId_key: { userId, key: KEY } }, select: { value: true } }),
+  ])
+  return { limit: DAILY_EMERGY_LIMIT, remaining: remainingFrom(row?.value ?? null, today) }
+}
+
 /**
  * What Emergy says instead, once the day's allowance is used. The quick path
  * exists only in the app's chat — Telegram sends everything to the model — so
@@ -45,7 +66,7 @@ export function quotaReply(surface: "app" | "telegram" = "app"): string {
  * rate limit still stands behind it, and locking someone out of a chat over a
  * counter is the worse failure.
  */
-export async function claimEmergyTurn(userId: string): Promise<{ allowed: boolean; used: number | null }> {
+export async function claimEmergyTurn(userId: string): Promise<{ allowed: boolean; used: number | null; remaining?: number }> {
   try {
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
     if (isOwnerEmail(user?.email)) return { allowed: true, used: null }
@@ -64,9 +85,27 @@ export async function claimEmergyTurn(userId: string): Promise<{ allowed: boolea
       RETURNING "value"
     `
     const n = Number(/:(\d+)$/.exec(rows[0]?.value ?? "")?.[1] ?? 1)
-    return { allowed: n <= DAILY_EMERGY_LIMIT, used: n }
+    return { allowed: n <= DAILY_EMERGY_LIMIT, used: n, remaining: Math.max(0, DAILY_EMERGY_LIMIT - n) }
   } catch (error) {
     console.error("[emergy-quota] count failed, letting the message through", error instanceof Error ? error.message : error)
     return { allowed: true, used: null }
   }
+}
+
+/**
+ * Gives back a turn the model failed to answer — an outage or an error is not
+ * a message the user got, and should not cost one. Only today's count, never
+ * below zero; a failure here just leaves the turn spent.
+ */
+export async function refundEmergyTurn(userId: string): Promise<void> {
+  try {
+    const today = await userToday(userId)
+    await prisma.$executeRaw`
+      UPDATE "UserPreference"
+      SET "value" = ${today} || ':' || GREATEST(split_part("value", ':', 2)::int - 1, 0)::text
+      WHERE "userId" = ${userId} AND "key" = ${KEY}
+        AND split_part("value", ':', 1) = ${today}
+        AND split_part("value", ':', 2) ~ '^[0-9]+$'
+    `
+  } catch { /* the turn stays spent */ }
 }

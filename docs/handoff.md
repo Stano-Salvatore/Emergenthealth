@@ -493,6 +493,12 @@ Roughly in order, most recent first:
     still applies.
   - **Over the limit:** the reply is a normal assistant message, so the
     clients need no change.
+  - **Showing it (3.13.1):** `GET /api/chat/allowance` reads the count
+    without spending it, through `emergyAllowance` / `remainingFrom`. Each
+    counted turn also streams `{type: "allowance", remaining}`, and the chat
+    page shows the line above the composer.
+  - **Refund:** a turn whose model call throws is given back by
+    `refundEmergyTurn`, in both web chat and Telegram.
 - **Onboarding, how patterns work, and Drive removed (3.12.0).**
   - **The redirect:** `needsOnboarding` in `lib/onboarding.ts` decides
     whether `/dashboard` sends someone to `/onboarding`. An account with no
