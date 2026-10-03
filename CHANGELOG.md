@@ -1,5 +1,61 @@
 # Changelog
 
+## 3.14.0 — A security pass: the habits fix, Claude connector sign-in, limits
+
+Web-only, no new APK. No schema change.
+
+A checklist of what AI-built apps usually get wrong, checked against this app.
+
+**Checked and already fine**
+- No route answers without a login. Every API route was called with no
+  session: 272 refused it, and the few that answered are public by design
+  (health check, OAuth metadata, version).
+- No route reads or edits another account's rows. About 60 id-taking queries
+  and every raw SQL write are filtered by the signed-in user.
+- No keys in the code or in any of its 1,386 commits.
+
+**Fixed**
+- **A routine could hold another account's habit.** Routines stored whatever
+  habit ids they were sent, and "complete routine" ticked each one. Anyone
+  who knew another account's habit id could mark that habit done for its
+  owner, and the owner couldn't untick it. A routine now keeps only the
+  user's own habits, and completing one only ever ticks those.
+- **Connecting Claude no longer puts your permanent key in a URL.**
+  - The sign-in code used to be your MCP key itself, carried in the redirect
+    URL (browser history, logs) and handed over without a click.
+  - It is now a one-time code that expires after ten minutes.
+  - Only the app that started the sign-in can exchange it, because the PKCE
+    check that used to be skipped is now enforced.
+  - A signed-in user clicks **Allow** first.
+  - The existing connection keeps working. Only reconnecting looks
+    different.
+- **Paid model calls have daily limits stored in the database.** These
+  routes only had limits kept in one server's memory, which reset on every
+  restart:
+  - lab report reading: 20 a day
+  - the doctor's report, viewed or emailed: 10
+  - meal photos: 60
+  - week review rewrites: 5
+  - forced brief refreshes: 8. Past that, today's saved brief is shown.
+
+  The garden's Emergy had no limit at all. It now spends the same 10
+  messages a day as the chat, and its message and history are capped in
+  length. The owner is exempt from all of these.
+- **The phone's health sync is bounded.**
+  - It keeps at most the newest 62 days a request, where before any number
+    of days was written at once on the shared database.
+  - It writes 10 at a time.
+  - A value that isn't a plausible number or date is dropped, not written.
+  - A day with nothing valid left in it creates no row.
+- **Log Day says why it didn't save.** A refused value (negative steps, a
+  date it can't read) closed nothing and said nothing. The route now names
+  the field, and the form shows it, along with an offline failure.
+- **Weight and OwnTracks points need real values.** Weight must be 20–400 kg
+  and coordinates must be on the globe. These used to cause a 500 or plant
+  a figure in the trend line.
+- **A link Emergy writes as `//site` is no longer drawn as one of the app's
+  buttons.** A browser reads it as another site.
+
 ## 3.13.2 — Emergy's brief: sleep first, then what's left of the day
 
 Web-only, no new APK. No schema change.

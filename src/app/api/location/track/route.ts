@@ -17,11 +17,16 @@ export async function POST(req: Request) {
   try { body = await req.json() } catch { return NextResponse.json({}) }
 
   // Only handle location events; ignore transitions, waypoints, etc.
-  if (body._type !== "location" || body.lat == null || body.lon == null) {
+  if (body._type !== "location") return NextResponse.json([])
+  // Coordinates on the globe, or nothing: a string or an out-of-range value
+  // is a 500 from Prisma, or a point in no place that every day view draws.
+  if (typeof body.lat !== "number" || typeof body.lon !== "number" ||
+      !Number.isFinite(body.lat) || !Number.isFinite(body.lon) ||
+      Math.abs(body.lat) > 90 || Math.abs(body.lon) > 180) {
     return NextResponse.json([])
   }
 
-  const trackedAt = typeof body.tst === "number"
+  const trackedAt = typeof body.tst === "number" && Number.isFinite(body.tst)
     ? new Date(body.tst * 1000)
     : new Date()
 

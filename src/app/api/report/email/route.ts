@@ -4,6 +4,7 @@ import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { checkRateLimit } from "@/lib/rate-limit"
 import { buildHealthReport } from "@/lib/health-report"
+import { claimDailyUse, DAILY_CAPS } from "@/lib/daily-cap"
 import { renderReportEmail, reportSubject } from "@/lib/health-report-email"
 import { EMAIL_FROM, describeMailFailure, logMailFailure, sendMail } from "@/lib/email"
 
@@ -41,6 +42,11 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}))
   const days = [30, 90, 180].includes(Number(body?.days)) ? Number(body.days) : 90
+
+  // Sending builds the report afresh, Opus narrative included: it spends the same cap as viewing one.
+  if (!(await claimDailyUse(userId, DAILY_CAPS.healthReport.key, DAILY_CAPS.healthReport.limit)).allowed) {
+    return NextResponse.json({ error: "Report limit reached for today." }, { status: 429 })
+  }
 
   let report
   try {

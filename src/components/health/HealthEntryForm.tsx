@@ -64,23 +64,28 @@ export function HealthEntryForm({ onSaved }: HealthEntryFormProps) {
           restingHR: form.restingHR ? Number(form.restingHR) : undefined,
         }),
       })
-      if (res.ok) {
-        const data = await res.json().catch(() => null) as { written?: string[]; kept?: string[] } | null
-        onSaved?.()
-        router.refresh()
-        // A field the ring already holds is refused by the route; closing the
-        // dialog would tell the user it saved.
-        const kept = data?.kept ?? []
-        if (kept.length === 0) {
-          setOpen(false)
-          return
-        }
-        const written = data?.written ?? []
-        setNotice(
-          (written.length ? `Saved ${listFields(written)}. ` : "Nothing saved. ") +
-          `The ring already recorded ${listFields(kept)} for this day, and its reading stands.`,
-        )
+      if (!res.ok) {
+        const err = await res.json().catch(() => null) as { error?: string } | null
+        setNotice(err?.error ?? "Couldn't save that day — try again.")
+        return
       }
+      const data = await res.json().catch(() => null) as { written?: string[]; kept?: string[] } | null
+      onSaved?.()
+      router.refresh()
+      // A field the ring already holds is refused by the route; closing the
+      // dialog would tell the user it saved.
+      const kept = data?.kept ?? []
+      if (kept.length === 0) {
+        setOpen(false)
+        return
+      }
+      const written = data?.written ?? []
+      setNotice(
+        (written.length ? `Saved ${listFields(written)}. ` : "Nothing saved. ") +
+        `The ring already recorded ${listFields(kept)} for this day, and its reading stands.`,
+      )
+    } catch {
+      setNotice("Couldn't reach the server — nothing was saved. Try again.")
     } finally {
       setLoading(false)
     }

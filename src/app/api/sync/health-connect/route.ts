@@ -25,6 +25,30 @@ type DayPayload = {
   activeMinutes?: number
 }
 
+// The phone posts its last 30 days every hour. Twice that is room for a
+// catch-up, and anything past it is not a phone — only the newest days are
+// kept. Writes go a few at a time: the pool is shared by every user.
+const MAX_DAYS = 62
+const WRITE_BATCH = 10
+
+/** A finite number within [min, max], rounded where the column is an integer; otherwise undefined, and the field isn't written. */
+function inRange(v: unknown, min: number, max: number, int = true): number | undefined {
+  if (typeof v !== "number" || !Number.isFinite(v) || v < min || v > max) return undefined
+  return int ? Math.round(v) : v
+}
+
+function instant(v: unknown): Date | undefined {
+  if (typeof v !== "string") return undefined
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? undefined : d
+}
+
+function isCalendarDay(s: unknown): s is string {
+  if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  const d = new Date(s + "T00:00:00.000Z")
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
+}
+
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -42,7 +66,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No data" }, { status: 400 })
   }
 
-  const valid = days.filter(d => d.date && /^\d{4}-\d{2}-\d{2}$/.test(d.date))
+  // One entry per day — the last one sent wins, as it did when each was written in turn — newest days first.
+  const byDay = new Map<string, DayPayload>()
+  for (const d of days) if (d && typeof d === "object" && isCalendarDay(d.date)) byDay.set(d.date, d)
+  const valid = [...byDay.values()].sort((a, b) => b.date.localeCompare(a.date)).slice(0, MAX_DAYS)
 
   // The ring wins where it speaks (lib/health-precedence). This route is the
   // hourly writer, and it used to replace 30 days of ring values each time.
@@ -52,37 +79,44 @@ export async function POST(req: NextRequest) {
   })
   const existingByDay = new Map(existingRows.map(r => [r.date.toISOString().slice(0, 10), r]))
 
-  const upserts = valid
-    .map(d => {
+  const writes = valid
+    .flatMap(d => {
       const date = new Date(d.date + "T00:00:00.000Z")
-      const fields = {
-        ...(d.steps != null            && { steps: d.steps }),
-        ...(d.sleepDurationMin != null && { sleepDuration: d.sleepDurationMin }),
-        ...(d.deepSleepMin != null     && { deepSleep: d.deepSleepMin }),
-        ...(d.remSleepMin != null      && { remSleep: d.remSleepMin }),
-        ...(d.lightSleepMin != null    && { lightSleep: d.lightSleepMin }),
-        ...(d.sleepStart != null       && { sleepStart: new Date(d.sleepStart) }),
-        ...(d.sleepEnd != null         && { sleepEnd: new Date(d.sleepEnd) }),
+      const v = {
+        steps: inRange(d.steps, 0, 200_000),
+        sleepDuration: inRange(d.sleepDurationMin, 0, 1440),
+        deepSleep: inRange(d.deepSleepMin, 0, 1440),
+        remSleep: inRange(d.remSleepMin, 0, 1440),
+        lightSleep: inRange(d.lightSleepMin, 0, 1440),
+        sleepStart: instant(d.sleepStart),
+        sleepEnd: instant(d.sleepEnd),
         // Plausibility, not just presence: a device that reports a reading
         // with no value has had it turned into 0 upstream more than once.
-        ...(plausibleHeartRate(d.restingHR) != null && { restingHR: d.restingHR }),
-        ...(plausibleHrv(d.hrv) != null && { hrv: d.hrv }),
-        ...(plausibleSpo2(d.spo2) != null && { spo2: d.spo2 }),
-        ...(d.weight != null           && { weight: d.weight }),
-        ...(d.caloriesBurned != null   && { caloriesBurned: d.caloriesBurned }),
-        ...(d.totalCalories != null    && { totalCalories: d.totalCalories }),
-        ...(d.activeMinutes != null    && { activeMinutes: d.activeMinutes }),
+        restingHR: plausibleHeartRate(typeof d.restingHR === "number" ? d.restingHR : null) ?? undefined,
+        hrv: plausibleHrv(typeof d.hrv === "number" ? d.hrv : null) ?? undefined,
+        spo2: plausibleSpo2(typeof d.spo2 === "number" ? d.spo2 : null) ?? undefined,
+        weight: inRange(d.weight, 20, 400, false),
+        caloriesBurned: inRange(d.caloriesBurned, 0, 20_000),
+        totalCalories: inRange(d.totalCalories, 0, 30_000),
+        activeMinutes: inRange(d.activeMinutes, 0, 1440),
       }
+      const fields = Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined)) as Partial<typeof v>
+      if (fields.restingHR !== undefined) fields.restingHR = Math.round(fields.restingHR)
+      // Absent is not zero, and nothing is not a day: a day with no value
+      // left to write makes no row.
+      if (Object.keys(fields).length === 0) return []
       const allowed = phoneFieldsRespectingRing(existingByDay.get(d.date) ?? null, fields)
       const syncedAt = new Date()
-      return prisma.healthLog.upsert({
+      return [() => prisma.healthLog.upsert({
         where: { userId_date: { userId, date } },
         create: { userId, date, ...fields, syncedAt },
         update: { ...allowed, syncedAt },
-      })
+      })]
     })
 
-  await Promise.all(upserts)
+  for (let i = 0; i < writes.length; i += WRITE_BATCH) {
+    await Promise.all(writes.slice(i, i + WRITE_BATCH).map(w => w()))
+  }
 
   // Record last sync timestamp
   await prisma.userPreference.upsert({
@@ -91,5 +125,5 @@ export async function POST(req: NextRequest) {
     update: { value: new Date().toISOString() },
   }).catch(() => {})
 
-  return NextResponse.json({ success: true, synced: upserts.length })
+  return NextResponse.json({ success: true, synced: writes.length })
 }
