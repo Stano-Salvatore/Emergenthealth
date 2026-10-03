@@ -121,7 +121,7 @@ function EmergyChatPanel({
         }),
       })
       const data = await res.json()
-      setHistory(h => [...h, { role: "assistant", text: data.response ?? "…" }])
+      setHistory(h => [...h, { role: "assistant", text: data.response ?? data.error ?? "…" }])
     } finally {
       setLoading(false)
     }

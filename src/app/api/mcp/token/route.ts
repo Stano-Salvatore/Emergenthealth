@@ -1,12 +1,15 @@
 import { NextRequest } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { checkRateLimit, clientIp } from "@/lib/rate-limit"
+import { redeemMcpCode } from "@/lib/mcp-oauth-code"
 
 export const runtime = "nodejs"
 
 // OAuth 2.0 token endpoint.
-// Supports both authorization_code and client_credentials grants.
-// In both cases the MCP API key IS the token — we just validate it exists.
+// Supports both authorization_code and client_credentials grants; either way
+// the access token handed back is the user's MCP key. An authorization code
+// is a one-time grant from /api/mcp/authorize (lib/mcp-oauth-code), redeemed
+// only with the PKCE verifier it was asked for with — never the key itself.
 export async function POST(req: NextRequest) {
   // Unauthenticated by nature and it validates secrets: cap guesses per address.
   const rl = checkRateLimit(clientIp(req), "mcp_token", 30, 10 * 60 * 1000)
@@ -34,17 +37,21 @@ export async function POST(req: NextRequest) {
 
   const grantType = params.get("grant_type")
 
-  // authorization_code: the "code" is the MCP key (issued by /api/mcp/authorize)
   if (grantType === "authorization_code") {
     const code = params.get("code")
     if (!code) {
       return Response.json({ error: "invalid_request", error_description: "code is required" }, { status: 400 })
     }
-    const key = await prisma.mcpApiKey.findUnique({ where: { token: code } }).catch(() => null)
+    const keyId = await redeemMcpCode(code, {
+      verifier: params.get("code_verifier"),
+      redirectUri: params.get("redirect_uri"),
+    }).catch(() => null)
+    const key = keyId ? await prisma.mcpApiKey.findUnique({ where: { id: keyId } }).catch(() => null) : null
     if (!key) {
-      return Response.json({ error: "invalid_grant", error_description: "Unknown code" }, { status: 401 })
+      // RFC 6749 §5.2: a bad, spent, expired or mismatched code is invalid_grant, status 400.
+      return Response.json({ error: "invalid_grant", error_description: "Unknown, used or expired code" }, { status: 400 })
     }
-    return Response.json({ access_token: code, token_type: "bearer", expires_in: 86400 })
+    return Response.json({ access_token: key.token, token_type: "bearer", expires_in: 86400 })
   }
 
   // client_credentials: client_secret is the MCP key

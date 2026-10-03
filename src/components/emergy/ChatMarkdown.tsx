@@ -54,7 +54,8 @@ export function renderInline(text: string): React.ReactNode {
     const link = LINK_RE.exec(part)
     if (link) {
       const [, label, href] = link
-      if (href.startsWith("/")) {
+      // "//host" and "/\\host" start with a slash too, and a browser reads both as another site.
+      if (href.startsWith("/") && !href.startsWith("//") && !href.startsWith("/\\")) {
         return (
           <Link key={i} href={href}
             className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-primary font-medium no-underline align-baseline">

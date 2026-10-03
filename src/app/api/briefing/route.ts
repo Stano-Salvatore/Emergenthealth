@@ -28,6 +28,8 @@ import { mergeDayEvents } from "@/lib/day-events"
 import { isDueOn } from "@/lib/habit-schedule"
 import { minutesOfDay, todayDoseLines, toDose, type DoseRow } from "@/lib/med-schedule"
 
+import { claimDailyUse, DAILY_CAPS } from "@/lib/daily-cap"
+
 const anthropic = new Anthropic()
 
 export async function GET(req: NextRequest) {
@@ -57,7 +59,10 @@ export async function GET(req: NextRequest) {
   const period = localHour < 12 ? "morning" : localHour < 17 ? "afternoon" : "evening"
 
   const { searchParams } = new URL(req.url)
-  const force = searchParams.get("force") === "1"
+  // A forced brief skips the cache and pays for a fresh one. Past the day's
+  // refresh cap the request reads like any other — today's brief, cached.
+  const wantsForce = searchParams.get("force") === "1"
+  const force = wantsForce && (await claimDailyUse(userId, DAILY_CAPS.briefRefresh.key, DAILY_CAPS.briefRefresh.limit)).allowed
 
   // A cached brief that merely wants a refresh (period crossed, sleep landed)
   // is still worth serving when generation is impossible — see the no-key
