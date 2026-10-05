@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
 import { userDay } from "@/lib/user-timezone"
+import { ownHabitIds } from "@/lib/own-habits"
 
 export async function POST(
   _req: NextRequest,
@@ -22,9 +23,13 @@ export async function POST(
   // east of Greenwich landed on tomorrow.
   const { dateColumn: today } = await userDay(session.user.id)
 
+  // Routines saved before their ids were checked may still hold another
+  // account's habit; only the user's own are ever completed.
+  const habitIds = await ownHabitIds(session.user.id, routine.habitIds)
+
   const existing = await prisma.habitCompletion.findMany({
     where: {
-      habitId: { in: routine.habitIds },
+      habitId: { in: habitIds },
       userId: session.user.id,
       date: today,
     },
@@ -32,7 +37,7 @@ export async function POST(
   })
 
   const alreadyDone = new Set(existing.map(c => c.habitId))
-  const toComplete = routine.habitIds.filter(hid => !alreadyDone.has(hid))
+  const toComplete = habitIds.filter(hid => !alreadyDone.has(hid))
 
   if (toComplete.length > 0) {
     await prisma.habitSkip.deleteMany({ where: { habitId: { in: toComplete }, userId: session.user.id, date: today } })

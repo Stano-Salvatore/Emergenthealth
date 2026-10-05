@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { ownHabitIds } from "@/lib/own-habits"
 import { userDay } from "@/lib/user-timezone"
 
 export async function GET() {
@@ -61,15 +62,15 @@ export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { name, emoji, habitIds } = await req.json()
-  if (!name) return NextResponse.json({ error: "name is required" }, { status: 400 })
+  const { name, emoji, habitIds } = await req.json().catch(() => ({}))
+  if (typeof name !== "string" || !name.trim()) return NextResponse.json({ error: "name is required" }, { status: 400 })
 
   const routine = await prisma.habitRoutine.create({
     data: {
       userId: session.user.id,
-      name,
-      emoji: emoji ?? "⭐",
-      habitIds: habitIds ?? [],
+      name: name.trim().slice(0, 100),
+      emoji: typeof emoji === "string" && emoji.trim() ? emoji.trim().slice(0, 4) : "⭐",
+      habitIds: await ownHabitIds(session.user.id, habitIds),
     },
   })
 
@@ -80,15 +81,15 @@ export async function PATCH(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { id, name, emoji, habitIds, sortOrder } = await req.json()
-  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 })
+  const { id, name, emoji, habitIds, sortOrder } = await req.json().catch(() => ({}))
+  if (typeof id !== "string" || !id) return NextResponse.json({ error: "id is required" }, { status: 400 })
 
   const res = await prisma.habitRoutine.updateMany({
     where: { id, userId: session.user.id },
     data: {
-      ...(typeof name === "string" && name.trim() && { name: name.trim() }),
+      ...(typeof name === "string" && name.trim() && { name: name.trim().slice(0, 100) }),
       ...(typeof emoji === "string" && emoji.trim() && { emoji: emoji.trim().slice(0, 4) }),
-      ...(Array.isArray(habitIds) && { habitIds: habitIds.filter((x: unknown) => typeof x === "string") }),
+      ...(Array.isArray(habitIds) && { habitIds: await ownHabitIds(session.user.id, habitIds) }),
       ...(Number.isInteger(sortOrder) && { sortOrder }),
     },
   })

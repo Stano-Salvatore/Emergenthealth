@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { claimDailyUse, DAILY_CAPS } from "@/lib/daily-cap"
 import { buildHealthReport } from "@/lib/health-report"
 
 export const runtime = "nodejs"
@@ -16,6 +17,10 @@ export async function GET(req: NextRequest) {
   const rl = checkRateLimit(userId, "health_report", 20, 24 * 60 * 60 * 1000)
   if (!rl.allowed) {
     return NextResponse.json({ error: "Report limit reached for today.", resetAt: rl.resetAt }, { status: 429 })
+  }
+
+  if (!(await claimDailyUse(userId, DAILY_CAPS.healthReport.key, DAILY_CAPS.healthReport.limit)).allowed) {
+    return NextResponse.json({ error: "Report limit reached for today." }, { status: 429 })
   }
 
   const days = Number(req.nextUrl.searchParams.get("days") ?? 90)

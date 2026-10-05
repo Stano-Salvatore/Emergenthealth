@@ -5,11 +5,25 @@ import { phoneFieldsRespectingRing, PRECEDENCE_SELECT } from "@/lib/health-prece
 
 export const maxDuration = 60 // Health Connect batches
 
+// What a typed day can hold. A value outside it is refused by name rather
+// than written, or handed to Prisma to fail as a 500 the form never showed.
+const RANGES = {
+  sleepHours: [0, 24], deepSleepMin: [0, 1440], remMin: [0, 1440], lightSleepMin: [0, 1440],
+  steps: [0, 200_000], caloriesBurned: [0, 20_000], activeMinutes: [0, 1440], restingHR: [20, 250],
+} as const
+const LABEL: Record<keyof typeof RANGES, string> = {
+  sleepHours: "sleep hours", deepSleepMin: "deep sleep", remMin: "REM sleep", lightSleepMin: "light sleep",
+  steps: "steps", caloriesBurned: "calories burned", activeMinutes: "active minutes", restingHR: "resting heart rate",
+}
+const MAX_WORKOUTS = 50
+const MAX_WORKOUTS_CHARS = 20_000
+
 export async function POST(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const body = await req.json()
+  const body = await req.json().catch(() => null)
+  if (!body || typeof body !== "object") return NextResponse.json({ error: "Invalid JSON" }, { status: 400 })
   const {
     date,
     sleepHours,
@@ -28,25 +42,39 @@ export async function POST(req: NextRequest) {
 
   if (!date) return NextResponse.json({ error: "date is required" }, { status: 400 })
 
-  const dateObj = new Date(date)
+  const dateObj = new Date(typeof date === "string" ? date : NaN)
+  if (Number.isNaN(dateObj.getTime())) return NextResponse.json({ error: "That date isn't one we can read." }, { status: 400 })
   dateObj.setUTCHours(0, 0, 0, 0)
+
+  const given = { sleepHours, deepSleepMin, remMin, lightSleepMin, steps, caloriesBurned, activeMinutes, restingHR }
+  for (const k of Object.keys(RANGES) as (keyof typeof RANGES)[]) {
+    const v = given[k]
+    if (v == null) continue
+    const [min, max] = RANGES[k]
+    if (typeof v !== "number" || !Number.isFinite(v) || v < min || v > max) {
+      return NextResponse.json({ error: `${LABEL[k][0].toUpperCase()}${LABEL[k].slice(1)} should be between ${min} and ${max}.` }, { status: 400 })
+    }
+  }
+  if (workouts != null && (!Array.isArray(workouts) || workouts.length > MAX_WORKOUTS || JSON.stringify(workouts).length > MAX_WORKOUTS_CHARS)) {
+    return NextResponse.json({ error: `workouts must be a list of at most ${MAX_WORKOUTS}.` }, { status: 400 })
+  }
 
   const sleepDuration =
     sleepHours != null
       ? Math.round(Number(sleepHours) * 60)
       : deepSleepMin != null || remMin != null || lightSleepMin != null
-      ? (Number(deepSleepMin ?? 0) + Number(remMin ?? 0) + Number(lightSleepMin ?? 0))
+      ? Math.round(Number(deepSleepMin ?? 0) + Number(remMin ?? 0) + Number(lightSleepMin ?? 0))
       : undefined
 
   const incoming = {
     sleepDuration,
-    deepSleep: deepSleepMin != null ? Number(deepSleepMin) : undefined,
-    remSleep: remMin != null ? Number(remMin) : undefined,
-    lightSleep: lightSleepMin != null ? Number(lightSleepMin) : undefined,
-    steps: steps != null ? Number(steps) : undefined,
-    caloriesBurned: caloriesBurned != null ? Number(caloriesBurned) : undefined,
-    activeMinutes: activeMinutes != null ? Number(activeMinutes) : undefined,
-    restingHR: restingHR != null ? Number(restingHR) : undefined,
+    deepSleep: deepSleepMin != null ? Math.round(Number(deepSleepMin)) : undefined,
+    remSleep: remMin != null ? Math.round(Number(remMin)) : undefined,
+    lightSleep: lightSleepMin != null ? Math.round(Number(lightSleepMin)) : undefined,
+    steps: steps != null ? Math.round(Number(steps)) : undefined,
+    caloriesBurned: caloriesBurned != null ? Math.round(Number(caloriesBurned)) : undefined,
+    activeMinutes: activeMinutes != null ? Math.round(Number(activeMinutes)) : undefined,
+    restingHR: restingHR != null ? Math.round(Number(restingHR)) : undefined,
   }
 
   // The ring wins where it speaks (lib/health-precedence) — even over a typed

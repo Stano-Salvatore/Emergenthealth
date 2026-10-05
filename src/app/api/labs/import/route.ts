@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { analyzeLabDocument, LAB_IMPORT_DISCLAIMER } from "@/lib/lab-analyze"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { claimDailyUse, DAILY_CAPS } from "@/lib/daily-cap"
 import { LAB_IMPORT_MAX_CHARS, LAB_IMPORT_TOO_LARGE } from "@/lib/lab-import-limit"
 
 export const runtime = "nodejs"
@@ -27,6 +28,11 @@ export async function POST(req: Request) {
   }
   if (document.length > LAB_IMPORT_MAX_CHARS) {
     return NextResponse.json({ error: LAB_IMPORT_TOO_LARGE }, { status: 413 })
+  }
+
+  const userId = session.user.id
+  if (!(await claimDailyUse(userId, DAILY_CAPS.labImport.key, DAILY_CAPS.labImport.limit)).allowed) {
+    return NextResponse.json({ error: "That's today's limit for reading lab reports — it resets at midnight." }, { status: 429 })
   }
 
   try {

@@ -2,6 +2,7 @@ import { auth } from "@/auth"
 import { NextResponse } from "next/server"
 import { analyzeMealPhoto } from "@/lib/food-analyze"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { claimDailyUse, DAILY_CAPS } from "@/lib/daily-cap"
 
 // The compressed camera capture is ~50-150KB; anything past this is not one of ours.
 const MAX_IMAGE_CHARS = 2_000_000
@@ -23,6 +24,10 @@ export async function POST(req: Request) {
   }
   if (image.length > MAX_IMAGE_CHARS) {
     return NextResponse.json({ error: "image too large" }, { status: 413 })
+  }
+  const userId = session.user.id
+  if (!(await claimDailyUse(userId, DAILY_CAPS.foodPhoto.key, DAILY_CAPS.foodPhoto.limit)).allowed) {
+    return NextResponse.json({ error: "That's today's limit for meal photos — it resets at midnight. You can still log food by name." }, { status: 429 })
   }
   const labelOk = typeof label === "string" && label.startsWith("data:image/") && label.length <= MAX_IMAGE_CHARS
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { claimDailyUse, DAILY_CAPS } from "@/lib/daily-cap"
 import { generateWeeklyReview, readWeeklyReview, saveWeeklyReview } from "@/lib/weekly-review"
 
 export const runtime = "nodejs"
@@ -30,6 +31,10 @@ export async function POST() {
       { error: "Regeneration limit reached for today.", resetAt: rl.resetAt },
       { status: 429 }
     )
+  }
+
+  if (!(await claimDailyUse(userId, DAILY_CAPS.weekReview.key, DAILY_CAPS.weekReview.limit)).allowed) {
+    return NextResponse.json({ error: "Regeneration limit reached for today." }, { status: 429 })
   }
 
   const review = await generateWeeklyReview(userId)

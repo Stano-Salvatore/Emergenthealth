@@ -24,9 +24,14 @@ export async function POST(req: Request) {
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const userId = session.user.id
 
-  const { weight, date } = await req.json()
-  if (!weight || typeof weight !== "number") {
-    return NextResponse.json({ error: "weight (kg) required" }, { status: 400 })
+  const { weight, date } = await req.json().catch(() => ({}))
+  // A body's weight, in kg. Past this it is a typo or a script, and it would
+  // sit in the trend line and the correlations as if it were a reading.
+  if (typeof weight !== "number" || !Number.isFinite(weight) || weight < 20 || weight > 400) {
+    return NextResponse.json({ error: "weight (kg) between 20 and 400 required" }, { status: 400 })
+  }
+  if (date != null && (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)))) {
+    return NextResponse.json({ error: "date must be YYYY-MM-DD" }, { status: 400 })
   }
 
   const dateStr = date ?? await userToday(userId)

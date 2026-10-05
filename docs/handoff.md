@@ -480,6 +480,32 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Security pass (3.14.0).**
+  - **Durable caps:** `lib/daily-cap.ts` holds the database-backed per-day
+    counter that `emergy-quota` now wraps.
+    - `claimDailyUse(userId, key, limit)` is atomic and fails open; the owner
+      is exempt.
+    - `DAILY_CAPS` lists the paid routes' caps.
+    - Every route that makes a model call on request claims from one before
+      the call (guard: `paid-model-caps.test.ts`). A new paid route goes in
+      that list.
+    - `lib/rate-limit` is in-memory, so it is a burst guard only.
+  - **MCP OAuth codes:** `lib/mcp-oauth-code.ts`.
+    - The code is one-time and expires in 10 minutes. It is bound to the
+      redirect URI and the PKCE challenge, and it is spent before it is
+      checked.
+    - `/api/mcp/token` exchanges it for the key.
+    - A signed-in GET of `/api/mcp/authorize` shows an Allow page; the answer
+      is a POST, which the Lax session cookie blocks cross-site.
+  - **Routines:** `lib/own-habits.ts` filters habit ids to the user's own,
+    on save and on complete.
+  - **Not done:**
+    - Keys are still accepted in query strings: `?token=` on
+      `/api/location/track` (OwnTracks) and `?key=` on widget routes.
+    - Keys are stored in plaintext.
+    - Most text fields still have no length cap.
+    - There is no error alerting beyond Vercel logs.
+
 - **Emergy's daily allowance (3.13.0).** `lib/emergy-quota.ts`.
   - **Where it's checked:** `claimEmergyTurn` runs in `/api/chat` after the
     quick log/lookup path and before `streamChatEvents`, and in the Telegram
