@@ -17,7 +17,7 @@ export async function GET() {
       connections: await onboardingConnections(userId),
     })
   } catch {
-    return NextResponse.json({ completed: false, connections: { oura: false, strava: false, calendar: false } })
+    return NextResponse.json({ completed: false, connections: { oura: false, strava: false, stravaOffered: false, appleHealth: false, calendar: false } })
   }
 }
 

@@ -28,6 +28,12 @@ function readIosEnv(): IosEnv | null {
   }
 }
 
+/** True on an iPhone or iPad, in a tab or from the Home Screen. */
+export function isAppleMobile(env: IosEnv | null = readIosEnv()): boolean {
+  if (!env) return false
+  return /iphone|ipad|ipod/i.test(env.ua) || (/macintosh/i.test(env.ua) && env.maxTouchPoints > 1)
+}
+
 /**
  * True on an iPhone or iPad in a Safari tab. iOS gives web push only to a
  * site opened from the Home Screen (16.4+), so a tab has neither Notification
@@ -35,9 +41,7 @@ function readIosEnv(): IosEnv | null {
  * for the desktop site reports itself as a Mac; touch points give it away.
  */
 export function iosNeedsHomeScreen(env: IosEnv | null = readIosEnv()): boolean {
-  if (!env) return false
-  const ios = /iphone|ipad|ipod/i.test(env.ua) || (/macintosh/i.test(env.ua) && env.maxTouchPoints > 1)
-  return ios && !env.standalone
+  return isAppleMobile(env) && !!env && !env.standalone
 }
 
 /**

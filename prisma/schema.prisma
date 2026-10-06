@@ -29,6 +29,7 @@ model User {
   modelTurns           ModelTurn[]
   chatConversations    ChatConversation[]
   mcpApiKeys           McpApiKey[]
+  appleHealthKey       AppleHealthKey?
   fitToken             FitToken?
   ouraToken            OuraToken?            @relation("OuraToken")
   ouraTags             OuraTag[]
@@ -760,6 +761,21 @@ model WeatherLog {
 
   @@unique([userId, date])
   @@index([userId])
+}
+
+// The key an iPhone Shortcut posts Apple Health data with (lib/apple-health-key).
+// Only its SHA-256 is kept: the key is shown once, when made, and a database
+// read can't hand out a working one.
+model AppleHealthKey {
+  id         String    @id @default(cuid())
+  userId     String    @unique
+  tokenHash  String    @unique
+  /** The key's last four characters, so it can be recognised without being shown. */
+  hint       String
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model UserPreference {

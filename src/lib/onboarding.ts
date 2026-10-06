@@ -2,6 +2,7 @@
 
 import { prisma } from "@/lib/prisma"
 import type { OnboardingConnections } from "@/lib/onboarding-steps"
+import { stravaOffered } from "@/lib/strava-access"
 
 /**
  * True for an account that has neither finished nor skipped onboarding and
@@ -40,7 +41,7 @@ export async function needsOnboarding(userId: string): Promise<boolean> {
  * its own; none of them is worth failing the wizard over.
  */
 export async function onboardingConnections(userId: string): Promise<OnboardingConnections> {
-  const [oura, strava, google] = await Promise.all([
+  const [oura, strava, google, offered, apple] = await Promise.all([
     prisma.ouraToken.findUnique({ where: { userId }, select: { userId: true } }).catch(() => null),
     prisma.$queryRaw<{ userId: string }[]>`SELECT "userId" FROM "StravaToken" WHERE "userId" = ${userId} LIMIT 1`.catch(() => []),
     // The calendar comes with a Google sign-in, so it is connected exactly
@@ -50,10 +51,14 @@ export async function onboardingConnections(userId: string): Promise<OnboardingC
     // otherwise. A row from before scopes were recorded is the sign-in that
     // always asked for it.
     prisma.account.findFirst({ where: { userId, provider: "google" }, select: { scope: true } }).catch(() => null),
+    stravaOffered(userId),
+    prisma.appleHealthKey.findUnique({ where: { userId }, select: { lastUsedAt: true } }).catch(() => null),
   ])
   return {
     oura: !!oura,
     strava: strava.length > 0,
+    stravaOffered: offered,
+    appleHealth: apple?.lastUsedAt != null,
     calendar: !!google && (google.scope == null || google.scope.includes("calendar")),
   }
 }

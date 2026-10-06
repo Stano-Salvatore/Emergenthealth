@@ -33,6 +33,8 @@ import { PhoneSensorsCard } from "@/components/settings/PhoneSensorsCard"
 import { DigestPreferences } from "@/components/settings/DigestPreferences"
 import { WeeklyReviewSchedule } from "@/components/settings/WeeklyReviewSchedule"
 import { StravaManager } from "@/components/settings/StravaManager"
+import { AppleHealthManager } from "@/components/settings/AppleHealthManager"
+import { stravaOffered } from "@/lib/strava-access"
 import { GitHubManager } from "@/components/settings/GitHubManager"
 import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
 import { LastfmManager } from "@/components/settings/LastfmManager"
@@ -102,6 +104,7 @@ export default async function SettingsPage({
     SELECT "userId" FROM "StravaToken" WHERE "userId" = ${userId} LIMIT 1
   `.catch(() => [] as { userId: string }[])
   const isStravaConnected = stravaTokenRows.length > 0
+  const offerStrava = await stravaOffered(userId)
 
   // GitHub profile check — table may not exist yet
   const githubRows = await prisma.$queryRaw<{ username: string }[]>`
@@ -236,9 +239,11 @@ export default async function SettingsPage({
       {stravaError && (
         <Card className="border-red-500/30 bg-red-500/5">
           <CardContent className="pt-4 pb-3">
-            <p className="text-sm font-medium text-red-400">Strava connection failed</p>
+            <p className="text-sm font-medium text-red-400">{stravaError === "closed" ? "Strava isn't open yet" : "Strava connection failed"}</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {stravaError === "invalid_grant"
+              {stravaError === "closed"
+                ? "Strava isn't open to new accounts yet — it limits how many people a new app can connect until it approves more. Workouts can still be logged by hand on the Training page."
+                : stravaError === "invalid_grant"
                 ? "The authorisation code expired or was already used. Please try connecting again."
                 : stravaError === "db_error"
                   ? "Tokens were received but could not be saved. Please try again."
@@ -359,6 +364,8 @@ export default async function SettingsPage({
 
       {/* Oura Ring connection (client component) */}
       <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
+      {/* Apple Watch / Apple Health — an iPhone Shortcut posts it (lib/apple-health) */}
+      <AppleHealthManager />
       {/* Health Connect — Android only, syncs from Garmin/Fitbit/Samsung/etc */}
       <HealthConnectManager lastSync={hcLastSync} />
 
@@ -366,7 +373,7 @@ export default async function SettingsPage({
 
       <DeviceCalendarColors />
       {/* Strava */}
-      {isFeatureEnabled("strava") && <StravaManager isConnected={isStravaConnected} />}
+      {isFeatureEnabled("strava") && offerStrava && <StravaManager isConnected={isStravaConnected} />}
       {/* GitHub */}
       <GitHubManager username={githubUsername} />
       {/* RescueTime */}

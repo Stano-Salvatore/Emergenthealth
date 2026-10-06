@@ -1,5 +1,42 @@
 # Changelog
 
+## 3.15.0 — Apple Watch through Shortcuts; Strava only where it can connect
+
+Web-only, no new APK. Schema: one new table, `AppleHealthKey` (additive).
+
+**Added**
+- **Apple Watch and Apple Health on an iPhone.**
+  - **Why a shortcut:** Apple lets only native iPhone apps read Apple Health,
+    and this app runs in Safari there. So a shortcut in the iPhone's
+    Shortcuts app reads sleep, steps, resting heart rate and HRV and posts
+    them to `/api/sync/apple-health`.
+  - **Settings → Data connections → Apple Watch & Apple Health** holds the
+    whole setup:
+    - It makes the key the shortcut sends. The key is shown once and only
+      its hash is kept.
+    - It walks through building the shortcut and making it run on its own.
+    - It shows what the last run actually saved, and names anything it
+      couldn't read.
+    - **Send now** runs the shortcut from the app.
+  - **What it accepts:** what Shortcuts really sends — decimal commas,
+    thousands spaces, values with units, and lists joined by newlines.
+    Sleep is built from the samples' start and end times: overlaps between
+    the watch and the phone count once, gaps awake don't count, and a nap
+    isn't the night.
+  - **Zeros:** a 0 is a missing reading (a sum over no samples), never
+    stored.
+  - **Oura:** the ring still wins where it has a reading.
+  - **Onboarding:** on an iPhone, the connect step lists it, to set up in
+    Settings afterwards.
+
+**Changed**
+- **"Connect Strava" is offered only where it can work.** Strava admits one
+  athlete to a new API app until it approves more. Everyone else who
+  connected landed on Strava's "Limit of connected athletes exceeded"
+  page. Until Strava raises the limit, the offer shows only for the owner
+  and accounts already connected. Set `STRAVA_OPEN=1` once it's approved.
+  A request that still arrives is sent back with that reason.
+
 ## 3.14.0 — A security pass: the habits fix, Claude connector sign-in, limits
 
 Web-only, no new APK. No schema change.

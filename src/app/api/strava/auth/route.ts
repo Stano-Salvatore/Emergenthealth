@@ -2,11 +2,21 @@ import { NextRequest, NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { signState } from "@/lib/state-token"
 import { OAUTH_RETURN_COOKIE } from "@/lib/oauth-callback"
+import { stravaOffered } from "@/lib/strava-access"
 
 export async function GET(req: NextRequest) {
   const session = await auth()
   if (!session?.user?.id) {
     return NextResponse.redirect(new URL("/signin", req.url))
+  }
+
+  // Not past Strava's athlete limit: say so here rather than send the user to
+  // Strava's 403 page (lib/strava-access).
+  if (!(await stravaOffered(session.user.id))) {
+    const back = req.nextUrl.searchParams.get("return") === "onboarding" ? "/onboarding?step=connect" : "/dashboard/settings"
+    const url = new URL(back, req.url)
+    url.searchParams.set("strava_error", "closed")
+    return NextResponse.redirect(url)
   }
 
   const callbackUrl = new URL("/api/strava/callback", req.url).toString()

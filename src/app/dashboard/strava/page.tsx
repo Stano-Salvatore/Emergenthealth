@@ -42,6 +42,8 @@ function activityEmoji(type: string): string {
 
 interface ApiData {
   connected: boolean
+  /** Whether Connect can work for this account yet — Strava's athlete limit (lib/strava-access). */
+  offered?: boolean
   activities: StravaActivityRow[]
   weeklyStats: WeeklyStats[]
 }
@@ -117,7 +119,7 @@ export default function StravaPage() {
     )
   }
 
-  const { connected, activities, weeklyStats } = data!
+  const { connected, offered, activities, weeklyStats } = data!
 
   // ── summary stats ──
   const totalActivities = activities.length
@@ -154,7 +156,7 @@ export default function StravaPage() {
       </div>
 
       {/* ── connect Strava, as an offer rather than a wall ── */}
-      {!connected && (
+      {!connected && offered && (
         <Card className="rounded-2xl border-dashed border-border bg-card">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
             <div className="flex items-center gap-3 min-w-0">
