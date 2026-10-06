@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { auth } from "@/auth"
 import { prisma } from "@/lib/prisma"
+import { stravaOffered } from "@/lib/strava-access"
 
 export interface StravaActivityRow {
   id: string
@@ -67,7 +68,7 @@ export async function GET() {
   // Sessions logged by hand live in the same table, so the list is built
   // whether or not Strava is connected; `connected` only decides whether the
   // page offers a Reconnect or a Connect.
-  const [token, activities, recentActivities] = await Promise.all([
+  const [token, activities, recentActivities, offered] = await Promise.all([
     prisma.stravaToken.findUnique({ where: { userId }, select: { userId: true } }).catch(() => null),
     prisma.stravaActivity.findMany({
       where: { userId },
@@ -79,6 +80,7 @@ export async function GET() {
       orderBy: { startDate: "asc" },
       select: { distanceM: true, movingTimeSec: true, startDate: true },
     }).catch(() => []),
+    stravaOffered(userId),
   ])
 
   const weekMap = new Map<string, { distanceKm: number; durationMin: number; count: number }>()
@@ -108,5 +110,5 @@ export async function GET() {
       count: stats.count,
     }))
 
-  return NextResponse.json({ connected: token != null, activities, weeklyStats })
+  return NextResponse.json({ connected: token != null, offered, activities, weeklyStats })
 }

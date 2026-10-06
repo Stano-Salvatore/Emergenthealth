@@ -13,7 +13,7 @@ import { prisma } from "@/lib/prisma"
 
 export const EXCLUDED_TABLES = new Set([
   "Account", "Session", "VerificationToken", "Passkey",
-  "McpApiKey", "FitToken", "OuraToken", "StravaToken", "YnabToken",
+  "McpApiKey", "AppleHealthKey", "FitToken", "OuraToken", "StravaToken", "YnabToken",
   "TogglToken", "TruelayerToken", "LastfmKey", "RescuetimeKey",
   "GocardlessConnection", "SaltedgeConnection",
   "PushSubscription", "FcmToken", "NewsletterSubscriber",

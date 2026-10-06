@@ -1,5 +1,48 @@
 # Changelog
 
+## 3.15.0 — Apple Watch through Shortcuts; Strava only where it can connect
+
+Web-only, no new APK. Schema: one new table, `AppleHealthKey` (additive).
+
+**Added**
+- **Apple Watch and Apple Health on an iPhone.**
+  - **Why a shortcut:** Apple lets only native iPhone apps read Apple Health,
+    and this app runs in Safari there. So a shortcut in the iPhone's
+    Shortcuts app reads sleep, steps, resting heart rate and HRV, and posts
+    them to `/api/sync/apple-health`.
+  - **Settings → Data connections → Apple Watch & Apple Health** holds the
+    whole setup:
+    - It makes the key the shortcut sends. The key is shown once; only its
+      hash is kept.
+    - It walks through building the shortcut and making it run on its own.
+    - It shows what the last run saved, or why the last run saved nothing.
+      Shortcuts itself doesn't show a refusal.
+  - **Sleep:** the night is the sleep that ends on the day being filed. A
+    watch stores a night as many short stage samples, so the shortcut sends
+    two days of them and the right night is picked:
+    - samples before midnight are kept;
+    - overlaps between the watch and the phone count once;
+    - gaps awake and naps don't count.
+  - **Numbers are read as Shortcuts writes them:**
+    - decimal commas, and thousands in counts ("12.345" steps);
+    - units, Unicode minus, and lists joined by newlines;
+    - a 0 is a missing reading and never stored;
+    - start and end times that don't pair up are named rather than guessed.
+  - **With an Oura ring:** the ring wins where it has a reading. Apple's HRV
+    (SDNN) is not written into the ring's RMSSD series.
+  - **Onboarding:** on an iPhone, the connect step lists it, to set up in
+    Settings afterwards.
+
+**Changed**
+- **"Connect Strava" is offered only where it can work.**
+  - **Why:** Strava admits one athlete to a new API app until it approves
+    more. Everyone else who connected landed on Strava's "Limit of connected
+    athletes exceeded" page.
+  - **Who still sees it:** the owner, and accounts connected now or before.
+    Disconnecting here doesn't free a place in Strava's limit.
+  - **When it's approved:** set `STRAVA_OPEN=1` to offer it to everyone.
+  - **A request that still arrives** is sent back with that reason.
+
 ## 3.14.0 — A security pass: the habits fix, Claude connector sign-in, limits
 
 Web-only, no new APK. No schema change.

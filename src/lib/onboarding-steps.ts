@@ -14,6 +14,10 @@ export function onboardingSteps(known: { sex: "male" | "female" | null }): Onboa
 export interface OnboardingConnections {
   oura: boolean
   strava: boolean
+  /** Whether "Connect Strava" can work for this account yet (lib/strava-access). */
+  stravaOffered: boolean
+  /** An iPhone Shortcut has delivered Apple Health data at least once. */
+  appleHealth: boolean
   /** True only for an account holding a Google grant that includes the calendar. */
   calendar: boolean
 }

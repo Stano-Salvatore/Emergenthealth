@@ -28,7 +28,9 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
 
   // Coming back from Oura or Strava lands on the connect step. A success
   // shows as the row's own "Connected"; a failure needs saying.
-  const connectError = sp.oura_error ? "oura" : sp.strava_error ? "strava" : null
+  const connectError = sp.oura_error ? "oura"
+    : sp.strava_error === "closed" ? "strava_closed"
+    : sp.strava_error ? "strava" : null
 
   return (
     <OnboardingWizard

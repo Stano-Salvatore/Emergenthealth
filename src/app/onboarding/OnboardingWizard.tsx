@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation"
 import { Activity, Bell, BellOff, Check, ChevronLeft, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { iosNeedsHomeScreen, subscribeWebPush } from "@/lib/web-push"
+import { iosNeedsHomeScreen, isAppleMobile, subscribeWebPush } from "@/lib/web-push"
 import { isNativeShell } from "@/lib/native/shell"
 import { useClientValue } from "@/lib/use-client-value"
 import { todayLocalISO } from "@/lib/local-date"
@@ -40,7 +40,7 @@ export interface WizardProps {
   }
   connections: OnboardingConnections
   startAt: OnboardingStep
-  connectError: "oura" | "strava" | null
+  connectError: "oura" | "strava" | "strava_closed" | null
 }
 
 // ── Pieces ───────────────────────────────────────────────────────────────────
@@ -160,9 +160,11 @@ function PrivacyNote() {
   )
 }
 
-function ConnectRow({ emoji, name, hint, connected, href, onClick, busy }: {
+function ConnectRow({ emoji, name, hint, connected, href, onClick, busy, later }: {
   emoji: string; name: string; hint: string; connected: boolean
   href?: string; onClick?: () => void; busy?: boolean
+  /** Set up elsewhere, after the wizard: said, rather than offered as a button that leaves it. */
+  later?: string
 }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
@@ -173,6 +175,8 @@ function ConnectRow({ emoji, name, hint, connected, href, onClick, busy }: {
       </div>
       {connected ? (
         <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-green-400"><Check className="h-3.5 w-3.5" />Connected</span>
+      ) : later ? (
+        <span className="shrink-0 text-right text-[11px] leading-tight text-muted-foreground">{later}</span>
       ) : href ? (
         <Button size="sm" variant="outline" asChild><a href={href}>Connect</a></Button>
       ) : (
@@ -190,6 +194,7 @@ export function OnboardingWizard({ firstName, initial, connections, startAt, con
   const router = useRouter()
   const needsHomeScreen = useClientValue(() => iosNeedsHomeScreen(), false)
   const native = useClientValue(() => isNativeShell(), false)
+  const apple = useClientValue(() => isAppleMobile() && !isNativeShell(), false)
   // The browser's own day: a period cannot have started tomorrow wherever the
   // user is standing, and the server's UTC day is the wrong question.
   const today = useClientValue(() => todayLocalISO(), "")
@@ -459,7 +464,9 @@ export function OnboardingWizard({ firstName, initial, connections, startAt, con
               {connectError && (
                 <div className="mt-4">
                   <Callout tone="warn">
-                    {`${connectError === "oura" ? "Oura" : "Strava"} didn't connect. Try again, or later from Settings.`}
+                    {connectError === "strava_closed"
+                      ? "Strava isn't open to new accounts yet — it limits how many people a new app can connect until it approves more. Workouts can still be logged by hand on the Training page."
+                      : `${connectError === "oura" ? "Oura" : "Strava"} didn't connect. Try again, or later from Settings.`}
                   </Callout>
                 </div>
               )}
@@ -470,8 +477,15 @@ export function OnboardingWizard({ firstName, initial, connections, startAt, con
                   <ConnectRow emoji="📱" name="Health Connect" hint="Steps, heart rate, sleep and workouts from this phone"
                     connected={hc === "done"} onClick={connectHealthConnect} busy={hc === "busy"} />
                 )}
-                <ConnectRow emoji="🚴" name="Strava" hint="Workouts, so training days can be set against rest days"
-                  connected={connections.strava} href="/api/strava/auth?return=onboarding" />
+                {(apple || connections.appleHealth) && (
+                  <ConnectRow emoji="🍎" name="Apple Watch & Apple Health"
+                    hint="Sleep, steps and heart rate, sent by a shortcut on this iPhone — about 10 minutes to set up"
+                    connected={connections.appleHealth} later="After this, in Settings → Data connections" />
+                )}
+                {connections.stravaOffered && (
+                  <ConnectRow emoji="🚴" name="Strava" hint="Workouts, so training days can be set against rest days"
+                    connected={connections.strava} href="/api/strava/auth?return=onboarding" />
+                )}
                 {connections.calendar && (
                   <ConnectRow emoji="📅" name="Google Calendar" hint="Busy days and recurring activities, through your Google sign-in" connected />
                 )}
