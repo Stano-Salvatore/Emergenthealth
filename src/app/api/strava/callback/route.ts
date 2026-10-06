@@ -53,6 +53,14 @@ async function exchangeAndStore(req: NextRequest, code: string, userId: string, 
         updatedAt: new Date(),
       },
     })
+    // Disconnecting deletes the token here but not the athlete at Strava, so
+    // the account still counts inside Strava's limit and may reconnect
+    // (lib/strava-access).
+    await prisma.userPreference.upsert({
+      where: { userId_key: { userId, key: "strava_ever_connected" } },
+      create: { userId, key: "strava_ever_connected", value: "true" },
+      update: { value: "true" },
+    }).catch(() => null)
   } catch (err: unknown) {
     console.error("[strava/callback] error:", err instanceof Error ? err.message : String(err))
     return settings(req, "strava_error=db_error", status)

@@ -481,22 +481,29 @@ content being stranded below the fold on seven pages.
 Roughly in order, most recent first:
 
 - **Apple Health via Shortcuts; Strava gate (3.15.0).**
-  - **Reading what arrives:** `lib/apple-health.ts` reads a Shortcuts body,
-    which is locale-shaped text, into one HealthLog day.
-  - **Keys:** `lib/apple-health-key.ts`, one key per account, stored as a
-    SHA-256 hash in `AppleHealthKey`.
-  - **Routes:**
-    - `POST /api/sync/apple-health` takes `Authorization: Bearer ah_…` and
-      honours ring precedence. Its last result goes to UserPreference
-      `apple_health_last_sync`.
-    - `/api/apple-health/key` handles make, status and revoke.
-  - **Untested on a real iPhone:** the guide in `AppleHealthManager` names
-    Shortcuts actions as Apple documents them, but nobody has built it on a
-    device yet. The card's "Last received" is the way to check.
-  - **Strava:** `lib/strava-access.stravaOffered` covers the owner, an
-    account already connected, or everyone with `STRAVA_OPEN=1`. It gates the
-    onboarding row, the Settings card, the Training CTA and
-    `/api/strava/auth`.
+  - **Reading:** `lib/apple-health.ts` reads a Shortcuts body (locale-shaped
+    text) into one HealthLog day.
+    - Counts read thousands separators; measurements read decimal commas.
+    - The night is the sleep session ending on the filed date in the user's
+      timezone. The guide sends two days of samples.
+  - **Keys:** `lib/apple-health-key.ts`, one per account, stored as a SHA-256
+    in `AppleHealthKey`.
+  - **Sync route:** `POST /api/sync/apple-health` takes
+    `Authorization: Bearer ah_…`.
+    - It follows ring precedence, and leaves HRV out when an Oura token
+      exists (SDNN vs RMSSD).
+    - Results go to UserPreference: success to `apple_health_last_sync`, a
+      run that saved nothing to `apple_health_last_error`.
+  - **Key route:** `/api/apple-health/key` makes, reads status and revokes.
+    Revoking also clears both records.
+  - **The guide** in `AppleHealthManager` follows Apple's documented action
+    names. It was reviewed against Apple's docs (the ISO 8601 time switch,
+    Turn On All, Always Allow, Health locked about 10 min after the phone
+    locks, so the trigger is App → Is Opened). It hasn't been built on a
+    device yet; the card's status line is the check.
+  - **Strava:** `lib/strava-access.stravaOffered` returns true for the owner,
+    a current token, the `strava_ever_connected` pref (set in the callback),
+    or `STRAVA_OPEN=1`.
   - **Dev quirk:** the Turbopack dev compile dropped the space in
     `<A>Shortcuts</A> app` when a multi-line text node follows an element.
     Use `{" "}` there.

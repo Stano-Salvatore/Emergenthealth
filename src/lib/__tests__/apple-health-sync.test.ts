@@ -11,10 +11,12 @@ const db = vi.hoisted(() => ({
   upserts: [] as { where: unknown; create: Record<string, unknown>; update: Record<string, unknown> }[],
   existing: null as Record<string, unknown> | null,
   prefs: new Map<string, string>(),
+  ring: false,
 }))
 
 vi.mock("@/auth", () => ({ auth: async () => ({ user: { id: "u1" } }) }))
 vi.mock("@/lib/user-timezone", () => ({ userToday: async () => "2026-10-06", getUserTimezone: async () => "Europe/Bratislava" }))
+vi.mock("@/lib/local-date", async orig => ({ ...(await orig<typeof import("@/lib/local-date")>()), localDateStr: (tz: string, at?: Date) => at ? new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(at) : "2026-10-06" }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     appleHealthKey: {
@@ -32,7 +34,9 @@ vi.mock("@/lib/prisma", () => ({
       findUnique: async () => db.existing,
       upsert: async (a: (typeof db.upserts)[number]) => { db.upserts.push(a); return {} },
     },
+    ouraToken: { findUnique: async () => (db.ring ? { userId: "u1" } : null) },
     userPreference: {
+      deleteMany: async ({ where }: { where: { key: { in: string[] } } }) => { for (const k of where.key.in) db.prefs.delete(k); return { count: 1 } },
       upsert: async ({ create }: { create: { key: string; value: string } }) => { db.prefs.set(create.key, create.value); return {} },
       findUnique: async ({ where }: { where: { userId_key: { key: string } } }) => {
         const v = db.prefs.get(where.userId_key.key)
@@ -51,7 +55,7 @@ const post = (body: unknown, key?: string) => SYNC(new NextRequest("http://x/api
   headers: { "content-type": "application/json", ...(key ? { authorization: `Bearer ${key}` } : {}) },
 }))
 
-beforeEach(() => { db.keys = []; db.upserts = []; db.existing = null; db.prefs.clear() })
+beforeEach(() => { db.keys = []; db.upserts = []; db.existing = null; db.prefs.clear(); db.ring = false })
 
 async function newKey(): Promise<string> {
   const res = await KEY_POST()
@@ -107,6 +111,28 @@ describe("the sync", () => {
     expect(out.ignored).toContain("sleep")
     expect(out.error).toMatch(/ISO 8601/)
     expect(db.upserts).toHaveLength(0)
+  })
+
+  it("a failed run leaves its reason for the card to show", async () => {
+    const key = await newKey()
+    await post({ steps: 0 }, key)
+    const err = JSON.parse(db.prefs.get("apple_health_last_error")!)
+    expect(err.error).toMatch(/Turn On All|allowed to read Health/)
+  })
+
+  it("with an Oura ring connected, Apple's HRV (SDNN) stays out of the ring's RMSSD series", async () => {
+    const key = await newKey()
+    db.ring = true
+    const out = await (await post({ steps: 5000, hrv: 40 }, key)).json()
+    expect(db.upserts[0].create.hrv).toBeUndefined()
+    expect(out.saved.hrv).toBeUndefined()
+  })
+
+  it("disconnecting forgets what was received, so the card doesn't still look connected", async () => {
+    const key = await newKey()
+    await post({ steps: 10 }, key)
+    await KEY_DELETE()
+    expect(db.prefs.has("apple_health_last_sync")).toBe(false)
   })
 
   it("the ring's night stands where it has one", async () => {

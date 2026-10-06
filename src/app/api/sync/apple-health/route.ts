@@ -4,7 +4,8 @@ import { appleHealthKeyUser, hashKey } from "@/lib/apple-health-key"
 import { readAppleHealthDay } from "@/lib/apple-health"
 import { phoneFieldsRespectingRing, PRECEDENCE_SELECT } from "@/lib/health-precedence"
 import { checkRateLimit } from "@/lib/rate-limit"
-import { userToday } from "@/lib/user-timezone"
+import { getUserTimezone } from "@/lib/user-timezone"
+import { localDateStr } from "@/lib/local-date"
 
 export const runtime = "nodejs"
 
@@ -14,6 +15,19 @@ export const runtime = "nodejs"
 // shortcut, so a refusal says what to change.
 
 const MAX_BODY = 200_000
+
+const ISO_HINT = "Sleep times must be formatted as ISO 8601 with the time: tap each sleep variable → Date Format → ISO 8601, and turn on Include ISO 8601 Time."
+const ACCESS_HINT = "If the Health app holds data, Shortcuts may not be allowed to read it: Health app → your profile → Apps → Shortcuts → Turn On All."
+
+/** A run that saved nothing leaves its reason where the settings card can show it — Shortcuts doesn't show a refusal. */
+async function noteFailure(userId: string, error: string, ignored: string[] = []) {
+  const value = JSON.stringify({ at: new Date().toISOString(), error, ignored })
+  await prisma.userPreference.upsert({
+    where: { userId_key: { userId, key: "apple_health_last_error" } },
+    create: { userId, key: "apple_health_last_error", value },
+    update: { value },
+  }).catch(() => null)
+}
 
 export async function POST(req: NextRequest) {
   const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() || null
@@ -31,38 +45,57 @@ export async function POST(req: NextRequest) {
   let body: unknown
   try { body = JSON.parse(text) } catch { body = null }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "Expected JSON — set Request Body to JSON in Get Contents of URL." }, { status: 400 })
+    const error = "Expected JSON — set Request Body to JSON in Get Contents of URL."
+    await noteFailure(userId, error)
+    return NextResponse.json({ error }, { status: 400 })
   }
 
-  const { date, fields, ignored } = readAppleHealthDay(body as Record<string, unknown>, await userToday(userId))
-  if (Object.keys(fields).length === 0) {
-    return NextResponse.json({
-      error: ignored.includes("sleep")
-        ? "Nothing readable arrived. Sleep times must be formatted as ISO 8601 (tap the variable → Date Format → ISO 8601)."
-        : "Nothing readable arrived — no values, or only zeros (the watch may not have synced yet).",
-      received: Object.keys(body as object),
-      ignored,
-    }, { status: 422 })
+  const timeZone = await getUserTimezone(userId)
+  const read = readAppleHealthDay(body as Record<string, unknown>, localDateStr(timeZone), timeZone)
+  const { date, ignored } = read
+  let fields = read.fields
+  const kept: string[] = []
+
+  // Apple's HRV is SDNN; the ring's, and the column's, is RMSSD. With a ring
+  // connected, Apple's would fill the days the ring was off with a different
+  // measure on the same chart — so it stays out.
+  if (fields.hrv !== undefined && await prisma.ouraToken.findUnique({ where: { userId }, select: { userId: true } }).catch(() => null)) {
+    const { hrv: _sdnn, ...rest } = fields
+    void _sdnn
+    fields = rest
+    kept.push("hrv")
+  }
+
+  if (Object.keys(fields).length === 0 && kept.length === 0) {
+    const error = ignored.includes("sleep")
+      ? `Nothing readable arrived. ${ISO_HINT}`
+      : `Nothing readable arrived — no values, or only zeros. The watch may not have synced yet. ${ACCESS_HINT}`
+    await noteFailure(userId, error, ignored)
+    return NextResponse.json({ error, received: Object.keys(body as object), ignored }, { status: 422 })
   }
 
   const day = new Date(`${date}T00:00:00.000Z`)
   // The ring wins where it speaks (lib/health-precedence), as for Health Connect.
-  const existing = await prisma.healthLog.findUnique({
-    where: { userId_date: { userId, date: day } },
-    select: PRECEDENCE_SELECT,
-  })
-  const allowed = phoneFieldsRespectingRing(existing, fields)
   const syncedAt = new Date()
-  await prisma.healthLog.upsert({
-    where: { userId_date: { userId, date: day } },
-    create: { userId, date: day, ...fields, syncedAt },
-    update: { ...allowed, syncedAt },
-  })
+  let allowed: Partial<typeof fields> = {}
+  // Nothing left to write (only an HRV held back above) makes no row.
+  if (Object.keys(fields).length > 0) {
+    const existing = await prisma.healthLog.findUnique({
+      where: { userId_date: { userId, date: day } },
+      select: PRECEDENCE_SELECT,
+    })
+    allowed = phoneFieldsRespectingRing(existing, fields)
+    await prisma.healthLog.upsert({
+      where: { userId_date: { userId, date: day } },
+      create: { userId, date: day, ...fields, syncedAt },
+      update: { ...allowed, syncedAt },
+    })
+  }
 
   const saved = Object.fromEntries(
     Object.entries(allowed).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v]),
   )
-  const kept = Object.keys(fields).filter(k => !(k in allowed))
+  kept.push(...Object.keys(fields).filter(k => !(k in allowed)))
   await Promise.all([
     prisma.appleHealthKey.update({ where: { userId }, data: { lastUsedAt: syncedAt } }).catch(() => null),
     prisma.userPreference.upsert({
@@ -70,6 +103,7 @@ export async function POST(req: NextRequest) {
       create: { userId, key: "apple_health_last_sync", value: JSON.stringify({ at: syncedAt.toISOString(), date, saved, kept, ignored }) },
       update: { value: JSON.stringify({ at: syncedAt.toISOString(), date, saved, kept, ignored }) },
     }).catch(() => null),
+    prisma.userPreference.deleteMany({ where: { userId, key: { in: ["apple_health_last_error"] } } }).catch(() => null),
   ])
 
   return NextResponse.json({ ok: true, date, saved, keptFromRing: kept, ignored })

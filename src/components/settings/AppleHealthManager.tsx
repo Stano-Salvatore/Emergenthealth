@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Check, Copy, Loader2, Play } from "lucide-react"
 import { copyText } from "@/lib/utils"
+import { isAppleMobile } from "@/lib/web-push"
+import { useClientValue } from "@/lib/use-client-value"
 
 // Apple Watch / Apple Health for an iPhone, through the Shortcuts app.
 //
@@ -22,18 +24,26 @@ interface LastSync {
   ignored?: string[]
 }
 
+interface LastError {
+  at: string
+  error: string
+  ignored?: string[]
+}
+
 interface Status {
   hasKey: boolean
   hint: string | null
   createdAt: string | null
   lastUsedAt: string | null
   lastSync: LastSync | null
+  /** The last run that saved nothing, and why — Shortcuts itself doesn't show it. */
+  lastError: LastError | null
 }
 
 const SHORTCUT_NAME = "Emergenthealth"
 
 const LABEL: Record<string, string> = {
-  steps: "steps", sleepDuration: "sleep", deepSleep: "deep sleep", remSleep: "REM",
+  steps: "steps", sleepDuration: "sleep", sleepStart: "sleep", sleepEnd: "sleep", deepSleep: "deep sleep", remSleep: "REM",
   restingHR: "resting HR", hrv: "HRV", weight: "weight", activeMinutes: "exercise", caloriesBurned: "active energy",
   sleep: "sleep", exerciseMinutes: "exercise", activeEnergy: "active energy",
 }
@@ -125,10 +135,14 @@ export function AppleHealthManager() {
   async function disconnect() {
     if (!confirm("Disconnect Apple Health? The shortcut's key stops working. Data already sent stays.")) return
     setBusy(true)
+    setError(null)
     try {
-      await fetch("/api/apple-health/key", { method: "DELETE" })
+      const res = await fetch("/api/apple-health/key", { method: "DELETE" })
+      if (!res.ok) throw new Error()
       setNewKey(null)
       await load()
+    } catch {
+      setError("Couldn't disconnect — try again.")
     } finally {
       setBusy(false)
     }
@@ -137,8 +151,12 @@ export function AppleHealthManager() {
   const url = `${origin}/api/sync/apple-health`
   const last = status?.lastSync ?? null
   const fmt = (iso: string) => new Date(iso).toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
-  const ignored = (last?.ignored ?? []).map(k => LABEL[k] ?? k)
-  const kept = (last?.kept ?? []).map(k => LABEL[k] ?? k)
+  const labels = (keys: string[] | undefined) => [...new Set((keys ?? []).map(k => LABEL[k] ?? k))]
+  const ignored = labels(last?.ignored)
+  const kept = labels(last?.kept)
+  // A failed run after the last good one is the news; one before it is history.
+  const failed = status?.lastError && (!last || status.lastError.at > last.at) ? status.lastError : null
+  const onIphone = useClientValue(() => isAppleMobile(), false)
 
   return (
     <Card id="apple-health" className={last ? "border-green-500/20 bg-green-500/5" : "border-border/50"}>
@@ -167,15 +185,19 @@ export function AppleHealthManager() {
                 {ignored.length > 0 && (
                   <p className="text-[11px] text-amber-400">
                     Couldn&apos;t read: {ignored.join(", ")}.
-                    {ignored.includes("sleep") && " Format the sleep times as ISO 8601 (step 4)."}
+                    {ignored.includes("sleep") && " Set the sleep times' Date Format to ISO 8601 with Include ISO 8601 Time on (step 5)."}
                   </p>
                 )}
               </>
-            ) : status.hasKey ? (
+            ) : null}
+            {failed && (
+              <p className="text-xs text-amber-400">Run at {fmt(failed.at)} saved nothing: {failed.error}</p>
+            )}
+            {!last && !failed && (status.hasKey ? (
               <p className="text-xs text-muted-foreground">Nothing received yet. Run the shortcut once to test it — what arrives shows here.</p>
             ) : (
               <p className="text-xs text-muted-foreground">Not set up.</p>
-            )}
+            ))}
           </div>
         )}
 
@@ -197,9 +219,11 @@ export function AppleHealthManager() {
           </Button>
           {status?.hasKey && (
             <>
-              <Button size="sm" variant="outline" asChild>
-                <a href={`shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT_NAME)}`}><Play className="h-3.5 w-3.5 mr-1.5" />Send now</a>
-              </Button>
+              {onIphone && (
+                <Button size="sm" variant="outline" asChild>
+                  <a href={`shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT_NAME)}`}><Play className="h-3.5 w-3.5 mr-1.5" />Send now</a>
+                </Button>
+              )}
               <Button size="sm" variant="ghost" onClick={disconnect} disabled={busy} className="text-muted-foreground">Disconnect</Button>
             </>
           )}
@@ -210,19 +234,20 @@ export function AppleHealthManager() {
           <summary className="cursor-pointer text-xs font-medium text-foreground">How to set up the shortcut</summary>
           <ol className="mt-3 space-y-3">
             <Step n={1}>
-              <p>On the iPhone, open <A>Shortcuts</A>, tap <A>+</A>, and name the shortcut <C>{SHORTCUT_NAME}</C>. Add each action below with the search bar at the bottom.</p>
+              <p>On the iPhone, open <A>Shortcuts</A>, tap <A>+</A>, and name the shortcut exactly <C>{SHORTCUT_NAME}</C> — &ldquo;Send now&rdquo; finds it by that name. Add each action below with the search bar at the bottom.</p>
+              <p>The names here are the English ones; on an iPhone in another language, the search finds the same actions under their translated names.</p>
             </Step>
             <Step n={2}>
-              <p><A>Steps.</A> Add <A>Find Health Samples</A>: Type <C>Steps</C>, filter <C>Start Date is today</C>. Add the filter <C>Source is</C> your Apple Watch, so the phone&apos;s steps aren&apos;t counted twice.</p>
-              <p>Then <A>Calculate Statistics</A> → <C>Sum</C>, then <A>Set Variable</A> named <C>Steps</C>.</p>
+              <p><A>Steps.</A> Add <A>Find Health Samples</A>: Type <C>Steps</C>, filter <C>Start Date is today</C>. Tap <A>Add Filter</A>, change it to <C>Source</C>, and pick your Apple Watch — otherwise the phone&apos;s and the watch&apos;s steps are counted twice. Set <A>Group By</A> to <C>Day</C> if it&apos;s offered.</p>
+              <p>Then <A>Calculate Statistics</A> → <C>Sum</C>, then <A>Set Variable</A> named <C>Steps</C>. (Steps walked without the watch on aren&apos;t counted.)</p>
             </Step>
             <Step n={3}>
-              <p><A>Heart.</A> <A>Find Health Samples</A>: Type <C>Resting Heart Rate</C>, filter <C>Start Date is in the last 1 day</C> → <A>Calculate Statistics</A> <C>Average</C> → <A>Set Variable</A> <C>RestingHR</C>.</p>
-              <p>The same again with Type <C>Heart Rate Variability</C> → <C>Average</C> → <C>HRV</C>.</p>
+              <p><A>Heart.</A> <A>Find Health Samples</A>: Type <C>Resting Heart Rate</C>, filter <C>Start Date is today</C> → <A>Calculate Statistics</A> <C>Average</C> → <A>Set Variable</A> <C>RestingHR</C>.</p>
+              <p>The same again with Type <C>Heart Rate Variability</C> → <C>Average</C> → <C>HRV</C>. The watch often writes these later in the day, so the evening run is the one that brings them.</p>
             </Step>
             <Step n={4}>
-              <p><A>Sleep.</A> <A>Find Health Samples</A>: Type <C>Sleep Analysis</C>, filter <C>End Date is today</C>, plus <C>Value is not In Bed</C> and <C>Value is not Awake</C> → <A>Set Variable</A> <C>Sleep</C>.</p>
-              <p>Then <A>Get Details of Health Samples</A> → <C>Start Date</C> of <C>Sleep</C> → <A>Set Variable</A> <C>SleepStarts</C>. Again with <C>End Date</C> → <C>SleepEnds</C>.</p>
+              <p><A>Sleep.</A> <A>Find Health Samples</A>: Type <C>Sleep Analysis</C> (it may be called <C>Sleep</C>), filter <C>Start Date is in the last 2 days</C>, plus <C>Value is not In Bed</C> and <C>Value is not Awake</C>, with <C>All</C> of the filters true → <A>Set Variable</A> <C>Sleep</C>. The app picks last night out of the two days.</p>
+              <p>Then <A>Get Details of Health Samples</A>: tap <A>Health Samples</A> in it and choose the variable <C>Sleep</C>, detail <C>Start Date</C> → <A>Set Variable</A> <C>SleepStarts</C>. Again with <C>End Date</C> → <C>SleepEnds</C>.</p>
             </Step>
             <Step n={5}>
               <p><A>Send.</A> Add <A>Get Contents of URL</A> with this URL, tap <A>Show More</A>, set Method to <C>POST</C>:</p>
@@ -233,16 +258,22 @@ export function AppleHealthManager() {
                 <li><C>steps</C> (Number) → Steps</li>
                 <li><C>restingHR</C> (Number) → RestingHR</li>
                 <li><C>hrv</C> (Number) → HRV</li>
-                <li><C>sleepStarts</C> (Text) → SleepStarts — tap the variable, set <A>Date Format</A> to <C>ISO 8601</C></li>
-                <li><C>sleepEnds</C> (Text) → SleepEnds — the same</li>
+                <li><C>sleepStarts</C> (Text) → SleepStarts — tap the variable, set <A>Date Format</A> to <C>ISO 8601</C> and turn on <A>Include ISO 8601 Time</A></li>
+                <li><C>sleepEnds</C> (Text) → SleepEnds — the same, time included</li>
               </ul>
             </Step>
             <Step n={6}>
-              <p><A>Test.</A> Tap ▶ to run it once and allow access to Health when asked. &ldquo;Last received&rdquo; above should show what arrived.</p>
+              <p><A>Test.</A> For now, add <A>Show Result</A> at the end, with the <C>Contents of URL</C>. Tap ▶.</p>
+              <ul className="ml-4 list-disc space-y-0.5">
+                <li>When it asks about Health, tap <A>Turn On All</A>, then <A>Allow</A>. Left off, Apple hands over nothing and says nothing.</li>
+                <li>When it asks to send to this app&apos;s address, tap <A>Always Allow</A> — an automation can&apos;t answer for you.</li>
+              </ul>
+              <p>The result should start with <C>{`{"ok":true`}</C>, and &ldquo;Last received&rdquo; above shows what arrived. Anything else says what to change. Once it works, delete <A>Show Result</A>.</p>
+              <p>Only zeros? Health app → your profile → <A>Apps</A> → <A>Shortcuts</A> → <A>Turn On All</A>. If sleep is missing, in Settings → Shortcuts (Settings → Apps → Shortcuts on newer iOS) → <A>Advanced</A>, turn on <A>Allow Sharing Large Amounts of Data</A>.</p>
             </Step>
             <Step n={7}>
-              <p><A>Make it automatic.</A> In Shortcuts, open <A>Automation</A> → <A>+</A> → <A>Time of Day</A>, e.g. 9:30 daily, choose <A>Run Immediately</A>, and pick <C>{SHORTCUT_NAME}</C>. Add a second one at about 22:00 for the day&apos;s full steps.</p>
-              <p>Apple Health can&apos;t be read while the iPhone is locked, so pick times the phone is usually in use. If &ldquo;Last received&rdquo; stops moving, use the trigger <A>App → Is Opened</A> with an app opened every day instead.</p>
+              <p><A>Make it automatic.</A> Apple Health locks about ten minutes after the iPhone does, so a run on a locked phone finds nothing. Run it when the phone is in use: in Shortcuts, <A>Automation</A> → <A>+</A> → <A>App</A>, choose an app you open a few times a day, morning and evening — Clock or Weather, say, not one open all day, <A>Is Opened</A>, <A>Run Immediately</A>, turn off <A>Notify When Run</A>, and pick <C>{SHORTCUT_NAME}</C>.</p>
+              <p>Each run replaces the day with fresher numbers, so a few a day is right.</p>
             </Step>
           </ol>
         </details>
