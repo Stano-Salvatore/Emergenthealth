@@ -22,6 +22,8 @@ interface LastSync {
   saved: Record<string, number | string>
   kept?: string[]
   ignored?: string[]
+  /** The run also stored where the phone was. */
+  location?: boolean
 }
 
 interface LastError {
@@ -45,7 +47,7 @@ const SHORTCUT_NAME = "Emergenthealth"
 const LABEL: Record<string, string> = {
   steps: "steps", sleepDuration: "sleep", sleepStart: "sleep", sleepEnd: "sleep", deepSleep: "deep sleep", remSleep: "REM",
   restingHR: "resting HR", hrv: "HRV", weight: "weight", activeMinutes: "exercise", caloriesBurned: "active energy",
-  sleep: "sleep", exerciseMinutes: "exercise", activeEnergy: "active energy",
+  sleep: "sleep", exerciseMinutes: "exercise", activeEnergy: "active energy", location: "location",
 }
 
 function describeSaved(saved: Record<string, number | string>): string {
@@ -91,7 +93,11 @@ const Step = ({ n, children }: { n: number; children: React.ReactNode }) => (
 const A = ({ children }: { children: React.ReactNode }) => <strong className="font-medium text-foreground">{children}</strong>
 const C = ({ children }: { children: React.ReactNode }) => <code className="rounded bg-secondary/60 px-1 py-0.5 font-mono text-[11px] text-foreground">{children}</code>
 
-export function AppleHealthManager() {
+/**
+ * `shortcutUrl` is the ready-made shortcut's iCloud link (lib/apple-shortcut),
+ * when one has been shared: then setting up is tap, paste the key, run once.
+ */
+export function AppleHealthManager({ shortcutUrl = null }: { shortcutUrl?: string | null }) {
   const [status, setStatus] = useState<Status | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const [newKey, setNewKey] = useState<string | null>(null)
@@ -168,7 +174,7 @@ export function AppleHealthManager() {
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground leading-relaxed">
           Apple lets only iPhone apps read Apple Health, and this app runs in Safari. So a shortcut in the
-          iPhone&apos;s <A>Shortcuts</A>{" "}app reads it and sends it here — sleep, steps, resting heart rate and HRV.
+          iPhone&apos;s <A>Shortcuts</A>{" "}app reads it and sends it here — sleep, steps, resting heart rate and HRV, and, if you like, where you are.
           It&apos;s set up once on the iPhone and takes about 10 minutes.
         </p>
 
@@ -179,7 +185,10 @@ export function AppleHealthManager() {
             {last ? (
               <>
                 <p className="text-xs text-foreground">
-                  Last received {fmt(last.at)}{describeSaved(last.saved) ? `: ${describeSaved(last.saved)}` : ""}.
+                  Last received {fmt(last.at)}{(() => {
+                    const parts = [describeSaved(last.saved), last.location ? "where you were" : ""].filter(Boolean)
+                    return parts.length ? `: ${parts.join(", ")}` : ""
+                  })()}.
                 </p>
                 {kept.length > 0 && <p className="text-[11px] text-muted-foreground">The ring&apos;s readings stand for {kept.join(", ")}.</p>}
                 {ignored.length > 0 && (
@@ -230,8 +239,23 @@ export function AppleHealthManager() {
         </div>
         {error && <p className="text-xs text-red-400" role="alert">{error}</p>}
 
-        <details className="group rounded-xl border border-border p-3" open={!last}>
-          <summary className="cursor-pointer text-xs font-medium text-foreground">How to set up the shortcut</summary>
+        {shortcutUrl && (
+          <div className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
+            <p className="text-xs font-medium text-foreground">Quick setup on the iPhone</p>
+            <ol className="ml-4 list-decimal space-y-1 text-xs leading-relaxed text-muted-foreground">
+              <li>Tap <A>{status?.hasKey ? "Make a new key" : "Create my key"}</A> above and copy it.</li>
+              <li>Tap <A>Get the shortcut</A> below, then <A>Add Shortcut</A>. When it asks for your key, paste it.</li>
+              <li>Run it once from Shortcuts. For Health, tap <A>Turn On All</A>, then <A>Allow</A>; for sending, <A>Always Allow</A>; for location, <A>Allow While Using App</A>.</li>
+              <li>Make it automatic: <A>Automation</A> → <A>+</A> → <A>App</A> → an app you open a few times a day (Clock or Weather, say) → <A>Is Opened</A> → <A>Run Immediately</A>, <A>Notify When Run</A> off → pick <C>{SHORTCUT_NAME}</C>. Apple Health can&apos;t be read on a locked phone, so it runs when you&apos;re using it.</li>
+            </ol>
+            <Button size="sm" asChild>
+              <a href={shortcutUrl} target="_blank" rel="noopener noreferrer">Get the shortcut</a>
+            </Button>
+          </div>
+        )}
+
+        <details className="group rounded-xl border border-border p-3" open={!last && !shortcutUrl}>
+          <summary className="cursor-pointer text-xs font-medium text-foreground">{shortcutUrl ? "Or build it yourself" : "How to set up the shortcut"}</summary>
           <ol className="mt-3 space-y-3">
             <Step n={1}>
               <p>On the iPhone, open <A>Shortcuts</A>, tap <A>+</A>, and name the shortcut exactly <C>{SHORTCUT_NAME}</C> — &ldquo;Send now&rdquo; finds it by that name. Add each action below with the search bar at the bottom.</p>
@@ -250,6 +274,7 @@ export function AppleHealthManager() {
               <p>Then <A>Get Details of Health Samples</A>: tap <A>Health Samples</A> in it and choose the variable <C>Sleep</C>, detail <C>Start Date</C> → <A>Set Variable</A> <C>SleepStarts</C>. Again with <C>End Date</C> → <C>SleepEnds</C>.</p>
             </Step>
             <Step n={5}>
+              <p><A>Where you are</A> (optional, for place patterns). Add <A>Get Current Location</A> → <A>Set Variable</A> <C>Location</C>. Allow location when asked, with <A>Precise Location</A> on.</p>
               <p><A>Send.</A> Add <A>Get Contents of URL</A> with this URL, tap <A>Show More</A>, set Method to <C>POST</C>:</p>
               {origin && <CopyField label="URL" value={url} />}
               <p>Under <A>Headers</A>, add <C>Authorization</C> with your key as the value — it starts with <C>Bearer ah_</C>.</p>
@@ -260,6 +285,8 @@ export function AppleHealthManager() {
                 <li><C>hrv</C> (Number) → HRV</li>
                 <li><C>sleepStarts</C> (Text) → SleepStarts — tap the variable, set <A>Date Format</A> to <C>ISO 8601</C> and turn on <A>Include ISO 8601 Time</A></li>
                 <li><C>sleepEnds</C> (Text) → SleepEnds — the same, time included</li>
+                <li><C>lat</C> (Number) → Location, tap it and choose <A>Latitude</A> — only if you added location</li>
+                <li><C>lon</C> (Number) → Location → <A>Longitude</A></li>
               </ul>
             </Step>
             <Step n={6}>
@@ -276,6 +303,17 @@ export function AppleHealthManager() {
               <p>Each run replaces the day with fresher numbers, so a few a day is right.</p>
             </Step>
           </ol>
+        </details>
+
+        <details className="rounded-xl border border-border p-3">
+          <summary className="cursor-pointer text-xs font-medium text-foreground">Built it? Share it, so others only paste a key</summary>
+          <ol className="mt-3 ml-4 list-decimal space-y-1.5 text-xs leading-relaxed text-muted-foreground">
+            <li>In Shortcuts, press and hold <C>{SHORTCUT_NAME}</C> → <A>Duplicate</A>, and open the copy. Your own shortcut stays as it is.</li>
+            <li>In the copy&apos;s <A>Get Contents of URL</A>, replace your key in the <C>Authorization</C> header with <C>Bearer PASTE_YOUR_KEY</C>. Your key gives access to your health data — it must not travel in the link.</li>
+            <li>Tap <A>ⓘ</A> at the bottom → <A>Setup</A> → <A>Add Import Question</A>, choose that header value, and ask: <C>Paste your key from Settings → Apple Health</C>.</li>
+            <li>Tap <A>Share</A> → <A>Copy iCloud Link</A>, send the link to whoever runs the app, then delete the copy.</li>
+          </ol>
+          <p className="mt-2 text-[11px] text-muted-foreground">The app shows &ldquo;Get the shortcut&rdquo; to everyone once the link is set as <C>APPLE_SHORTCUT_URL</C>.</p>
         </details>
       </CardContent>
     </Card>
