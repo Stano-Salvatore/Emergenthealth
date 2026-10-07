@@ -1,12 +1,14 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Check, Copy, Loader2, Play } from "lucide-react"
 import { copyText } from "@/lib/utils"
 import { isAppleMobile } from "@/lib/web-push"
 import { useClientValue } from "@/lib/use-client-value"
+import { SHORTCUT_NAME, runShortcutUrl } from "@/lib/apple-shortcut"
+import { AppleHealthQuickSetup, useAppleHealthStatus } from "./AppleHealthQuickSetup"
 
 // Apple Watch / Apple Health for an iPhone, through the Shortcuts app.
 //
@@ -15,34 +17,8 @@ import { useClientValue } from "@/lib/use-client-value"
 // /api/sync/apple-health (lib/apple-health). This card makes the key the
 // shortcut sends, walks through building the shortcut, and shows what the
 // last run actually saved — the only way to tell from here whether it works.
-
-interface LastSync {
-  at: string
-  date: string
-  saved: Record<string, number | string>
-  kept?: string[]
-  ignored?: string[]
-  /** The run also stored where the phone was. */
-  location?: boolean
-}
-
-interface LastError {
-  at: string
-  error: string
-  ignored?: string[]
-}
-
-interface Status {
-  hasKey: boolean
-  hint: string | null
-  createdAt: string | null
-  lastUsedAt: string | null
-  lastSync: LastSync | null
-  /** The last run that saved nothing, and why — Shortcuts itself doesn't show it. */
-  lastError: LastError | null
-}
-
-const SHORTCUT_NAME = "Emergenthealth"
+// With the shared shortcut (APPLE_SHORTCUT_URL) setup is AppleHealthQuickSetup
+// instead: no key to copy, and the key controls move under "build it yourself".
 
 const LABEL: Record<string, string> = {
   steps: "steps", sleepDuration: "sleep", sleepStart: "sleep", sleepEnd: "sleep", deepSleep: "deep sleep", remSleep: "REM",
@@ -95,34 +71,19 @@ const C = ({ children }: { children: React.ReactNode }) => <code className="roun
 
 /**
  * `shortcutUrl` is the ready-made shortcut's iCloud link (lib/apple-shortcut),
- * when one has been shared: then setting up is tap, paste the key, run once.
+ * when one has been shared: then setting up is add it, tap Connect, automate.
  */
 export function AppleHealthManager({ shortcutUrl = null }: { shortcutUrl?: string | null }) {
-  const [status, setStatus] = useState<Status | null>(null)
-  const [loadFailed, setLoadFailed] = useState(false)
+  const { status, loadFailed, load } = useAppleHealthStatus()
   const [newKey, setNewKey] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [origin, setOrigin] = useState("")
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch("/api/apple-health/key", { cache: "no-store" })
-      if (!res.ok) throw new Error()
-      setStatus(await res.json())
-      setLoadFailed(false)
-    } catch {
-      setLoadFailed(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    setOrigin(window.location.origin)
-    void load()
-  }, [load])
+  useEffect(() => { setOrigin(window.location.origin) }, [])
 
   async function makeKey() {
-    if (status?.hasKey && !confirm("Make a new key? The shortcut stops working until its key is replaced with the new one.")) return
+    if (status?.hasKey && !confirm("Make a new key? The shortcut stops working until its key is replaced with the new one — or, with the shared shortcut, until you tap Connect again.")) return
     setBusy(true)
     setError(null)
     try {
@@ -164,6 +125,33 @@ export function AppleHealthManager({ shortcutUrl = null }: { shortcutUrl?: strin
   const failed = status?.lastError && (!last || status.lastError.at > last.at) ? status.lastError : null
   const onIphone = useClientValue(() => isAppleMobile(), false)
 
+  const keyInfo = newKey ? (
+    <div className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
+      <CopyField label="Your key — shown only now. Copy it into the shortcut (step 5)." value={`Bearer ${newKey}`} />
+      <p className="text-[11px] text-muted-foreground">Lost it later? Make a new one here and paste that instead.</p>
+    </div>
+  ) : status?.hasKey ? (
+    <p className="text-[11px] text-muted-foreground">
+      Key ending …{status.hint}{status.createdAt ? `, made ${new Date(status.createdAt).toLocaleDateString()}` : ""}. It is shown only when made.
+    </p>
+  ) : null
+  const makeKeyButton = (
+    <Button size="sm" variant={status?.hasKey || shortcutUrl ? "outline" : "default"} onClick={makeKey} disabled={busy || !status}>
+      {busy && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
+      {status?.hasKey ? "Make a new key" : "Create my key"}
+    </Button>
+  )
+  const actions = status?.hasKey ? (
+    <>
+      {onIphone && (
+        <Button size="sm" variant="outline" asChild>
+          <a href={runShortcutUrl()}><Play className="h-3.5 w-3.5 mr-1.5" />Send now</a>
+        </Button>
+      )}
+      <Button size="sm" variant="ghost" onClick={disconnect} disabled={busy} className="text-muted-foreground">Disconnect</Button>
+    </>
+  ) : null
+
   return (
     <Card id="apple-health" className={last ? "border-green-500/20 bg-green-500/5" : "border-border/50"}>
       <CardHeader className="pb-2">
@@ -175,7 +163,7 @@ export function AppleHealthManager({ shortcutUrl = null }: { shortcutUrl?: strin
         <p className="text-xs text-muted-foreground leading-relaxed">
           Apple lets only iPhone apps read Apple Health, and this app runs in Safari. So a shortcut in the
           iPhone&apos;s <A>Shortcuts</A>{" "}app reads it and sends it here — sleep, steps, resting heart rate and HRV, and, if you like, where you are.
-          It&apos;s set up once on the iPhone and takes about 10 minutes.
+          It&apos;s set up once on the iPhone{shortcutUrl ? " — three steps, about a minute" : " and takes about 10 minutes"}.
         </p>
 
         {loadFailed && <p className="text-xs text-amber-400">Couldn&apos;t load the connection&apos;s status. Reload to try again.</p>}
@@ -210,52 +198,28 @@ export function AppleHealthManager({ shortcutUrl = null }: { shortcutUrl?: strin
           </div>
         )}
 
-        {newKey ? (
-          <div className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
-            <CopyField label="Your key — shown only now. Copy it into the shortcut (step 5)." value={`Bearer ${newKey}`} />
-            <p className="text-[11px] text-muted-foreground">Lost it later? Make a new one here and paste that instead.</p>
-          </div>
-        ) : status?.hasKey ? (
-          <p className="text-[11px] text-muted-foreground">
-            Key ending …{status.hint}{status.createdAt ? `, made ${new Date(status.createdAt).toLocaleDateString()}` : ""}. It is shown only when made.
-          </p>
-        ) : null}
-
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant={status?.hasKey ? "outline" : "default"} onClick={makeKey} disabled={busy || !status}>
-            {busy && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
-            {status?.hasKey ? "Make a new key" : "Create my key"}
-          </Button>
-          {status?.hasKey && (
-            <>
-              {onIphone && (
-                <Button size="sm" variant="outline" asChild>
-                  <a href={`shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUT_NAME)}`}><Play className="h-3.5 w-3.5 mr-1.5" />Send now</a>
-                </Button>
-              )}
-              <Button size="sm" variant="ghost" onClick={disconnect} disabled={busy} className="text-muted-foreground">Disconnect</Button>
-            </>
-          )}
-        </div>
-        {error && <p className="text-xs text-red-400" role="alert">{error}</p>}
-
-        {shortcutUrl && (
-          <div className="space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
-            <p className="text-xs font-medium text-foreground">Quick setup on the iPhone</p>
-            <ol className="ml-4 list-decimal space-y-1 text-xs leading-relaxed text-muted-foreground">
-              <li>Tap <A>{status?.hasKey ? "Make a new key" : "Create my key"}</A> above and copy it.</li>
-              <li>Tap <A>Get the shortcut</A> below, then <A>Add Shortcut</A>. When it asks for your key, paste it.</li>
-              <li>Run it once from Shortcuts. For Health, tap <A>Turn On All</A>, then <A>Allow</A>; for sending, <A>Always Allow</A>; for location, <A>Allow While Using App</A>.</li>
-              <li>Make it automatic: <A>Automation</A> → <A>+</A> → <A>App</A> → an app you open a few times a day (Clock or Weather, say) → <A>Is Opened</A> → <A>Run Immediately</A>, <A>Notify When Run</A> off → pick <C>{SHORTCUT_NAME}</C>. Apple Health can&apos;t be read on a locked phone, so it runs when you&apos;re using it.</li>
-            </ol>
-            <Button size="sm" asChild>
-              <a href={shortcutUrl} target="_blank" rel="noopener noreferrer">Get the shortcut</a>
-            </Button>
-          </div>
+        {shortcutUrl ? (
+          <>
+            <AppleHealthQuickSetup shortcutUrl={shortcutUrl} status={status} reload={load} />
+            {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+          </>
+        ) : (
+          <>
+            {keyInfo}
+            <div className="flex flex-wrap gap-2">{makeKeyButton}{actions}</div>
+          </>
         )}
+        {error && <p className="text-xs text-red-400" role="alert">{error}</p>}
 
         <details className="group rounded-xl border border-border p-3" open={!last && !shortcutUrl}>
           <summary className="cursor-pointer text-xs font-medium text-foreground">{shortcutUrl ? "Or build it yourself" : "How to set up the shortcut"}</summary>
+          {shortcutUrl && (
+            <div className="mt-3 space-y-2">
+              <p className="text-[11px] text-muted-foreground">A shortcut built by hand carries the key itself: make one here and paste it in step 5.</p>
+              {keyInfo}
+              {makeKeyButton}
+            </div>
+          )}
           <ol className="mt-3 space-y-3">
             <Step n={1}>
               <p>On the iPhone, open <A>Shortcuts</A>, tap <A>+</A>, and name the shortcut exactly <C>{SHORTCUT_NAME}</C> — &ldquo;Send now&rdquo; finds it by that name. Add each action below with the search bar at the bottom.</p>
@@ -306,14 +270,21 @@ export function AppleHealthManager({ shortcutUrl = null }: { shortcutUrl?: strin
         </details>
 
         <details className="rounded-xl border border-border p-3">
-          <summary className="cursor-pointer text-xs font-medium text-foreground">Built it? Share it, so others only paste a key</summary>
-          <ol className="mt-3 ml-4 list-decimal space-y-1.5 text-xs leading-relaxed text-muted-foreground">
+          <summary className="cursor-pointer text-xs font-medium text-foreground">Built it? Share it, so others only tap Connect</summary>
+          <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+            The shared copy carries no key. Connect hands each person&apos;s key to it, and it keeps the key in a file
+            for every later run.
+          </p>
+          <ol className="mt-2 ml-4 list-decimal space-y-1.5 text-xs leading-relaxed text-muted-foreground">
             <li>In Shortcuts, press and hold <C>{SHORTCUT_NAME}</C> → <A>Duplicate</A>, and open the copy. Your own shortcut stays as it is.</li>
-            <li>In the copy&apos;s <A>Get Contents of URL</A>, replace your key in the <C>Authorization</C> header with <C>Bearer PASTE_YOUR_KEY</C>. Your key gives access to your health data — it must not travel in the link.</li>
-            <li>Tap <A>ⓘ</A> at the bottom → <A>Setup</A> → <A>Add Import Question</A>, choose that header value, and ask: <C>Paste your key from Settings → Apple Health</C>.</li>
+            <li><A>Take the key as input.</A> Tap <A>ⓘ</A> → turn on <A>Show in Share Sheet</A>. In the <A>Receive</A> action that appears at the top, choose only <C>Text</C>, and set <A>If there&apos;s no input</A> to <C>Continue</C>.</li>
+            <li><A>Keep it.</A> Under that, add <A>If</A> <C>Shortcut Input</C> <C>has any value</C>, and inside it <A>Save File</A> with <C>Shortcut Input</C>: <A>Ask Where to Save</A> off, subpath <C>Emergenthealth/key.txt</C>, <A>Overwrite If File Exists</A> on.</li>
+            <li><A>Read it.</A> After <A>End If</A>, add <A>Get File from Folder</A>: folder <C>Shortcuts</C>, path <C>Emergenthealth/key.txt</C>, <A>Error If Not Found</A> off → <A>Set Variable</A> <C>Key</C>. Then <A>If</A> <C>Key</C> <C>does not have any value</C> → <A>Show Alert</A> <C>Not connected yet — in Emergenthealth, open Settings → Apple Health and tap Connect.</C> → <A>Stop This Shortcut</A>.</li>
+            <li>In <A>Get Contents of URL</A>, set the <C>Authorization</C> header to <C>Bearer </C> followed by the <C>Key</C> variable. Your own key must not stay in it — it gives access to your health data.</li>
+            <li><A>Say it worked.</A> At the very end, add <A>If</A> <C>Shortcut Input</C> <C>has any value</C> → <A>Show Notification</A> <C>Connected — go back to Emergenthealth.</C> Remove <A>Show Result</A> if it&apos;s still there.</li>
             <li>Tap <A>Share</A> → <A>Copy iCloud Link</A>, send the link to whoever runs the app, then delete the copy.</li>
           </ol>
-          <p className="mt-2 text-[11px] text-muted-foreground">The app shows &ldquo;Get the shortcut&rdquo; to everyone once the link is set as <C>APPLE_SHORTCUT_URL</C>.</p>
+          <p className="mt-2 text-[11px] text-muted-foreground">The app offers it to everyone once the link is set as <C>APPLE_SHORTCUT_URL</C>.</p>
         </details>
       </CardContent>
     </Card>

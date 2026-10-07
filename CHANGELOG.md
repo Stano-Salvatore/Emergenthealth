@@ -1,5 +1,34 @@
 # Changelog
 
+## 3.17.0 — iPhone: connect Apple Health without copying a key
+
+Web-only, no new APK. No schema change. The shared shortcut has to be
+rebuilt to the new recipe (below) before `APPLE_SHORTCUT_URL` points at it.
+
+**Changed**
+- **Quick setup is three steps: Add the shortcut, Connect, Make it automatic.**
+  - **Connect:** makes the key and opens
+    `shortcuts://run-shortcut?name=Emergenthealth&input=text&text=<key>`. The
+    shared shortcut saves that input to `Emergenthealth/key.txt` in its
+    Shortcuts folder, and every later run, automations included, reads it
+    from there. Nothing to copy or paste, no Import Question.
+  - **Knowing it worked:** Shortcuts can't hand an answer back to a Home
+    Screen web app (`x-success` opens Safari), so the card asks the server
+    every few seconds, and as soon as the app is back on screen, until the
+    first run arrives. A run that saved nothing shows its reason. After 45
+    seconds of nothing it says what to check.
+  - **Make it automatic:** still by hand, since iOS lets nothing create an
+    automation. The card lists the taps and links to Shortcuts.
+  - **Hand-built shortcuts:** the key controls move under *Or build it
+    yourself*. Connecting again warns that a hand-built shortcut stops until
+    the new key is pasted in.
+- **Onboarding connects an iPhone in place.** With the shared shortcut set,
+  the Apple Health row on the connect step is the quick setup itself, not a
+  pointer to Settings.
+- **Sharing the shortcut:** the card's recipe now takes the key as Text
+  input, keeps it in the file, reads it back, stops with a "not connected
+  yet" alert when there's none, and sends `Bearer ` + the key.
+
 ## 3.16.0 — iPhone: location from the shortcut, and a one-tap install
 
 Web-only, no new APK. No schema change.

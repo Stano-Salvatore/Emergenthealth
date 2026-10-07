@@ -480,6 +480,28 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **iPhone connect without a key to paste (3.17.0).**
+  - **Flow:** `AppleHealthQuickSetup` takes three steps: add the shortcut,
+    Connect, make it automatic. It is used by the Settings card and,
+    through `AppleHealthQuickSetupStandalone`, by onboarding's connect step.
+    Both appear only when `APPLE_SHORTCUT_URL` is set.
+  - **Connect:** POSTs `/api/apple-health/key`, then opens
+    `lib/apple-shortcut.connectShortcutUrl(key)`. That is `run-shortcut`
+    with the key as text input.
+  - **The shared shortcut:** saves an input to `Emergenthealth/key.txt` and
+    reads the key from that file on every run.
+    - Its recipe lives in the card's "Share it" section.
+    - A copy built to the older Import Question recipe breaks on Connect,
+      because Connect replaces the key it was given.
+  - **Confirming it worked:** the card polls the key status every 3 seconds
+    for up to 3 minutes, and again when the app comes back on screen. It
+    counts only runs from a minute before the tap onwards.
+  - **Not done on a device yet:**
+    - whether iOS opens `shortcuts://` straight after the `await` (there is
+      a fallback link);
+    - whether `Show in Share Sheet`'s Receive action is what makes URL input
+      arrive.
+
 - **iPhone location and the shared shortcut (3.16.0).**
   - **Location:**
     - `lat`/`lon` in the Apple Health body go through

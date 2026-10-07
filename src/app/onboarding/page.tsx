@@ -8,6 +8,7 @@ import { auth } from "@/auth"
 import { getGoals } from "@/lib/goals"
 import { getCycleSettings } from "@/lib/cycle-load"
 import { onboardingConnections } from "@/lib/onboarding"
+import { readyShortcutUrl } from "@/lib/apple-shortcut"
 import { OnboardingWizard } from "./OnboardingWizard"
 
 export const dynamic = "force-dynamic"
@@ -49,6 +50,7 @@ export default async function OnboardingPage({ searchParams }: { searchParams: P
       connections={connections}
       startAt={sp.step === "connect" ? "connect" : "welcome"}
       connectError={connectError}
+      shortcutUrl={readyShortcutUrl()}
     />
   )
 }
