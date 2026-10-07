@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.16.0 — iPhone: location from the shortcut, and a one-tap install
+
+Web-only, no new APK. No schema change.
+
+**Added**
+- **Where you are, from the iPhone shortcut.**
+  - **How:** an optional *Get Current Location* step sends the phone's
+    position with each run, stored exactly as the Android app's own tracking
+    stores it: same rows, same visit detection.
+  - **Why:** an iPhone web app gets no background location, so this is what
+    place patterns and check-ins get instead. A run that sends only a
+    location is a good run.
+  - **Bad positions:** half a position, or one off the globe, is named and
+    not stored.
+- **"Get the shortcut", a one-tap install.**
+  - **Sharing it:** once someone has built the shortcut, they share a copy
+    as an iCloud link, with their key replaced by `Bearer PASTE_YOUR_KEY`
+    and an Import Question asking for the key. Their own key never travels
+    in the link.
+  - **The card:** explains how to share safely.
+  - **Using it:** set the link as `APPLE_SHORTCUT_URL`. Every card then
+    offers a quick setup: make a key, tap *Get the shortcut*, paste the key,
+    run once, make it automatic.
+  - **Only iCloud links:** only an iCloud shortcut link is ever offered.
+
 ## 3.15.0 — Apple Watch through Shortcuts; Strava only where it can connect
 
 Web-only, no new APK. Schema: one new table, `AppleHealthKey` (additive).

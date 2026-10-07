@@ -166,7 +166,7 @@ export function readAppleHealthDay(
   body: Record<string, unknown>,
   today: string,
   timeZone: string,
-): { date: string; fields: AppleHealthFields; ignored: string[] } {
+): { date: string; fields: AppleHealthFields; location: { lat: number; lng: number } | null; ignored: string[] } {
   const fields: AppleHealthFields = {}
   const ignored: string[] = []
 
@@ -248,5 +248,18 @@ export function readAppleHealthDay(
     else if (mins > 0) fields.sleepDuration = Math.round(mins)
   }
 
-  return { date, fields, ignored }
+  // Where the phone is, as the run saw it: both coordinates and on the globe,
+  // or nothing — half a position is no position.
+  let location: { lat: number; lng: number } | null = null
+  if (present(body.lat) || present(body.lon)) {
+    const lat = numbersIn(body.lat, "measure")[0]
+    const lng = numbersIn(body.lon, "measure")[0]
+    if (lat !== undefined && lng !== undefined && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0)) {
+      location = { lat, lng }
+    } else {
+      ignored.push("location")
+    }
+  }
+
+  return { date, fields, location, ignored }
 }

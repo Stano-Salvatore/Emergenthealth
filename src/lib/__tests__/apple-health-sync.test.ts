@@ -12,11 +12,15 @@ const db = vi.hoisted(() => ({
   existing: null as Record<string, unknown> | null,
   prefs: new Map<string, string>(),
   ring: false,
+  points: [] as unknown[],
 }))
 
 vi.mock("@/auth", () => ({ auth: async () => ({ user: { id: "u1" } }) }))
 vi.mock("@/lib/user-timezone", () => ({ userToday: async () => "2026-10-06", getUserTimezone: async () => "Europe/Bratislava" }))
 vi.mock("@/lib/local-date", async orig => ({ ...(await orig<typeof import("@/lib/local-date")>()), localDateStr: (tz: string, at?: Date) => at ? new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(at) : "2026-10-06" }))
+vi.mock("@/lib/location-ingest", () => ({
+  ingestLocationPoints: async (_u: string, pts: unknown[]) => { db.points.push(...pts); return { inserted: pts.length, received: pts.length, checkIns: 0 } },
+}))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     appleHealthKey: {
@@ -55,7 +59,7 @@ const post = (body: unknown, key?: string) => SYNC(new NextRequest("http://x/api
   headers: { "content-type": "application/json", ...(key ? { authorization: `Bearer ${key}` } : {}) },
 }))
 
-beforeEach(() => { db.keys = []; db.upserts = []; db.existing = null; db.prefs.clear(); db.ring = false })
+beforeEach(() => { db.keys = []; db.upserts = []; db.existing = null; db.prefs.clear(); db.ring = false; db.points = [] })
 
 async function newKey(): Promise<string> {
   const res = await KEY_POST()
@@ -149,5 +153,37 @@ describe("the sync", () => {
       method: "POST", body: "not json", headers: { authorization: `Bearer ${key}` },
     }))
     expect(res.status).toBe(400)
+  })
+})
+
+// The shortcut can also say where the phone is, each time it runs: on an
+// iPhone there is no background tracking, and this is what place patterns
+// get instead. It lands as the phone's own points do (lib/location-ingest).
+describe("where the phone is", () => {
+  it("a run with coordinates stores a point, decimal commas and all", async () => {
+    const key = await newKey()
+    const res = await post({ steps: 1200, lat: "48,1486", lon: "17,1077" }, key)
+    expect(res.status).toBe(200)
+    const out = await res.json()
+    expect(out.location).toBe(true)
+    expect(db.points).toHaveLength(1)
+    expect(db.points[0]).toMatchObject({ lat: 48.1486, lng: 17.1077 })
+  })
+
+  it("a run with only a location is a good run, not 'nothing readable'", async () => {
+    const key = await newKey()
+    const res = await post({ lat: 48.1486, lon: 17.1077, steps: 0 }, key)
+    expect(res.status).toBe(200)
+    expect(db.upserts).toHaveLength(0)
+    expect(JSON.parse(db.prefs.get("apple_health_last_sync")!).location).toBe(true)
+  })
+
+  it("coordinates off the globe, or only half of them, are named and not stored", async () => {
+    const key = await newKey()
+    const out = await (await post({ steps: 100, lat: 95, lon: 17 }, key)).json()
+    expect(out.ignored).toContain("location")
+    const half = await (await post({ steps: 100, lat: 48.1 }, key)).json()
+    expect(half.ignored).toContain("location")
+    expect(db.points).toHaveLength(0)
   })
 })

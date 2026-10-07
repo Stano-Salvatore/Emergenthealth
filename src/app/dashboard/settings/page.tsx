@@ -34,6 +34,7 @@ import { DigestPreferences } from "@/components/settings/DigestPreferences"
 import { WeeklyReviewSchedule } from "@/components/settings/WeeklyReviewSchedule"
 import { StravaManager } from "@/components/settings/StravaManager"
 import { AppleHealthManager } from "@/components/settings/AppleHealthManager"
+import { readyShortcutUrl } from "@/lib/apple-shortcut"
 import { stravaOffered } from "@/lib/strava-access"
 import { GitHubManager } from "@/components/settings/GitHubManager"
 import { RescuetimeManager } from "@/components/settings/RescuetimeManager"
@@ -365,7 +366,7 @@ export default async function SettingsPage({
       {/* Oura Ring connection (client component) */}
       <OuraManager isConnected={isOuraConnected} hasOauthConfig={!!(process.env.OURA_CLIENT_ID && process.env.OURA_CLIENT_SECRET)} />
       {/* Apple Watch / Apple Health — an iPhone Shortcut posts it (lib/apple-health) */}
-      <AppleHealthManager />
+      <AppleHealthManager shortcutUrl={readyShortcutUrl()} />
       {/* Health Connect — Android only, syncs from Garmin/Fitbit/Samsung/etc */}
       <HealthConnectManager lastSync={hcLastSync} />
 

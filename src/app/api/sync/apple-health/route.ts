@@ -4,6 +4,7 @@ import { appleHealthKeyUser, hashKey } from "@/lib/apple-health-key"
 import { readAppleHealthDay } from "@/lib/apple-health"
 import { phoneFieldsRespectingRing, PRECEDENCE_SELECT } from "@/lib/health-precedence"
 import { checkRateLimit } from "@/lib/rate-limit"
+import { ingestLocationPoints } from "@/lib/location-ingest"
 import { getUserTimezone } from "@/lib/user-timezone"
 import { localDateStr } from "@/lib/local-date"
 
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest) {
 
   const timeZone = await getUserTimezone(userId)
   const read = readAppleHealthDay(body as Record<string, unknown>, localDateStr(timeZone), timeZone)
-  const { date, ignored } = read
+  const { date, ignored, location } = read
   let fields = read.fields
   const kept: string[] = []
 
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
     kept.push("hrv")
   }
 
-  if (Object.keys(fields).length === 0 && kept.length === 0) {
+  if (Object.keys(fields).length === 0 && kept.length === 0 && !location) {
     const error = ignored.includes("sleep")
       ? `Nothing readable arrived. ${ISO_HINT}`
       : `Nothing readable arrived — no values, or only zeros. The watch may not have synced yet. ${ACCESS_HINT}`
@@ -96,15 +97,27 @@ export async function POST(req: NextRequest) {
     Object.entries(allowed).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v]),
   )
   kept.push(...Object.keys(fields).filter(k => !(k in allowed)))
+
+  // The phone's position as this run saw it, stored as the phone's own
+  // tracking stores it — the same rows, ids and visit detection — since on an
+  // iPhone this is the only location the app gets.
+  let located = false
+  if (location) {
+    const res = await ingestLocationPoints(userId, [{ lat: location.lat, lng: location.lng, trackedAt: syncedAt.toISOString() }])
+      .catch(() => ({ inserted: 0 }))
+    located = res.inserted > 0
+  }
+
+  const status = JSON.stringify({ at: syncedAt.toISOString(), date, saved, kept, ignored, location: located })
   await Promise.all([
     prisma.appleHealthKey.update({ where: { userId }, data: { lastUsedAt: syncedAt } }).catch(() => null),
     prisma.userPreference.upsert({
       where: { userId_key: { userId, key: "apple_health_last_sync" } },
-      create: { userId, key: "apple_health_last_sync", value: JSON.stringify({ at: syncedAt.toISOString(), date, saved, kept, ignored }) },
-      update: { value: JSON.stringify({ at: syncedAt.toISOString(), date, saved, kept, ignored }) },
+      create: { userId, key: "apple_health_last_sync", value: status },
+      update: { value: status },
     }).catch(() => null),
     prisma.userPreference.deleteMany({ where: { userId, key: { in: ["apple_health_last_error"] } } }).catch(() => null),
   ])
 
-  return NextResponse.json({ ok: true, date, saved, keptFromRing: kept, ignored })
+  return NextResponse.json({ ok: true, date, saved, location: located, keptFromRing: kept, ignored })
 }

@@ -480,6 +480,21 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **iPhone location and the shared shortcut (3.16.0).**
+  - **Location:**
+    - `lat`/`lon` in the Apple Health body go through
+      `lib/location-ingest.ingestLocationPoints` with source `app`, so they
+      are the same rows, ids and visit detection as the APK's tracking.
+    - A location-only run returns 200.
+    - `apple_health_last_sync.location` records that one arrived.
+  - **Shared shortcut:**
+    - `lib/apple-shortcut.readyShortcutUrl` takes `APPLE_SHORTCUT_URL` only
+      if it matches `https://www.icloud.com/shortcuts/<id>`.
+    - Settings passes it to `AppleHealthManager`, which then shows the quick
+      setup and folds the build-it-yourself guide.
+    - The shared copy must carry `Bearer PASTE_YOUR_KEY` plus an Import
+      Question, never the sharer's key. The card says so.
+
 - **Apple Health via Shortcuts; Strava gate (3.15.0).**
   - **Reading:** `lib/apple-health.ts` reads a Shortcuts body (locale-shaped
     text) into one HealthLog day.
