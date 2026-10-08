@@ -23,6 +23,7 @@ import { CONTRACEPTION, type Contraception } from "@/lib/cycle"
 import { CONTRACEPTION_GUIDE } from "@/lib/cycle-guide"
 import { CONFIDENT_N, EARLIEST_CONFIDENT_DAY, EARLIEST_TEST_DAY, MIN_GROUP_DAYS } from "@/lib/pattern-rules"
 import { PatternsStep } from "@/components/onboarding/PatternsStep"
+import { AppleHealthQuickSetupStandalone } from "@/components/settings/AppleHealthQuickSetup"
 import { TimezoneSync } from "@/components/TimezoneSync"
 
 type Sex = "male" | "female" | null
@@ -41,6 +42,8 @@ export interface WizardProps {
   connections: OnboardingConnections
   startAt: OnboardingStep
   connectError: "oura" | "strava" | "strava_closed" | null
+  /** The shared Apple Health shortcut (lib/apple-shortcut): with it, an iPhone connects right here. */
+  shortcutUrl?: string | null
 }
 
 // ── Pieces ───────────────────────────────────────────────────────────────────
@@ -190,7 +193,7 @@ function ConnectRow({ emoji, name, hint, connected, href, onClick, busy, later }
 
 // ── The wizard ───────────────────────────────────────────────────────────────
 
-export function OnboardingWizard({ firstName, initial, connections, startAt, connectError }: WizardProps) {
+export function OnboardingWizard({ firstName, initial, connections, startAt, connectError, shortcutUrl = null }: WizardProps) {
   const router = useRouter()
   const needsHomeScreen = useClientValue(() => iosNeedsHomeScreen(), false)
   const native = useClientValue(() => isNativeShell(), false)
@@ -477,7 +480,18 @@ export function OnboardingWizard({ firstName, initial, connections, startAt, con
                   <ConnectRow emoji="📱" name="Health Connect" hint="Steps, heart rate, sleep and workouts from this phone"
                     connected={hc === "done"} onClick={connectHealthConnect} busy={hc === "busy"} />
                 )}
-                {(apple || connections.appleHealth) && (
+                {apple && shortcutUrl && !connections.appleHealth ? (
+                  <div className="space-y-3 rounded-xl border border-border bg-card px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <span className="shrink-0 text-xl" aria-hidden>🍎</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-foreground">Apple Watch &amp; Apple Health</div>
+                        <div className="text-xs leading-snug text-muted-foreground">Sleep, steps and heart rate, sent by a shortcut on this iPhone</div>
+                      </div>
+                    </div>
+                    <AppleHealthQuickSetupStandalone shortcutUrl={shortcutUrl} />
+                  </div>
+                ) : (apple || connections.appleHealth) && (
                   <ConnectRow emoji="🍎" name="Apple Watch & Apple Health"
                     hint="Sleep, steps and heart rate, sent by a shortcut on this iPhone — about 10 minutes to set up"
                     connected={connections.appleHealth} later="After this, in Settings → Data connections" />
