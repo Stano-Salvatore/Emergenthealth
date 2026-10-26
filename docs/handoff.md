@@ -480,6 +480,17 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Let the database sleep (3.17.1, APK).** Neon's free plan ran out of
+  compute on 21 October: Personal Dashboard had been awake about 424 of the
+  482 hours since the 1st. It sleeps after five quiet minutes, and the
+  phone's location service uploaded every five, so it never did. Location now
+  uploads at most every 30 minutes (`UPLOAD_EVERY_MS`, with `uploadDue()`
+  gating both `onFix` and `flushPending`). Today, Habits and Reminders share
+  one hourly periodic refresh through `TodayWidget.periodicRefresh`; a widget
+  id it has not seen is drawn at once. `database-sleeps.test.ts` guards both.
+  Anything new that reaches the server on a timer under ~10 minutes costs
+  real quota. Check `active_time` on the Neon project before adding one.
+
 - **iPhone connect without a key to paste (3.17.0).**
   - **Flow:** `AppleHealthQuickSetup` takes three steps: add the shortcut,
     Connect, make it automatic. It is used by the Settings card and,

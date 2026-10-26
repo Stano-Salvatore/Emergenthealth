@@ -72,6 +72,7 @@ public class EmergyLocationService extends Service {
     private static final String LAST_AT = "last_at";
     private static final String LAST_LAT = "last_lat";
     private static final String LAST_LNG = "last_lng";
+    private static final String LAST_UPLOAD_AT = "last_upload_at";
     /**
      * Three faults, kept apart on purpose.
      *
@@ -100,6 +101,17 @@ public class EmergyLocationService extends Service {
     private static final float MOVED_FAR_M = 200f;
     /** Points wait this long for company before going up together. */
     private static final long FLUSH_DELAY_MS = 20_000;
+    /**
+     * At most one upload this often; between them points wait on the phone.
+     *
+     * The database sleeps after five quiet minutes and is billed for every
+     * minute it is awake. A point every five minutes, around the clock, meant
+     * it never slept, and the free plan's compute ran out on the 21st of the
+     * month with every screen of the app down until the 1st. Half-hourly
+     * batches let it sleep between them, and a place still shows up within
+     * the half hour, which is soon enough for anything built on visits.
+     */
+    static final long UPLOAD_EVERY_MS = 30 * 60_000;
     /** Roughly a day of stationary tracking; beyond this the oldest go. */
     private static final int MAX_QUEUED = 200;
 
@@ -256,6 +268,10 @@ public class EmergyLocationService extends Service {
         if (!running) return;
         // Nothing waiting: do not wake the radio to say so.
         if (queuedCount(ctx) == 0) return;
+        // The heartbeat is every fifteen minutes; uploading on each would undo
+        // the half-hourly batching. A failed upload leaves the clock where it
+        // was, so a retry is still due on the next tick.
+        if (!uploadDue(ctx)) return;
         try {
             ctx.startService(new Intent(ctx, EmergyLocationService.class).setAction(ACTION_FLUSH));
         } catch (Exception ignored) {
@@ -430,15 +446,25 @@ public class EmergyLocationService extends Service {
                 while (queue.length() > MAX_QUEUED) queue.remove(0);
             }
             saveQueue(queue);
-            updateNotice(queue.length() + " waiting to upload");
+            updateNotice(queue.length() + " waiting for the next upload");
         } catch (Exception ignored) {
             // One bad fix must not stop the next.
         }
 
+        // Not due yet: the point waits for the next batch (see UPLOAD_EVERY_MS).
+        if (!uploadDue(this)) return;
         // Give a moving phone a moment to produce its next fix, so a journey
         // goes up as one request rather than one per point.
         main.removeCallbacks(flushNow);
         main.postDelayed(flushNow, FLUSH_DELAY_MS);
+    }
+
+    /** True once UPLOAD_EVERY_MS has passed since the last upload that landed. */
+    static boolean uploadDue(Context ctx) {
+        long last = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(LAST_UPLOAD_AT, 0L);
+        long now = System.currentTimeMillis();
+        // A clock set backwards would otherwise hold every point until it caught up.
+        return last == 0L || now < last || now - last >= UPLOAD_EVERY_MS;
     }
 
     private static String iso(long millis) {
@@ -521,6 +547,8 @@ public class EmergyLocationService extends Service {
                         uploading = false;
                         if (result >= 200 && result < 300) {
                             dropSent(count);
+                            getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                                .putLong(LAST_UPLOAD_AT, System.currentTimeMillis()).apply();
                             clearUploadFault(getApplicationContext());
                             updateNotice("Logging the places you spend time at · last upload " + clock());
                         } else if (result == 401 || result == 403) {

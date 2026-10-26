@@ -17,7 +17,9 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * Today at a glance: readiness, last night's sleep, steps, habits and the next
@@ -38,7 +40,52 @@ public class TodayWidget extends AppWidgetProvider {
     private static final String CAP_APP_URL = "widget_app_url";
 
     @Override
-    public void onUpdate(Context context, AppWidgetManager mgr, int[] ids) { refreshAll(context); }
+    public void onUpdate(Context context, AppWidgetManager mgr, int[] ids) { periodicRefresh(context, "today", ids); }
+
+    private static final String PREFS_WIDGETS = "emergy_widgets";
+    private static final String PERIODIC_AT   = "periodic_at";
+    /**
+     * How often the widgets that read the server go to it on their own.
+     *
+     * Each of the three had its own half-hourly update, and Android fires
+     * them independently, so with all three on a home screen the server's
+     * database was woken up to six times an hour. It sleeps after five quiet
+     * minutes and is billed for every minute awake, and between these and the
+     * location uploads it never slept at all. One shared refresh an hour is
+     * one wake-up an hour, and a tap on a widget still refreshes it at once.
+     */
+    private static final long PERIODIC_GAP_MS = 55 * 60_000L;
+
+    /**
+     * The periodic update for Today, Habits and Reminders, shared.
+     *
+     * Whichever update fires first once the gap has passed refreshes all
+     * three; the rest skip. A widget id seen for the first time is drawn
+     * regardless, since onUpdate is also how a newly placed widget gets its
+     * first content, and skipping that would leave it blank for an hour.
+     */
+    static void periodicRefresh(Context ctx, String provider, int[] ids) {
+        SharedPreferences p = ctx.getSharedPreferences(PREFS_WIDGETS, Context.MODE_PRIVATE);
+        String seenKey = "seen_" + provider;
+        Set<String> seen = new HashSet<>(p.getStringSet(seenKey, new HashSet<String>()));
+        boolean fresh = false;
+        if (ids != null) for (int id : ids) fresh |= seen.add(String.valueOf(id));
+        if (fresh) p.edit().putStringSet(seenKey, seen).apply();
+
+        long now = System.currentTimeMillis();
+        long last = p.getLong(PERIODIC_AT, 0L);
+        // A clock set backwards would otherwise hold every refresh until it caught up.
+        if (last == 0L || now < last || now - last >= PERIODIC_GAP_MS) {
+            p.edit().putLong(PERIODIC_AT, now).apply();
+            TodayWidget.refreshAll(ctx);
+            HabitsWidget.refreshAll(ctx);
+            RemindersWidget.refreshAll(ctx);
+        } else if (fresh) {
+            if ("today".equals(provider)) TodayWidget.refreshAll(ctx);
+            else if ("habits".equals(provider)) HabitsWidget.refreshAll(ctx);
+            else if ("reminders".equals(provider)) RemindersWidget.refreshAll(ctx);
+        }
+    }
 
     /** {apiKey, baseUrl} or null when the widget has not been set up yet. */
     private static String[] creds(Context context) {

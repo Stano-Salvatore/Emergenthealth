@@ -36,7 +36,7 @@ public class HabitsWidget extends AppWidgetProvider {
     private static final int[] NAME_IDS  = { R.id.habit_name_0, R.id.habit_name_1, R.id.habit_name_2, R.id.habit_name_3, R.id.habit_name_4 };
 
     @Override
-    public void onUpdate(Context context, AppWidgetManager mgr, int[] ids) { refreshAll(context); }
+    public void onUpdate(Context context, AppWidgetManager mgr, int[] ids) { TodayWidget.periodicRefresh(context, "habits", ids); }
 
     @Override
     public void onReceive(Context context, Intent intent) {

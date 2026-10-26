@@ -1,5 +1,32 @@
 # Changelog
 
+## 3.17.1 — Let the database sleep
+
+**Needs a new APK.** No schema change, nothing on the server.
+
+The database's free compute ran out on 21 October with ten days of the month
+left. From then on every query was refused, sign-in included, until Neon's
+reset on the 1st. Neon sleeps after five quiet minutes and counts every minute
+awake. The phone reached it more often than that around the clock, so it was
+awake about 88% of the month.
+
+**Changed**
+- **Location goes up in half-hourly batches.** Points are still recorded every
+  five minutes while still and every 200 m while moving; they wait on the
+  phone and upload together at most once every 30 minutes
+  (`EmergyLocationService.UPLOAD_EVERY_MS`). The first point after a quiet
+  spell still goes straight up. The watchdog's retry follows the same clock,
+  and a failed upload is retried on the next due tick. Places and visits show
+  up within the half hour rather than within minutes.
+- **The Today, Habits and Reminders widgets share one hourly refresh.** Each
+  had its own half-hourly update on its own clock. Now whichever fires first
+  after an hour refreshes all three (`TodayWidget.periodicRefresh`). A newly
+  placed widget is still drawn at once, and a tap still refreshes right away.
+
+**Added**
+- `database-sleeps.test.ts` fails if either interval is shortened or a path
+  starts uploading on its own clock again.
+
 ## 3.17.0 — iPhone: connect Apple Health without copying a key
 
 Web-only, no new APK. No schema change. The shared shortcut has to be

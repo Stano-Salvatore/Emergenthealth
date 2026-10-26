@@ -35,7 +35,7 @@ public class RemindersWidget extends AppWidgetProvider {
     private static final int[] TITLE_IDS = { R.id.rem_title_0, R.id.rem_title_1, R.id.rem_title_2, R.id.rem_title_3, R.id.rem_title_4 };
 
     @Override
-    public void onUpdate(Context context, AppWidgetManager mgr, int[] ids) { refreshAll(context); }
+    public void onUpdate(Context context, AppWidgetManager mgr, int[] ids) { TodayWidget.periodicRefresh(context, "reminders", ids); }
 
     @Override
     public void onReceive(Context context, Intent intent) {
