@@ -480,6 +480,14 @@ content being stranded below the fold on seven pages.
 
 Roughly in order, most recent first:
 
+- **Self-hosting (3.18.0).** Vercel paused the Hobby team on 5 November for
+  Fluid Active CPU. `Dockerfile` plus `docker/selfhost/` run the app and the
+  `vercel.json` jobs on any Docker host; `docs/self-hosting.md` is the runbook.
+  The `APP_URL` repository variable is the switch: the cron workflows,
+  `cap sync` and `patch-kiwi-health.py` (the sign-in hand-off in
+  `MainActivity`) all read it, with Vercel as the fallback. A self-hosted
+  deploy is `git pull && docker compose up -d --build`, not a merge.
+
 - **Let the database sleep (3.17.1, APK).** Neon's free plan ran out of
   compute on 21 October: Personal Dashboard had been awake about 424 of the
   482 hours since the 1st. It sleeps after five quiet minutes, and the

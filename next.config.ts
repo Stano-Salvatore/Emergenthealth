@@ -9,6 +9,16 @@ const securityHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
 ]
 
+/** The host of a self-hosted server (docs/self-hosting.md), when it is not Vercel. */
+function selfHostedOrigin(): string[] {
+  try {
+    const host = new URL(process.env.NEXT_PUBLIC_APP_URL ?? "").host
+    return host && host !== "emergenthealth.vercel.app" ? [host] : []
+  } catch {
+    return []
+  }
+}
+
 const nextConfig: NextConfig = {
   async headers() {
     return [
@@ -41,7 +51,7 @@ const nextConfig: NextConfig = {
   turbopack: {},
   experimental: {
     serverActions: {
-      allowedOrigins: ["localhost:3000", "emergenthealth.vercel.app"],
+      allowedOrigins: ["localhost:3000", "emergenthealth.vercel.app", ...selfHostedOrigin()],
     },
   },
   images: {

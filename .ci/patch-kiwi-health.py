@@ -522,6 +522,10 @@ else:
         "    }\n"
         "}\n"
     )
+    # The sign-in hand-off opens the server's own pages, so it follows the
+    # address the APK is built for (docs/self-hosting.md).
+    app_url = (os.environ.get("NEXT_PUBLIC_APP_URL") or "https://emergenthealth.vercel.app").rstrip("/")
+    content = content.replace("https://emergenthealth.vercel.app", app_url)
     with open(main_activity_java, "w") as f:
         f.write(content)
     print(f"✓ {main_activity_java}: Java BridgeActivity with Custom Tab OAuth intercept")

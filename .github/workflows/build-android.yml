@@ -194,7 +194,12 @@ jobs:
       - name: Sync Capacitor
         run: |
           mkdir -p out
-          NEXT_PUBLIC_APP_URL=https://emergenthealth.vercel.app npx cap sync android
+          NEXT_PUBLIC_APP_URL="$APP_URL" npx cap sync android
+        env:
+          # The address the app opens, fixed into the APK. The APP_URL
+          # repository variable moves it to a self-hosted server
+          # (docs/self-hosting.md); unset, it stays on Vercel.
+          APP_URL: ${{ vars.APP_URL || 'https://emergenthealth.vercel.app' }}
 
       # cap sync writes the list of plugins the app will instantiate at runtime
       # into capacitor.plugins.json — a class merely present in the dex but
@@ -214,6 +219,8 @@ jobs:
 
       - name: Patch kiwi-health Kotlin JVM target
         run: python3 .ci/patch-kiwi-health.py
+        env:
+          NEXT_PUBLIC_APP_URL: ${{ vars.APP_URL || 'https://emergenthealth.vercel.app' }}
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew

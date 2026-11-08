@@ -1,0 +1,16 @@
+# The daily jobs Vercel ran from vercel.json, on the same UTC schedule.
+# selfhost-crontab.test.ts keeps this in step with vercel.json, so a job
+# added there is not silently missing here.
+#
+# The reminder and data-sync runs stay on GitHub Actions
+# (.github/workflows/reminders-cron.yml, sync-cron.yml); point them at this
+# server with the APP_URL repository variable.
+0 10 * * * /api/cron/oura
+30 9 * * * /api/cron/strava
+0 15 * * * /api/cron/emergy-push
+0 8 * * * /api/cron/habit-reminders
+0 16 * * * /api/cron/correlation-watch
+30 10 * * * /api/cron/anomaly-watch
+20 9 * * * /api/cron/lastfm
+40 9 * * * /api/cron/rescuetime
+10 7 * * * /api/cron/weather
