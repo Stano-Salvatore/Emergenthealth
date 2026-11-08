@@ -27,7 +27,9 @@ jobs:
     steps:
       - name: Sync server-side data sources
         env:
-          APP_URL: https://emergenthealth.vercel.app
+          # The APP_URL repository variable points these at a self-hosted
+          # server (docs/self-hosting.md); unset, they call Vercel as before.
+          APP_URL: ${{ vars.APP_URL || 'https://emergenthealth.vercel.app' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_SYNC_URL }}
         run: |

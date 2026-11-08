@@ -75,7 +75,10 @@ const { DAYS, healthLogs, checkIns, moodLogs, foodLogs, waterLogs, ouraTags, str
     // record dated the same day (which is the night before)
     caffeineLogs: dates.map((ds, i) => ({ loggedAt: new Date(ds + "T15:00:00Z"), caffeineMg: isEven(i) ? 300 : 50 })),
     // The same doses at 22:30 UTC — which is 00:30 the next day in Prague
-    caffeineLogsLate: dates.map((ds, i) => ({ loggedAt: new Date(ds + "T22:30:00Z"), caffeineMg: isEven(i) ? 300 : 50 })),
+    // 23:30 UTC, not 22:30: Prague is UTC+1 in winter and UTC+2 in summer, and
+    // only 23:30 lands after local midnight in both. At 22:30 the test passed
+    // through the summer and failed from the October clock change on.
+    caffeineLogsLate: dates.map((ds, i) => ({ loggedAt: new Date(ds + "T23:30:00Z"), caffeineMg: isEven(i) ? 300 : 50 })),
     // A headache the morning after every drinking day, and nothing otherwise —
     // days with no entry have to count as severity 0 for this to be findable.
     symptomRows: dates
@@ -332,7 +335,7 @@ describe("computeCorrelations — food, hydration, supplements", () => {
     try {
       const { insights } = await computeCorrelations("user_test", 60)
       const caffeine = insights.find(i => i.id === "sleep_panel_caffeine")
-      // 22:30 UTC is 00:30 in Prague: the 300 mg dose belongs to the NEXT
+      // 23:30 UTC is 00:30 or 01:30 in Prague: the 300 mg dose belongs to the NEXT
       // local day (an early-dinner one, whose night scores 90), so the split
       // flips relative to the 15:00 fixture above. GROUP BY the UTC date
       // used to put it on the day before and read 65 here.

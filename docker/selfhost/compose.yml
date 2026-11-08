@@ -1,0 +1,53 @@
+# Emergenthealth on your own machine. docs/self-hosting.md has the steps.
+#
+#   cd docker/selfhost
+#   cp .env.example .env     # then fill it in
+#   docker compose up -d --build
+#
+# The app listens on 127.0.0.1:3000 only. The public HTTPS address comes from
+# a tunnel in front of it (Tailscale Funnel on the host, or the cloudflared
+# service below), so no port on the router needs opening.
+
+services:
+  app:
+    build:
+      context: ../..
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?set NEXT_PUBLIC_APP_URL in .env}
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
+        NEXT_PUBLIC_ENABLED_FEATURES: ${NEXT_PUBLIC_ENABLED_FEATURES:-}
+    env_file: .env
+    environment:
+      # Same address for sign-in callbacks as for everything else.
+      AUTH_URL: ${NEXT_PUBLIC_APP_URL}
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+  # The daily jobs Vercel used to run (vercel.json), on the same schedule.
+  cron:
+    # curl and busybox crond, nothing else.
+    image: curlimages/curl:8.11.1
+    user: root
+    entrypoint: ["/cron.sh"]
+    environment:
+      CRON_SECRET: ${CRON_SECRET:?set CRON_SECRET in .env}
+      TZ: UTC
+    volumes:
+      - ./cron.sh:/cron.sh:ro
+      - ./crontab:/crontab:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  # Optional: a Cloudflare Tunnel instead of Tailscale Funnel. Needs a domain
+  # on Cloudflare. Start it with: docker compose --profile cloudflare up -d
+  cloudflared:
+    image: cloudflare/cloudflared:2024.12.2
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - app
+    restart: unless-stopped
+    profiles: ["cloudflare"]

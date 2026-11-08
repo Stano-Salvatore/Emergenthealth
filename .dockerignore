@@ -1,0 +1,13 @@
+node_modules
+.next
+out
+android
+.git
+.env
+.env.*
+!.env.example
+coverage
+play-store
+design
+assets-src
+docker/selfhost/.env

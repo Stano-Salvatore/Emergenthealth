@@ -119,7 +119,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <StaleChunkRecovery />
         <DeviceWidthCapture />
         <StatusBarController />
-        <Analytics />
+        {/* Vercel's own analytics endpoint exists only on Vercel; self-hosted, it would 404 on every page. */}
+        {process.env.VERCEL ? <Analytics /> : null}
         <LegalFooter />
       </body>
     </html>

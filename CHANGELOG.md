@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.18.0 — Run it on your own server
+
+Nothing changes for the Vercel deployment. No schema change. A new APK is
+needed only once the `APP_URL` repository variable is set.
+
+Vercel paused the Hobby team on 5 November for Fluid Active CPU, until
+5 December. This lets the web app run on a home server instead, with the
+database staying on Neon. `docs/self-hosting.md` has the steps.
+
+**Added**
+- **`Dockerfile` and `docker/selfhost/compose.yml`.** The app, serving on
+  `127.0.0.1:3000` behind a Tailscale Funnel or Cloudflare Tunnel. It runs
+  `prisma db push` on start, as Vercel's build did.
+- **A `cron` container** that runs the nine daily jobs from `vercel.json` on the
+  same UTC schedule (`docker/selfhost/crontab`). `selfhost-crontab.test.ts` fails
+  when the two lists differ.
+
+**Changed**
+- **The server address is one setting.** The `APP_URL` repository variable
+  points the reminder and sync workflows, the APK's start page and its sign-in
+  hand-off at the new server. Unset, all of them stay on Vercel.
+- **Server actions accept the self-hosted origin** (`next.config.ts`).
+- **Vercel Analytics loads only on Vercel**, so a self-hosted page does not
+  request an endpoint that 404s.
+
 ## 3.17.1 — Let the database sleep
 
 **Needs a new APK.** No schema change, nothing on the server.
