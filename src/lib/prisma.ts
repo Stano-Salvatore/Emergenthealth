@@ -11,12 +11,14 @@ import { neonConfig } from "@neondatabase/serverless"
 // pointed at a small bridge that unwraps the frames; see .ci/dev-wsproxy.mjs
 // and docs/local-dev.md.
 //
-// Guarded by an env var that only ever appears in .env.local. If it were set
-// anywhere real the connection would simply fail to reach 127.0.0.1 — loudly,
-// and without touching data.
+// Guarded by an env var that appears only in .env.local and in the self-hosted
+// local-database setup (docker/selfhost/compose.localdb.yml), where the bridge
+// runs as its own container and WSPROXY_HOST names it. Set anywhere else, the
+// connection would simply fail to reach the bridge — loudly, and without
+// touching data.
 if (process.env.LOCAL_PG === "1") {
   neonConfig.wsProxy = (host: string, port: number | string) =>
-    `127.0.0.1:${process.env.WSPROXY_PORT ?? 5434}/v1?address=${host}:${port}`
+    `${process.env.WSPROXY_HOST ?? "127.0.0.1"}:${process.env.WSPROXY_PORT ?? 5434}/v1?address=${host}:${port}`
   neonConfig.useSecureWebSocket = false
   neonConfig.pipelineTLS = false
   neonConfig.pipelineConnect = false

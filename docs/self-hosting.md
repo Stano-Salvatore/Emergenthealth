@@ -115,6 +115,50 @@ the new address.
 
 Deleting the variable moves all three back to Vercel.
 
+## Optional: the database on your own machine
+
+Steps 1–5 leave the data on Neon. `compose.localdb.yml` moves it onto the
+server too: a Postgres 17 container, plus the WebSocket bridge local
+development already uses (`.ci/dev-wsproxy.mjs`), because the app's driver
+(`@prisma/adapter-neon`) only speaks Postgres inside a WebSocket. The app keeps
+that driver; `LOCAL_PG=1` and `WSPROXY_HOST` point it at the bridge.
+
+Add to `.env`:
+
+```sh
+LOCAL_DB_PASSWORD=<a long random string>
+LOCAL_DB_DIR=/path/on/a/real/linux/filesystem   # ext4 or similar, not NTFS/exFAT
+COMPOSE_FILE=compose.yml:compose.localdb.yml
+```
+
+Then copy the data across once. Stop the app first so nothing writes to Neon
+mid-copy; the Neon address is the one already in `DATABASE_URL` (use the
+non-pooler one, `DIRECT_URL`, if you have it):
+
+```sh
+docker compose up -d db                      # empty, waits until healthy
+docker compose stop app cron
+docker run --rm postgres:17 pg_dump "<neon url>" -Fc --no-owner --no-acl > neon.dump
+docker compose exec -T db pg_restore -U emergenthealth -d emergenthealth \
+  --no-owner --no-acl --exit-on-error < neon.dump
+docker compose up -d --build
+```
+
+`docker compose logs app` should then say the datasource is at `db:5432` and
+"already in sync". Keep `neon.dump`: it is your first backup.
+
+**Back it up.** Neon kept history for you; a local Postgres does not. Dump it
+every night somewhere other than the disk it lives on, for example:
+
+```sh
+docker compose exec -T db pg_dump -U emergenthealth emergenthealth | gzip > emergenthealth-$(date +%F).sql.gz
+```
+
+**Going back to Neon** is taking `compose.localdb.yml` out of `COMPOSE_FILE`
+and `docker compose up -d`. Neon then serves the data as it was on the day of
+the copy: anything written since lives only in the local database, so restore
+a fresh dump into Neon first.
+
 ## Updating
 
 ```sh

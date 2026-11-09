@@ -11,3 +11,4 @@ play-store
 design
 assets-src
 docker/selfhost/.env
+docker/selfhost/pgdata

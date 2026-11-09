@@ -10,12 +10,16 @@
 //
 //   node .ci/dev-wsproxy.mjs
 //
-// See docs/local-dev.md. Nothing here runs outside local development.
+// See docs/local-dev.md. The self-hosted local database
+// (docker/selfhost/compose.localdb.yml) runs the same bridge as a container,
+// with WSPROXY_BIND=0.0.0.0 so the app container can reach it; it is still not
+// published outside the compose network.
 import { WebSocketServer } from "ws"
 import net from "node:net"
 
 const PORT = Number(process.env.WSPROXY_PORT ?? 5434)
-const wss = new WebSocketServer({ port: PORT, host: "127.0.0.1" })
+const BIND = process.env.WSPROXY_BIND ?? "127.0.0.1"
+const wss = new WebSocketServer({ port: PORT, host: BIND })
 
 wss.on("connection", (ws, req) => {
   // The driver names its target in the query string; honouring it rather than
@@ -40,4 +44,4 @@ wss.on("connection", (ws, req) => {
   ws.on("close", () => tcp.destroy())
 })
 
-console.log(`ws->tcp proxy on ws://127.0.0.1:${PORT}`)
+console.log(`ws->tcp proxy on ws://${BIND}:${PORT}`)
