@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.19.0 — The database at home too
+
+Nothing changes for the Vercel deployment or for a self-hosted server that
+stays on Neon. No schema change. No new APK.
+
+**Added**
+- **`docker/selfhost/compose.localdb.yml`.** An optional overlay that runs the
+  database on the server as well: Postgres 17 plus the WebSocket bridge local
+  development already uses, as a container. `docs/self-hosting.md` has the
+  one-time copy from Neon and the way back.
+
+**Changed**
+- **`WSPROXY_HOST` names the bridge** (`src/lib/prisma.ts`), so it can run in
+  its own container; unset, it is `127.0.0.1` as before.
+- **`.ci/dev-wsproxy.mjs` binds where `WSPROXY_BIND` says**, `127.0.0.1` by
+  default.
+
 ## 3.18.0 — Run it on your own server
 
 Nothing changes for the Vercel deployment. No schema change. A new APK is

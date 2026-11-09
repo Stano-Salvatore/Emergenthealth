@@ -64,3 +64,5 @@ google-services.json
 docker/ac-bridge/.env
 .ci-cache/
 .ci/render-shots/
+# the local database (docker/selfhost/compose.localdb.yml)
+docker/selfhost/pgdata/

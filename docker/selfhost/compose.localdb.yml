@@ -1,0 +1,59 @@
+# The database on this machine instead of Neon. Optional, on top of compose.yml;
+# docs/self-hosting.md ("Database on your own machine") has the steps, the
+# one-time copy from Neon among them.
+#
+#   COMPOSE_FILE=compose.yml:compose.localdb.yml   (in .env, so every
+#   `docker compose` command picks it up)
+#
+# The app keeps its real driver. @prisma/adapter-neon speaks the Postgres
+# protocol inside a WebSocket, so a plain Postgres needs the same ws -> tcp
+# bridge local development uses (.ci/dev-wsproxy.mjs), here as a container.
+# Neither Postgres nor the bridge is published on the host: only the app and
+# `docker compose exec` reach them.
+
+services:
+  app:
+    # Named, so the bridge below runs from the same image instead of a second build.
+    image: emergenthealth-selfhost:latest
+    environment:
+      # Overrides the Neon address in .env; removing this file from
+      # COMPOSE_FILE points the app back at Neon.
+      DATABASE_URL: postgresql://emergenthealth:${LOCAL_DB_PASSWORD:?set LOCAL_DB_PASSWORD in .env}@db:5432/emergenthealth
+      DIRECT_URL: postgresql://emergenthealth:${LOCAL_DB_PASSWORD}@db:5432/emergenthealth
+      LOCAL_PG: "1"
+      WSPROXY_HOST: wsproxy
+      WSPROXY_PORT: "5434"
+    depends_on:
+      db:
+        condition: service_healthy
+      wsproxy:
+        condition: service_started
+
+  db:
+    # The major version Neon runs. A dump restores into the same or a newer one.
+    image: postgres:17
+    environment:
+      POSTGRES_DB: emergenthealth
+      POSTGRES_USER: emergenthealth
+      POSTGRES_PASSWORD: ${LOCAL_DB_PASSWORD}
+    volumes:
+      # A real Unix filesystem: Postgres refuses (or corrupts) on NTFS/exFAT.
+      - ${LOCAL_DB_DIR:-./pgdata}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U emergenthealth -d emergenthealth"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  wsproxy:
+    image: emergenthealth-selfhost:latest
+    pull_policy: never
+    command: ["node", ".ci/dev-wsproxy.mjs"]
+    # The image's health check probes the web server, which this container does not run.
+    healthcheck:
+      disable: true
+    environment:
+      WSPROXY_BIND: 0.0.0.0
+      WSPROXY_PORT: "5434"
+    restart: unless-stopped
